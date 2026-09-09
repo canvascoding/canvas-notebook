@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto';
 
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
-test('mobile block menu retains its anchor after toolbar focus is lost', async ({ page }, info) => {
+for (const block of ['paragraph', 'code'] as const) {
+test(`mobile ${block} moves retain the menu anchor and remain editable after undo`, async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
   test.setTimeout(60_000);
   expect((await page.request.post('/api/auth/sign-in/email', {
@@ -16,7 +17,9 @@ test('mobile block menu retains its anchor after toolbar focus is lost', async (
   const filePath = `editor-mobile-moves-${randomUUID()}.md`;
   await page.addInitScript(id => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
   expect((await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
-    name: filePath, mimeType: 'text/markdown', buffer: Buffer.from('Alpha\n\nBravo\n\nCharlie'),
+    name: filePath, mimeType: 'text/markdown', buffer: Buffer.from(
+      block === 'code' ? 'Alpha\n\n```text\nBravo\n```\n\nCharlie' : 'Alpha\n\nBravo\n\nCharlie',
+    ),
   } } })).ok()).toBe(true);
   try {
     await page.goto(`/notebook?path=${filePath}`);
@@ -30,9 +33,9 @@ test('mobile block menu retains its anchor after toolbar focus is lost', async (
       await page.getByText('Preferences', { exact: true }).click();
       await page.getByRole('button', { name: 'Hide', exact: true }).click();
     }
-    const order = () => editor.locator(':scope > [data-id]').evaluateAll(elements => elements.map(element => ({
-      id: element.getAttribute('data-id'), text: element.textContent,
-    })));
+    const order = () => editor.evaluate(element => (element as HTMLElement & {
+      editor: { getJSON(): { content: unknown[] } };
+    }).editor.getJSON().content);
     const initial = await order();
     await editor.getByText('Bravo', { exact: true }).tap();
     // Model the reduced content area, not an operating-system IME.
@@ -53,9 +56,19 @@ test('mobile block menu retains its anchor after toolbar focus is lost', async (
     await page.waitForTimeout(1_200);
     await page.getByRole('menuitem', { name: /^Move block down/ }).tap();
     await expect.poll(order).toEqual([initial[0], initial[2], initial[1]]);
+    if (block === 'code') {
+      await editor.locator('pre').tap();
+      await page.keyboard.press('End');
+      await page.keyboard.press('Enter');
+      await page.keyboard.insertText('Delta');
+      await expect(editor.locator('pre')).toHaveText('Bravo\nDelta');
+      await page.keyboard.press('Backspace');
+      await expect(editor.locator('pre')).toHaveText('Bravo\nDelt');
+    }
     await expect(page.getByTestId('markdown-save-state')).toContainText('File checkpoint current');
   } finally {
     await page.close();
     await page.request.delete('/api/files/delete', { headers, data: { path: filePath } });
   }
 });
+}

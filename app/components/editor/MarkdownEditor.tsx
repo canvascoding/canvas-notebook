@@ -33,6 +33,7 @@ import { CanvasTaskItem as TaskItem } from '@/app/lib/markdown/core/lists-and-ta
 import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
 import { CanvasUniqueID as UniqueID } from '@/app/lib/editor/canvas-unique-id';
 import { CanvasCodeBlock as CodeBlock, CanvasHorizontalRule } from '@/app/lib/markdown/core/base-blocks';
+import { withStableNodeViewMount } from '@/app/lib/editor/stable-node-view';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
@@ -1640,7 +1641,7 @@ function MarkdownImageNodeView(props: NodeViewProps & { filePath?: string }) {
 function createMarkdownImageExtension(filePath?: string) {
   return Image.extend({
     addNodeView() {
-      return ReactNodeViewRenderer((props) => <MarkdownImageNodeView {...props} filePath={filePath} />);
+      return withStableNodeViewMount(ReactNodeViewRenderer((props) => <MarkdownImageNodeView {...props} filePath={filePath} />));
     },
   });
 }
@@ -1691,7 +1692,7 @@ function MermaidCodeBlockNodeView({ node }: NodeViewProps) {
 
 const CodeBlockWithMermaid = CodeBlock.extend({
   addNodeView() {
-    return ReactNodeViewRenderer(MermaidCodeBlockNodeView);
+    return withStableNodeViewMount(ReactNodeViewRenderer(MermaidCodeBlockNodeView));
   },
 });
 
