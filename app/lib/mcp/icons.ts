@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
-import { assertMcpHttpUrlAllowed } from '@/app/lib/mcp/network-policy';
+import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import {
   readMcpBufferFileIfExists,
   readMcpTextFileIfExists,
@@ -118,18 +118,11 @@ async function writeIconCache(cache: McpIconCacheFile, scope?: McpScope | null):
 }
 
 async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
-  const validatedUrl = await assertMcpHttpUrlAllowed(url, 'MCP icon URL');
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(validatedUrl, {
-      ...init,
-      redirect: 'follow',
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeout);
-  }
+  return fetchMcpHttp(url, init, {
+    purpose: 'MCP icon URL',
+    timeoutMs: FETCH_TIMEOUT_MS,
+    maxBytes: MAX_ICON_BYTES,
+  });
 }
 
 function normalizeContentType(response: Response): string | null {
@@ -337,6 +330,10 @@ export async function getMcpServerIconMetadata(serverName: string, scope?: McpSc
   }
 
   return metadata || null;
+}
+
+export async function readCachedMcpServerIcons(scope?: McpScope | null): Promise<Record<string, McpServerIconMetadata>> {
+  return (await readIconCache(scope)).servers;
 }
 
 export async function refreshMcpServerIcons(scope?: McpScope | null): Promise<Record<string, McpServerIconMetadata | null>> {

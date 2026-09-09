@@ -1,7 +1,9 @@
 import 'server-only';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
+import type { DirectMcpAccessPrincipal } from '@/app/lib/mcp/server/access-token-verifier';
+import { recordDirectMcpConnectionUsage, type DirectMcpUsagePrincipal } from '@/app/lib/mcp/server/connection-usage';
 
 import {
   recordDirectMcpRequestHistory,
@@ -34,7 +36,27 @@ export type DirectMcpDiagnosticContext = {
   toolName?: string;
   historyCode?: string;
   historyRecorded?: boolean;
+  verifiedPrincipal?: DirectMcpUsagePrincipal;
 };
+
+export function recordDirectMcpRequestPrincipal(principal: DirectMcpAccessPrincipal, token: string): void {
+  const context = directMcpDiagnosticStorage.getStore();
+  if (!context || context.phase !== 'mcp.http') return;
+  context.verifiedPrincipal = {
+    userId: principal.userId, clientId: principal.clientId, sessionId: principal.sessionId,
+    issuedAt: principal.issuedAt, expiresAt: principal.expiresAt,
+    scopes: principal.scopes,
+    tokenHash: createHash('sha256').update(token).digest('base64url'),
+  };
+}
+
+export async function recordDirectMcpSuccessfulOperation(): Promise<void> {
+  const context = directMcpDiagnosticStorage.getStore();
+  if (!context?.verifiedPrincipal || context.phase !== 'mcp.http' || !context.operation || context.historyCode === 'MCP_TOOL_ERROR') return;
+  await recordDirectMcpConnectionUsage(context.verifiedPrincipal).catch(() => {
+    console.warn('[direct-mcp] MCP_CONNECTION_USAGE_WRITE_FAILED');
+  });
+}
 
 type DirectMcpDiagnosticOutcome = 'started' | 'succeeded' | 'failed';
 

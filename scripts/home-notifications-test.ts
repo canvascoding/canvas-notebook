@@ -15,14 +15,15 @@ async function main() {
     ...item('memory', { kind: 'memory', scope: 'workspace', entryId: 'entry1', collectionId: 'collection1', workspaceId: 'workspace-a' }),
     type: 'memory.approval_required' as const,
   };
+  const mcp = { ...item('mcp:incident-1', { kind: 'mcp', connectionId: 'connection & 1' }), type: 'mcp.connection_attention' as const };
   const summary = {
-    items: [chat, todo, email, studio, automation, memory],
-    sections: { notifications: [chat, studio, automation, memory], todoAttention: [todo], emailAttention: [email] },
+    items: [chat, todo, email, studio, automation, memory, mcp],
+    sections: { notifications: [chat, studio, automation, memory, mcp], todoAttention: [todo], emailAttention: [email] },
   } as NotificationSummary;
   const entries = homeNotificationItems(summary);
-  assert.equal(entries.length, 6, 'the same event appearing in multiple summary sections must be shown once');
+  assert.equal(entries.length, 7, 'the same event appearing in multiple summary sections must be shown once');
   assert.equal(entries[0].priority, 'high');
-  assert.deepEqual(new Set(entries.map((entry) => entry.target.kind)), new Set(['chat', 'todo', 'email', 'studio', 'automation', 'memory']));
+  assert.deepEqual(new Set(entries.map((entry) => entry.target.kind)), new Set(['chat', 'todo', 'email', 'studio', 'automation', 'memory', 'mcp']));
   assert.deepEqual(homeNotificationItems(null), []);
   const chatLink = new URL(notificationHref(chat), 'http://localhost');
   assert.equal(chatLink.searchParams.get('session'), 'session & 1');
@@ -34,6 +35,11 @@ async function main() {
   assert.equal(memoryLink.searchParams.get('status'), 'pending');
   assert.equal(memoryLink.searchParams.get('collectionId'), 'collection1');
   assert.equal(memoryLink.searchParams.get('entryId'), 'entry1');
+  const mcpLink = new URL(notificationHref(mcp), 'http://localhost');
+  assert.equal(mcpLink.pathname, '/settings');
+  assert.equal(mcpLink.searchParams.get('tab'), 'mcp');
+  assert.equal(mcpLink.searchParams.get('section'), 'mcpConfig');
+  assert.equal(mcpLink.searchParams.get('connection'), 'connection & 1');
   const originalFetch = globalThis.fetch;
   const events: string[] = [];
   Object.defineProperty(globalThis, 'window', { value: { dispatchEvent: (event: Event) => events.push(event.type) }, configurable: true });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
+import { McpAccessError, mcpErrorStatus, requireMcpUserAccess } from '@/app/lib/mcp/access';
 import {
   McpConfigValidationError,
   readMcpConfigState,
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   if (session instanceof NextResponse) return session;
 
   try {
-    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can manage MCP server configuration.');
+    await requireMcpUserAccess({ userId: session.user.id });
     const limited = rateLimit(request, {
       limit: 60,
       windowMs: 60_000,
@@ -39,6 +39,9 @@ export async function GET(request: NextRequest) {
     const state = await readMcpConfigState({ userId: session.user.id });
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
+    if (error instanceof McpAccessError) {
+      return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
+    }
     console.error('[API] integrations/mcp-config GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to read MCP config file';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
@@ -50,7 +53,8 @@ export async function PUT(request: NextRequest) {
   if (session instanceof NextResponse) return session;
 
   try {
-    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can manage MCP server configuration.');
+    const actor = await requireMcpUserAccess({ userId: session.user.id });
+    if (!actor?.canManageDefinitions) throw new McpAccessError('Only organization admins can manage MCP server configuration.');
     const limited = rateLimit(request, {
       limit: 30,
       windowMs: 60_000,
@@ -64,6 +68,9 @@ export async function PUT(request: NextRequest) {
     const state = await writeMcpConfigRaw(payload.rawContent ?? '', { userId: session.user.id });
     return NextResponse.json({ success: true, data: state });
   } catch (error) {
+    if (error instanceof McpAccessError) {
+      return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
+    }
     if (error instanceof McpConfigValidationError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }

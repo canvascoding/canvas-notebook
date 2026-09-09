@@ -14,6 +14,7 @@ import {
   markMemoryApprovalAttentionRead,
 } from '@/app/lib/memory/approval-attention';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { markMcpConnectionAttentionRead } from '@/app/lib/mcp/connection-attention';
 
 type PatchPayload = {
   action?: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -96,7 +97,7 @@ export async function PATCH(request: NextRequest) {
     const scope = await loadMobileInboxScope(session.user);
 
     if (payload.action === 'mark_all_read') {
-      const [inbox, memoryApprovals] = await Promise.all([
+      const [inbox, memoryApprovals, mcpConnections] = await Promise.all([
         markMobileAggregateInboxRead({
           userId: session.user.id,
           workspaces: scope.includedWorkspaces,
@@ -106,8 +107,15 @@ export async function PATCH(request: NextRequest) {
           userId: session.user.id,
           workspaces: scope.includedWorkspaces,
         }),
+        markMcpConnectionAttentionRead({ userId: session.user.id }),
       ]);
-      const data = { inbox, memoryApprovals };
+      const data = { inbox, memoryApprovals, mcpConnections };
+      return NextResponse.json({ success: true, data });
+    }
+
+    if (payload.action === 'mark_item_read' && payload.itemId?.startsWith('mcp:')) {
+      const data = await markMcpConnectionAttentionRead({ userId: session.user.id, itemId: payload.itemId });
+      if (!data.found) return NextResponse.json({ success: false, error: 'Connection notification not found.' }, { status: 404 });
       return NextResponse.json({ success: true, data });
     }
 

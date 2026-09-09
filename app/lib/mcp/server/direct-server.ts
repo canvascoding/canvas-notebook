@@ -21,6 +21,7 @@ import {
 import {
   recordDirectMcpRequestOperation,
   recordDirectMcpToolFailure,
+  recordDirectMcpSuccessfulOperation,
 } from '@/app/lib/mcp/server/diagnostics';
 import {
   getDirectMcpWorkspaceToolDefinitions,
@@ -76,6 +77,7 @@ export function createDirectMcpServer(
 
   server.setRequestHandler('tools/list', async () => {
     recordDirectMcpRequestOperation('tools/list');
+    await recordDirectMcpSuccessfulOperation();
     return { tools: tools.map((tool) => tool.descriptor) };
   });
 
@@ -97,6 +99,7 @@ export function createDirectMcpServer(
     try {
       const result = await tool.execute(request.params.arguments, context.http?.authInfo);
       if (result.isError) recordDirectMcpToolFailure();
+      else await recordDirectMcpSuccessfulOperation();
       return result;
     } catch (error) {
       recordDirectMcpToolFailure();

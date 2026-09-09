@@ -1412,6 +1412,18 @@
     "toolStatusAborting": "Stopping",
     "toolStatusError": "Error",
     "toolStatusDone": "Done",
+    "mcpApp": {
+      "loading": "Loading interactive MCP app…",
+      "unavailable": "This interactive MCP app is unavailable.",
+      "reload": "Reload widget",
+      "requestApproval": "Allow {tool} to run?",
+      "allow": "Allow",
+      "reject": "Reject",
+      "callFailed": "The MCP app tool call failed.",
+      "reconnect": "Reconnect this MCP account to continue.",
+      "disabled": "MCP apps are disabled.",
+      "oversized": "This MCP app message is too large."
+    },
     "toolBatchSummary": "{label} · {count, plural, one {# tool call} other {# tool calls}}",
     "toolBatchProgress": "{completed}/{total} done",
     "toolBatchErrors": "{count, plural, one {# error} other {# errors}}",
@@ -2786,7 +2798,8 @@
       "todo": "To-do needs attention",
       "studio": "Studio result ready",
       "automation": "Automation needs attention",
-      "memory": "Memory approval required"
+      "memory": "Memory approval required",
+      "mcp": "MCP connection needs attention"
     },
     "empty": {
       "title": "All read",
@@ -4321,13 +4334,43 @@
         "refresh": "Refresh",
         "loading": "Loading connected clients…",
         "empty": "You have not authorized any MCP clients yet.",
-        "authorizedAt": "Authorized {time}",
+        "consentRecordedAt": "Consent recorded {time}",
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect {client}? This immediately removes its access to your Canvas data.",
         "disconnected": "MCP client disconnected.",
         "approvedPermissions": "Approved permissions",
         "resourceUnavailable": "The server's OAuth resource is missing or disabled. Ask the administrator to check the server configuration.",
-        "tokenNotVerified": "This shows stored approval and server policy, not the token currently used by the client. After a permissions update, reconnect the client to obtain a new token.",
+        "copyServerAddress": "Copy server address",
+        "usableGrantCount": "{count, plural, one {# verified authorization grant} other {# verified authorization grants}}",
+        "lastSuccessfulRequestAt": "Last successful request {time}",
+        "sessionExpiresAt": "Current client session expires {time}",
+        "refreshExpiresAt": "Refresh authorization expires {time}",
+        "authorizationStatus": {
+          "usable": {
+            "title": "Ready to use",
+            "description": "Canvas has verified an active authorization and current access to at least one selected workspace."
+          },
+          "expired": {
+            "title": "Authorization expired",
+            "description": "Reconnect this client in your MCP client to continue."
+          },
+          "revoked": {
+            "title": "Authorization revoked",
+            "description": "Reconnect this client in your MCP client to grant access again."
+          },
+          "access_denied": {
+            "title": "Access currently denied",
+            "description": "Canvas cannot use this client's authorization with the current access rules."
+          },
+          "authorization_required": {
+            "title": "Authorization required",
+            "description": "Canvas has recorded consent, but cannot verify a usable authorization. Reconnect this client in your MCP client."
+          },
+          "unknown": {
+            "title": "Authorization status unavailable",
+            "description": "Canvas cannot verify whether this client can currently access your data."
+          }
+        },
         "permissionsComplete": "Approval and server policy cover all currently enabled tools.",
         "permissionsMissing": {
           "title": "Additional OAuth permission required",
@@ -4492,6 +4535,27 @@
       "canvasServer": "MCP Server",
       "externalServers": "External MCP Servers"
     },
+    "mcpDefinitions": {
+      "title": "Approved MCP connections",
+      "description": "Add an approved server to your account. Your connection and authorization stay private.",
+      "loading": "Loading approved connections...",
+      "refresh": "Refresh",
+      "empty": "No approved MCP connections are available yet.",
+      "enabled": "Available",
+      "disabled": "Disabled",
+      "enable": "Enable",
+      "disable": "Disable",
+      "addConnection": "Add to my account",
+      "connectTitle": "Add {definition}",
+      "connectDescription": "Use a distinct label to tell multiple accounts apart.",
+      "accountLabel": "Account label",
+      "cancel": "Cancel",
+      "errors": {
+        "load": "Failed to load approved MCP connections.",
+        "connect": "Failed to add the MCP connection.",
+        "update": "Failed to update the approved MCP connection."
+      }
+    },
     "mcpConfig": {
       "title": "External MCP servers",
       "description": "Connect Canvas as a client to external MCP servers.",
@@ -4509,7 +4573,17 @@
       "refreshStatus": "Refresh status",
       "noServers": "No MCP servers configured.",
       "addServer": "Add server",
+      "publishDefinition": "Publish for members",
+      "definitionPublished": "{server} is available to members.",
       "editServer": "Edit server",
+      "renameConnection": "Rename",
+      "removeConnection": "Remove",
+      "saveConnectionName": "Save",
+      "renameConnectionDescription": "Choose a distinct label for this account.",
+      "removeConnectionDescription": "Remove {name} from your connected accounts?",
+      "connectionName": "Account label",
+      "connectionRenamed": "Connection renamed.",
+      "connectionRemoved": "Connection removed.",
       "cancel": "Cancel",
       "deleteServer": "Delete server",
       "backToServers": "Back to servers",
@@ -4543,6 +4617,23 @@
       "enabled": "Enabled",
       "disabled": "Disabled",
       "connected": "Connected",
+      "health": {
+        "notChecked": "Connection health has not been checked yet.",
+        "never": "Never",
+        "lastChecked": "Last checked: {value}",
+        "lastSuccessfulRequest": "Last successful request: {value}",
+        "auth": {
+          "not_authorized": "Authorization needed",
+          "authorized": "Authorized",
+          "refreshing": "Refreshing authorization",
+          "reauth_required": "Reconnect required"
+        },
+        "reachability": {
+          "unknown": "Reachability unknown",
+          "reachable": "Reachable",
+          "unreachable": "Unreachable"
+        }
+      },
       "disconnected": "Disconnected",
       "enable": "Enable",
       "disable": "Disable",
@@ -4580,8 +4671,11 @@
         "status": "Failed to load MCP status.",
         "action": "Failed to update MCP server.",
         "tools": "Failed to load cached MCP tools.",
+        "publish": "Failed to publish the shared MCP definition.",
+        "connection": "Failed to update the MCP connection.",
         "popupBlocked": "The OAuth window was blocked by the browser. Allow popups for this app and try again."
-      }
+      },
+      "accessDenied": "This account is unavailable under the current server approval or membership. Choose an approved server or contact your administrator."
     },
     "connectedApps": {
       "title": "Connected Apps",

@@ -90,6 +90,11 @@ type DirectMcpConnection = {
   scopes: string[];
   effectiveScopes: string[];
   resourcePolicyStatus: 'active' | 'disabled' | 'missing';
+  authorizationStatus: 'usable' | 'expired' | 'revoked' | 'access_denied' | 'authorization_required' | 'unknown';
+  usableGrantCount: number;
+  sessionExpiresAt: string | null;
+  refreshExpiresAt: string | null;
+  lastSuccessfulRequestAt: string | null;
   connectedAt: string | null;
   updatedAt: string | null;
   allowedWorkspaceCount: number;
@@ -698,7 +703,11 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           ) : connections?.length ? (
             <div className="divide-y overflow-hidden rounded-lg border">
               {connections.map((connection) => {
-                const authorizedAt = connection.updatedAt || connection.connectedAt;
+                const consentRecordedAt = connection.updatedAt || connection.connectedAt;
+                const authorizationStatus = connection.authorizationStatus ?? 'unknown';
+                const needsReconnect = authorizationStatus === 'expired'
+                  || authorizationStatus === 'revoked'
+                  || authorizationStatus === 'authorization_required';
                 const missingScopes = status
                   ? missingScopesForEnabledCapabilities({
                     grantedScopes: connection.effectiveScopes ?? [],
@@ -741,16 +750,70 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                             {t('connections.permissionsComplete')}
                           </p>
                         ) : null}
-                        <p className="mt-2 text-xs text-muted-foreground">{t('connections.tokenNotVerified')}</p>
+                        <div
+                          className={cn(
+                            'mt-3 rounded-md border px-3 py-2 text-xs',
+                            authorizationStatus === 'usable'
+                              ? 'border-primary/25 bg-primary/5 text-primary'
+                              : authorizationStatus === 'unknown'
+                                ? 'border-muted-foreground/20 bg-muted/30 text-muted-foreground'
+                                : 'border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100',
+                          )}
+                          role={authorizationStatus === 'usable' ? undefined : 'status'}
+                        >
+                          <p className="flex items-center gap-2 font-medium">
+                            {authorizationStatus === 'usable' ? (
+                              <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                            ) : (
+                              <TriangleAlert className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            {t(`connections.authorizationStatus.${authorizationStatus}.title`)}
+                          </p>
+                          <p className="mt-1 leading-5">
+                            {t(`connections.authorizationStatus.${authorizationStatus}.description`)}
+                          </p>
+                          {authorizationStatus === 'usable' ? (
+                            <p className="mt-1 leading-5">
+                              {t('connections.usableGrantCount', { count: connection.usableGrantCount })}
+                            </p>
+                          ) : null}
+                          {needsReconnect && status?.endpoint ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              className="mt-2 bg-background text-foreground"
+                              onClick={() => void copyText('endpoint', status.endpoint!)}
+                            >
+                              {copied === 'endpoint' ? <Check /> : <Copy />}
+                              {copied === 'endpoint' ? t('copied') : t('connections.copyServerAddress')}
+                            </Button>
+                          ) : null}
+                        </div>
                         <p className="mt-2 text-xs text-muted-foreground">
                           {t('connections.workspaceAccess.selectedCount', { count: connection.allowedWorkspaceCount })}
                         </p>
                         {connection.allowedWorkspaceCount === 0 ? (
                           <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">{t('connections.workspaceAccess.noneSelected')}</p>
                         ) : null}
-                        {authorizedAt ? (
+                        {consentRecordedAt ? (
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {t('connections.authorizedAt', { time: formatRequestTime(authorizedAt) })}
+                            {t('connections.consentRecordedAt', { time: formatRequestTime(consentRecordedAt) })}
+                          </p>
+                        ) : null}
+                        {connection.lastSuccessfulRequestAt ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('connections.lastSuccessfulRequestAt', { time: formatRequestTime(connection.lastSuccessfulRequestAt) })}
+                          </p>
+                        ) : null}
+                        {connection.sessionExpiresAt ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('connections.sessionExpiresAt', { time: formatRequestTime(connection.sessionExpiresAt) })}
+                          </p>
+                        ) : null}
+                        {connection.refreshExpiresAt ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('connections.refreshExpiresAt', { time: formatRequestTime(connection.refreshExpiresAt) })}
                           </p>
                         ) : null}
                       </div>

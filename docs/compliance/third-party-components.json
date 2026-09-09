@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.8.1",
-  "lockfileSha256": "5c7cbc9cbbcfec1344645f04d55ea3e3976ce5d448d841dd9963ef3e1c1ea3c6",
+  "lockfileSha256": "f0ce86f337bffe45b2708eedb0f86e76abc361438168e5acd43bc67df6cb6e4f",
   "summary": {
-    "totalComponents": 1992,
-    "npmComponents": 1968,
+    "totalComponents": 1993,
+    "npmComponents": 1969,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1448,
+    "runtimeComponents": 1449,
     "developmentOnlyComponents": 544,
-    "allowed": 1942,
+    "allowed": 1943,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -15740,6 +15740,31 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/@modelcontextprotocol/core/LICENSE",
+      "licenseTextSha256": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.",
+        "submitted to the Licensor for inclusion in the Work by the copyright",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@modelcontextprotocol/ext-apps",
+      "versionOrCommit": "2.0.0",
+      "sourceUrl": "https://github.com/modelcontextprotocol/ext-apps",
+      "packagePathOrArtifact": "node_modules/@modelcontextprotocol/ext-apps",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@modelcontextprotocol/ext-apps/LICENSE",
       "licenseTextSha256": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",

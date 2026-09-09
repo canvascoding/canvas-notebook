@@ -1,10 +1,26 @@
 import crypto from 'crypto';
+import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
+import { resolveMcpCredentialScope } from './credential-storage';
+import { fetchMcpHttp } from '@/app/lib/mcp/http';
+import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
+import { classifyMcpConnectionFailure, recordMcpConnectionObservation, type McpConnectionObservation } from '@/app/lib/mcp/connection-health';
+import { readMcpOAuthLifecycle } from '@/app/lib/mcp/oauth-lifecycle';
+import { readMcpConnectionStatus } from '@/app/lib/mcp/connection-status';
+import {
+  MCP_APP_RESOURCE_MIME_TYPE,
+  isMcpAppResourceMimeType,
+  isMcpAppToolVisibleToApp,
+  isMcpAppToolVisibleToModel,
+  readMcpAppToolMetadata,
+} from '@/app/lib/mcp/apps-metadata';
+import { isMcpAppsEnabled } from '@/app/lib/mcp/apps-config';
 
 import {
   Client,
   InsufficientScopeError,
   StreamableHTTPClientTransport,
   type CallToolResult,
+  type ReadResourceResult,
   type Tool,
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -40,7 +56,12 @@ type ManagedConnection = {
   configHash: string;
   transport: TransportType;
   config: McpServerConfig;
+  authGeneration?: number;
+  authorizationState?: string;
+  abortController: AbortController;
+  closed?: boolean;
   client?: Client;
+  connectingClient?: Client;
   connecting?: Promise<Client>;
   activeCalls: number;
   lastUsedAt: number;
@@ -285,6 +306,13 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   const client = new Client(
     { name: 'canvas-notebook-mcp-proxy', version: '1.0.0' },
     {
+      capabilities: isMcpAppsEnabled() ? {
+        extensions: {
+          'io.modelcontextprotocol/ui': {
+            mimeTypes: [MCP_APP_RESOURCE_MIME_TYPE],
+          },
+        },
+      } as never : undefined,
       versionNegotiation: {
         mode: 'auto',
         probe: {
@@ -293,6 +321,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
       },
     },
   );
+  entry.connectingClient = client;
 
   if (entry.transport === 'stdio') {
     if (process.env.MCP_ALLOW_STDIO !== 'true') {
@@ -340,25 +369,19 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
     const validatedUrl = await assertMcpHttpUrlAllowed(url, `MCP server "${entry.serverName}" URL`);
     logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url, timeoutMs });
-    const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash, entry.scope);
-    const headers = await resolveHttpHeaders(entry.config, accessToken, entry.scope);
     try {
       await withTimeout(client.connect(new StreamableHTTPClientTransport(validatedUrl, {
-        ...(headers ? {
-          requestInit: {
-            headers,
-          },
-        } : {}),
+        fetch: (input, init) => fetchManagedMcpRequest(entry, input, init),
         onInsufficientScope: 'throw',
       })), timeoutMs, signal);
     } catch (error) {
+      entry.abortController.abort(error);
       await client.close().catch(() => undefined);
       throw error;
     }
     logMcp('info', 'Connected HTTP server', {
       server: entry.serverName,
       url,
-      authenticated: Boolean(accessToken),
       protocolVersion: client.getNegotiatedProtocolVersion(),
     });
     return client;
@@ -367,17 +390,83 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   throw new Error(`MCP server "${entry.serverName}" must define a stdio command or unauthenticated HTTP url.`);
 }
 
+async function readCurrentMcpConnection(entry: ManagedConnection): Promise<McpServerConfig> {
+  entry.abortController.signal.throwIfAborted();
+  const { connection: current } = await assertMcpConnectionAccess(entry.config.connectionId || entry.serverName, entry.scope);
+  if (!current || !isMcpServerEnabled(current) || hashMcpAuthConfig(current) !== hashMcpAuthConfig(entry.config)
+    || current.authVersion !== entry.config.authVersion) {
+    throw new Error('MCP connection was removed, disabled or changed. Reconnect before continuing.');
+  }
+  if (current.connectionId && entry.scope?.userId) {
+    const lifecycle = await readMcpOAuthLifecycle(current.connectionId, resolveMcpCredentialScope({ ...current, connectionId: current.connectionId }, entry.scope));
+    if (lifecycle.generation !== entry.authGeneration || lifecycle.lastCompletedState !== entry.authorizationState) {
+      throw Object.assign(new Error('MCP authorization changed. Reconnect the client and retry explicitly.'), { code: 'mcp_connection_changed', status: 409 });
+    }
+  }
+  return current;
+}
+
+async function observeManagedConnection(entry: ManagedConnection, observation: McpConnectionObservation): Promise<void> {
+  await recordMcpConnectionObservation(entry.config, entry.scope, observation, { generation: entry.authGeneration })
+    .catch(() => logMcp('warn', 'Could not persist connection status', { server: entry.serverName }));
+}
+
+async function observeManagedFailure(entry: ManagedConnection, error: unknown): Promise<void> {
+  let code = classifyMcpConnectionFailure(error);
+  if (code === 'reauth_required' && entry.config.auth !== 'oauth' && !entry.config.oauth) code = 'configuration_error';
+  if (code) await observeManagedConnection(entry, { kind: 'failure', code });
+}
+
+async function fetchManagedMcpRequest(entry: ManagedConnection, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const current = await readCurrentMcpConnection(entry);
+  const identity = current.connectionId || entry.serverName;
+  const expectedAuthorizationState = entry.scope?.userId ? entry.authorizationState ?? null : undefined;
+  const token = await getValidMcpAccessToken(identity, current, entry.configHash, entry.scope, { expectedAuthorizationState });
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+  const authenticatedHeaders = await resolveHttpHeaders(current, token, entry.scope);
+  for (const [name, value] of Object.entries(authenticatedHeaders || {})) headers.set(name, value);
+  // Token refresh and secret loading may yield to a concurrent config change.
+  await readCurrentMcpConnection(entry);
+  entry.abortController.signal.throwIfAborted();
+  const response = await fetchMcpHttp(input, {
+    ...init, headers,
+    signal: AbortSignal.any([
+      entry.abortController.signal,
+      ...(init?.signal ? [init.signal] : input instanceof Request ? [input.signal] : []),
+    ]),
+  }, { timeoutMs: getTimeoutMs(current) });
+  if (response.status === 401 && token) {
+    await response.body?.cancel();
+    // Refresh is safe to perform here; the rejected operation is never replayed.
+    await getValidMcpAccessToken(identity, current, entry.configHash, entry.scope, { forceRefresh: true, rejectedAccessToken: token, expectedAuthorizationState });
+    const error = new Error('MCP authorization was renewed. The previous operation was not replayed; reconnect and retry it explicitly.');
+    Object.assign(error, { code: 'mcp_auth_renewed', status: 409 });
+    throw error;
+  }
+  if (response.status === 401 || response.status === 429 || response.status >= 500) {
+    await observeManagedFailure(entry, { status: response.status });
+  }
+  return response;
+}
+
 async function getManagedConnection(serverName: string, signal?: AbortSignal, scope?: McpScope | null): Promise<ManagedConnection> {
+  const selected = await assertMcpConnectionAccess(serverName, scope);
+  serverName = selected.serverName;
   const normalizedScope = normalizeMcpScope(scope);
-  const config = await readMcpConfig(normalizedScope);
-  const serverConfig = config.mcpServers[serverName];
-  if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
-  if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
+  const serverConfig = selected.connection;
 
   const configHash = hashMcpServerConfig(serverConfig);
   const key = getEntryKey(normalizedScope, serverName, configHash);
+  const lifecycle = serverConfig.connectionId && normalizedScope?.userId
+    ? await readMcpOAuthLifecycle(serverConfig.connectionId, resolveMcpCredentialScope({ ...serverConfig, connectionId: serverConfig.connectionId }, normalizedScope)) : undefined;
+  const authGeneration = lifecycle?.generation;
   const store = getStore();
   let entry = store.entries.get(key);
+  if (entry && (entry.authGeneration !== authGeneration || entry.authorizationState !== lifecycle?.lastCompletedState)) {
+    await closeMcpServer(serverConfig.connectionId || serverName, normalizedScope);
+    entry = undefined;
+  }
 
   if (!entry) {
     entry = {
@@ -387,6 +476,9 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
       configHash,
       transport: getServerTransport(serverConfig),
       config: serverConfig,
+      authGeneration,
+      authorizationState: lifecycle?.lastCompletedState,
+      abortController: new AbortController(),
       activeCalls: 0,
       lastUsedAt: Date.now(),
     };
@@ -397,13 +489,21 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
   entry.lastUsedAt = Date.now();
   if (!entry.client) {
     entry.connecting ??= createClient(entry, signal)
-      .then((client) => {
+      .then(async (client) => {
+        if (entry.closed || entry.abortController.signal.aborted) {
+          await client.close().catch(() => undefined);
+          throw new Error('MCP connection was closed while connecting.');
+        }
         entry.client = client;
         entry.lastError = undefined;
         return client;
       })
-      .catch((error) => {
+      .catch(async (error) => {
+        entry.closed = true;
+        entry.abortController.abort(error);
+        store.entries.delete(key);
         entry.lastError = getErrorMessage(error);
+        await observeManagedFailure(entry, error);
         logMcp('error', 'Connection failed', {
           server: entry.serverName,
           transport: entry.transport,
@@ -413,6 +513,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
       })
       .finally(() => {
         entry.connecting = undefined;
+        entry.connectingClient = undefined;
       });
     await entry.connecting;
   }
@@ -432,8 +533,10 @@ async function withManagedConnection<T>(
   entry.activeCalls += 1;
   entry.lastUsedAt = Date.now();
   try {
+    await readCurrentMcpConnection(entry);
     const result = await fn(entry, entry.client);
     entry.lastError = undefined;
+    await observeManagedConnection(entry, { kind: 'success' });
     return result;
   } catch (error) {
     const hasOAuthConfig = entry.config.auth === 'oauth'
@@ -446,17 +549,21 @@ async function withManagedConnection<T>(
         error.resourceMetadataUrl?.toString(),
         entry.scope,
       );
-      await entry.client.close().catch(() => undefined);
-      entry.client = undefined;
+      await closeMcpServer(entry.config.connectionId || serverName, entry.scope);
       const scopeText = challengedScopes.length ? ` Required scopes: ${challengedScopes.join(' ')}.` : '';
       const stepUpError = new Error(
         `MCP server "${serverName}" requires additional OAuth authorization.${scopeText} Use mcp auth_start to continue.`,
       );
+      Object.assign(stepUpError, { code: 'insufficient_scope', status: 403 });
+      await observeManagedFailure(entry, stepUpError);
       entry.lastError = stepUpError.message;
       throw stepUpError;
     }
     const enhanced = enhanceMcpError(error);
     entry.lastError = enhanced.message;
+    await observeManagedFailure(entry, enhanced);
+    // Transport/auth failures must not leave a stale session available for reuse.
+    await closeMcpServer(entry.config.connectionId || serverName, entry.scope);
     throw enhanced;
   } finally {
     entry.activeCalls = Math.max(0, entry.activeCalls - 1);
@@ -485,8 +592,10 @@ async function writeCache(cache: McpCacheFile, scope?: McpScope | null): Promise
 }
 
 export async function readCachedTools(serverName: string, configHash: string, scope?: McpScope | null): Promise<Tool[] | null> {
+  const selected = await assertMcpConnectionAccess(serverName, scope);
+  if (hashMcpServerConfig(selected.connection) !== configHash) return null;
   const cache = await readCache(scope);
-  const entry = cache.servers[serverName];
+  const entry = cache.servers[selected.serverName];
   return entry?.configHash === configHash ? entry.tools : null;
 }
 
@@ -503,22 +612,22 @@ async function writeCachedTools(serverName: string, configHash: string, tools: T
 }
 
 export async function listConfiguredMcpServers(scope?: McpScope | null) {
+  const actor = await requireMcpUserAccess(scope);
   const config = await readMcpConfig(scope);
-  return Object.entries(config.mcpServers).map(([name, serverConfig]) => ({
-    name,
-    transport: getServerTransport(serverConfig),
-    configHash: hashMcpServerConfig(serverConfig),
-    enabled: isMcpServerEnabled(serverConfig),
-    configured: true,
+  const entries = await Promise.all(Object.entries(config.mcpServers).map(async ([name, serverConfig]) => {
+    try { await assertMcpConnectionAccess(name, scope, { allowDisabled: true, actor }); } catch { return null; }
+    return { name, connectionId: serverConfig.connectionId || null, displayName: serverConfig.displayName || name,
+      transport: getServerTransport(serverConfig), configHash: hashMcpServerConfig(serverConfig),
+      enabled: isMcpServerEnabled(serverConfig), configured: true };
   }));
+  return entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 }
 
 export async function listMcpTools(serverName: string, options: { preferCache?: boolean; signal?: AbortSignal; scope?: McpScope | null } = {}): Promise<Tool[]> {
+  const selected = await assertMcpConnectionAccess(serverName, options.scope);
+  serverName = selected.serverName;
   const scope = normalizeMcpScope(options.scope);
-  const config = await readMcpConfig(scope);
-  const serverConfig = config.mcpServers[serverName];
-  if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
-  if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
+  const serverConfig = selected.connection;
   const configHash = hashMcpServerConfig(serverConfig);
 
   if (options.preferCache) {
@@ -543,11 +652,110 @@ export async function callMcpTool(
   signal?: AbortSignal,
   scope?: McpScope | null,
 ): Promise<CallToolResult> {
+  return (await callMcpToolWithCurrentMetadata(serverName, toolName, args, signal, scope)).result;
+}
+
+export type McpToolCallWithCurrentMetadata = {
+  result: CallToolResult;
+  tool: Tool;
+  connectionId: string | null;
+};
+
+/** Executes a model-visible tool and returns the exact, live tool metadata. */
+export async function callMcpToolWithCurrentMetadata(
+  serverName: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  scope?: McpScope | null,
+): Promise<McpToolCallWithCurrentMetadata> {
   return withManagedConnection(serverName, async (entry, client) => {
+    const currentTools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
+    const currentTool = currentTools.tools.find((tool) => tool.name === toolName);
+    if (!currentTool) throw new Error(`Unknown MCP tool "${toolName}" on server "${entry.serverName}".`);
+    if (!isMcpAppToolVisibleToModel(currentTool)) {
+      throw new Error(`MCP tool "${toolName}" is available only to its MCP App and cannot be called by a model.`);
+    }
     logMcp('info', 'Calling tool', { server: serverName, tool: toolName });
     const result = await withTimeout(client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal) as CallToolResult;
     logMcp(result.isError ? 'warn' : 'info', 'Tool call finished', { server: serverName, tool: toolName, isError: Boolean(result.isError) });
+    return { result, tool: currentTool, connectionId: entry.config.connectionId || null };
+  }, signal, scope);
+}
+
+function requireMcpAppsEnabled(): void {
+  if (!isMcpAppsEnabled()) throw new Error('MCP Apps are disabled by instance policy.');
+}
+
+function assertCurrentMcpAppSourceTool(
+  tools: readonly Tool[],
+  sourceToolName: string,
+  resourceUri: string,
+): Tool {
+  const sourceTool = tools.find((tool) => tool.name === sourceToolName);
+  const metadata = sourceTool ? readMcpAppToolMetadata(sourceTool) : null;
+  if (!sourceTool || !metadata || metadata.resourceUri !== resourceUri
+    || (!isMcpAppToolVisibleToApp(sourceTool) && !isMcpAppToolVisibleToModel(sourceTool))) {
+    throw new Error('The MCP App resource is not currently bound to the selected source tool.');
+  }
+  return sourceTool;
+}
+
+/** Reads only the UI resource currently bound to an app-visible source tool. */
+export async function readMcpAppResource(
+  connectionId: string,
+  sourceToolName: string,
+  resourceUri: string,
+  scope?: McpScope | null,
+): Promise<ReadResourceResult> {
+  requireMcpAppsEnabled();
+  return withManagedConnection(connectionId, async (entry, client) => {
+    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config));
+    assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
+    const result = await withTimeout(client.readResource({ uri: resourceUri }), getTimeoutMs(entry.config));
+    const contents = Array.isArray(result.contents) ? result.contents : [];
+    if (!contents.some((content) => content.uri === resourceUri && isMcpAppResourceMimeType(content.mimeType))) {
+      throw new Error('The MCP server did not return the requested MCP App HTML resource.');
+    }
     return result;
+  }, undefined, scope);
+}
+
+/**
+ * Executes an app-visible tool after revalidating the source UI binding and
+ * target visibility on the live connection. This is separate from model tool
+ * invocation, which always rejects app-only tools.
+ */
+export async function callMcpAppTool(
+  connectionId: string,
+  sourceToolName: string,
+  resourceUri: string,
+  targetToolName: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  scope?: McpScope | null,
+): Promise<CallToolResult> {
+  requireMcpAppsEnabled();
+  return withManagedConnection(connectionId, async (entry, client) => {
+    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
+    assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
+    const targetTool = tools.tools.find((tool) => tool.name === targetToolName);
+    if (!targetTool || !isMcpAppToolVisibleToApp(targetTool)) {
+      throw new Error(`MCP App tool "${targetToolName}" is not visible to the selected app.`);
+    }
+    return withTimeout(
+      client.callTool({ name: targetToolName, arguments: args }),
+      getTimeoutMs(entry.config),
+      signal,
+    ) as Promise<CallToolResult>;
+  }, signal, scope);
+}
+
+/** Legacy ping or stateless discovery; never executes a business tool. */
+export async function probeMcpConnection(serverName: string, scope: McpScope, signal?: AbortSignal): Promise<void> {
+  await withManagedConnection(serverName, async (entry, client) => {
+    const check = (client.getNegotiatedProtocolVersion() || '') >= '2026-07-28' ? client.discover({ signal }) : client.ping({ signal });
+    await withTimeout(check, Math.min(5000, getTimeoutMs(entry.config)), signal);
   }, signal, scope);
 }
 
@@ -580,15 +788,23 @@ export async function cleanupIdleMcpServers(now = Date.now(), scope?: McpScope |
   return closed;
 }
 
+function matchesManagedOwner(entry: ManagedConnection, scope: McpScope | null): boolean {
+  if (!scope?.userId) return !entry.scope?.userId;
+  return entry.scope?.userId === scope.userId
+    && (!scope.organizationId || entry.config.organizationId === scope.organizationId);
+}
+
 export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
   const store = getStore();
   for (const [key, entry] of store.entries) {
-    if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
-    if (entry.serverName !== serverName) continue;
+    if (!matchesManagedOwner(entry, normalizedScope)) continue;
+    if (entry.serverName !== serverName && entry.config.connectionId !== serverName) continue;
     logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    await entry.client?.close().catch(() => undefined);
     store.entries.delete(key);
+    entry.closed = true;
+    entry.abortController.abort(new Error('MCP connection closed.'));
+    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
   }
 }
 
@@ -596,10 +812,12 @@ export async function closeMcpServersForScope(scope?: McpScope | null): Promise<
   const normalizedScope = normalizeMcpScope(scope);
   const store = getStore();
   for (const [key, entry] of store.entries) {
-    if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
+    if (!matchesManagedOwner(entry, normalizedScope)) continue;
     logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    await entry.client?.close().catch(() => undefined);
     store.entries.delete(key);
+    entry.closed = true;
+    entry.abortController.abort(new Error('MCP connection closed.'));
+    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
   }
 }
 
@@ -607,7 +825,9 @@ export async function closeAllMcpServers(): Promise<void> {
   const store = getStore();
   for (const entry of store.entries.values()) {
     logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    await entry.client?.close().catch(() => undefined);
+    entry.closed = true;
+    entry.abortController.abort(new Error('MCP connection closed.'));
+    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
   }
   store.entries.clear();
 }
@@ -654,33 +874,44 @@ export function startMcpIdleCleanup(): void {
 }
 
 export async function getMcpRuntimeStatus(serverName?: string, scope?: McpScope | null) {
+  const actor = await requireMcpUserAccess(scope);
   const normalizedScope = normalizeMcpScope(scope);
   const config = await readMcpConfig(normalizedScope);
   const cache = await readCache(normalizedScope);
   const store = getStore();
-  const entries = Object.entries(config.mcpServers)
-    .filter(([name]) => !serverName || name === serverName)
-    .map(([name, serverConfig]) => {
+  const entries = await Promise.all(Object.entries(config.mcpServers)
+    .filter(([name, item]) => !serverName || name === serverName || item.connectionId === serverName)
+    .map(async ([name, serverConfig]) => {
+      let accessAllowed = true;
+      try { await assertMcpConnectionAccess(name, normalizedScope, { allowDisabled: true, actor }); } catch { accessAllowed = false; }
       const configHash = hashMcpServerConfig(serverConfig);
       const managed = store.entries.get(getEntryKey(normalizedScope, name, configHash));
       const cached = cache.servers[name]?.configHash === configHash ? cache.servers[name] : undefined;
+      const health = accessAllowed && serverConfig.connectionId && normalizedScope?.userId
+        ? await readMcpConnectionStatus(name, serverConfig as McpServerConfig & { connectionId: string }, normalizedScope) : null;
       return {
         name,
+        connectionId: serverConfig.connectionId || null,
+        displayName: serverConfig.displayName || name,
+        accessAllowed,
+        accessError: accessAllowed ? null : 'MCP_ACCESS_DENIED',
+        health,
         transport: getServerTransport(serverConfig),
         configHash,
         enabled: isMcpServerEnabled(serverConfig),
-        connected: isMcpServerEnabled(serverConfig) && Boolean(managed?.client),
+        connected: accessAllowed && isMcpServerEnabled(serverConfig) && Boolean(managed?.client),
         protocolVersion: managed?.client?.getNegotiatedProtocolVersion() || null,
         activeCalls: managed?.activeCalls || 0,
         lastUsedAt: managed?.lastUsedAt ? new Date(managed.lastUsedAt).toISOString() : null,
         lastSuccessfulToolListAt: managed?.lastSuccessfulToolListAt ? new Date(managed.lastSuccessfulToolListAt).toISOString() : null,
-        lastError: managed?.lastError || null,
+        lastError: health?.lastErrorCode || managed?.lastError || null,
         cachedToolCount: cached?.tools.length || 0,
         cacheRefreshedAt: cached?.lastRefreshedAt || null,
       };
-    });
+    }));
 
   return {
+    canManageDefinitions: actor?.canManageDefinitions ?? true,
     configPath: resolveMcpConfigPath(normalizedScope),
     cachePath: resolveCachePath(normalizedScope),
     servers: entries,

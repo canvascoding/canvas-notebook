@@ -1411,6 +1411,18 @@
     "toolStatusAborting": "Wird gestoppt",
     "toolStatusError": "Fehler",
     "toolStatusDone": "Fertig",
+    "mcpApp": {
+      "loading": "Interaktive MCP-App wird geladen …",
+      "unavailable": "Diese interaktive MCP-App ist nicht verfügbar.",
+      "reload": "Widget neu laden",
+      "requestApproval": "{tool} ausführen lassen?",
+      "allow": "Erlauben",
+      "reject": "Ablehnen",
+      "callFailed": "Der Tool-Aufruf der MCP-App ist fehlgeschlagen.",
+      "reconnect": "Verbinde dieses MCP-Konto erneut, um fortzufahren.",
+      "disabled": "MCP-Apps sind deaktiviert.",
+      "oversized": "Diese MCP-App-Nachricht ist zu groß."
+    },
     "toolBatchSummary": "{label} · {count, plural, one {# Tool-Aufruf} other {# Tool-Aufrufe}}",
     "toolBatchProgress": "{completed}/{total} fertig",
     "toolBatchErrors": "{count, plural, one {# Fehler} other {# Fehler}}",
@@ -2785,7 +2797,8 @@
       "todo": "To-do benötigt Aufmerksamkeit",
       "studio": "Studio-Ergebnis bereit",
       "automation": "Automation benötigt Aufmerksamkeit",
-      "memory": "Memory-Freigabe erforderlich"
+      "memory": "Memory-Freigabe erforderlich",
+      "mcp": "MCP-Verbindung benötigt Aufmerksamkeit"
     },
     "empty": {
       "title": "Alles gelesen",
@@ -4320,13 +4333,43 @@
         "refresh": "Aktualisieren",
         "loading": "Lade verbundene Clients …",
         "empty": "Du hast noch keine MCP-Clients autorisiert.",
-        "authorizedAt": "Autorisiert {time}",
+        "consentRecordedAt": "Zustimmung erfasst {time}",
         "disconnect": "Trennen",
         "disconnectConfirm": "{client} trennen? Der Zugriff auf deine Canvas-Daten wird sofort entfernt.",
         "disconnected": "MCP-Client getrennt.",
         "approvedPermissions": "Genehmigte Berechtigungen",
         "resourceUnavailable": "Die OAuth-Ressource des Servers fehlt oder ist deaktiviert. Bitte den Administrator, die Server-Konfiguration zu prüfen.",
-        "tokenNotVerified": "Diese Anzeige prüft gespeicherte Zustimmung und Server-Richtlinie, nicht das aktuell vom Client verwendete Token. Verbinde den Client nach einem Berechtigungsupdate neu, damit er ein neues Token erhält.",
+        "copyServerAddress": "Server-Adresse kopieren",
+        "usableGrantCount": "{count, plural, one {# bestätigte Berechtigung} other {# bestätigte Berechtigungen}}",
+        "lastSuccessfulRequestAt": "Letzte erfolgreiche Anfrage {time}",
+        "sessionExpiresAt": "Aktuelle Client-Sitzung läuft ab {time}",
+        "refreshExpiresAt": "Aktualisierungsberechtigung läuft ab {time}",
+        "authorizationStatus": {
+          "usable": {
+            "title": "Einsatzbereit",
+            "description": "Canvas hat eine aktive Berechtigung und aktuellen Zugriff auf mindestens einen ausgewählten Workspace bestätigt."
+          },
+          "expired": {
+            "title": "Berechtigung abgelaufen",
+            "description": "Verbinde diesen Client in deinem MCP-Client erneut, um fortzufahren."
+          },
+          "revoked": {
+            "title": "Berechtigung widerrufen",
+            "description": "Verbinde diesen Client in deinem MCP-Client erneut, um den Zugriff wieder zu erteilen."
+          },
+          "access_denied": {
+            "title": "Zugriff derzeit verweigert",
+            "description": "Canvas kann die Berechtigung dieses Clients mit den aktuellen Zugriffsregeln nicht verwenden."
+          },
+          "authorization_required": {
+            "title": "Berechtigung erforderlich",
+            "description": "Canvas hat Zustimmung erfasst, kann aber keine nutzbare Berechtigung bestätigen. Verbinde diesen Client in deinem MCP-Client erneut."
+          },
+          "unknown": {
+            "title": "Berechtigungsstatus nicht verfügbar",
+            "description": "Canvas kann nicht bestätigen, ob dieser Client derzeit auf deine Daten zugreifen kann."
+          }
+        },
         "permissionsComplete": "Zustimmung und Server-Richtlinie decken alle aktuell aktivierten Werkzeuge ab.",
         "permissionsMissing": {
           "title": "Zusätzliche OAuth-Berechtigung erforderlich",
@@ -4491,6 +4534,27 @@
       "canvasServer": "MCP-Server",
       "externalServers": "Externe MCP-Server"
     },
+    "mcpDefinitions": {
+      "title": "Freigegebene MCP-Verbindungen",
+      "description": "Füge deinem Konto einen freigegebenen Server hinzu. Deine Verbindung und Autorisierung bleiben privat.",
+      "loading": "Freigegebene Verbindungen werden geladen...",
+      "refresh": "Aktualisieren",
+      "empty": "Derzeit sind keine freigegebenen MCP-Verbindungen verfügbar.",
+      "enabled": "Verfügbar",
+      "disabled": "Deaktiviert",
+      "enable": "Aktivieren",
+      "disable": "Deaktivieren",
+      "addConnection": "Meinem Konto hinzufügen",
+      "connectTitle": "{definition} hinzufügen",
+      "connectDescription": "Nutze eine eindeutige Bezeichnung, um mehrere Konten zu unterscheiden.",
+      "accountLabel": "Kontobezeichnung",
+      "cancel": "Abbrechen",
+      "errors": {
+        "load": "Freigegebene MCP-Verbindungen konnten nicht geladen werden.",
+        "connect": "Die MCP-Verbindung konnte nicht hinzugefügt werden.",
+        "update": "Die freigegebene MCP-Verbindung konnte nicht aktualisiert werden."
+      }
+    },
     "mcpConfig": {
       "title": "Externe MCP-Server",
       "description": "Verbinde Canvas als Client mit externen MCP-Servern.",
@@ -4508,7 +4572,17 @@
       "refreshStatus": "Status aktualisieren",
       "noServers": "Keine MCP-Server konfiguriert.",
       "addServer": "Server hinzufügen",
+      "publishDefinition": "Für Mitglieder freigeben",
+      "definitionPublished": "{server} ist für Mitglieder verfügbar.",
       "editServer": "Server bearbeiten",
+      "renameConnection": "Umbenennen",
+      "removeConnection": "Entfernen",
+      "saveConnectionName": "Speichern",
+      "renameConnectionDescription": "Wähle eine eindeutige Bezeichnung für dieses Konto.",
+      "removeConnectionDescription": "{name} aus deinen verbundenen Konten entfernen?",
+      "connectionName": "Kontobezeichnung",
+      "connectionRenamed": "Verbindung umbenannt.",
+      "connectionRemoved": "Verbindung entfernt.",
       "cancel": "Abbrechen",
       "deleteServer": "Server löschen",
       "backToServers": "Zurück zu Servern",
@@ -4542,6 +4616,23 @@
       "enabled": "Aktiviert",
       "disabled": "Deaktiviert",
       "connected": "Verbunden",
+      "health": {
+        "notChecked": "Der Verbindungsstatus wurde noch nicht geprüft.",
+        "never": "Noch nie",
+        "lastChecked": "Zuletzt geprüft: {value}",
+        "lastSuccessfulRequest": "Letzte erfolgreiche Anfrage: {value}",
+        "auth": {
+          "not_authorized": "Autorisierung erforderlich",
+          "authorized": "Autorisiert",
+          "refreshing": "Autorisierung wird erneuert",
+          "reauth_required": "Erneute Verbindung erforderlich"
+        },
+        "reachability": {
+          "unknown": "Erreichbarkeit unbekannt",
+          "reachable": "Erreichbar",
+          "unreachable": "Nicht erreichbar"
+        }
+      },
       "disconnected": "Getrennt",
       "enable": "Aktivieren",
       "disable": "Deaktivieren",
@@ -4579,8 +4670,11 @@
         "status": "MCP-Status konnte nicht geladen werden.",
         "action": "MCP-Server konnte nicht aktualisiert werden.",
         "tools": "Gecachte MCP-Tools konnten nicht geladen werden.",
+        "publish": "Die gemeinsame MCP-Definition konnte nicht veröffentlicht werden.",
+        "connection": "Die MCP-Verbindung konnte nicht aktualisiert werden.",
         "popupBlocked": "Das OAuth-Fenster wurde vom Browser blockiert. Erlaube Popups für diese App und versuche es erneut."
-      }
+      },
+      "accessDenied": "Dieses Konto ist mit der aktuellen Serverfreigabe oder Mitgliedschaft nicht nutzbar. Wähle einen freigegebenen Server oder kontaktiere deinen Administrator."
     },
     "connectedApps": {
       "title": "Verbundene Apps",

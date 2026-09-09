@@ -2,7 +2,6 @@ import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { createComposioTools } from '@/app/lib/composio/composio-tools';
 import { isComposioConfigured } from '@/app/lib/composio/composio-client';
 import { resolveComposioContext } from '@/app/lib/composio/composio-context';
-import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
 import { PLANNING_MODE_ALLOWED_TOOLS } from './planning-mode';
@@ -289,17 +288,13 @@ export async function buildPiToolRegistryAsync(
   const composioConfigured = await isComposioConfigured(composioStorageScope);
   const composioTools = composioConfigured ? createComposioTools(composioContext) : [];
   const directMcpTools = userId
-    ? await assertUserOrganizationAdmin(userId, 'Only organization admins can use MCP servers.')
-      .then(() => buildDirectMcpTools({ userId }))
+    ? await buildDirectMcpTools({ userId })
       .then((result) => result.tools)
       .catch((error) => {
         console.warn('[ToolRegistry] Direct MCP tools are unavailable:', getErrorMessage(error));
         return [];
       })
-    : await buildDirectMcpTools().then((result) => result.tools).catch((error) => {
-      console.error('[ToolRegistry] Error building direct MCP tools:', error);
-      return [];
-    });
+    : [];
   const emailTools = createEmailAgentTools({
     userId,
     workspaceId: options.executionContext?.workspaceId,
