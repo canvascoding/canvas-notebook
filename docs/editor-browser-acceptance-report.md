@@ -32,4 +32,12 @@ Der Codeblock wurde per Tastatur vor die Tabelle und per Griff hinter den Callou
 
 ## Noch auszuführen
 
+### Mobiles Bewegungsmenü
+
+Ein weiterer Browserbefund betraf den Menüanker: Nach Fokusverlust blendete sich die mobile Werkzeugleiste nach einer Sekunde aus. Das offene Menü verlor damit seinen Anker. Beim nächsten Touch machte die Capture-Phase die Leiste wieder sichtbar; das Menü sprang noch vor dem synthetischen Klick an einen anderen Ort. Der Eintrag wurde deshalb nicht ausgeführt. Die Leiste bleibt jetzt während der tatsächlichen Öffnungsdauer des Bewegungsmenüs sichtbar, einschließlich Aufhebung bei Schließen, Widerruf oder Unmount.
+
+`editor-mobile-block-moves.spec.ts` reproduzierte den versteckten Anker vor der Korrektur und besteht danach (9,5 Sekunden): echte Touch-Eingaben in Chromium, Pause über die Ein-Sekunden-Frist, Bewegung in beide Richtungen, stabile IDs, Undo und bestätigter Checkpoint. Die 26 bestehenden Block-/Container-/History-/Menütests und ESLint bestehen. Die Viewport-Verkleinerung bildet nur den verfügbaren Platz ab, keine native Bildschirmtastatur oder IME.
+
+Die interaktive Mobilprüfung eines Codeblocks mit anschließendem Undo zeigte außerdem einen hängenden Renderer. Dieser Folgefehler wird separat eingegrenzt; Bild-/Trennlinien-Moves über das mobile Menü sind damit noch nicht freigegeben. Ein zuvor erfolgreich ausgeführter Produktionsbuild umfasst die Erststart- und Bildimportkorrektur (`36b0584c`), noch nicht die anschließende mobile Menüänderung.
+
 Gruppe 1 ist teilweise geprüft; Trennlinie, Mobilmenü und vollständige Copy-/Paste-Folgen stehen noch aus. Die übrigen Abnahmegruppen sind bis auf den beschriebenen verspäteten Bildimport noch nicht vollständig geprüft. Clipboard-/IME-/Touch-Prüfungen und Browser-Latenzmessungen sind ebenfalls offen.

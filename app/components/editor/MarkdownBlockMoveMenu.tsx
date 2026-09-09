@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Editor } from '@tiptap/core';
 import { useEditorState } from '@tiptap/react';
 import { ArrowUpDown, ChevronDown, ChevronUp } from 'lucide-react';
@@ -19,7 +19,9 @@ const containerTypes: Record<string, 'document' | 'quote' | 'callout' | 'details
   listItem: 'listItem', taskItem: 'taskItem',
 };
 
-export function MarkdownBlockMoveMenu({ editor, mobile = false }: { editor: Editor | null; mobile?: boolean }) {
+export function MarkdownBlockMoveMenu({ editor, mobile = false, onOpenChange }: {
+  editor: Editor | null; mobile?: boolean; onOpenChange?: (open: boolean) => void;
+}) {
   const t = useTranslations('notebook');
   const scope = useMemo(() => ({ editor }), [editor]);
   const [intent, setIntent] = useState<MoveIntent | null>(null);
@@ -35,6 +37,11 @@ export function MarkdownBlockMoveMenu({ editor, mobile = false }: { editor: Edit
   }, equalityFn: (a, b) => a?.document === b?.document && a?.writable === b?.writable
     && a?.available === b?.available && a?.up === b?.up && a?.down === b?.down });
   const writable = state?.writable ?? false;
+  const open = Boolean(intent?.scope === scope && writable);
+  useLayoutEffect(() => {
+    onOpenChange?.(open);
+    return () => onOpenChange?.(false);
+  }, [onOpenChange, open]);
   const document = state?.document;
   const containers = useMemo(() => {
     if (!document) return [];
@@ -77,7 +84,7 @@ export function MarkdownBlockMoveMenu({ editor, mobile = false }: { editor: Edit
     focusEditorOnClose.current = result.ok;
     if (!result.ok && result.reason !== 'no_change') toast.info(t('markdownEditorBlockMoveCancelled'));
   };
-  return <DropdownMenu open={Boolean(intent?.scope === scope && writable)} onOpenChange={changeOpen}>
+  return <DropdownMenu open={open} onOpenChange={changeOpen}>
     <DropdownMenuTrigger asChild>
       <Button type="button" variant="ghost" size={mobile ? 'icon-sm' : 'icon-xs'}
         className={mobile ? 'h-10 w-10 shrink-0 rounded-md text-muted-foreground' : undefined}

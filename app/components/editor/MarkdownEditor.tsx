@@ -4464,6 +4464,7 @@ function MobileMarkdownToolbar({
 }) {
   const t = useTranslations('notebook');
   const [sheet, setSheet] = useState<MobileMarkdownSheet>(null);
+  const [blockMoveMenuOpen, setBlockMoveMenuOpen] = useState(false);
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkDialogSeed, setLinkDialogSeed] = useState<LinkDialogSeed>({
     id: 0,
@@ -4591,6 +4592,7 @@ function MobileMarkdownToolbar({
   const sheetTitle = activeSheet === 'styles' ? t('markdownEditorMobileTextStyle') : labels.addBlock;
   const toolbarVisible = (keyboardActive && visible)
     || isInteractingWithToolbar
+    || blockMoveMenuOpen
     || activeSheet !== null
     || linkDialogOpen;
 
@@ -4644,7 +4646,7 @@ function MobileMarkdownToolbar({
         onTouchEndCapture={releaseToolbarVisibility}
         onTouchCancelCapture={releaseToolbarVisibility}
       >
-        <MarkdownBlockMoveMenu editor={editor} mobile />
+        <MarkdownBlockMoveMenu editor={editor} mobile onOpenChange={setBlockMoveMenuOpen} />
         <MobileToolbarButton label={labels.addBlock} disabled={!canUseCommands} active={activeSheet === 'blocks'} onClick={() => openSheet('blocks')}>
           <Plus className="h-5 w-5" />
         </MobileToolbarButton>
