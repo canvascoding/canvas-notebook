@@ -9,7 +9,9 @@ import { registerDocumentTransitionGuard } from '../app/lib/files/document-trans
 import { readNotebookDocumentTabs, writeNotebookDocumentTabs } from '../app/lib/notebook/document-tabs';
 import messages from '../messages/en.json';
 
-const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://canvas.test', pretendToBeVisual: true });
+const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
+  url: 'https://canvas.test/en/notebook?path=folder%2Fa.md&workspaceId=workspace#section', pretendToBeVisual: true,
+});
 for (const key of ['window', 'document', 'navigator', 'Element', 'HTMLElement', 'Node', 'MutationObserver', 'CustomEvent', 'Event', 'HTMLInputElement',
   'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame']) {
   Object.defineProperty(globalThis, key, { value: dom.window[key as keyof Window], configurable: true });
@@ -73,7 +75,7 @@ async function main() {
     '@/app/components/notifications/NotificationBell': ['NotificationBell'], '@/app/components/terminal/Terminal': ['TerminalPanel'],
   };
   internals._load = (request, parent, isMain) => {
-    if (request === 'next/navigation') return { useSearchParams: () => new URLSearchParams() };
+    if (request === 'next/navigation') return { useSearchParams: () => new URLSearchParams(window.location.search) };
     if (request === '@/app/lib/file-watcher/client') return { getFileWatcherClient: () => watcher };
     if (request === '@/app/components/editor/FileEditor') return { FileEditor: EditorStandIn };
     if (request === '@/app/components/layout/AppLayout') return { AppLayout: ({ main }: { main: React.ReactNode }) => <>{main}</> };
@@ -148,6 +150,10 @@ async function main() {
     assert.deepEqual(tabs().openPaths, ['renamed/a.md', 'renamed/b.md']);
     assert.equal(useFileStore.getState().currentFile?.path, 'renamed/a.md');
     assert.equal(useFileStore.getState().currentFile?.editorIdentity, activeIdentity, 'active rename preserves its open editor identity');
+    assert.equal(new URL(window.location.href).searchParams.get('path'), 'renamed/a.md',
+      'reload must follow the known document instead of reopening a reused old path');
+    assert.equal(new URL(window.location.href).searchParams.get('workspaceId'), 'workspace');
+    assert.equal(window.location.hash, '#section');
     // Explorer updates are deliberately batched after location adoption.
     const treeDeadline = Date.now() + 2000;
     while (!useFileStore.getState().fileTree.some(node => node.path === 'renamed') && Date.now() < treeDeadline) await settle();

@@ -62,6 +62,7 @@ import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { requestCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-request';
 import { createNotebookDocumentLocationWatcher } from '@/app/lib/notebook/document-location-watcher';
+import { notebookUrlAfterDocumentMove } from '@/app/lib/notebook/document-location-url';
 import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
@@ -587,9 +588,16 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     nextState: NotebookDocumentTabsState,
   ) => {
     if (documentTabsWorkspaceIdRef.current !== workspaceId) return;
+    const movedLocation = notebookUrlAfterDocumentMove(window.location.href, workspaceId, documentTabsRef.current, nextState);
     documentTabsRef.current = nextState;
     tabLocationWatcherRef.current?.track();
     setDocumentTabs(nextState);
+    if (movedLocation) {
+      // This confirms an existing navigation intent; it must not reopen an
+      // inactive tab when Next.js observes the updated search parameters.
+      if (openedPathRef.current === movedLocation.previousPath) openedPathRef.current = movedLocation.path;
+      window.history.replaceState(null, '', movedLocation.href);
+    }
     try {
       writeNotebookDocumentTabs(window.localStorage, workspaceId, nextState);
       if (nextState.activePath) {
