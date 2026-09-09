@@ -1,10 +1,16 @@
 import type http from 'node:http';
 import type net from 'node:net';
 
-import { Hocuspocus, type onAwarenessUpdatePayload } from '@hocuspocus/server';
+import { Hocuspocus, type Connection, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { WebSocketServer } from 'ws';
 
 import { auth } from '@/app/lib/auth';
+import { fileGuestService } from '@/app/lib/file-guests/service';
+import { fileGuestCookieName } from '@/app/lib/file-guests/types';
+import { recordFileGuestVersion } from '@/app/lib/file-guests/versions';
+import { assertFileGuestUpdateAllowed } from '@/app/lib/file-guests/update-policy';
+import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
+import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
 import {
   CollaborationCheckpointSupersededError,
   materializeCollaborationCheckpoint,
@@ -51,8 +57,6 @@ import {
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
-import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const COLLABORATION_PATH = '/ws/collaboration';
@@ -109,6 +113,7 @@ type CollaborationContext = {
   operationId: string | null;
   observedDocumentSequence: number | null;
   releaseRoomAdmission: (() => void) | null;
+  stopAccessWatch?: () => void;
 };
 
 function normalizedPath(requestUrl?: string): string | null {
@@ -166,7 +171,30 @@ function presenceFromAwareness(
 
 let collaborationInstance: Hocuspocus<CollaborationContext> | null = null;
 
+function rejectCollaborationUpdate(connection: Connection<CollaborationContext>, message: string): never {
+  connection.readOnly = true;
+  connection.sendStateless(JSON.stringify({ type: 'update_rejected', message }));
+  connection.close({ code: 4403, reason: 'Collaboration update rejected' });
+  throw new Error(message);
+}
+
 export function createCollaborationServer(server: http.Server): WebSocketServer {
+  const accessMonitor = createCollaborationAccessMonitor<Connection<CollaborationContext>>({
+    validate: async (connection) => {
+      const access = await revalidateCollaborationAccess(connection.context.claims);
+      if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
+      connection.context.workspace = access.workspace;
+    },
+    deny: (connection) => {
+      connection.readOnly = true;
+      connection.sendStateless(JSON.stringify({
+        type: 'access_revoked',
+        message: 'Your session or file access is no longer valid. Reload to sign in or request access. Local changes are preserved.',
+      }));
+      connection.close({ code: 4403, reason: 'Collaboration access revoked' });
+    },
+  });
+  server.once('close', () => accessMonitor.dispose());
   const hocuspocus = new Hocuspocus<CollaborationContext>({
     debounce: 350,
     maxDebounce: 2_000,
@@ -187,7 +215,15 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         email: string | null;
         role?: string | null;
       };
-      if (mobileIdentity) {
+      if (claims.guestInvitationId) {
+        if (mobileIdentity) throw new Error('Guest sessions cannot use mobile authentication.');
+        const cookieName = fileGuestCookieName(claims.guestInvitationId);
+        const guestToken = requestHeaders.get('cookie')?.split(';').map((value) => value.trim())
+          .find((value) => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) || '';
+        const guest = await fileGuestService.access(claims.guestInvitationId, { token: guestToken });
+        if (guest.guestSession.id !== claims.sessionId) throw new Error('Guest session scope mismatch.');
+        authenticatedUser = guest.user;
+      } else if (mobileIdentity) {
         authenticatedUser = mobileIdentity.user;
       } else {
         const session = await auth.api.getSession({ headers: requestHeaders });
@@ -205,29 +241,18 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (authenticatedUser.id !== claims.userId) {
         throw new Error('Collaboration ticket user scope mismatch.');
       }
-      const actor = resolveWorkspaceActor(authenticatedUser);
-      const workspace = await resolvePostgresWorkspaceForActor(actor, claims.workspaceId);
-      if (!workspace || !workspace.permissions.canRead) throw new Error('Workspace access was revoked.');
-      if (claims.permission === 'write' && !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
+      const access = await resolveCollaborationSessionAccess(claims);
+      const workspace = access.workspace;
+      authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
       const releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
         claims.documentId,
         async () => {
-          const metadata = await getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
-          const state = await loadCollaborationState(claims.documentId);
-          if (
-            !metadata.document
-            || metadata.document.id !== claims.documentId
-            || !state
-            || state.workspaceId !== claims.workspaceId
-            || state.path !== claims.path
-            || state.representation !== claims.representation
-            || state.lifecycleGeneration !== claims.lifecycleGeneration
-          ) throw new Error('Collaboration document generation is stale.');
+          await assertCollaborationDocumentAccess(claims, workspace);
           return reserveCollaborationRoomAdmission(claims.documentId);
         },
       );
       connectionConfig.readOnly = claims.permission !== 'write';
-      const presenceProfile = await resolveCollaborationPresenceProfile({
+      const presenceProfile = claims.guestInvitationId ? null : await resolveCollaborationPresenceProfile({
         workspaceId: claims.workspaceId,
         userId: authenticatedUser.id,
         name: authenticatedUser.name,
@@ -252,6 +277,8 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     async connected({ context, connection }) {
       context.releaseRoomAdmission?.();
       context.releaseRoomAdmission = null;
+      context.stopAccessWatch = accessMonitor.add(connection);
+      await accessMonitor.check(connection);
       const state = await loadCollaborationState(context.claims.documentId);
       if (
         !state
@@ -274,8 +301,16 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (!state) throw new Error('Collaboration document was not initialized.');
       return state.yjsState;
     },
-    async beforeHandleMessage({ update }) {
-      if (update.byteLength > MAX_UPDATE_BYTES) throw new Error('Collaboration update exceeds the 1 MiB message limit.');
+    async beforeHandleMessage({ update, connection }) {
+      if (update.byteLength > MAX_UPDATE_BYTES) rejectCollaborationUpdate(connection, 'Diese Änderung überschreitet die Nachrichtengröße von 1 MiB. Lade eine lokale Kopie herunter und öffne die Datei erneut.');
+      await accessMonitor.check(connection);
+    },
+    async beforeSync({ context, connection, document, type, payload }) {
+      if (context.claims.guestInvitationId && context.claims.permission === 'write' && (type === 1 || type === 2)) {
+        if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
+        try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
+        catch { rejectCollaborationUpdate(connection, 'Diese Änderung konnte nicht übernommen werden: Die Datei ist zu groß oder enthält nicht unterstützte Dokumentdaten. Lade eine lokale Kopie herunter und öffne die Datei erneut.'); }
+      }
     },
     async beforeHandleAwareness({ context, states }) {
       if (!context) return;
@@ -300,6 +335,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           : null;
         states.set(clientId, {
           ...state,
+          user: { name: context.user.name.slice(0, 120), color: colors.color, colorLight: colors.colorLight },
           canvas: {
             userId: context.user.id,
             sessionId: context.claims.sessionId,
@@ -308,7 +344,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
             displayName: context.user.name.slice(0, 120),
             color: colors.color,
             colorLight: colors.colorLight,
-            activity: requested?.activity === 'editing' ? 'editing' : 'viewing',
+            activity: context.claims.permission === 'write' && requested?.activity === 'editing' ? 'editing' : 'viewing',
             composition,
           },
         });
@@ -359,6 +395,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     },
     async onDisconnect({ context, document }) {
       context?.releaseRoomAdmission?.();
+      context?.stopAccessWatch?.();
       if (context) context.releaseRoomAdmission = null;
       if (!context || document.getConnectionsCount() > 0) return;
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
@@ -396,6 +433,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       }
       document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
       try {
+        await recordFileGuestVersion(state);
         const result = await materializeCollaborationCheckpoint({
           state,
           workspace: lastContext.workspace,
@@ -476,6 +514,15 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (workspace.workspaceId !== input.workspace.workspaceId) {
         throw new AgentDirectConnectionAuthorizationError('The agent session no longer has access to this collaboration workspace.');
       }
+    } else if (input.actorSessionId) {
+      const access = await resolveCollaborationSessionAccess({
+        schemaVersion: input.documentSchemaVersion, issuedAt: Date.now(), expiresAt: Date.now() + 60_000,
+        userId: input.initiatedByUserId, sessionId: input.actorSessionId, workspaceId: workspace.workspaceId,
+        organizationId: workspace.organizationId ?? null, documentId: input.documentId, path: input.documentPath,
+        provider: 'yjs', representation: input.documentRepresentation, permission: 'write',
+        lifecycleGeneration: input.documentLifecycleGeneration,
+      });
+      workspace = access.workspace;
     }
     const { state, releaseRoomAdmission } = await withCollaborationRoomLifecycleLock(
       input.documentId,
@@ -558,6 +605,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     return result as never;
   });
   const wss = new WebSocketServer({ noServer: true });
+  wss.once('close', () => accessMonitor.dispose());
   server.on('upgrade', (request, socket, head) => {
     const nextUrl = normalizedPath(request.url);
     if (!nextUrl) return;

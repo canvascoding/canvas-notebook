@@ -11,7 +11,6 @@ import {
   FilePlus,
   FolderPlus,
   FolderInput,
-  Globe2,
   ImagePlus,
   Images,
   Info,
@@ -60,7 +59,6 @@ import {
 import { CreateItemDialog } from './CreateItemDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { DirectoryBrowser } from './DirectoryBrowser';
-import { ShareMarkdownDialog } from './ShareMarkdownDialog';
 import { PublicShareDialog } from './PublicShareDialog';
 import { MarpExportDialog } from './MarpExportDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
@@ -112,7 +110,6 @@ export function FileActionsDropdown({
   const [renameError, setRenameError] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
   const [marpExportOpen, setMarpExportOpen] = useState(false);
   const [marpDetection, setMarpDetection] = useState<{ path: string; isMarp: boolean } | null>(null);
   const [publicShareOpen, setPublicShareOpen] = useState(false);
@@ -483,11 +480,6 @@ export function FileActionsDropdown({
     }
   };
 
-  const handleShare = () => {
-    setShareOpen(true);
-    closeMenu();
-  };
-
   const handleMarpExport = () => {
     setMarpExportOpen(true);
     closeMenu();
@@ -613,15 +605,9 @@ export function FileActionsDropdown({
             {t('download')}
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={handlePublicShare} disabled={!node || node.type !== 'file'}>
-            <Globe2 className="h-4 w-4" />
-            {node?.publicShare?.status === 'active' ? t('publicShareManage') : t('publicShareAction')}
+            <Share2 className="h-4 w-4" />
+            {t('share')}
           </DropdownMenuItem>
-          {isMarkdown && (
-            <DropdownMenuItem onSelect={handleShare}>
-              <Share2 className="h-4 w-4" />
-              {t('share')}
-            </DropdownMenuItem>
-          )}
           {isMarpMarkdown && (
             <DropdownMenuItem onSelect={handleMarpExport}>
               <Images className="h-4 w-4" />
@@ -801,15 +787,6 @@ export function FileActionsDropdown({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {isMarkdown && node && (
-        <ShareMarkdownDialog
-          open={shareOpen}
-          onOpenChange={setShareOpen}
-          filePath={node.path}
-          fileName={node.name}
-        />
-      )}
 
       {isMarpMarkdown && node && (
         <MarpExportDialog

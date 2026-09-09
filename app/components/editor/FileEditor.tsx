@@ -34,7 +34,7 @@ import { MarkdownEditor } from './MarkdownEditorClient';
 import { FileSyncStatus } from '../file-browser/FileSyncStatus';
 import { MarpPreview } from './MarpPreview';
 import { MarpExportDialog } from '../file-browser/MarpExportDialog';
-import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
+import { PublicShareDialog } from '../file-browser/PublicShareDialog';
 import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
 import { CodeEditor } from './CodeEditorClient';
 import { CollaborationAgentOperations } from './CollaborationAgentOperations';
@@ -1505,12 +1505,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       </div>
     </div>
     {((isMarkdown && !isMarpMarkdownFile) || isHtml) && currentFile && (
-      <ShareMarkdownDialog
+      <PublicShareDialog
         open={shareOpen}
         onOpenChange={setShareOpen}
-        filePath={currentFile.path}
-        fileName={breadcrumbs[breadcrumbs.length - 1] ?? currentFile.path}
-        kind={isHtml ? 'html' : 'markdown'}
+        paths={[currentFile.path]}
+        workspaceId={currentFileWorkspaceId}
       />
     )}
     {isMarpMarkdownFile && currentFile && (

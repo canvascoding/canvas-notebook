@@ -5,12 +5,13 @@ import { promises as fs } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
 
-import { and, desc, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { canvasWorkspaces, publicFileShares } from '@/app/lib/db/schema';
 import { resolveExistingWorkspacePath, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { fileContentDisposition } from '@/app/lib/files/content-disposition';
 import {
   INTERACTIVE_PUBLIC_HTML_CSP,
   isHtmlWorkspacePath,
@@ -57,6 +58,7 @@ export interface PublicShareDto {
   revokedAt: string | null;
   lastAccessedAt: string | null;
   accessCount: number;
+  policyRevision: number;
   shortCode: string | null;
   shortUrl: string;
   shortPath: string;
@@ -410,7 +412,13 @@ function normalizeWorkspacePath(input: string, workspace?: WorkspaceContext | nu
 }
 
 function fileIdentity(stats: Stats): string {
-  return `${stats.dev}:${stats.ino}`;
+  return `${stats.dev}:${stats.ino}:${stats.birthtimeMs}`;
+}
+
+export function publicShareFileIdentityMatches(stats: Stats, identity: string): boolean {
+  // Legacy links predate birthtime tracking. Upgrade their identity only through
+  // an authorized write, without invalidating existing links during rollout.
+  return identity === fileIdentity(stats) || identity === `${stats.dev}:${stats.ino}`;
 }
 
 function latestRevision(stats: Stats): string {
@@ -563,6 +571,7 @@ function toDto(row: PublicShareRow, baseUrl?: string | null, workspaceName?: str
     revokedAt: toIso(row.revokedAt),
     lastAccessedAt: toIso(row.lastAccessedAt),
     accessCount: row.accessCount,
+    policyRevision: row.policyRevision,
     shortCode: row.shortCode,
     shortUrl: buildShortPublicFileUrl(row, baseUrl),
     shortPath: shortPublicFilePath(row),
@@ -572,25 +581,68 @@ function toDto(row: PublicShareRow, baseUrl?: string | null, workspaceName?: str
 }
 
 async function updateShare(row: PublicShareRow, values: Partial<typeof publicFileShares.$inferInsert>): Promise<PublicShareRow> {
-  const updatedAt = new Date();
-  await db.update(publicFileShares)
-    .set({ ...values, updatedAt })
-    .where(eq(publicFileShares.id, row.id));
-  const [updated] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, row.id)).limit(1);
-  return updated || { ...row, ...values, updatedAt } as PublicShareRow;
+  const policyChanged = ['status', 'expiresAt', 'securityMode', 'reason'].some((key) => key in values);
+  const [updated] = await db.update(publicFileShares)
+    .set({
+      ...values,
+      updatedAt: new Date(),
+      ...(policyChanged ? { policyRevision: sql`${publicFileShares.policyRevision} + 1` } : {}),
+    })
+    .where(and(eq(publicFileShares.id, row.id), eq(publicFileShares.status, row.status)))
+    .returning();
+  if (updated) return updated;
+  const [current] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, row.id)).limit(1);
+  if (!current) throw new Error('Public share no longer exists.');
+  return current;
 }
 
 async function ensureShortCode(row: PublicShareRow): Promise<PublicShareRow> {
-  if (row.shortCode) return row;
-  return updateShare(row, { shortCode: await createUniqueShortCode() });
+  if (row.shortCode || row.status !== 'active') return row;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      const [updated] = await db.update(publicFileShares)
+        .set({ shortCode: await createUniqueShortCode() })
+        .where(and(eq(publicFileShares.id, row.id), isNull(publicFileShares.shortCode)))
+        .returning();
+      if (updated) return updated;
+    } catch (error) {
+      if (!isUniqueConflict(error)) throw error;
+    }
+    const [current] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, row.id)).limit(1);
+    if (!current) throw new Error('Public share no longer exists.');
+    if (current.shortCode) return current;
+  }
+  throw new Error('Could not allocate a short public URL.');
+}
+
+function isUniqueConflict(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const candidate = error as { code?: string; cause?: unknown };
+  return candidate.code === '23505' || candidate.code === 'SQLITE_CONSTRAINT_UNIQUE'
+    || (candidate.cause !== error && isUniqueConflict(candidate.cause));
+}
+
+function activeSharePredicate(): SQL {
+  return and(
+    eq(publicFileShares.status, 'active'),
+    or(isNull(publicFileShares.expiresAt), gt(publicFileShares.expiresAt, new Date())),
+  )!;
 }
 
 async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
   if (row.status !== 'active') return row;
 
+  if (row.workspaceId && row.workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID) {
+    const [workspace] = await db.select({ status: canvasWorkspaces.status, root: canvasWorkspaces.rootRelativePath })
+      .from(canvasWorkspaces).where(eq(canvasWorkspaces.id, row.workspaceId)).limit(1);
+    if (!workspace || workspace.status !== 'active' || workspace.root !== row.workspaceRootRelativePath) {
+      return { ...row, status: 'stale' };
+    }
+  }
+
   const expiresAt = toDateOrNull(row.expiresAt);
   if (expiresAt && expiresAt.getTime() <= Date.now()) {
-    return updateShare(row, { status: 'expired', revokedAt: new Date() });
+    return { ...row, status: 'expired' };
   }
 
   let details: WorkspaceFileDetails;
@@ -600,35 +652,102 @@ async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
     const message = error instanceof Error ? error.message : '';
     const workspaceRootMissing = message.includes('workspace root');
     const status = message.includes('blocked') || workspaceRootMissing ? 'stale' : 'missing';
-    const revokedAt = status === 'missing' ? row.revokedAt ?? new Date() : row.revokedAt;
-    return updateShare(row, {
-      status,
-      revokedAt,
-      revokedReason: status === 'missing'
-        ? 'target_missing'
-        : workspaceRootMissing
-          ? 'workspace_root_missing'
-          : 'target_blocked',
-    });
+    // A transient filesystem error is not a permanent revocation. Explicit
+    // delete/move hooks revoke links; reads never change their authorization.
+    return { ...row, status };
   }
 
-  if (
-    details.fileIdentity !== row.fileIdentity ||
-    details.lastKnownRevision !== row.lastKnownRevision ||
-    details.mimeType !== row.mimeType ||
-    details.sizeBytes !== row.sizeBytes ||
-    details.fileName !== row.fileName
-  ) {
-    return updateShare(row, {
-      fileIdentity: details.fileIdentity,
-      lastKnownRevision: details.lastKnownRevision,
-      mimeType: details.mimeType,
-      sizeBytes: details.sizeBytes,
-      fileName: details.fileName,
-    });
+  if (!publicShareFileIdentityMatches(details.stats, row.fileIdentity)) {
+    return { ...row, status: 'stale' };
   }
 
-  return row;
+  return {
+    ...row,
+    lastKnownRevision: details.lastKnownRevision,
+    mimeType: details.mimeType,
+    sizeBytes: details.sizeBytes,
+    fileName: details.fileName,
+  };
+}
+
+export class PublicSharePolicyError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = 'PublicSharePolicyError';
+  }
+}
+
+function validateShareExpiry(expiresAt?: Date | null): void {
+  if (expiresAt !== undefined && expiresAt !== null
+    && (!(expiresAt instanceof Date) || !Number.isFinite(expiresAt.getTime()) || expiresAt.getTime() <= Date.now())) {
+    throw new PublicSharePolicyError('Expiry must be a valid future date or null.', 400);
+  }
+}
+
+function assertCanManageShare(row: PublicShareRow, userId: string, workspace?: WorkspaceContext | null): void {
+  if (row.createdByUserId !== userId && !canManageOtherWorkspaceShare(row, workspace)) {
+    throw new PublicSharePolicyError('Only the share owner or a workspace share manager can change this public link.', 403);
+  }
+}
+
+type SharePolicyUpdate = {
+  userId: string;
+  workspace?: WorkspaceContext | null;
+  expectedPolicyRevision: number;
+  expiresAt?: Date | null;
+  securityMode?: PublicShareSecurityMode;
+  reason?: string | null;
+};
+
+async function applySharePolicy(row: PublicShareRow, params: SharePolicyUpdate): Promise<PublicShareRow> {
+  validateShareExpiry(params.expiresAt);
+  const values = {
+    ...(params.expiresAt !== undefined ? { expiresAt: params.expiresAt } : {}),
+    ...(params.securityMode !== undefined ? { securityMode: params.securityMode } : {}),
+    ...(params.reason !== undefined ? { reason: params.reason?.trim().slice(0, 500) || null } : {}),
+  };
+  const expirySeconds = (value: Date | null) => value ? Math.floor(value.getTime() / 1000) : null;
+  const changed = (values.expiresAt !== undefined && expirySeconds(values.expiresAt) !== expirySeconds(row.expiresAt))
+    || (values.securityMode !== undefined && values.securityMode !== row.securityMode)
+    || (values.reason !== undefined && values.reason !== row.reason);
+  if (!changed) {
+    const [current] = await db.select().from(publicFileShares).where(and(
+      eq(publicFileShares.id, row.id), activeSharePredicate(),
+      eq(publicFileShares.policyRevision, params.expectedPolicyRevision),
+    )).limit(1);
+    if (!current) throw new PublicSharePolicyError('Public share changed or expired. Reload its settings before saving.', 409);
+    return current;
+  }
+  assertCanManageShare(row, params.userId, params.workspace);
+  if (params.securityMode === 'interactive' && !isHtmlWorkspacePath(row.workspacePath)) {
+    throw new PublicSharePolicyError('Interactive public sharing is only available for HTML files.', 400);
+  }
+  const [updated] = await db.update(publicFileShares)
+    .set({ ...values, policyRevision: sql`${publicFileShares.policyRevision} + 1`, updatedAt: new Date() })
+    .where(and(
+      eq(publicFileShares.id, row.id), activeSharePredicate(),
+      eq(publicFileShares.policyRevision, params.expectedPolicyRevision),
+    )).returning();
+  if (!updated) throw new PublicSharePolicyError('Public share changed or expired. Reload its settings before saving.', 409);
+  return updated;
+}
+
+export async function updatePublicFileShare(params: SharePolicyUpdate & { id: string; baseUrl?: string | null }): Promise<PublicShareDto | null> {
+  const workspace = resolveOperationWorkspace(params.workspace);
+  const [row] = await db.select().from(publicFileShares).where(and(
+    eq(publicFileShares.id, params.id), workspaceScopePredicate(workspace),
+  )).limit(1);
+  if (!row) return null;
+  if (workspace && !workspace.permissions.canCreatePublicLinks) throw new PublicSharePolicyError('Forbidden', 403);
+  assertCanManageShare(row, params.userId, workspace);
+  if (!Number.isSafeInteger(params.expectedPolicyRevision) || params.expectedPolicyRevision < 1) {
+    throw new PublicSharePolicyError('A valid policy revision is required.', 400);
+  }
+  if (row.policyRevision !== params.expectedPolicyRevision || (await reconcileRow(row)).status !== 'active') {
+    throw new PublicSharePolicyError('Public share changed or expired. Reload its settings before saving.', 409);
+  }
+  const updated = await applySharePolicy(row, { ...params, workspace });
+  return toDto(updated, params.baseUrl, workspace?.displayName ?? null);
 }
 
 export async function createPublicFileShares(params: {
@@ -639,6 +758,7 @@ export async function createPublicFileShares(params: {
   createdByAgentId?: string | null;
   sourceSessionId?: string | null;
   expiresAt?: Date | null;
+  defaultExpiresAt?: Date | null;
   reason?: string | null;
   securityMode?: PublicShareSecurityMode;
   confirmPublicExposure?: boolean;
@@ -658,6 +778,8 @@ export async function createPublicFileShares(params: {
   }
 
   const requestedSecurityMode = normalizePublicShareSecurityMode(params.securityMode);
+  validateShareExpiry(params.expiresAt);
+  validateShareExpiry(params.defaultExpiresAt);
   if (source !== 'ui' && requestedSecurityMode === 'interactive') {
     throw new Error('Interactive public HTML shares can only be created from the user interface.');
   }
@@ -666,6 +788,7 @@ export async function createPublicFileShares(params: {
   if (uniquePaths.length === 0) {
     throw new Error('At least one file path is required.');
   }
+  if (uniquePaths.length > 100) throw new Error('At most 100 file paths may be shared at once.');
 
   const shares: PublicShareDto[] = [];
   const skipped: Array<{ path: string; reason: string }> = [];
@@ -677,70 +800,84 @@ export async function createPublicFileShares(params: {
         throw new Error('Interactive public sharing is only available for HTML files.');
       }
 
-      const existingRows = await db.select()
-        .from(publicFileShares)
-        .where(and(
-          workspaceScopePredicate(workspace),
-          eq(publicFileShares.workspacePath, details.workspacePath),
-          eq(publicFileShares.status, 'active'),
-        ));
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const [existingRow] = await db.select()
+          .from(publicFileShares)
+          .where(and(
+            workspaceScopePredicate(workspace),
+            eq(publicFileShares.workspacePath, details.workspacePath),
+            eq(publicFileShares.status, 'active'),
+          )).limit(1);
 
-      const reconciledExistingRows = await Promise.all(existingRows.map(reconcileRow));
-      const existing = reconciledExistingRows.find((row) => row.status === 'active' && workspaceMatches(row, workspace));
-      if (existing) {
-        const existingSecurityMode = normalizePublicShareSecurityMode(existing.securityMode);
-        const row = existingSecurityMode === requestedSecurityMode
-          ? existing
-          : await updateShare(existing, {
+        if (existingRow) {
+          const existing = await reconcileRow(existingRow);
+          if (existing.status === 'active') {
+            const row = await applySharePolicy(existing, {
+              userId: params.createdByUserId,
+              workspace,
+              expectedPolicyRevision: existing.policyRevision,
+              securityMode: params.securityMode,
+              expiresAt: params.expiresAt,
+              reason: params.reason,
+            });
+            shares.push(toDto(await ensureShortCode(row), params.baseUrl, workspace?.displayName ?? null));
+            break;
+          }
+          assertCanManageShare(existingRow, params.createdByUserId, workspace);
+          // A new explicit publication gets a new token. The old token cannot
+          // silently become valid for a replacement file or after expiry.
+          await updateShare(existingRow, { status: 'revoked', revokedAt: new Date(), revokedReason: `republished_${existing.status}` });
+          continue;
+        }
+
+        const token = createToken();
+        const shortCode = await createUniqueShortCode();
+        const now = new Date();
+        const [inserted] = await db.insert(publicFileShares)
+          .values({
+            id: randomUUID(),
+            token,
+            tokenHash: tokenHash(token),
+            tokenPreview: token.slice(0, 8),
+            shortCode,
+            organizationId: workspace?.organizationId ?? null,
+            workspaceId: workspace?.workspaceId ?? null,
+            workspaceType: workspace?.workspaceType ?? null,
+            workspaceRootRelativePath: workspaceRootRelativePath(workspace),
+            workspacePath: details.workspacePath,
+            fileName: details.fileName,
+            fileIdentity: details.fileIdentity,
+            targetRevisionPolicy: 'latest',
+            lastKnownRevision: details.lastKnownRevision,
+            mimeType: details.mimeType,
+            sizeBytes: details.sizeBytes,
+            status: 'active',
+            createdByUserId: params.createdByUserId,
+            createdByAgentId: params.createdByAgentId ?? null,
+            sourceSessionId: params.sourceSessionId ?? null,
+            source,
             securityMode: requestedSecurityMode,
-            expiresAt: params.expiresAt ?? existing.expiresAt,
-            reason: params.reason?.trim().slice(0, 500) || existing.reason,
-          });
-        shares.push(toDto(await ensureShortCode(await reconcileRow(row)), params.baseUrl, workspace?.displayName ?? null));
-        continue;
+            reason: params.reason?.trim().slice(0, 500) || null,
+            createdAt: now,
+            updatedAt: now,
+            expiresAt: params.expiresAt !== undefined ? params.expiresAt : params.defaultExpiresAt ?? null,
+            revokedAt: null,
+            revokedReason: null,
+            passwordEnabled: 0,
+            passwordHash: null,
+            lastAccessedAt: null,
+            accessCount: 0,
+          })
+          .onConflictDoNothing()
+          .returning();
+
+        if (!inserted) continue; // Another process won the path or short-code race.
+        shares.push(toDto(inserted, params.baseUrl, workspace?.displayName ?? null));
+        break;
       }
-
-      const token = createToken();
-      const shortCode = await createUniqueShortCode();
-      const now = new Date();
-      const [inserted] = await db.insert(publicFileShares)
-        .values({
-          id: randomUUID(),
-          token,
-          tokenHash: tokenHash(token),
-          tokenPreview: token.slice(0, 8),
-          shortCode,
-          organizationId: workspace?.organizationId ?? null,
-          workspaceId: workspace?.workspaceId ?? null,
-          workspaceType: workspace?.workspaceType ?? null,
-          workspaceRootRelativePath: workspaceRootRelativePath(workspace),
-          workspacePath: details.workspacePath,
-          fileName: details.fileName,
-          fileIdentity: details.fileIdentity,
-          targetRevisionPolicy: 'latest',
-          lastKnownRevision: details.lastKnownRevision,
-          mimeType: details.mimeType,
-          sizeBytes: details.sizeBytes,
-          status: 'active',
-          createdByUserId: params.createdByUserId,
-          createdByAgentId: params.createdByAgentId ?? null,
-          sourceSessionId: params.sourceSessionId ?? null,
-          source,
-          securityMode: requestedSecurityMode,
-          reason: params.reason?.trim().slice(0, 500) || null,
-          createdAt: now,
-          updatedAt: now,
-          expiresAt: params.expiresAt ?? null,
-          revokedAt: null,
-          revokedReason: null,
-          passwordEnabled: 0,
-          passwordHash: null,
-          lastAccessedAt: null,
-          accessCount: 0,
-        })
-        .returning();
-
-      shares.push(toDto(inserted, params.baseUrl, workspace?.displayName ?? null));
+      if (!shares.some((share) => share.workspacePath === details.workspacePath)) {
+        throw new Error('Public share changed concurrently. Please retry.');
+      }
     } catch (error) {
       skipped.push({
         path: requestedPath,
@@ -762,6 +899,7 @@ export async function revokePublicFileShare(params: {
   const [row] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, params.id)).limit(1);
   if (!row) return null;
   const workspace = resolveOperationWorkspace(params.workspace);
+  if (workspace && !workspaceMatches(row, workspace)) return null;
   const canManageWorkspaceShare = canManageOtherWorkspaceShare(row, workspace);
   if (!params.isAdmin && row.createdByUserId !== params.userId && !canManageWorkspaceShare) {
     throw new Error('Forbidden');
@@ -797,7 +935,7 @@ export async function listPublicFileShares(params: {
   const workspace = resolveOperationWorkspace(params.workspace);
   const query = params.query?.trim().toLowerCase() || '';
   const type = params.type ?? 'all';
-  const limit = Math.max(1, Math.min(params.limit ?? DEFAULT_SHARE_LIMIT, 1000));
+  const limit = Number.isFinite(params.limit) ? Math.max(1, Math.min(Math.trunc(params.limit!), 1000)) : DEFAULT_SHARE_LIMIT;
   const pathFilter = new Set(
     (params.paths ?? []).map((candidate) => {
       try {
@@ -931,7 +1069,17 @@ export async function syncPublicSharesAfterWrite(paths: string[], workspace?: Wo
       eq(publicFileShares.status, 'active'),
       inArray(publicFileShares.workspacePath, uniquePaths),
     ));
-  await Promise.all(rows.filter((row) => workspaceMatches(row, resolvedWorkspace)).map(reconcileRow));
+  await Promise.all(rows.filter((row) => workspaceMatches(row, resolvedWorkspace)).map(async (row) => {
+    const details = await getWorkspaceFileDetails(row.workspacePath, resolvedWorkspace);
+    // Only an authorized write hook may rebind an atomic file replacement.
+    await updateShare(row, {
+      fileIdentity: details.fileIdentity,
+      lastKnownRevision: details.lastKnownRevision,
+      sizeBytes: details.sizeBytes,
+      mimeType: details.mimeType,
+      fileName: details.fileName,
+    });
+  }));
 }
 
 export function queuePublicSharesAfterWrite(paths: string[], workspace?: WorkspaceContext | null): void {
@@ -1007,19 +1155,27 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
 
   const withShortCode = await ensureShortCode(reconciled);
   const workspace = workspaceForRow(withShortCode);
-  const details = await getWorkspaceFileDetails(withShortCode.workspacePath, workspace);
-
-  const updated = options.recordAccess === false
-    ? withShortCode
-    : await updateShare(withShortCode, {
-      lastAccessedAt: new Date(),
-      accessCount: withShortCode.accessCount + 1,
-      fileIdentity: details.fileIdentity,
-      lastKnownRevision: details.lastKnownRevision,
-      mimeType: details.mimeType,
-      sizeBytes: details.sizeBytes,
-      fileName: details.fileName,
-    });
+  let details: WorkspaceFileDetails;
+  try {
+    details = await getWorkspaceFileDetails(withShortCode.workspacePath, workspace);
+  } catch {
+    return { ok: false, status: 404, error: 'Public file unavailable.' };
+  }
+  const predicate = and(
+    eq(publicFileShares.id, row.id), activeSharePredicate(),
+    eq(publicFileShares.fileIdentity, withShortCode.fileIdentity),
+  );
+  if (!publicShareFileIdentityMatches(details.stats, withShortCode.fileIdentity)) {
+    return { ok: false, status: 404, error: 'Public file was replaced.' };
+  }
+  // Recheck authorization after filesystem awaits. SQL increments cannot lose
+  // concurrent accesses and cannot overwrite a concurrent policy change/revoke.
+  const [updated] = options.recordAccess === false
+    ? await db.select().from(publicFileShares).where(predicate).limit(1)
+    : await db.update(publicFileShares).set({
+      lastAccessedAt: new Date(), accessCount: sql`${publicFileShares.accessCount} + 1`,
+    }).where(predicate).returning();
+  if (!updated) return { ok: false, status: 410, error: 'Public file is no longer available.' };
 
   return {
     ok: true,
@@ -1074,10 +1230,6 @@ export async function resolvePublicShareShortCode(shortCode: string, options: Re
   return resolved;
 }
 
-function quotedFileName(fileName: string): string {
-  return fileName.replace(/["\\\r\n]/g, '_');
-}
-
 export function createPublicFileHeaders(params: {
   fileName: string;
   workspacePath: string;
@@ -1100,7 +1252,7 @@ export function createPublicFileHeaders(params: {
     'Access-Control-Allow-Origin': '*',
     'Cross-Origin-Resource-Policy': 'cross-origin',
     'Accept-Ranges': 'bytes',
-    'Cache-Control': 'public, max-age=60, must-revalidate',
+    'Cache-Control': 'no-store',
   });
 
   if (params.range) {
@@ -1120,11 +1272,7 @@ export function createPublicFileHeaders(params: {
     headers.set('Content-Security-Policy', PUBLIC_SHARE_ASSET_CSP);
   }
 
-  if (forceAttachment) {
-    headers.set('Content-Disposition', `attachment; filename="${quotedFileName(params.fileName)}"`);
-  } else {
-    headers.set('Content-Disposition', `inline; filename="${quotedFileName(params.fileName)}"`);
-  }
+  headers.set('Content-Disposition', fileContentDisposition(params.fileName, forceAttachment ? 'attachment' : 'inline'));
 
   return headers;
 }

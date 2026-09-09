@@ -25,7 +25,12 @@ function signature(payload: string): Buffer {
 function isClaims(value: unknown): value is CollaborationTicketClaims {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const claims = value as Partial<CollaborationTicketClaims>;
-  return claims.schemaVersion === COLLABORATION_SCHEMA_VERSION
+  return (claims.guestInvitationId === undefined
+    ? claims.guestPolicyRevision === undefined
+    : typeof claims.guestInvitationId === 'string' && claims.guestInvitationId.length === 36
+      && Number.isSafeInteger(claims.guestPolicyRevision) && Number(claims.guestPolicyRevision) >= 1
+      && claims.provider === 'yjs')
+    && claims.schemaVersion === COLLABORATION_SCHEMA_VERSION
     && typeof claims.issuedAt === 'number'
     && typeof claims.expiresAt === 'number'
     && typeof claims.userId === 'string'

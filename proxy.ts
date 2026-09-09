@@ -155,6 +155,13 @@ export default async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  if (pathname.startsWith('/guest/files/') || pathname.startsWith('/api/guest/files/')) {
+    const response = nextWithCommonHeaders();
+    response.headers.set('Cache-Control', 'no-store');
+    response.headers.set('Referrer-Policy', 'no-referrer');
+    return response;
+  }
+
   if (isPublicShareRoute(pathname)) {
     return NextResponse.next();
   }

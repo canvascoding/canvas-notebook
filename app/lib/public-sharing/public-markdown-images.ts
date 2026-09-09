@@ -1,21 +1,8 @@
-import {
-  getObsidianWikiDisplayLabel,
-  parseObsidianWikiLinks,
-} from '@/app/lib/markdown/obsidian-flavored-markdown';
+import { collectMarkdownImageNodes } from './markdown-image-nodes';
 import { isMarkdownImagePath } from '@/app/lib/markdown/markdown-image-types';
 
 const PRESERVED_URL_PREFIXES = ['/api/', '/public/', '/_next/'];
 const EXTERNAL_URL_PATTERN = /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i;
-const INLINE_IMAGE_PATTERN = /(!\[[^\]\n]*\]\(\s*)(<[^>\n]+>|[^\s)\n]+)([^)\n]*\))/g;
-const HTML_IMAGE_PATTERN = /(<img\b[^>]*\bsrc\s*=\s*)(["'])([^"']+)(\2)/gi;
-const REFERENCE_DEFINITION_PATTERN = /^(\s*\[([^\]\n]+)\]:\s*)(<[^>\n]+>|[^\s\n]+)(.*)$/gm;
-const REFERENCE_IMAGE_PATTERN = /!\[([^\]\n]*)\]\[([^\]\n]*)\]/g;
-const SHORTCUT_REFERENCE_IMAGE_PATTERN = /!\[([^\]\n]+)\](?![[(])/g;
-
-type SourceMatch = {
-  source: string;
-  index: number;
-};
 
 function splitUrlDecoration(value: string) {
   const queryIndex = value.indexOf('?');
@@ -68,76 +55,34 @@ function unwrapMarkdownDestination(value: string) {
     : trimmed;
 }
 
-function normalizeReferenceLabel(value: string) {
-  return value.trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
 function isPubliclyServedImagePath(workspacePath: string) {
   return isMarkdownImagePath(workspacePath);
 }
 
-function collectInlineAndHtmlImageSources(markdown: string): SourceMatch[] {
-  const sources: SourceMatch[] = [];
-
-  for (const match of markdown.matchAll(INLINE_IMAGE_PATTERN)) {
-    const source = unwrapMarkdownDestination(match[2] || '');
-    if (source) sources.push({ source, index: match.index ?? 0 });
-  }
-
-  for (const match of markdown.matchAll(HTML_IMAGE_PATTERN)) {
-    const source = match[3] || '';
-    if (source) sources.push({ source, index: match.index ?? 0 });
-  }
-
-  return sources;
+function publicMarkdownImageSources(markdown: string) {
+  return collectMarkdownImageNodes(markdown);
 }
 
-function referencedImageLabels(markdown: string) {
-  const labels = new Set<string>();
-
-  for (const match of markdown.matchAll(REFERENCE_IMAGE_PATTERN)) {
-    const alt = match[1] || '';
-    const explicitLabel = match[2] || '';
-    const label = normalizeReferenceLabel(explicitLabel || alt);
-    if (label) labels.add(label);
+function internalImageWorkspacePath(source: string, workspaceId?: string | null): string | null {
+  // Only known, relative file URLs have workspace semantics. Never infer them
+  // from an external origin, upload ID, arbitrary API or another workspace.
+  const url = new URL(source, 'https://canvas.invalid');
+  const scopes = url.searchParams.getAll('workspaceId');
+  if (scopes.length > 1 || (scopes.length === 1 && (!workspaceId || scopes[0] !== workspaceId))) return null;
+  let raw: string | null = null;
+  if (url.pathname.startsWith('/api/media/') && !url.pathname.startsWith('/api/media/preview/')) {
+    raw = url.pathname.slice('/api/media/'.length);
+  } else if (url.pathname === '/api/files/preview' && url.searchParams.getAll('path').length === 1) {
+    raw = url.searchParams.get('path');
   }
-
-  for (const match of markdown.matchAll(SHORTCUT_REFERENCE_IMAGE_PATTERN)) {
-    const label = normalizeReferenceLabel(match[1] || '');
-    if (label) labels.add(label);
-  }
-
-  return labels;
+  if (!raw || /%2f|%5c|%00|\\|\u0000/i.test(raw)) return null;
+  const path = normalizeWorkspacePath(raw);
+  return path && isPubliclyServedImagePath(path) ? path : null;
 }
 
-function collectReferencedDefinitionSources(markdown: string): SourceMatch[] {
-  const labels = referencedImageLabels(markdown);
-  if (labels.size === 0) return [];
-
-  const sources: SourceMatch[] = [];
-  for (const match of markdown.matchAll(REFERENCE_DEFINITION_PATTERN)) {
-    const label = normalizeReferenceLabel(match[2] || '');
-    if (!labels.has(label)) continue;
-
-    const source = unwrapMarkdownDestination(match[3] || '');
-    if (source) sources.push({ source, index: match.index ?? 0 });
-  }
-
-  return sources;
-}
-
-function publicMarkdownImageSources(markdown: string): SourceMatch[] {
-  return [
-    ...collectInlineAndHtmlImageSources(markdown),
-    ...collectReferencedDefinitionSources(markdown),
-    ...parseObsidianWikiLinks(markdown)
-      .filter((link) => link.embed && isMarkdownImagePath(link.path))
-      .map((link) => ({ source: link.path, index: link.start })),
-  ];
-}
-
-export function resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath: string, source: string): string | null {
+export function resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath: string, source: string, workspaceId?: string | null): string | null {
   const trimmed = unwrapMarkdownDestination(source);
+  if (trimmed.startsWith('/api/')) return internalImageWorkspacePath(trimmed, workspaceId);
   if (!trimmed || EXTERNAL_URL_PATTERN.test(trimmed) || PRESERVED_URL_PREFIXES.some((prefix) => trimmed.startsWith(prefix))) {
     return null;
   }
@@ -154,10 +99,10 @@ export function resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath: s
   return workspacePath && isPubliclyServedImagePath(workspacePath) ? workspacePath : null;
 }
 
-export function collectPublicMarkdownImageWorkspacePaths(markdown: string, markdownWorkspacePath: string): Set<string> {
+export function collectPublicMarkdownImageWorkspacePaths(markdown: string, markdownWorkspacePath: string, workspaceId?: string | null): Set<string> {
   const paths = new Set<string>();
   for (const { source } of publicMarkdownImageSources(markdown)) {
-    const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source);
+    const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source, workspaceId);
     if (workspacePath) paths.add(workspacePath);
   }
   return paths;
@@ -168,54 +113,24 @@ export function publicMarkdownImagePath(token: string, workspacePath: string): s
   return `/public/markdown-assets/${encodeURIComponent(token)}/${encodedPath}`;
 }
 
-function rewriteImageSource(source: string, markdownWorkspacePath: string, token: string) {
-  const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source);
+function rewriteImageSource(source: string, markdownWorkspacePath: string, token: string, workspaceId?: string | null) {
+  const workspacePath = resolvePublicMarkdownImageWorkspacePath(markdownWorkspacePath, source, workspaceId);
   if (!workspacePath) return source;
 
-  const { suffix } = splitUrlDecoration(unwrapMarkdownDestination(source));
+  const destination = unwrapMarkdownDestination(source);
+  // Internal preview parameters contain private workspace IDs and are not
+  // meaningful to the public image endpoint.
+  const { suffix } = destination.startsWith('/api/') ? { suffix: '' } : splitUrlDecoration(destination);
   const rewritten = `${publicMarkdownImagePath(token, workspacePath)}${suffix}`;
   return source.trim().startsWith('<') && source.trim().endsWith('>') ? `<${rewritten}>` : rewritten;
 }
 
-function rewriteObsidianWikiImageSources(markdown: string, markdownWorkspacePath: string, token: string) {
-  const replacements = parseObsidianWikiLinks(markdown)
-    .filter((link) => link.embed && isMarkdownImagePath(link.path))
-    .map((link) => {
-      const alt = getObsidianWikiDisplayLabel(link)
-        .replace(/\\/gu, '\\\\')
-        .replace(/\]/gu, '\\]');
-      const source = rewriteImageSource(link.path, markdownWorkspacePath, token);
-      return {
-        end: link.end,
-        start: link.start,
-        value: `![${alt}](<${source}>)`,
-      };
-    })
-    .sort((left, right) => right.start - left.start);
-
+export function rewritePublicMarkdownImageSources(markdown: string, markdownWorkspacePath: string, token: string, workspaceId?: string | null): string {
   let rewritten = markdown;
-  for (const replacement of replacements) {
-    rewritten = `${rewritten.slice(0, replacement.start)}${replacement.value}${rewritten.slice(replacement.end)}`;
+  for (const image of publicMarkdownImageSources(markdown).reverse()) {
+    const source = rewriteImageSource(image.source, markdownWorkspacePath, token, workspaceId);
+    if (source === image.source) continue;
+    rewritten = `${rewritten.slice(0, image.index)}${image.replace(source)}${rewritten.slice(image.end)}`;
   }
   return rewritten;
-}
-
-export function rewritePublicMarkdownImageSources(markdown: string, markdownWorkspacePath: string, token: string): string {
-  const referencedLabels = referencedImageLabels(markdown);
-  let rewritten = markdown.replace(INLINE_IMAGE_PATTERN, (match, before: string, source: string, after: string) => (
-    `${before}${rewriteImageSource(source, markdownWorkspacePath, token)}${after}`
-  ));
-
-  rewritten = rewritten.replace(HTML_IMAGE_PATTERN, (match, before: string, quote: string, source: string, after: string) => (
-    `${before}${quote}${rewriteImageSource(source, markdownWorkspacePath, token)}${after}`
-  ));
-
-  if (referencedLabels.size > 0) {
-    rewritten = rewritten.replace(REFERENCE_DEFINITION_PATTERN, (match, before: string, label: string, source: string, after: string) => {
-      if (!referencedLabels.has(normalizeReferenceLabel(label))) return match;
-      return `${before}${rewriteImageSource(source, markdownWorkspacePath, token)}${after}`;
-    });
-  }
-
-  return rewriteObsidianWikiImageSources(rewritten, markdownWorkspacePath, token);
 }

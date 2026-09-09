@@ -1559,7 +1559,7 @@ async function executeEditKnowledgeSource(
       sourceSessionId: authorization.principal.sessionId,
       baseRevisionId: baseRevision.id,
     });
-    await syncPublicSharesAfterWrite([validatePath(filePath, { workspace })]);
+    await syncPublicSharesAfterWrite([validatePath(filePath, { workspace })], workspace);
     publishWorkspaceFileMutation({ workspace, type: 'change', relativePath: filePath });
     const afterStats = await getFileStats(filePath, { workspace });
     const structuredContent = {

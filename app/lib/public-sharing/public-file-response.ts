@@ -2,16 +2,19 @@ import 'server-only';
 
 import { createReadStream } from 'node:fs';
 import { promises as fs } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
+import { assertPublicShareStillActive, isPublicSharedTextPath, PUBLIC_SHARE_TEXT_SIZE_LIMIT, readPublicShareText } from './public-share-text';
 import {
   createPublicFileHeaders,
   getPublicShareMimeType,
   isSensitiveWorkspacePath,
+  publicShareFileIdentityMatches,
   type PublicShareResolution,
 } from '@/app/lib/public-sharing/public-file-shares';
 import {
@@ -38,8 +41,9 @@ function parseRange(rangeHeader: string | null, fileSize: number): { start: numb
     end = Number.isNaN(end) ? fileSize - 1 : end;
   }
 
-  if (start < 0 || end < start || start >= fileSize || end >= fileSize) return 'invalid';
-  return { start, end };
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)
+    || start < 0 || end < start || start >= fileSize) return 'invalid';
+  return { start, end: Math.min(end, fileSize - 1) };
 }
 
 export function publicShareErrorResponse(resolved: Extract<PublicShareResolution, { ok: false }>) {
@@ -99,6 +103,7 @@ async function resolveResponseFile(
       fullPath: resolved.fullPath,
       sizeBytes: resolved.sizeBytes,
       mimeType: resolved.mimeType,
+      fileIdentity: resolved.row.fileIdentity,
       asSiteAsset: false,
     };
   }
@@ -121,6 +126,7 @@ async function resolveResponseFile(
     fileName: path.posix.basename(workspacePath),
     fullPath: realPath,
     sizeBytes: stats.size,
+    fileIdentity: `${stats.dev}:${stats.ino}:${stats.birthtimeMs}`,
     mimeType: workspacePath === resolved.workspacePath ? resolved.mimeType : getPublicShareMimeType(workspacePath),
     asSiteAsset: workspacePath !== resolved.workspacePath,
   };
@@ -133,7 +139,23 @@ export type PublicShareResponseFile = {
   sizeBytes: number;
   mimeType: string;
   asSiteAsset: boolean;
+  fileIdentity?: string;
+  handle?: FileHandle;
 };
+
+export async function openPublicShareResponseFile(file: PublicShareResponseFile): Promise<PublicShareResponseFile> {
+  const handle = await fs.open(file.fullPath, 'r');
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile() || (file.fileIdentity && !publicShareFileIdentityMatches(stats, file.fileIdentity))) {
+      throw new Error('Shared file was replaced.');
+    }
+    return { ...file, sizeBytes: stats.size, handle };
+  } catch (error) {
+    await handle.close();
+    throw error;
+  }
+}
 
 export function publicShareFileStreamResponse(
   request: NextRequest,
@@ -143,10 +165,12 @@ export function publicShareFileStreamResponse(
 ) {
   const range = parseRange(request.headers.get('range'), responseFile.sizeBytes);
   if (range === 'invalid') {
+    void responseFile.handle?.close();
     return new NextResponse(null, {
       status: 416,
       headers: {
         'Content-Range': `bytes */${responseFile.sizeBytes}`,
+        'Cache-Control': 'no-store',
         'Access-Control-Allow-Origin': '*',
       },
     });
@@ -164,12 +188,14 @@ export function publicShareFileStreamResponse(
   });
 
   if (method === 'HEAD') {
+    void responseFile.handle?.close();
     return new NextResponse(null, { status: range ? 206 : 200, headers });
   }
 
-  const nodeStream = range
-    ? createReadStream(responseFile.fullPath, { start: range.start, end: range.end })
-    : createReadStream(responseFile.fullPath);
+  const streamOptions = range ? { start: range.start, end: range.end } : undefined;
+  const nodeStream = responseFile.handle
+    ? responseFile.handle.createReadStream(streamOptions)
+    : createReadStream(responseFile.fullPath, streamOptions);
   const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
 
   return new NextResponse(webStream, { status: range ? 206 : 200, headers });
@@ -185,10 +211,35 @@ export async function publicShareFileResponse(
     return publicShareErrorResponse(resolved);
   }
 
-  const responseFile = await resolveResponseFile(resolved, options.requestedPathParts);
+  let responseFile: PublicShareResponseFile | null;
+  try {
+    responseFile = await resolveResponseFile(resolved, options.requestedPathParts);
+  } catch {
+    return publicShareNotFoundResponse();
+  }
   if (!responseFile) {
     return publicShareNotFoundResponse();
   }
 
-  return publicShareFileStreamResponse(request, responseFile, method, resolved.share.securityMode);
+  try {
+    if (!responseFile.asSiteAsset && resolved.sizeBytes <= PUBLIC_SHARE_TEXT_SIZE_LIMIT && isPublicSharedTextPath(resolved.workspacePath)) {
+      const content = Buffer.from(await readPublicShareText(resolved));
+      const range = parseRange(request.headers.get('range'), content.length);
+      if (range === 'invalid') return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${content.length}`, 'Cache-Control': 'no-store' } });
+      const headers = createPublicFileHeaders({
+        ...responseFile, sizeBytes: content.length, securityMode: resolved.share.securityMode,
+        range: range ? { ...range, total: content.length } : undefined,
+        forceAttachment: request.nextUrl.searchParams.get('download') === '1',
+      });
+      return new NextResponse(method === 'HEAD' ? null : range ? content.subarray(range.start, range.end + 1) : content, {
+        status: range ? 206 : 200, headers,
+      });
+    }
+    if (method === 'GET') responseFile = await openPublicShareResponseFile(responseFile);
+    await assertPublicShareStillActive(resolved);
+    return publicShareFileStreamResponse(request, responseFile, method, resolved.share.securityMode);
+  } catch {
+    await responseFile.handle?.close();
+    return publicShareNotFoundResponse();
+  }
 }

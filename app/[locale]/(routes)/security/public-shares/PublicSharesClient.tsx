@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, ExternalLink, FileText, Filter, Globe2, Loader2, Menu, RefreshCw, Search, ShieldAlert, XCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -9,7 +9,9 @@ import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { authClient } from '@/app/lib/auth-client';
+import { canManagePublicLink } from '@/app/components/file-browser/PublicLinkPanel';
+import { isCancelledShareRequest, useScopedShareRequest } from '@/app/components/file-browser/sharing-client';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import {
   Sheet,
@@ -33,7 +35,9 @@ interface PublicShare {
   sizeBytes: number;
   status: 'active' | 'revoked' | 'missing' | 'stale' | 'expired';
   source: 'ui' | 'agent';
-  securityMode?: 'strict' | 'interactive';
+  securityMode: 'strict' | 'interactive';
+  createdByUserId: string;
+  policyRevision: number;
   createdAt: string;
   updatedAt: string;
   expiresAt: string | null;
@@ -88,6 +92,9 @@ function primaryShareUrl(share: PublicShare) {
 
 export function PublicSharesClient() {
   const t = useTranslations('security.publicShares');
+  const { data: session } = authClient.useSession();
+  const sequence = useRef(0);
+  const [loadedKey, setLoadedKey] = useState('');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
@@ -100,51 +107,32 @@ export function PublicSharesClient() {
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const request = useScopedShareRequest(activeWorkspaceId ?? '');
+  const requestKey = JSON.stringify([activeWorkspaceId, query, status, type, source]);
 
-  const loadShares = async () => {
-    setLoading(true);
-    setError(null);
+  const loadShares = useCallback(async () => {
+    if (!activeWorkspaceId) return;
+    const current = ++sequence.current;
+    setLoading(true); setError(null);
     try {
-      if (!activeWorkspaceId) {
-        await hydrateWorkspaces();
-      }
-      const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-      const params = new URLSearchParams({
-        status,
-        type,
-        source,
-        q: query,
-        limit: '1000',
-      });
-      const response = await fetch(`/api/security/public-shares?${params.toString()}`, {
-        credentials: 'include',
-        cache: 'no-store',
-        headers: workspaceId ? { [WORKSPACE_ID_HEADER]: workspaceId } : undefined,
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('loadFailed'));
-      }
-      setShares(payload.shares || []);
+      const params = new URLSearchParams({ status, type, source, q: query, limit: '1000' });
+      const payload = await request<{ shares: PublicShare[] }>(`/api/security/public-shares?${params}`);
+      if (current !== sequence.current) return;
+      setShares(payload.shares); setLoadedKey(requestKey);
     } catch (err) {
-      const message = err instanceof Error ? err.message : t('loadFailed');
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (current === sequence.current && !isCancelledShareRequest(err)) {
+        setError(err instanceof Error ? err.message : t('loadFailed'));
+        setLoadedKey(requestKey);
+      }
+    } finally { if (current === sequence.current) setLoading(false); }
+  }, [activeWorkspaceId, query, request, requestKey, source, status, t, type]);
 
+  useEffect(() => { void hydrateWorkspaces(); }, [hydrateWorkspaces]);
   useEffect(() => {
-    void hydrateWorkspaces();
-  }, [hydrateWorkspaces]);
-
-  useEffect(() => {
-    const handle = window.setTimeout(() => {
-      void loadShares();
-    }, 150);
-    return () => window.clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, query, status, type, source]);
+    const handle = window.setTimeout(() => void loadShares(), 150);
+    const invalidate = () => { sequence.current++; };
+    return () => { window.clearTimeout(handle); invalidate(); };
+  }, [loadShares]);
 
   const summary = useMemo(() => {
     const active = shares.filter((share) => share.status === 'active').length;
@@ -173,21 +161,15 @@ export function PublicSharesClient() {
   const revokeShare = async (share: PublicShare) => {
     setRevokingId(share.id);
     try {
-      const response = await fetch(`/api/security/public-shares/${encodeURIComponent(share.id)}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : undefined,
+      await request(`/api/security/public-shares/${encodeURIComponent(share.id)}`, {
+        method: 'DELETE', body: { policyRevision: share.policyRevision },
       });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('revokeFailed'));
-      }
       toast.success(t('revoked'));
       await loadShares();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('revokeFailed'));
+      if (!isCancelledShareRequest(err)) toast.error(err instanceof Error ? err.message : t('revokeFailed'));
     } finally {
-      setRevokingId(null);
+      setRevokingId((current) => current === share.id ? null : current);
     }
   };
 
@@ -202,6 +184,7 @@ export function PublicSharesClient() {
           className={compact ? 'min-w-0 justify-start' : undefined}
           onClick={() => copyUrl(shareUrl)}
           title={t('copyUrl')}
+          aria-label={t('copyUrl')}
         >
           <Copy className="h-4 w-4" />
           {compact ? t('copyUrl') : null}
@@ -212,6 +195,7 @@ export function PublicSharesClient() {
           className={compact ? 'min-w-0 justify-start' : undefined}
           asChild
           title={t('openPublicUrl')}
+          aria-label={t('openPublicUrl')}
         >
           <a href={shareUrl} target="_blank" rel="noopener noreferrer">
             <ExternalLink className="h-4 w-4" />
@@ -224,19 +208,20 @@ export function PublicSharesClient() {
           className={compact ? 'min-w-0 justify-start' : undefined}
           asChild
           title={t('openFile')}
+          aria-label={t('openFile')}
         >
-          <Link href={`/files?path=${encodeURIComponent(share.workspacePath)}`}>
+          <Link href={`/files?${new URLSearchParams({ path: share.workspacePath, ...(share.workspaceId ? { workspaceId: share.workspaceId } : {}) })}`}>
             <FileText className="h-4 w-4" />
             {compact ? t('openFile') : null}
           </Link>
         </Button>
-        {share.status === 'active' && (
+        {share.status === 'active' && activeWorkspace && canManagePublicLink(share, activeWorkspace, session?.user.id) && (
           <Button
             variant={compact ? 'outline' : 'ghost'}
             size="sm"
             className={cn('text-destructive hover:text-destructive', compact && 'min-w-0 justify-start')}
             onClick={() => void revokeShare(share)}
-            disabled={revokingId === share.id}
+            disabled={revokingId !== null}
           >
             {revokingId === share.id ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t('revoke')}
@@ -431,7 +416,7 @@ export function PublicSharesClient() {
           </SheetContent>
         </Sheet>
 
-        {loading ? (
+        {loading || loadedKey !== requestKey ? (
           <div className="flex h-48 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
