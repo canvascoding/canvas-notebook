@@ -2,11 +2,12 @@ import { CanvasImage as Image } from './core/image';
 import Link from '@tiptap/extension-link';
 import Mathematics from '@tiptap/extension-mathematics';
 import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
-import TaskItem from '@tiptap/extension-task-item';
+import { CanvasTaskItem as TaskItem } from './core/lists-and-tables';
 import { CanvasTaskList as TaskList } from './core/lists-and-tables';
 import UniqueID from '@tiptap/extension-unique-id';
 import { MarkdownManager } from '@tiptap/markdown';
 import StarterKit from '@tiptap/starter-kit';
+import { CanvasCodeBlock } from './core/base-blocks';
 
 import { getMarkdownSourceModeReason } from '@/app/lib/editor/text-editor-guards';
 import {
@@ -58,7 +59,8 @@ export type MarkdownRichModeAnalysis =
 
 export function richMarkdownCodecExtensions() {
   return [
-    StarterKit.configure({ document: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false }),
+    StarterKit.configure({ document: false, codeBlock: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false }),
+    CanvasCodeBlock,
     ...canvasRichMarkdownExtensions(),
     Link.configure({ openOnClick: false, autolink: false }),
     Image,

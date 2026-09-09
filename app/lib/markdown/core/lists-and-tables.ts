@@ -1,8 +1,8 @@
 import { portableTableCommands } from './table-commands';
 import { renderTableCellBlocks } from './table-breaks';
-import { OrderedList, BulletList, TaskList, ListItem, ORDERED_LIST_MARKER_PATTERN } from '@tiptap/extension-list';
+import { OrderedList, BulletList, TaskList, TaskItem, ListItem, ORDERED_LIST_MARKER_PATTERN } from '@tiptap/extension-list';
 import { Table, TableKit } from '@tiptap/extension-table';
-import type { JSONContent, MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
+import type { JSONContent, MarkdownParseHelpers, MarkdownRendererHelpers, MarkdownToken } from '@tiptap/core';
 import { preserveAdjacentListBoundary } from './list-boundary';
 
 const ORDERED_LIST_PREFIX = new RegExp(`^\\s*(?:${ORDERED_LIST_MARKER_PATTERN})[.)]\\s+`);
@@ -64,6 +64,21 @@ export const CanvasOrderedList = OrderedList.extend({
   },
 });
 
+/** Separate standalone blocks from the first paragraph without touching inline images. */
+function listBlockRenderHelpers(helpers: MarkdownRendererHelpers): MarkdownRendererHelpers {
+  return { ...helpers, renderChild(node, index) {
+    const rendered = helpers.renderChild?.(node, index) ?? helpers.renderChildren([node]);
+    return node.type !== 'paragraph' && !['bulletList', 'orderedList', 'taskList'].includes(node.type ?? '')
+      && rendered && !rendered.startsWith('\n') ? '\n' + rendered : rendered;
+  } };
+}
+
+export const CanvasTaskItem = TaskItem.extend({
+  renderMarkdown(node, helpers, context) {
+    return TaskItem.config.renderMarkdown?.call(this, node, listBlockRenderHelpers(helpers), context) ?? '';
+  },
+});
+
 export const CanvasListItem = ListItem.extend({
   parseMarkdown(token, helpers) {
     const parsed = ListItem.config.parseMarkdown?.call(this, token, helpers);
@@ -79,7 +94,7 @@ export const CanvasListItem = ListItem.extend({
     return parsed ?? [];
   },
   renderMarkdown(node, helpers, context) {
-    const rendered = ListItem.config.renderMarkdown?.call(this, node, helpers, context) ?? '';
+    const rendered = ListItem.config.renderMarkdown?.call(this, node, listBlockRenderHelpers(helpers), context) ?? '';
     const prefix = rendered.match(/^(?:\S+[.)] |[-+*] )/u)?.[0];
     const first = node.content?.[0];
     if (!prefix || !first) return rendered;

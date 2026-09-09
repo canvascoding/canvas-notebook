@@ -5,6 +5,7 @@ import { closeHistory } from '@tiptap/pm/history';
 import { StepMap } from '@tiptap/pm/transform';
 import { BLOCK_MOVE_TRANSACTION_META, createBlockReference, resolveBlockReference, type BlockReference } from './block-reference';
 import { blockElementRect, type BlockElementRect } from './block-control-layout';
+import { resolveBlockContainerMove, type BlockContainerTarget } from './block-container-target';
 
 export type BlockInsertPlacement = 'above' | 'below';
 
@@ -89,12 +90,13 @@ function getTopLevelBlockRangeAt(editor: Editor, position: number): ReorderableB
   return range;
 }
 
-/** Inline bodies and structural slots (cells, titles, list-item bodies) are not sibling blocks. */
-function reorderableBlockKind(node: ProseMirrorNode, parent: ProseMirrorNode, depth: number): ReorderableBlockKind | null {
+/** Inline bodies and required slots (cells, titles, first list paragraphs) are not sibling blocks. */
+function reorderableBlockKind(node: ProseMirrorNode, parent: ProseMirrorNode, depth: number, index: number): ReorderableBlockKind | null {
   if (depth === 1) return 'topLevel';
   if (['listItem', 'taskItem'].includes(node.type.name)
     && ['bulletList', 'orderedList', 'taskList'].includes(parent.type.name)) return 'listItem';
-  if (parent.inlineContent || parent.type.spec.tableRole || ['listItem', 'taskItem'].includes(parent.type.name)) return null;
+  if (parent.inlineContent || parent.type.spec.tableRole
+    || (['listItem', 'taskItem'].includes(parent.type.name) && index === 0 && node.type.name === 'paragraph')) return null;
   return node.type.isInGroup('block') ? 'nested' : null;
 }
 
@@ -113,7 +115,7 @@ function getContainedBlockRangeAt(
     if (!node || node.isInline) continue;
     const parentDepth = depth - 1;
     const parentNode = $position.node(parentDepth);
-    const kind = reorderableBlockKind(node, parentNode, depth);
+    const kind = reorderableBlockKind(node, parentNode, depth, $position.index(parentDepth));
     if (!kind) continue;
     const parentFrom = $position.start(parentDepth);
     const parentTo = $position.end(parentDepth);
@@ -161,7 +163,7 @@ export function resolveReorderableBlockRange(
   if (editor.isDestroyed) return null;
   const current = resolveBlockReference(editor.state.doc, editor, range.reference);
   if (!current || current.node.type !== range.node.type) return null;
-  if (range.kind !== reorderableBlockKind(current.node, current.parent, current.depth)) return null;
+  if (range.kind !== reorderableBlockKind(current.node, current.parent, current.depth, editor.state.doc.resolve(current.from).index())) return null;
   return { ...range, ...current };
 }
 
@@ -375,44 +377,77 @@ export type BlockMoveResult = { ok: true } | {
 export function applyReorderableBlockMove(
   editor: Editor,
   capturedSource: ReorderableBlockRange,
-  destination: BlockDropTarget | number,
+  destination: BlockDropTarget | BlockContainerTarget | number,
   options: { preserveSelection?: boolean } = {},
 ): BlockMoveResult {
   if (editor.isDestroyed || !editor.isEditable || editor.view.composing) return { ok: false, reason: 'read_only' };
   const source = resolveReorderableBlockRange(editor, capturedSource);
   if (!source) return { ok: false, reason: 'source_changed' };
+  const containerTarget = typeof destination !== 'number' && 'kind' in destination ? destination : null;
+  const containerMove = containerTarget ? resolveBlockContainerMove(editor, source, containerTarget) : null;
+  if (containerTarget && !containerMove) return { ok: false, reason: 'invalid_destination' };
   let insertPosition: number;
   if (typeof destination === 'number') {
     insertPosition = destination;
+  } else if ('kind' in destination) {
+    insertPosition = containerMove!.insertPosition;
   } else {
     const target = resolveReorderableBlockRange(editor, destination.target);
     if (!target) return { ok: false, reason: 'target_changed' };
     if (source.kind !== target.kind) return { ok: false, reason: 'invalid_destination' };
     insertPosition = destination.placement === 'before' ? target.from : target.to;
   }
-  if (!Number.isInteger(insertPosition) || insertPosition < source.parentFrom || insertPosition > source.parentTo) {
+  if (!Number.isInteger(insertPosition) || (!containerMove && (insertPosition < source.parentFrom || insertPosition > source.parentTo))) {
     return { ok: false, reason: 'invalid_destination' };
   }
   const $insert = editor.state.doc.resolve(insertPosition);
-  if ($insert.depth !== source.depth - 1 || $insert.start() !== source.parentFrom || $insert.textOffset !== 0) {
+  if ((!containerMove && ($insert.depth !== source.depth - 1 || $insert.start() !== source.parentFrom)) || $insert.textOffset !== 0) {
     return { ok: false, reason: 'invalid_destination' };
   }
   if (insertPosition >= source.from && insertPosition <= source.to) return { ok: false, reason: 'no_change' };
 
   try {
     const beforeDocument = editor.state.doc;
-    const transaction = closeHistory(editor.state.tr).delete(source.from, source.to);
+    const transaction = closeHistory(editor.state.tr);
     // Reordering an existing block must not also create a trailing paragraph.
     transaction.setMeta('skipTrailingNode', true);
-    const adjustedInsertPosition = transaction.mapping.map(insertPosition);
-    transaction.insert(adjustedInsertPosition, source.node).scrollIntoView();
+    let adjustedInsertPosition: number;
+    if (containerMove) {
+      transaction.insert(insertPosition, source.node);
+      transaction.delete(transaction.mapping.map(containerMove.removeFrom, 1), transaction.mapping.map(containerMove.removeTo, -1));
+      adjustedInsertPosition = transaction.mapping.map(insertPosition, -1);
+    } else {
+      transaction.delete(source.from, source.to);
+      adjustedInsertPosition = transaction.mapping.map(insertPosition);
+      transaction.insert(adjustedInsertPosition, source.node);
+    }
+    if (containerMove) {
+      const oldParent = editor.state.doc.resolve(containerMove.removeFrom).parent;
+      if (['canvasCallout', 'canvasDetailsContent', 'markdownFootnoteDefinition'].includes(oldParent.type.name)) {
+        const currentParent = resolveBlockReference(transaction.doc, editor, createBlockReference(editor, oldParent));
+        if (currentParent && !currentParent.node.content.content.some(node => node.type.isInGroup('block'))) {
+          // These Markdown bodies canonicalize emptiness as one paragraph.
+          // Keep the titled container representable without reusing the moved ID.
+          transaction.insert(currentParent.to - 1, editor.schema.nodes.paragraph.create());
+          adjustedInsertPosition = transaction.mapping.maps.at(-1)!.map(adjustedInsertPosition, -1);
+        }
+      }
+      const $destination = transaction.doc.resolve(adjustedInsertPosition);
+      for (let depth = 1; depth <= $destination.depth; depth++) {
+        const ancestor = $destination.node(depth);
+        if (ancestor.type.name === 'canvasDetails' && !ancestor.attrs.open) {
+          transaction.setNodeAttribute($destination.before(depth), 'open', true);
+        }
+      }
+    }
+    transaction.scrollIntoView();
     transaction.doc.check();
     if (source.reference.id) {
       const parent = editor.state.doc.resolve(source.from).parent;
       const after = transaction.doc.nodeAt(adjustedInsertPosition + source.node.nodeSize);
       transaction.setMeta(BLOCK_MOVE_TRANSACTION_META, {
         blockId: source.reference.id,
-        parentId: parent.type === editor.state.doc.type ? null : parent.attrs.id,
+        parentId: containerMove ? containerMove.parentId : parent.type === editor.state.doc.type ? null : parent.attrs.id,
         beforeId: after?.attrs.id ?? null,
       });
     }

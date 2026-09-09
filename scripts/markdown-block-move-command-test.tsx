@@ -18,6 +18,10 @@ import { createLocalMarkdownRichExtension, LOCAL_MARKDOWN_PROJECTION } from '../
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { BLOCK_MOVE_TRANSACTION_META } from '../app/lib/editor/block-reference';
+import { createBlockReference, resolveBlockReference } from '../app/lib/editor/block-reference';
+import { getBlockContainerOptions, type BlockContainerTarget } from '../app/lib/editor/block-container-target';
+import { equivalentRichDocument } from '../app/lib/markdown/core/equivalence';
+import { parseDetailsBlock } from '../app/lib/markdown/core/details-block';
 import { applyReorderableBlockMove, createInsertedBlockCommandTarget, getBlockDropTarget, getBlockInsertButtonPosition,
   getReorderableBlockRangeAt, resolveReorderableBlockRange } from '../app/lib/editor/reorderable-blocks';
 
@@ -37,7 +41,7 @@ dom.window.Range.prototype.getBoundingClientRect = () => new dom.window.DOMRect(
 function harness(collaborative: boolean, markdown = 'AAA\n\nBBB\n\nCCC') {
   const manager = createRichMarkdownManager();
   const local = collaborative ? null : new LocalMarkdownDocument(manager.serialize(manager.parse(markdown)));
-  if (local) assert.ok(local.getSnapshot().richDocument, 'the fixture must be representable in the local rich view');
+  if (local) assert.ok(local.getSnapshot().richDocument, `the fixture must be representable in the local rich view: ${markdown}`);
   const doc = collaborative ? new Y.Doc() : null;
   if (doc) {
     const extensions = richMarkdownCodecExtensions();
@@ -448,5 +452,337 @@ test('desktop and touch menus preserve their moved target and revoke old view/pe
   } finally {
     if (!unmounted) await act(async () => root.unmount());
     a.destroy(); b.destroy(); h.destroy(); container.remove();
+  }
+});
+
+for (const collaborative of [false, true]) test(`explicit container moves preserve identities, required slots and one selection/history action (collaborative=${collaborative})`, async () => {
+  const cases = [
+    { markdown: '> AAA\n\nBBB\n\nCCC', source: 'paragraph', text: 'BBB', target: 'blockquote' },
+    { markdown: '> BBB\n\n> [!note] Title\n> AAA\n\nCCC', source: 'paragraph', text: 'BBB', target: 'canvasCallout', pruned: 'blockquote' },
+    { markdown: '> > BBB\n\nCCC', source: 'paragraph', text: 'BBB', target: 'blockquote', ancestor: true },
+    { markdown: '> [!note] Title\n> BBB\n\nCCC', source: 'paragraph', text: 'BBB', target: 'doc' },
+    { markdown: '<details>\n<summary>Title</summary>\n\nBBB\n\n</details>\n\n> AAA\n\nCCC', source: 'paragraph', text: 'BBB', target: 'blockquote' },
+    { markdown: '> AAA\n\n<details>\n<summary>Title</summary>\n\nBBB\n\n</details>\n\nCCC', source: 'paragraph', text: 'AAA', target: 'canvasDetailsContent', pruned: 'blockquote' },
+    { markdown: '- BBB\n\nCCC\n\n7. AAA', source: 'listItem', text: 'BBB', target: 'orderedList', pruned: 'bulletList' },
+    { markdown: '- [x] BBB\n\nCCC\n\n- [ ] AAA', source: 'taskItem', text: 'BBB', target: 'taskList', pruned: 'taskList' },
+    { markdown: '> AAA\n\n| H |\n| --- |\n| BBB |\n\nCCC', source: 'tableCell', text: 'BBB', target: 'blockquote', cell: true },
+    { markdown: '- AAA\n\n![Alt](image.png)\n\nCCC', source: 'image', target: 'listItem' },
+    { markdown: 'BBB\n\nReference[^n]\n\n[^n]: AAA', source: 'paragraph', text: 'BBB', target: 'markdownFootnoteDefinition' },
+  ];
+  for (const item of cases) {
+    const h = harness(collaborative, item.markdown);
+    const editor = h.mount();
+    try {
+      await Promise.resolve();
+      const from = position(editor, item.source, item.text);
+      const node = editor.state.doc.nodeAt(from)!;
+      editor.view.dispatch(editor.state.tr.setSelection(item.cell ? CellSelection.create(editor.state.doc, from)
+        : node.isTextblock ? TextSelection.create(editor.state.doc, from + 3, from + 1) : NodeSelection.create(editor.state.doc, from)));
+      const source = captureBlockMoveSource(editor)!;
+      const before = editor.getJSON();
+      const sourceId = source.node.attrs.id;
+      const oldParentId = editor.state.doc.resolve(source.from).parent.attrs.id;
+      const options = getBlockContainerOptions(editor, source);
+      const destination = options.find(option => option.type === item.target
+        && option.target.parent?.id !== oldParentId);
+      assert(destination, `a destination exists for ${item.source} → ${item.target}`);
+      const targetId = destination.target.parent?.id ?? null;
+      assert.equal(applyReorderableBlockMove(editor, source, destination.target, { preserveSelection: true }).ok, true, JSON.stringify(item));
+      editor.state.doc.check();
+      const ids = new Set<string>();
+      editor.state.doc.descendants(node => {
+        if (node.isText) return;
+        assert.equal(typeof node.attrs.id, 'string');
+        assert(node.attrs.id && !ids.has(node.attrs.id), 'moved blocks and new empty-body paragraphs have unique IDs');
+        ids.add(node.attrs.id);
+      });
+      const current = resolveBlockReference(editor.state.doc, editor, source.reference)!;
+      assert(current, 'the original block identity remains addressable after changing its container');
+      assert(editor.state.selection.from >= current.from && editor.state.selection.to <= current.to, 'selection remains inside the moved block');
+      assert.equal(current.node.attrs.id, sourceId);
+      assert.deepEqual(current.node.toJSON(), source.node.toJSON(), 'all moved descendants retain their IDs, attributes and text');
+      const actualParent = editor.state.doc.resolve(current.from).parent;
+      assert.equal(actualParent === editor.state.doc ? null : actualParent.attrs.id, targetId);
+      assert.equal(actualParent.lastChild!.attrs.id, sourceId, 'the explicit action appends to the chosen current container');
+      if (item.pruned) {
+        let oldParentRemains = false;
+        editor.state.doc.descendants(node => { if (node.attrs.id === oldParentId) oldParentRemains = true; });
+        assert.equal(oldParentRemains, false, 'an emptied required wrapper is removed without a phantom replacement item');
+      }
+      if (item.ancestor) assert.equal(editor.state.doc.firstChild!.firstChild!.type.name, 'paragraph', 'the empty inner quote is pruned, but its destination ancestor survives');
+      if (item.target === 'canvasDetailsContent') assert.equal(editor.state.doc.firstChild!.attrs.open, true, 'the destination opens in the same undoable move so its new content is visible');
+      if (item.cell) assert(editor.state.selection instanceof CellSelection);
+      const moved = editor.getJSON();
+      const selection = editor.state.selection.toJSON();
+      const manager = createRichMarkdownManager();
+      assert(equivalentRichDocument(moved, editor.schema.nodeFromJSON(manager.parse(manager.serialize(moved))).toJSON()),
+        `${JSON.stringify(item)}: an offered move remains representable through the strict Markdown roundtrip`);
+      assert.equal(editor.commands.undo(), true);
+      assert.deepEqual(editor.getJSON(), before);
+      assert.equal(editor.can().undo(), false);
+      assert.equal(editor.commands.redo(), true);
+      assert.deepEqual(editor.getJSON(), moved);
+      assert.deepEqual(editor.state.selection.toJSON(), selection);
+      assert.deepEqual(h.errors, []);
+    } finally { editor.destroy(); h.destroy(); }
+  }
+});
+
+test('container choices follow current target identities and reject deleted, foreign, cyclic or revoked destinations', async () => {
+  const h = harness(true, '> AAA\n\nBBB\n\nCCC');
+  const editor = h.mount();
+  try {
+    await Promise.resolve();
+    editor.commands.setTextSelection(position(editor, 'paragraph', 'BBB') + 1);
+    const source = captureBlockMoveSource(editor)!;
+    const destination = getBlockContainerOptions(editor, source).find(option => option.type === 'blockquote')!.target;
+    const tree = new CollaborationBlockTree(h.doc!, editor.schema);
+    const quote = editor.state.doc.firstChild!;
+    tree.move({ blockId: quote.attrs.id, parentId: null, beforeId: null, operationId: 'destination-moved' }, 'peer');
+    tree.updateInlineContent(source.node.attrs.id, source.node.type.create(source.node.attrs, editor.schema.text('Peer BBB')), 'peer');
+    assert.equal(applyReorderableBlockMove(editor, source, destination, { preserveSelection: true }).ok, true);
+    assert.equal(editor.state.doc.lastChild!.lastChild!.textContent, 'Peer BBB');
+    assert.equal(editor.commands.undo(), true);
+    assert.equal(editor.state.doc.firstChild!.textContent, 'Peer BBB');
+    assert.equal(editor.state.doc.lastChild!.attrs.id, quote.attrs.id, 'own undo retains the peer container move');
+    const before = Y.encodeStateAsUpdate(h.doc!);
+    const self: BlockContainerTarget = { kind: 'container', scope: editor, parent: createBlockReference(editor, editor.state.doc.lastChild!) };
+    const quoteRange = getReorderableBlockRangeAt(editor, editor.state.doc.content.size - quote.nodeSize)!;
+    assert.equal(applyReorderableBlockMove(editor, quoteRange, self).ok, false);
+    assert.equal(applyReorderableBlockMove(editor, source, { ...destination, scope: {} as Editor }).ok, false);
+    editor.setEditable(false);
+    assert.equal(applyReorderableBlockMove(editor, source, destination).ok, false);
+    editor.setEditable(true);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc!), before);
+    tree.delete(quote.attrs.id, 'delete-destination', 'peer');
+    const deleted = Y.encodeStateAsUpdate(h.doc!);
+    assert.equal(applyReorderableBlockMove(editor, source, destination).ok, false);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc!), deleted);
+    assert.deepEqual(h.errors, []);
+  } finally { editor.destroy(); h.destroy(); }
+});
+
+test('container reparenting retains concurrent peer text, selective history and binary restart', async () => {
+  for (const markdown of ['> AAA\n\nBBB\n\nCCC', '> [!note] Title\n> BBB\n\n> AAA\n\nCCC', '- BBB\n\nCCC\n\n7. AAA']) {
+    const h = harness(true, markdown);
+    const editor = h.mount();
+    const peer = new Y.Doc();
+    try {
+      await Promise.resolve();
+      Y.applyUpdate(peer, Y.encodeStateAsUpdate(h.doc!));
+      editor.commands.setTextSelection(position(editor, 'paragraph', 'BBB') + 2);
+      const source = captureBlockMoveSource(editor)!;
+      const options = getBlockContainerOptions(editor, source);
+      const destination = options.find(option => ['blockquote', 'orderedList'].includes(option.type))!;
+      const peerTree = new CollaborationBlockTree(peer, editor.schema);
+      const paragraph = editor.state.doc.nodeAt(position(editor, 'paragraph', 'BBB'))!;
+      const originalParentId = editor.state.doc.resolve(source.from).parent.attrs.id;
+      assert.equal(applyReorderableBlockMove(editor, source, destination.target, { preserveSelection: true }).ok, true);
+      peerTree.updateInlineContent(paragraph.attrs.id, paragraph.type.create(paragraph.attrs, editor.schema.text('BBB 👩🏽‍💻 Peer')), 'peer');
+      Y.applyUpdate(h.doc!, Y.encodeStateAsUpdate(peer), 'peer');
+      Y.applyUpdate(peer, Y.encodeStateAsUpdate(h.doc!), 'peer');
+      assert.deepEqual(peerTree.read().toJSON(), editor.getJSON());
+      const moved = resolveBlockReference(editor.state.doc, editor, source.reference)!;
+      assert.equal(moved.node.textContent, 'BBB 👩🏽‍💻 Peer');
+      assert.equal(moved.parent.attrs.id, destination.target.parent!.id);
+      assert.equal(editor.commands.undo(), true);
+      const undone = resolveBlockReference(editor.state.doc, editor, source.reference)!;
+      assert.equal(undone.node.textContent, 'BBB 👩🏽‍💻 Peer');
+      assert.equal(undone.parent.attrs.id, originalParentId, 'undo restores the original container, including a pruned list wrapper');
+      assert.equal(editor.commands.redo(), true);
+      assert.equal(resolveBlockReference(editor.state.doc, editor, source.reference)!.parent.attrs.id, destination.target.parent!.id);
+      const restored = new Y.Doc();
+      try {
+        Y.applyUpdate(restored, Y.encodeStateAsUpdate(h.doc!));
+        assert.deepEqual(new CollaborationBlockTree(restored, editor.schema).read().toJSON(), editor.getJSON());
+      } finally { restored.destroy(); }
+      assert.deepEqual(h.errors, []);
+    } finally { editor.destroy(); peer.destroy(); h.destroy(); }
+  }
+});
+
+test('the actual desktop and touch container menu follows peer edits and revokes old intents', async () => {
+  const { MarkdownBlockMoveMenu } = await import('../app/components/editor/MarkdownBlockMoveMenu');
+  for (const mobile of [false, true]) {
+    const h = harness(true, '> AAA\n\nBBB\n\nCCC');
+    const editor = h.mount();
+    const replacement = h.mount();
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container);
+    const render = async (current: Editor) => act(async () => root.render(
+      <StrictMode><NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+        <MarkdownBlockMoveMenu editor={current} mobile={mobile} />
+      </NextIntlClientProvider></StrictMode>));
+    const open = async () => act(async () => {
+      const button = container.querySelector('button')!;
+      const event = mobile ? new dom.window.MouseEvent('pointerdown', { button: 0, bubbles: true, cancelable: true })
+        : new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+      if (mobile) Object.defineProperty(event, 'pointerType', { value: 'touch' });
+      button.dispatchEvent(event);
+    });
+    try {
+      await Promise.resolve();
+      editor.commands.setTextSelection(position(editor, 'paragraph', 'BBB') + 1);
+      const source = captureBlockMoveSource(editor)!;
+      const tree = new CollaborationBlockTree(h.doc!, editor.schema);
+      const quoteId = editor.state.doc.firstChild!.attrs.id;
+      await render(editor); await open();
+      const option = () => document.querySelector<HTMLElement>(`[data-container-id="${quoteId}"]`)!;
+      assert(option(), 'the real menu exposes compatible container destinations');
+      await act(async () => {
+        tree.move({ blockId: quoteId, parentId: null, beforeId: null, operationId: 'menu-peer-container' }, 'peer');
+        tree.updateInlineContent(source.node.attrs.id, source.node.type.create(source.node.attrs, editor.schema.text('Peer BBB')), 'peer');
+      });
+      assert(option().textContent!.includes('3 · Quote'), 'destination path follows its current position');
+      await act(async () => option().click());
+      assert.equal(editor.state.doc.lastChild!.lastChild!.textContent, 'Peer BBB');
+      await act(async () => { assert(editor.commands.undo()); });
+      assert.equal(editor.state.doc.firstChild!.textContent, 'Peer BBB');
+      await open();
+      const old = option();
+      await act(async () => { editor.setEditable(false); editor.setEditable(true); });
+      assert.equal(document.querySelector('[role="menu"]'), null);
+      const before = Y.encodeStateAsUpdate(h.doc!);
+      await act(async () => old.click());
+      assert.deepEqual(Y.encodeStateAsUpdate(h.doc!), before);
+      await open();
+      await render(replacement); await render(editor);
+      assert.equal(document.querySelector('[role="menu"]'), null);
+      await act(async () => old.click());
+      assert.deepEqual(Y.encodeStateAsUpdate(h.doc!), before);
+      await open();
+      await act(async () => {
+        editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionstart', { bubbles: true }));
+        editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionend', { bubbles: true }));
+        await Promise.resolve();
+      });
+      assert.equal(document.querySelector('[role="menu"]'), null);
+      await act(async () => old.click());
+      assert.deepEqual(Y.encodeStateAsUpdate(h.doc!), before);
+      assert.deepEqual(h.errors, []);
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy(); replacement.destroy(); h.destroy(); container.remove();
+    }
+  }
+});
+
+for (const collaborative of [false, true]) test(`list body blocks can move into and back out of items while their first paragraph stays protected (collaborative=${collaborative})`, async () => {
+  for (const fixture of [
+    { markdown: '- AAA\n\n![Alt](image.png)\n\nCCC', type: 'image' },
+    { markdown: '- AAA\n\n```ts\nBBB\n```\n\nCCC', type: 'codeBlock' },
+    { markdown: '- AAA\n\nBBB\n\nCCC', type: 'paragraph', text: 'BBB' },
+    { markdown: '- AAA\n\n> BBB\n\nCCC', type: 'blockquote' },
+  ]) {
+    const h = harness(collaborative, fixture.markdown);
+    const editor = h.mount();
+    try {
+      await Promise.resolve();
+      const from = position(editor, fixture.type, fixture.text);
+      editor.commands.setNodeSelection(from);
+      const captured = captureBlockMoveSource(editor)!;
+      const destination = getBlockContainerOptions(editor, captured).find(option => option.type === 'listItem')!;
+      const before = editor.getJSON();
+      assert.equal(applyReorderableBlockMove(editor, captured, destination.target, { preserveSelection: true }).ok, true);
+      const nested = captureBlockMoveSource(editor)!;
+      assert.equal(nested.reference.id, captured.reference.id, 'the inserted block remains individually selectable');
+      assert.equal(nested.kind, 'nested');
+      assert.equal(moveBlockInDirection(editor, 'up', nested).ok, false, 'a move cannot precede the required first paragraph');
+      const root = getBlockContainerOptions(editor, nested).find(option => option.type === 'doc')!;
+      assert.equal(applyReorderableBlockMove(editor, nested, root.target, { preserveSelection: true }).ok, true);
+      assert.deepEqual(editor.state.doc.lastChild!.toJSON(), captured.node.toJSON());
+      assert.equal(editor.state.doc.firstChild!.firstChild!.childCount, 1);
+      assert.equal(editor.state.doc.firstChild!.textContent, 'AAA');
+      assert.equal(editor.commands.undo(), true);
+      assert.equal(captureBlockMoveSource(editor)!.reference.id, captured.reference.id);
+      assert.equal(editor.commands.undo(), true);
+      assert.deepEqual(editor.getJSON(), before);
+      assert.deepEqual(h.errors, []);
+    } finally { editor.destroy(); h.destroy(); }
+  }
+});
+
+test('offered container pairs retain the strict Markdown structure contract', async () => {
+  const sources = ['BBB', '```ts\nBBB\n```', '![Alt](image.png)', '---', '| H |\n| --- |\n| BBB |',
+    '> [!note] **Source**\n> **BBB** and `code` 👩🏽‍💻\n>\n> Second', '<details>\n<summary>Source</summary>\n\nBBB\n\n</details>', '- BBB', '[^source]: BBB', '$$\nx^2\n$$',
+    '<img src="image.png" alt="Alt" width="120" height="90" style="display:block;max-width:100%;height:auto;margin-left:auto;margin-right:auto">'];
+  const targets = [
+    { markdown: '> AAA', type: 'blockquote' },
+    { markdown: '> [!note] Target\n> AAA', type: 'canvasCallout' },
+    { markdown: '<details>\n<summary>Target</summary>\n\nAAA\n\n</details>', type: 'canvasDetailsContent' },
+    { markdown: '- AAA', type: 'listItem' },
+    { markdown: '- [x] AAA', type: 'taskItem' },
+    { markdown: '[^target]: AAA', type: 'markdownFootnoteDefinition' },
+  ];
+  const manager = createRichMarkdownManager();
+  for (const sourceMarkdown of sources) for (const target of targets) {
+    // A leading thematic break is ambiguous with YAML frontmatter; keep this
+    // matrix about moving blocks inside an already editable Markdown body.
+    const h = harness(false, `INTRO\n\n${sourceMarkdown}\n\nSEPARATOR\n\n${target.markdown}\n\nTAIL`);
+    const editor = h.mount();
+    try {
+      await Promise.resolve();
+      editor.commands.setNodeSelection(editor.state.doc.firstChild!.nodeSize);
+      const source = captureBlockMoveSource(editor)!;
+      const destination = getBlockContainerOptions(editor, source).find(option => option.type === target.type);
+      assert(destination, `${source.node.type.name} → ${target.type} is an expected supported pair`);
+      const before = editor.getJSON();
+      const result = applyReorderableBlockMove(editor, source, destination.target, { preserveSelection: true });
+      assert.equal(result.ok, true, `${source.node.type.name} → ${target.type} must not offer an invalid write`);
+      const next = editor.getJSON();
+      const markdown = manager.serialize(next);
+      const reloaded = editor.schema.nodeFromJSON(manager.parse(markdown)).toJSON();
+      assert(equivalentRichDocument(next, reloaded), `${source.node.type.name} → ${target.type} must retain its Markdown structure`);
+      assert.equal(manager.serialize(reloaded), markdown, 'the serialized checkpoint is also a textual fixed point');
+      assert.equal(editor.commands.undo(), true);
+      assert.deepEqual(editor.getJSON(), before);
+      assert.deepEqual(h.errors, []);
+    } finally { editor.destroy(); h.destroy(); }
+  }
+});
+
+for (const collaborative of [false, true]) test(`rejected container transactions cannot open Details, prune a wrapper or add history (collaborative=${collaborative})`, async () => {
+  const h = harness(collaborative, '> BBB\n\n<details>\n<summary>Target</summary>\n\nAAA\n\n</details>');
+  const editor = h.mount();
+  try {
+    await Promise.resolve();
+    editor.registerPlugin(new Plugin({ filterTransaction: transaction => !transaction.getMeta(BLOCK_MOVE_TRANSACTION_META) }));
+    await Promise.resolve();
+    editor.commands.setTextSelection(position(editor, 'paragraph', 'BBB') + 1);
+    const source = captureBlockMoveSource(editor)!;
+    const destination = getBlockContainerOptions(editor, source).find(option => option.type === 'canvasDetailsContent')!;
+    const before = editor.getJSON();
+    const selection = editor.state.selection.toJSON();
+    const durable = h.doc ? Y.encodeStateAsUpdate(h.doc) : h.local!.getSnapshot();
+    assert.equal(applyReorderableBlockMove(editor, source, destination.target, { preserveSelection: true }).ok, false);
+    assert.deepEqual(editor.getJSON(), before);
+    assert.deepEqual(editor.state.selection.toJSON(), selection);
+    assert.deepEqual(h.doc ? Y.encodeStateAsUpdate(h.doc) : h.local!.getSnapshot(), durable);
+    assert.equal(editor.can().undo(), false);
+    assert.deepEqual(h.errors, []);
+  } finally { editor.destroy(); h.destroy(); }
+});
+
+test('nested Details balance real containers while preserving tag-looking code and following blocks', () => {
+  const manager = createRichMarkdownManager();
+  const schema = getSchema(richMarkdownCodecExtensions());
+  for (const ending of ['\n', '\r\n']) for (const fence of ['```', '````', '~~~~']) {
+    const literal = '</details>\n<details>\n' + (fence === '````' ? '```\n</details>\n' : '') + 'literal';
+    const inner = `<details open>\n<summary>Inner</summary>\n\n${fence}txt\n${literal}\n${fence}\n\n</details>`;
+    const outer = `<details>\n<summary>Outer</summary>\n\nBefore\n\n${inner}\n\nAfter\n\n</details>`.replaceAll('\n', ending);
+    const token = parseDetailsBlock(outer + ending + ending + 'TAIL')!;
+    assert(token);
+    assert.equal(token.raw, outer + ending);
+    assert.equal(token.open, false);
+    assert.equal(token.summary, 'Outer');
+    const json = schema.nodeFromJSON(manager.parse(outer + ending + ending + 'TAIL'));
+    assert.equal(json.childCount, 2);
+    assert.equal(json.lastChild!.textContent, 'TAIL');
+    const body = json.firstChild!.child(1);
+    assert.equal(body.childCount, 3);
+    assert.equal(body.child(1).type.name, 'canvasDetails');
+    assert.equal(body.child(1).child(1).firstChild!.textContent, literal);
+    assert(equivalentRichDocument(json.toJSON(), schema.nodeFromJSON(manager.parse(manager.serialize(json.toJSON()))).toJSON()));
+    assert.equal(parseDetailsBlock(outer.slice(0, outer.lastIndexOf('</details>'))), null, 'an inner closing tag cannot close an unfinished outer block');
   }
 });

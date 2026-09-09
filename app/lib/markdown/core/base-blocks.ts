@@ -1,9 +1,23 @@
 import Paragraph from '@tiptap/extension-paragraph';
 import Blockquote from '@tiptap/extension-blockquote';
 import Heading from '@tiptap/extension-heading';
+import CodeBlock from '@tiptap/extension-code-block';
 import { renderInlineWithMarkedWhitespace } from './inline-mark-whitespace';
 
 const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;';
+
+/** Literal fence markers in code must not terminate the serialized block. */
+export const CanvasCodeBlock = CodeBlock.extend({
+  renderMarkdown(node, helpers) {
+    const language = String(node.attrs?.language ?? '');
+    const content = helpers.renderChildren(node.content ?? []);
+    const marker = language.includes('`') ? '~' : '`';
+    const runs = content.match(marker === '`' ? /`+/gu : /~+/gu) ?? [];
+    const length = runs.reduce((longest, run) => Math.max(longest, run.length + 1), 3);
+    const fence = marker.repeat(length);
+    return `${fence}${language}\n${content}\n${fence}`;
+  },
+});
 
 // A newly inserted quote serializes as `>`. Marked gives it no child tokens,
 // but the blockquote schema requires at least one block, including on reload.

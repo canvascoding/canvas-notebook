@@ -120,6 +120,17 @@ if (!process.argv.includes('--probe')) {
     const restored = new Y.Doc(); documents.push(restored); Y.applyUpdate(restored, before);
     assert.deepEqual(validateRichMarkdownYDoc(restored), validation);
     assert.deepEqual(new CollaborationBlockTree(restored, schema).read().toJSON(), a.read().toJSON());
+    for (const body of [
+      '- Item\n\n  ![Alt](image.png)\n\nTAIL',
+      '- [x] Task\n\n  > [!note] **Title**\n  > **Body** and `code`\n\nTAIL',
+      '<details>\n<summary>Outer</summary>\n\n<details open>\n<summary>Inner</summary>\n\n````txt\n</details>\n```\n<details>\n````\n\n</details>\n\n</details>\n\nTAIL',
+      '> [!note] Empty body\n\nTAIL',
+    ]) {
+      const fixture = markdown.createRichMarkdownYDoc(body, 'tiptap_blocks'); documents.push(fixture);
+      const saved = Y.encodeStateAsUpdate(fixture);
+      assert.equal(validateRichMarkdownYDoc(fixture).valid, true, 'the built checkpoint accepts preserved nested block structures');
+      assert.deepEqual(Y.encodeStateAsUpdate(fixture), saved, 'nested block validation is read-only');
+    }
     assert.equal(loadedYjs.size, 1, `Production loaded multiple Yjs modules: ${[...loadedYjs].join(', ')}`);
     assert.deepEqual(duplicateWarnings, []);
     console.log('Browser ESM is preserved. Node and built checkpoint modules share one Yjs instance; XML/block validation, concurrent move/text editing and binary reload preserve identity and content.');

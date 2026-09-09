@@ -1,3 +1,4 @@
+import { parseDetailsBlock } from './core/details-block';
 import {
   Mark,
   Node,
@@ -73,7 +74,12 @@ function blockContent(
   token: MarkdownToken,
   helpers: MarkdownParseHelpers,
 ): JSONContent[] {
-  const parsed = helpers.parseChildren(token.tokens ?? []);
+  // Nested list lexers emit text tokens even for a container's block body.
+  const parseBlocks = helpers.parseBlockChildren ?? helpers.parseChildren;
+  const tokens = (token.tokens ?? []).map(child => child.type === 'text'
+    ? { ...child, type: 'paragraph', tokens: child.tokens ?? [{ type: 'text', raw: child.raw, text: child.text }] }
+    : child);
+  const parsed = parseBlocks(tokens);
   return parsed.length > 0 ? parsed : [helpers.createNode('paragraph')];
 }
 
@@ -462,16 +468,13 @@ export const CanvasDetails = Node.create({
     level: 'block',
     start: createBlockStartHint(/^<details(?:\s+open(?:=(?:"open"|'open'|open))?)?>[ \t]*$/mu, '<details'),
     tokenize: (source, _tokens, lexer) => {
-      const match = source.match(
-        /^<details(?:\s+(open)(?:=(?:"open"|'open'|open))?)?>[ \t]*\r?\n<summary>([^\r\n]*)<\/summary>[ \t]*\r?\n([\s\S]*?)\r?\n<\/details>(?:\r?\n|$)/u,
-      );
+      const match = parseDetailsBlock(source);
       if (!match) return undefined;
-      const summary = match[2].trim();
-      const body = match[3].trim();
+      const { summary, body } = match;
       return {
         type: 'canvasDetails',
-        raw: match[0],
-        detailsOpen: Boolean(match[1]),
+        raw: match.raw,
+        detailsOpen: match.open,
         detailsSummary: summary,
         detailsSummaryTokens: lexer.inlineTokens(summary),
         tokens: body ? lexer.blockTokens(body) : [],
