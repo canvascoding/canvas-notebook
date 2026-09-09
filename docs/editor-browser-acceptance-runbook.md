@@ -1,6 +1,6 @@
 # Browserabnahme für Blockbearbeitung und Dokument-Lifecycle
 
-Stand: 9. September 2026, Produktstand `b40f9a08`. Ergänzung zur [Abnahmematrix](editor-lifecycle-acceptance.md). Dieser Ablauf ist vorbereitet und noch nicht ausgeführt. Er ist kein Browser-Testbericht und keine Gesamtfreigabe.
+Stand: 9. September 2026, Ausgangsproduktstand `b40f9a08`. Ergänzung zur [Abnahmematrix](editor-lifecycle-acceptance.md). Die Ausführung hat nach Browserfreigabe begonnen; konkrete Ergebnisse stehen im [Browserbericht](editor-browser-acceptance-report.md). Dieser Ablauf ist keine Gesamtfreigabe.
 
 ## Umgebung und Nachweise
 

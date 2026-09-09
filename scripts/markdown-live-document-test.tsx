@@ -40,11 +40,14 @@ async function main() {
     await act(async () => root.render(<View collaboration={session(pending, 'tiptap_blocks', false)} />));
     assert.equal(container.textContent, 'stale file checkpoint', 'startup retains the file preview until local state is known');
     assert.equal(pending.share.size, 0, 'an unhydrated block document must not acquire guessed XML roots');
+    await act(async () => root.render(<View collaboration={session(pending, 'tiptap_blocks')} />));
+    assert.equal(pending.share.size, 0, 'an empty IndexedDB load must not create legacy roots before the server update');
+    assert.equal(container.querySelector('output')?.getAttribute('data-available'), 'false');
     await act(async () => {
       Y.applyUpdate(pending, Y.encodeStateAsUpdate(doc));
-      root.render(<View collaboration={session(pending, 'tiptap_blocks')} />);
     });
     assert.equal(container.textContent, 'AAA\n\nBBB\n\nCCC');
+    assert.equal(pending.share.has('body'), false, 'the first remote block update remains renderable');
     await act(async () => root.render(<View collaboration={session(doc, 'tiptap_blocks')} />));
     assert.equal(container.textContent, 'AAA\n\nBBB\n\nCCC');
     const id = tree.read().child(1).attrs.id as string;

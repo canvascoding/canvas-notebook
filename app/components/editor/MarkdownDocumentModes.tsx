@@ -11,6 +11,7 @@ import { workspaceHeaders } from '@/app/lib/files/client';
 import { recordExportedCollaborationRecovery } from '@/app/lib/collaboration/local-recovery';
 import { useMarkdownRecoveryCopy } from '@/app/lib/collaboration/markdown-recovery-client';
 import { findBlockTreeHistory } from '@/app/lib/collaboration/block-tree-history';
+import { BLOCK_TREE_KEY } from '@/app/lib/collaboration/block-tree';
 import { createRichMarkdownManager, restoreRichMarkdownFinalLineEnding } from '@/app/lib/markdown/rich-markdown-codec';
 import { readRichDocumentJson } from '@/app/lib/collaboration/rich-document';
 import { COLLABORATION_CLIENT_CAPABILITIES, isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration } from '@/app/lib/collaboration/types';
@@ -29,6 +30,12 @@ function createLiveMarkdownStore(doc: Y.Doc | undefined, representation: string 
     },
     snapshot() {
       if (cached) return cached;
+      // A first visit can hydrate an empty IndexedDB before the remote root
+      // arrives. Reading it as legacy XML would create a competing body root
+      // and make the subsequently received block tree unrenderable.
+      if (doc && representation === 'tiptap_blocks' && !doc.share.has(BLOCK_TREE_KEY)) {
+        return (cached = { content: '', available: false });
+      }
       try {
         const content = !doc ? fallback : representation === 'plain_text'
           ? doc.getText('content').toString()
