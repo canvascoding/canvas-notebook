@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { remapPath } from '@/app/lib/files/path-mutation-state';
 import type { FilePresenceEntry, WorkspacePresenceMessage, WorkspacePresenceSnapshot } from './types';
 
 const PRESENCE_TTL_MS = 45_000;
@@ -9,14 +11,47 @@ type PresenceStore = {
   entries: Map<string, Map<string, FilePresenceEntry>>;
   versions: Map<string, number>;
   listeners: Map<string, Set<PresenceListener>>;
+  documentPaths?: Map<string, string | null>;
 };
 
 const globalPresence = globalThis as typeof globalThis & { __canvasFilePresence?: PresenceStore };
-const store = globalPresence.__canvasFilePresence ??= {
+const store: PresenceStore = globalPresence.__canvasFilePresence ??= {
   entries: new Map(),
   versions: new Map(),
   listeners: new Map(),
 };
+
+const documentPaths = store.documentPaths ??= new Map<string, string | null>();
+
+function currentPresenceEntry(entry: FilePresenceEntry): FilePresenceEntry | null {
+  const key = `${entry.workspaceId}\0${entry.documentId}`;
+  if (!documentPaths.has(key)) return entry;
+  const path = documentPaths.get(key);
+  return path ? { ...entry, path } : null;
+}
+
+/** Keep late awareness updates attached to the identity's committed path. */
+export function remapWorkspacePresencePaths(workspaceId: string, oldPath: string, newPath: string): void {
+  const entries = store.entries.get(workspaceId);
+  if (!entries) return;
+  const changed = new Set<string>();
+  for (const [key, entry] of entries) {
+    if (isSameOrDescendantPath(entry.path, oldPath)) {
+      const path = remapPath(entry.path, oldPath, newPath);
+      entries.set(key, { ...entry, path });
+      documentPaths.set(`${workspaceId}\0${entry.documentId}`, path);
+      changed.add(entry.documentId);
+    } else if (isSameOrDescendantPath(entry.path, newPath)) {
+      entries.delete(key);
+      documentPaths.set(`${workspaceId}\0${entry.documentId}`, null);
+      changed.add(entry.documentId);
+    }
+  }
+  if (changed.size) store.versions.set(workspaceId, (store.versions.get(workspaceId) ?? 0) + 1);
+  for (const documentId of changed) {
+    try { publish(workspaceId, documentId); } catch (error) { console.warn('[Presence] Could not publish moved presence:', error); }
+  }
+}
 
 function entryKey(entry: Pick<FilePresenceEntry, 'documentId' | 'userId' | 'actorType'>): string {
   return `${entry.documentId}\0${entry.actorType}\0${entry.userId}`;
@@ -67,7 +102,9 @@ export function replaceDocumentPresence(
   for (const [key, entry] of entries) {
     if (entry.documentId === documentId && entry.actorType === 'user') entries.delete(key);
   }
-  for (const entry of nextEntries) {
+  for (const candidate of nextEntries) {
+    const entry = currentPresenceEntry(candidate);
+    if (!entry) continue;
     const key = entryKey(entry);
     const current = entries.get(key);
     if (!current || current.updatedAt <= entry.updatedAt) entries.set(key, entry);
@@ -76,7 +113,9 @@ export function replaceDocumentPresence(
   publish(workspaceId, documentId);
 }
 
-export function upsertDocumentPresenceEntry(entry: FilePresenceEntry): void {
+export function upsertDocumentPresenceEntry(candidate: FilePresenceEntry): void {
+  const entry = currentPresenceEntry(candidate);
+  if (!entry) return;
   const entries = store.entries.get(entry.workspaceId) ?? new Map<string, FilePresenceEntry>();
   store.entries.set(entry.workspaceId, entries);
   entries.set(entryKey(entry), entry);

@@ -43,7 +43,6 @@ import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   DirectMcpAuthorizationError,
   verifyDirectMcpAccessToken,
@@ -672,8 +671,6 @@ async function readDirectMcpTextContent(input: {
     sha256: sha256Buffer(input.buffer),
     source: 'file' as const,
   };
-  if (getDatabaseProvider() !== 'postgres') return fallback;
-
   const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: input.path,

@@ -42,6 +42,7 @@ type CollaborationDurabilitySnapshot = {
 };
 
 type RegistryEntry = {
+  path: string;
   key: string;
   refs: number;
   doc: Y.Doc | null;
@@ -150,7 +151,7 @@ function waitForEntryState(
 async function requestSession(
   path: string,
   representation: RequestedTextCollaborationRepresentation,
-  workspaceId: string,
+  workspaceId: string | null,
   guestInvitationId?: string,
 ): Promise<CollaborationSessionResponse> {
   const response = await fetch(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
@@ -192,6 +193,7 @@ function createEntry(
 ): RegistryEntry {
   const guestInvitationId = initialSession?.guestAccess?.invitationId;
   const entry: RegistryEntry = {
+    path,
     key,
     refs: 0,
     doc: null,
@@ -224,7 +226,7 @@ function createEntry(
       if (entry.refs === 0 && !registry.has(key)) return;
       entry.doc = new Y.Doc({ gc: true });
       let session = requireTextSession(
-        initialSession || await requestSession(path, representation, workspaceId, guestInvitationId),
+        initialSession || await requestSession(entry.path, representation, workspaceId, guestInvitationId),
         representation,
       );
       entry.session = session;
@@ -288,7 +290,7 @@ function createEntry(
         document: entry.doc,
         token: async () => {
           if (Date.parse(session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, guestInvitationId), representation);
+            const refreshed = requireTextSession(await requestSession(entry.path, 'auto', workspaceId, guestInvitationId), representation);
             if (
               refreshed.documentId !== session.documentId
               || refreshed.lifecycleGeneration !== session.lifecycleGeneration
@@ -394,7 +396,7 @@ function createEntry(
           }
 
           if (Date.parse(entry.session.expiresAt) - Date.now() < 30_000) {
-            const refreshed = requireTextSession(await requestSession(path, 'auto', workspaceId, guestInvitationId), representation);
+            const refreshed = requireTextSession(await requestSession(entry.path, 'auto', workspaceId, guestInvitationId), representation);
             if (
               refreshed.documentId !== entry.session.documentId
               || refreshed.lifecycleGeneration !== entry.session.lifecycleGeneration
@@ -492,7 +494,7 @@ export function useCollaborationDocument(input: {
 }): CollaborationDocument | null {
   const key = input.enabled && input.workspaceId && input.path
     ? input.session
-      ? `${input.workspaceId}\0${input.path}\0${input.session.guestAccess?.invitationId || ''}\0${input.session.user.id}\0${input.session.expiresAt}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
+      ? `${input.workspaceId}\0${input.session.guestAccess?.invitationId || ''}\0${input.session.user.id}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
       : `${input.workspaceId}\0${input.path}\0${input.representation}`
     : null;
   const [state, setState] = useState<CollaborationDocument | null>(null);
@@ -505,6 +507,7 @@ export function useCollaborationDocument(input: {
       entry = createEntry(key, input.path, input.representation, input.workspaceId, input.session);
       registry.set(key, entry);
     }
+    entry.path = input.path;
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
     entry.refs += 1;
     const update = () => setState(entry.doc ? snapshot(entry) : null);
@@ -543,9 +546,10 @@ export function useTextCollaborationSession(input: {
   enabled: boolean;
   workspaceId: string | null;
   path: string | undefined;
+  documentId?: string;
 }): TextCollaborationSessionResolution {
   const key = input.enabled && input.workspaceId && input.path
-    ? `${input.workspaceId}\0${input.path}`
+    ? `${input.workspaceId}\0${input.documentId ?? input.path}`
     : null;
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<{

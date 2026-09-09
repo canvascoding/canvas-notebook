@@ -67,7 +67,7 @@ export async function readWorkspaceBrandProfile(workspaceId: string): Promise<Wo
     const row = await database.get(
       `SELECT settings_json, revision, updated_at
        FROM workspace_brand_profiles
-       WHERE workspace_id = ?
+       WHERE workspace_id = $1
        LIMIT 1`,
       [workspaceId],
     ) as WorkspaceBrandProfileRow | undefined;
@@ -90,7 +90,7 @@ export async function updateWorkspaceBrandProfile(input: {
     await database.run(
       `INSERT INTO workspace_brand_profiles (
          workspace_id, settings_json, revision, updated_by_user_id, created_at, updated_at
-       ) VALUES (?, ?, 1, ?, ?, ?)
+       ) VALUES ($1, $2, 1, $3, $4, $5)
        ON CONFLICT(workspace_id) DO UPDATE SET
          settings_json = excluded.settings_json,
          revision = workspace_brand_profiles.revision + 1,
@@ -102,7 +102,7 @@ export async function updateWorkspaceBrandProfile(input: {
     const row = await database.get(
       `SELECT settings_json, revision, updated_at
        FROM workspace_brand_profiles
-       WHERE workspace_id = ?
+       WHERE workspace_id = $1
        LIMIT 1`,
       [input.workspaceId],
     ) as WorkspaceBrandProfileRow | undefined;
@@ -115,7 +115,7 @@ export async function updateWorkspaceBrandProfile(input: {
 export async function resetWorkspaceBrandProfile(workspaceId: string): Promise<WorkspaceBrandProfileState> {
   const database = await openDb();
   try {
-    await database.run('DELETE FROM workspace_brand_profiles WHERE workspace_id = ?', [workspaceId]);
+    await database.run('DELETE FROM workspace_brand_profiles WHERE workspace_id = $1', [workspaceId]);
     return defaultState();
   } finally {
     await database.close();
@@ -128,7 +128,7 @@ export async function readOrganizationBrandProfile(organizationId: string): Prom
     const row = await database.get(
       `SELECT settings_json, revision, updated_at
        FROM organization_brand_profiles
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        LIMIT 1`,
       [organizationId],
     ) as WorkspaceBrandProfileRow | undefined;
@@ -184,7 +184,7 @@ export async function updateOrganizationBrandProfile(input: {
     await database.run(
       `INSERT INTO organization_brand_profiles (
          organization_id, settings_json, revision, updated_by_user_id, created_at, updated_at
-       ) VALUES (?, ?, 1, ?, ?, ?)
+       ) VALUES ($1, $2, 1, $3, $4, $5)
        ON CONFLICT(organization_id) DO UPDATE SET
          settings_json = excluded.settings_json,
          revision = organization_brand_profiles.revision + 1,
@@ -196,7 +196,7 @@ export async function updateOrganizationBrandProfile(input: {
     const row = await database.get(
       `SELECT settings_json, revision, updated_at
        FROM organization_brand_profiles
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        LIMIT 1`,
       [input.organizationId],
     ) as WorkspaceBrandProfileRow | undefined;
@@ -209,7 +209,7 @@ export async function updateOrganizationBrandProfile(input: {
 export async function resetOrganizationBrandProfile(organizationId: string): Promise<WorkspaceBrandProfileState> {
   const database = await openDb();
   try {
-    await database.run('DELETE FROM organization_brand_profiles WHERE organization_id = ?', [organizationId]);
+    await database.run('DELETE FROM organization_brand_profiles WHERE organization_id = $1', [organizationId]);
     return defaultState();
   } finally {
     await database.close();
@@ -222,7 +222,7 @@ async function readWorkspaceOrganizationId(workspaceId: string): Promise<string 
     const row = await database.get(
       `SELECT organization_id
        FROM canvas_workspaces
-       WHERE id = ?
+       WHERE id = $1
        LIMIT 1`,
       [workspaceId],
     ) as { organization_id?: string | null } | undefined;

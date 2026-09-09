@@ -15,7 +15,7 @@ import { createMobileBootstrap } from '@/app/lib/mobile/bootstrap';
 import { createMobileCompatibility } from '@/app/lib/mobile/compatibility';
 import { resolveMobileUserProfile } from '@/app/lib/mobile/user-profile';
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
-import { getDeploymentMode } from '@/app/lib/organization/bootstrap';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
   loadWorkspaceListingForActor,

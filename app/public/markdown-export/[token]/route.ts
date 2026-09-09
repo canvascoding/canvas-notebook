@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { limitPublicExport } from '@/app/lib/public-sharing/public-export-limit';
 import { PublicShareReadError } from '@/app/lib/public-sharing/public-share-text';
+import { publicRateLimit, publicResourceRateLimit } from '@/app/lib/security/public-rate-limit';
 
 import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
 import { getPublicMarkdownExport } from '@/app/lib/public-sharing/public-markdown-export';
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   context: { params: Promise<{ token: string }> },
 ) {
-  const limited = limitPublicExport(request, 'markdown-export');
+  const limited = await publicRateLimit({ keyPrefix: 'public-markdown-export', limit: 30, globalLimit: 600, windowMs: 60_000 });
   if (!limited.ok) return limited.response;
   try {
     const { token } = await context.params;
+    const targetLimit = await publicResourceRateLimit({ keyPrefix: 'public-markdown-export', limit: 120, windowMs: 60_000 }, token);
+    if (!targetLimit.ok) return targetLimit.response;
     const result = await getPublicMarkdownExport(decodeURIComponent(token));
     if (!result.ok) {
       return NextResponse.json({ success: false, error: result.error }, { status: result.status });
     }
+
+    await result.verifyAccess();
 
     return new NextResponse(result.html, {
       status: 200,

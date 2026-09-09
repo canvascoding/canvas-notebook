@@ -1,13 +1,18 @@
 'use client';
 
+import { useMemo } from 'react';
+import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
 import { Bot } from 'lucide-react';
 
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { UserAvatar } from '@/app/components/user-profile/UserAvatar';
 
 export function FilePresenceMarkers({ path }: { path: string }) {
-  const entries = useFilePresenceStore((state) => state.byPath[path]);
-  if (!entries) return null;
+  const byPath = useFilePresenceStore((state) => state.byPath);
+  const entries = useMemo(() => [...new Map(Object.entries(byPath)
+    .filter(([entryPath]) => isSameOrDescendantPath(entryPath, path))
+    .flatMap(([, values]) => values)
+    .map((entry) => [`${entry.actorType}:${entry.userId}`, entry])).values()], [byPath, path]);
   if (entries.length === 0) return null;
   const shown = entries.slice(0, 3);
   const description = entries.map((entry) => `${entry.displayName}: ${entry.activity.replace('_', ' ')}`).join(', ');

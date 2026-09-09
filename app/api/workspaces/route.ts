@@ -2,16 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { jsonServerError } from '@/app/lib/api/route-helpers';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   LicenseEntitlementError,
   licenseEntitlementErrorPayload,
   requireTeamRuntimeLicense,
 } from '@/app/lib/license/entitlements';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
 import { serializeWorkspaceContext } from '@/app/lib/workspaces/client-serialization';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
@@ -23,10 +18,7 @@ import {
   createPostgresWorkspaceForActor,
   getPostgresWorkspaceState,
 } from '@/app/lib/workspaces/postgres-runtime';
-import {
-  createWorkspaceRecord,
-  WorkspaceOperationError,
-} from '@/app/lib/workspaces/service';
+import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceType } from '@/app/lib/workspaces/types';
 
 async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolean }) {
@@ -108,8 +100,7 @@ export async function POST(request: Request) {
     const type = normalizeRequestedWorkspaceType(payload.type);
     const projectId = typeof payload.projectId === 'string' ? payload.projectId.trim() || null : null;
 
-    if (getDatabaseProvider() === 'postgres') {
-      try {
+    try {
         const state = await getPostgresWorkspaceState(actor);
         const licenseResponse = await requireTeamRuntimeIfEnabled(state.status);
         if (licenseResponse) return licenseResponse;
@@ -124,53 +115,11 @@ export async function POST(request: Request) {
           projectId,
         });
         return NextResponse.json({ success: true, workspace: serializeWorkspaceContext(workspace) }, { status: 201 });
-      } catch (error) {
+    } catch (error) {
         if (error instanceof WorkspaceOperationError) {
           return workspaceOperationErrorResponse(error);
         }
         return jsonServerError('[API] Workspace create postgres error:', error, 'Could not create workspace');
-      }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      sqlite.exec('BEGIN IMMEDIATE');
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      const licenseResponse = await requireTeamRuntimeIfEnabled(status);
-      if (licenseResponse) {
-        sqlite.exec('ROLLBACK');
-        return licenseResponse;
-      }
-      if (!status.organizationId) {
-        sqlite.exec('ROLLBACK');
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-
-      const workspace = createWorkspaceRecord(sqlite, {
-        actor,
-        organizationId: status.organizationId,
-        type,
-        name: payload.name,
-        description: payload.description,
-        icon: payload.icon,
-        color: payload.color,
-        teamFeaturesEnabled: status.teamFeaturesEnabled,
-        projectFeaturesEnabled: areProjectFeaturesEnabled(),
-        projectId,
-      });
-      sqlite.exec('COMMIT');
-
-      return NextResponse.json({ success: true, workspace: serializeWorkspaceContext(workspace) }, { status: 201 });
-    } catch (error) {
-      if (sqlite.inTransaction) {
-        sqlite.exec('ROLLBACK');
-      }
-      if (error instanceof WorkspaceOperationError) {
-        return workspaceOperationErrorResponse(error);
-      }
-      return jsonServerError('[API] Workspace create sqlite error:', error, 'Could not create workspace');
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     if (error instanceof WorkspaceOperationError) {

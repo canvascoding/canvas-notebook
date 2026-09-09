@@ -24,21 +24,22 @@ function runtimeValue(config: CanvasCliConfig, key: string, fallback = ''): stri
 }
 
 export function postgresRuntimeDesired(config: CanvasCliConfig): boolean {
+  const provider = normalized(config.env.CANVAS_DATABASE_PROVIDER);
+  if (provider && provider !== 'postgres' && provider !== 'postgresql') {
+    throw new Error(`Unsupported CANVAS_DATABASE_PROVIDER "${provider}". PostgreSQL is the only supported provider.`);
+  }
   const postgresMode = normalized(config.env.CANVAS_POSTGRES_MODE) || 'managed';
   if (postgresMode === 'external') return false;
   if (truthy(config.env.CANVAS_POSTGRES_REQUIRED) ||
     truthy(config.env.CANVAS_POSTGRES_VECTOR_ENABLED) ||
     truthy(config.env.CANVAS_TEAM_FEATURES_ENABLED)) return true;
-  const provider = normalized(config.env.CANVAS_DATABASE_PROVIDER);
-  if (provider === 'postgres') return true;
-  if (provider === 'sqlite') return false;
-  return provider === '' && /^postgres(?:ql)?:\/\//iu.test(runtimeValue(config, 'DATABASE_URL'));
+  return true;
 }
 
 export function externalPostgresRuntimeDesired(config: CanvasCliConfig): boolean {
   const provider = normalized(config.env.CANVAS_DATABASE_PROVIDER);
   const postgresMode = normalized(config.env.CANVAS_POSTGRES_MODE);
-  return provider === 'postgres' && postgresMode === 'external';
+  return (provider === '' || provider === 'postgres' || provider === 'postgresql') && postgresMode === 'external';
 }
 
 function postgresContainerName(config: CanvasCliConfig): string {

@@ -12,6 +12,14 @@ const DocxEditorComponent = dynamic(
   { ssr: false }
 );
 
+type CanvasDocxEditorProps = React.ComponentProps<typeof DocxEditorComponent> & {
+  /** Canvas: suppress local Open and route Save to the workspace protocol. */
+  canvasWorkspaceBound?: boolean;
+  onSaveRequest?: () => void | Promise<void>;
+};
+
+const CanvasDocxEditorComponent = DocxEditorComponent as React.ComponentType<CanvasDocxEditorProps>;
+
 // Import styles
 import '@eigenpal/docx-js-editor/styles.css';
 
@@ -134,7 +142,7 @@ export const DocxEditorWrapper = forwardRef<DocxEditorWrapperRef, DocxEditorWrap
           </div>
         )}
         <div className="flex-1 overflow-hidden">
-          <DocxEditorComponent
+          <CanvasDocxEditorComponent
             ref={editorRef}
             documentBuffer={documentBuffer}
             document={initialDocument}

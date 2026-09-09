@@ -5,7 +5,6 @@ import {
   databaseUnavailablePublicMessage,
   isDatabaseUnavailableError,
 } from '@/app/lib/db/errors';
-import { getDatabaseProvider, resolveSqlitePath } from '@/app/lib/db/provider';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import {
   publishWorkspaceFileMutation,
@@ -52,19 +51,17 @@ export function jsonError(error: string, status: number, details: Record<string,
 }
 
 export function jsonDatabaseUnavailable(error: unknown): NextResponse | null {
-  const provider = getDatabaseProvider();
   const databaseError = isDatabaseUnavailableError(error)
     ? error
     : coerceDatabaseUnavailableError(error, {
-      provider,
-      sqlitePath: provider === 'sqlite' ? resolveSqlitePath() : undefined,
+      provider: 'postgres',
     });
 
   if (!databaseError) return null;
 
   return jsonError(databaseUnavailablePublicMessage(databaseError), 503, {
     code: 'DATABASE_UNAVAILABLE',
-    databaseProvider: databaseError.context.provider ?? provider,
+    databaseProvider: databaseError.context.provider ?? 'postgres',
   });
 }
 

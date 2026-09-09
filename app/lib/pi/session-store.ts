@@ -1,4 +1,4 @@
-import { db, getDatabaseProvider, openDb, type SqlConnection } from '../db';
+import { db, openDb, type SqlConnection } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { toDatabaseTimestamp } from '../db/timestamps';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
@@ -174,7 +174,7 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
     const requestRows = await connection.all(
       `SELECT id, agent_id, workspace_id
        FROM pi_sessions
-       WHERE user_id = ? AND client_request_id = ?
+       WHERE user_id = $1 AND client_request_id = $2
        ORDER BY id ASC
        LIMIT 2`,
       [input.userId, input.clientRequestId],
@@ -192,7 +192,7 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
   const existingRows = await connection.all(
     `SELECT id, agent_id
      FROM pi_sessions
-     WHERE session_id = ? AND user_id = ?
+     WHERE session_id = $1 AND user_id = $2
      ORDER BY id ASC
      LIMIT 2`,
     [input.sessionId, input.userId],
@@ -225,20 +225,20 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
          workspace_name, workspace_root_relative_path, runtime_provider_installation_id,
          runtime_catalog_revision, runtime_policy_revision, runtime_selection_source
        )
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL, ?, ?, ?, ?,
-              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'app', NULL, $15, $16, $17, $18,
+              $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
        WHERE COALESCE((
          SELECT catalog_revision
          FROM ai_runtime_defaults
-         WHERE organization_id = ?
+         WHERE organization_id = $30
          LIMIT 1
-       ), 0) = ?
+       ), 0) = $31
        AND COALESCE((
          SELECT revision
          FROM ai_workspace_model_policies
-         WHERE organization_id = ? AND workspace_id = ?
+         WHERE organization_id = $32 AND workspace_id = $33
          LIMIT 1
-       ), 0) = ?
+       ), 0) = $34
        RETURNING id`,
     [
       input.sessionId,
@@ -282,14 +282,14 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
     const catalogRow = await connection.get(
       `SELECT catalog_revision AS revision
          FROM ai_runtime_defaults
-         WHERE organization_id = ?
+         WHERE organization_id = $1
          LIMIT 1`,
       [input.workspace.organizationId],
     ) as { revision?: number | string | null } | undefined;
     const policyRow = await connection.get(
       `SELECT revision
          FROM ai_workspace_model_policies
-         WHERE organization_id = ? AND workspace_id = ?
+         WHERE organization_id = $1 AND workspace_id = $2
          LIMIT 1`,
       [input.workspace.organizationId, input.workspace.workspaceId],
     ) as { revision?: number | string | null } | undefined;
@@ -310,7 +310,7 @@ export async function createPiSessionWithRuntimeSnapshot(
     let transactionStarted = false;
     let insertResult: InsertPiSessionWithRuntimeSnapshotResult | null = null;
     try {
-      await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+      await connection.run('BEGIN');
       transactionStarted = true;
       await lockPiSessionCreationForUser(connection, input.userId);
       insertResult = await insertPiSessionWithRuntimeSnapshotOnConnection(connection, input);
@@ -495,13 +495,12 @@ export async function savePiSession(
   let transactionStarted = false;
   let sequenceCheckpoint = 0;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
-    const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
     const locked = await connection.get(
       `SELECT id FROM pi_sessions
-       WHERE id = ? AND session_id = ? AND user_id = ? AND agent_id = ?
-       LIMIT 1${forUpdate}`,
+       WHERE id = $1 AND session_id = $2 AND user_id = $3 AND agent_id = $4
+       LIMIT 1 FOR UPDATE`,
       [sessionDbId, sessionId, userId, agentId],
     ) as { id?: number | string } | undefined;
     if (locked?.id === undefined) throw new PiSessionRuntimeAccessError(
@@ -512,7 +511,7 @@ export async function savePiSession(
       `SELECT COUNT(*) AS message_count, COUNT(DISTINCT sequence) AS distinct_sequence_count,
               MIN(sequence) AS minimum_sequence, MAX(sequence) AS maximum_sequence,
               SUM(CASE WHEN sequence IS NULL THEN 1 ELSE 0 END) AS null_sequence_count
-       FROM pi_messages WHERE pi_session_db_id = ?`,
+       FROM pi_messages WHERE pi_session_db_id = $1`,
       [sessionDbId],
     ) as Record<string, unknown>;
     const existingCount = Number(beforeAudit.message_count ?? 0);
@@ -533,12 +532,12 @@ export async function savePiSession(
       throw new Error('Persisted PI message sequence checkpoint changed before append.');
     }
     if (startIndex === 0) {
-      await connection.run('DELETE FROM pi_messages WHERE pi_session_db_id = ?', [sessionDbId]);
+      await connection.run('DELETE FROM pi_messages WHERE pi_session_db_id = $1', [sessionDbId]);
     }
     for (const message of projectedNewMessages) {
       await connection.run(
         `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
-         VALUES (?, ?, ?, ?, ?)`,
+         VALUES ($1, $2, $3, $4, $5)`,
         [sessionDbId, message.role, message.content, message.timestamp, message.sequence],
       );
     }
@@ -546,7 +545,7 @@ export async function savePiSession(
       `SELECT COUNT(*) AS message_count, COUNT(DISTINCT sequence) AS distinct_sequence_count,
               MIN(sequence) AS minimum_sequence, MAX(sequence) AS maximum_sequence,
               SUM(CASE WHEN sequence IS NULL THEN 1 ELSE 0 END) AS null_sequence_count
-       FROM pi_messages WHERE pi_session_db_id = ?`,
+       FROM pi_messages WHERE pi_session_db_id = $1`,
       [sessionDbId],
     ) as Record<string, unknown>;
     const finalCount = Number(afterAudit.message_count ?? 0);
@@ -665,13 +664,12 @@ export async function finalizePiSessionAfterNoop(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     transactionStarted = true;
-    const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
     const locked = await connection.get(
       `SELECT id FROM pi_sessions
-       WHERE id = ? AND session_id = ? AND user_id = ? AND agent_id = ?
-       LIMIT 1${forUpdate}`,
+       WHERE id = $1 AND session_id = $2 AND user_id = $3 AND agent_id = $4
+       LIMIT 1 FOR UPDATE`,
       [session.id, input.sessionId, input.userId, agentId],
     ) as { id?: number | string } | undefined;
     if (locked?.id === undefined) throw new PiSessionRuntimeAccessError(
@@ -685,15 +683,15 @@ export async function finalizePiSessionAfterNoop(input: {
     const expectedRevision = input.expectedSummaryRevision ?? -1;
     const updateResult = await connection.run(
       `UPDATE pi_sessions
-       SET updated_at = ?,
-           title = CASE WHEN ? = 1 THEN ? ELSE title END,
-           title_generation_state = CASE WHEN ? = 1 THEN ? ELSE title_generation_state END,
-           summary_text = CASE WHEN ? = 1 THEN ? ELSE summary_text END,
-           summary_updated_at = CASE WHEN ? = 1 THEN ? ELSE summary_updated_at END,
-           summary_through_timestamp = CASE WHEN ? = 1 THEN ? ELSE summary_through_timestamp END,
-           summary_through_sequence = CASE WHEN ? = 1 THEN ? ELSE summary_through_sequence END,
-           summary_revision = CASE WHEN ? = 1 THEN summary_revision + 1 ELSE summary_revision END
-       WHERE id = ? AND (? = 0 OR summary_revision = ?)`,
+       SET updated_at = $1,
+           title = CASE WHEN $2 = 1 THEN $3 ELSE title END,
+           title_generation_state = CASE WHEN $4 = 1 THEN $5 ELSE title_generation_state END,
+           summary_text = CASE WHEN $6 = 1 THEN $7 ELSE summary_text END,
+           summary_updated_at = CASE WHEN $8 = 1 THEN $9 ELSE summary_updated_at END,
+           summary_through_timestamp = CASE WHEN $10 = 1 THEN $11 ELSE summary_through_timestamp END,
+           summary_through_sequence = CASE WHEN $12 = 1 THEN $13 ELSE summary_through_sequence END,
+           summary_revision = CASE WHEN $14 = 1 THEN summary_revision + 1 ELSE summary_revision END
+       WHERE id = $15 AND ($16 = 0 OR summary_revision = $17)`,
       [
         now,
         titleFlag,
@@ -717,7 +715,7 @@ export async function finalizePiSessionAfterNoop(input: {
     const changed = Number((updateResult as { changes?: number }).changes ?? 0);
     if (changed !== 1) throw new Error('Summary persistence revision conflict.');
     await connection.run(
-      'DELETE FROM pi_messages WHERE pi_session_db_id = ? AND sequence > ?',
+      'DELETE FROM pi_messages WHERE pi_session_db_id = $1 AND sequence > $2',
       [session.id, retainedMessageCount],
     );
     await connection.run('COMMIT');

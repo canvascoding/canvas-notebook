@@ -10,6 +10,7 @@ import {
   type WorkspaceMoveResult,
 } from '../app/components/file-browser/useWorkspaceMove';
 import { useFileStore } from '../app/store/file-store';
+import { useWorkspaceStore } from '../app/store/workspace-store';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' });
 Object.defineProperty(globalThis, 'window', { value: dom.window, configurable: true });
@@ -24,6 +25,7 @@ const messages = {
     moveIntoSelf: 'move into self',
     moveMultiplePartialSuccess: 'partial move',
     moveMultipleSuccess: 'move complete',
+    movePartialFailure: 'moved {count}: {error}',
     protectedFolderMove: 'protected folder',
     sourceNotFoundError: 'source missing',
   },
@@ -139,6 +141,79 @@ async function main() {
   });
   assert.equal(conflictResolutionResult, 'completed');
   assert.equal(currentController().isMoving, false);
+
+  await act(async () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: 'ws-a' });
+    useFileStore.getState().resetWorkspaceView('ws-a');
+  });
+  const workspaceGate = deferred();
+  const scopedCalls: Array<string | null | undefined> = [];
+  useFileStore.setState({ renamePath: async (_old, _next, _overwrite, _refresh, workspaceId) => {
+    scopedCalls.push(workspaceId);
+    await workspaceGate.promise;
+  } });
+  let scopedMove!: Promise<WorkspaceMoveResult>;
+  await act(async () => { scopedMove = currentController().startMove(['one.txt', 'two.txt'], 'dest'); });
+  await act(async () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: 'ws-b' });
+    useFileStore.getState().resetWorkspaceView('ws-b');
+    useFileStore.setState({ multiSelectPaths: new Set(['workspace-b.txt']), isMultiSelectMode: true });
+  });
+  const nextWorkspaceGate = deferred();
+  useFileStore.setState({ renamePath: async () => { await nextWorkspaceGate.promise; } });
+  let nextWorkspaceMove!: Promise<WorkspaceMoveResult>;
+  await act(async () => { nextWorkspaceMove = currentController().startMove(['workspace-b.txt'], 'dest'); });
+  let scopedResult!: WorkspaceMoveResult;
+  await act(async () => { workspaceGate.resolve(); scopedResult = await scopedMove; });
+  assert.equal(scopedResult, 'superseded');
+  assert.deepEqual(scopedCalls, ['ws-a'], 'a workspace switch must stop the remaining queue');
+  assert.deepEqual([...useFileStore.getState().multiSelectPaths], ['workspace-b.txt']);
+  assert.equal(currentController().isMoving, true, 'completion of the old request cannot stop the new workspace operation');
+  await act(async () => { nextWorkspaceGate.resolve(); assert.equal(await nextWorkspaceMove, 'completed'); });
+
+  useFileStore.setState({ renamePath: async () => { throw conflictError; } });
+  await act(async () => { await currentController().startMove(['files/report.md'], '.'); });
+  assert.ok(currentController().conflict);
+  const staleConflictController = currentController();
+  await act(async () => {
+    useWorkspaceStore.setState({ activeWorkspaceId: 'ws-c' });
+    useFileStore.getState().resetWorkspaceView('ws-c');
+  });
+  let overwriteCalls = 0;
+  useFileStore.setState({ renamePath: async () => { overwriteCalls++; } });
+  await act(async () => { await staleConflictController.resolveConflict('overwrite-selection'); });
+  assert.equal(overwriteCalls, 0, 'a stale conflict cannot overwrite in another workspace');
+  assert.equal(currentController().conflict, null);
+
+  useFileStore.setState({ renamePath: async () => { throw conflictError; } });
+  await act(async () => { await currentController().startMove(['files/report.md'], '.'); });
+  const replacedConflictController = currentController();
+  await act(async () => {
+    window.dispatchEvent(new dom.window.CustomEvent('canvas:workspace-path-renamed', { detail: {
+      workspaceId: 'ws-c', oldPath: 'files/report.md', newPath: 'files/updated.md',
+    } }));
+  });
+  assert.equal(currentController().conflict, null, 'external path changes cancel stale conflicts');
+  useFileStore.setState({ renamePath: async () => { throw Object.assign(new Error('exists'), {
+    code: 'FILE_EXISTS', sourcePath: 'files/other.md', destPath: 'other.md',
+  }); } });
+  await act(async () => { await currentController().startMove(['files/other.md'], '.'); });
+  useFileStore.setState({ renamePath: async () => { overwriteCalls++; } });
+  await act(async () => { await replacedConflictController.resolveConflict('overwrite-selection'); });
+  assert.equal(overwriteCalls, 0, 'a stale conflict callback cannot attach to a newer operation in the same workspace');
+  await act(async () => { assert.equal(await currentController().resolveConflict('skip'), 'completed'); });
+
+  useFileStore.setState({ multiSelectPaths: new Set(['one.txt', 'two.txt']), isMultiSelectMode: true,
+    renamePath: async (oldPath) => {
+      if (oldPath === 'one.txt') {
+        useFileStore.setState({ multiSelectPaths: new Set(['dest/one.txt', 'two.txt']) });
+        return;
+      }
+      throw Object.assign(new Error('directory exists'), { code: 'DIRECTORY_EXISTS', destPath: 'dest/two.txt' });
+    },
+  });
+  await act(async () => { assert.equal(await currentController().startMove(['one.txt', 'two.txt'], 'dest'), 'failed'); });
+  assert.deepEqual([...useFileStore.getState().multiSelectPaths], ['two.txt'], 'partial moves leave only unresolved items selected');
 
   await act(async () => {
     root.unmount();

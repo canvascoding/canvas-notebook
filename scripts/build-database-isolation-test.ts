@@ -19,8 +19,8 @@ async function main(): Promise<void> {
 
   try {
     const database = await import('../app/lib/db');
-    await database.ensureDatabaseReady();
-    assert.equal(database.getDatabaseProvider(), 'sqlite');
+    assert.equal(database.getDatabaseProvider(), 'postgres');
+    assert.equal(database.getDatabaseInitializationError()?.code, 'database_initialization_failed');
     assert.equal(existsSync(path.join(dataRoot, 'sqlite.db')), false);
   } finally {
     if (previous.data === undefined) delete process.env.DATA;

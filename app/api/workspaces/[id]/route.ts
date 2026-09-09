@@ -2,16 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   LicenseEntitlementError,
   licenseEntitlementErrorPayload,
   requireTeamRuntimeLicense,
 } from '@/app/lib/license/entitlements';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
   changePostgresWorkspaceTypeForActor,
@@ -19,12 +14,7 @@ import {
   getPostgresWorkspaceState,
   updatePostgresWorkspaceForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
-import {
-  changeWorkspaceType,
-  deleteWorkspaceRecord,
-  updateWorkspaceRecord,
-  WorkspaceOperationError,
-} from '@/app/lib/workspaces/service';
+import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -72,45 +62,18 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       role: session.user.role,
     });
 
-    if (getDatabaseProvider() === 'postgres') {
-      try {
+    try {
         const state = await getPostgresWorkspaceState(actor);
         const licenseResponse = await requireTeamRuntimeIfEnabled(state.status);
         if (licenseResponse) return licenseResponse;
 
         await deletePostgresWorkspaceForActor(actor, workspaceId);
         return NextResponse.json({ success: true });
-      } catch (error) {
+    } catch (error) {
         if (error instanceof WorkspaceOperationError) {
           return workspaceOperationErrorResponse(error);
         }
         return jsonServerError('[API] Workspace delete postgres error:', error, 'Could not delete workspace');
-      }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      sqlite.exec('BEGIN IMMEDIATE');
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      const licenseResponse = await requireTeamRuntimeIfEnabled(status);
-      if (licenseResponse) {
-        sqlite.exec('ROLLBACK');
-        return licenseResponse;
-      }
-
-      deleteWorkspaceRecord(sqlite, { actor, workspaceId });
-      sqlite.exec('COMMIT');
-      return NextResponse.json({ success: true });
-    } catch (error) {
-      if (sqlite.inTransaction) {
-        sqlite.exec('ROLLBACK');
-      }
-      if (error instanceof WorkspaceOperationError) {
-        return workspaceOperationErrorResponse(error);
-      }
-      return jsonServerError('[API] Workspace delete sqlite error:', error, 'Could not delete workspace');
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     if (error instanceof WorkspaceOperationError) {
@@ -143,8 +106,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       role: session.user.role,
     });
 
-    if (getDatabaseProvider() === 'postgres') {
-      try {
+    try {
         const state = await getPostgresWorkspaceState(actor);
         const licenseResponse = await requireTeamRuntimeIfEnabled(state.status);
         if (licenseResponse) return licenseResponse;
@@ -161,52 +123,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
               color: payload.color,
             });
         return NextResponse.json({ success: true, workspace });
-      } catch (error) {
+    } catch (error) {
         if (error instanceof WorkspaceOperationError) {
           return workspaceOperationErrorResponse(error);
         }
         return jsonServerError('[API] Workspace type change postgres error:', error, 'Could not change workspace type');
-      }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      sqlite.exec('BEGIN IMMEDIATE');
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      const licenseResponse = await requireTeamRuntimeIfEnabled(status);
-      if (licenseResponse) {
-        sqlite.exec('ROLLBACK');
-        return licenseResponse;
-      }
-
-      const workspace = Object.hasOwn(payload, 'type')
-        ? changeWorkspaceType(sqlite, {
-            actor,
-            workspaceId,
-            type: payload.type,
-            projectId: payload.projectId,
-            teamFeaturesEnabled: status.teamFeaturesEnabled,
-          })
-        : updateWorkspaceRecord(sqlite, {
-            actor,
-            workspaceId,
-            name: payload.name,
-            description: payload.description,
-            icon: payload.icon,
-            color: payload.color,
-          });
-      sqlite.exec('COMMIT');
-      return NextResponse.json({ success: true, workspace });
-    } catch (error) {
-      if (sqlite.inTransaction) {
-        sqlite.exec('ROLLBACK');
-      }
-      if (error instanceof WorkspaceOperationError) {
-        return workspaceOperationErrorResponse(error);
-      }
-      return jsonServerError('[API] Workspace type change sqlite error:', error, 'Could not change workspace type');
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     if (error instanceof WorkspaceOperationError) {

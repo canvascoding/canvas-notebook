@@ -367,7 +367,7 @@ export function CodeEditor({
   const supportsCollaboration = extension === 'md' || extension === 'markdown' || extension === 'txt';
   const shouldCollaborate = collaborationEnabled ?? Boolean(currentFile?.collaboration?.crdtCapable && supportsCollaboration);
   const internalCollaboration = useCollaborationDocument({
-    enabled: shouldCollaborate && !collaborationDocument,
+    enabled: shouldCollaborate && collaborationDocument === undefined,
     workspaceId: activeWorkspaceId,
     path: languagePath,
     representation: 'plain_text',

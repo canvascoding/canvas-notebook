@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionState } from '@/app/lib/organization/contracts';
 import type {
   KnowledgeFeatureGate,
   KnowledgeFeatureGateKey,

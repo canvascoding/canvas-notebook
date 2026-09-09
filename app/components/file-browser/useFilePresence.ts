@@ -12,10 +12,12 @@ export function useFilePresence(): void {
     if (!workspaceId) return;
     const url = `/api/files/presence?stream=1&workspaceId=${encodeURIComponent(workspaceId)}`;
     const source = new EventSource(url);
+    let disposed = false;
+    source.onopen = () => { if (!disposed && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) useFilePresenceStore.setState({ version: 0 }); };
     source.onmessage = (event) => {
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+      if (disposed || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
       try { useFilePresenceStore.getState().applyMessage(JSON.parse(event.data)); } catch {}
     };
-    return () => source.close();
+    return () => { disposed = true; source.close(); };
   }, [workspaceId]);
 }

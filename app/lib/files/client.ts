@@ -1,4 +1,7 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
+import type { WorkspacePathRenameMutation } from './file-events';
+import type { WorkspaceUploadCommit } from './upload-result';
+import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
@@ -56,6 +59,13 @@ export interface DeleteWorkspacePathsResult {
   trashEntries?: WorkspaceTrashEntryReference[];
 }
 
+export class WorkspaceDeletePartialError extends Error {
+  constructor(readonly result: DeleteWorkspacePathsResult) {
+    super(`Failed to delete: ${result.failed?.map((failure) => failure.path).join(', ')}`);
+    this.name = 'WorkspaceDeletePartialError';
+  }
+}
+
 export interface WorkspaceTrashEntryReference {
   id: string;
   originalPath: string;
@@ -95,10 +105,12 @@ export interface WriteWorkspaceFileResult {
 interface UploadWorkspaceFilesParams {
   files: File[];
   targetDir: string;
+  workspaceId?: string | null;
   pathMap?: Map<File, string>;
   convertParams?: (ConvertParams | null)[];
   onProgress?: (progress: number) => void;
   onFileProgress?: (progress: WorkspaceUploadFileProgress) => void;
+  onFileCompleted?: (committed: WorkspaceUploadCommit) => void;
 }
 
 interface LoadWorkspaceTreeOptions {
@@ -182,6 +194,16 @@ export function workspaceDownloadUrl(
     `/api/files/download?path=${encodeURIComponent(path)}${downloadFlag}`,
     options.workspaceId,
   );
+}
+
+export function workspaceSelectionDownloadUrl(
+  paths: readonly string[],
+  options: { download?: boolean; workspaceId?: string | null } = {}
+) {
+  const params = new URLSearchParams();
+  for (const path of paths) params.append('path', path);
+  if (options.download) params.set('download', '1');
+  return withWorkspaceQuery(`/api/files/download?${params.toString()}`, options.workspaceId);
 }
 
 export async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T> {
@@ -381,10 +403,10 @@ export async function createWorkspacePath(
   }
 }
 
-export async function deleteWorkspacePaths(paths: string[]): Promise<DeleteWorkspacePathsResult> {
+export async function deleteWorkspacePaths(paths: string[], workspaceId?: string | null): Promise<DeleteWorkspacePathsResult> {
   const response = await fetch('/api/files/delete', {
     method: 'DELETE',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     credentials: 'include',
     body: JSON.stringify({ path: paths }),
   });
@@ -419,6 +441,7 @@ export async function restoreWorkspaceTrashEntry(
 }
 
 export interface WorkspaceRenameResult {
+  mutation?: WorkspacePathRenameMutation;
   linkUpdates?: {
     updatedFiles: string[];
     updatedLinks: number;
@@ -430,10 +453,11 @@ export async function renameWorkspacePath(
   oldPath: string,
   newPath: string,
   overwrite = false,
+  workspaceId?: string | null,
 ): Promise<WorkspaceRenameResult> {
   const response = await fetch('/api/files/rename', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     credentials: 'include',
     body: JSON.stringify({ oldPath, newPath, overwrite }),
   });
@@ -521,9 +545,10 @@ export async function uploadWorkspaceFiles({
   convertParams,
   onProgress,
   onFileProgress,
+  onFileCompleted,
+  workspaceId = getActiveWorkspaceId(),
 }: UploadWorkspaceFilesParams): Promise<WorkspaceBatchUploadResult> {
   if (!convertParams?.some(Boolean)) {
-    const workspaceId = getActiveWorkspaceId();
     return uploadWorkspaceFilesInChunks({
       files: files.map((file) => ({
         file,
@@ -533,6 +558,7 @@ export async function uploadWorkspaceFiles({
       workspaceId,
       onProgress,
       onFileProgress,
+      onFileCompleted,
     });
   }
 
@@ -552,6 +578,8 @@ export async function uploadWorkspaceFiles({
     formData.append('convertParams', JSON.stringify(paramsForAll));
   }
 
+  let responseFiles: string[] | undefined;
+  let committed: WorkspaceUploadCommit[] = [];
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const failFiles = (message: string) => {
@@ -568,7 +596,6 @@ export async function uploadWorkspaceFiles({
     };
     xhr.open('POST', '/api/files/upload', true);
     xhr.withCredentials = true;
-    const workspaceId = getActiveWorkspaceId();
     if (workspaceId) {
       xhr.setRequestHeader(WORKSPACE_ID_HEADER, workspaceId);
     }
@@ -589,9 +616,18 @@ export async function uploadWorkspaceFiles({
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const payload = JSON.parse(xhr.responseText) as { success?: boolean; files?: string[]; committed?: WorkspaceUploadCommit[] };
+          if (!payload.success) { failFiles('Server did not confirm the uploaded files.'); return; }
+          responseFiles = payload.files;
+          committed = payload.committed ?? [];
+        } catch { failFiles('Server returned an invalid upload response.'); return; }
+        files.forEach((file, index) => onFileCompleted?.(committed[index] ?? {
+          targetPath: joinWorkspacePath(targetDir, responseFiles?.[index] || pathMap?.get(file) || file.name),
+        }));
         files.forEach((file, index) => onFileProgress?.({
           index,
-          path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+          path: responseFiles?.[index] || pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
           size: file.size,
           uploadedBytes: file.size,
           status: 'completed',
@@ -628,18 +664,26 @@ export async function uploadWorkspaceFiles({
   return {
     totalFiles: files.length,
     totalBytes: totalUploadBytes,
-    completed: files.map((file) => ({
-      path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+    completed: files.map((file, index) => ({
+      path: responseFiles?.[index] || pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
       size: file.size,
+      committed: committed[index],
     })),
     failed: [],
   };
 }
 
-export function triggerWorkspaceDownload(path: string): void {
-  const url = workspaceDownloadUrl(path, { download: true });
+export function triggerWorkspaceDownload(paths: string | Iterable<string>): void {
+  const selectedPaths = typeof paths === 'string' ? [paths] : Array.from(paths);
+  if (selectedPaths.length === 0) throw new Error('Select at least one file to download');
+
+  const url = selectedPaths.length === 1
+    ? workspaceDownloadUrl(selectedPaths[0], { download: true })
+    : workspaceSelectionDownloadUrl(selectedPaths, { download: true });
   const anchor = document.createElement('a');
-  const name = path.split('/').pop() || 'download';
+  const name = selectedPaths.length === 1
+    ? selectedPaths[0].split('/').pop() || 'download'
+    : 'notebook-selection.zip';
   anchor.href = url;
   anchor.download = name;
   anchor.rel = 'noopener';

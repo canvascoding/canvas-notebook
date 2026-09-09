@@ -44,7 +44,7 @@ export function useChatFileReferenceValidation(pathKey: string) {
 
     let ignore = false;
     void Promise.all(paths.map(async (path) => (
-      [path, await validateFileReference(path, fileTree, { fileTreeWorkspaceId })] as const
+      [path, await validateFileReference(path, fileTree, { fileTreeWorkspaceId, preferFresh: validationVersion > 0 })] as const
     ))).then((entries) => {
       if (ignore) return;
       const settledEntries = entries.filter(([, result]) => (

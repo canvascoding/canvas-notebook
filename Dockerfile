@@ -85,8 +85,8 @@ ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig \
     NODE_PATH=/usr/local/lib/node_modules \
     SHARP_FORCE_GLOBAL_LIBVIPS=1
 
-# Required for native modules (node-pty, better-sqlite3) and for compiling both
-# Sharp versions against the source-built shared libvips. These development
+# Required for node-pty and for compiling both Sharp versions against the
+# source-built shared libvips. These development
 # headers remain in the deps stage and are not copied into the runtime image.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -215,15 +215,14 @@ COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
-RUN rm -f ./scripts/apply-pending-migration-restore.ts ./scripts/migrate-sqlite-to-postgres.ts
+RUN rm -f ./scripts/apply-pending-migration-restore.ts
 
 # Copy seed assets (preset preview images, sys prompts, etc.)
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts
 
 # Copy production node_modules for external packages (better-auth, etc.)
 COPY --from=builder /app/node_modules ./node_modules
-RUN rm -rf ./node_modules/better-sqlite3 \
-  && test ! -e ./node_modules/better-sqlite3 \
+RUN test ! -e ./node_modules/better-sqlite3 \
   && ! command -v sqlite3 >/dev/null 2>&1
 
 # Capture and verify the final OS/Python/npm/native payload only after the

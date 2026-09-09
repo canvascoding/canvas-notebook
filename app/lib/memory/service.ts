@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 
-import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   MEMORY_MAX_ENTRY_CHARS,
   MEMORY_PENDING_ARCHIVE_AFTER_MS,
@@ -164,7 +164,7 @@ export async function resolveAgentMemoryOwnerForUser(input: {
     try {
       const retained = await connection.get(`
         SELECT id FROM memory_collections
-        WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+        WHERE scope_type = 'agent' AND user_id = $1 AND agent_id = $2
         LIMIT 1
       `, [input.userId, input.agentId]) as { id?: string } | undefined;
       if (retained?.id) return { agentId: input.agentId, status: 'deleted' };
@@ -189,7 +189,7 @@ export async function readAgentMemoryOwnerStats(userId: string): Promise<AgentMe
       FROM memory_collections collection
       LEFT JOIN agents agent ON agent.agent_id = collection.agent_id
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id IS NOT NULL
+      WHERE collection.scope_type = 'agent' AND collection.user_id = $1 AND collection.agent_id IS NOT NULL
       GROUP BY collection.agent_id
       ORDER BY MAX(collection.updated_at) DESC, collection.agent_id ASC
     `, [userId]) as Array<Record<string, unknown>>;
@@ -212,7 +212,7 @@ export async function exportAgentMemory(userId: string, agentId: string): Promis
   try {
     const collections = await connection.all(`
       SELECT id, category, title, status FROM memory_collections
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      WHERE scope_type = 'agent' AND user_id = $1 AND agent_id = $2
       ORDER BY updated_at DESC, id ASC
     `, [userId, owner.agentId]) as Array<Record<string, unknown>>;
     const result: AgentMemoryExport['collections'] = [];
@@ -220,7 +220,7 @@ export async function exportAgentMemory(userId: string, agentId: string): Promis
       const rows = await connection.all(`
         SELECT id, content, status, priority, pinned, collection_id, semantic_key,
           sensitivity, updated_at, last_used_at
-        FROM memory_entries WHERE collection_id = ?
+        FROM memory_entries WHERE collection_id = $1
         ORDER BY pinned DESC, priority DESC, updated_at DESC, id ASC
       `, [collection.id]) as Array<Record<string, unknown>>;
       result.push({
@@ -255,8 +255,8 @@ export async function setAgentMemoryArchived(input: {
   const connection = await openDb();
   try {
     const result = await connection.run(`
-      UPDATE memory_collections SET status = ?, revision = revision + 1, updated_at = ?
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ? AND status != ?
+      UPDATE memory_collections SET status = $1, revision = revision + 1, updated_at = $2
+      WHERE scope_type = 'agent' AND user_id = $3 AND agent_id = $4 AND status != $5
     `, [input.archived ? 'archived' : 'active', Date.now(), input.userId, owner.agentId, input.archived ? 'archived' : 'active']) as { changes?: number };
     return { collections: Number(result.changes ?? 0), archived: input.archived };
   } finally {
@@ -278,11 +278,11 @@ export async function transferAgentMemory(input: {
       SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
       FROM memory_collections collection
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+      WHERE collection.scope_type = 'agent' AND collection.user_id = $1 AND collection.agent_id = $2
     `, [input.userId, source.agentId]) as Record<string, unknown> | undefined;
     await connection.run(`
-      UPDATE memory_collections SET agent_id = ?, revision = revision + 1, updated_at = ?
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      UPDATE memory_collections SET agent_id = $1, revision = revision + 1, updated_at = $2
+      WHERE scope_type = 'agent' AND user_id = $3 AND agent_id = $4
     `, [target.agentId, Date.now(), input.userId, source.agentId]);
     return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
   } finally {
@@ -298,11 +298,11 @@ export async function deleteAgentMemory(userId: string, agentId: string): Promis
       SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
       FROM memory_collections collection
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.scope_type = 'agent' AND collection.user_id = ? AND collection.agent_id = ?
+      WHERE collection.scope_type = 'agent' AND collection.user_id = $1 AND collection.agent_id = $2
     `, [userId, owner.agentId]) as Record<string, unknown> | undefined;
     await connection.run(`
       DELETE FROM memory_collections
-      WHERE scope_type = 'agent' AND user_id = ? AND agent_id = ?
+      WHERE scope_type = 'agent' AND user_id = $1 AND agent_id = $2
     `, [userId, owner.agentId]);
     return { collections: Number(counts?.collections ?? 0), entries: Number(counts?.entries ?? 0) };
   } finally {
@@ -411,15 +411,16 @@ async function assertMemoryScopeAccess(
   return permissions;
 }
 
-function scopeWhere(scope: MemoryServiceScope): { sql: string; params: unknown[] } {
-  if (scope.target === 'user') return { sql: 'scope_type = ? AND user_id = ? AND agent_id IS NULL', params: ['user', scope.userId] };
-  if (scope.target === 'agent') return { sql: 'scope_type = ? AND user_id = ? AND agent_id = ?', params: ['agent', scope.userId, scope.agentId] };
-  if (scope.target === 'workspace') return { sql: 'scope_type = ? AND workspace_id = ?', params: ['workspace', scope.workspaceId] };
-  return { sql: 'scope_type = ? AND organization_id = ?', params: ['organization', scope.organizationId] };
+function scopeWhere(scope: MemoryServiceScope, startIndex = 1): { sql: string; params: unknown[] } {
+  const p = (offset: number) => `$${startIndex + offset}`;
+  if (scope.target === 'user') return { sql: `scope_type = ${p(0)} AND user_id = ${p(1)} AND agent_id IS NULL`, params: ['user', scope.userId] };
+  if (scope.target === 'agent') return { sql: `scope_type = ${p(0)} AND user_id = ${p(1)} AND agent_id = ${p(2)}`, params: ['agent', scope.userId, scope.agentId] };
+  if (scope.target === 'workspace') return { sql: `scope_type = ${p(0)} AND workspace_id = ${p(1)}`, params: ['workspace', scope.workspaceId] };
+  return { sql: `scope_type = ${p(0)} AND organization_id = ${p(1)}`, params: ['organization', scope.organizationId] };
 }
 
-function collectionScopeWhere(scope: MemoryServiceScope): { sql: string; params: unknown[] } {
-  const where = scopeWhere(scope);
+function collectionScopeWhere(scope: MemoryServiceScope, startIndex = 1): { sql: string; params: unknown[] } {
+  const where = scopeWhere(scope, startIndex);
   return { sql: where.sql.replaceAll('scope_', 'collection.scope_').replaceAll('user_id', 'collection.user_id').replaceAll('agent_id', 'collection.agent_id').replaceAll('workspace_id', 'collection.workspace_id').replaceAll('organization_id', 'collection.organization_id'), params: where.params };
 }
 
@@ -427,11 +428,12 @@ function visibleMemoryEntriesWhere(
   scope: MemoryServiceScope,
   permissions: MemoryScopePermissions,
   alias = 'entry',
+  startIndex = 1,
 ): { sql: string; params: unknown[] } {
   if (permissions.canPublish) return { sql: '1 = 1', params: [] };
   if ((scope.target === 'workspace' || scope.target === 'organization') && permissions.canSuggest) {
     return {
-      sql: `(${alias}.status = 'published' OR (${alias}.status = 'pending' AND ${alias}.created_by_user_id = ?))`,
+      sql: `(${alias}.status = 'published' OR (${alias}.status = 'pending' AND ${alias}.created_by_user_id = $${startIndex}))`,
       params: [scope.userId],
     };
   }
@@ -478,11 +480,11 @@ async function findCollectionIdWithConnection(
   category?: string,
 ): Promise<string | null> {
   assertCompleteMemoryScopeIdentity(scopeIdentity(scope));
-  const where = scopeWhere(scope);
+  const where = scopeWhere(scope, 1);
   const resolvedCategory = canonicalMemoryCategory(scope.target, category);
   const existing = await connection.get(`
     SELECT id FROM memory_collections
-    WHERE ${where.sql} AND status = 'active' AND category = ?
+    WHERE ${where.sql} AND status = 'active' AND category = $${where.params.length + 1}
     ORDER BY updated_at DESC, id DESC
     LIMIT 1
   `, [...where.params, resolvedCategory]) as { id?: string } | undefined;
@@ -501,7 +503,7 @@ async function findCollectionIdWithConnection(
     INSERT INTO memory_collections (
       id, scope_type, user_id, agent_id, organization_id, workspace_id,
       category, title, summary, sensitivity, status, revision, created_by_user_id, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'standard', 'active', 1, ?, ?, ?)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'standard', 'active', 1, $10, $11, $12)
     ON CONFLICT (id) DO NOTHING
   `, [
     id, scope.target, scope.userId,
@@ -536,13 +538,13 @@ export async function readMemory(scope: MemoryServiceScope): Promise<MemoryReadR
   const permissions = await assertMemoryScopeAccess(scope, 'read');
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
+    const where = collectionScopeWhere(scope, 1);
     const rows = await connection.all(`
       SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE ${where.sql} AND collection.status = 'active' AND entry.status != 'archived'
-        AND (? = 1 OR entry.status = 'published')
+        AND ($${where.params.length + 1} = 1 OR entry.status = 'published')
       ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
     `, [...where.params, permissions.canPublish ? 1 : 0]) as Record<string, unknown>[];
     return { target: scope.target, entries: rows.map(toEntry) };
@@ -556,8 +558,8 @@ export async function listMemoryCollections(scope: MemoryServiceScope): Promise<
   const permissions = await assertMemoryScopeAccess(scope, 'read');
   const connection = await openDb();
   try {
-    const where = scopeWhere(scope);
-    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions);
+    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions, 'entry', 1);
+    const where = scopeWhere(scope, 1 + visibleEntries.params.length);
     const rows = await connection.all(`
       SELECT collection.id, collection.category, collection.title, collection.summary, collection.status, collection.updated_at,
         COALESCE(SUM(CASE WHEN entry.status != 'archived' THEN 1 ELSE 0 END), 0) AS entry_count,
@@ -597,13 +599,13 @@ export async function readMemoryCollection(
   const view = scope.view ?? (scope.includeArchived === true ? 'all' : 'active');
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
-    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions);
+    const where = collectionScopeWhere(scope, 2);
+    const visibleEntries = visibleMemoryEntriesWhere(scope, permissions, 'entry', 2 + where.params.length);
     const rows = await connection.all(`
       SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      WHERE entry.collection_id = ? AND ${where.sql}
+      WHERE entry.collection_id = $1 AND ${where.sql}
         AND ${visibleEntries.sql}
         AND ${memoryEntryViewWhere(view)}
       ORDER BY entry.pinned DESC, entry.priority DESC, entry.updated_at DESC, entry.id ASC
@@ -617,12 +619,12 @@ async function findEntryInScope(
   scope: MemoryServiceScope,
   id: string,
 ): Promise<Record<string, unknown> | undefined> {
-  const where = collectionScopeWhere(scope);
+  const where = collectionScopeWhere(scope, 2);
   return connection.get(`
     SELECT entry.id, entry.content, entry.status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
     FROM memory_entries entry
     INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-    WHERE entry.id = ? AND ${where.sql} AND entry.status != 'archived'
+    WHERE entry.id = $1 AND ${where.sql} AND entry.status != 'archived'
     LIMIT 1
   `, [id, ...where.params]) as Promise<Record<string, unknown> | undefined>;
 }
@@ -634,12 +636,12 @@ export async function readMemoryEntryHistory(
   const permissions = await assertMemoryScopeAccess(scope, 'read');
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
+    const where = collectionScopeWhere(scope, 2);
     const entry = await connection.get(`
       SELECT entry.id, entry.status, entry.created_by_user_id
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      WHERE entry.id = ? AND ${where.sql}
+      WHERE entry.id = $1 AND ${where.sql}
       LIMIT 1
     `, [scope.id.trim(), ...where.params]) as { id?: string; status?: MemoryEntryStatus; created_by_user_id?: string | null } | undefined;
     const canReadOwnPending = entry?.status === 'pending'
@@ -651,7 +653,7 @@ export async function readMemoryEntryHistory(
     const rows = await connection.all(`
       SELECT id, action, actor_type, decision_code, created_at
       FROM memory_events
-      WHERE entry_id = ?
+      WHERE entry_id = $1
       ORDER BY created_at DESC, id DESC
       LIMIT 20
     `, [entry.id]) as Array<Record<string, unknown>>;
@@ -668,7 +670,7 @@ export async function readMemoryEntryHistory(
 /**
  * Persists the explicit, user-confirmed facts collected by Bradley during the
  * profile onboarding. The operation is idempotent across retries and uses the
- * same SQL surface for SQLite and PostgreSQL.
+ * native PostgreSQL SQL surface.
  */
 export async function saveOnboardingUserMemories(params: {
   userId: string;
@@ -730,9 +732,9 @@ export async function saveOnboardingUserMemories(params: {
       const existing = await connection.get(`
         SELECT id, content, normalized_content_hash, semantic_key, priority, pinned
         FROM memory_entries
-        WHERE collection_id = ? AND status != 'archived'
-          AND (semantic_key = ? OR normalized_content_hash = ?)
-        ORDER BY CASE WHEN semantic_key = ? THEN 0 ELSE 1 END, updated_at DESC, id DESC
+        WHERE collection_id = $1 AND status != 'archived'
+          AND (semantic_key = $2 OR normalized_content_hash = $3)
+        ORDER BY CASE WHEN semantic_key = $4 THEN 0 ELSE 1 END, updated_at DESC, id DESC
         LIMIT 1
       `, [collectionId, memory.semanticKey, hash, memory.semanticKey]) as Record<string, unknown> | undefined;
       const now = Date.now();
@@ -749,10 +751,10 @@ export async function saveOnboardingUserMemories(params: {
         } else {
           await connection.run(`
             UPDATE memory_entries
-            SET semantic_key = ?, content = ?, normalized_content_hash = ?, status = 'published',
-              priority = ?, sensitivity = 'standard', estimated_tokens = ?, source_session_id = ?,
-              source_agent_id = ?, last_confirmed_at = ?, revision = revision + 1, updated_at = ?
-            WHERE id = ?
+            SET semantic_key = $1, content = $2, normalized_content_hash = $3, status = 'published',
+              priority = $4, sensitivity = 'standard', estimated_tokens = $5, source_session_id = $6,
+              source_agent_id = $7, last_confirmed_at = $8, revision = revision + 1, updated_at = $9
+            WHERE id = $10
           `, [
             memory.semanticKey,
             memory.content,
@@ -775,7 +777,7 @@ export async function saveOnboardingUserMemories(params: {
             id, collection_id, semantic_key, content, normalized_content_hash, status, priority, pinned,
             sensitivity, estimated_tokens, source_session_id, source_agent_id, created_by_actor_type,
             created_by_user_id, last_confirmed_at, revision, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'published', ?, 0, 'standard', ?, ?, ?, 'assistant', ?, ?, 1, ?, ?)
+          ) VALUES ($1, $2, $3, $4, $5, 'published', $6, 0, 'standard', $7, $8, $9, 'assistant', $10, $11, 1, $12, $13)
           ON CONFLICT (id) DO UPDATE SET
             semantic_key = excluded.semantic_key,
             content = excluded.content,
@@ -813,7 +815,7 @@ export async function saveOnboardingUserMemories(params: {
         await connection.run(`
           INSERT INTO memory_events (
             id, entry_id, action, actor_type, actor_user_id, session_id, decision_code, created_at
-          ) VALUES (?, ?, ?, 'assistant', ?, ?, 'onboarding_profile', ?)
+          ) VALUES ($1, $2, $3, 'assistant', $4, $5, 'onboarding_profile', $6)
           ON CONFLICT (id) DO NOTHING
         `, [eventId, entryId, action, userId, sessionId, now]);
       }
@@ -849,7 +851,7 @@ export async function addMemory(
     const existing = await connection.get(`
       SELECT id, content, status, priority, pinned, collection_id, semantic_key, updated_at, last_used_at
       FROM memory_entries
-      WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived'
+      WHERE collection_id = $1 AND normalized_content_hash = $2 AND status != 'archived'
       LIMIT 1
     `, [collectionId, hash]) as Record<string, unknown> | undefined;
     if (existing) {
@@ -869,11 +871,11 @@ export async function addMemory(
       INSERT INTO memory_entries (
         id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity,
         estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 0, 'standard', ?, ?, ?, 1, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, 0, 'standard', $7, $8, $9, 1, $10, $11)
     `, [entry.id, collectionId, content, hash, entry.status, entry.priority, Math.max(1, Math.ceil(content.length / 4)), scope.publishIfAuthorized ? 'user' : 'assistant', scope.userId, now, now]);
     await connection.run(`
       INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
-      VALUES (?, ?, 'add', ?, ?, ?, ?)
+      VALUES ($1, $2, 'add', $3, $4, $5, $6)
     `, [randomUUID(), entry.id, scope.publishIfAuthorized ? 'user' : 'assistant', scope.userId, scope.publishIfAuthorized ? 'manual_memory_entry' : 'explicit_memory_tool', now]);
     console.info('[Memory] Entry stored.', {
       operation: 'add',
@@ -919,7 +921,7 @@ export async function importPersonalMemory(params: {
       const hash = contentHash(content);
       const existing = await connection.get(`
         SELECT id FROM memory_entries
-        WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived'
+        WHERE collection_id = $1 AND normalized_content_hash = $2 AND status != 'archived'
         LIMIT 1
       `, [collectionId, hash]) as { id?: string } | undefined;
       if (existing?.id) {
@@ -931,11 +933,11 @@ export async function importPersonalMemory(params: {
         INSERT INTO memory_entries (
           id, collection_id, content, normalized_content_hash, status, priority, pinned, sensitivity,
           estimated_tokens, created_by_actor_type, created_by_user_id, revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, 'published', 50, 0, 'standard', ?, 'user', ?, 1, ?, ?)
+        ) VALUES ($1, $2, $3, $4, 'published', 50, 0, 'standard', $5, 'user', $6, 1, $7, $8)
       `, [id, collectionId, content, hash, Math.max(1, Math.ceil(content.length / 4)), params.userId, now, now]);
       await connection.run(`
         INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
-        VALUES (?, ?, 'import', 'user', ?, 'manual_memory_import', ?)
+        VALUES ($1, $2, 'import', 'user', $3, 'manual_memory_import', $4)
       `, [randomUUID(), id, params.userId, now]);
       added += 1;
     }
@@ -953,11 +955,11 @@ export async function deletePersonalMemory(userId: string): Promise<{ collection
       SELECT COUNT(DISTINCT collection.id) AS collections, COUNT(entry.id) AS entries
       FROM memory_collections collection
       LEFT JOIN memory_entries entry ON entry.collection_id = collection.id
-      WHERE collection.user_id = ? AND collection.scope_type IN ('user', 'agent')
+      WHERE collection.user_id = $1 AND collection.scope_type IN ('user', 'agent')
     `, [userId]) as { collections?: number; entries?: number } | undefined;
     await connection.run(`
       DELETE FROM memory_collections
-      WHERE user_id = ? AND scope_type IN ('user', 'agent')
+      WHERE user_id = $1 AND scope_type IN ('user', 'agent')
     `, [userId]);
     return { collections: Number(totals?.collections ?? 0), entries: Number(totals?.entries ?? 0) };
   } finally { await connection.close(); }
@@ -976,8 +978,8 @@ export async function updateMemory(scope: MemoryServiceScope & { id: string; con
     if (existing.pinned === true || existing.pinned === 1) throw new Error('Pinned memory entries cannot be changed automatically.');
     const now = Date.now();
     const nextPriority = priority ?? Number(existing.priority);
-    await connection.run(`UPDATE memory_entries SET content = ?, normalized_content_hash = ?, priority = ?, estimated_tokens = ?, revision = revision + 1, updated_at = ? WHERE id = ?`, [content, contentHash(content), nextPriority, Math.max(1, Math.ceil(content.length / 4)), now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'update', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`UPDATE memory_entries SET content = $1, normalized_content_hash = $2, priority = $3, estimated_tokens = $4, revision = revision + 1, updated_at = $5 WHERE id = $6`, [content, contentHash(content), nextPriority, Math.max(1, Math.ceil(content.length / 4)), now, id]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'update', 'assistant', $3, 'explicit_memory_tool', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry stored.', {
       operation: 'update',
       target: scope.target,
@@ -1004,10 +1006,10 @@ export async function deleteMemory(scope: MemoryServiceScope & { id: string }): 
     await connection.run(`
       UPDATE memory_entries
       SET archived_from_status = CASE WHEN status IN ('pending', 'published') THEN status ELSE archived_from_status END,
-        status = 'archived', revision = revision + 1, updated_at = ?
-      WHERE id = ?
+        status = 'archived', revision = revision + 1, updated_at = $1
+      WHERE id = $2
     `, [now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'assistant', ?, 'explicit_memory_tool', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'archive', 'assistant', $3, 'explicit_memory_tool', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry lifecycle changed.', {
       operation: 'archive',
       target: scope.target,
@@ -1027,12 +1029,12 @@ export async function restoreMemory(scope: MemoryServiceScope & { id: string }):
   const id = scope.id.trim();
   const connection = await openDb();
   try {
-    const where = collectionScopeWhere(scope);
+    const where = collectionScopeWhere(scope, 2);
     const existing = await connection.get(`
       SELECT entry.id, entry.content, entry.status, entry.archived_from_status, entry.priority, entry.pinned, entry.collection_id, entry.semantic_key, entry.updated_at, entry.last_used_at
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
-      WHERE entry.id = ? AND ${where.sql} AND entry.status = 'archived'
+      WHERE entry.id = $1 AND ${where.sql} AND entry.status = 'archived'
       LIMIT 1
     `, [id, ...where.params]) as Record<string, unknown> | undefined;
     if (!existing) throw new Error(`Archived memory entry "${id}" was not found.`);
@@ -1045,10 +1047,10 @@ export async function restoreMemory(scope: MemoryServiceScope & { id: string }):
         : 'pending';
     await connection.run(`
       UPDATE memory_entries
-      SET status = ?, archived_from_status = NULL, revision = revision + 1, updated_at = ?
-      WHERE id = ? AND status = 'archived'
+      SET status = $1, archived_from_status = NULL, revision = revision + 1, updated_at = $2
+      WHERE id = $3 AND status = 'archived'
     `, [restoreStatus, now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'restore', 'user', ?, 'explicit_memory_restore', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'restore', 'user', $3, 'explicit_memory_restore', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry lifecycle changed.', {
       operation: 'restore',
       target: scope.target,
@@ -1080,8 +1082,8 @@ export async function publishMemory(scope: MemoryServiceScope & { id: string }):
       return { ...result, changed: false, entry };
     }
     const now = Date.now();
-    await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = ? WHERE id = ?`, [now, id]);
-    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'publish', 'user', ?, 'shared_memory_manager', ?)`, [randomUUID(), id, scope.userId, now]);
+    await connection.run(`UPDATE memory_entries SET status = 'published', revision = revision + 1, updated_at = $1 WHERE id = $2`, [now, id]);
+    await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'publish', 'user', $3, 'shared_memory_manager', $4)`, [randomUUID(), id, scope.userId, now]);
     console.info('[Memory] Entry lifecycle changed.', {
       operation: 'publish',
       target: scope.target,
@@ -1134,7 +1136,7 @@ export async function readMemoryReviewRuntimeSettings(
       SELECT organization_id, provider_installation_id, model_id,
         verified_catalog_revision, verified_at, configured_by_user_id, updated_at
       FROM memory_review_runtime_settings
-      WHERE organization_id = ?
+      WHERE organization_id = $1
       LIMIT 1
     `, [organizationId]) as Record<string, unknown> | undefined;
     if (!row) return null;
@@ -1170,7 +1172,7 @@ export async function updateMemoryReviewRuntimeSettings(params: {
           organization_id, provider_installation_id, model_id,
           verified_catalog_revision, verified_at, configured_by_user_id,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         ON CONFLICT(organization_id) DO UPDATE SET
           provider_installation_id = excluded.provider_installation_id,
           model_id = excluded.model_id,
@@ -1190,11 +1192,11 @@ export async function updateMemoryReviewRuntimeSettings(params: {
       ]);
       const result = await connection.run(`
         UPDATE memory_review_jobs AS job
-        SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
-        WHERE organization_id = ?
+        SET status = 'scheduled', scheduled_for = $1, lease_until = NULL, error_code = NULL
+        WHERE organization_id = $2
           AND status = 'awaiting_model_configuration'
           AND error_code = 'model_not_configured'
-          AND attempts < ?
+          AND attempts < $3
           AND EXISTS (
             SELECT 1 FROM memory_user_settings user_settings
             WHERE user_settings.user_id = job.user_id
@@ -1235,15 +1237,15 @@ export async function updateMemoryReviewSettings(
 ): Promise<{ reactivatedJobs: number; cancelledJobs: number; settingsRevision: number }> {
   const connection = await openDb();
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     try {
       const existing = await connection.get(`
         SELECT automatic_memory_enabled, automatic_memory_enabled_at,
           automatic_memory_disabled_at, settings_revision,
           memory_prompt_max_tokens, sensitive_memory_enabled, created_at
         FROM memory_user_settings
-        WHERE user_id = ?
-        LIMIT 1${getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : ''}
+        WHERE user_id = $1
+        LIMIT 1 FOR UPDATE
       `, [userId]) as Record<string, unknown> | undefined;
       const previousAutomaticMemoryEnabled = existing?.automatic_memory_enabled === true
         || existing?.automatic_memory_enabled === 1;
@@ -1274,7 +1276,7 @@ export async function updateMemoryReviewSettings(
           user_id, automatic_memory_enabled, automatic_memory_enabled_at,
           automatic_memory_disabled_at, settings_revision,
           memory_prompt_max_tokens, sensitive_memory_enabled, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT(user_id) DO UPDATE SET
           automatic_memory_enabled = excluded.automatic_memory_enabled,
           automatic_memory_enabled_at = excluded.automatic_memory_enabled_at,
@@ -1300,10 +1302,10 @@ export async function updateMemoryReviewSettings(
       if (automaticMemoryEnabled) {
         const result = await connection.run(`
           UPDATE memory_review_jobs AS job
-          SET status = 'scheduled', scheduled_for = ?, lease_until = NULL, error_code = NULL
-          WHERE user_id = ? AND status = 'awaiting_model_configuration'
+          SET status = 'scheduled', scheduled_for = $1, lease_until = NULL, error_code = NULL
+          WHERE user_id = $2 AND status = 'awaiting_model_configuration'
             AND error_code = 'model_not_configured'
-            AND attempts < ?
+            AND attempts < $3
             AND EXISTS (
               SELECT 1 FROM memory_review_runtime_settings runtime
               WHERE runtime.organization_id = job.organization_id
@@ -1314,7 +1316,7 @@ export async function updateMemoryReviewSettings(
         await connection.run(`
           UPDATE memory_review_jobs AS job
           SET scheduled_for = NULL, lease_until = NULL, error_code = 'model_not_configured'
-          WHERE user_id = ? AND status = 'awaiting_model_configuration'
+          WHERE user_id = $1 AND status = 'awaiting_model_configuration'
             AND NOT EXISTS (
               SELECT 1 FROM memory_review_runtime_settings runtime
               WHERE runtime.organization_id = job.organization_id
@@ -1330,8 +1332,8 @@ export async function updateMemoryReviewSettings(
         const result = await connection.run(`
           UPDATE memory_review_jobs
           SET status = 'completed', scheduled_for = NULL, lease_until = NULL,
-            error_code = NULL, completed_at = ?, result_json = ?
-          WHERE user_id = ?
+            error_code = NULL, completed_at = $1, result_json = $2
+          WHERE user_id = $3
             AND status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
         `, [now, cancellationResult, userId]) as { changes?: number };
         cancelledJobs = Number(result.changes ?? 0);
@@ -1369,7 +1371,7 @@ export async function scheduleMemoryReviewForSession(params: {
     const session = await connection.get(`
       SELECT id, organization_id
       FROM pi_sessions
-      WHERE user_id = ? AND session_id = ?
+      WHERE user_id = $1 AND session_id = $2
       LIMIT 1
     `, [params.userId, params.sessionId]) as { id?: number; organization_id?: string | null } | undefined;
     if (!session?.id) return null;
@@ -1378,7 +1380,7 @@ export async function scheduleMemoryReviewForSession(params: {
     const reviewSettings = await connection.get(`
       SELECT automatic_memory_enabled, automatic_memory_enabled_at
       FROM memory_user_settings
-      WHERE user_id = ?
+      WHERE user_id = $1
       LIMIT 1
     `, [params.userId]) as { automatic_memory_enabled?: number | boolean; automatic_memory_enabled_at?: number } | undefined;
     const automaticMemoryEnabled = reviewSettings?.automatic_memory_enabled === true
@@ -1387,7 +1389,7 @@ export async function scheduleMemoryReviewForSession(params: {
     const runtimeSettings = await connection.get(`
       SELECT provider_installation_id, model_id, verified_at
       FROM memory_review_runtime_settings
-      WHERE organization_id = ?
+      WHERE organization_id = $1
       LIMIT 1
     `, [organizationId]) as { provider_installation_id?: string; model_id?: string; verified_at?: number } | undefined;
     const runtimeConfigured = Boolean(
@@ -1399,13 +1401,13 @@ export async function scheduleMemoryReviewForSession(params: {
     const terminal = await connection.get(`
       SELECT COALESCE(MAX(through_message_sequence), 0) AS sequence
       FROM memory_review_jobs
-      WHERE user_id = ? AND session_id = ?
-        AND (status IN ('completed', 'failed') OR attempts >= ?)
+      WHERE user_id = $1 AND session_id = $2
+        AND (status IN ('completed', 'failed') OR attempts >= $3)
     `, [params.userId, params.sessionId, MEMORY_REVIEW_MAX_ATTEMPTS]) as { sequence?: number } | undefined;
     const firstEligibleUserMessage = await connection.get(`
       SELECT MIN(sequence) AS sequence
       FROM pi_messages
-      WHERE pi_session_db_id = ? AND role = 'user' AND timestamp >= ?
+      WHERE pi_session_db_id = $1 AND role = 'user' AND timestamp >= $2
     `, [session.id, Number(reviewSettings.automatic_memory_enabled_at ?? 0)]) as { sequence?: number } | undefined;
     const firstEligibleSequence = Number(firstEligibleUserMessage?.sequence ?? 0);
     if (!firstEligibleSequence) return null;
@@ -1413,12 +1415,12 @@ export async function scheduleMemoryReviewForSession(params: {
     const delta = await connection.get(`
       SELECT COUNT(*) AS user_turn_count, MAX(sequence) AS through_message_sequence
       FROM pi_messages
-      WHERE pi_session_db_id = ? AND sequence >= ?
+      WHERE pi_session_db_id = $1 AND sequence >= $2
     `, [session.id, fromMessageSequence]) as { user_turn_count?: number; through_message_sequence?: number } | undefined;
     const userTurns = await connection.get(`
       SELECT COUNT(*) AS count
       FROM pi_messages
-      WHERE pi_session_db_id = ? AND sequence >= ? AND role = 'user'
+      WHERE pi_session_db_id = $1 AND sequence >= $2 AND role = 'user'
     `, [session.id, fromMessageSequence]) as { count?: number } | undefined;
     const throughMessageSequence = Number(delta?.through_message_sequence ?? 0);
     if (!throughMessageSequence || Number(userTurns?.count ?? 0) === 0) return null;
@@ -1428,7 +1430,7 @@ export async function scheduleMemoryReviewForSession(params: {
     const running = await connection.get(`
       SELECT id, from_message_sequence, through_message_sequence, trigger_type
       FROM memory_review_jobs
-      WHERE user_id = ? AND session_id = ? AND status = 'running'
+      WHERE user_id = $1 AND session_id = $2 AND status = 'running'
       ORDER BY created_at ASC LIMIT 1
     `, [params.userId, params.sessionId]) as {
       id?: string;
@@ -1448,9 +1450,9 @@ export async function scheduleMemoryReviewForSession(params: {
     }
     const existing = await connection.get(`
       SELECT id FROM memory_review_jobs
-      WHERE user_id = ? AND session_id = ? AND from_message_sequence = ?
+      WHERE user_id = $1 AND session_id = $2 AND from_message_sequence = $3
         AND status IN ('scheduled', 'awaiting_model_configuration', 'queued', 'retry_wait')
-        AND attempts < ?
+        AND attempts < $4
       ORDER BY created_at ASC LIMIT 1
     `, [params.userId, params.sessionId, fromMessageSequence, MEMORY_REVIEW_MAX_ATTEMPTS]) as { id?: string } | undefined;
     let jobId = existing?.id;
@@ -1458,15 +1460,15 @@ export async function scheduleMemoryReviewForSession(params: {
       if (runtimeConfigured) {
         await connection.run(`
           UPDATE memory_review_jobs
-          SET organization_id = ?, through_message_sequence = ?, trigger_type = ?, scheduled_for = ?, status = 'scheduled', lease_until = NULL, error_code = NULL
-          WHERE id = ?
+          SET organization_id = $1, through_message_sequence = $2, trigger_type = $3, scheduled_for = $4, status = 'scheduled', lease_until = NULL, error_code = NULL
+          WHERE id = $5
         `, [organizationId, throughMessageSequence, triggerType, scheduledFor, existing.id]);
       } else {
         await connection.run(`
           UPDATE memory_review_jobs
-          SET organization_id = ?, through_message_sequence = ?, trigger_type = ?, scheduled_for = NULL,
+          SET organization_id = $1, through_message_sequence = $2, trigger_type = $3, scheduled_for = NULL,
               status = 'awaiting_model_configuration', lease_until = NULL, error_code = 'model_not_configured'
-          WHERE id = ?
+          WHERE id = $4
         `, [organizationId, throughMessageSequence, triggerType, existing.id]);
       }
     } else {
@@ -1475,7 +1477,7 @@ export async function scheduleMemoryReviewForSession(params: {
         INSERT INTO memory_review_jobs (
           id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
           trigger_type, scheduled_for, status, attempts, error_code, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, $11)
       `, [
         jobId,
         params.userId,
@@ -1528,7 +1530,7 @@ export async function scheduleUnreviewedMemorySessions(
             AND previous_terminal_job.session_id = session.session_id
             AND (
               previous_terminal_job.status IN ('completed', 'failed')
-              OR previous_terminal_job.attempts >= ?
+              OR previous_terminal_job.attempts >= $1
             )
         )
         AND NOT EXISTS (
@@ -1548,7 +1550,7 @@ export async function scheduleUnreviewedMemorySessions(
               FROM memory_review_jobs terminal_job
               WHERE terminal_job.user_id = session.user_id
                 AND terminal_job.session_id = session.session_id
-                AND (terminal_job.status IN ('completed', 'failed') OR terminal_job.attempts >= ?)
+                AND (terminal_job.status IN ('completed', 'failed') OR terminal_job.attempts >= $2)
             ), 0)
             AND EXISTS (
               SELECT 1 FROM pi_messages assistant_message
@@ -1558,7 +1560,7 @@ export async function scheduleUnreviewedMemorySessions(
             )
         )
       ORDER BY session.updated_at DESC, session.id DESC
-      LIMIT ?
+      LIMIT $3
     `, [MEMORY_REVIEW_MAX_ATTEMPTS, MEMORY_REVIEW_MAX_ATTEMPTS, boundedLimit]) as Array<{ user_id: string; session_id: string }>;
     let scheduled = 0;
     for (const row of rows) {
@@ -1604,9 +1606,9 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     const exhausted = await connection.run(`
       UPDATE memory_review_jobs
       SET status = 'failed', scheduled_for = NULL, lease_until = NULL,
-        error_code = COALESCE(error_code, 'max_attempts_exceeded'), failed_at = ?
+        error_code = COALESCE(error_code, 'max_attempts_exceeded'), failed_at = $1
       WHERE status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
-        AND attempts >= ?
+        AND attempts >= $2
     `, [now, MEMORY_REVIEW_MAX_ATTEMPTS]) as { changes?: number };
     if (Number(exhausted.changes ?? 0) > 0) {
       console.warn('[MemoryManager] Exhausted review jobs closed.', {
@@ -1617,7 +1619,7 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     const disabled = await connection.run(`
       UPDATE memory_review_jobs AS job
       SET status = 'completed', scheduled_for = NULL, lease_until = NULL,
-        error_code = NULL, completed_at = ?,
+        error_code = NULL, completed_at = $1,
         result_json = '{"cancelled":true,"reason":"automatic_memory_disabled"}'
       WHERE job.status IN ('scheduled', 'queued', 'retry_wait', 'awaiting_model_configuration', 'running')
         AND NOT EXISTS (
@@ -1628,8 +1630,8 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     `, [now]) as { changes?: number };
     const recovered = await connection.run(`
       UPDATE memory_review_jobs
-      SET status = 'retry_wait', scheduled_for = ?, lease_until = NULL, error_code = 'lease_expired'
-      WHERE status = 'running' AND attempts < ? AND lease_until IS NOT NULL AND lease_until <= ?
+      SET status = 'retry_wait', scheduled_for = $1, lease_until = NULL, error_code = 'lease_expired'
+      WHERE status = 'running' AND attempts < $2 AND lease_until IS NOT NULL AND lease_until <= $3
     `, [now, MEMORY_REVIEW_MAX_ATTEMPTS, now]) as { changes?: number };
     if (Number(recovered.changes ?? 0) > 0) {
       console.warn('[MemoryManager] Expired review leases recovered.', {
@@ -1666,8 +1668,8 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
       INNER JOIN memory_user_settings user_settings ON user_settings.user_id = job.user_id
       LEFT JOIN memory_review_runtime_settings runtime ON runtime.organization_id = job.organization_id
       WHERE job.status IN ('scheduled', 'retry_wait')
-        AND scheduled_for <= ?
-        AND job.attempts < ?
+        AND scheduled_for <= $1
+        AND job.attempts < $2
         AND user_settings.automatic_memory_enabled = 1
         AND runtime.provider_installation_id IS NOT NULL
         AND runtime.model_id IS NOT NULL
@@ -1677,22 +1679,22 @@ export async function claimDueMemoryReviewJob(now = Date.now()): Promise<MemoryR
     `, [now, MEMORY_REVIEW_MAX_ATTEMPTS]) as Record<string, unknown> | undefined;
     if (!candidate) return null;
     if (candidate.automatic_memory_enabled === false || candidate.automatic_memory_enabled === 0) {
-      await connection.run(`UPDATE memory_review_jobs SET status = 'awaiting_model_configuration', scheduled_for = NULL, error_code = 'automatic_memory_disabled' WHERE id = ?`, [candidate.id]);
+      await connection.run(`UPDATE memory_review_jobs SET status = 'awaiting_model_configuration', scheduled_for = NULL, error_code = 'automatic_memory_disabled' WHERE id = $1`, [candidate.id]);
       return null;
     }
     if (!candidate.organization_id || !candidate.provider_installation_id || !candidate.model_id || Number(candidate.verified_at) <= 0) {
-      await connection.run(`UPDATE memory_review_jobs SET status = 'awaiting_model_configuration', scheduled_for = NULL, error_code = 'model_not_configured' WHERE id = ?`, [candidate.id]);
+      await connection.run(`UPDATE memory_review_jobs SET status = 'awaiting_model_configuration', scheduled_for = NULL, error_code = 'model_not_configured' WHERE id = $1`, [candidate.id]);
       return null;
     }
     const changes = await connection.run(`
       UPDATE memory_review_jobs
-      SET status = 'running', attempts = attempts + 1, started_at = ?, lease_until = ?
-      WHERE id = ? AND status IN ('scheduled', 'retry_wait') AND attempts < ?
+      SET status = 'running', attempts = attempts + 1, started_at = $1, lease_until = $2
+      WHERE id = $3 AND status IN ('scheduled', 'retry_wait') AND attempts < $4
         AND EXISTS (
           SELECT 1 FROM memory_user_settings settings
           WHERE settings.user_id = memory_review_jobs.user_id
             AND settings.automatic_memory_enabled = 1
-            AND settings.settings_revision = ?
+            AND settings.settings_revision = $5
         )
     `, [now, now + 5 * 60 * 1000, candidate.id, MEMORY_REVIEW_MAX_ATTEMPTS, Number(candidate.settings_revision)]) as { changes?: number };
     if (!changes.changes) return null;
@@ -1727,9 +1729,9 @@ export async function isMemoryReviewJobRunnable(
       SELECT 1 AS runnable
       FROM memory_review_jobs job
       INNER JOIN memory_user_settings settings ON settings.user_id = job.user_id
-      WHERE job.id = ? AND job.user_id = ? AND job.status = 'running'
+      WHERE job.id = $1 AND job.user_id = $2 AND job.status = 'running'
         AND settings.automatic_memory_enabled = 1
-        AND settings.settings_revision = ?
+        AND settings.settings_revision = $3
       LIMIT 1
     `, [claim.id, claim.userId, claim.settingsRevision]) as { runnable?: number } | undefined;
     return Number(row?.runnable ?? 0) === 1;
@@ -1744,8 +1746,8 @@ export async function parkMemoryReviewJob(id: string, errorCode: string): Promis
     await connection.run(`
       UPDATE memory_review_jobs
       SET status = 'awaiting_model_configuration', scheduled_for = NULL,
-        lease_until = NULL, error_code = ?
-      WHERE id = ? AND status = 'running'
+        lease_until = NULL, error_code = $1
+      WHERE id = $2 AND status = 'running'
     `, [errorCode.slice(0, 80), id]);
     console.warn('[MemoryManager] Review parked.', { jobId: id, errorCode: errorCode.slice(0, 80) });
   } finally {
@@ -1764,14 +1766,14 @@ export async function loadMemoryReviewSourceMessages(claim: MemoryReviewJobClaim
   const connection = await openDb();
   try {
     const session = await connection.get(`
-      SELECT id, agent_id FROM pi_sessions WHERE user_id = ? AND session_id = ? LIMIT 1
+      SELECT id, agent_id FROM pi_sessions WHERE user_id = $1 AND session_id = $2 LIMIT 1
     `, [claim.userId, claim.sessionId]) as { id?: number; agent_id?: string } | undefined;
     if (!session?.id || session.agent_id !== claim.sourceAgentId) {
       throw new Error('The source session is no longer available for this memory review.');
     }
     const rows = await connection.all(`
       SELECT id, sequence, role, content FROM pi_messages
-      WHERE pi_session_db_id = ? AND sequence >= ? AND sequence <= ?
+      WHERE pi_session_db_id = $1 AND sequence >= $2 AND sequence <= $3
       ORDER BY sequence ASC, id ASC
     `, [session.id, claim.fromMessageSequence, claim.throughMessageSequence]) as Record<string, unknown>[];
     return rows.map((row) => ({
@@ -1866,7 +1868,7 @@ async function sourceMessageIdForReview(
   const row = await connection.get(`
     SELECT message.id FROM pi_messages message
     INNER JOIN pi_sessions session ON session.id = message.pi_session_db_id
-    WHERE session.user_id = ? AND session.session_id = ? AND session.agent_id = ? AND message.sequence = ?
+    WHERE session.user_id = $1 AND session.session_id = $2 AND session.agent_id = $3 AND message.sequence = $4
     LIMIT 1
   `, [claim.userId, claim.sessionId, claim.sourceAgentId, sequence]) as { id?: number } | undefined;
   return row?.id ?? null;
@@ -1881,12 +1883,12 @@ async function canSuggestSharedMemoryWithConnection(
   connection: SqlConnection,
   scope: MemoryServiceScope,
 ): Promise<boolean> {
-  const rowLock = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+  const rowLock = ' FOR UPDATE';
   if (scope.target === 'organization') {
     const permission = await connection.get(`
       SELECT role, status
       FROM organization_user_permissions
-      WHERE organization_id = ? AND user_id = ?
+      WHERE organization_id = $1 AND user_id = $2
       LIMIT 1${rowLock}
     `, [scope.organizationId, scope.userId]) as { role?: string; status?: string } | undefined;
     return permission?.status === 'active' && permission.role !== 'external';
@@ -1896,7 +1898,7 @@ async function canSuggestSharedMemoryWithConnection(
   const workspace = await connection.get(`
     SELECT id, organization_id, type, owner_user_id, project_id, status
     FROM canvas_workspaces
-    WHERE id = ?
+    WHERE id = $1
     LIMIT 1${rowLock}
   `, [scope.workspaceId]) as {
     id?: string;
@@ -1911,7 +1913,7 @@ async function canSuggestSharedMemoryWithConnection(
   const user = await connection.get(`
     SELECT id, email, role
     FROM "user"
-    WHERE id = ?
+    WHERE id = $1
     LIMIT 1${rowLock}
   `, [scope.userId]) as { id?: string; email?: string | null; role?: string | null } | undefined;
   if (!user?.id) return false;
@@ -1924,7 +1926,7 @@ async function canSuggestSharedMemoryWithConnection(
   const organizationPermission = await connection.get(`
     SELECT role, status, can_write_team_workspace
     FROM organization_user_permissions
-    WHERE organization_id = ? AND user_id = ?
+    WHERE organization_id = $1 AND user_id = $2
     LIMIT 1${rowLock}
   `, [workspace.organization_id, scope.userId]) as {
     role?: string;
@@ -1943,7 +1945,7 @@ async function canSuggestSharedMemoryWithConnection(
     const membership = await connection.get(`
       SELECT role, status, can_write
       FROM canvas_workspace_members
-      WHERE workspace_id = ? AND user_id = ?
+      WHERE workspace_id = $1 AND user_id = $2
       LIMIT 1${rowLock}
     `, [workspace.id, scope.userId]) as {
       role?: string;
@@ -1963,7 +1965,7 @@ async function canSuggestSharedMemoryWithConnection(
   const projectMembership = await connection.get(`
     SELECT role, status, can_read, can_write, can_manage
     FROM canvas_project_members
-    WHERE organization_id = ? AND project_id = ? AND user_id = ?
+    WHERE organization_id = $1 AND project_id = $2 AND user_id = $3
     LIMIT 1${rowLock}
   `, [workspace.organization_id, workspace.project_id, scope.userId]) as {
     role?: string;
@@ -2004,16 +2006,16 @@ export async function applyMemoryReviewCandidates(params: {
   }
   const connection = await openDb();
   try {
-    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     try {
       const executionGuard = await connection.get(`
         SELECT settings.sensitive_memory_enabled
         FROM memory_review_jobs job
         INNER JOIN memory_user_settings settings ON settings.user_id = job.user_id
-        WHERE job.id = ? AND job.user_id = ? AND job.status = 'running'
+        WHERE job.id = $1 AND job.user_id = $2 AND job.status = 'running'
           AND settings.automatic_memory_enabled = 1
-          AND settings.settings_revision = ?
-        LIMIT 1${getDatabaseProvider() === 'postgres' ? ' FOR UPDATE OF settings' : ''}
+          AND settings.settings_revision = $3
+        LIMIT 1 FOR UPDATE OF settings
       `, [params.claim.id, params.claim.userId, params.claim.settingsRevision]) as {
         sensitive_memory_enabled?: number | boolean;
       } | undefined;
@@ -2075,8 +2077,8 @@ export async function applyMemoryReviewCandidates(params: {
         SELECT id, pinned, status, semantic_key, normalized_content_hash,
           priority, sensitivity, confidence
         FROM memory_entries
-        WHERE collection_id = ? AND status != 'archived'
-          AND (semantic_key = ? OR id = ?)
+        WHERE collection_id = $1 AND status != 'archived'
+          AND (semantic_key = $2 OR id = $3)
         ORDER BY updated_at DESC LIMIT 1
       `, [collectionId, semanticKey, candidate.entryId ?? null]) as {
         id?: string;
@@ -2094,8 +2096,8 @@ export async function applyMemoryReviewCandidates(params: {
           continue;
         }
         const now = Date.now();
-        await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ?`, [now, existing.id]);
-        await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, decision_code, created_at) VALUES (?, ?, 'archive', 'memory_manager', ?, ?, 'automatic_review', ?)`, [randomUUID(), existing.id, params.claim.userId, params.claim.sessionId, now]);
+        await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = $1 WHERE id = $2`, [now, existing.id]);
+        await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, decision_code, created_at) VALUES ($1, $2, 'archive', 'memory_manager', $3, $4, 'automatic_review', $5)`, [randomUUID(), existing.id, params.claim.userId, params.claim.sessionId, now]);
         result.archived += 1;
         continue;
       }
@@ -2121,16 +2123,16 @@ export async function applyMemoryReviewCandidates(params: {
         }
         await connection.run(`
           UPDATE memory_entries
-          SET content = ?, normalized_content_hash = ?, priority = ?, sensitivity = ?, confidence = ?,
-            last_confirmed_at = ?, revision = revision + 1, updated_at = ?
-          WHERE id = ?
+          SET content = $1, normalized_content_hash = $2, priority = $3, sensitivity = $4, confidence = $5,
+            last_confirmed_at = $6, revision = revision + 1, updated_at = $7
+          WHERE id = $8
         `, [content, nextHash, nextPriority, nextSensitivity, nextConfidence, now, now, existing.id]);
-        await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, source_message_id, decision_code, created_at) VALUES (?, ?, 'update', 'memory_manager', ?, ?, ?, 'automatic_review', ?)`, [randomUUID(), existing.id, params.claim.userId, params.claim.sessionId, sourceMessageId, now]);
+        await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, source_message_id, decision_code, created_at) VALUES ($1, $2, 'update', 'memory_manager', $3, $4, $5, 'automatic_review', $6)`, [randomUUID(), existing.id, params.claim.userId, params.claim.sessionId, sourceMessageId, now]);
         result.updated += 1;
         continue;
       }
       const duplicate = await connection.get(`
-        SELECT id FROM memory_entries WHERE collection_id = ? AND normalized_content_hash = ? AND status != 'archived' LIMIT 1
+        SELECT id FROM memory_entries WHERE collection_id = $1 AND normalized_content_hash = $2 AND status != 'archived' LIMIT 1
       `, [collectionId, contentHash(content!)]) as { id?: string } | undefined;
       if (duplicate?.id) {
         result.skipped += 1;
@@ -2142,14 +2144,14 @@ export async function applyMemoryReviewCandidates(params: {
           id, collection_id, semantic_key, content, normalized_content_hash, status, priority, pinned, sensitivity,
           confidence, estimated_tokens, source_session_id, source_message_id, source_agent_id,
           created_by_actor_type, created_by_user_id, last_confirmed_at, revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'memory_manager', ?, ?, 1, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, $8, $9, $10, $11, $12, $13, 'memory_manager', $14, $15, 1, $16, $17)
       `, [
         entryId, collectionId, semanticKey, content!, contentHash(content!), initialMemoryEntryStatus(scope.target),
         reviewedPriority(candidate.priority), candidate.sensitivity ?? 'standard', reviewedConfidence(candidate.confidence),
         Math.max(1, Math.ceil(content!.length / 4)), params.claim.sessionId, sourceMessageId, params.claim.sourceAgentId,
         params.claim.userId, now, now, now,
       ]);
-      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, source_message_id, decision_code, created_at) VALUES (?, ?, 'add', 'memory_manager', ?, ?, ?, 'automatic_review', ?)`, [randomUUID(), entryId, params.claim.userId, params.claim.sessionId, sourceMessageId, now]);
+      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, session_id, source_message_id, decision_code, created_at) VALUES ($1, $2, 'add', 'memory_manager', $3, $4, $5, 'automatic_review', $6)`, [randomUUID(), entryId, params.claim.userId, params.claim.sessionId, sourceMessageId, now]);
       result.added += 1;
     }
       await connection.run('COMMIT');
@@ -2177,8 +2179,8 @@ export async function recordMemoryReviewResponse(
   try {
     const result = await connection.run(`
       UPDATE memory_review_jobs
-      SET response_json = ?, response_hash = ?, response_recorded_at = ?
-      WHERE id = ? AND status = 'running' AND response_json IS NULL
+      SET response_json = $1, response_hash = $2, response_recorded_at = $3
+      WHERE id = $4 AND status = 'running' AND response_json IS NULL
     `, [responseJson, responseHash, now, id]) as { changes?: number };
     const recorded = Number(result.changes ?? 0) > 0;
     console.info('[MemoryManager] Review response checkpointed.', {
@@ -2202,7 +2204,7 @@ export async function completeMemoryReviewJob(
   const now = typeof resultOrNow === 'number' ? resultOrNow : completedAt;
   const connection = await openDb();
   try {
-    const update = await connection.run(`UPDATE memory_review_jobs SET status = 'completed', completed_at = ?, lease_until = NULL, error_code = NULL, result_json = ? WHERE id = ? AND status = 'running'`, [now, result ? JSON.stringify(result) : null, id]) as { changes?: number };
+    const update = await connection.run(`UPDATE memory_review_jobs SET status = 'completed', completed_at = $1, lease_until = NULL, error_code = NULL, result_json = $2 WHERE id = $3 AND status = 'running'`, [now, result ? JSON.stringify(result) : null, id]) as { changes?: number };
     const completed = Number(update.changes ?? 0) > 0;
     if (completed) console.info('[MemoryManager] Review completed.', { jobId: id, result: result ?? null });
     return completed;
@@ -2214,8 +2216,8 @@ export async function failMemoryReviewJob(id: string, errorCode: string, now = D
   try {
     await connection.run(`
       UPDATE memory_review_jobs
-      SET status = 'failed', scheduled_for = NULL, lease_until = NULL, error_code = ?, failed_at = ?
-      WHERE id = ? AND status = 'running'
+      SET status = 'failed', scheduled_for = NULL, lease_until = NULL, error_code = $1, failed_at = $2
+      WHERE id = $3 AND status = 'running'
     `, [errorCode.slice(0, 80), now, id]);
     console.error('[MemoryManager] Review permanently failed.', { jobId: id, errorCode: errorCode.slice(0, 80) });
   } finally {
@@ -2230,14 +2232,14 @@ export async function retryMemoryReviewJob(
 ): Promise<{ status: 'retry_wait' | 'failed'; attempts: number; scheduledFor: number | null } | null> {
   const connection = await openDb();
   try {
-    const row = await connection.get(`SELECT attempts FROM memory_review_jobs WHERE id = ? AND status = 'running'`, [id]) as { attempts?: number } | undefined;
+    const row = await connection.get(`SELECT attempts FROM memory_review_jobs WHERE id = $1 AND status = 'running'`, [id]) as { attempts?: number } | undefined;
     if (!row) return null;
     const attempts = Number(row.attempts ?? 1);
     if (attempts >= MEMORY_REVIEW_MAX_ATTEMPTS) {
       await connection.run(`
         UPDATE memory_review_jobs
-        SET status = 'failed', scheduled_for = NULL, lease_until = NULL, error_code = ?, failed_at = ?
-        WHERE id = ? AND status = 'running'
+        SET status = 'failed', scheduled_for = NULL, lease_until = NULL, error_code = $1, failed_at = $2
+        WHERE id = $3 AND status = 'running'
       `, [errorCode.slice(0, 80), now, id]);
       console.error('[MemoryManager] Review retry budget exhausted.', {
         jobId: id,
@@ -2248,7 +2250,7 @@ export async function retryMemoryReviewJob(
     }
     const delay = Math.min(15 * 60 * 1000, 30_000 * (2 ** Math.max(0, attempts - 1)));
     const scheduledFor = now + delay;
-    await connection.run(`UPDATE memory_review_jobs SET status = 'retry_wait', scheduled_for = ?, lease_until = NULL, error_code = ? WHERE id = ? AND status = 'running'`, [scheduledFor, errorCode.slice(0, 80), id]);
+    await connection.run(`UPDATE memory_review_jobs SET status = 'retry_wait', scheduled_for = $1, lease_until = NULL, error_code = $2 WHERE id = $3 AND status = 'running'`, [scheduledFor, errorCode.slice(0, 80), id]);
     console.warn('[MemoryManager] Review retry scheduled.', {
       jobId: id,
       attempts,
@@ -2292,13 +2294,13 @@ export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ arc
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE collection.scope_type IN ('user', 'agent')
         AND entry.status = 'published' AND entry.pinned = 0 AND entry.priority <= 20
-        AND entry.updated_at <= ?
+        AND entry.updated_at <= $1
       LIMIT 100
     `, [staleBefore]) as Array<{ id: string; user_id: string }>;
     let archived = 0;
     for (const row of rows) {
-      await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'published' AND pinned = 0`, [now, row.id]);
-      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'memory_manager', ?, 'automatic_maintenance_stale', ?)`, [randomUUID(), row.id, row.user_id, now]);
+      await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = $1 WHERE id = $2 AND status = 'published' AND pinned = 0`, [now, row.id]);
+      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'archive', 'memory_manager', $3, 'automatic_maintenance_stale', $4)`, [randomUUID(), row.id, row.user_id, now]);
       archived += 1;
     }
     const expired = await connection.all(`
@@ -2306,12 +2308,12 @@ export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ arc
       FROM memory_entries entry
       INNER JOIN memory_collections collection ON collection.id = entry.collection_id
       WHERE collection.scope_type IN ('workspace', 'organization')
-        AND entry.status = 'pending' AND entry.pinned = 0 AND entry.created_at <= ?
+        AND entry.status = 'pending' AND entry.pinned = 0 AND entry.created_at <= $1
       LIMIT 100
     `, [pendingBefore]) as Array<{ id: string; user_id: string }>;
     for (const row of expired) {
-      await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'pending' AND pinned = 0`, [now, row.id]);
-      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES (?, ?, 'archive', 'memory_manager', ?, 'automatic_maintenance_pending_expired', ?)`, [randomUUID(), row.id, row.user_id, now]);
+      await connection.run(`UPDATE memory_entries SET status = 'archived', revision = revision + 1, updated_at = $1 WHERE id = $2 AND status = 'pending' AND pinned = 0`, [now, row.id]);
+      await connection.run(`INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at) VALUES ($1, $2, 'archive', 'memory_manager', $3, 'automatic_maintenance_pending_expired', $4)`, [randomUUID(), row.id, row.user_id, now]);
       archived += 1;
     }
     const emptyCollections = await connection.run(`
@@ -2319,7 +2321,7 @@ export async function runMemoryMaintenanceCycle(now = Date.now()): Promise<{ arc
       WHERE NOT EXISTS (
         SELECT 1 FROM memory_entries entry WHERE entry.collection_id = memory_collections.id
       )
-        AND updated_at <= ?
+        AND updated_at <= $1
     `, [now - EMPTY_COLLECTION_CLEANUP_GRACE_MS]) as { changes?: number };
     const deletedEmptyCollections = Number(emptyCollections.changes ?? 0);
     if (archived > 0 || deletedEmptyCollections > 0) {

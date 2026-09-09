@@ -5,24 +5,34 @@ import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
+import { Pool } from 'pg';
 
 import { parsePublicSharePolicy, requirePublicShareBody } from '../app/lib/public-sharing/share-policy-input';
 
 async function main() {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-share-lifecycle-'));
   process.env.DATA = tempRoot;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  process.env.DATABASE_URL = 'postgresql://public-share-test.invalid/canvas';
   process.env.CANVAS_DEPLOYMENT_MODE = 'standalone';
   process.env.BETTER_AUTH_BASE_URL = 'http://localhost';
   process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
   const workspaceRoot = path.join(tempRoot, 'workspace');
   await mkdir(workspaceRoot, { recursive: true });
-  const { db, openDb } = await import('../app/lib/db');
-  const { user, publicFileShares } = await import('../app/lib/db/schema');
-  const service = await import('../app/lib/public-sharing/public-file-shares');
-  const { createPostgresDrizzle, runPostgresMigrations } = await import('../app/lib/db/postgres');
   const postgres = new PGlite();
-  const original = { select: db.select, insert: db.insert, update: db.update };
+  const query = async (input: string | { text: string; rowMode?: string }, values?: unknown[]) => {
+    const result = await postgres.query<Record<string, unknown>>(typeof input === 'string' ? input : input.text, values);
+    return {
+      ...result,
+      rowCount: result.affectedRows ?? result.rows.length,
+      rows: typeof input !== 'string' && input.rowMode === 'array'
+        ? result.rows.map((row) => result.fields.map((field) => row[field.name]))
+        : result.rows,
+    };
+  };
+  const original = { query: Pool.prototype.query, connect: Pool.prototype.connect };
+  Object.defineProperty(Pool.prototype, 'query', { configurable: true, writable: true, value: query });
+  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: async () => ({ query, release() {} }) });
   try {
     assert.deepEqual(parsePublicSharePolicy({}), {});
     assert.deepEqual(parsePublicSharePolicy({ expiresAt: null }), { expiresAt: null });
@@ -33,22 +43,12 @@ async function main() {
       { expiresInDays: 366 }, { expiresInDays: 7, expiresAt: null }, { securityMode: 'bogus' },
     ]) assert.throws(() => parsePublicSharePolicy(body));
 
+    const { runPostgresMigrations } = await import('../app/lib/db/postgres');
     await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
-    const pgClient = {
-      query: async (query: string | { text: string; rowMode?: string }, values?: unknown[]) => {
-        const result = await postgres.query<Record<string, unknown>>(typeof query === 'string' ? query : query.text, values);
-        return {
-          ...result, rowCount: result.affectedRows ?? result.rows.length,
-          rows: typeof query !== 'string' && query.rowMode === 'array'
-            ? result.rows.map((row) => result.fields.map((field) => row[field.name])) : result.rows,
-        };
-      },
-    };
-    const pg = createPostgresDrizzle(pgClient as unknown as Parameters<typeof createPostgresDrizzle>[0]);
-    for (const provider of ['sqlite', 'postgres'] as const) {
-      if (provider === 'postgres') {
-        Object.assign(db, { select: pg.select.bind(pg), insert: pg.insert.bind(pg), update: pg.update.bind(pg) });
-      }
+    const { db } = await import('../app/lib/db');
+    const { user, publicFileShares } = await import('../app/lib/db/schema');
+    const service = await import('../app/lib/public-sharing/public-file-shares');
+    for (const provider of ['postgres'] as const) {
       await db.insert(user).values({ id: 'share-owner', name: 'Owner', email: 'owner@example.test', emailVerified: true, createdAt: new Date(), updatedAt: new Date() });
       await db.insert(user).values({ id: 'share-other', name: 'Other', email: 'other@example.test', emailVerified: true, createdAt: new Date(), updatedAt: new Date() });
       const file = `${provider}.md`;
@@ -81,21 +81,15 @@ async function main() {
       assert.equal(row.policyRevision, share.policyRevision, 'Reads must not invalidate settings edits');
       await assert.rejects(db.insert(publicFileShares).values({ ...row, id: 'duplicate', token: 'duplicate', tokenHash: 'duplicate', shortCode: 'DUP123' }).returning());
 
-      const sqliteConnection = provider === 'sqlite' ? await openDb() : null;
-      const migrationQuery = (statement: string) => sqliteConnection ? sqliteConnection.run(statement) : postgres.query(statement);
-      try {
-        await migrationQuery('DROP INDEX idx_public_file_shares_active_path');
-        await db.insert(publicFileShares).values({ ...row, id: 'legacy-duplicate', token: 'legacy-duplicate', tokenHash: 'legacy-duplicate', shortCode: 'Dup234',
-          workspaceId: 'legacy-personal-workspace', createdAt: new Date(row.createdAt.getTime() + 1000) });
-        const { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } = await import('../app/lib/db/public-share-migration');
-        for (const statement of PUBLIC_SHARE_UNIQUENESS_STATEMENTS) await migrationQuery(statement);
-        const [duplicate] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, 'legacy-duplicate'));
-        assert.equal(duplicate.status, 'revoked');
-        assert.equal(duplicate.revokedReason, 'duplicate_active_link');
-        assert.equal((await service.resolvePublicShareToken(token, { recordAccess: false })).ok, true);
-      } finally {
-        await sqliteConnection?.close();
-      }
+      await postgres.query('DROP INDEX idx_public_file_shares_active_path');
+      await db.insert(publicFileShares).values({ ...row, id: 'legacy-duplicate', token: 'legacy-duplicate', tokenHash: 'legacy-duplicate', shortCode: 'Dup234',
+        workspaceId: 'legacy-personal-workspace', createdAt: new Date(row.createdAt.getTime() + 1000) });
+      const { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } = await import('../app/lib/db/public-share-migration');
+      for (const statement of PUBLIC_SHARE_UNIQUENESS_STATEMENTS) await postgres.query(statement);
+      const [duplicate] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, 'legacy-duplicate'));
+      assert.equal(duplicate.status, 'revoked');
+      assert.equal(duplicate.revokedReason, 'duplicate_active_link');
+      assert.equal((await service.resolvePublicShareToken(token, { recordAccess: false })).ok, true);
 
       const extended = new Date(Date.now() + 7 * 86_400_000);
       const repeated = await service.createPublicFileShares({ paths: [file], createdByUserId: 'share-owner', expiresAt: extended });
@@ -150,15 +144,15 @@ async function main() {
       assert.equal(largeHead.headers.get('content-length'), String(6 * 1024 * 1024));
       console.log(`public-share-lifecycle-test: ${provider} ok`);
     }
-    const { limitPublicExport } = await import('../app/lib/public-sharing/public-export-limit');
-    let limited: ReturnType<typeof limitPublicExport> | undefined;
+    const { publicRateLimit } = await import('../app/lib/security/public-rate-limit');
+    let limited: Awaited<ReturnType<typeof publicRateLimit>> | undefined;
     for (let index = 0; index < 11; index += 1) {
-      limited = limitPublicExport(new NextRequest('http://localhost/public/pdf', { headers: { cookie: `better-auth.session_token=fake-${index}` } }), 'markdown-pdf');
+      limited = await publicRateLimit({ keyPrefix: 'public-share-lifecycle-test', limit: 10, globalLimit: 100, windowMs: 60_000 });
     }
     assert.equal(limited?.ok, false, 'Invented cookies cannot bypass the public renderer budget');
     if (limited && !limited.ok) assert.equal(limited.response.status, 429);
   } finally {
-    Object.assign(db, original);
+    Object.assign(Pool.prototype, original);
     await postgres.close();
     await rm(tempRoot, { recursive: true, force: true });
   }

@@ -42,6 +42,12 @@ async function main() {
       const files = empty || search ? [] : all.slice(0, Number(url.searchParams.get('limit')));
       return Response.json({ success: true, data: { files, total: empty || search ? 0 : all.length, workspaceFileCount: empty ? 0 : 8 } });
     }
+    if (url.pathname === '/api/home/chats') {
+      if (fail) return Response.json({ success: false }, { status: 503 });
+      const search = url.searchParams.get('q');
+      const chats = empty || search ? [] : [{ sessionId: 'chat-one', title: 'Projekt-Chat', activityAt: 1800000000000, hasUnread: true }];
+      return Response.json({ success: true, data: { chats, hasMore: !empty && !search } });
+    }
     throw new Error(`Unexpected fetch ${url.pathname}`);
   };
   useWorkspaceStore.setState({ activeWorkspaceId: 'one', workspaces: [workspace] });
@@ -63,30 +69,38 @@ async function main() {
 
   screen = render(wrap(<HomeFilesPanel workspace={workspace} />));
   await settle();
-  assert.equal(screen.getAllByRole('link').filter((link) => link.getAttribute('href')?.includes('path=')).length, 3);
+  assert.ok(screen.getByRole('textbox', { name: 'Dateien und Chats suchen …' }));
+  const filters = screen.getByRole('group', { name: 'Inhalte zum Weiterarbeiten' });
+  assert.deepEqual(
+    [...filters.querySelectorAll('button')].map(button => [button.textContent?.trim(), button.getAttribute('aria-pressed'), button.querySelector('svg')?.getAttribute('aria-hidden')]),
+    [['Alles', 'true', 'true'], ['Dateien', 'false', 'true'], ['Chats', 'false', 'true']],
+  );
+  assert.equal(screen.getAllByRole('link').filter((link) => link.getAttribute('href')?.includes('path=')).length, 2);
   assert.equal(screen.getByRole('link', { name: /Notiz 0/ }).getAttribute('href'), '/de/notebook?path=Notes%2Ffile-0.md&workspaceId=one');
-  fireEvent.click(screen.getByRole('button', { pressed: true }));
+  assert.ok(screen.getByRole('link', { name: /Projekt-Chat/ }).getAttribute('href')?.includes('workspaceId=one'));
+  fireEvent.click(screen.getByRole('button', { name: 'Dateien', pressed: false }));
   await settle();
   assert.ok(screen.queryByRole('link', { name: /Notiz 0/ }), 'selecting the active view must keep files accessible');
-  fireEvent.click(screen.getByRole('button', { name: 'Weitere Dateien anzeigen' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Weitere anzeigen' }));
   await settle();
   assert.ok(screen.getByRole('link', { name: /Notiz 7/ }));
-  fireEvent.change(screen.getByRole('textbox', { name: 'Notizen und Dateien suchen …' }), { target: { value: 'nicht vorhanden' } });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Dateien suchen …' }), { target: { value: 'nicht vorhanden' } });
   await settle(280);
   assert.ok(screen.getByText('Keine passenden Dateien'));
-  assert.ok(!screen.queryByText('Platz für deine erste Idee'), 'search misses must not look like an empty workspace');
+  assert.ok(!screen.queryByText('Hier kannst du bald weiterarbeiten'), 'search misses must not look like an empty workspace');
   cleanup();
 
   fail = true;
   screen = render(wrap(<HomeFilesPanel workspace={workspace} />));
   await settle();
-  assert.ok(screen.getByRole('alert'));
-  assert.ok(!screen.queryByText('Platz für deine erste Idee'));
+  assert.ok(screen.getByRole('status'));
+  assert.ok(screen.getByText('Dateien und Chats konnten nicht geladen werden.'));
+  assert.ok(!screen.queryByText('Hier kannst du bald weiterarbeiten'));
   fail = false;
   empty = true;
   fireEvent.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
   await settle();
-  assert.ok(screen.getByText('Platz für deine erste Idee'));
+  assert.ok(screen.getByText('Hier kannst du bald weiterarbeiten'));
   cleanup();
 
   screen = render(wrap(<HomeFilesPanel workspace={{ ...workspace, permissions: { ...workspace.permissions, canWrite: false } }} />));

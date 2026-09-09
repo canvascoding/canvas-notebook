@@ -156,9 +156,9 @@ async function findOwnedDirectMcpConnectionClientId(input: {
       ON oauth_client.client_id = oauth_consent.client_id
     INNER JOIN oauth_client_resource
       ON oauth_client_resource.client_id = oauth_client.client_id
-    WHERE oauth_consent.id = ?
-      AND oauth_consent.user_id = ?
-      AND oauth_client_resource.resource_id = ?
+    WHERE oauth_consent.id = $1
+      AND oauth_consent.user_id = $2
+      AND oauth_client_resource.resource_id = $3
       AND oauth_client.token_endpoint_auth_method = 'none'
     LIMIT 1
   `, [reference.consentId, input.userId, directMcpResource()]) as { client_id: unknown } | undefined;
@@ -190,9 +190,9 @@ export async function hasDirectMcpConnectionConsent(input: {
       FROM oauth_consent
       INNER JOIN oauth_client_resource
         ON oauth_client_resource.client_id = oauth_consent.client_id
-      WHERE oauth_consent.client_id = ?
-        AND oauth_consent.user_id = ?
-        AND oauth_client_resource.resource_id = ?
+      WHERE oauth_consent.client_id = $1
+        AND oauth_consent.user_id = $2
+        AND oauth_client_resource.resource_id = $3
       LIMIT 1
     `, [input.clientId, input.userId, directMcpResource()]);
     return Boolean(connection);
@@ -230,14 +230,14 @@ export async function listDirectMcpConnections(
         ON oauth_client_resource.client_id = oauth_client.client_id
       LEFT JOIN oauth_resource resource_policy
         ON resource_policy.identifier = oauth_client_resource.resource_id
-      WHERE oauth_consent.user_id = ?
-        AND oauth_client_resource.resource_id = ?
+      WHERE oauth_consent.user_id = $1
+        AND oauth_client_resource.resource_id = $2
         AND oauth_client.token_endpoint_auth_method = 'none'
       ORDER BY
         oauth_consent.updated_at DESC,
         oauth_consent.created_at DESC,
         oauth_consent.id DESC
-      LIMIT ?
+      LIMIT $3
     `, [userId, directMcpResource(), MAX_CONNECTIONS]) as DirectMcpConnectionRow[];
 
     const connections = new Map<string, DirectMcpConnection>();
@@ -292,7 +292,7 @@ export async function disconnectDirectMcpConnection(
     const sessionRows = await database.all(`
       SELECT id AS session_id
       FROM "session"
-      WHERE user_id = ?
+      WHERE user_id = $1
     `, [userId]) as Array<{ session_id: string }>;
 
     for (const sessionRow of sessionRows) {
@@ -300,7 +300,7 @@ export async function disconnectDirectMcpConnection(
       await database.run(`
         INSERT INTO mcp_direct_grant_revocation (
           client_id, session_id, user_id, revoked_at
-        ) VALUES (?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4)
         ON CONFLICT(client_id, session_id, user_id)
         DO UPDATE SET revoked_at = excluded.revoked_at
       `, [clientId, sessionRow.session_id, userId, revokedAt]);
@@ -308,21 +308,21 @@ export async function disconnectDirectMcpConnection(
 
     await database.run(`
       UPDATE oauth_refresh_token
-      SET revoked = COALESCE(revoked, ?)
-      WHERE client_id = ? AND user_id = ?
+      SET revoked = COALESCE(revoked, $1)
+      WHERE client_id = $2 AND user_id = $3
     `, [revokedAt, clientId, userId]);
     await database.run(`
       UPDATE oauth_access_token
-      SET expires_at = CASE WHEN expires_at > ? THEN ? ELSE expires_at END
-      WHERE client_id = ? AND user_id = ?
+      SET expires_at = CASE WHEN expires_at > $1 THEN $2 ELSE expires_at END
+      WHERE client_id = $3 AND user_id = $4
     `, [revokedAt, revokedAt, clientId, userId]);
     await database.run(`
       DELETE FROM mcp_direct_workspace_grant
-      WHERE client_id = ? AND user_id = ?
+      WHERE client_id = $1 AND user_id = $2
     `, [clientId, userId]);
     await database.run(`
       DELETE FROM oauth_consent
-      WHERE client_id = ? AND user_id = ?
+      WHERE client_id = $1 AND user_id = $2
     `, [clientId, userId]);
     await database.run('COMMIT');
     return { status: 'disconnected' };

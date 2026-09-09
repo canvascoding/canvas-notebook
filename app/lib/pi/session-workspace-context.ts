@@ -1,39 +1,27 @@
 import 'server-only';
 
-import type Database from 'better-sqlite3';
 import { and, eq } from 'drizzle-orm';
-import path from 'node:path';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
-import { db } from '@/app/lib/db';
-import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
-import { assertSqliteRuntimeAllowed, getDatabaseProvider } from '@/app/lib/db/provider';
+import { db, openDb } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import {
   resolveEffectiveSkillReadRoots,
   resolvePersonalSkillReadRoots,
 } from '@/app/lib/skills/effective-skill-read-roots';
 import {
-  ensureOrganizationBootstrapForUser,
-} from '@/app/lib/organization/bootstrap';
-import {
   LEGACY_PERSONAL_WORKSPACE_ID,
-  createLegacyPersonalWorkspaceContext,
   resolveWorkspaceActor,
-  resolveWorkspaceDataRoot,
 } from '@/app/lib/workspaces/context';
+import { resolveLegacyWorkspaceRecovery } from '@/app/lib/workspaces/legacy-recovery';
 import { assertWorkspacePermission } from '@/app/lib/workspaces/permissions';
 import {
   getPostgresWorkspaceState,
+  findPostgresUserById,
   resolvePostgresWorkspaceForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
-import {
-  ensureDefaultWorkspaceRecords,
-  resolveDefaultWorkspaceContext,
-  resolveWorkspaceContextById,
-} from '@/app/lib/workspaces/service';
 import type { WorkspaceContext, WorkspacePermissions, WorkspaceType } from '@/app/lib/workspaces/types';
 import { getWorkspaceBrandPromptBlock } from '@/app/lib/agents/workspace-brand-context';
 import type { AgentExecutionContext } from './agent-execution-context';
@@ -48,17 +36,6 @@ export type PiSessionWorkspaceFields = {
   workspaceType: WorkspaceType;
   workspaceName: string | null;
   workspaceRootRelativePath: string | null;
-};
-
-type UserRow = {
-  id: string;
-  email: string | null;
-  role: string | null;
-};
-
-type OrganizationRow = {
-  organization_id: string;
-  team_features_enabled: number;
 };
 
 type StoredPiSessionWorkspace = {
@@ -80,56 +57,6 @@ type PiSessionWorkspaceSnapshotRow = {
 };
 
 const DEFAULT_AGENT_SESSION_PERMISSIONS: WorkspacePermissionRequirement[] = ['canRead', 'canRunAgent'];
-
-let workspaceContextDatabase: { sqlitePath: string; sqlite: Database.Database } | null = null;
-
-function openWorkspaceContextDatabase(): Database.Database {
-  assertSqliteRuntimeAllowed('open the agent workspace context database');
-  const sqlitePath = path.join(resolveWorkspaceDataRoot(), 'sqlite.db');
-  if (workspaceContextDatabase?.sqlitePath === sqlitePath && workspaceContextDatabase.sqlite.open) {
-    return workspaceContextDatabase.sqlite;
-  }
-
-  if (workspaceContextDatabase?.sqlite.open) {
-    workspaceContextDatabase.sqlite.close();
-  }
-
-  const BetterSqlite3 = loadBetterSqlite3();
-  const sqlite = new BetterSqlite3(sqlitePath);
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('busy_timeout = 5000');
-  workspaceContextDatabase = { sqlitePath, sqlite };
-  return sqlite;
-}
-
-function getUserRow(sqlite: Database.Database, userId: string): UserRow | null {
-  return sqlite.prepare(`
-    SELECT id, email, role
-    FROM user
-    WHERE id = ?
-    LIMIT 1
-  `).get(userId) as UserRow | undefined || null;
-}
-
-function getPrimaryOrganizationRow(sqlite: Database.Database): OrganizationRow | null {
-  return sqlite.prepare(`
-    SELECT organization_id, team_features_enabled
-    FROM canvas_organization_settings
-    ORDER BY created_at ASC
-    LIMIT 1
-  `).get() as OrganizationRow | undefined || null;
-}
-
-function ensureWorkspaceRecordsForExistingOrganization(
-  sqlite: Database.Database,
-  organization: OrganizationRow,
-  userId: string,
-): void {
-  ensureDefaultWorkspaceRecords(sqlite, {
-    organizationId: organization.organization_id,
-    userId,
-  });
-}
 
 function assertPermissions(
   workspace: WorkspaceContext,
@@ -305,16 +232,29 @@ export async function resolveAgentSessionWorkspaceForUser(input: {
   workspaceId?: string | null;
   permissions?: WorkspacePermissionRequirement[];
 }): Promise<WorkspaceContext> {
-  const requestedWorkspaceId = normalizeRequestedWorkspaceId(input.workspaceId);
+  let requestedWorkspaceId = normalizeRequestedWorkspaceId(input.workspaceId);
 
   if (requestedWorkspaceId === LEGACY_PERSONAL_WORKSPACE_ID) {
-    const legacyWorkspace = createLegacyPersonalWorkspaceContext(resolveWorkspaceActor({ id: input.userId }));
-    assertPermissions(legacyWorkspace, input.permissions);
-    return legacyWorkspace;
+    if (!await resolveLegacyWorkspaceRecovery(input.userId)) {
+      throw new Error('Workspace not found or inaccessible.');
+    }
+    // Old owner sessions continue in the persisted personal workspace after
+    // the non-destructive legacy import, never with ambient DATA/workspace access.
+    requestedWorkspaceId = null;
   }
 
-  if (getDatabaseProvider() === 'postgres') {
-    const actor = resolveWorkspaceActor({ id: input.userId });
+  const database = await openDb();
+  try {
+    const user = await findPostgresUserById(database, input.userId);
+    if (!user) {
+      throw new Error('Workspace not found or inaccessible.');
+    }
+
+    const actor = resolveWorkspaceActor({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
     const workspace = requestedWorkspaceId
       ? await resolvePostgresWorkspaceForActor(actor, requestedWorkspaceId)
       : (await getPostgresWorkspaceState(actor)).defaultWorkspace;
@@ -323,53 +263,8 @@ export async function resolveAgentSessionWorkspaceForUser(input: {
     }
     assertPermissions(workspace, input.permissions);
     return workspace;
-  }
-
-  const sqlite = openWorkspaceContextDatabase();
-  try {
-    sqlite.exec('BEGIN IMMEDIATE');
-    let organization = getPrimaryOrganizationRow(sqlite);
-    if (organization) {
-      ensureWorkspaceRecordsForExistingOrganization(sqlite, organization, input.userId);
-    } else {
-      const status = ensureOrganizationBootstrapForUser(sqlite, input.userId);
-      organization = status.organizationId
-        ? {
-          organization_id: status.organizationId,
-          team_features_enabled: status.teamFeaturesEnabled ? 1 : 0,
-        }
-        : null;
-    }
-
-    const userRow = getUserRow(sqlite, input.userId);
-    if (!organization || !userRow) {
-      sqlite.exec('ROLLBACK');
-      throw new Error('Organization workspace context is not configured for this user.');
-    }
-
-    const actor = resolveWorkspaceActor({
-      id: userRow.id,
-      email: userRow.email,
-      role: userRow.role,
-    });
-
-    const workspace = requestedWorkspaceId
-      ? resolveWorkspaceContextById(sqlite, { actor, workspaceId: requestedWorkspaceId })
-      : resolveDefaultWorkspaceContext(sqlite, { actor, organizationId: organization.organization_id });
-
-    sqlite.exec('COMMIT');
-
-    if (!workspace) {
-      throw new Error('Workspace not found or inaccessible.');
-    }
-
-    assertPermissions(workspace, input.permissions);
-    return workspace;
-  } catch (error) {
-    if (sqlite.inTransaction) {
-      sqlite.exec('ROLLBACK');
-    }
-    throw error;
+  } finally {
+    await database.close();
   }
 }
 

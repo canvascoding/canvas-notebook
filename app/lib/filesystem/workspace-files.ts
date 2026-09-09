@@ -24,6 +24,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { assertOfficePublicationAllowed } from '@/app/lib/office/publication-context';
+import { filesystemFileVersion } from './file-version';
 
 export type { FileNode } from '@/app/lib/files/types';
 
@@ -624,6 +625,7 @@ export async function getFileStats(filePath: string, options?: WorkspaceFileOper
 
   return {
     size: totalSize,
+    fileVersion: filesystemFileVersion(stats),
     modified: Math.floor(stats.mtimeMs / 1000),
     created: stats.birthtimeMs > 0 ? Math.floor(stats.birthtimeMs / 1000) : undefined,
     isDirectory: stats.isDirectory(),

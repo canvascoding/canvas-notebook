@@ -108,8 +108,8 @@ async function loadRefreshGrant(
       LEFT JOIN "session" auth_session
         ON auth_session.id = refresh_grant.session_id
        AND auth_session.user_id = refresh_grant.user_id
-      WHERE refresh_grant.token = ?
-        AND refresh_grant.client_id = ?
+      WHERE refresh_grant.token = $1
+        AND refresh_grant.client_id = $2
       LIMIT 1
     `, [storedTokenHash(token), clientId]);
     return (row as DirectMcpRefreshGrantRow | undefined) ?? null;
@@ -245,7 +245,7 @@ export async function applyDirectMcpRevocation(
       await database.run(`
         INSERT INTO mcp_revoked_access_token (
           token_hash, client_id, session_id, user_id, expires_at, revoked_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT(token_hash) DO NOTHING
       `, [
         candidate.accessTokenHash,
@@ -258,13 +258,13 @@ export async function applyDirectMcpRevocation(
     } else if (candidate.refreshId) {
       await database.run(`
         UPDATE oauth_refresh_token
-        SET revoked = COALESCE(revoked, ?)
-        WHERE id = ? AND user_id = ? AND client_id = ?
+        SET revoked = COALESCE(revoked, $1)
+        WHERE id = $2 AND user_id = $3 AND client_id = $4
       `, [revokedAt, candidate.refreshId, candidate.userId, candidate.clientId]);
       await database.run(`
         UPDATE oauth_access_token
-        SET expires_at = CASE WHEN expires_at > ? THEN ? ELSE expires_at END
-        WHERE refresh_id = ? AND user_id = ? AND client_id = ?
+        SET expires_at = CASE WHEN expires_at > $1 THEN $2 ELSE expires_at END
+        WHERE refresh_id = $3 AND user_id = $4 AND client_id = $5
       `, [revokedAt, revokedAt, candidate.refreshId, candidate.userId, candidate.clientId]);
     }
     await database.run('COMMIT');

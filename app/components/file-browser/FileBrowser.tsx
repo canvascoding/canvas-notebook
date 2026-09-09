@@ -9,20 +9,23 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { useFileStore } from '@/app/store/file-store';
-import { getParentDirectory, normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
+import { getParentDirectory, isSameOrDescendantPath, normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
+import { remapPath } from '@/app/lib/files/path-mutation-state';
 import { findPathInTree } from '@/app/lib/files/tree-utils';
 import { FileGridView } from './FileGridView';
+import { FileRevealStatus } from './FileRevealStatus';
+import { FileSyncStatus } from './FileSyncStatus';
 import { FileToolbar, type FileToolbarHandlers } from './FileToolbar';
 import { FileBreadcrumb } from './FileBreadcrumb';
 import { CreateItemDialog } from './CreateItemDialog';
 import { UploadDialog } from './UploadDialog';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
-import { isProtectedDirectoryNode, splitProtectedWorkspacePaths } from '@/app/lib/files/operation-flows';
+import { compactWorkspaceSelection, isProtectedDirectoryNode, splitProtectedWorkspacePaths } from '@/app/lib/files/operation-flows';
 import { useImagePreprocess } from '@/app/hooks/useImagePreprocess';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
-import { getDroppedFiles } from '@/app/lib/drop-traverse';
+import { getDroppedItems } from '@/app/lib/drop-traverse';
 import { FilePreviewDialog } from '@/app/components/files/FilePreviewDialog';
-import { notifyWorkspaceFileOpened } from '@/app/lib/files/workspace-file-events';
+import { notifyWorkspaceFileOpened, WORKSPACE_PATH_RENAMED_EVENT, WORKSPACE_PATHS_DELETED_EVENT, type WorkspacePathRenamedDetail, type WorkspacePathsDeletedDetail } from '@/app/lib/files/workspace-file-events';
 import { PublicShareDialog } from './PublicShareDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -30,7 +33,8 @@ import { useEditorStore } from '@/app/store/editor-store';
 import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
-import { UploadProgress } from './UploadProgress';
+import { WorkspaceUploadProgress } from './WorkspaceUploadProgress';
+import { beginUploadCollection, endUploadCollection, beginUploadJob, finishUploadJob, setUploadJobFiles, updateUploadJob } from '@/app/store/upload-store';
 import { useWorkspaceMove } from './useWorkspaceMove';
 import { useFileMoveDrag } from './useFileMoveDrag';
 
@@ -75,7 +79,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshVisibleTree,
     selectedNode,
     uploadFile,
-    uploadProgress,
     currentDirectory,
     searchQuery,
     setSearchQuery,
@@ -95,7 +98,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshVisibleTree: state.refreshVisibleTree,
     selectedNode: state.selectedNode,
     uploadFile: state.uploadFile,
-    uploadProgress: state.uploadProgress,
     currentDirectory: state.currentDirectory,
     searchQuery: state.searchQuery,
     setSearchQuery: state.setSearchQuery,
@@ -115,6 +117,31 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const deleteWithUndo = useTrashUndo();
   const moveController = useWorkspaceMove();
   const fileMoveDrag = useFileMoveDrag({ controller: moveController });
+
+  useEffect(() => {
+    const renamed = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
+      if (detail.workspaceId !== activeWorkspaceId) return;
+      const mapPath = (path: string) => remapPath(path, detail.oldPath, detail.newPath);
+      setDeletePaths((paths) => paths.map(mapPath));
+      setPublicSharePaths((paths) => paths.map(mapPath));
+      setActiveFilePath((path) => path ? mapPath(path) : null);
+    };
+    const deleted = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      if (detail.workspaceId !== activeWorkspaceId) return;
+      const affected = (path: string) => detail.paths.some((root) => isSameOrDescendantPath(path, root));
+      setDeletePaths((paths) => paths.filter((path) => !affected(path)));
+      setPublicSharePaths((paths) => paths.filter((path) => !affected(path)));
+      setActiveFilePath((path) => path && affected(path) ? null : path);
+    };
+    window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, renamed);
+    window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, deleted);
+    return () => {
+      window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, renamed);
+      window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, deleted);
+    };
+  }, [activeWorkspaceId]);
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -150,10 +177,10 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       const dir = targetDir || resolveTargetDir();
       await uploadFile(files, dir, pathMap, convertParams, options);
     },
-    onBatchComplete: async (targetDir) => {
-      const dir = targetDir || resolveTargetDir();
-      await refreshDirectory(dir, true);
-      invalidateFileReferenceValidationCache();
+    onBatchComplete: async (targetDir, job) => {
+      if (!job) return;
+      await useFileStore.getState().reconcileUpload(job);
+      invalidateFileReferenceValidationCache({ workspaceId: job.workspaceId });
     },
   });
 
@@ -214,17 +241,34 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     event.preventDefault();
     dragCounter.current = 0;
     setIsDragging(false);
+    const targetDir = resolveTargetDir();
+    const job = beginUploadJob([], targetDir, useWorkspaceStore.getState().activeWorkspaceId, undefined, 'collecting');
+    const collection = beginUploadCollection(job);
     try {
-      const dropped = await getDroppedFiles(event.dataTransfer);
-      if (dropped.length === 0) return;
-      const files = dropped.map((d) => d.file);
+      const dropped = await getDroppedItems(event.dataTransfer, { signal: collection.signal,
+        onProgress: (progress) => updateUploadJob(job, { collection: progress }) });
+      endUploadCollection(job);
+      if (dropped.files.length === 0 && dropped.emptyDirectories.length === 0) { updateUploadJob(job, { phase: 'cancelled' }); return; }
+      const files = dropped.files.map((d) => d.file);
       const pathMap = new Map<File, string>();
-      for (const d of dropped) { pathMap.set(d.file, d.relativePath); }
-      const targetDir = resolveTargetDir();
-      await imagePreprocess.handleFiles(files, targetDir, pathMap);
+      for (const d of dropped.files) { pathMap.set(d.file, d.relativePath); }
+      setUploadJobFiles(job, files, pathMap, dropped.emptyDirectories);
+      if (dropped.emptyDirectories.length) {
+        const failed = await useFileStore.getState().uploadDirectories(dropped.emptyDirectories, job);
+        if (failed) toast.error(t('uploadFailedCount', { count: failed }));
+      }
+      if (files.length) await imagePreprocess.handleFiles(files, targetDir, pathMap, job);
+      else {
+        updateUploadJob(job, { phase: 'reconciling' });
+        await useFileStore.getState().reconcileUpload(job);
+        finishUploadJob(job);
+      }
     } catch (uploadError) {
+      if (collection.signal.aborted) return;
+      try { await useFileStore.getState().reconcileUpload(job); }
+      finally { finishUploadJob(job, uploadError); }
       toast.error(uploadError instanceof Error ? uploadError.message : t('uploadFailed'));
-    }
+    } finally { endUploadCollection(job); }
   };
 
   const handleDeleteClick = () => {
@@ -261,10 +305,9 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   };
 
   const handleBulkDownload = async () => {
-    for (const path of multiSelectPaths) {
-      try { await downloadFile(path); } catch (error) { console.error(`Failed to download ${path}:`, error); }
-    }
-    toast.success(t('download'));
+    const selectedPaths = compactWorkspaceSelection(multiSelectPaths);
+    if (selectedPaths.length === 0) return;
+    await downloadFile(selectedPaths);
   };
 
   const handleBulkPublicShare = () => {
@@ -492,22 +535,24 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
               </Button>
             )}
           </div>
-          {uploadProgress !== null && (
-            <UploadProgress value={uploadProgress} className="mt-2" />
-          )}
+          <WorkspaceUploadProgress className="mt-2" />
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <FileGridView
-          variant={variant}
-          onOpenFile={handleOpenFile}
-          onFileOpened={handleFileOpened}
-          onUpload={handleUploadClick}
-          onCreateFolder={handleNewFolder}
-          moveController={moveController}
-          dropTargetPath={fileMoveDrag.dropTargetPath}
-        />
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <FileSyncStatus includeTreeStatus />
+        <FileRevealStatus />
+        <div className="min-h-0 flex-1">
+          <FileGridView
+            variant={variant}
+            onOpenFile={handleOpenFile}
+            onFileOpened={handleFileOpened}
+            onUpload={handleUploadClick}
+            onCreateFolder={handleNewFolder}
+            moveController={moveController}
+            dropTargetPath={fileMoveDrag.dropTargetPath}
+          />
+        </div>
       </div>
 
       <CreateItemDialog {...createDialogProps} defaultPath={resolveTargetDir()} />

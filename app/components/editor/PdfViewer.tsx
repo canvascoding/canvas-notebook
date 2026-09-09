@@ -342,6 +342,9 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
   const [linkService, setLinkService] = useState<PdfLinkService | null>(null);
   const [pageCount, setPageCount] = useState(0);
   const [activePage, setActivePage] = useState(1);
+  const activePageRef = useRef(1);
+  useEffect(() => { activePageRef.current = activePage; }, [activePage]);
+  const restorePageRef = useRef<number | null>(null);
   const [zoom, setZoom] = useState(1);
   const [rotation, setRotation] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -412,9 +415,13 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
     let loadedPdf: PDFDocumentProxy | null = null;
     let loadedLinkService: PdfLinkService | null = null;
 
+    const previousPage = activePageRef.current;
     pageRefs.current.clear();
 
     async function loadDocument() {
+      await Promise.resolve();
+      if (cancelled) return;
+      setIsLoading(true); setError(null); setProgress(null);
       try {
         const { pdfjs, viewer } = await loadPdfJs();
         if (cancelled) return;
@@ -446,6 +453,7 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
         }));
 
         pageCountRef.current = loadedPdf.numPages;
+        restorePageRef.current = Math.min(previousPage, loadedPdf.numPages);
         setPdf(loadedPdf);
         setPageCount(loadedPdf.numPages);
         setLinkService(loadedLinkService);
@@ -468,6 +476,15 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
       void loadedPdf?.cleanup();
     };
   }, [scrollToPage, src, t]);
+
+  useEffect(() => {
+    if (!pdf || isLoading || restorePageRef.current === null) return;
+    const frame = requestAnimationFrame(() => {
+      scrollToPage(restorePageRef.current ?? 1);
+      restorePageRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pdf, isLoading, scrollToPage]);
 
   useEffect(() => {
     const root = scrollContainerRef.current;

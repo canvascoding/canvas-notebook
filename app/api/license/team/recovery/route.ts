@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
           summary,
           metadata_json,
           created_at
-        ) VALUES (?, ?, ?, 'license', 'team_seat_recovery', 'organization', ?, ?, 'accepted', ?, ?, ?)
+        ) VALUES ($1, $2, $3, 'license', 'team_seat_recovery', 'organization', $4, $5, 'accepted', $6, $7, $8)
       `, [
         `audit-${randomUUID()}`,
         organization.organizationId,
@@ -223,7 +223,7 @@ export async function POST(request: NextRequest) {
         summary,
         metadata_json,
         created_at
-      ) VALUES (?, ?, ?, 'license', 'team_seat_recovery', 'organization', ?, ?, 'accepted', ?, ?, ?)
+      ) VALUES ($1, $2, $3, 'license', 'team_seat_recovery', 'organization', $4, $5, 'accepted', $6, $7, $8)
       ON CONFLICT(id) DO NOTHING
     `, [
       `team-seat-recovery-${refresh.operation.operationId}`,

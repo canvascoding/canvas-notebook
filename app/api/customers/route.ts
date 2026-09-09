@@ -4,13 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
-import { createCanvasCustomer, listCanvasCustomers, normalizeSlug } from '@/app/lib/projects/service';
+import { normalizeSlug } from '@/app/lib/projects/slug';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { getPostgresWorkspaceState } from '@/app/lib/workspaces/postgres-runtime';
 
@@ -49,7 +44,7 @@ export async function GET(request: NextRequest) {
     const permissionResponse = assertAdminActor(actor);
     if (permissionResponse) return permissionResponse;
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -61,7 +56,7 @@ export async function GET(request: NextRequest) {
             SELECT id, organization_id AS "organizationId", name, slug, status, notes, metadata_json AS "metadataJson",
               created_by_user_id AS "createdByUserId", created_at AS "createdAt", updated_at AS "updatedAt"
             FROM canvas_customers
-            WHERE organization_id = ? AND status = 'active'
+            WHERE organization_id = $1 AND status = 'active'
             ORDER BY lower(name) ASC, created_at ASC
           `,
           [state.status.organizationId],
@@ -70,17 +65,6 @@ export async function GET(request: NextRequest) {
       } finally {
         await database.close();
       }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      return NextResponse.json({ success: true, customers: listCanvasCustomers(sqlite, status.organizationId) });
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     return jsonServerError('[API] Customers get error:', error, 'Could not load customers');
@@ -100,7 +84,7 @@ export async function POST(request: NextRequest) {
     const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
     const name = normalizeName(payload.name);
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -111,7 +95,7 @@ export async function POST(request: NextRequest) {
         const id = `cust_${randomUUID()}`;
         const baseSlug = normalizeSlug(typeof payload.slug === 'string' ? payload.slug : name);
         const rows = await database.all(
-          'SELECT slug FROM canvas_customers WHERE organization_id = ? AND (slug = ? OR slug LIKE ?)',
+          'SELECT slug FROM canvas_customers WHERE organization_id = $1 AND (slug = $2 OR slug LIKE $3)',
           [state.status.organizationId, baseSlug, `${baseSlug}-%`],
         ) as Array<{ slug: string }>;
         const used = new Set(rows.map((row) => row.slug));
@@ -121,7 +105,7 @@ export async function POST(request: NextRequest) {
           `
             INSERT INTO canvas_customers (
               id, organization_id, name, slug, status, notes, metadata_json, created_by_user_id, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?, ?, ?)
+            ) VALUES ($1, $2, $3, $4, 'active', $5, $6, $7, $8, $9)
           `,
           [
             id,
@@ -139,25 +123,6 @@ export async function POST(request: NextRequest) {
       } finally {
         await database.close();
       }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      const customer = createCanvasCustomer(sqlite, {
-        organizationId: status.organizationId,
-        name,
-        slug: typeof payload.slug === 'string' ? payload.slug : undefined,
-        notes: typeof payload.notes === 'string' ? payload.notes : null,
-        metadataJson: typeof payload.metadataJson === 'string' ? payload.metadataJson : null,
-        createdByUserId: actor.userId,
-      });
-      return NextResponse.json({ success: true, customer }, { status: 201 });
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     if (error instanceof Error && /Name/u.test(error.message)) {

@@ -1,17 +1,11 @@
 import 'server-only';
 
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   LicenseEntitlementError,
   requireTeamRuntimeLicense,
 } from '@/app/lib/license/entitlements';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
 import { getPostgresWorkspaceState } from './postgres-runtime';
-import { listWorkspaceContextsForUser, resolveDefaultWorkspaceContext } from './service';
 import type { WorkspaceActor, WorkspaceContext } from './types';
 
 export type WorkspaceListing = {
@@ -86,58 +80,16 @@ async function enforceTeamLicenseBoundary(
 }
 
 export async function loadWorkspaceListingForActor(actor: WorkspaceActor): Promise<WorkspaceListing> {
-  if (getDatabaseProvider() === 'postgres') {
-    const state = await getPostgresWorkspaceState(actor);
-    return enforceTeamLicenseBoundary({
-      organizationId: state.status.organizationId,
-      teamFeaturesEnabled: state.status.teamFeaturesEnabled,
-      projectFeaturesEnabled: areProjectFeaturesEnabled(),
-      canCreateSharedWorkspaces: actor.role === 'owner' || actor.role === 'admin',
-      databaseProvider: state.status.databaseProvider,
-      activeWorkspaceId: state.defaultWorkspace?.workspaceId || null,
-      defaultWorkspace: state.defaultWorkspace,
-      workspaces: state.workspaces,
-      warnings: state.status.warnings,
-    }, actor);
-  }
-
-  const sqlite = openOrganizationBootstrapDatabase();
-  try {
-    sqlite.exec('BEGIN IMMEDIATE');
-    const status = ensureOrganizationBootstrapForUser(sqlite, actor.userId);
-    if (!status.organizationId) {
-      throw new WorkspaceListingError(
-        'Organization is not configured',
-        'ORGANIZATION_NOT_CONFIGURED',
-        409,
-      );
-    }
-
-    const defaultWorkspace = resolveDefaultWorkspaceContext(sqlite, {
-      actor,
-      organizationId: status.organizationId,
-    });
-    const workspaces = listWorkspaceContextsForUser(sqlite, {
-      actor,
-      organizationId: status.organizationId,
-    });
-    sqlite.exec('COMMIT');
-
-    return enforceTeamLicenseBoundary({
-      organizationId: status.organizationId,
-      teamFeaturesEnabled: status.teamFeaturesEnabled,
-      projectFeaturesEnabled: areProjectFeaturesEnabled(),
-      canCreateSharedWorkspaces: actor.role === 'owner' || actor.role === 'admin',
-      databaseProvider: status.databaseProvider,
-      activeWorkspaceId: defaultWorkspace?.workspaceId || null,
-      defaultWorkspace,
-      workspaces,
-      warnings: status.warnings,
-    }, actor);
-  } catch (error) {
-    if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
-    throw error;
-  } finally {
-    sqlite.close();
-  }
+  const state = await getPostgresWorkspaceState(actor);
+  return enforceTeamLicenseBoundary({
+    organizationId: state.status.organizationId,
+    teamFeaturesEnabled: state.status.teamFeaturesEnabled,
+    projectFeaturesEnabled: areProjectFeaturesEnabled(),
+    canCreateSharedWorkspaces: actor.role === 'owner' || actor.role === 'admin',
+    databaseProvider: state.status.databaseProvider,
+    activeWorkspaceId: state.defaultWorkspace?.workspaceId || null,
+    defaultWorkspace: state.defaultWorkspace,
+    workspaces: state.workspaces,
+    warnings: state.status.warnings,
+  }, actor);
 }

@@ -9,7 +9,7 @@ const originalControlPlaneUrl = process.env.CANVAS_LICENSE_CONTROL_PLANE_URL;
 
 async function main() {
   const provider = process.env.CANVAS_DATABASE_PROVIDER;
-  assert.ok(provider === 'sqlite' || provider === 'postgres');
+  assert.ok(provider === 'postgres' || provider === 'postgres');
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), `canvas-license-email-${provider}-`));
   const instanceId = 'self_a634a3e7-67c1-4c1f-b202-d76a4c0bc31b';
   const activationId = '88a79dcb-b35a-4c33-b82a-6e11f7a5f9aa';

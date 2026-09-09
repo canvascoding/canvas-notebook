@@ -118,7 +118,7 @@ async function readBootstrapDatabaseState(organizationId: string): Promise<Runti
     const organization = await connection.get(
       `SELECT owner_user_id, team_features_enabled
        FROM canvas_organization_settings
-       WHERE organization_id = ?
+       WHERE organization_id = $1
        LIMIT 1`,
       [organizationId],
     ) as { owner_user_id?: string | null; team_features_enabled?: number | string | boolean } | undefined;
@@ -127,7 +127,7 @@ async function readBootstrapDatabaseState(organizationId: string): Promise<Runti
       ? await connection.get(
           `SELECT id
            FROM canvas_workspaces
-           WHERE organization_id = ? AND type = 'personal' AND owner_user_id = ? AND status = 'active'
+           WHERE organization_id = $1 AND type = 'personal' AND owner_user_id = $2 AND status = 'active'
            ORDER BY is_default DESC, created_at ASC
            LIMIT 1`,
           [organizationId, ownerUserId],

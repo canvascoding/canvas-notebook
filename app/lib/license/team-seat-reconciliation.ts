@@ -3,10 +3,6 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 
 import type { SqlConnection } from '@/app/lib/db';
-import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
 import type { TeamLicenseLifecycleResult } from './team-license-lifecycle';
 import {
   enqueueTeamSeatOutboxOperation,
@@ -62,14 +58,12 @@ type ReconciliationDatabase = Pick<
 
 type TeamSeatReconciliationOptions = {
   database?: ReconciliationDatabase;
-  databaseProvider?: DatabaseProvider;
   licenseStatus?: LicenseStatus;
   loadLicenseStatus?: () => Promise<LicenseStatus>;
   applyRestriction?: (
     status: LicenseStatus,
     input: {
       database: ReconciliationDatabase;
-      databaseProvider: DatabaseProvider;
       now: number;
     },
   ) => Promise<TeamLicenseLifecycleResult>;
@@ -275,10 +269,9 @@ async function rollbackQuietly(
 
 async function withTransaction<T>(
   database: Pick<SqlConnection, 'run'>,
-  provider: DatabaseProvider,
   operation: () => Promise<T>,
 ): Promise<T> {
-  await database.run(provider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const result = await operation();
     await database.run('COMMIT');
@@ -306,7 +299,6 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
       : (await import('./index')).getLicenseStatus());
   const database = options.database ?? await (await import('@/app/lib/db')).openDb();
   const ownsDatabase = options.database === undefined;
-  const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
   const now = options.now ?? Date.now();
   try {
     const state = await getTeamMembershipSyncState(database, organizationId);
@@ -315,20 +307,20 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
     }
     const decision = classifyTeamSeatReconciliation({ state, licenseStatus });
 
-    const refresh = await withTransaction(database, databaseProvider, async () => {
+    const refresh = await withTransaction(database, async () => {
       const updated = await database.run(`
         UPDATE team_membership_sync_state
         SET
-          reconciliation_status = ?,
-          reconciliation_action = ?,
-          reconciliation_reason = ?,
-          reconciliation_seat_limit = ?,
-          reconciliation_support_required = ?,
-          reconciled_at = ?,
-          updated_at = ?
-        WHERE organization_id = ?
-          AND acknowledged_revision = ?
-          AND acknowledged_snapshot_hash = ?
+          reconciliation_status = $1,
+          reconciliation_action = $2,
+          reconciliation_reason = $3,
+          reconciliation_seat_limit = $4,
+          reconciliation_support_required = $5,
+          reconciled_at = $6,
+          updated_at = $7
+        WHERE organization_id = $8
+          AND acknowledged_revision = $9
+          AND acknowledged_snapshot_hash = $10
       `, [
         decision.status,
         decision.action,
@@ -358,7 +350,7 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
           summary,
           metadata_json,
           created_at
-        ) VALUES (?, ?, 'license', 'team_seat_reconciliation', 'organization', ?, ?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, 'license', 'team_seat_reconciliation', 'organization', $3, $4, $5, $6, $7, $8)
         ON CONFLICT(id) DO NOTHING
       `, [
         reconciliationAuditId({
@@ -434,13 +426,11 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
       lifecycle = options.applyRestriction
         ? await options.applyRestriction(licenseStatus, {
             database,
-            databaseProvider,
             now,
           })
         : await (await import('./team-license-lifecycle'))
             .reconcileTeamLicenseLifecycle(licenseStatus, {
               database,
-              databaseProvider,
               now: new Date(now),
             });
     }

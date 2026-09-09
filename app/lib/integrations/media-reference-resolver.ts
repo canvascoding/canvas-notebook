@@ -6,11 +6,8 @@ import path from 'node:path';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
-import { resolveWorkspaceContextById } from '@/app/lib/workspaces/service';
 import {
   getWorkspaceRoot,
   resolveValidatedStudioAssetPath,
@@ -344,16 +341,7 @@ async function resolveWorkspaceScopedReferencePath(
   }
 
   const actor = resolveWorkspaceActor({ id: options.userId });
-  const workspace = getDatabaseProvider() === 'postgres'
-    ? await resolvePostgresWorkspaceForActor(actor, ref.workspaceId)
-    : (() => {
-      const sqlite = openOrganizationBootstrapDatabase();
-      try {
-        return resolveWorkspaceContextById(sqlite, { actor, workspaceId: ref.workspaceId });
-      } finally {
-        sqlite.close();
-      }
-    })();
+  const workspace = await resolvePostgresWorkspaceForActor(actor, ref.workspaceId);
 
   if (!workspace || !workspace.permissions.canRead) {
     throw new Error(`Workspace reference is not readable: ${ref.sourceId}`);

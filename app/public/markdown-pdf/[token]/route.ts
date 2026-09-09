@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { limitPublicExport } from '@/app/lib/public-sharing/public-export-limit';
+import { createHash } from 'node:crypto';
+import { publicRateLimit, publicResourceRateLimit } from '@/app/lib/security/public-rate-limit';
+import { coalescePublicExport } from '@/app/lib/exports/coalesce-public-export';
 import { PublicShareReadError } from '@/app/lib/public-sharing/public-share-text';
 
 import {
@@ -16,10 +18,10 @@ import { getMarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
 import { fileContentDisposition } from '@/app/lib/files/content-disposition';
 
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   context: { params: Promise<{ token: string }> },
 ) {
-  const limited = limitPublicExport(request, 'markdown-pdf');
+  const limited = await publicRateLimit({ keyPrefix: 'public-markdown-pdf', limit: 10, globalLimit: 120, windowMs: 60_000 });
   if (!limited.ok) return limited.response;
   try {
     const { token } = await context.params;
@@ -29,11 +31,11 @@ export async function POST(
     }
 
     await assertBrowserExportAvailable();
-
-    const pdfBuffer = await generatePdfFromHtml(
-      result.html,
-      getMarkdownPdfRenderOptions(result.brandProfile, result.brandLogoDataUri),
-    );
+    const targetLimit = await publicResourceRateLimit({ keyPrefix: 'public-markdown-pdf', limit: 30, windowMs: 60_000 }, token);
+    if (!targetLimit.ok) return targetLimit.response;
+    const renderOptions = getMarkdownPdfRenderOptions(result.brandProfile, result.brandLogoDataUri);
+    const renderKey = createHash('sha256').update(token).update('\0').update(result.html).update('\0').update(JSON.stringify(renderOptions)).digest('hex');
+    const pdfBuffer = await coalescePublicExport(renderKey, () => generatePdfFromHtml(result.html, renderOptions));
 
     await result.verifyAccess();
 

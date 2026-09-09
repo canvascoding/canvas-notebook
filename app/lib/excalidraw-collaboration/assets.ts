@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import { resolveDataDir } from '@/app/lib/db/provider';
 import type { ExcalidrawAssetMetadata } from './protocol';
 import { sanitizeExcalidrawSvg } from './svg-sanitizer';
@@ -31,10 +31,6 @@ type AssetRow = {
   created_at: number;
   last_referenced_at: number;
 };
-
-function assertPostgres(): void {
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Excalidraw assets require Postgres.');
-}
 
 function workspaceStorageScope(workspaceId: string): string {
   return crypto.createHash('sha256').update(workspaceId).digest('hex').slice(0, 32);
@@ -86,7 +82,6 @@ export async function storeExcalidrawAsset(input: {
   version?: number;
   createdAt?: number;
 }): Promise<ExcalidrawAssetMetadata> {
-  assertPostgres();
   if (!SAFE_FILE_ID.test(input.fileId)) throw new Error('Invalid Excalidraw asset file id.');
   const mimeType = input.mimeType.toLowerCase().split(';', 1)[0].trim();
   if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error(`Unsupported Excalidraw asset MIME type: ${mimeType}.`);
@@ -111,7 +106,7 @@ export async function storeExcalidrawAsset(input: {
   const database = await openDb();
   try {
     const existing = await database.get(
-      'SELECT * FROM collaboration_excalidraw_assets WHERE workspace_id = ? AND file_id = ? LIMIT 1',
+      'SELECT * FROM collaboration_excalidraw_assets WHERE workspace_id = $1 AND file_id = $2 LIMIT 1',
       [input.workspaceId, input.fileId],
     ) as AssetRow | undefined;
     if (existing && existing.content_sha256 !== hash) throw new Error('Excalidraw asset file id is already bound to different content.');
@@ -119,7 +114,7 @@ export async function storeExcalidrawAsset(input: {
       `INSERT INTO collaboration_excalidraw_assets (
          workspace_id, file_id, content_sha256, mime_type, size_bytes, storage_key,
          version, status, created_at, last_referenced_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'available', ?, ?)
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'available', $8, $9)
        ON CONFLICT(workspace_id, file_id) DO UPDATE SET
          status = 'available', last_referenced_at = excluded.last_referenced_at
        RETURNING *`,
@@ -146,12 +141,11 @@ export async function loadExcalidrawAsset(input: { workspaceId: string; fileId: 
   metadata: ExcalidrawAssetMetadata;
   data: Buffer;
 } | null> {
-  assertPostgres();
   if (!SAFE_FILE_ID.test(input.fileId)) return null;
   const database = await openDb();
   try {
     const row = await database.get(
-      "SELECT * FROM collaboration_excalidraw_assets WHERE workspace_id = ? AND file_id = ? AND status = 'available' LIMIT 1",
+      "SELECT * FROM collaboration_excalidraw_assets WHERE workspace_id = $1 AND file_id = $2 AND status = 'available' LIMIT 1",
       [input.workspaceId, input.fileId],
     ) as AssetRow | undefined;
     if (!row) return null;
@@ -159,7 +153,7 @@ export async function loadExcalidrawAsset(input: { workspaceId: string; fileId: 
     const hash = crypto.createHash('sha256').update(data).digest('hex');
     if (hash !== row.content_sha256) throw new Error('Excalidraw asset failed integrity verification.');
     await database.run(
-      'UPDATE collaboration_excalidraw_assets SET last_referenced_at = ? WHERE workspace_id = ? AND file_id = ?',
+      'UPDATE collaboration_excalidraw_assets SET last_referenced_at = $1 WHERE workspace_id = $2 AND file_id = $3',
       [Date.now(), input.workspaceId, input.fileId],
     );
     return { metadata: mapAsset(row), data };
@@ -172,7 +166,6 @@ export async function validateExcalidrawAssetMetadata(
   workspaceId: string,
   requested: ExcalidrawAssetMetadata[],
 ): Promise<ExcalidrawAssetMetadata[]> {
-  assertPostgres();
   if (requested.length > 2_000) throw new Error('Excalidraw scene exceeds the 2,000 asset reference limit.');
   const unique = new Map(requested.map((asset) => [asset.fileId, asset]));
   if (unique.size !== requested.length) throw new Error('Duplicate Excalidraw asset reference.');
@@ -182,7 +175,7 @@ export async function validateExcalidrawAssetMetadata(
     for (const asset of requested) {
       if (!SAFE_FILE_ID.test(asset.fileId)) throw new Error('Invalid Excalidraw asset reference.');
       const row = await database.get(
-        "SELECT * FROM collaboration_excalidraw_assets WHERE workspace_id = ? AND file_id = ? AND status = 'available' LIMIT 1",
+        "SELECT * FROM collaboration_excalidraw_assets WHERE workspace_id = $1 AND file_id = $2 AND status = 'available' LIMIT 1",
         [workspaceId, asset.fileId],
       ) as AssetRow | undefined;
       if (!row || row.content_sha256 !== asset.contentHash) throw new Error(`Excalidraw asset is unavailable: ${asset.fileId}.`);

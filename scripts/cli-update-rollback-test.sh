@@ -229,7 +229,7 @@ chmod 600 "$TMP_DIR/nonroot-config.env" "$TMP_DIR/nonroot-compose.env"
 
 reset_runtime() {
   "$cli" config-set image "$CANVAS_TEST_MUTABLE_IMAGE" --no-banner > /dev/null
-  "$cli" config-set env.CANVAS_DATABASE_PROVIDER sqlite --no-banner > /dev/null
+  "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
   "$cli" config-set env.CANVAS_POSTGRES_REQUIRED false --no-banner > /dev/null
   "$cli" config-set env.CANVAS_POSTGRES_VECTOR_ENABLED false --no-banner > /dev/null
   "$cli" config-set env.CANVAS_TEAM_FEATURES_ENABLED false --no-banner > /dev/null

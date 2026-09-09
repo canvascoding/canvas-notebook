@@ -2,7 +2,7 @@ import 'server-only';
 
 import crypto from 'node:crypto';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import {
   lockFileCollaborationPaths,
   moveExcalidrawCollaborationStatePathScope,
@@ -84,10 +84,6 @@ export class ExcalidrawSceneResyncError extends Error {
   }
 }
 
-function assertPostgres(): void {
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Excalidraw collaboration requires Postgres.');
-}
-
 function json<T>(value: JsonValue, fallback: T): T {
   if (value === null || value === undefined) return fallback;
   if (typeof value !== 'string') return value as T;
@@ -134,12 +130,11 @@ function initialScene(content: string): {
 }
 
 export async function loadExcalidrawScene(documentId: string, includeArchived = false): Promise<PersistedExcalidrawScene | null> {
-  assertPostgres();
   const database = await openDb();
   try {
     const row = await database.get(
       `SELECT * FROM collaboration_excalidraw_states
-       WHERE document_id = ? ${includeArchived ? '' : "AND status = 'active'"} LIMIT 1`,
+       WHERE document_id = $1 ${includeArchived ? '' : "AND status = 'active'"} LIMIT 1`,
       [documentId],
     ) as StateRow | undefined;
     return row ? mapState(row) : null;
@@ -156,7 +151,6 @@ export async function ensureExcalidrawScene(input: {
   initialContent: string;
   initialAssets?: ExcalidrawAssetMetadata[];
 }): Promise<PersistedExcalidrawScene> {
-  assertPostgres();
   const existing = await loadExcalidrawScene(input.documentId);
   if (existing) {
     if (existing.workspaceId !== input.workspaceId || existing.path !== input.path || existing.status !== 'active') {
@@ -175,7 +169,7 @@ export async function ensureExcalidrawScene(input: {
          document_id, workspace_id, organization_id, path, lifecycle_generation,
          excalidraw_version, scene_schema_version, elements_json, shared_app_state_json,
          assets_json, scene_sequence, checkpoint_sequence, canonical_hash, persisted_at, checkpointed_at
-       ) VALUES (?, ?, ?, ?, 1, ?, 1, CAST(? AS jsonb), CAST(? AS jsonb), CAST(? AS jsonb), 0, 0, ?, ?, ?)
+       ) VALUES ($1, $2, $3, $4, 1, $5, 1, CAST($6 AS jsonb), CAST($7 AS jsonb), CAST($8 AS jsonb), 0, 0, $9, $10, $11)
        ON CONFLICT(document_id) DO NOTHING
        RETURNING *`,
       [
@@ -228,15 +222,14 @@ export async function applyExcalidrawScenePatch(input: {
   actorId: string | null;
   initiatedByUserId?: string | null;
 }): Promise<AppliedExcalidrawPatch> {
-  assertPostgres();
   const patch = validateExcalidrawElements(input.elements, 'patch');
   const requestedAppState = sharedExcalidrawAppState(input.appState);
   const database = await openDb();
   try {
     await database.run('BEGIN');
-    await database.run('SELECT pg_advisory_xact_lock(hashtext(?))', [`excalidraw:${input.documentId}`]);
+    await database.run('SELECT pg_advisory_xact_lock(hashtext($1))', [`excalidraw:${input.documentId}`]);
     const previousOperation = await database.get(
-      'SELECT result_json FROM collaboration_excalidraw_operations WHERE document_id = ? AND message_id = ? LIMIT 1',
+      'SELECT result_json FROM collaboration_excalidraw_operations WHERE document_id = $1 AND message_id = $2 LIMIT 1',
       [input.documentId, input.messageId],
     ) as { result_json?: JsonValue } | undefined;
     const duplicate = previousOperation?.result_json ? operationResult(previousOperation.result_json) : null;
@@ -245,7 +238,7 @@ export async function applyExcalidrawScenePatch(input: {
       return duplicate;
     }
     const row = await database.get(
-      "SELECT * FROM collaboration_excalidraw_states WHERE document_id = ? AND status = 'active' FOR UPDATE",
+      "SELECT * FROM collaboration_excalidraw_states WHERE document_id = $1 AND status = 'active' FOR UPDATE",
       [input.documentId],
     ) as StateRow | undefined;
     if (!row) throw new Error('Excalidraw collaboration scene is unavailable.');
@@ -269,10 +262,10 @@ export async function applyExcalidrawScenePatch(input: {
     if (changed) {
       const updated = await database.get(
         `UPDATE collaboration_excalidraw_states
-         SET elements_json = CAST(? AS jsonb), shared_app_state_json = CAST(? AS jsonb),
-             assets_json = CAST(? AS jsonb), scene_sequence = ?, canonical_hash = ?,
-             persisted_at = ?, degraded_reason = NULL
-         WHERE document_id = ? AND lifecycle_generation = ? AND scene_sequence = ? AND status = 'active'
+         SET elements_json = CAST($1 AS jsonb), shared_app_state_json = CAST($2 AS jsonb),
+             assets_json = CAST($3 AS jsonb), scene_sequence = $4, canonical_hash = $5,
+             persisted_at = $6, degraded_reason = NULL
+         WHERE document_id = $7 AND lifecycle_generation = $8 AND scene_sequence = $9 AND status = 'active'
          RETURNING *`,
         [
           JSON.stringify(merged.elements),
@@ -304,7 +297,7 @@ export async function applyExcalidrawScenePatch(input: {
          document_id, message_id, lifecycle_generation, base_sequence, applied_sequence,
          actor_type, actor_id, initiated_by_user_id, accepted_delta_json,
          accepted_app_state_json, accepted_delta_hash, result_json, created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CAST(? AS jsonb), ?, CAST(? AS jsonb), ?)`,
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CAST($9 AS jsonb), CAST($10 AS jsonb), $11, CAST($12 AS jsonb), $13)`,
       [
         input.documentId,
         input.messageId,
@@ -336,13 +329,12 @@ export async function markExcalidrawCheckpoint(input: {
   sceneSequence: number;
   revisionId: string;
 }): Promise<void> {
-  assertPostgres();
   const database = await openDb();
   try {
     await database.run(
       `UPDATE collaboration_excalidraw_states
-       SET checkpoint_sequence = ?, checkpoint_revision_id = ?, checkpointed_at = ?, degraded_reason = NULL
-       WHERE document_id = ? AND scene_sequence = ? AND status = 'active'`,
+       SET checkpoint_sequence = $1, checkpoint_revision_id = $2, checkpointed_at = $3, degraded_reason = NULL
+       WHERE document_id = $4 AND scene_sequence = $5 AND status = 'active'`,
       [input.sceneSequence, input.revisionId, Date.now(), input.documentId, input.sceneSequence],
     );
   } finally {
@@ -351,11 +343,10 @@ export async function markExcalidrawCheckpoint(input: {
 }
 
 export async function markExcalidrawSceneDegraded(documentId: string, reason: string): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
     await database.run(
-      'UPDATE collaboration_excalidraw_states SET degraded_reason = ? WHERE document_id = ?',
+      'UPDATE collaboration_excalidraw_states SET degraded_reason = $1 WHERE document_id = $2',
       [reason.slice(0, 500), documentId],
     );
   } finally {
@@ -364,7 +355,6 @@ export async function markExcalidrawSceneDegraded(documentId: string, reason: st
 }
 
 export async function moveExcalidrawScenePaths(input: { workspaceId: string; oldPath: string; newPath: string }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   await withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, [input.oldPath, input.newPath]);
     await moveExcalidrawCollaborationStatePathScope(transaction, input);
@@ -372,7 +362,7 @@ export async function moveExcalidrawScenePaths(input: { workspaceId: string; old
 }
 
 export async function archiveExcalidrawScenePaths(input: { workspaceId: string; paths: string[] }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres' || input.paths.length === 0) return;
+  if (input.paths.length === 0) return;
   const database = await openDb();
   try {
     await database.run('BEGIN');
@@ -380,9 +370,9 @@ export async function archiveExcalidrawScenePaths(input: { workspaceId: string; 
       await database.run(
         `UPDATE collaboration_excalidraw_states
          SET status = 'archived', lifecycle_generation = lifecycle_generation + 1
-         WHERE workspace_id = ?
+         WHERE workspace_id = $1
            AND status = 'active'
-           AND (path = ? OR left(path, char_length(?) + 1) = ? || '/')`,
+           AND (path = $2 OR left(path, char_length($3) + 1) = $4 || '/')`,
         [input.workspaceId, path, path, path],
       );
     }
@@ -396,13 +386,12 @@ export async function archiveExcalidrawScenePaths(input: { workspaceId: string; 
 }
 
 export async function reactivateExcalidrawScenePath(input: { workspaceId: string; path: string }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
     await database.run(
       `UPDATE collaboration_excalidraw_states
        SET status = 'active', lifecycle_generation = lifecycle_generation + 1, degraded_reason = NULL
-       WHERE workspace_id = ? AND path = ? AND status = 'archived'`,
+       WHERE workspace_id = $1 AND path = $2 AND status = 'archived'`,
       [input.workspaceId, input.path],
     );
   } finally {

@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  getOrganizationBootstrapStatus,
-  openOrganizationBootstrapDatabase,
-  OrganizationBootstrapError,
-} from '@/app/lib/organization/bootstrap';
+import { OrganizationBootstrapError } from '@/app/lib/organization/contracts';
 import { getPostgresOrganizationBootstrapStatus } from '@/app/lib/workspaces/postgres-runtime';
 
 export async function GET(request: NextRequest) {
@@ -14,18 +9,8 @@ export async function GET(request: NextRequest) {
   if (!admin.ok) return admin.response;
 
   try {
-    if (getDatabaseProvider() === 'postgres') {
-      const status = await getPostgresOrganizationBootstrapStatus();
-      return NextResponse.json({ success: true, data: status });
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = getOrganizationBootstrapStatus(sqlite);
-      return NextResponse.json({ success: true, data: status });
-    } finally {
-      sqlite.close();
-    }
+    const status = await getPostgresOrganizationBootstrapStatus();
+    return NextResponse.json({ success: true, data: status });
   } catch (error) {
     if (error instanceof OrganizationBootstrapError) {
       const status = error.code === 'ORGANIZATION_ID_CONFLICT' ? 409 : 400;

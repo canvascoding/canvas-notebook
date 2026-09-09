@@ -89,7 +89,7 @@ function licenseCapabilities(status: LicenseStatus) {
 }
 
 function licenseDatabaseProvider(status: LicenseStatus): NotebookDatabaseProvider | null {
-  return status.databaseProvider === 'sqlite' || status.databaseProvider === 'postgres' ? status.databaseProvider : null;
+  return status.databaseProvider === 'postgres' ? 'postgres' : null;
 }
 
 function licenseVectorProvider(status: LicenseStatus): NotebookVectorProvider | null {

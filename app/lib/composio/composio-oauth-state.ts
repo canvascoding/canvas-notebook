@@ -105,13 +105,13 @@ export async function createComposioOAuthFlowState(input: {
   try {
     await database.run(`
       DELETE FROM composio_oauth_flow_states
-      WHERE expires_at < ? OR (consumed_at IS NOT NULL AND consumed_at < ?)
+      WHERE expires_at < $1 OR (consumed_at IS NOT NULL AND consumed_at < $2)
     `, [now, now - CONSUMED_STATE_RETENTION_MS]);
     await database.run(`
       INSERT INTO composio_oauth_flow_states (
         state_hash, user_id, workspace_id, profile_id, composio_user_id,
         toolkit_slug, return_path, expires_at, consumed_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULL, $9)
     `, [
       stateHash,
       input.context.userId,
@@ -163,8 +163,8 @@ export async function consumeComposioOAuthFlowState(input: {
        AND profile.owner_user_id = flow.user_id
        AND profile.composio_user_id = flow.composio_user_id
        AND profile.status = 'active'
-      WHERE flow.state_hash = ?
-        ${userId ? 'AND flow.user_id = ?' : ''}
+      WHERE flow.state_hash = $1
+        ${userId ? 'AND flow.user_id = $2' : ''}
       LIMIT 1
     `, userId ? [hashState(state), userId] : [hashState(state)]) as OAuthFlowRow | undefined;
 
@@ -178,8 +178,8 @@ export async function consumeComposioOAuthFlowState(input: {
 
     const result = await database.run(`
       UPDATE composio_oauth_flow_states
-      SET consumed_at = ?
-      WHERE state_hash = ? AND user_id = ? AND consumed_at IS NULL AND expires_at >= ?
+      SET consumed_at = $1
+      WHERE state_hash = $2 AND user_id = $3 AND consumed_at IS NULL AND expires_at >= $4
     `, [now, row.state_hash, row.user_id, now]) as { changes?: number };
     if (Number(result?.changes || 0) !== 1) {
       throw new ComposioProfileError(
@@ -231,7 +231,7 @@ export async function readComposioOAuthFlowState(input: {
        AND profile.owner_user_id = flow.user_id
        AND profile.composio_user_id = flow.composio_user_id
        AND profile.status = 'active'
-      WHERE flow.state_hash = ? AND flow.user_id = ?
+      WHERE flow.state_hash = $1 AND flow.user_id = $2
       LIMIT 1
     `, [hashState(state), userId]) as OAuthFlowRow | undefined;
     if (!row) return null;

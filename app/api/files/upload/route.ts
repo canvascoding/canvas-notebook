@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { writeFile } from '@/app/lib/filesystem/workspace-files';
-import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
-import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
-import { publishWorkspaceFileMutation } from '@/app/lib/filesystem/file-watcher';
+import { publishWorkspaceUpload } from '@/app/lib/filesystem/upload-events';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
@@ -156,14 +154,9 @@ export async function POST(request: NextRequest) {
     }
 
     await syncPublicSharesAfterWrite(uploadedPaths, workspaceResult.workspace);
-    clearFileTreeCache(fileOptions.workspace?.workspaceId);
-    invalidateFileReferenceCache(fileOptions);
+    const committed = [];
     for (const uploadedPath of uploadedPaths) {
-      publishWorkspaceFileMutation({
-        workspace: workspaceResult.workspace,
-        relativePath: uploadedPath,
-        type: 'add',
-      });
+      committed.push(await publishWorkspaceUpload(workspaceResult.workspace, uploadedPath));
     }
     await recordAuditEvent({
       organizationId: workspaceResult.workspace.organizationId,
@@ -186,7 +179,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ success: true, count: files.length, files: uploadedFiles });
+    return NextResponse.json({ success: true, count: files.length, files: uploadedFiles, committed });
   } catch (error) {
     if (error instanceof FileCollaborationPolicyError) {
       return NextResponse.json(

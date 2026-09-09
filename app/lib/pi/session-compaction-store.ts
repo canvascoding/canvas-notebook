@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -114,8 +114,6 @@ export type PiMessageSequenceAudit = Readonly<{
   nullSequenceCount: number;
   valid: boolean;
 }>;
-
-type DatabaseProvider = 'sqlite' | 'postgres';
 
 type ScopedSessionRow = {
   id: number | string;
@@ -315,12 +313,11 @@ function mapAttempt(row: AttemptRow): PiCompactionAttemptRecord {
 
 async function withTransaction<T>(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   operation: () => Promise<T>,
 ): Promise<T> {
   let started = false;
   try {
-    await connection.run(provider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+    await connection.run('BEGIN');
     started = true;
     const result = await operation();
     await connection.run('COMMIT');
@@ -340,16 +337,14 @@ async function withTransaction<T>(
 
 async function getScopedSessionForUpdate(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   scope: PiCompactionScope,
 ): Promise<ScopedSessionRow> {
-  const forUpdate = provider === 'postgres' ? ' FOR UPDATE' : '';
   const rows = await connection.all(
     `SELECT id, summary_revision, summary_through_sequence, workspace_id
      FROM pi_sessions
-     WHERE session_id = ? AND user_id = ? AND agent_id = ?
+     WHERE session_id = $1 AND user_id = $2 AND agent_id = $3
      ORDER BY id ASC
-     LIMIT 2${forUpdate}`,
+     LIMIT 2 FOR UPDATE`,
     [scope.sessionId, scope.userId, scope.agentId],
   ) as ScopedSessionRow[];
   if (rows.length !== 1 || (rows[0].workspace_id ?? null) !== scope.workspaceId) {
@@ -363,13 +358,12 @@ async function getAttemptForSession(
   attemptId: string,
   piSessionDbId: number | string,
   forUpdate: boolean,
-  provider: DatabaseProvider,
 ): Promise<AttemptRow | null> {
-  const lock = forUpdate && provider === 'postgres' ? ' FOR UPDATE' : '';
+  const lock = forUpdate ? ' FOR UPDATE' : '';
   return await connection.get(
     `SELECT ${ATTEMPT_SELECT_COLUMNS}
      FROM pi_session_compaction_attempts
-     WHERE id = ? AND pi_session_db_id = ?
+     WHERE id = $1 AND pi_session_db_id = $2
      LIMIT 1${lock}`,
     [attemptId, piSessionDbId],
   ) as AttemptRow | undefined ?? null;
@@ -387,7 +381,7 @@ export async function auditPiMessageSequenceIntegrityOnConnection(
        MAX(sequence) AS maximum_sequence,
        SUM(CASE WHEN sequence IS NULL THEN 1 ELSE 0 END) AS null_sequence_count
      FROM pi_messages
-     WHERE pi_session_db_id = ?`,
+     WHERE pi_session_db_id = $1`,
     [piSessionDbId],
   ) as Record<string, unknown> | undefined;
   const messageCount = integer(row?.message_count);
@@ -437,7 +431,6 @@ export type StartPiCompactionAttemptResult =
 
 export async function startPiSessionCompactionAttemptOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: StartPiCompactionAttemptInput,
 ): Promise<StartPiCompactionAttemptResult> {
   const scope = validateScope(input);
@@ -464,21 +457,21 @@ export async function startPiSessionCompactionAttemptOnConnection(
   }
   const metrics = input.metrics ?? {};
 
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const nowTimestamp = toDatabaseTimestamp(now);
     await connection.run(
       `UPDATE pi_session_compaction_attempts
        SET state = 'timed_out',
            reason_code = CASE
-             WHEN idle_deadline_at IS NOT NULL AND idle_deadline_at <= ? AND deadline_at > ?
+             WHEN idle_deadline_at IS NOT NULL AND idle_deadline_at <= $1 AND deadline_at > $2
                THEN 'summary_idle_timeout'
              ELSE 'summary_total_timeout'
            END,
-           completed_at = ?, retry_at = COALESCE(retry_at, ?), updated_at = ?,
-           duration_ms = CASE WHEN ? > started_at THEN (? - started_at) * 1000 ELSE 0 END
-       WHERE pi_session_db_id = ? AND state = 'running'
-         AND (deadline_at <= ? OR (idle_deadline_at IS NOT NULL AND idle_deadline_at <= ?))`,
+           completed_at = $3, retry_at = COALESCE(retry_at, $4), updated_at = $5,
+           duration_ms = CASE WHEN $6 > started_at THEN ($7 - started_at) * 1000 ELSE 0 END
+       WHERE pi_session_db_id = $8 AND state = 'running'
+         AND (deadline_at <= $9 OR (idle_deadline_at IS NOT NULL AND idle_deadline_at <= $10))`,
       [
         nowTimestamp,
         nowTimestamp,
@@ -495,7 +488,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
     const existing = await connection.get(
       `SELECT ${ATTEMPT_SELECT_COLUMNS}
        FROM pi_session_compaction_attempts
-       WHERE pi_session_db_id = ? AND state = 'running'
+       WHERE pi_session_db_id = $1 AND state = 'running'
        ORDER BY attempt_ordinal DESC
        LIMIT 1`,
       [session.id],
@@ -505,7 +498,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
     const latestTerminal = await connection.get(
       `SELECT ${ATTEMPT_SELECT_COLUMNS}
        FROM pi_session_compaction_attempts
-       WHERE pi_session_db_id = ? AND state <> 'running'
+       WHERE pi_session_db_id = $1 AND state <> 'running'
        ORDER BY attempt_ordinal DESC
        LIMIT 1`,
       [session.id],
@@ -514,7 +507,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
       const cooldownAttempt = await connection.get(
         `SELECT ${ATTEMPT_SELECT_COLUMNS}
          FROM pi_session_compaction_attempts
-         WHERE pi_session_db_id = ? AND retry_at > ?
+         WHERE pi_session_db_id = $1 AND retry_at > $2
          ORDER BY attempt_ordinal DESC
          LIMIT 1`,
         [session.id, nowTimestamp],
@@ -532,7 +525,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
         if (bypassAvailable && input.trigger === 'manual') {
           const previousManualBypass = await connection.get(
             `SELECT id FROM pi_session_compaction_attempts
-             WHERE pi_session_db_id = ? AND trigger = 'manual' AND attempt_ordinal > ?
+             WHERE pi_session_db_id = $1 AND trigger = 'manual' AND attempt_ordinal > $2
              LIMIT 1`,
             [session.id, cooldownAttempt.attempt_ordinal],
           ) as { id?: string } | undefined;
@@ -567,7 +560,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
     const checkpoint = audit.maximumSequence ?? 0;
     const ordinalRow = await connection.get(
       `SELECT COALESCE(MAX(attempt_ordinal), 0) + 1 AS next_ordinal
-       FROM pi_session_compaction_attempts WHERE pi_session_db_id = ?`,
+       FROM pi_session_compaction_attempts WHERE pi_session_db_id = $1`,
       [session.id],
     ) as { next_ordinal?: number | string } | undefined;
     const attemptOrdinal = integer(ordinalRow?.next_ordinal, 1);
@@ -587,7 +580,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
          protected_unit_count, summarized_unit_count, omitted_unit_count,
          started_at, deadline_at, completed_at, retry_at, created_at, updated_at,
          idle_deadline_at, last_progress_at, progress_event_count, duration_ms, telemetry_json
-       ) VALUES (?, ?, ?, ?, 'running', NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?, ?, ?, 0, NULL, ?)`,
+       ) VALUES ($1, $2, $3, $4, 'running', NULL, $5, NULL, $6, NULL, $7, $8, $9, $10, $11, NULL, $12, NULL, $13, NULL, NULL, $14, $15, NULL, NULL, $16, $17, $18, $19, 0, NULL, $20)`,
       [
         attemptId,
         session.id,
@@ -611,7 +604,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
         telemetryJson,
       ],
     );
-    const inserted = await getAttemptForSession(connection, attemptId, session.id, false, provider);
+    const inserted = await getAttemptForSession(connection, attemptId, session.id, false);
     if (!inserted) throw new PiCompactionPersistenceConflictError('Compaction attempt was not persisted.');
     return { status: 'started', attempt: mapAttempt(inserted) };
   });
@@ -619,20 +612,19 @@ export async function startPiSessionCompactionAttemptOnConnection(
 
 export async function countPiSessionCompactionRetryFailuresOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   scopeInput: PiCompactionScope,
 ): Promise<number> {
   const scope = validateScope(scopeInput);
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const row = await connection.get(
       `SELECT COUNT(*) AS failure_count
        FROM pi_session_compaction_attempts
-       WHERE pi_session_db_id = ? AND retry_at IS NOT NULL
+       WHERE pi_session_db_id = $1 AND retry_at IS NOT NULL
          AND attempt_ordinal > COALESCE((
            SELECT MAX(attempt_ordinal)
            FROM pi_session_compaction_attempts
-           WHERE pi_session_db_id = ? AND state = 'succeeded'
+           WHERE pi_session_db_id = $2 AND state = 'succeeded'
          ), 0)`,
       [session.id, session.id],
     ) as { failure_count?: number | string } | undefined;
@@ -642,22 +634,21 @@ export async function countPiSessionCompactionRetryFailuresOnConnection(
 
 export async function countPiSessionCompactionIneffectiveAttemptsOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   scopeInput: PiCompactionScope,
 ): Promise<number> {
   const scope = validateScope(scopeInput);
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const row = await connection.get(
       `SELECT COUNT(*) AS ineffective_count
        FROM pi_session_compaction_attempts
-       WHERE pi_session_db_id = ?
+       WHERE pi_session_db_id = $1
          AND trigger IN ('automatic', 'automation')
          AND state = 'no_op' AND reason_code IN ('nothing_eligible', 'summary_not_smaller')
          AND attempt_ordinal > COALESCE((
            SELECT MAX(attempt_ordinal)
            FROM pi_session_compaction_attempts
-           WHERE pi_session_db_id = ? AND state = 'succeeded'
+           WHERE pi_session_db_id = $2 AND state = 'succeeded'
          ), 0)`,
       [session.id, session.id],
     ) as { ineffective_count?: number | string } | undefined;
@@ -673,7 +664,6 @@ export type RecordPiCompactionProgressInput = PiCompactionScope & Readonly<{
 
 export async function recordPiSessionCompactionProgressOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: RecordPiCompactionProgressInput,
 ): Promise<boolean> {
   const scope = validateScope(input);
@@ -681,14 +671,14 @@ export async function recordPiSessionCompactionProgressOnConnection(
   if (input.idleDeadlineAt.getTime() <= now.getTime()) {
     throw new Error('Compaction progress must extend the idle deadline.');
   }
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
     const timestamp = toDatabaseTimestamp(now);
     const updated = await connection.run(
       `UPDATE pi_session_compaction_attempts
-       SET last_progress_at = ?, idle_deadline_at = ?,
-           progress_event_count = progress_event_count + 1, updated_at = ?
-       WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
+       SET last_progress_at = $1, idle_deadline_at = $2,
+           progress_event_count = progress_event_count + 1, updated_at = $3
+       WHERE id = $4 AND pi_session_db_id = $5 AND state = 'running'`,
       [
         timestamp,
         toDatabaseTimestamp(input.idleDeadlineAt),
@@ -712,7 +702,6 @@ export type FinishPiCompactionAttemptInput = PiCompactionScope & Readonly<{
 
 export async function finishPiSessionCompactionAttemptOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: FinishPiCompactionAttemptInput,
 ): Promise<Readonly<{ changed: boolean; attempt: PiCompactionAttemptRecord }>> {
   if (!TERMINAL_ATTEMPT_STATES.has(input.state)) {
@@ -721,9 +710,9 @@ export async function finishPiSessionCompactionAttemptOnConnection(
   const scope = validateScope(input);
   const now = input.now ?? new Date();
   const metrics = input.metrics ?? {};
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
-    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true, provider);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
+    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true);
     if (!attempt) throw new PiCompactionScopeError();
     if (attempt.state !== 'running') return { changed: false, attempt: mapAttempt(attempt) };
     const timestamp = toDatabaseTimestamp(now);
@@ -735,13 +724,13 @@ export async function finishPiSessionCompactionAttemptOnConnection(
     const telemetryJson = mergeTelemetry(attempt.telemetry_json, metrics, input.reasonCode);
     const result = await connection.run(
       `UPDATE pi_session_compaction_attempts
-       SET state = ?, reason_code = ?, completed_at = ?, retry_at = ?, updated_at = ?,
-           after_estimated_tokens = ?, after_estimated_bytes = ?,
-           protected_unit_count = COALESCE(?, protected_unit_count),
-           summarized_unit_count = ?, omitted_unit_count = ?,
-           duration_ms = ?, progress_event_count = COALESCE(?, progress_event_count),
-           telemetry_json = ?
-       WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
+       SET state = $1, reason_code = $2, completed_at = $3, retry_at = $4, updated_at = $5,
+           after_estimated_tokens = $6, after_estimated_bytes = $7,
+           protected_unit_count = COALESCE($8, protected_unit_count),
+           summarized_unit_count = $9, omitted_unit_count = $10,
+           duration_ms = $11, progress_event_count = COALESCE($12, progress_event_count),
+           telemetry_json = $13
+       WHERE id = $14 AND pi_session_db_id = $15 AND state = 'running'`,
       [
         input.state,
         input.reasonCode,
@@ -761,7 +750,7 @@ export async function finishPiSessionCompactionAttemptOnConnection(
       ],
     );
     if (changes(result) !== 1) throw new PiCompactionPersistenceConflictError();
-    const updated = await getAttemptForSession(connection, attempt.id, session.id, false, provider);
+    const updated = await getAttemptForSession(connection, attempt.id, session.id, false);
     if (!updated) throw new PiCompactionPersistenceConflictError();
     return { changed: true, attempt: mapAttempt(updated) };
   });
@@ -784,7 +773,6 @@ export type CommitPiCompactionSummaryResult =
 
 export async function commitPiSessionCompactionSummaryOnConnection(
   connection: SqlConnection,
-  provider: DatabaseProvider,
   input: CommitPiCompactionSummaryInput,
 ): Promise<CommitPiCompactionSummaryResult> {
   const scope = validateScope(input);
@@ -807,9 +795,9 @@ export async function commitPiSessionCompactionSummaryOnConnection(
   }
   const now = input.now ?? new Date();
   const metrics = input.metrics ?? {};
-  return withTransaction(connection, provider, async () => {
-    const session = await getScopedSessionForUpdate(connection, provider, scope);
-    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true, provider);
+  return withTransaction(connection, async () => {
+    const session = await getScopedSessionForUpdate(connection, scope);
+    const attempt = await getAttemptForSession(connection, input.attemptId.trim(), session.id, true);
     if (!attempt) throw new PiCompactionScopeError();
     if (attempt.state !== 'running') {
       return { status: 'already_finished', attempt: mapAttempt(attempt) };
@@ -834,19 +822,19 @@ export async function commitPiSessionCompactionSummaryOnConnection(
       const telemetryJson = mergeTelemetry(attempt.telemetry_json, metrics, 'stale_snapshot');
       await connection.run(
         `UPDATE pi_session_compaction_attempts
-         SET state = 'stale', reason_code = 'stale_snapshot', completed_at = ?, updated_at = ?,
-             duration_ms = ?, progress_event_count = COALESCE(?, progress_event_count),
-             telemetry_json = ?
-         WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
+         SET state = 'stale', reason_code = 'stale_snapshot', completed_at = $1, updated_at = $2,
+             duration_ms = $3, progress_event_count = COALESCE($4, progress_event_count),
+             telemetry_json = $5
+         WHERE id = $6 AND pi_session_db_id = $7 AND state = 'running'`,
         [timestamp, timestamp, durationMs, progressEventCount, telemetryJson, attempt.id, session.id],
       );
-      const updated = await getAttemptForSession(connection, attempt.id, session.id, false, provider);
+      const updated = await getAttemptForSession(connection, attempt.id, session.id, false);
       if (!updated) throw new PiCompactionPersistenceConflictError();
       return { status: 'stale', attempt: mapAttempt(updated) };
     }
     const boundaryMessage = await connection.get(
       `SELECT timestamp FROM pi_messages
-       WHERE pi_session_db_id = ? AND sequence = ?
+       WHERE pi_session_db_id = $1 AND sequence = $2
        LIMIT 1`,
       [session.id, input.throughSequence],
     ) as { timestamp?: number | string } | undefined;
@@ -866,10 +854,10 @@ export async function commitPiSessionCompactionSummaryOnConnection(
     const telemetryJson = mergeTelemetry(attempt.telemetry_json, metrics, null);
     const sessionUpdate = await connection.run(
       `UPDATE pi_sessions
-       SET summary_text = ?, summary_updated_at = ?, summary_through_timestamp = ?,
-           summary_through_sequence = ?, summary_revision = ?, updated_at = ?
-       WHERE id = ? AND summary_revision = ?
-         AND COALESCE(summary_through_sequence, -1) = COALESCE(?, -1)`,
+       SET summary_text = $1, summary_updated_at = $2, summary_through_timestamp = $3,
+           summary_through_sequence = $4, summary_revision = $5, updated_at = $6
+       WHERE id = $7 AND summary_revision = $8
+         AND COALESCE(summary_through_sequence, -1) = COALESCE($9, -1)`,
       [
         summaryText,
         summaryUpdatedAt,
@@ -885,14 +873,14 @@ export async function commitPiSessionCompactionSummaryOnConnection(
     if (changes(sessionUpdate) !== 1) throw new PiCompactionPersistenceConflictError();
     const attemptUpdate = await connection.run(
       `UPDATE pi_session_compaction_attempts
-       SET state = 'succeeded', reason_code = NULL, committed_summary_revision = ?,
-           committed_through_sequence = ?, completed_at = ?, updated_at = ?,
-           after_estimated_tokens = ?, after_estimated_bytes = ?,
-           protected_unit_count = COALESCE(?, protected_unit_count),
-           summarized_unit_count = ?, omitted_unit_count = ?,
-           duration_ms = ?, progress_event_count = COALESCE(?, progress_event_count),
-           telemetry_json = ?
-       WHERE id = ? AND pi_session_db_id = ? AND state = 'running'`,
+       SET state = 'succeeded', reason_code = NULL, committed_summary_revision = $1,
+           committed_through_sequence = $2, completed_at = $3, updated_at = $4,
+           after_estimated_tokens = $5, after_estimated_bytes = $6,
+           protected_unit_count = COALESCE($7, protected_unit_count),
+           summarized_unit_count = $8, omitted_unit_count = $9,
+           duration_ms = $10, progress_event_count = COALESCE($11, progress_event_count),
+           telemetry_json = $12
+       WHERE id = $13 AND pi_session_db_id = $14 AND state = 'running'`,
       [
         nextRevision,
         input.throughSequence,
@@ -911,7 +899,7 @@ export async function commitPiSessionCompactionSummaryOnConnection(
       ],
     );
     if (changes(attemptUpdate) !== 1) throw new PiCompactionPersistenceConflictError();
-    const updatedAttempt = await getAttemptForSession(connection, attempt.id, session.id, false, provider);
+    const updatedAttempt = await getAttemptForSession(connection, attempt.id, session.id, false);
     if (!updatedAttempt) throw new PiCompactionPersistenceConflictError();
     return {
       status: 'committed',
@@ -929,7 +917,7 @@ export async function commitPiSessionCompactionSummaryOnConnection(
 
 async function withCompactionConnection<T>(
   scope: PiCompactionScope,
-  operation: (connection: SqlConnection, provider: DatabaseProvider) => Promise<T>,
+  operation: (connection: SqlConnection) => Promise<T>,
 ): Promise<T> {
   const validatedScope = validateScope(scope);
   return withKeyedOperationLock(
@@ -938,7 +926,7 @@ async function withCompactionConnection<T>(
     async () => {
       const connection = await openDb();
       try {
-        return await operation(connection, getDatabaseProvider());
+        return await operation(connection);
       } finally {
         await connection.close();
       }
@@ -949,47 +937,47 @@ async function withCompactionConnection<T>(
 export function startPiSessionCompactionAttempt(
   input: StartPiCompactionAttemptInput,
 ): Promise<StartPiCompactionAttemptResult> {
-  return withCompactionConnection(input, (connection, provider) => (
-    startPiSessionCompactionAttemptOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    startPiSessionCompactionAttemptOnConnection(connection, input)
   ));
 }
 
 export function finishPiSessionCompactionAttempt(
   input: FinishPiCompactionAttemptInput,
 ): Promise<Readonly<{ changed: boolean; attempt: PiCompactionAttemptRecord }>> {
-  return withCompactionConnection(input, (connection, provider) => (
-    finishPiSessionCompactionAttemptOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    finishPiSessionCompactionAttemptOnConnection(connection, input)
   ));
 }
 
 export function countPiSessionCompactionRetryFailures(
   input: PiCompactionScope,
 ): Promise<number> {
-  return withCompactionConnection(input, (connection, provider) => (
-    countPiSessionCompactionRetryFailuresOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    countPiSessionCompactionRetryFailuresOnConnection(connection, input)
   ));
 }
 
 export function countPiSessionCompactionIneffectiveAttempts(
   input: PiCompactionScope,
 ): Promise<number> {
-  return withCompactionConnection(input, (connection, provider) => (
-    countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    countPiSessionCompactionIneffectiveAttemptsOnConnection(connection, input)
   ));
 }
 
 export function recordPiSessionCompactionProgress(
   input: RecordPiCompactionProgressInput,
 ): Promise<boolean> {
-  return withCompactionConnection(input, (connection, provider) => (
-    recordPiSessionCompactionProgressOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    recordPiSessionCompactionProgressOnConnection(connection, input)
   ));
 }
 
 export function commitPiSessionCompactionSummary(
   input: CommitPiCompactionSummaryInput,
 ): Promise<CommitPiCompactionSummaryResult> {
-  return withCompactionConnection(input, (connection, provider) => (
-    commitPiSessionCompactionSummaryOnConnection(connection, provider, input)
+  return withCompactionConnection(input, (connection) => (
+    commitPiSessionCompactionSummaryOnConnection(connection, input)
   ));
 }

@@ -9,7 +9,7 @@ import type { AiProviderInstallation } from '../app/lib/agent-runtime-policy/typ
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-agent-provider-coverage-'));
 process.env.DATA = dataDir;
-process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 process.env.CANVAS_DEPLOYMENT_MODE = 'single_user';
 
 const moduleInternals = Module as typeof Module & {

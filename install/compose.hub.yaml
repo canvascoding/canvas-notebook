@@ -24,7 +24,7 @@ services:
     environment:
       POSTGRES_DB: ${CANVAS_POSTGRES_DB:-canvas_notebook}
       POSTGRES_USER: ${CANVAS_POSTGRES_USER:-canvas}
-      POSTGRES_PASSWORD: ${CANVAS_POSTGRES_PASSWORD:-unused-sqlite-profile-disabled}
+      POSTGRES_PASSWORD: ${CANVAS_POSTGRES_PASSWORD:-postgres-password-required}
     volumes:
       - canvas-postgres-data:/var/lib/postgresql
     healthcheck:

@@ -41,6 +41,11 @@ prosemirror.EditorView = class extends NativeEditorView {
 const { render, fireEvent } = require('@testing-library/react') as typeof import('@testing-library/react');
 const { DocxEditor } = require('@eigenpal/docx-js-editor/react') as typeof import('@eigenpal/docx-js-editor/react');
 const { createEmptyDocument } = require('@eigenpal/docx-js-editor/core') as typeof import('@eigenpal/docx-js-editor/core');
+type CanvasDocxEditorProps = React.ComponentProps<typeof DocxEditor> & {
+  canvasWorkspaceBound?: boolean;
+  onSaveRequest?: () => void | Promise<void>;
+};
+const CanvasDocxEditor = DocxEditor as React.ComponentType<CanvasDocxEditorProps>;
 
 async function settle() { await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); }); }
 
@@ -54,7 +59,7 @@ async function main() {
   const editor = createRef<DocxEditorRef>();
   let saves = 0;
   const onChange = (value: OfficeDocument) => snapshots.push(structuredClone(value));
-  const renderEditor = (readOnly: boolean) => <DocxEditor ref={editor} document={initial} canvasWorkspaceBound onSaveRequest={() => { saves++; }} onChange={onChange} readOnly={readOnly} mode={readOnly ? 'viewing' : 'editing'} />;
+  const renderEditor = (readOnly: boolean) => <CanvasDocxEditor ref={editor} document={initial} canvasWorkspaceBound onSaveRequest={() => { saves++; }} onChange={onChange} readOnly={readOnly} mode={readOnly ? 'viewing' : 'editing'} />;
   const mounted = render(renderEditor(false));
   await settle();
   assert.equal(snapshots.length, 0, 'initial document and comment hydration are not edits');

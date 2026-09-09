@@ -2,9 +2,9 @@ export const FULL_BACKUP_SCHEMA_VERSION = 1;
 
 export type FullBackupStatus = 'queued' | 'running' | 'completed' | 'failed';
 
-export type FullBackupProvider = 'sqlite' | 'postgres' | 'unknown';
+export type FullBackupProvider = 'postgres';
 
-export type FullBackupKind = 'sqlite_snapshot' | 'postgres_dump' | 'none';
+export type FullBackupKind = 'postgres_dump' | 'none';
 
 export interface FullBackupFileEntry {
   kind: 'database' | 'data';

@@ -6,7 +6,7 @@ import path from 'node:path';
 
 const dataDir = mkdtempSync(path.join(os.tmpdir(), 'canvas-pi-runtime-prewarm-'));
 process.env.DATA = dataDir;
-process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 process.env.CANVAS_DEPLOYMENT_MODE = 'single_user';
 
 function deferred() {

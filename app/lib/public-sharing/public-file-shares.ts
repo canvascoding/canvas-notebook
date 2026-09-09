@@ -25,7 +25,7 @@ import {
   createLegacyPersonalWorkspaceContext,
 } from '@/app/lib/workspaces/context';
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
-import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/service';
+import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 
 export type PublicShareStatus = 'active' | 'revoked' | 'missing' | 'stale' | 'expired';

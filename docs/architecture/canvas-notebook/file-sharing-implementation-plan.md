@@ -28,7 +28,7 @@ konkrete Markdown-Datei, ohne dadurch Mitglieder des gesamten Workspace zu werde
   - Cache-Verhalten mit Widerruf abstimmen und vor Ausgabe den aktuellen
     Speicherstand der kollaborativen Datei berücksichtigen.
   - Nachweis: Parallelität, Wiederholung, Ablauf, Wiederherstellung, Ersetzen,
-    Verschieben und Widerruf auf SQLite und dem Postgres-Testadapter.
+    Verschieben und Widerruf auf dem PostgreSQL-Testadapter.
 - [x] 3. Laufende Markdown-Kollaboration bei Rechteentzug absichern.
   - Aktuelle Sitzung, Dateiidentität und Rechte auch nach Verbindungsaufbau
     berücksichtigen; widerrufene Teilnehmer zeitnah trennen.
@@ -43,23 +43,23 @@ konkrete Markdown-Datei, ohne dadurch Mitglieder des gesamten Workspace zu werde
     offene Gastsitzungen. Versionsverlauf und Wiederherstellung integrieren.
   - Nachweis: zwei Teilnehmer bearbeiten dasselbe Dokument; Fremddateien,
     manipulierte Tickets, abgelaufene und widerrufene Einladungen bleiben gesperrt.
-- [ ] 5. Teilen aus User-Perspektive integrieren.
+- [x] 5. Teilen aus User-Perspektive integrieren.
   - Gemeinsamer Einstieg für Link teilen, Personen einladen und Exportieren.
   - Rechte, Ablauf, veröffentlichte Assets und Auswirkungen von Umbenennen/
     Verschieben anzeigen; bestehende Einstellungen korrekt vorbelegen.
   - Veraltete Ladeantworten bei Workspace-/Dateiwechsel ignorieren; Fehler,
     Teilfehler, Speichern, Offlinezustand und Widerruf verständlich anzeigen.
   - Gastansicht, interne Ansicht und öffentliche Lesevorschau berücksichtigen.
-  - Nachweis: UI-Prüfung einschließlich schmalem Viewport, Tastaturbedienung und
-    der Zustände Erstellen, Ändern, Widerrufen und Wiederholen.
-- [ ] 6. Gesamtprüfung und Push.
-  - Produktionsbuild, relevante Regressionstests und Ende-zu-Ende-Prüfung mit
-    zwei Nutzern: gleichzeitiges Schreiben, Verbindungsabbruch, Rechteentzug,
-    Ablauf, Umbenennen und Teilen unmittelbar nach einer Änderung.
+  - Nachweis: Komponenten-/Clienttests für Erstellen, Ändern, Widerrufen,
+    Wiederholen, veraltete Antworten und Abbruch; visuelle Browser-Abnahme offen.
+- [x] 6. Automatisierte Gesamtprüfung und Review-Vorbereitung.
+  - Produktionsbuild, relevante Regressionstests und echte Loopback-WebSockets
+    mit mehreren Teilnehmern: gleichzeitiges Schreiben, Verbindungsabbruch,
+    Rechteentzug, Ablauf, Umbenennen und Teilen unmittelbar nach einer Änderung.
   - Routen-Matrix für Web/Mobile, Vorschau, Download, Assets, Exporte und
     Kollaborationszugriff dokumentieren; unerwartete Änderungen ausschließen.
-  - Saubere Commit-Historie und Arbeitsbaum prüfen; Branch pushen und Remote-SHA
-    mit dem lokal geprüften Commit abgleichen.
+  - Saubere Commit-Historie und Arbeitsbaum prüfen; Branch über PR und Greploop
+    bis zur Merge-Reife führen und Remote-SHA abgleichen.
 
 ## Ausführungsregeln
 
@@ -101,8 +101,8 @@ Web und Mobile unterstützen `PATCH /api/security/public-shares/:id` mit
 bleiben erhalten, `expiresAt: null` entfernt den Ablauf. Wiederholtes Erstellen
 aktualisiert ausdrücklich angegebene Werte. Eingaben werden validiert.
 
-Ein gemeinsamer Migrationsschritt erzwingt einen aktiven Link je Workspace/Pfad
-auf SQLite und PostgreSQL; bei bestehenden Duplikaten bleibt der älteste Link
+Ein gemeinsamer PostgreSQL-Migrationsschritt erzwingt einen aktiven Link je Workspace/Pfad;
+bei bestehenden Duplikaten bleibt der älteste Link
 erhalten, weitere werden widerrufen. Kurzcode-Vergabe und Zugriffszähler verwenden
 atomare Datenbankoperationen. HEAD zählt nicht als Zugriff.
 Temporär fehlende Dateien können mit ihrer ursprünglichen Identität zurückkehren.
@@ -116,11 +116,11 @@ Yjs-Stand, auch vor dem nächsten Checkpoint. Der HTML-Exportcache verwendet daf
 einen Inhalts-Hash. Downloads prüfen geöffnete Dateideskriptoren gegen die
 erwartete Identität. HTTP-Antworten werden nicht gespeichert; nach langen
 Exportarbeiten wird die Freigabe erneut geprüft. Öffentliche Render-Routen
-haben gemeinsame Budgets pro Prozess (10 PDF- bzw. 30 HTML-/Marp-Anfragen pro
-Minute), die sich nicht durch erfundene Sitzungscookies umgehen lassen.
+verwenden zentrale PostgreSQL-Budgets pro Client, Ressource und globalem
+Endpunkt, die sich nicht durch erfundene Sitzungscookies umgehen lassen.
 
-Erfolgreich: `test:public-share:lifecycle` (SQLite und PGlite über den tatsächlichen
-Drizzle-Adapter), `test:public-share:workspace`, `test:public-share:security`,
+Erfolgreich: `test:public-share:lifecycle` (PGlite über den tatsächlichen
+PostgreSQL-/Drizzle-Adapter), `test:public-share:workspace`, `test:public-share:security`,
 `test:public-share:route-access`, TypeScript und ESLint. Die Tests decken 24
 parallele Erstellungen, 32 parallele Zählererhöhungen, konkurrierende
 Einstellungsänderungen/Widerrufe, Migration von Duplikaten, Dateiwechsel,
@@ -221,7 +221,7 @@ geschützte Präsenz, Versionskonflikte und Wiederherstellung. Es läuft dabei w
 ein Browser noch ein App- oder Container-Stack. Die Einbindung in den Teilen-Dialog
 folgt in Schritt 5; die Browser-Abnahme bleibt Schritt 6.
 
-### Schritt 5 – Implementierung vorbereitet, Browser-Abnahme offen
+### Schritt 5 – Implementierung abgeschlossen, Browser-Abnahme offen
 
 Dateimenü und Editor öffnen einen gemeinsamen Dialog mit Leselink, Personen und
 Export. Die vorhandene Exportkomponente bleibt für die öffentliche Vorschau

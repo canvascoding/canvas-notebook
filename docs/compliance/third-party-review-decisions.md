@@ -866,3 +866,9 @@ Technische Entscheidung:
   Bestandteile existiert.
 - Erst ein benannter verantwortlicher oder rechtlicher Reviewer darf die
   konkrete Plattformmatrix nach Artefaktpruefung freigeben.
+
+## Technischer Paketabgleich vom 8. September 2026: mailsplit 5.4.16
+
+Reviewer: Codex, technischer Abgleich im autorisierten Security-Update. Komponente: `@zone-eu/mailsplit@5.4.16`, transitive Runtime-Abhaengigkeit von `mailparser@3.9.23`. Die angebotene Lizenz ist `(MIT OR EUPL-1.1+)`; die bereits fuer 5.4.14 verwendete MIT-Alternative wird beibehalten. Diese technische Feststellung ersetzt keine verantwortliche rechtliche Gesamtfreigabe und aendert deren Metadaten nicht.
+
+Der npm-`gitHead` und der separat abgefragte Tag `v5.4.16` zeigen beide auf `df5b42b046bbab53b9b238c39208658b8732bf75`. [Der unveraenderliche Upstream-Lizenztext](https://github.com/zone-eu/mailsplit/blob/df5b42b046bbab53b9b238c39208658b8732bf75/LICENSE.MIT) liegt auch vollstaendig im installierten Paket vor. Sein Byte-Hash stimmt mit 5.4.14 ueberein: `412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46` (SHA-256). Der Copyright-Hinweis bleibt `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`. Eine separate NOTICE-Datei liegt nicht vor. Das Paket wird nicht veraendert; Text und Attribution werden ueber den vorhandenen deterministischen Notice-/Inventar-Prozess in denselben Runtime-Artefakten erhalten. Die versionsgenaue Policy-Zuordnung setzt `verifiedLicense: MIT`, ohne eine pauschale Freigabe aller Mehrfachlizenzen einzufuehren.

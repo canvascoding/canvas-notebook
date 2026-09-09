@@ -39,7 +39,7 @@ export async function listOrganizationPolicyTargets(
          p.role
        FROM organization_user_permissions p
        JOIN "user" u ON u.id = p.user_id
-       WHERE p.organization_id = ?
+       WHERE p.organization_id = $1
          AND p.status = 'active'
          AND COALESCE(u.banned, 0) = 0
        ORDER BY lower(u.name) ASC, lower(u.email) ASC, p.user_id ASC`,
@@ -53,7 +53,7 @@ export async function listOrganizationPolicyTargets(
     const workspaces = await database.all(
       `SELECT id, display_name, type
        FROM canvas_workspaces
-       WHERE organization_id = ? AND status = 'active'
+       WHERE organization_id = $1 AND status = 'active'
        ORDER BY lower(display_name) ASC, id ASC`,
       [organizationId],
     ) as Array<{
@@ -64,7 +64,7 @@ export async function listOrganizationPolicyTargets(
     const projects = await database.all(
       `SELECT id, name
        FROM canvas_projects
-       WHERE organization_id = ? AND status = 'active'
+       WHERE organization_id = $1 AND status = 'active'
        ORDER BY lower(name) ASC, id ASC`,
       [organizationId],
     ) as Array<{
