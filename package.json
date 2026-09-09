@@ -222,6 +222,8 @@
     "test:collaboration:rename": "tsx scripts/collaboration-document-awareness-test.ts && tsx scripts/collaboration-client-rename-test.tsx",
     "test:collaboration:location-client": "tsx scripts/collaboration-location-client-test.tsx",
     "test:collaboration:location-adoption": "tsx scripts/collaboration-location-adoption-test.ts",
+    "test:notebook:open-identity": "tsx scripts/notebook-document-open-identity-test.ts",
+    "test:notebook:location-lifecycle": "tsx scripts/notebook-location-watcher-test.ts && tsx scripts/notebook-location-lifecycle-test.tsx",
     "test:collaboration:location": "tsx --conditions react-server scripts/collaboration-document-location-route-test.ts",
     "test:collaboration:location-integration": "tsx --conditions react-server scripts/collaboration-document-location-integration-test.ts",
     "test:collaboration:rich-document": "tsx --conditions react-server scripts/collaboration-rich-document-test.ts",

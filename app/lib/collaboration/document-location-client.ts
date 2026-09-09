@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useFileStore, type CurrentCollaborationLocationScope } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
-import { workspaceHeaders } from '@/app/lib/files/client';
-import { normalizeWorkspacePathParam } from '@/app/lib/files/path-utils';
-import type { CollaborationDocumentLocation } from './document-location';
+import { requestCollaborationDocumentLocation } from './document-location-request';
 import type { TextCollaborationConnectionState, TextCollaborationRepresentation } from './types';
 
 export type CollaborationLocationIssue = 'unavailable' | 'generationChanged' | 'lookupFailed';
@@ -79,23 +77,9 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       requestTimeout = setTimeout(() => controller.abort(), 10_000);
       const canApply = () => isCurrent() && revision === requestRevision;
       try {
-        const query = new URLSearchParams({ workspaceId, documentId });
-        const response = await fetch(`/api/files/collaboration/location?${query}`, {
-          credentials: 'include', cache: 'no-store', headers: workspaceHeaders(workspaceId), signal: controller.signal,
-        });
+        const location = await requestCollaborationDocumentLocation(workspaceId, documentId, controller.signal);
         if (!canApply()) return;
-        if (controller.signal.aborted) throw new Error('Location lookup timed out.');
-        if (response.status === 404) { retryDelay = 0; report('unavailable'); return; }
-        if (!response.ok) throw new Error('Location lookup failed.');
-        const location: Partial<CollaborationDocumentLocation> & { success?: boolean } = await response.json();
-        if (!canApply()) return;
-        if (controller.signal.aborted) throw new Error('Location lookup timed out.');
-        if (location.success !== true || location.workspaceId !== workspaceId || location.documentId !== documentId
-          || typeof location.path !== 'string' || normalizeWorkspacePathParam(location.path) !== location.path
-          || !Number.isSafeInteger(location.lifecycleGeneration) || (location.lifecycleGeneration ?? 0) < 1
-          || !['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(location.representation ?? '')) {
-          throw new Error('Invalid document location.');
-        }
+        if (!location) { retryDelay = 0; report('unavailable'); return; }
         retryDelay = 0;
         if ((lifecycleGeneration !== undefined && location.lifecycleGeneration !== lifecycleGeneration)
           || (representation !== undefined && location.representation !== representation)) {

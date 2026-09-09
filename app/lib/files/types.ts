@@ -100,6 +100,8 @@ export interface OpenWorkspaceFileOptions {
   workspaceId?: string | null;
   revealInTree?: boolean;
   transitionId?: string;
+  expectedDocumentId?: string;
+  isCurrent?: () => boolean;
 }
 
 export interface WorkspaceFileOpenCompletion {

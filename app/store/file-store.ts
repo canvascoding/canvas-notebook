@@ -348,7 +348,7 @@ interface FileStoreState {
   refreshDirectory: (dirPath: string, noCache?: boolean, workspaceId?: string | null) => Promise<void>;
   refreshVisibleTree: () => Promise<void>;
   loadSubdirectory: (dirPath: string, noCache?: boolean, expand?: boolean, workspaceId?: string | null) => Promise<void>;
-  loadFile: (path: string, noCache?: boolean, workspaceId?: string | null) => Promise<FileLoadResult>;
+  loadFile: (path: string, noCache?: boolean, workspaceId?: string | null, expectedDocumentId?: string, canApply?: () => boolean) => Promise<FileLoadResult>;
   refreshCurrentFileContent: (path: string, options?: { allowDirty?: boolean }) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string, options?: OpenWorkspaceFileOptions) => Promise<OpenWorkspaceFileResult>;
   closeFile: (path: string, options?: {
@@ -887,11 +887,18 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  loadFile: async (path: string, noCache = false, requestedWorkspaceId?: string | null) => {
+  loadFile: async (path: string, noCache = false, requestedWorkspaceId?: string | null, expectedDocumentId?: string, canApply?: () => boolean) => {
     const workspaceId = requestedWorkspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
     const requestId = get().fileLoadRequestId + 1;
+    if (canApply && !canApply()) return { status: 'superseded', path };
+    const canCommit = () => {
+      if (get().fileLoadRequestId !== requestId || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return false;
+      if (!canApply || canApply()) return true;
+      set({ isLoadingFile: false, loadingFilePath: null });
+      return false;
+    };
     set({
       fileLoadRequestId: requestId,
       isLoadingFile: true,
@@ -907,15 +914,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const useMetaOnly = !isText;
 
       const data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId });
-      if (
-        get().fileLoadRequestId !== requestId ||
-        useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
-      ) {
+      if (!canCommit()) {
         return { status: 'superseded', path };
       }
 
       const latestEditor = useEditorStore.getState();
-      if (latestEditor.isDirty && latestEditor.activePath && latestEditor.activePath !== path) {
+      if (expectedDocumentId && data.collaboration?.document?.id !== expectedDocumentId) {
+        throw new Error('The document at this path changed. Please reopen the original document.');
+      }
+      if (latestEditor.isDirty && latestEditor.activePath && (latestEditor.activePath !== path
+        || (expectedDocumentId && get().currentFile?.collaboration?.document?.id !== expectedDocumentId))) {
         throw new Error('The current file changed while loading. Please save it and retry.');
       }
       const fileName = path.split('/').pop() || path;
@@ -939,10 +947,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }));
       return { status: 'loaded', path, file: loadedFile };
     } catch (error) {
-      if (
-        get().fileLoadRequestId !== requestId ||
-        useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
-      ) {
+      if (!canCommit()) {
         return { status: 'superseded', path };
       }
 
@@ -974,10 +979,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         error instanceof Response
           ? await readApiError(error, 'Failed to load file')
           : error instanceof Error ? error.message : 'Failed to load file';
-      if (
-        get().fileLoadRequestId !== requestId ||
-        useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
-      ) {
+      if (!canCommit()) {
         return { status: 'superseded', path };
       }
       set({
@@ -1078,6 +1080,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (!normalizedPath) {
       return { status: 'failed', path, error: 'Invalid workspace file path' };
     }
+    if (options.isCurrent && !options.isCurrent()) return { status: 'superseded', path: normalizedPath };
 
     const workspaceId = options.workspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
@@ -1105,14 +1108,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
     const isLatestOpen = () => (
       get().openFileRequestId === openRequestId &&
-      useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+      useWorkspaceStore.getState().activeWorkspaceId === workspaceId &&
+      (!options.isCurrent || options.isCurrent())
     );
 
     if (!isLatestOpen()) {
       return { status: 'superseded', path: normalizedPath };
     }
 
-    if (get().currentFile?.path !== normalizedPath) {
+    if (get().currentFile?.path !== normalizedPath || (options.expectedDocumentId
+      && get().currentFile?.collaboration?.document?.id !== options.expectedDocumentId)) {
       try {
         await get().prepareCurrentFileForTransition();
       } catch (error) {
@@ -1159,11 +1164,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
     const alreadyOpen = (
       get().currentFile?.path === normalizedPath &&
-      get().currentFileWorkspaceId === workspaceId
+      get().currentFileWorkspaceId === workspaceId &&
+      (!options.expectedDocumentId || get().currentFile?.collaboration?.document?.id === options.expectedDocumentId)
     );
     const loadPromise: Promise<FileLoadResult> = alreadyOpen
       ? Promise.resolve({ status: 'loaded', path: normalizedPath, file: get().currentFile as CurrentFile })
-      : get().loadFile(normalizedPath, true, workspaceId);
+      : get().loadFile(normalizedPath, true, workspaceId, options.expectedDocumentId, isLatestOpen);
 
     const [loadResult] = await Promise.all([loadPromise, revealPromise]);
     if (!isLatestOpen() || loadResult.status === 'superseded') {
