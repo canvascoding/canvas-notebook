@@ -335,6 +335,39 @@ async function main() {
       await act(async () => { assert(editor.commands.redo()); });
       assert(editor.state.doc.firstChild!.eq(source));
     }
+    for (const targetType of ['paragraph', 'blockquote']) {
+      await render({ value: `AAA\n\nBBB\n\n${targetType === 'blockquote' ? '> ' : ''}CCC\n\nDDD\n`,
+        documentKey: `deleted-drag-target-${targetType}`, layout: 'document', mode: 'rich' });
+      const editor = rich();
+      await act(async () => { editor.commands.setTextSelection(findPosition(editor, 'paragraph', 'BBB') + 1); });
+      const handle = () => container.querySelector<HTMLButtonElement>('.tiptap-block-drag-handle')!;
+      const transfer = createTransfer();
+      let targetText = 'CCC';
+      editor.view.posAtCoords = () => ({ pos: findPosition(editor, 'paragraph', targetText) + 1, inside: -1 });
+      await act(async () => {
+        drag(handle(), 'dragstart', transfer);
+        drag(editor.view.dom, 'dragover', transfer);
+      });
+      assert(container.querySelector('.tiptap-block-drop-indicator'));
+      await act(async () => {
+        const from = findPosition(editor, targetType, 'CCC');
+        targetText = 'DDD'; // The same pointer now hits the following block.
+        editor.view.dispatch(editor.state.tr.delete(from, from + editor.state.doc.nodeAt(from)!.nodeSize));
+      });
+      const deleted = editor.getJSON();
+      assert.equal(Boolean(container.querySelector('.tiptap-block-drag-overlay-source')), false,
+        `${targetType}: deleting the previewed target cancels the gesture instead of picking a replacement`);
+      await act(async () => { drag(editor.view.dom, 'drop', transfer); });
+      assert.deepEqual(editor.getJSON(), deleted, 'a late drop cannot execute the revoked intent');
+      const freshTransfer = createTransfer();
+      await act(async () => {
+        drag(handle(), 'dragstart', freshTransfer);
+        drag(editor.view.dom, 'dragover', freshTransfer);
+        drag(editor.view.dom, 'drop', freshTransfer);
+      });
+      assert.deepEqual(editor.getJSON(), { ...deleted, content: [deleted.content![0], deleted.content![2], deleted.content![1]] },
+        'an explicit new gesture can use the remaining target');
+    }
     const layoutObservers: Array<{ elements: Set<Element>; disconnected: boolean }> = [];
     Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: class {
       record = { elements: new Set<Element>(), disconnected: false };

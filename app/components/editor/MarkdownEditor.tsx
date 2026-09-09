@@ -1764,6 +1764,7 @@ function MarkdownBlockControls({
   const [dropTargetOverlay, setDropTargetOverlay] = useState<BlockOverlayRect | null>(null);
   const [propertiesInteractionActive, setPropertiesInteractionActive] = useState(false);
   const dragStateRef = useRef<ReorderableBlockRange | null>(null);
+  const dragTargetRef = useRef<ReorderableBlockRange | null>(null);
   const dragGestureRef = useRef<string | null>(null);
   const dragPointerRef = useRef<Pick<DragEvent, 'clientX' | 'clientY'> | null>(null);
   const autoscrollRef = useRef<BlockDragAutoscroll | null>(null);
@@ -1771,6 +1772,7 @@ function MarkdownBlockControls({
   const clearDragState = useCallback(() => {
     autoscrollRef.current?.stop();
     dragStateRef.current = null;
+    dragTargetRef.current = null;
     dragGestureRef.current = null;
     dragPointerRef.current = null;
     setDragSourceOverlay(null);
@@ -1800,16 +1802,25 @@ function MarkdownBlockControls({
       return null;
     }
 
+    // Layout and peer transactions may put another block under a stationary
+    // pointer. A deleted preview target revokes the gesture before hit-testing
+    // can silently substitute that block as the user's destination.
+    if (dragTargetRef.current && !resolveReorderableBlockRange(editor, dragTargetRef.current)) {
+      clearDragState();
+      toast.info(labels.blockMoveCancelled);
+      return null;
+    }
     updateDragSourceOverlay();
     if (!dragStateRef.current) return null;
     const dropTarget = getBlockDropTarget(editor, event, source);
+    dragTargetRef.current = dropTarget?.target ?? null;
     dragPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const nextTop = dropTarget ? getBlockDropIndicatorTop(editor, container, dropTarget) : null;
     const nextTargetOverlay = dropTarget ? getBlockOverlayRect(editor, container, dropTarget.target) : null;
     setDropIndicatorTop(nextTop);
     setDropTargetOverlay(nextTargetOverlay);
     return dropTarget;
-  }, [editor, scrollContainerRef, updateDragSourceOverlay]);
+  }, [clearDragState, editor, labels.blockMoveCancelled, scrollContainerRef, updateDragSourceOverlay]);
 
   const updatePosition = useCallback(() => {
     const container = scrollContainerRef.current;
