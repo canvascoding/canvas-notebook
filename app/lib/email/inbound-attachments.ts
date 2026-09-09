@@ -143,3 +143,15 @@ export function microsoftMessageAttachments(value: unknown): EmailMessageAttachm
 export function readableFromBuffer(content: Buffer): Readable {
   return Readable.from(content);
 }
+
+export async function readInboundEmailAttachmentStream(content: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of content) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    assertInboundEmailAttachmentSize(size);
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, size);
+}

@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import { Readable } from 'node:stream';
 
 import {
   assertInboundEmailAttachmentSize,
   decodeGmailAttachmentData,
   gmailMessageAttachmentParts,
   microsoftMessageAttachments,
+  readInboundEmailAttachmentStream,
   sanitizeInboundEmailAttachmentFilename,
 } from '../app/lib/email/inbound-attachments';
 
@@ -92,5 +94,12 @@ assert.deepEqual(microsoftMessageAttachments([
 
 assert.doesNotThrow(() => assertInboundEmailAttachmentSize(25 * 1024 * 1024));
 assert.throws(() => assertInboundEmailAttachmentSize(25 * 1024 * 1024 + 1), /25 MB/u);
-
-console.log('email-inbound-attachments-test: ok');
+readInboundEmailAttachmentStream(Readable.from(['streamed']))
+  .then((content) => {
+    assert.equal(content.toString('utf8'), 'streamed');
+    console.log('email-inbound-attachments-test: ok');
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

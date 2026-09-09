@@ -24,6 +24,14 @@ import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/e
 import { EmailMessageNotFoundError, EmailProviderRequestError, isEmailProviderNotFoundError } from '@/app/lib/email/errors';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 import {
+  assertInboundEmailAttachmentSize,
+  decodeGmailAttachmentData,
+  gmailMessageAttachmentParts,
+  microsoftMessageAttachments,
+  readableFromBuffer,
+  type DownloadedEmailAttachment,
+} from '@/app/lib/email/inbound-attachments';
+import {
   draftEmailComposeWithAiStream,
   draftEmailReplyWithAiStream,
   draftEmailComposeWithAi,
@@ -56,6 +64,7 @@ import {
 import {
   archiveImapEmailMessage,
   deleteImapEmailMessagePermanently,
+  downloadImapEmailAttachment,
   listImapEmailFolders,
   listImapEmailMessages,
   moveImapEmailMessage,
@@ -682,6 +691,27 @@ async function microsoftFetch(pathSuffix: string, token: string, init?: RequestI
   return body as Record<string, unknown>;
 }
 
+async function microsoftFetchBuffer(pathSuffix: string, token: string): Promise<{ content: Buffer; contentType: string }> {
+  const response = await fetch(`https://graph.microsoft.com/v1.0/me/${pathSuffix}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: { message?: string } };
+    throw new EmailProviderRequestError(
+      typeof body.error?.message === 'string' ? body.error.message : `Microsoft Graph request failed with ${response.status}`,
+      response.status,
+    );
+  }
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength)) assertInboundEmailAttachmentSize(contentLength);
+  const content = Buffer.from(await response.arrayBuffer());
+  assertInboundEmailAttachmentSize(content.length);
+  return {
+    content,
+    contentType: response.headers.get('content-type') || 'application/octet-stream',
+  };
+}
+
 async function gmailModifyMessage(
   account: StoredEmailAccount,
   token: string,
@@ -1006,7 +1036,7 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
     const params = new URLSearchParams({
       '$top': String(limit),
       '$skip': String(offset),
-      '$select': 'id,conversationId,from,subject,receivedDateTime,bodyPreview,isRead',
+      '$select': 'id,conversationId,from,subject,receivedDateTime,bodyPreview,isRead,hasAttachments',
       '$orderby': 'receivedDateTime desc',
     });
     if (query.trim()) {
@@ -1033,7 +1063,7 @@ export async function listLocalEmailMessages(userId: string, input: EmailMessage
         isRead: message.isRead !== false,
         isAnswered: false,
         isFlagged: false,
-        hasAttachments: false,
+        hasAttachments: message.hasAttachments === true,
         snippet: String(message.bodyPreview || ''),
       };
     });
@@ -1095,6 +1125,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       ? htmlToPlainText(fallbackBodyHtml)
       : providerBodyText || (bodyHtml ? htmlToPlainText(bodyHtml) : gmailBodyText(payload));
     const labelIds = Array.isArray(raw.labelIds) ? raw.labelIds.map(String) : [];
+    const attachments = gmailMessageAttachmentParts(payload).map((part) => part.attachment);
     message = {
       id: String(raw.id || ''),
       threadId: String(raw.threadId || ''),
@@ -1108,6 +1139,8 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       references: splitHeaderReferences(gmailHeader(headers, 'References')),
       body: bodyText,
       bodyHtml,
+      attachments,
+      hasAttachments: attachments.length > 0,
       isRead: !labelIds.includes('UNREAD'),
       snippet: String(raw.snippet || ''),
     };
@@ -1125,6 +1158,11 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     const bodyContent = String(body?.content || '');
     const isHtml = String(body?.contentType || '').toLowerCase() === 'html' || isLikelyHtmlEmailContent(bodyContent);
     const bodyHtml = isHtml ? normalizeEmailHtmlContent(bodyContent) : '';
+    const attachmentResult = await microsoftFetch(
+      `messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,contentType,size,isInline,contentId`,
+      token,
+    );
+    const attachments = microsoftMessageAttachments(attachmentResult.value);
     message = {
       id: String(raw.id || ''),
       threadId: String(raw.conversationId || ''),
@@ -1138,11 +1176,93 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
       references: [],
       body: isHtml ? htmlToPlainText(bodyHtml) : bodyContent,
       bodyHtml,
+      attachments,
+      hasAttachments: attachments.length > 0,
       isRead: raw.isRead !== false,
       snippet: String(raw.bodyPreview || ''),
     };
   }
   return { account: await publicLocalEmailAccount(account), message };
+}
+
+export async function downloadLocalEmailAttachment(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  attachmentId: string,
+  folder?: string,
+  options?: EmailReadPolicyOptions,
+): Promise<DownloadedEmailAttachment> {
+  const account = await findLocalEmailAccount(userId, accountId);
+  const enforceReadPolicy = options?.enforceReadPolicy !== false;
+  if (account.authType === 'smtp_imap') {
+    return downloadImapEmailAttachment(account, messageId, attachmentId, folder, { enforceReadPolicy });
+  }
+
+  const token = await validAccessToken(account);
+  if (account.provider === 'google') {
+    let raw: Record<string, unknown>;
+    try {
+      raw = await gmailFetch(`messages/${encodeURIComponent(messageId)}?format=full`, token);
+    } catch (error) {
+      if (isEmailProviderNotFoundError(error)) throw new EmailMessageNotFoundError();
+      throw error;
+    }
+    const payload = raw.payload as Record<string, unknown> | undefined;
+    const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
+    if (enforceReadPolicy) assertSenderAllowed(account, gmailHeader(headers, 'From'));
+    const part = gmailMessageAttachmentParts(payload).find((candidate) => candidate.attachment.id === attachmentId);
+    if (!part) throw new EmailMessageNotFoundError();
+    if (part.attachment.size !== null) assertInboundEmailAttachmentSize(part.attachment.size);
+
+    const providerAttachment = part.attachmentId
+      ? await gmailFetch(
+          `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(part.attachmentId)}`,
+          token,
+        )
+      : { data: part.data };
+    const data = typeof providerAttachment.data === 'string' ? providerAttachment.data : '';
+    if (!data) throw new EmailMessageNotFoundError();
+    const content = decodeGmailAttachmentData(data);
+    return {
+      attachment: { ...part.attachment, size: content.length },
+      content: readableFromBuffer(content),
+    };
+  }
+
+  let raw: Record<string, unknown>;
+  try {
+    raw = await microsoftFetch(
+      `messages/${encodeURIComponent(messageId)}?$select=id,from`,
+      token,
+    );
+  } catch (error) {
+    if (isEmailProviderNotFoundError(error)) throw new EmailMessageNotFoundError();
+    throw error;
+  }
+  const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
+  if (enforceReadPolicy) assertSenderAllowed(account, from);
+  const attachmentResult = await microsoftFetch(
+    `messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,contentType,size,isInline,contentId`,
+    token,
+  );
+  const attachment = microsoftMessageAttachments(attachmentResult.value)
+    .find((candidate) => candidate.id === attachmentId);
+  if (!attachment) throw new EmailMessageNotFoundError();
+  if (!attachment.downloadable) throw new Error('Email attachment is not downloadable.');
+  if (attachment.size !== null) assertInboundEmailAttachmentSize(attachment.size);
+  const downloaded = await microsoftFetchBuffer(
+    `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachment.id)}/$value`,
+    token,
+  );
+  return {
+    attachment: {
+      ...attachment,
+      contentType: downloaded.contentType || attachment.contentType,
+      size: downloaded.content.length,
+    },
+    content: readableFromBuffer(downloaded.content),
+  };
 }
 
 export async function setLocalEmailMessageRead(
