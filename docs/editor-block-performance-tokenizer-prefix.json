@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-09T01:12:08.162Z",
+  "commit": "b4a184c6720968c88e789b65b130a386e0986c55",
+  "workingTreeDirty": true,
+  "runtime": {
+    "node": "v26.7.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M1 Max"
+  },
+  "method": {
+    "samples": 15,
+    "warmups": 3,
+    "referenceWarmBatch": 10000,
+    "units": "milliseconds",
+    "scope": "In-process Yjs/ProseMirror CPU work; no DOM, network, database, browser frame or end-to-end drop timing.",
+    "history": "Deterministic persisted alternating moves, initialized outside timed samples; each measured move uses the production API.",
+    "validation": "One complete checkpoint validation per case; no performance pass/fail threshold."
+  },
+  "results": [
+    {
+      "name": "flat-100",
+      "blocks": 100,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 27224,
+      "bytesAfter": 32778,
+      "project": {
+        "p50Ms": 0.07387499999998681,
+        "p95Ms": 0.09212499999995316
+      },
+      "read": {
+        "p50Ms": 0.4409159999999588,
+        "p95Ms": 0.5462079999999787
+      },
+      "referenceCold": {
+        "p50Ms": 0.027832999999986896,
+        "p95Ms": 1.2182500000000118
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00004925829999999678,
+        "p95Ms": 0.000056516700000003084
+      },
+      "move": {
+        "p50Ms": 0.424541999999974,
+        "p95Ms": 0.6589170000000308
+      },
+      "validationMs": 33.57195899999999
+    },
+    {
+      "name": "flat-1000",
+      "blocks": 1000,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 283183,
+      "bytesAfter": 288775,
+      "project": {
+        "p50Ms": 0.40095799999994597,
+        "p95Ms": 1.9353750000000218
+      },
+      "read": {
+        "p50Ms": 2.7830830000000333,
+        "p95Ms": 3.736041
+      },
+      "referenceCold": {
+        "p50Ms": 0.1993329999999105,
+        "p95Ms": 0.3185000000000855
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000046749999999997274,
+        "p95Ms": 0.0001646250000000009
+      },
+      "move": {
+        "p50Ms": 2.502124999999978,
+        "p95Ms": 3.638458000000014
+      },
+      "validationMs": 91.40262499999994
+    },
+    {
+      "name": "flat-5000",
+      "blocks": 5000,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 1439184,
+      "bytesAfter": 1444776,
+      "project": {
+        "p50Ms": 2.950207999999975,
+        "p95Ms": 8.081500000000005
+      },
+      "read": {
+        "p50Ms": 15.883125000000064,
+        "p95Ms": 18.33329200000003
+      },
+      "referenceCold": {
+        "p50Ms": 1.0242499999999382,
+        "p95Ms": 1.4864159999999629
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000046049999999991084,
+        "p95Ms": 0.00005112910000000284
+      },
+      "move": {
+        "p50Ms": 16.021625000000085,
+        "p95Ms": 18.06337499999995
+      },
+      "validationMs": 1084.911791
+    },
+    {
+      "name": "flat-1000-history-1000",
+      "blocks": 1000,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 578523,
+      "bytesAfter": 584115,
+      "project": {
+        "p50Ms": 1.2586670000000595,
+        "p95Ms": 2.523957999999766
+      },
+      "read": {
+        "p50Ms": 3.3799589999998716,
+        "p95Ms": 4.042708999999832
+      },
+      "referenceCold": {
+        "p50Ms": 0.18354099999987739,
+        "p95Ms": 0.23887500000000728
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000044441700000015774,
+        "p95Ms": 0.00005470409999998083
+      },
+      "move": {
+        "p50Ms": 3.5218330000002425,
+        "p95Ms": 4.194707999999991
+      },
+      "validationMs": 83.77724999999964
+    },
+    {
+      "name": "flat-1000-history-10000",
+      "blocks": 1000,
+      "historyBefore": 10000,
+      "historyAfter": 10019,
+      "bytesBefore": 3296524,
+      "bytesAfter": 3302116,
+      "project": {
+        "p50Ms": 8.276584000000184,
+        "p95Ms": 8.919208999999682
+      },
+      "read": {
+        "p50Ms": 10.414374999999382,
+        "p95Ms": 10.714624999999614
+      },
+      "referenceCold": {
+        "p50Ms": 0.1748330000000351,
+        "p95Ms": 0.20250000000032742
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00002713340000000244,
+        "p95Ms": 0.0000345792000000074
+      },
+      "move": {
+        "p50Ms": 10.299708999999893,
+        "p95Ms": 11.08245800000077
+      },
+      "validationMs": 96.53233399999954
+    },
+    {
+      "name": "nested-depth-64",
+      "blocks": 258,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 368308,
+      "bytesAfter": 374012,
+      "project": {
+        "p50Ms": 0.40379200000006676,
+        "p95Ms": 0.5319170000002487
+      },
+      "read": {
+        "p50Ms": 0.8274169999995138,
+        "p95Ms": 2.0223750000004657
+      },
+      "referenceCold": {
+        "p50Ms": 0.05262499999935244,
+        "p95Ms": 0.07416700000067067
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000020079100000020843,
+        "p95Ms": 0.000020579100000031758
+      },
+      "move": {
+        "p50Ms": 0.824374999999236,
+        "p95Ms": 1.7337079999997513
+      },
+      "validationMs": 28.16187499999978
+    },
+    {
+      "name": "table-80-by-6",
+      "blocks": 1042,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 577666,
+      "bytesAfter": 583426,
+      "project": {
+        "p50Ms": 0.815958999999566,
+        "p95Ms": 2.1650420000005397
+      },
+      "read": {
+        "p50Ms": 2.67395900000065,
+        "p95Ms": 3.156042000000525
+      },
+      "referenceCold": {
+        "p50Ms": 0.18054099999972095,
+        "p95Ms": 0.2148750000005748
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000027775000000019645,
+        "p95Ms": 0.000037108400000033724
+      },
+      "move": {
+        "p50Ms": 2.54004199999963,
+        "p95Ms": 3.405166000000463
+      },
+      "validationMs": 43.729082999999264
+    }
+  ]
+}

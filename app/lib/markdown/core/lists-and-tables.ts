@@ -1,9 +1,21 @@
 import { portableTableCommands } from './table-commands';
 import { renderTableCellBlocks } from './table-breaks';
-import { OrderedList, BulletList, TaskList, ListItem } from '@tiptap/extension-list';
+import { OrderedList, BulletList, TaskList, ListItem, ORDERED_LIST_MARKER_PATTERN } from '@tiptap/extension-list';
 import { Table, TableKit } from '@tiptap/extension-table';
 import type { JSONContent, MarkdownParseHelpers, MarkdownToken } from '@tiptap/core';
 import { preserveAdjacentListBoundary } from './list-boundary';
+
+const ORDERED_LIST_PREFIX = new RegExp(`^\\s*(?:${ORDERED_LIST_MARKER_PATTERN})[.)]\\s+`);
+
+function boundedTableStart(source: string): number {
+  const start = Table.config.markdownTokenizer?.start;
+  if (typeof start !== 'function') return typeof start === 'string' ? source.indexOf(start) : -1;
+  // The upstream table hint inspects only the first two lines. Give it those
+  // same lines without splitting every remaining paragraph on each attempt.
+  const first = source.indexOf('\n');
+  const second = first < 0 ? -1 : source.indexOf('\n', first + 1);
+  return start(second < 0 ? source : source.slice(0, second));
+}
 
 export const CanvasBulletList = BulletList.extend({
   renderMarkdown(node, helpers, context) {
@@ -14,6 +26,16 @@ export const CanvasBulletList = BulletList.extend({
 export const CanvasTaskList = TaskList.extend({
   renderMarkdown(node, helpers, context) {
     return preserveAdjacentListBoundary(node, context, TaskList.config.renderMarkdown?.call(this, node, helpers, context) ?? '');
+  },
+  markdownTokenizer: {
+    ...TaskList.config.markdownTokenizer!,
+    tokenize(source, tokens, lexer) {
+      const start = TaskList.config.markdownTokenizer?.start;
+      // Its anchored hint recognizes every possible first task item, including
+      // leading blank lines. Ordinary paragraphs need no full line split.
+      if (typeof start === 'function' && start(source) < 0) return undefined;
+      return TaskList.config.markdownTokenizer?.tokenize(source, tokens, lexer);
+    },
   },
 });
 
@@ -34,6 +56,8 @@ export const CanvasOrderedList = OrderedList.extend({
   markdownTokenizer: {
     name: 'canvasOrderedList', level: 'block', start: () => -1,
     tokenize(source, tokens, lexer) {
+      const end = source.indexOf('\n');
+      if (!ORDERED_LIST_PREFIX.test(end < 0 ? source : source.slice(0, end))) return undefined;
       if (/^\s*\d+[.)]\s/u.test(source)) return undefined;
       return OrderedList.config.markdownTokenizer?.tokenize(source, tokens, lexer);
     },
@@ -114,6 +138,7 @@ function escapeTableCellPipes(markdown: string): string {
 }
 
 export const CanvasTable = Table.extend({
+  markdownTokenizer: { ...Table.config.markdownTokenizer!, start: boundedTableStart },
   addCommands() { return portableTableCommands(this.parent?.() ?? {}); },
   parseMarkdown(token, helpers) {
     const alignments = Array.isArray(token.align) ? token.align : [];
