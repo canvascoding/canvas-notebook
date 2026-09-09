@@ -4,7 +4,7 @@ Stand: 2026-09-09. Ausgangsbefunde auf Codebasis `f2724821`; umgesetzte Teilstä
 
 Für die Probes verwendete, zum Lockfile passende Pakete: Tiptap Core `3.31.0`, `@tiptap/y-tiptap` `3.0.7`, Yjs `13.6.31` und serverseitig `y-prosemirror` `1.3.7`.
 
-Status: Schritte 1 bis 4 sind im Code und in gezielten Kern-, Komponenten- und PostgreSQL-Tests umgesetzt. Schritt 5 umfasst inzwischen den Erhalt von Dokument, History und Auswahl über Ansichts-/Dateiwechsel sowie abgesicherte Renames und verspätete Statusrückmeldungen. Schritt 6 umfasst die reproduzierten Codecfehler, bestätigte vollständige Sicherungen, ursachenbezogene Revalidierung, selektives Undo ohne gültige Editoransicht und Fehleranzeige vor initialer Bereitschaft. Offen sind insbesondere die Abnahme der gesamten Lifecycle-Matrix, Messungen für große Dokumente, Browserabnahme und vollständiger Build. Dieser Plan erweitert `docs/editor-stability-implementation.md` und die bestehende Collaboration-Policy um Strukturänderungen unter gleichzeitiger Bearbeitung. Er ersetzt keine bereits implementierten Schutzmechanismen.
+Status: Schritte 1 bis 4 sind im Code und in gezielten Kern-, Komponenten- und PostgreSQL-Tests umgesetzt. Schritt 5 umfasst inzwischen den Erhalt von Dokument, History und Auswahl über Ansichts-/Dateiwechsel sowie abgesicherte Renames und verspätete Statusrückmeldungen. Schritt 6 umfasst die reproduzierten Codecfehler, bestätigte vollständige Sicherungen, ursachenbezogene Revalidierung, selektives Undo ohne gültige Editoransicht und Fehleranzeige vor initialer Bereitschaft. Der vollständige Build einschließlich TypeScript besteht mit isolierten, gemäß Repository gepatchten Abhängigkeiten. Offen sind insbesondere die Abnahme der gesamten Lifecycle-Matrix, Messungen für große Dokumente, Browserabnahme und die Einordnung der Yjs-Doppelimportwarnung im Produktionsbuild. Dieser Plan erweitert `docs/editor-stability-implementation.md` und die bestehende Collaboration-Policy um Strukturänderungen unter gleichzeitiger Bearbeitung. Er ersetzt keine bereits implementierten Schutzmechanismen.
 
 ## 1. Ziel und Priorität
 
@@ -291,6 +291,12 @@ Abschluss: Strukturtreue und Dateispeicherung werden getrennt bewiesen. Wiederhe
 
 Browserprüfungen mit zwei Nutzern und einem Agenten ergänzen. Reale Pointer-/Tastaturaktionen einschließlich Drag-Pause, Agentenänderung, Drop, Undo, Wechsel und Reload durchführen. Erst dieser Schritt belegt das Verhalten der vollständigen Editorintegration.
 
+Teilstand 7.1: `npm run build` besteht auf dem Quellstand `7a82161b`: Produktionskompilierung mit Next.js 16.2.12, TypeScript und Erzeugung von 333 statischen Seiten sind abgeschlossen; der abschließende CLI-Versionsschritt bestätigt 2026.9.8.1. Für diesen Worktree wurden die zuvor gemeinsam verlinkten Abhängigkeiten durch eine eigene Dateisystemkopie ersetzt und die bestehenden `patch-package`-Patches angewendet. Die vorherigen DOCX-Typfehler treten damit nicht mehr auf. Hashvergleiche der betroffenen Dateien bestätigen unveränderte gemeinsame Abhängigkeiten.
+
+Die verpflichtende Lizenzvorprüfung stoppte zunächst an einem veralteten Lockfile-Hash. `npm run licenses:refresh-cache` verwendete die vorhandenen Nachweise für sämtliche Pakete und änderte ausschließlich den Lockfile-Hash in den drei generierten Artefakten. Paketbestand, Lizenztexte und Bewertungen bleiben unverändert; die anschließende Vorprüfung besteht. Der Build verwendete ein eigenes leeres DATA-Verzeichnis ohne Laufzeit-Zugangsdaten; es wurden keine Datenbankdateien darin angelegt. Auch `test:db:build-isolation` besteht.
+
+Im erfolgreichen Build verbleiben erwartbare Hinweise auf nicht konfigurierte Auth-URLs in dieser isolierten Umgebung sowie eine Yjs-Doppelimportwarnung je Worker. Letztere ist für die Kollaboration relevant und wird nicht als unbedenklich abgehakt: Vor einer integrierten Freigabe müssen die Modulidentität und die produktiv gebauten Kollaborationspfade geprüft werden. Der Build startete keinen Server, Browser oder Container. Browserabnahme, Messungen und die vollständige Zuordnung aller Abnahmeszenarien bleiben offen.
+
 Abschluss: Die Matrix unten ist vollständig bestanden; keine ungeklärten Konsistenzfehler oder unbestätigten Speicheranzeigen. `npm run build`, passende Typ-/Lintprüfungen und betroffene Integrationssuiten sind erfolgreich. Kein Containerbau ohne ausdrückliche Beauftragung.
 
 ## 9. Abnahmematrix und Messung
@@ -323,6 +329,6 @@ Für große und tief verschachtelte Dokumente werden Transaktionsdauer, Zielaufl
 - Ein neues Blockmodell wäre eine größere Adapter-/Speichermigration mit eigener Kompatibilitätsabnahme. Dieser Aufwand wird nicht als einfacher Drag-Fix eingeplant.
 - Ein erfolgreicher Code-/ProseMirror-Test ersetzt keine Browserabnahme. Gemäß `AGENTS.md` werden Playwright/vergleichbare Browserläufe erst nach expliziter Nutzerfreigabe ausgeführt. Für einen später benötigten lokalen Stack gilt `canvas-local-team-seat-dev`; keine parallelen Testumgebungen.
 - Aktuell durchgeführt: Quellcode-/Historienanalyse, GitNexus-Kontext/Impact und gezielte isolierte Probes der produktiven Helfer. Im vorherigen Untersuchungsschritt liefen Core-, Preservation-, Lifecycle-, Checkpoint- und Recovery-Tests erfolgreich.
-- Aktuell nicht durchgeführt: neue Browser-/E2E-Abnahme, neuer Build, Containerbau, Deployment oder Änderung produktiver Dokumente.
+- Aktuell nicht durchgeführt: neue Browser-/E2E-Abnahme, Containerbau, Deployment oder Änderung produktiver Dokumente. Der vollständige Build ist in Teilstand 7.1 belegt; seine Warnungen und Grenzen sind dort festgehalten.
 
 Die Planung ist abgeschlossen. Für die Umsetzung gilt die Reihenfolge 1 bis 7; die Architekturentscheidung in Schritt 3 ist ein verpflichtendes Ergebnis und darf nicht durch die Annahme ersetzt werden, eine gleichbleibende ID mache Delete/Insert automatisch kollaborativ sicher.
