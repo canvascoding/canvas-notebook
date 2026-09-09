@@ -10,10 +10,7 @@ export type BlockMoveDirection = 'up' | 'down';
 export function captureBlockMoveSource(editor: Editor): ReorderableBlockRange | null {
   if (!createEditorSelectionTarget(editor)) return null;
   const selection = editor.state.selection;
-  const selectedNode = editor.state.doc.nodeAt(selection.from);
-  const position = selectedNode && ['listItem', 'taskItem'].includes(selectedNode.type.name)
-    ? selection.from + 1 : selection.from;
-  const source = getReorderableBlockRangeAt(editor, position);
+  const source = getReorderableBlockRangeAt(editor, selection.from);
   return source && selection.from >= source.from && selection.to <= source.to ? source : null;
 }
 
@@ -21,7 +18,7 @@ export function blockMoveSibling(editor: Editor, captured: ReorderableBlockRange
   if (editor.isDestroyed || !editor.isEditable || editor.view.composing) return null;
   const source = resolveReorderableBlockRange(editor, captured);
   if (!source || (direction === 'up' ? source.from === source.parentFrom : source.to === source.parentTo)) return null;
-  const position = direction === 'up' ? source.from - 1 : source.to + (source.kind === 'listItem' ? 1 : 0);
+  const position = direction === 'up' ? source.from - 1 : source.to;
   const target = getReorderableBlockRangeAt(editor, position, source);
   if (!target || target.from === source.from) return null;
   return { target, placement: direction === 'up' ? 'before' : 'after',

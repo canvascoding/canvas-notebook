@@ -7,7 +7,7 @@ import { BLOCK_MOVE_TRANSACTION_META, createBlockReference, resolveBlockReferenc
 
 export type BlockInsertPlacement = 'above' | 'below';
 
-export type ReorderableBlockKind = 'topLevel' | 'listItem';
+export type ReorderableBlockKind = 'topLevel' | 'listItem' | 'nested';
 
 export type ReorderableBlockRange = {
   reference: BlockReference;
@@ -90,29 +90,32 @@ function getTopLevelBlockRangeAt(editor: Editor, position: number): ReorderableB
   return range;
 }
 
-function getListItemBlockRangeAt(
+/** Inline bodies and structural slots (cells, titles, list-item bodies) are not sibling blocks. */
+function reorderableBlockKind(node: ProseMirrorNode, parent: ProseMirrorNode, depth: number): ReorderableBlockKind | null {
+  if (depth === 1) return 'topLevel';
+  if (['listItem', 'taskItem'].includes(node.type.name)
+    && ['bulletList', 'orderedList', 'taskList'].includes(parent.type.name)) return 'listItem';
+  if (parent.inlineContent || parent.type.spec.tableRole || ['listItem', 'taskItem'].includes(parent.type.name)) return null;
+  return node.type.isInGroup('block') ? 'nested' : null;
+}
+
+function getContainedBlockRangeAt(
   editor: Editor,
   position: number,
   requiredParent?: Pick<ReorderableBlockRange, 'parentFrom' | 'parentTo'>,
 ): ReorderableBlockRange | null {
   const doc = editor.state.doc;
-  const docEnd = doc.content.size;
-  if (docEnd <= 0) return null;
-
-  const safePosition = Math.max(0, Math.min(position, docEnd));
-  const resolvePosition = Math.max(0, Math.min(safePosition, docEnd - 1));
-  const $position = doc.resolve(resolvePosition);
-
-  for (let depth = $position.depth; depth > 0; depth -= 1) {
-    const node = $position.node(depth);
-    if (node.type.name !== 'listItem' && node.type.name !== 'taskItem') continue;
-
+  const $position = doc.resolve(Math.max(0, Math.min(position, doc.content.size)));
+  // Include nodeAfter at an exact block boundary (NodeSelection, atom or a
+  // sibling destination). Walking only ancestors would select its container.
+  for (let depth = $position.depth + 1; depth > 0; depth -= 1) {
+    const atBoundary = depth > $position.depth;
+    const node = atBoundary ? $position.nodeAfter : $position.node(depth);
+    if (!node || node.isInline) continue;
     const parentDepth = depth - 1;
     const parentNode = $position.node(parentDepth);
-    if (parentNode.type.name !== 'bulletList' && parentNode.type.name !== 'orderedList' && parentNode.type.name !== 'taskList') {
-      continue;
-    }
-
+    const kind = reorderableBlockKind(node, parentNode, depth);
+    if (!kind) continue;
     const parentFrom = $position.start(parentDepth);
     const parentTo = $position.end(parentDepth);
     if (requiredParent && (parentFrom !== requiredParent.parentFrom || parentTo !== requiredParent.parentTo)) {
@@ -122,12 +125,12 @@ function getListItemBlockRangeAt(
     return {
       reference: createBlockReference(editor, node),
       depth,
-      from: $position.before(depth),
-      kind: 'listItem',
+      from: atBoundary ? $position.pos : $position.before(depth),
+      kind,
       node,
       parentFrom,
       parentTo,
-      to: $position.after(depth),
+      to: atBoundary ? $position.pos + node.nodeSize : $position.after(depth),
     };
   }
 
@@ -139,21 +142,17 @@ export function getReorderableBlockRangeAt(
   position: number,
   source?: ReorderableBlockRange,
 ): ReorderableBlockRange | null {
-  if (editor.isDestroyed) return null;
+  if (editor.isDestroyed || !Number.isInteger(position)) return null;
   if (source) {
     const current = resolveReorderableBlockRange(editor, source);
     if (!current) return null;
     source = current;
   }
-  if (source?.kind === 'listItem') {
-    return getListItemBlockRangeAt(editor, position, source);
-  }
-
   if (source?.kind === 'topLevel') {
     return getTopLevelBlockRangeAt(editor, position);
   }
-
-  return getListItemBlockRangeAt(editor, position) ?? getTopLevelBlockRangeAt(editor, position);
+  if (source) return getContainedBlockRangeAt(editor, position, source);
+  return getContainedBlockRangeAt(editor, position) ?? getTopLevelBlockRangeAt(editor, position);
 }
 
 export function resolveReorderableBlockRange(
@@ -163,8 +162,7 @@ export function resolveReorderableBlockRange(
   if (editor.isDestroyed) return null;
   const current = resolveBlockReference(editor.state.doc, editor, range.reference);
   if (!current || current.node.type !== range.node.type) return null;
-  const isListItem = current.node.type.name === 'listItem' || current.node.type.name === 'taskItem';
-  if (range.kind === 'topLevel' ? current.depth !== 1 : !isListItem) return null;
+  if (range.kind !== reorderableBlockKind(current.node, current.parent, current.depth)) return null;
   return { ...range, ...current };
 }
 

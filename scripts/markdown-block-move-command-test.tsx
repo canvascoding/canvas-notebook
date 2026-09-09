@@ -18,6 +18,7 @@ import { createLocalMarkdownRichExtension, LOCAL_MARKDOWN_PROJECTION } from '../
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { BLOCK_MOVE_TRANSACTION_META } from '../app/lib/editor/block-reference';
+import { applyReorderableBlockMove, getBlockDropTarget, getReorderableBlockRangeAt, resolveReorderableBlockRange } from '../app/lib/editor/reorderable-blocks';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost' });
 for (const key of ['window', 'Window', 'document', 'DOMParser', 'navigator', 'Element', 'Document', 'HTMLElement', 'HTMLInputElement',
@@ -161,6 +162,145 @@ test('a multi-block selection never guesses which block to move', async () => {
       assert.deepEqual(editor.getJSON(), before);
     }
   } finally { editor.destroy(); h.destroy(); }
+});
+
+for (const collaborative of [false, true]) test(`nested blocks move within their live container and preserve history (collaborative=${collaborative})`, async () => {
+  for (const fixture of [
+    { markdown: '> AAA\n>\n> BBB\n>\n> CCC', type: 'paragraph', text: 'BBB', parent: 'blockquote' },
+    { markdown: '> > AAA\n> >\n> > BBB\n> >\n> > CCC', type: 'paragraph', text: 'BBB', parent: 'blockquote' },
+    { markdown: '> [!note] Title\n> AAA\n>\n> BBB\n>\n> CCC', type: 'paragraph', text: 'BBB', parent: 'canvasCallout' },
+    { markdown: '<details open>\n<summary>Title</summary>\n\nAAA\n\nBBB\n\nCCC\n\n</details>', type: 'paragraph', text: 'BBB', parent: 'canvasDetailsContent' },
+    { markdown: '> AAA\n>\n> ```ts\n> BBB\n> ```\n>\n> CCC', type: 'codeBlock', text: 'BBB', parent: 'blockquote' },
+    { markdown: '> AAA\n>\n> ![Image](image.png)\n>\n> CCC', type: 'image', text: '', parent: 'blockquote' },
+    { markdown: '> AAA\n>\n> > BBB\n>\n> CCC', type: 'blockquote', text: 'BBB', parent: 'blockquote' },
+    { markdown: '> AAA\n>\n> - BBB\n>\n> CCC', type: 'bulletList', text: 'BBB', parent: 'blockquote' },
+  ]) {
+    const h = harness(collaborative, fixture.markdown);
+    const editor = h.mount();
+    try {
+      await Promise.resolve();
+      const from = position(editor, fixture.type, fixture.text);
+      const node = editor.state.doc.nodeAt(from)!;
+      const selection = node.isTextblock ? TextSelection.create(editor.state.doc, from + 3, from + 1)
+        : NodeSelection.create(editor.state.doc, from);
+      editor.view.dispatch(editor.state.tr.setSelection(selection));
+      const source = captureBlockMoveSource(editor)!;
+      assert(source, JSON.stringify(fixture));
+      assert.equal(source.node.attrs.id, node.attrs.id);
+      assert.equal(source.kind, 'nested');
+      assert.equal(editor.state.doc.resolve(source.from).parent.type.name, fixture.parent);
+      const before = editor.getJSON();
+      assert.equal(key(editor, 'ArrowDown'), true);
+      const current = resolveReorderableBlockRange(editor, source)!;
+      const parent = editor.state.doc.resolve(current.from).parent;
+      assert.equal(parent.lastChild!.attrs.id, node.attrs.id);
+      assert.equal(current.node.eq(node), true, 'the exact block, attributes and descendants remain');
+      const moved = editor.getJSON();
+      const movedSelection = editor.state.selection.toJSON();
+      assert.equal(moveBlockInDirection(editor, 'down').ok, false, 'last child does not escape its container');
+      assert.deepEqual(editor.getJSON(), moved);
+      assert.deepEqual(applyReorderableBlockMove(editor, source, editor.state.doc.content.size), { ok: false, reason: 'invalid_destination' });
+      assert.equal(editor.commands.undo(), true);
+      assert.deepEqual(editor.getJSON(), before);
+      assert.deepEqual(editor.state.selection.toJSON(), selection.toJSON());
+      assert.equal(editor.can().undo(), false);
+      assert.equal(editor.commands.redo(), true);
+      assert.deepEqual(editor.getJSON(), moved);
+      assert.deepEqual(editor.state.selection.toJSON(), movedSelection);
+      assert.deepEqual(h.errors, []);
+    } finally { editor.destroy(); h.destroy(); }
+  }
+});
+
+test('fixed container slots remain intact while ordinary nested siblings are addressable', async () => {
+  for (const fixture of [
+    { markdown: '> [!note] Title\n> AAA\n>\n> BBB', text: 'Title', type: 'canvasCalloutTitle', source: 'canvasCallout' },
+    { markdown: '<details open>\n<summary>Title</summary>\n\nAAA\n\nBBB\n\n</details>', text: 'Title', type: 'canvasDetailsSummary', source: 'canvasDetails' },
+    { markdown: '> - AAA\n> - BBB', text: 'AAA', type: 'paragraph', source: 'listItem' },
+    { markdown: '> - [ ] AAA\n> - [x] BBB', text: 'AAA', type: 'paragraph', source: 'taskItem' },
+    { markdown: '> | AAA | BBB |\n> | --- | --- |\n> | CCC | DDD |', text: 'AAA', type: 'paragraph', source: 'table' },
+  ]) {
+    const h = harness(false, fixture.markdown);
+    const editor = h.mount();
+    try {
+      await Promise.resolve();
+      editor.commands.setTextSelection(position(editor, fixture.type, fixture.text) + 1);
+      assert.equal(captureBlockMoveSource(editor)!.node.type.name, fixture.source);
+      const before = editor.getJSON();
+      assert.equal(moveBlockInDirection(editor, 'up').ok, false, 'the structural first slot is not reordered');
+      assert.deepEqual(editor.getJSON(), before);
+    } finally { editor.destroy(); h.destroy(); }
+  }
+  const h = harness(false, '> [!note] Title\n> AAA\n>\n> BBB');
+  const editor = h.mount();
+  try {
+    await Promise.resolve();
+    editor.commands.setTextSelection(position(editor, 'paragraph', 'AAA') + 1);
+    const before = editor.getJSON();
+    assert.equal(moveBlockInDirection(editor, 'up').ok, false, 'the first body block cannot displace the callout title');
+    assert.deepEqual(editor.getJSON(), before);
+  } finally { editor.destroy(); h.destroy(); }
+});
+
+test('nested drag targets resolve in the source parent after peer edits and container moves', async () => {
+  const h = harness(true, 'Before\n\n> AAA\n>\n> BBB\n>\n> CCC\n\nAfter');
+  const editor = h.mount();
+  try {
+    await Promise.resolve();
+    editor.commands.setTextSelection(position(editor, 'paragraph', 'BBB') + 1);
+    const source = captureBlockMoveSource(editor)!;
+    const target = getReorderableBlockRangeAt(editor, position(editor, 'paragraph', 'CCC') + 1, source)!;
+    const tree = new CollaborationBlockTree(h.doc!, editor.schema);
+    const parent = editor.state.doc.resolve(source.from).parent;
+    tree.move({ blockId: parent.attrs.id, parentId: null, beforeId: null, operationId: 'peer-parent-move' }, 'peer');
+    tree.updateInlineContent(source.node.attrs.id, source.node.type.create(source.node.attrs, editor.schema.text('Peer BBB')), 'peer');
+    const peerDocument = editor.getJSON();
+    // Supply geometry only. Target lookup, source refresh and the transaction
+    // are the actual production drag path; this does not assert browser layout.
+    editor.view.posAtCoords = () => ({ pos: position(editor, 'paragraph', 'CCC') + 1, inside: -1 });
+    const destination = getBlockDropTarget(editor, { clientX: 20, clientY: 100 }, source)!;
+    assert.equal(destination.target.reference.id, target.reference.id);
+    assert.equal(destination.placement, 'after');
+    assert.equal(applyReorderableBlockMove(editor, source, destination, { preserveSelection: true }).ok, true);
+    const movedParent = editor.state.doc.resolve(resolveReorderableBlockRange(editor, source)!.from).parent;
+    assert.equal(movedParent.attrs.id, parent.attrs.id);
+    assert.deepEqual(movedParent.content.content.map(node => node.textContent), ['AAA', 'CCC', 'Peer BBB']);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(editor.getJSON(), peerDocument, 'undo retains the peer text and parent move');
+    tree.delete(target.node.attrs.id, 'peer-delete-target', 'peer');
+    const afterDelete = Y.encodeStateAsUpdate(h.doc!);
+    assert.deepEqual(applyReorderableBlockMove(editor, source, destination), { ok: false, reason: 'target_changed' });
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc!), afterDelete);
+    assert.deepEqual(h.errors, []);
+  } finally { editor.destroy(); h.destroy(); }
+});
+
+test('nested moves retain simultaneous peer text through selective undo, redo and binary reopen', async () => {
+  const h = harness(true, '> AAA\n>\n> BBB\n>\n> CCC');
+  const editor = h.mount();
+  const peer = new Y.Doc();
+  try {
+    await Promise.resolve();
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(h.doc!));
+    const tree = new CollaborationBlockTree(peer, editor.schema);
+    editor.commands.setTextSelection(position(editor, 'paragraph', 'BBB') + 1);
+    const source = captureBlockMoveSource(editor)!;
+    assert.equal(moveBlockInDirection(editor, 'down').ok, true);
+    tree.updateInlineContent(source.node.attrs.id, source.node.type.create(source.node.attrs, editor.schema.text('Peer BBB')), 'peer');
+    Y.applyUpdate(h.doc!, Y.encodeStateAsUpdate(peer), 'peer');
+    Y.applyUpdate(peer, Y.encodeStateAsUpdate(h.doc!), 'peer');
+    assert.deepEqual(editor.state.doc.firstChild!.content.content.map(node => node.textContent), ['AAA', 'CCC', 'Peer BBB']);
+    assert.deepEqual(tree.read().toJSON(), editor.getJSON());
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(editor.state.doc.firstChild!.content.content.map(node => node.textContent), ['AAA', 'Peer BBB', 'CCC']);
+    assert.equal(editor.commands.redo(), true);
+    const restored = new Y.Doc();
+    try {
+      Y.applyUpdate(restored, Y.encodeStateAsUpdate(h.doc!));
+      assert.deepEqual(new CollaborationBlockTree(restored, editor.schema).read().toJSON(), editor.getJSON());
+    } finally { restored.destroy(); }
+    assert.deepEqual(h.errors, []);
+  } finally { editor.destroy(); peer.destroy(); h.destroy(); }
 });
 
 for (const collaborative of [false, true]) test(`a rejected keyboard move reports failure without changing content or selection (collaborative=${collaborative})`, async () => {
