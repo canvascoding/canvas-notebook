@@ -7,6 +7,7 @@ import {
   createLocalEmailDraft,
   deleteLocalEmailMessagePermanently,
   disconnectLocalEmailAccount,
+  downloadLocalEmailAttachment,
   generateLocalEmailComposeBody,
   generateLocalEmailAiReplyBody,
   getLocalEmailOAuthStatus,
@@ -54,11 +55,18 @@ import {
 import { getRuntimeEmailCacheStore, normalizeEmailCacheProvider } from '@/app/lib/email/cache/store';
 import { resolveEmailAttachments } from '@/app/lib/email/attachments';
 import { EmailMessageNotFoundError } from '@/app/lib/email/errors';
+import {
+  assertInboundEmailAttachmentSize,
+  readableFromBuffer,
+  sanitizeInboundEmailAttachmentFilename,
+  type DownloadedEmailAttachment,
+} from '@/app/lib/email/inbound-attachments';
 import type { EmailDeliveryOrigin } from '@/app/lib/email/policy';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
 import {
   getManagedEmailOAuthRedirectUri,
   isManagedEmailAvailable,
+  managedEmailBinaryRequest,
   managedEmailRequest,
   ManagedEmailRequestError,
   type ManagedEmailRequestScope,
@@ -622,6 +630,60 @@ export async function readEmailMessage(userId: string, accountId: string, messag
     });
   }
   return readLocalEmailMessage(userId, accountId, messageId, folder, options);
+}
+
+function filenameFromContentDisposition(value: string | null): string {
+  if (!value) return 'attachment';
+  const encoded = value.match(/filename\*=UTF-8''([^;]+)/iu)?.[1];
+  if (encoded) {
+    try {
+      return sanitizeInboundEmailAttachmentFilename(decodeURIComponent(encoded));
+    } catch {
+      return sanitizeInboundEmailAttachmentFilename(encoded);
+    }
+  }
+  const quoted = value.match(/filename="([^"]*)"/iu)?.[1];
+  return sanitizeInboundEmailAttachmentFilename(quoted || 'attachment');
+}
+
+export async function downloadEmailAttachment(
+  userId: string,
+  accountId: string,
+  messageId: string,
+  attachmentId: string,
+  folder?: string,
+  options?: EmailReadPolicyOptions,
+): Promise<DownloadedEmailAttachment> {
+  const managedAccount = await findManagedEmailAccount(userId, accountId);
+  if (!managedAccount) {
+    return downloadLocalEmailAttachment(userId, accountId, messageId, attachmentId, folder, options);
+  }
+
+  let response: Response;
+  try {
+    response = await managedEmailBinaryRequest(
+      `/v1/managed/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+      managedEmailScope(userId),
+    );
+  } catch (error) {
+    if (error instanceof ManagedEmailRequestError && error.status === 404) throw new EmailMessageNotFoundError();
+    throw error;
+  }
+  const lengthHeader = response.headers.get('content-length');
+  if (lengthHeader) assertInboundEmailAttachmentSize(Number(lengthHeader));
+  const content = Buffer.from(await response.arrayBuffer());
+  assertInboundEmailAttachmentSize(content.length);
+  return {
+    attachment: {
+      id: attachmentId,
+      filename: filenameFromContentDisposition(response.headers.get('content-disposition')),
+      contentType: response.headers.get('content-type') || 'application/octet-stream',
+      size: content.length,
+      inline: false,
+      downloadable: true,
+    },
+    content: readableFromBuffer(content),
+  };
 }
 
 export async function setEmailMessageRead(

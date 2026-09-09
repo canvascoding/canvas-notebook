@@ -1159,7 +1159,7 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     const isHtml = String(body?.contentType || '').toLowerCase() === 'html' || isLikelyHtmlEmailContent(bodyContent);
     const bodyHtml = isHtml ? normalizeEmailHtmlContent(bodyContent) : '';
     const attachmentResult = await microsoftFetch(
-      `messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,contentType,size,isInline,contentId`,
+      `messages/${encodeURIComponent(messageId)}/attachments?$top=100&$select=id,name,contentType,size,isInline,contentId`,
       token,
     );
     const attachments = microsoftMessageAttachments(attachmentResult.value);
@@ -1243,7 +1243,7 @@ export async function downloadLocalEmailAttachment(
   const from = (raw.from as { emailAddress?: { address?: string } } | undefined)?.emailAddress?.address || '';
   if (enforceReadPolicy) assertSenderAllowed(account, from);
   const attachmentResult = await microsoftFetch(
-    `messages/${encodeURIComponent(messageId)}/attachments?$select=id,name,contentType,size,isInline,contentId`,
+    `messages/${encodeURIComponent(messageId)}/attachments?$top=100&$select=id,name,contentType,size,isInline,contentId`,
     token,
   );
   const attachment = microsoftMessageAttachments(attachmentResult.value)
