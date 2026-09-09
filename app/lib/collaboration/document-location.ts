@@ -8,8 +8,10 @@ export type CollaborationDocumentLocation = {
   workspaceId: string;
   documentId: string;
   path: string;
-  lifecycleGeneration: number;
-  representation: TextCollaborationRepresentation;
+  // Identity metadata precedes the first session. Null means that no Yjs
+  // generation has been created yet, not that the document was deleted.
+  lifecycleGeneration: number | null;
+  representation: TextCollaborationRepresentation | null;
 };
 
 /** Resolve committed identity metadata, including after missed rename events. */
@@ -24,19 +26,21 @@ export async function resolveCollaborationDocumentLocation(
     const database = await openDb();
     try {
       const row = await database.get(`
-        SELECT state.document_id, state.path, state.lifecycle_generation, state.representation
-        FROM collaboration_yjs_states AS state
-        INNER JOIN collaboration_documents AS document
-          ON document.id = state.document_id AND document.workspace_id = state.workspace_id
-          AND document.path = state.path AND document.provider = 'yjs' AND document.status = 'active'
-        WHERE state.document_id = ? AND state.workspace_id = ? AND state.status = 'active'
+        SELECT document.id AS document_id, document.path, state.lifecycle_generation, state.representation
+        FROM collaboration_documents AS document
+        LEFT JOIN collaboration_yjs_states AS state ON state.document_id = document.id
+        WHERE document.id = ? AND document.workspace_id = ?
+          AND document.provider = 'yjs' AND document.status = 'active'
+          AND ((state.document_id IS NULL AND document.state_version = 0)
+            OR (state.workspace_id = document.workspace_id AND state.path = document.path AND state.status = 'active'))
         LIMIT 1
       `, [documentId, workspaceId]) as {
-        document_id: string; path: string; lifecycle_generation: number | string;
-        representation: TextCollaborationRepresentation;
+        document_id: string; path: string; lifecycle_generation: number | string | null;
+        representation: TextCollaborationRepresentation | null;
       } | undefined;
       return row ? { workspaceId, documentId: row.document_id, path: row.path,
-        lifecycleGeneration: Number(row.lifecycle_generation), representation: row.representation } : null;
+        lifecycleGeneration: row.lifecycle_generation === null ? null : Number(row.lifecycle_generation),
+        representation: row.representation } : null;
     } finally { await database.close(); }
   });
 }

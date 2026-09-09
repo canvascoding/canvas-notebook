@@ -42,4 +42,16 @@ Die interaktive Mobilprüfung eines Codeblocks zeigte außerdem eine Endlosschle
 
 Der neue Mutationstest prüft diese Grenze einschließlich tatsächlicher Text-, Enter-ähnlicher Wrapper- und Auswahländerungen. Die mobile Browsersuite besteht für Absatz und Code (17,8 Sekunden), jeweils mit Bewegung in beide Richtungen und vollständigem Undo. Beim Code folgen erfolgreich echte Tastaturaktionen für Enter, Texteingabe und Backspace. Im interaktiven Browser bestanden anschließend Bild und Trennlinie das mobile Bewegungsmenü mit exakter Wiederherstellung des gesamten Dokumentbaums. Die Trennlinie bestand außerdem Desktop-Griff und Tastatur. Ein zuvor erfolgreicher Produktionsbuild umfasst die Erststart- und Bildimportkorrektur (`36b0584c`); die nachfolgenden Mobilkorrekturen benötigen noch den abschließenden Build.
 
-Gruppe 1 ist teilweise geprüft; vollständige Copy-/Paste-Folgen stehen noch aus. Die übrigen Abnahmegruppen sind bis auf den beschriebenen verspäteten Bildimport noch nicht vollständig geprüft. Clipboard-/IME-/Hardware-Touch-Prüfungen und Browser-Latenzmessungen sind ebenfalls offen.
+## Unterbrochene erste Kollaborationssitzung
+
+Die neue Clipboard-Testkopie hatte bereits eine aktive `collaboration_documents`-Identität, aber noch keinen Yjs-Zustand. Nach einem abgebrochenen ersten Sitzungsaufbau lieferte die Ortsabfrage deshalb 404. Der gespeicherte Tab konnte seine eigene gültige Datei nicht mehr öffnen. Die Ortsabfrage löst jetzt auch aktive, noch nie initialisierte Identitäten auf und kennzeichnet Generation und Repräsentation ausdrücklich mit `null`. Sie initialisiert selbst keine Sitzung. Bereits vorhandene archivierte oder unpassende Zustände werden weiterhin abgewiesen.
+
+Nachweise: echte zuvor blockierte Datei wieder unter derselben ID geöffnet; PostgreSQL-Integration in einer eigens angelegten und anschließend entfernten Testdatenbank; Request-Validierung, Location-Hook, tatsächlicher Dashboard-Lifecycle und Route-Tests. Die neue Browserregression unterbricht den ersten Sitzungsaufruf, lädt den bekannten Tab neu und prüft Eingabe, Checkpoint und erneutes Öffnen unter derselben ID (12,8 Sekunden). TypeScript und ESLint bestehen. Der Produktionsbuild für `b96adebe` besteht; die anschließende Ortskorrektur benötigt noch den abschließenden Build.
+
+## Native Zwischenablage und weitere offene Fälle
+
+Über native Cmd+A/C/V- und Cmd+A/X/V-Tastaturaktionen wurden alle 18 Wurzelblöcke mit 50 Knoten-IDs kopiert bzw. ausgeschnitten. Die ursprünglichen IDs bleiben beim Kopieren bestehen, eingefügte Knoten erhalten frische, eindeutige IDs. Undo stellte in beiden Fällen den vorherigen vollständigen Baum wieder her. Der Inhalt blieb erhalten, beim eingefügten Bild ging jedoch die Zentrierung verloren. Diese Formatregression wird als nächstes korrigiert; die Clipboard-Abnahme ist noch offen.
+
+Ein normaler abgebrochener HTTP-Aufruf beendete zweimal den lokalen Dev-Server mit `ECONNRESET`. Eine vorübergehende private Diagnose erfasst den Ursprung; reguläre Abbrüche mit vorhandenen Fehlerhandlern sind bereits sichtbar, der fatale Fall ist damit noch nicht erklärt oder behoben.
+
+Die übrigen Abnahmegruppen sind bis auf den beschriebenen verspäteten Bildimport noch nicht vollständig geprüft. IME-/Hardware-Touch-Prüfungen und Browser-Latenzmessungen sind ebenfalls offen.
