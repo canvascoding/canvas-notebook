@@ -166,6 +166,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'email_list_mailboxes',
     'email_list_outbox_drafts',
     'email_list_thread_messages',
+    'email_download_attachment',
     'email_read_message',
     'email_search_messages',
     'email_update_outbox_draft',

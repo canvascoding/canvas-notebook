@@ -1,5 +1,6 @@
 import 'server-only';
 
+import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
@@ -8,7 +9,8 @@ import { db } from '@/app/lib/db';
 import { emailAccounts, emailInboxEvents, workspaceEmailMailboxes } from '@/app/lib/db/schema';
 import { getEmailAccountForUser } from '@/app/lib/email/account-store';
 import type { EmailAgentUiIntent, EmailAgentUiView } from '@/app/lib/email/agent-ui-intent';
-import { readEmailMessage, searchEmail } from '@/app/lib/email/service';
+import { readInboundEmailAttachmentStream, sanitizeInboundEmailAttachmentFilename } from '@/app/lib/email/inbound-attachments';
+import { downloadEmailAttachment, readEmailMessage, searchEmail } from '@/app/lib/email/service';
 import {
   createPersonalInboxCase,
   createPersonalOutboxDraft,
@@ -22,6 +24,8 @@ import {
   updateWorkspaceOutboxDraft,
 } from '@/app/lib/email/workspace-inbox-outbox';
 import { snapshotAgentWorkspaceEmailAttachments } from '@/app/lib/email/attachments';
+import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
+import { createDirectoryIfAbsent } from '@/app/lib/filesystem/workspace-files';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage } from '@/app/lib/pi/tool-runtime-helpers';
 
@@ -262,6 +266,65 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
               ? message.subject
               : undefined,
           }));
+        } catch (error) { return toolError(error); }
+      },
+    },
+    {
+      name: 'email_download_attachment',
+      label: 'Download email attachment',
+      description: 'Downloads one attachment by its ID from email_read_message and saves it as a new file in the active workspace. Existing files are never overwritten.',
+      parameters: Type.Object({
+        ...mailboxParameter,
+        messageId: Type.Optional(Type.String({ minLength: 1, description: bound ? 'Defaults to the triggering message.' : 'Provider message ID from email_read_message.' })),
+        attachmentId: Type.String({ minLength: 1, description: 'Attachment ID from email_read_message.' }),
+        destinationPath: Type.Optional(Type.String({ minLength: 1, description: 'Workspace-relative output path. Defaults to email-attachments/<attachment filename>.' })),
+        folder: Type.Optional(Type.String()),
+      }),
+      execute: async (_toolCallId, params) => {
+        try {
+          const value = params as { mailboxId?: string; messageId?: string; attachmentId: string; destinationPath?: string; folder?: string };
+          const mailbox = await requireMailbox(context, value.mailboxId);
+          const messageId = value.messageId || bound?.providerMessageId;
+          if (!messageId) throw new Error('messageId is required.');
+          const folder = value.folder || bound?.folder;
+          const workspace = await resolveAgentSessionWorkspaceForUser({
+            userId: requireUser(context),
+            workspaceId: mailbox.workspaceId || context.workspaceId,
+            permissions: ['canWrite'],
+          });
+          const downloaded = await downloadEmailAttachment(
+            mailbox.accountOwnerId,
+            mailbox.accountId,
+            messageId,
+            value.attachmentId,
+            folder,
+            { enforceReadPolicy: true, ...(mailbox.workspaceId ? { workspaceId: mailbox.workspaceId } : {}) },
+          );
+          const content = await readInboundEmailAttachmentStream(downloaded.content);
+          const destinationPath = value.destinationPath?.trim()
+            || path.posix.join('email-attachments', sanitizeInboundEmailAttachmentFilename(downloaded.attachment.filename));
+          const parentDirectory = path.posix.dirname(destinationPath);
+          if (parentDirectory !== '.') {
+            await createDirectoryIfAbsent(parentDirectory, { workspace });
+          }
+          const saved = await writeWorkspaceFileContent({
+            workspace,
+            fileOptions: { workspace },
+            actorUserId: requireUser(context),
+            actorType: 'agent',
+            path: destinationPath,
+            content,
+            createOnly: true,
+            encoded: true,
+          });
+          return result({
+            attachmentId: value.attachmentId,
+            path: saved.path,
+            filename: downloaded.attachment.filename,
+            contentType: downloaded.attachment.contentType,
+            size: saved.stats.size,
+            sha256: saved.stats.sha256,
+          }, true);
         } catch (error) { return toolError(error); }
       },
     },

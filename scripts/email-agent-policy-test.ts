@@ -21,8 +21,8 @@ assert.deepEqual(EMAIL_AGENT_ALLOWED_TOOL_NAMES.slice(-6), [
 ]);
 assert.deepEqual(
   filterToolsToAllowedNames([
-    tool('email_read_message'), tool('read'), tool('write'), tool('bash'), tool('session_search'), tool('list_file_snapshots'),
+    tool('email_read_message'), tool('email_download_attachment'), tool('read'), tool('write'), tool('bash'), tool('session_search'), tool('list_file_snapshots'),
   ], new Set(EMAIL_AGENT_ALLOWED_TOOL_NAMES)).map((entry) => entry.name),
-  ['email_read_message', 'read'],
+  ['email_read_message', 'email_download_attachment', 'read'],
 );
 console.log('email-agent-policy-test: ok');

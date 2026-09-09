@@ -113,6 +113,7 @@ assert.equal(resolveEmailShellRequestContext(staleContext, '/emails'), staleCont
 assert.deepEqual(resolveEmailShellRequestContext(null, null), { currentPage: '/emails' });
 assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /Do not assume the visible message body is available in context/);
 assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /Use `email_read_message` when the user asks you to reason about the actual email body/);
+assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /email_download_attachment/);
 assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /email_list_mailboxes/);
 assert.match(EMAIL_SYSTEM_PROMPT_BLOCK, /target mailbox is unclear/);
 
