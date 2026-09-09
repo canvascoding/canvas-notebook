@@ -1,5 +1,8 @@
 import 'server-only';
 
+import { prepareToolOutput, type ToolOutputPreparationContext } from '@/app/lib/pi/tool-output-preparation';
+import { prepareWebToolOutput } from '@/app/lib/pi/web-output-preparation';
+
 import { existsSync, promises as fs } from 'node:fs';
 
 import type { KeyInput } from 'puppeteer-core';
@@ -256,45 +259,12 @@ function formatJson(payload: unknown): string {
   return JSON.stringify(toJsonSafeValue(payload), null, 2);
 }
 
-function truncateText(value: string, maxLength: number): { text: string; truncated: boolean } {
-  if (value.length <= maxLength) {
-    return { text: value, truncated: false };
-  }
-  return {
-    text: `${value.slice(0, maxLength)}\n[...output truncated after ${maxLength} characters]`,
-    truncated: true,
-  };
-}
-
 function looksLikeMutatingEvaluate(source: string): boolean {
   return MUTATING_EVALUATE_PATTERNS.some((pattern) => pattern.test(source));
 }
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function buildEvaluateResultDetails(
-  value: unknown,
-  maxLength: number,
-): { result: unknown; resultTruncated: boolean; resultSize: number } {
-  const safeValue = toJsonSafeValue(value);
-  const rendered = typeof safeValue === 'string' ? safeValue : formatJson(safeValue);
-  const { text, truncated } = truncateText(rendered, maxLength);
-
-  if (!truncated) {
-    return {
-      result: safeValue,
-      resultTruncated: false,
-      resultSize: rendered.length,
-    };
-  }
-
-  return {
-    result: text,
-    resultTruncated: true,
-    resultSize: rendered.length,
-  };
 }
 
 function getContextTargetStore(context: BrowserRuntimeContext = {}): ReturnType<typeof getTargetStore> {
@@ -476,27 +446,19 @@ async function screenshot(
 async function extractContent(
   input: BrowserGatewayInput,
   context: BrowserRuntimeContext = {},
+  outputContext: ToolOutputPreparationContext = { identity: null, toolCallId: 'browser' },
 ): Promise<BrowserGatewayOutput> {
   const page = await ensurePage(context);
-  const maxContentLength = clampNumber(input.max_content_length, MAX_CONTENT_LENGTH, 50_000);
-  const extracted = await extractReadablePageContent(page, maxContentLength);
-
-  const details = {
-    url: extracted.url,
-    title: extracted.title,
-    truncated: extracted.truncated,
-    contentLength: extracted.contentLength,
-  };
-
+  const extracted = await extractReadablePageContent(page);
+  const prepared = await prepareWebToolOutput({
+    ...outputContext, sources: [{ url: extracted.url, title: extracted.title || extracted.url, content: extracted.content }],
+    kind: 'pages', heading: 'Rendered page content', provider: 'browser',
+    maxContentLength: clampNumber(input.max_content_length, MAX_CONTENT_LENGTH, 6_000),
+  });
   return {
-    text: [
-      `URL: ${details.url}`,
-      details.title ? `Title: ${details.title}` : null,
-      '',
-      extracted.content,
-      details.truncated ? `\n[...content truncated after ${maxContentLength} characters]` : null,
-    ].filter((line): line is string => line !== null).join('\n'),
-    details,
+    text: prepared.content[0].text,
+    details: { ...prepared.details, url: extracted.url, title: extracted.title, contentLength: extracted.contentLength,
+      truncated: prepared.details.toolOutput.excerpted },
   };
 }
 
@@ -560,6 +522,7 @@ function formatEvaluateValue(value: unknown): string {
 async function evaluateScript(
   input: BrowserGatewayInput,
   context: BrowserRuntimeContext = {},
+  outputContext: ToolOutputPreparationContext = { identity: null, toolCallId: 'browser' },
 ): Promise<BrowserGatewayOutput> {
   const source = getEvaluateSource(input);
   const timeout = clampNumber(input.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
@@ -622,26 +585,26 @@ async function evaluateScript(
   }
 
   const rendered = formatEvaluateValue(result);
-  const { text, truncated } = truncateText(rendered, maxContentLength);
-  const resultDetails = buildEvaluateResultDetails(result, maxContentLength);
-
-  return {
-    text,
-    details: {
-      result: resultDetails.result,
-      resultType: result === null ? 'null' : typeof result,
-      truncated,
-      resultTruncated: resultDetails.resultTruncated,
-      resultSize: resultDetails.resultSize,
-      mutates,
-      ...(await getStatusDetails(context)),
+  const prepared = await prepareToolOutput({
+    ...outputContext, toolName: 'browser', maxChars: maxContentLength,
+    raw: toJsonSafeValue(result),
+    result: {
+      content: [{ type: 'text', text: rendered }],
+      details: { result: toJsonSafeValue(result), resultType: result === null ? 'null' : typeof result,
+        resultSize: rendered.length, mutates, ...(await getStatusDetails(context)) },
     },
+  });
+  const details = prepared.details as Record<string, unknown>;
+  return {
+    text: prepared.content.filter(block => block.type === 'text').map(block => block.text).join('\n'),
+    details: { ...details, truncated: Boolean(details.toolOutput), resultTruncated: Boolean(details.toolOutput) },
   };
 }
 
 export async function runBrowserGatewayAction(
   input: BrowserGatewayInput,
   context: BrowserRuntimeContext = {},
+  outputContext?: ToolOutputPreparationContext,
 ): Promise<BrowserGatewayOutput> {
   const action = normalizeAction(input.action);
 
@@ -725,9 +688,9 @@ export async function runBrowserGatewayAction(
       case 'screenshot':
         return screenshot(input, context);
       case 'extract_content':
-        return extractContent(input, context);
+        return extractContent(input, context, outputContext);
       case 'evaluate':
-        return evaluateScript(input, context);
+        return evaluateScript(input, context, outputContext);
       case 'dialog_status':
         return dialogStatus(context);
       case 'accept_dialog':

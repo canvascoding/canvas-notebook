@@ -4,6 +4,7 @@ import { cleanWebText, clampWebInteger } from '@/app/lib/integrations/web-conten
 import { storeToolOutput, type ToolOutputIdentity } from './tool-output-store';
 import { formatWebSourceList, type WebOutputSource } from './tool-output-format';
 import type { ToolOutputMetadata } from './tool-output-metadata';
+import { markPreparedToolOutput } from './prepared-tool-output';
 import {
   TOOL_OUTPUT_PAGE_MAX_CHARACTERS,
   TOOL_OUTPUT_PAGE_MAX_CHARACTERS_PER_PAGE,
@@ -62,5 +63,6 @@ export async function prepareWebToolOutput(input: {
   metadata.modelChars = text.length;
   metadata.shownCount = formatted.shownCount;
   metadata.omittedCount = formatted.omittedCount;
-  return { content: [{ type: 'text' as const, text }], details: { toolOutput: metadata } };
+  metadata.excerpted = formatted.truncated;
+  return markPreparedToolOutput({ content: [{ type: 'text' as const, text }], details: { toolOutput: metadata } });
 }

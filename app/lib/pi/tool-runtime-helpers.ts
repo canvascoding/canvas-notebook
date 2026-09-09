@@ -48,6 +48,7 @@ import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/au
 import type { AgentBashWorkingDirectory } from '@/app/lib/pi/agent-bash-runtime';
 import { resolveToolOutputReference } from '@/app/lib/pi/tool-output-store';
 import { maybeCleanupToolOutputOrphans } from '@/app/lib/pi/tool-output-maintenance';
+import { prepareToolOutput } from '@/app/lib/pi/tool-output-preparation';
 
 export const execAsync = promisify(exec);
 
@@ -90,7 +91,8 @@ export function wrapToolWithExecutionContext(
       context,
       async () => {
         await maybeCleanupToolOutputOrphans(context);
-        return execute(toolCallId, params, signal, onUpdate);
+        const result = await execute(toolCallId, params, signal, onUpdate);
+        return prepareToolOutput({ result, identity: context, toolCallId, toolName: scopedTool.name });
       },
     ),
   };

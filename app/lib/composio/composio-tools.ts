@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { prepareToolOutput } from '@/app/lib/pi/tool-output-preparation';
 import { Type } from 'typebox';
 import {
   connectGatewayToolkit,
@@ -42,14 +44,12 @@ const ComposioManageConnectionsParameters = Type.Object({
   toolkit: Type.String({ description: 'Toolkit slug (e.g., "github", "gmail", "slack")' }),
 });
 
-function truncateResult(data: unknown, maxLength = 8000): string {
-  const str = JSON.stringify(data);
-  if (str.length <= maxLength) return str;
-  return str.slice(0, maxLength) + '...[truncated]';
-}
-
-function textResult(text: string) {
-  return { content: [{ type: 'text' as const, text }], details: {} };
+async function textResult(toolCallId: string, text: string) {
+  return prepareToolOutput({
+    result: { content: [{ type: 'text' as const, text }], details: {} },
+    raw: JSON.parse(text),
+    identity: getAgentExecutionContext(), toolCallId, toolName: 'composio',
+  });
 }
 
 export function createComposioSearchToolsTool(context?: ResolvedComposioContext | null): AgentTool {
@@ -64,10 +64,10 @@ export function createComposioSearchToolsTool(context?: ResolvedComposioContext 
         const p = params as { query?: string; toolkits?: string[] };
         const query = String(p.query || '');
         const toolkits = Array.isArray(p.toolkits) ? p.toolkits : undefined;
-        return textResult(JSON.stringify(await searchGatewayTools(query, toolkits, context)));
+        return textResult(_toolCallId, JSON.stringify(await searchGatewayTools(query, toolkits, context)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error searching tools';
-        return textResult(JSON.stringify({ error: message }));
+        return textResult(_toolCallId, JSON.stringify({ error: message }));
       }
     },
   };
@@ -84,10 +84,10 @@ export function createComposioGetToolSchemasTool(context?: ResolvedComposioConte
         assertResolvedComposioContext(context);
         const p = params as { tools: string[] };
         const tools = Array.isArray(p.tools) ? p.tools : [];
-        return textResult(truncateResult(await getGatewayToolSchemas(tools, context)));
+        return textResult(_toolCallId, JSON.stringify(await getGatewayToolSchemas(tools, context)));
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error getting tool schemas';
-        return textResult(JSON.stringify({ error: message }));
+        return textResult(_toolCallId, JSON.stringify({ error: message }));
       }
     },
   };
@@ -108,7 +108,7 @@ export function createComposioExecuteTool(context?: ResolvedComposioContext | nu
         assertResolvedComposioContext(context);
         const result = await executeGatewayTool(action, toolParams, context);
 
-        return textResult(truncateResult(result));
+        return textResult(_toolCallId, JSON.stringify(result));
       } catch (error: unknown) {
         const err = error as { statusCode?: number; code?: string; message?: string };
         if (err?.statusCode === 401 || err?.code === 'NOT_CONNECTED' || err?.message?.includes('not connected') || err?.message?.includes('not authenticated')) {
@@ -120,7 +120,7 @@ export function createComposioExecuteTool(context?: ResolvedComposioContext | nu
             redirectUrl = '';
           }
 
-          return textResult(JSON.stringify({
+          return textResult(_toolCallId, JSON.stringify({
             auth_required: true,
             redirect_url: redirectUrl,
             toolkit: toolkitName,
@@ -135,7 +135,7 @@ export function createComposioExecuteTool(context?: ResolvedComposioContext | nu
         }
 
         const message = error instanceof Error ? error.message : 'Unknown error executing tool';
-        return textResult(JSON.stringify({ error: message }));
+        return textResult(_toolCallId, JSON.stringify({ error: message }));
       }
     },
   };
@@ -157,7 +157,7 @@ export function createComposioManageConnectionsTool(context?: ResolvedComposioCo
         switch (action) {
           case 'connect': {
             const connectionRequest = await connectGatewayToolkit(toolkit, context);
-            return textResult(JSON.stringify({
+            return textResult(_toolCallId, JSON.stringify({
               redirect_url: connectionRequest.redirectUrl,
               message: `Open this URL to connect ${toolkit}. After connecting, return to the chat.`,
             }));
@@ -165,28 +165,28 @@ export function createComposioManageConnectionsTool(context?: ResolvedComposioCo
 
           case 'disconnect': {
             await disconnectGatewayToolkit(toolkit, context);
-            return textResult(JSON.stringify({ success: true, message: `${toolkit} disconnected successfully.` }));
+            return textResult(_toolCallId, JSON.stringify({ success: true, message: `${toolkit} disconnected successfully.` }));
           }
 
           case 'status': {
             const account = await refreshGatewayToolkit(toolkit, context);
             if (account.status && account.status !== 'NOT_CONNECTED') {
-              return textResult(JSON.stringify({
+              return textResult(_toolCallId, JSON.stringify({
                 connected: true,
                 toolkit,
                 status: account.status,
                 connected_at: account.connectedAt,
               }));
             }
-            return textResult(JSON.stringify({ connected: false, toolkit }));
+            return textResult(_toolCallId, JSON.stringify({ connected: false, toolkit }));
           }
 
           default:
-            return textResult(JSON.stringify({ error: `Unknown action: ${action}. Use 'connect', 'disconnect', or 'status'.` }));
+            return textResult(_toolCallId, JSON.stringify({ error: `Unknown action: ${action}. Use 'connect', 'disconnect', or 'status'.` }));
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error managing connections';
-        return textResult(JSON.stringify({ error: message }));
+        return textResult(_toolCallId, JSON.stringify({ error: message }));
       }
     },
   };

@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 
@@ -33,7 +35,7 @@ export function createBrowserGatewayTool(
       if (signal?.aborted) {
         throw new Error('Tool execution aborted.');
       }
-      const result = await runBrowserGatewayAction(params as BrowserGatewayInput, context);
+      const result = await runBrowserGatewayAction(params as BrowserGatewayInput, context, { identity: getAgentExecutionContext(), toolCallId: _toolCallId });
       return {
         content: [
           { type: 'text', text: result.text },

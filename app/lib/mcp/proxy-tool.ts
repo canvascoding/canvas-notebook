@@ -1,4 +1,4 @@
-import type { CallToolResult, Tool } from '@modelcontextprotocol/client';
+import type { Tool } from '@modelcontextprotocol/client';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 
@@ -10,6 +10,7 @@ import {
   startMcpIdleCleanup,
 } from '@/app/lib/mcp/manager';
 import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth } from '@/app/lib/mcp/oauth';
+import { prepareMcpToolResult } from '@/app/lib/mcp/tool-result';
 import type { McpScope } from '@/app/lib/mcp/scope';
 
 type McpAction =
@@ -380,24 +381,8 @@ async function handleDescribeTool(serverName: string, toolName: string, signal?:
   );
 }
 
-function summarizeMcpContent(result: CallToolResult): string {
-  if (!('content' in result) || !Array.isArray(result.content)) {
-    return formatJson(result);
-  }
-
-  const blocks = result.content.map((block) => {
-    if (block.type === 'text') return block.text;
-    if (block.type === 'image') return `[image ${block.mimeType}]`;
-    if (block.type === 'audio') return `[audio ${block.mimeType}]`;
-    if (block.type === 'resource') return `[resource ${block.resource.uri}]`;
-    if (block.type === 'resource_link') return `[resource link ${block.uri}]`;
-    return formatJson(block);
-  });
-
-  return blocks.join('\n') || '(empty MCP tool result)';
-}
-
 async function handleCallTool(
+  toolCallId: string,
   serverName: string,
   toolName: string,
   args: Record<string, unknown>,
@@ -409,11 +394,7 @@ async function handleCallTool(
   }
 
   const result = await callMcpTool(serverName, toolName, args, signal, scope);
-  const text = summarizeMcpContent(result);
-  return textResult(
-    result.isError ? `MCP tool "${serverName}.${toolName}" returned an error:\n${text}` : text,
-    { server: serverName, tool: toolName, result },
-  );
+  return prepareMcpToolResult(serverName, toolName, result, toolCallId);
 }
 
 function buildCallArguments(params: McpProxyParams): Record<string, unknown> {
@@ -523,7 +504,7 @@ export function createMcpProxyTool(userId?: string): AgentTool {
             const { server, tool } = resolveMcpTarget(p.server, p.tool);
             if (!server) throw new Error('call_tool requires server, or use a fully-qualified tool like "Canva.generate-design".');
             if (!tool) throw new Error('call_tool requires tool.');
-            return await handleCallTool(server, tool, buildCallArguments(p), signal, scope);
+            return await handleCallTool(_toolCallId, server, tool, buildCallArguments(p), signal, scope);
           }
           case 'auth_status': {
             const server = normalizeServerName(p.server);

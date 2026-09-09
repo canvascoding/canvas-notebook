@@ -21,6 +21,7 @@ export type ToolOutputMetadata = {
   sourceCount?: number;
   shownCount?: number;
   omittedCount?: number;
+  excerpted?: boolean;
 };
 
 export function getToolOutputMetadata(details: unknown): ToolOutputMetadata | null {
