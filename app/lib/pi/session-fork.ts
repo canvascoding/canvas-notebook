@@ -14,6 +14,8 @@ import {
   withPiSessionUserStateLock,
 } from '@/app/lib/pi/session-user-state-lock';
 import type { PiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
+import { cloneToolOutputs, deleteToolOutputs, type ToolOutputIdentity } from '@/app/lib/pi/tool-output-store';
+import { collectStoredToolOutputReferences } from '@/app/lib/pi/tool-output-metadata';
 
 const SESSION_TITLE_STORAGE_MAX_LENGTH = 120;
 const FORK_ORDINAL_LIMIT = 100_000;
@@ -186,6 +188,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
     let targetSessionId = input.targetSessionId;
     let copiedMessageCount = 0;
     let created = false;
+    let clonedOutputIdentity: ToolOutputIdentity | null = null;
 
     try {
       await connection.run('BEGIN');
@@ -409,6 +412,23 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
         throw new Error('Forked session message copy was incomplete.');
       }
 
+      const sourceOutputIdentity = {
+        organizationId: source.organization_id,
+        userId: input.userId,
+        sessionId: input.sourceSessionId,
+        workspaceId: input.workspaceId,
+      };
+      const targetOutputIdentity = { ...sourceOutputIdentity, sessionId: input.targetSessionId };
+      const copiedHistory = await connection.all(
+        'SELECT content FROM pi_messages WHERE pi_session_db_id = $1 AND sequence <= $2 ORDER BY sequence ASC',
+        [source.id, input.throughSequence],
+      ) as Array<{ content: string }>;
+      const outputReferences = collectStoredToolOutputReferences(copiedHistory);
+      if (outputReferences.length > 0) {
+        await cloneToolOutputs(sourceOutputIdentity, targetOutputIdentity, { references: outputReferences });
+        clonedOutputIdentity = targetOutputIdentity;
+      }
+
       const channelSessionKey = webChannelSessionKey(input.userId);
       await connection.run(
         `UPDATE session_channel_links
@@ -434,6 +454,13 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
           await connection.run('ROLLBACK');
         } catch {
           // Preserve the original fork error.
+        }
+        if (clonedOutputIdentity) {
+          try {
+            await deleteToolOutputs(clonedOutputIdentity);
+          } catch {
+            // A later orphan sweep can remove files; preserve the transaction error.
+          }
         }
       }
       throw error;

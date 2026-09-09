@@ -1,6 +1,13 @@
 # Providerunabhängige Web- und Tool-Ausgaben
 
-Stand: 2026-09-09. Planungsgrundlage: Canvas Notebook `caba97d5`, lokales Hermes-Repo `f293e7206b`. Status: untersucht und geplant; Produktänderungen noch nicht umgesetzt.
+Stand: 2026-09-09. Planungsgrundlage: Canvas Notebook `caba97d5`, lokales Hermes-Repo `f293e7206b`. Umsetzung läuft: Schritte 1 und 2 implementiert; Provideraufbereitung und gemeinsame Kontextbudgets folgen.
+
+## Umsetzungsstand
+
+- Schritt 1: Charakterisierung und Fixtures in Commit `27ce0b96`; lange erste Treffer verdrängen im Ausgangsstand nachfolgende Quellen.
+- Schritt 2: Private Ergebnisablage mit 4-MiB-Datei- und 64-MiB-Sitzungsgrenzen, sitzungsrelative `tool-output://`-Verweise, lesbare Manifeste, Offset-Paginierung in `read`, Nachschlagen mit `rg`, Schreibschutz, selektiver Fork und Sitzungsbereinigung. Die vorhandene Kernel-Sperrfunktion schützt die Quota über Prozesse hinweg. Gespeicherte Identität und Verweise enthalten keinen absoluten DATA-Pfad; ein Umzug des Datenverzeichnisses ist getestet. Der bestehende Full-Backup-Scanner schließt `tool-outputs` nicht aus und übernimmt Datei-Statistiken ins Archiv.
+- Automatische Prüfungen: `npm run test:pi:tool-outputs`, bestehender `workspace-mutation-lock-test.ts`, ESLint der geänderten Dateien und vollständiger Typecheck. Die umfassende vorhandene Tool-Registry-Suite erreicht ohne PostgreSQL-Konfiguration ihren Datenbankteil nicht; die neuen Lifecycle-Tests führen die echten Fork-/Löschfunktionen mit isolierten DB-Mocks und echten temporären Dateien aus.
+- Nutzerentscheidung: Nur Code und automatisierte Tests; interaktive UI-Abnahme später. Keine Browser-Tests und keine Container-Builds für diese Umsetzung.
 
 ## Ziel und Umfang
 
@@ -154,4 +161,4 @@ Vor einem Ausbau der Control-Plane-API ist keine Freigabe neuer Anbieter erforde
 - [Hermes: Web Search & Extract](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-search)
 - [Ollama: Web search](https://docs.ollama.com/capabilities/web-search)
 
-Für diesen Plan wurden Quellcode und bestehende Tests gelesen sowie Abhängigkeiten analysiert. Es wurden keine Produktdateien geändert, kein Build/Container gestartet und keine UI-/E2E-Prüfungen ausgeführt.
+Die Untersuchung und der ursprüngliche Plan erfolgten ohne Produktänderungen. Der aktuelle Umsetzungs- und Prüfstand steht oben; UI-/E2E-Abnahme und Container sind weiterhin ausgenommen.

@@ -46,6 +46,7 @@ import {
 } from '@/app/lib/filesystem/workspace-files';
 import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { getToolOutputRoot, getToolOutputSessionDirectory } from '@/app/lib/pi/tool-output-store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import {
   assertAgentRuntimeTempQuota,
@@ -296,6 +297,10 @@ function assertContextWorkspaceReadAllowed(candidatePath: string): void {
   if (!executionContext) return;
 
   const resolvedPath = path.resolve(candidatePath);
+  if (isPathWithinRootVariants(resolvedPath, getToolOutputRoot())) {
+    if (isPathWithinRootVariants(resolvedPath, getToolOutputSessionDirectory(executionContext))) return;
+    throw new Error('Stored tool output belongs to another chat session.');
+  }
   if (
     isPathWithinRootVariants(resolvedPath, executionContext.workspaceRoot) ||
     isAllowedRuntimeReadPath(resolvedPath, executionContext) ||
@@ -340,6 +345,9 @@ async function assertContextWorkspaceMutationAllowed(
 
   const workspaceRoot = path.resolve(executionContext.workspaceRoot);
   const resolvedPath = path.resolve(candidatePath);
+  if (isPathWithinRootVariants(resolvedPath, getToolOutputRoot())) {
+    throw new Error('Stored tool output is read-only.');
+  }
   const runtimeTempRoot = resolveAgentRuntimeTempDir(executionContext);
   if (isPathWithin(resolvedPath, runtimeTempRoot)) {
     await ensureAgentRuntimeTempDir(executionContext);
@@ -888,6 +896,9 @@ function resolveLegacyWorkspaceAlias(filePath: string): string | null {
 export function resolveAgentPath(filePath: string): string {
   assertValidAgentPathInput(filePath);
   const trimmedPath = filePath.trim();
+  if (trimmedPath.startsWith('tool-output://')) {
+    throw new Error('Stored tool output is read-only; open its reference with read or rg.');
+  }
   if (!path.isAbsolute(trimmedPath)) {
     return path.join(getAgentWorkspaceRoot(), trimmedPath);
   }

@@ -13,6 +13,8 @@ import {
   type AgentBashWorkingDirectory,
 } from '@/app/lib/pi/agent-bash-runtime';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { readTextWindow } from '@/app/lib/pi/text-read-window';
+import { TOOL_OUTPUT_READ_DEFAULT_CHARACTERS, TOOL_OUTPUT_READ_MAX_CHARACTERS } from '@/app/lib/pi/tool-output-policy';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/lib/pi/studio-tools';
@@ -55,7 +57,6 @@ import {
   recordBashToolAudit,
   sha256Buffer,
   throwIfAborted,
-  truncateReadText,
   writeAgentTextFile,
   MAX_PDF_IMAGE_LIMIT,
   MAX_PDF_TEXT_PAGE_LIMIT,
@@ -135,8 +136,9 @@ export const piTools: AgentTool[] = [
     label: 'Reading file',
     description: 'Reads the content of a file. For active Markdown/text or Excalidraw live-collaboration documents, returns the current authoritative collaboration state instead of a potentially older file checkpoint. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
-      path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
-      maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}.` })),
+      path: Type.String({ description: 'Absolute path, workspace-relative path, or tool-output:// reference returned by a tool.' }),
+      offset: Type.Optional(Type.Number({ minimum: 0, description: 'For text, zero-based UTF-16 character offset. Continue with nextOffset returned by the previous read; SHA-256 always covers the complete text.' })),
+      maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}. Stored tool outputs use ${TOOL_OUTPUT_READ_DEFAULT_CHARACTERS}/${TOOL_OUTPUT_READ_MAX_CHARACTERS}, reserving space for pagination metadata.` })),
       maxPdfTextPages: Type.Optional(Type.Number({ description: `For PDFs, maximum pages to parse for text when pdfTextPages is not provided. Default ${DEFAULT_PDF_TEXT_PAGE_LIMIT}, max ${MAX_PDF_TEXT_PAGE_LIMIT}.` })),
       pdfTextPages: Type.Optional(Type.Array(Type.Number(), { description: 'For PDFs, specific 1-based page numbers to parse for text. Use for large PDFs or targeted rereads.' })),
       includePdfImages: Type.Optional(Type.Boolean({ description: `For PDFs, include rendered page screenshots as image content for vision-capable models. Defaults to auto for PDFs up to ${PDF_AUTO_IMAGE_MAX_PAGES} pages and ${PDF_AUTO_IMAGE_MAX_BYTES} bytes.` })),
@@ -146,6 +148,7 @@ export const piTools: AgentTool[] = [
     execute: async (toolCallId, params, signal) => {
       const {
         path: filePath,
+        offset,
         maxChars,
         maxPdfTextPages,
         pdfTextPages,
@@ -154,6 +157,7 @@ export const piTools: AgentTool[] = [
         maxPdfImages,
       } = params as {
         path: string;
+        offset?: number;
         maxChars?: number;
         maxPdfTextPages?: number;
         pdfTextPages?: number[];
@@ -166,7 +170,10 @@ export const piTools: AgentTool[] = [
         const fullPath = resolvedPath.fullPath;
         await assertAgentPathAllowed(fullPath);
         throwIfAborted(signal);
-        const readTextLimit = clampReadTextLimit(maxChars);
+        const isStoredOutput = resolvedPath.source === 'tool-output';
+        const readTextLimit = isStoredOutput
+          ? clampPositiveInteger(maxChars, TOOL_OUTPUT_READ_DEFAULT_CHARACTERS - 400, TOOL_OUTPUT_READ_MAX_CHARACTERS - 400)
+          : clampReadTextLimit(maxChars);
         const stats = await fsPromises.stat(fullPath);
         if (isPdfPath(fullPath) && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
           return {
@@ -208,6 +215,7 @@ export const piTools: AgentTool[] = [
           };
         }
         if (isPdfBuffer(filePath, buffer)) {
+          if (offset !== undefined) throw new Error('offset applies to text files; use pdfTextPages for PDFs.');
           const pdfResult = await extractPdfTextForRead(filePath, buffer, {
             maxChars: readTextLimit,
             maxTextPages: clampPositiveInteger(maxPdfTextPages, DEFAULT_PDF_TEXT_PAGE_LIMIT, MAX_PDF_TEXT_PAGE_LIMIT),
@@ -234,19 +242,20 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: buffer.length, type: 'binary' },
           };
         }
-        const collaborativeScene = await readAgentCollaborativeExcalidrawFile(fullPath);
-        const collaborative = collaborativeScene
+        const collaborativeScene = isStoredOutput ? null : await readAgentCollaborativeExcalidrawFile(fullPath);
+        const collaborative = isStoredOutput || collaborativeScene
           ? null
           : await readAgentCollaborativeTextFile(fullPath, buffer);
         const text = collaborativeScene?.content ?? collaborative?.content ?? buffer.toString('utf8');
         const textSha256 = collaborativeScene
           ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))
           : collaborative?.sha256 ?? sha256;
-        const truncated = truncateReadText(text, readTextLimit);
+        const window = readTextWindow(text, offset, Math.max(2, readTextLimit));
+        const range = `Offset: ${window.offset}; nextOffset: ${window.nextOffset}; totalChars: ${window.totalChars}; eof: ${window.eof}`;
         return {
           content: [{
             type: 'text',
-            text: `SHA-256: ${textSha256}${collaborativeScene ? '\nSource: live Excalidraw collaboration scene' : collaborative ? '\nSource: live Yjs collaboration state' : ''}\n\n${truncated.text}`,
+            text: `SHA-256: ${textSha256}${collaborativeScene ? '\nSource: live Excalidraw collaboration scene' : collaborative ? '\nSource: live Yjs collaboration state' : ''}\n${range}\n\n${window.text}${!window.eof ? `\n[...content truncated after ${window.nextOffset - window.offset} characters; continue with read using nextOffset]` : ''}`,
           }],
           details: {
             filePath,
@@ -254,7 +263,12 @@ export const piTools: AgentTool[] = [
             sha256: textSha256,
             type: 'text',
             textLength: text.length,
-            truncated: truncated.truncated,
+            truncated: window.truncated,
+            offset: window.offset,
+            nextOffset: window.nextOffset,
+            eof: window.eof,
+            totalChars: window.totalChars,
+            ...(isStoredOutput ? { toolOutputRead: true, reference: filePath } : {}),
             collaboration: collaborativeScene
               ? {
                   documentId: collaborativeScene.documentId,

@@ -14,6 +14,7 @@ import {
   getErrorMessage,
   isAbortError,
   resolveAgentPath,
+  resolveReadToolPath,
   throwIfAborted,
 } from '@/app/lib/pi/tool-runtime-helpers';
 
@@ -378,7 +379,9 @@ export function createRipgrepTool(): AgentTool {
 
       try {
         throwIfAborted(signal);
-        const targetPath = resolveAgentPath(searchPath || '.');
+        const targetPath = searchPath?.startsWith('tool-output://')
+          ? (await resolveReadToolPath(searchPath)).fullPath
+          : resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(targetPath);
         const args = ['-n', '--color', 'never', '--no-heading'];
         if (ignoreCase) {
@@ -391,7 +394,7 @@ export function createRipgrepTool(): AgentTool {
           args.push('-g', glob.trim());
         }
         args.push('--max-count', String(clampMaxResults(maxResults, 50, 200)));
-        args.push(pattern, targetPath);
+        args.push('--', pattern, targetPath);
 
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
           execFile('rg', args, { cwd: '/', signal }, (err, commandStdout, commandStderr) => {

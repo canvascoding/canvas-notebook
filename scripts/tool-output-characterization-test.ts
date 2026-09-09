@@ -18,6 +18,13 @@ import {
   unicodeUrl,
 } from './fixtures/tool-output/search-fixtures';
 
+function firstTextPart(message: unknown): string {
+  const content = (message as unknown as { content?: unknown }).content;
+  if (!Array.isArray(content)) return '';
+  const first = content[0];
+  return first && typeof first === 'object' && 'text' in first && typeof first.text === 'string' ? first.text : '';
+}
+
 async function main() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-tool-output-characterization-'));
   const secretsDir = path.join(dataDir, 'secrets');
@@ -76,8 +83,8 @@ async function main() {
       timestamp: Date.now(),
     } as Parameters<typeof projectAgentMessageForLoadedContext>[0];
     const projectedToolResult = projectAgentMessageForLoadedContext(rawToolResult, 'context');
-    const rawText = (rawToolResult.content[0] as { type: string; text: string }).text;
-    const projectedText = (projectedToolResult.content[0] as { type: string; text: string }).text;
+    const rawText = firstTextPart(rawToolResult);
+    const projectedText = firstTextPart(projectedToolResult);
     assert.match(rawText, /Later Brave result/);
     assert.doesNotMatch(projectedText, /Later Brave result/);
     assert.match(projectedText, /tool result truncated for loaded chat context/);

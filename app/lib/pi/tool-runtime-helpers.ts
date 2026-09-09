@@ -46,6 +46,8 @@ import { createBrowserGatewayTool, type BrowserToolMode } from '@/app/lib/pi/bro
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
 import type { AgentBashWorkingDirectory } from '@/app/lib/pi/agent-bash-runtime';
+import { resolveToolOutputReference } from '@/app/lib/pi/tool-output-store';
+import { maybeCleanupToolOutputOrphans } from '@/app/lib/pi/tool-output-maintenance';
 
 export const execAsync = promisify(exec);
 
@@ -84,9 +86,12 @@ export function wrapToolWithExecutionContext(
   const execute = scopedTool.execute;
   return {
     ...scopedTool,
-    execute: (toolCallId, params, signal) => runWithAgentExecutionContext(
+    execute: (toolCallId, params, signal, onUpdate) => runWithAgentExecutionContext(
       context,
-      () => execute(toolCallId, params, signal),
+      async () => {
+        await maybeCleanupToolOutputOrphans(context);
+        return execute(toolCallId, params, signal, onUpdate);
+      },
     ),
   };
 }
@@ -200,7 +205,7 @@ export async function imageContentForBuffer(filePath: string, buffer: Buffer): P
 export type ResolvedReadToolPath = {
   fullPath: string;
   displayPath: string;
-  source: 'absolute' | 'workspace' | 'studio';
+  source: 'absolute' | 'workspace' | 'studio' | 'tool-output';
 };
 
 export function isPathWithin(candidatePath: string, basePath: string): boolean {
@@ -346,6 +351,15 @@ export function buildStudioReadCandidate(referencePath: string): ResolvedReadToo
 }
 
 export async function resolveReadToolPath(filePath: string): Promise<ResolvedReadToolPath> {
+  if (filePath.startsWith('tool-output://')) {
+    const context = getAgentExecutionContext();
+    if (!context) throw new Error('Reading stored tool output requires an active session.');
+    return {
+      fullPath: await resolveToolOutputReference(context, filePath),
+      displayPath: filePath,
+      source: 'tool-output',
+    };
+  }
   if (path.isAbsolute(filePath)) {
     const absolutePath = path.resolve(filePath);
     return {

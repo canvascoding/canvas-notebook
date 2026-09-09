@@ -120,7 +120,7 @@ async function openLockFile(lockPath: string): Promise<FileHandle> {
   }
 }
 
-function acquireKernelLock(handle: FileHandle, deadline: number): Promise<void> {
+export function acquireKernelLock(handle: FileHandle, deadline: number): Promise<void> {
   const remainingMs = deadline - performance.now();
   if (remainingMs <= 0) return Promise.reject(timeoutError());
   const appRoot = process.env.CANVAS_APP_ROOT?.trim() || process.cwd();
