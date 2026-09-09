@@ -20,6 +20,11 @@
   allowance) use one direct summary. Larger sources use digests without sending
   the whole source again to the final call. Source, prior summary, anchors and
   historical user excerpts receive separate budgets; each digest gets a share.
+- All source-record framing escapes reference text before budgeting, including
+  model-generated digests, prior summaries, anchors and user excerpts. Embedded
+  closing tags cannot escape the reference envelope; escaping expansion counts
+  toward input limits. This is framing hardening, not a guarantee against all
+  semantic prompt injection.
 - One total deadline covers all digest calls, repairs and final generation.
   Summary acceptance still requires valid structure, preserved history coverage,
   a smaller effective context, and the normal generation/revision checks.
@@ -51,6 +56,8 @@ from fixed-request overhead (`fixed_context_too_large`) and transfer size
 - Existing summary/digest, policy, selection, pruning, recovery, context UI and
   rollout suites; live/automation integration tests against dedicated empty
   PostgreSQL databases on the managed local service.
+- `npm run test:pi:summary-framing`: hostile closing tags in every source section,
+  pre-encoded entities, tight budgets and direct/digest-backed model prompts.
 - `npm run test:pi:context-ui-browser`: real ChatHeader/ChatRuntimeNotice components,
   eight desktop/mobile checks covering streaming/idle/abort, stale estimates,
   overflow, manual compact control and retained-context error wording. These are

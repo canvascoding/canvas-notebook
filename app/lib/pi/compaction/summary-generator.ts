@@ -18,7 +18,7 @@ import type {
 import { estimateTextTokens } from '../history-budget';
 import { isPiActionableUserMessage } from './selection';
 import { buildPiSummaryOrientation, PI_SUMMARY_RELEVANCE_POLICY } from './orientation';
-import { buildPiSummarySourceInput } from './summary-input';
+import { buildPiSummarySourceInput, escapePiSummaryReference } from './summary-input';
 import {
   assemblePiRollingSummary,
   PI_NO_USER_TASK_SENTINEL,
@@ -131,8 +131,10 @@ function extractAssistantText(message: AssistantMessage): string {
     .trim();
 }
 
-function asUntrustedRecord(label: string, content: string): string {
-  return `<untrusted_${label}>\n${content}\n</untrusted_${label}>`;
+function asUntrustedRecord(label: string, content: string, maximumCharacters: number): string {
+  const bounded = boundPiCompactionSummaryInput(escapePiSummaryReference(content), maximumCharacters)
+    .slice(0, maximumCharacters);
+  return `<untrusted_${label}>\n${bounded}\n</untrusted_${label}>`;
 }
 
 function timeoutPromise<T>(milliseconds: number, message: string): {
@@ -403,11 +405,10 @@ export async function generatePiRollingSummaryV2(
       0,
       (availablePromptTokens(input.model, DIGEST_SYSTEM_PROMPT, digestOutputReserve) - 256) * 4 - orientation.text.length,
     );
-    const boundedChunk = boundPiCompactionSummaryInput(chunk.content, maximumDigestInputCharacters);
     const prompt = [
       orientation.text,
       `Segment ${chunk.ordinal}/${chunk.total}; SHA-256 ${chunk.digest}.`,
-      asUntrustedRecord('session_segment', boundedChunk),
+      asUntrustedRecord('session_segment', chunk.content, maximumDigestInputCharacters),
     ].join('\n\n');
     const digestDeadline = attemptDeadline;
     let repairReason: 'empty_digest' | 'digest_too_large' | null = null;

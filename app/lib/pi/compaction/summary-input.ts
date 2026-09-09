@@ -1,5 +1,10 @@
 import { boundPiCompactionSummaryInput } from './recovery';
 
+/** Escape before allocating budgets so reference text cannot close prompt tags. */
+export function escapePiSummaryReference(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /** Allocate before rendering: section delimiters and each digest survive trimming. */
 export function buildPiSummarySourceInput(input: {
   sourceRecords: readonly string[];
@@ -14,7 +19,10 @@ export function buildPiSummarySourceInput(input: {
     { label: 'prior_rolling_summary', values: [input.prior], weight: 0.25 },
     { label: 'exact_anchors', values: [input.anchors], weight: 0.15 },
     { label: 'historical_user_excerpts', values: [input.users], weight: 0.05 },
-  ].filter((section) => section.values.some(Boolean));
+  ].filter((section) => section.values.some(Boolean)).map((section) => ({
+    ...section,
+    values: section.values.map(escapePiSummaryReference),
+  }));
   const wrap = (label: string, text: string) => `<untrusted_${label}>\n${text}\n</untrusted_${label}>`;
   const overhead = input.instruction.length + 2 + sections.reduce((sum, section) => (
     sum + wrap(section.label, '').length + 2 + section.values.length * 2
@@ -28,9 +36,11 @@ export function buildPiSummarySourceInput(input: {
     budgets[index] += extra;
     remaining -= extra;
   }
-  const records = sections.map((section, index) => wrap(section.label, section.values.map((value) => (
-    boundPiCompactionSummaryInput(value, Math.floor(budgets[index] / section.values.length))
-  )).join('\n\n')));
+  const records = sections.map((section, index) => wrap(section.label, section.values.map((value) => {
+    const budget = Math.floor(budgets[index] / section.values.length);
+    // The truncation marker itself may exceed a very small section allocation.
+    return boundPiCompactionSummaryInput(value, budget).slice(0, budget);
+  }).join('\n\n')));
   const result = [...records, input.instruction].join('\n\n');
   // Fail closed on a model window too small even for framing; never cut tags.
   return result.length <= input.maximumCharacters ? result : '';
