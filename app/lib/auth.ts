@@ -3,14 +3,15 @@ import { createAuthMiddleware } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { eq } from "drizzle-orm";
 import { db } from "@/app/lib/db";
-import { getDatabaseProvider } from "@/app/lib/db/provider";
 import { session as authSession, user } from "@/app/lib/db/schema";
+import { canvasAuthCookieOptions, usesSecureAuthCookies } from '@/app/lib/auth-cookie';
 import { nextCookies } from "better-auth/next-js";
 import { admin, bearer, jwt } from "better-auth/plugins";
 import { oauthProvider } from "@better-auth/oauth-provider";
 import { expo } from '@better-auth/expo';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins';
+import { rememberVerifiedRateLimitUser } from '@/app/lib/security/request-identity';
 import {
   isTeamMembershipReactivationBanReason,
 } from '@/app/lib/organization/membership-ban-reasons';
@@ -31,9 +32,7 @@ const authBaseURL =
 const authSecret = resolveAuthSecret(process.env, {
   allowProductionBuildFallback: true,
 });
-const forceSecureCookies = process.env.AUTH_COOKIE_SECURE === "true";
-const useSecureCookies =
-  forceSecureCookies || Boolean(authBaseURL && authBaseURL.startsWith("https://"));
+const useSecureCookies = usesSecureAuthCookies();
 
 const emailAndPasswordConfig = {
   enabled: true,
@@ -105,7 +104,7 @@ export const auth = betterAuth({
   baseURL: authBaseURL,
   trustedOrigins,
   database: drizzleAdapter(db, {
-    provider: getDatabaseProvider() === "postgres" ? "pg" : "sqlite",
+    provider: "pg",
   }),
   emailAndPassword: emailAndPasswordConfig,
   hooks: {
@@ -130,11 +129,18 @@ export const auth = betterAuth({
       }
     }),
     after: createAuthMiddleware(async (context) => {
+      if (context.path === "/get-session") rememberVerifiedRateLimitUser(null);
       const seatSession = context.context.newSession
         ?? (context.path === "/get-session" ? context.context.session : null);
       if (!seatSession) return;
       try {
         await assertUserSeatAccess({ userId: seatSession.user.id });
+        const returned = context.context.returned as { user?: { id?: string } } | null;
+        if (context.path === "/get-session"
+          && returned?.user?.id === seatSession.user.id
+          && new Date(seatSession.session.expiresAt).getTime() > Date.now()) {
+          rememberVerifiedRateLimitUser(seatSession.user.id);
+        }
       } catch (error) {
         if (!(error instanceof SeatLimitGuardError)) throw error;
         await revokeSeatGuardSessions(seatSession.user.id);
@@ -173,6 +179,9 @@ export const auth = betterAuth({
     },
   },
   advanced: {
+    ...canvasAuthCookieOptions(),
+    // The custom server overwrites this from the socket or authenticated proxy.
+    ipAddress: { ipAddressHeaders: ['x-forwarded-for'] },
     // The public origin is configured explicitly. Never let a client-supplied
     // forwarded host/proto alter OAuth issuer or endpoint URLs.
     trustedProxyHeaders: false,

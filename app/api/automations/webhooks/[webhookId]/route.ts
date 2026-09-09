@@ -10,7 +10,7 @@ import {
   scheduleAutomationJobRun,
 } from '@/app/lib/automations/store';
 import { verifyAutomationWebhookSecret } from '@/app/lib/automations/webhook-secret';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { publicRateLimit, publicResourceRateLimit } from '@/app/lib/security/public-rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,9 +75,10 @@ async function parseWebhookPayload(request: NextRequest): Promise<{
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { webhookId } = await context.params;
-  const limited = rateLimit(request, {
-    keyPrefix: `automation-webhook:${webhookId}`,
+  const limited = await publicRateLimit({
+    keyPrefix: 'automation-webhook',
     limit: 30,
+    globalLimit: 600,
     windowMs: 60_000,
   });
   if (!limited.ok) {
@@ -92,6 +93,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!verifyAutomationWebhookSecret(bearerToken(request), triggerWithJob.trigger.secretHash)) {
     return NextResponse.json({ accepted: false, reason: 'unauthorized' }, { status: 401 });
   }
+
+  const targetLimit = await publicResourceRateLimit({ keyPrefix: 'automation-webhook', limit: 120, windowMs: 60_000 }, webhookId);
+  if (!targetLimit.ok) return targetLimit.response;
 
   let parsed: { bodyBytes: number; payload: Record<string, unknown> };
   try {

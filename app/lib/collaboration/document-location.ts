@@ -29,7 +29,7 @@ export async function resolveCollaborationDocumentLocation(
         SELECT document.id AS document_id, document.path, state.lifecycle_generation, state.representation
         FROM collaboration_documents AS document
         LEFT JOIN collaboration_yjs_states AS state ON state.document_id = document.id
-        WHERE document.id = ? AND document.workspace_id = ?
+        WHERE document.id = $1 AND document.workspace_id = $2
           AND document.provider = 'yjs' AND document.status = 'active'
           AND ((state.document_id IS NULL AND document.state_version = 0)
             OR (state.workspace_id = document.workspace_id AND state.path = document.path AND state.status = 'active'))

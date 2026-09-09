@@ -1,9 +1,5 @@
 import 'server-only';
 
-import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const REALTIME_TEXT_WORKSPACE_TYPES = new Set<WorkspaceContext['workspaceType']>([
@@ -20,8 +16,6 @@ const REALTIME_TEXT_WORKSPACE_TYPES = new Set<WorkspaceContext['workspaceType']>
  */
 export function workspaceSupportsRealtimeTextCollaboration(
   workspace: WorkspaceContext,
-  databaseProvider: DatabaseProvider = getDatabaseProvider(),
 ): boolean {
-  return databaseProvider === 'postgres'
-    && REALTIME_TEXT_WORKSPACE_TYPES.has(workspace.workspaceType);
+  return REALTIME_TEXT_WORKSPACE_TYPES.has(workspace.workspaceType);
 }

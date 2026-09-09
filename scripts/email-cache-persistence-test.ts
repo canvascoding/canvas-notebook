@@ -6,8 +6,6 @@ import { PGlite } from '@electric-sql/pglite';
 
 import { runEmailCachePostgresMigration } from '../app/lib/email/cache/postgres-migration';
 import {
-  createEmailCacheStore,
-  getRuntimeEmailCacheStore,
   normalizeEmailListCacheScope,
   normalizeEmailMessageRef,
   PostgresEmailCacheStore,
@@ -679,45 +677,8 @@ async function testPostgresStore(postgres: PGlite): Promise<void> {
   })).stored, true);
 }
 
-async function testSqliteBypass(): Promise<void> {
-  const store = createEmailCacheStore({ provider: 'sqlite' });
-  assert.equal(store.enabled, false);
-  assert.deepEqual(await store.getList({
-    userId: 'user-1',
-    accountId: 'account-1',
-    folder: 'INBOX',
-    limit: 25,
-  }), {
-    state: 'miss',
-    enabled: false,
-    generation: null,
-    fetchedAt: null,
-    staleAt: null,
-    expiresAt: null,
-    value: null,
-  });
-  assert.deepEqual(await store.putList({
-    userId: 'user-1',
-    accountId: 'account-1',
-    folder: 'INBOX',
-    limit: 25,
-    refs: [],
-    expectedGeneration: 1,
-  }), { enabled: false, stored: false, reason: 'disabled' });
-
-  const previousProvider = process.env.CANVAS_DATABASE_PROVIDER;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
-  try {
-    assert.equal((await getRuntimeEmailCacheStore()).enabled, false);
-  } finally {
-    if (previousProvider === undefined) delete process.env.CANVAS_DATABASE_PROVIDER;
-    else process.env.CANVAS_DATABASE_PROVIDER = previousProvider;
-  }
-}
-
 async function main(): Promise<void> {
   await testNormalizedKeys();
-  await testSqliteBypass();
   const postgres = new PGlite();
   try {
     await installBaseEmailSchema(postgres);

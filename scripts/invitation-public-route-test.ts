@@ -4,6 +4,7 @@ import test from 'node:test';
 import { NextRequest } from 'next/server';
 
 import middleware from '../proxy';
+import { routing } from '../i18n/routing';
 
 const publicInvitationRoutes = [
   '/api/organization/invitations/accept',
@@ -29,8 +30,19 @@ test('allows localized invitation pages without a session cookie', async () => {
     `/en/invite/team?token=${invitationToken}`,
   ]) {
     const response = await middleware(new NextRequest(`http://localhost:3000${path}`));
-    assert.equal(response.status, 200, path);
-    assert.equal(response.headers.get('location'), null, path);
+    const location = response.headers.get('location');
+    if (location) {
+      // Locale canonicalization may redirect; it must preserve the invitation
+      // and must never send an anonymous invitee to the login page.
+      assert.ok(response.status === 307 || response.status === 308, path);
+      const redirected = new URL(location);
+      assert.equal(redirected.origin, 'http://localhost:3000');
+      assert.ok(redirected.pathname === '/invite/team'
+        || routing.locales.some(locale => redirected.pathname === `/${locale}/invite/team`));
+      assert.equal(redirected.searchParams.get('token'), invitationToken);
+    } else {
+      assert.equal(response.status, 200, path);
+    }
 
     const rewrite = response.headers.get('x-middleware-rewrite');
     if (rewrite) {

@@ -13,7 +13,6 @@ import {
   resolveUserSkillsDir,
 } from '@/app/lib/runtime-data-paths';
 import { openDb, type SqlConnection } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   getTeamMembershipByUserId,
   transitionTeamMembership,
@@ -198,8 +197,8 @@ async function getTargetUser(
     FROM "user" u
     LEFT JOIN organization_user_permissions p
       ON p.user_id = u.id
-      AND p.organization_id = ?
-    WHERE u.id = ?
+      AND p.organization_id = $1
+    WHERE u.id = $2
     LIMIT 1
   `, [organizationId, targetUserId]) as TargetUserRow | undefined;
 
@@ -217,7 +216,7 @@ async function getPersonalWorkspaces(
   return await database.all(`
     SELECT id, status, root_relative_path
     FROM canvas_workspaces
-    WHERE owner_user_id = ?
+    WHERE owner_user_id = $1
       AND type = 'personal'
     ORDER BY is_default DESC, created_at ASC
   `, [targetUserId]) as PersonalWorkspaceRow[];
@@ -236,8 +235,8 @@ async function getLastManagedTeamWorkspaces(
       AND w.organization_id = m.organization_id
       AND w.type = 'team'
       AND COALESCE(w.status, 'active') = 'active'
-    WHERE m.organization_id = ?
-      AND m.user_id = ?
+    WHERE m.organization_id = $1
+      AND m.user_id = $2
       AND COALESCE(m.status, 'active') = 'active'
       AND m.can_manage = 1
       AND (
@@ -264,8 +263,8 @@ async function getLastManagedProjectWorkspaces(
       AND w.project_id = m.project_id
       AND w.type = 'project'
       AND COALESCE(w.status, 'active') = 'active'
-    WHERE m.organization_id = ?
-      AND m.user_id = ?
+    WHERE m.organization_id = $1
+      AND m.user_id = $2
       AND COALESCE(m.status, 'active') = 'active'
       AND m.can_manage = 1
       AND (
@@ -317,17 +316,17 @@ function buildAutomationAffectedWhere(): string {
       (
         COALESCE(scope, 'personal') != 'organization'
         AND (
-          owner_user_id = ?
-          OR (owner_user_id IS NULL AND created_by_user_id = ?)
+          owner_user_id = $1
+          OR (owner_user_id IS NULL AND created_by_user_id = $2)
         )
       )
       OR (
         scope = 'organization'
         AND (
-          responsible_user_id = ?
-          OR created_by_user_id = ?
-          OR approved_by_user_id = ?
-          OR last_edited_by_user_id = ?
+          responsible_user_id = $3
+          OR created_by_user_id = $4
+          OR approved_by_user_id = $5
+          OR last_edited_by_user_id = $6
         )
       )
     )
@@ -357,8 +356,8 @@ async function buildPreflightFromScopedStorage(
     SELECT COUNT(*) AS count
     FROM organization_user_permissions p
     INNER JOIN "user" u ON u.id = p.user_id
-    WHERE p.organization_id = ?
-      AND p.user_id != ?
+    WHERE p.organization_id = $1
+      AND p.user_id != $2
       AND COALESCE(p.status, 'active') = 'active'
       AND p.role IN ('owner', 'admin')
       AND p.can_recover_workspaces = 1
@@ -426,20 +425,20 @@ async function buildPreflightFromScopedStorage(
   const activeSessions = await count(database, `
     SELECT COUNT(*) AS count
     FROM "session"
-    WHERE user_id = ?
-      AND expires_at > ?
+    WHERE user_id = $1
+      AND expires_at > $2
   `, [targetUserId, Date.now()]);
-  const authAccounts = await count(database, 'SELECT COUNT(*) AS count FROM "account" WHERE user_id = ?', [targetUserId]);
+  const authAccounts = await count(database, 'SELECT COUNT(*) AS count FROM "account" WHERE user_id = $1', [targetUserId]);
   const activeEmailAccounts = await count(database, `
     SELECT COUNT(*) AS count
     FROM email_accounts
-    WHERE user_id = ?
+    WHERE user_id = $1
       AND status = 'active'
   `, [targetUserId]);
   const activeChannelBindings = await count(database, `
     SELECT COUNT(*) AS count
     FROM channel_user_bindings
-    WHERE user_id = ?
+    WHERE user_id = $1
       AND enabled = 1
   `, [targetUserId]);
   const personalAutomations = await count(database, `
@@ -448,8 +447,8 @@ async function buildPreflightFromScopedStorage(
     WHERE status = 'active'
       AND COALESCE(scope, 'personal') != 'organization'
       AND (
-        owner_user_id = ?
-        OR (owner_user_id IS NULL AND created_by_user_id = ?)
+        owner_user_id = $1
+        OR (owner_user_id IS NULL AND created_by_user_id = $2)
       )
   `, [targetUserId, targetUserId]);
   const organizationResponsibleAutomations = await count(database, `
@@ -457,7 +456,7 @@ async function buildPreflightFromScopedStorage(
     FROM automation_jobs
     WHERE status = 'active'
       AND scope = 'organization'
-      AND responsible_user_id = ?
+      AND responsible_user_id = $1
   `, [targetUserId]);
   const organizationReviewAutomations = await count(database, `
     SELECT COUNT(*) AS count
@@ -465,9 +464,9 @@ async function buildPreflightFromScopedStorage(
     WHERE status = 'active'
       AND scope = 'organization'
       AND (
-        created_by_user_id = ?
-        OR approved_by_user_id = ?
-        OR last_edited_by_user_id = ?
+        created_by_user_id = $1
+        OR approved_by_user_id = $2
+        OR last_edited_by_user_id = $3
       )
   `, [targetUserId, targetUserId, targetUserId]);
   const affectedAutomations = await count(database, `
@@ -481,45 +480,45 @@ async function buildPreflightFromScopedStorage(
     LEFT JOIN automation_jobs j ON j.id = r.job_id
     WHERE r.status IN ('pending', 'running', 'retry_scheduled')
       AND (
-        r.actor_user_id = ?
-        OR j.owner_user_id = ?
-        OR j.responsible_user_id = ?
-        OR j.created_by_user_id = ?
+        r.actor_user_id = $1
+        OR j.owner_user_id = $2
+        OR j.responsible_user_id = $3
+        OR j.created_by_user_id = $4
       )
   `, [targetUserId, targetUserId, targetUserId, targetUserId]);
   const openAssignedTodos = await count(database, `
     SELECT COUNT(*) AS count
     FROM todo_items
-    WHERE assignee_user_id = ?
+    WHERE assignee_user_id = $1
       AND status = 'open'
       AND archived_at IS NULL
   `, [targetUserId]);
   const openCreatedTodos = await count(database, `
     SELECT COUNT(*) AS count
     FROM todo_items
-    WHERE created_by_user_id = ?
+    WHERE created_by_user_id = $1
       AND status = 'open'
       AND archived_at IS NULL
   `, [targetUserId]);
   const activePublicShares = await count(database, `
     SELECT COUNT(*) AS count
     FROM public_file_shares
-    WHERE created_by_user_id = ?
+    WHERE created_by_user_id = $1
       AND status = 'active'
   `, [targetUserId]);
-  const studioGenerations = await count(database, 'SELECT COUNT(*) AS count FROM studio_generations WHERE user_id = ?', [targetUserId]);
+  const studioGenerations = await count(database, 'SELECT COUNT(*) AS count FROM studio_generations WHERE user_id = $1', [targetUserId]);
   const teamWorkspaceMemberships = await count(database, `
     SELECT COUNT(*) AS count
     FROM canvas_workspace_members
-    WHERE organization_id = ?
-      AND user_id = ?
+    WHERE organization_id = $1
+      AND user_id = $2
       AND COALESCE(status, 'active') = 'active'
   `, [organization.organization_id, targetUserId]);
   const projectWorkspaceMemberships = await count(database, `
     SELECT COUNT(*) AS count
     FROM canvas_project_members
-    WHERE organization_id = ?
-      AND user_id = ?
+    WHERE organization_id = $1
+      AND user_id = $2
       AND COALESCE(status, 'active') = 'active'
   `, [organization.organization_id, targetUserId]);
 
@@ -791,67 +790,67 @@ export async function offboardUser(options: {
 
     actions.userBanned = await run(database, `
       UPDATE "user"
-      SET banned = 1, ban_reason = ?, ban_expires = NULL, updated_at = ?
-      WHERE id = ?
+      SET banned = 1, ban_reason = $1, ban_expires = NULL, updated_at = $2
+      WHERE id = $3
     `, [`Offboarded: ${reason}`, now, options.targetUserId]);
-    actions.sessionsRevoked = await run(database, 'DELETE FROM "session" WHERE user_id = ?', [options.targetUserId]);
+    actions.sessionsRevoked = await run(database, 'DELETE FROM "session" WHERE user_id = $1', [options.targetUserId]);
     actions.authAccountsRevoked = await run(database, `
       UPDATE "account"
       SET access_token = NULL,
           refresh_token = NULL,
           id_token = NULL,
           password = NULL,
-          updated_at = ?
-      WHERE user_id = ?
+          updated_at = $1
+      WHERE user_id = $2
     `, [now, options.targetUserId]);
     actions.emailAccountsRevoked = await run(database, `
       UPDATE email_accounts
       SET status = 'revoked',
           is_primary = 0,
-          updated_at = ?
-      WHERE user_id = ?
+          updated_at = $1
+      WHERE user_id = $2
         AND status != 'revoked'
     `, [now, options.targetUserId]);
     actions.todoEmailWatchersDisabled = await run(database, `
       UPDATE todo_email_reply_watchers
       SET status = 'disabled',
-          error = ?,
-          updated_at = ?
-      WHERE user_id = ?
+          error = $1,
+          updated_at = $2
+      WHERE user_id = $3
         AND status = 'active'
     `, ['User was offboarded.', now, options.targetUserId]);
     actions.channelBindingsDisabled = await run(database, `
       UPDATE channel_user_bindings
       SET enabled = 0
-      WHERE user_id = ?
+      WHERE user_id = $1
         AND enabled = 1
     `, [options.targetUserId]);
-    actions.channelActiveSessionsDeleted = await run(database, 'DELETE FROM channel_active_sessions WHERE user_id = ?', [options.targetUserId]);
-    actions.telegramActiveSessionsDeleted = await run(database, 'DELETE FROM telegram_active_session WHERE user_id = ?', [options.targetUserId]);
-    actions.channelLinkTokensDeleted = await run(database, 'DELETE FROM channel_link_tokens WHERE user_id = ?', [options.targetUserId]);
+    actions.channelActiveSessionsDeleted = await run(database, 'DELETE FROM channel_active_sessions WHERE user_id = $1', [options.targetUserId]);
+    actions.telegramActiveSessionsDeleted = await run(database, 'DELETE FROM telegram_active_session WHERE user_id = $1', [options.targetUserId]);
+    actions.channelLinkTokensDeleted = await run(database, 'DELETE FROM channel_link_tokens WHERE user_id = $1', [options.targetUserId]);
 
     actions.automationsPaused = await run(database, `
       UPDATE automation_jobs
       SET status = 'paused',
           next_run_at = NULL,
-          last_edited_by_user_id = ?,
-          updated_at = ?
+          last_edited_by_user_id = $1,
+          updated_at = $2
       WHERE status = 'active'
         AND (
           (
             COALESCE(scope, 'personal') != 'organization'
             AND (
-              owner_user_id = ?
-              OR (owner_user_id IS NULL AND created_by_user_id = ?)
+              owner_user_id = $3
+              OR (owner_user_id IS NULL AND created_by_user_id = $4)
             )
           )
           OR (
             scope = 'organization'
             AND (
-              responsible_user_id = ?
-              OR created_by_user_id = ?
-              OR approved_by_user_id = ?
-              OR last_edited_by_user_id = ?
+              responsible_user_id = $5
+              OR created_by_user_id = $6
+              OR approved_by_user_id = $7
+              OR last_edited_by_user_id = $8
             )
           )
         )
@@ -869,17 +868,17 @@ export async function offboardUser(options: {
       actions.webhookTriggersPaused = await run(database, `
         UPDATE automation_webhook_triggers
         SET status = 'paused',
-            updated_at = ?
+            updated_at = $1
         WHERE job_id IN (${placeholders(affectedJobs)})
       `, [now, ...affectedJobs]);
       actions.automationRunsStopped = await run(database, `
         UPDATE automation_runs
         SET status = 'failed',
-            finished_at = COALESCE(finished_at, ?),
-            error_message = COALESCE(error_message, ?)
+            finished_at = COALESCE(finished_at, $1),
+            error_message = COALESCE(error_message, $2)
         WHERE status IN ('pending', 'running', 'retry_scheduled')
           AND (
-            actor_user_id = ?
+            actor_user_id = $3
             OR job_id IN (${placeholders(affectedJobs)})
           )
       `, [now, 'User was offboarded before the run completed.', options.targetUserId, ...affectedJobs]);
@@ -888,38 +887,38 @@ export async function offboardUser(options: {
       actions.automationRunsStopped = await run(database, `
         UPDATE automation_runs
         SET status = 'failed',
-            finished_at = COALESCE(finished_at, ?),
-            error_message = COALESCE(error_message, ?)
+            finished_at = COALESCE(finished_at, $1),
+            error_message = COALESCE(error_message, $2)
         WHERE status IN ('pending', 'running', 'retry_scheduled')
-          AND actor_user_id = ?
+          AND actor_user_id = $3
       `, [now, 'User was offboarded before the run completed.', options.targetUserId]);
     }
 
     actions.todosUnassigned = await run(database, `
       UPDATE todo_items
       SET assignee_user_id = NULL,
-          updated_at = ?
-      WHERE assignee_user_id = ?
+          updated_at = $1
+      WHERE assignee_user_id = $2
         AND status = 'open'
         AND archived_at IS NULL
     `, [now, options.targetUserId]);
     actions.personalWorkspacesLocked = await run(database, `
       UPDATE canvas_workspaces
       SET status = 'recovery_locked',
-          updated_at = ?
-      WHERE owner_user_id = ?
+          updated_at = $1
+      WHERE owner_user_id = $2
         AND type = 'personal'
         AND status != 'recovery_locked'
     `, [now, options.targetUserId]);
     actions.teamWorkspaceMembershipsRemoved = await run(database, `
       DELETE FROM canvas_workspace_members
-      WHERE organization_id = ?
-        AND user_id = ?
+      WHERE organization_id = $1
+        AND user_id = $2
     `, [preflight.organizationId, options.targetUserId]);
     actions.projectWorkspaceMembershipsRemoved = await run(database, `
       DELETE FROM canvas_project_members
-      WHERE organization_id = ?
-        AND user_id = ?
+      WHERE organization_id = $1
+        AND user_id = $2
     `, [preflight.organizationId, options.targetUserId]);
     const teamMembership = await getTeamMembershipByUserId(
       database,
@@ -943,7 +942,6 @@ export async function offboardUser(options: {
           offboarding: true,
         },
         now,
-        databaseProvider: getDatabaseProvider(),
       });
       actions.teamMembershipRemoved = 1;
       actions.seatReductionQueued = 1;
@@ -963,7 +961,6 @@ export async function offboardUser(options: {
           seatReductionAlreadyQueued: true,
         },
         now,
-        databaseProvider: getDatabaseProvider(),
       });
       actions.teamMembershipRemoved = 1;
       actions.seatReductionQueued = 0;
@@ -982,11 +979,11 @@ export async function offboardUser(options: {
     actions.permissionArchived = await run(database, `
       UPDATE organization_user_permissions
       SET status = 'archived',
-          disabled_at = COALESCE(disabled_at, ?),
-          archived_at = ?,
-          offboarded_by_user_id = ?,
-          offboarding_reason = ?,
-          offboarding_report_json = ?,
+          disabled_at = COALESCE(disabled_at, $1),
+          archived_at = $2,
+          offboarded_by_user_id = $3,
+          offboarding_reason = $4,
+          offboarding_report_json = $5,
           can_write_team_workspace = 0,
           can_create_public_links = 0,
           can_create_team_automations = 0,
@@ -999,9 +996,9 @@ export async function offboardUser(options: {
           can_migrate_database = 0,
           can_enable_knowledge = 0,
           can_recover_workspaces = 0,
-          updated_at = ?
-      WHERE organization_id = ?
-        AND user_id = ?
+          updated_at = $6
+      WHERE organization_id = $7
+        AND user_id = $8
     `, [
       now,
       now,

@@ -59,6 +59,9 @@ export type TextCollaborationDurabilityState =
   | 'degraded';
 
 export interface CollaborationTicketClaims {
+  /** File guests use a separate, file-scoped cookie and never an app account. */
+  guestInvitationId?: string;
+  guestPolicyRevision?: number;
   schemaVersion: number;
   issuedAt: number;
   expiresAt: number;
@@ -75,6 +78,7 @@ export interface CollaborationTicketClaims {
 }
 
 export interface CollaborationSessionResponse {
+  guestAccess?: { invitationId: string; workspaceId: string };
   success: true;
   documentId: string;
   documentName: string;

@@ -43,7 +43,7 @@ export const metadata: Metadata = {
 
 export default function PublicLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="de" suppressHydrationWarning>
       <head>
         <InlineScript html={'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";'} />
       </head>

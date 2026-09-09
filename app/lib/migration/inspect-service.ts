@@ -1,11 +1,6 @@
 import 'server-only';
 
-import { execFile, spawn } from 'child_process';
-import crypto from 'crypto';
-import { createReadStream, createWriteStream, promises as fs } from 'fs';
-import { tmpdir } from 'os';
-import path from 'path';
-import { pipeline } from 'stream/promises';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
@@ -32,14 +27,11 @@ import {
 import { formatVersionCompatibilityMessage } from '@/app/lib/migration/version';
 import {
   getDeploymentMode,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
-import { assertSqliteDatabaseReadable } from '@/app/lib/db/sqlite-health';
+} from '@/app/lib/organization/config';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { openDb } from '@/app/lib/db';
 
 const execFileAsync = promisify(execFile);
-const SQLITE_ARCHIVE_PATH = 'data/sqlite.db';
 
 async function unzipText(args: string[], maxBuffer = 100 * 1024 * 1024): Promise<string> {
   const { stdout } = await execFileAsync('unzip', args, { encoding: 'utf8', maxBuffer });
@@ -59,56 +51,7 @@ async function listArchiveEntries(archivePath: string): Promise<string[]> {
   return output.split('\n').map((line) => line.trim()).filter(Boolean);
 }
 
-async function extractArchiveEntryToFile(params: {
-  archivePath: string;
-  entryName: string;
-  outputPath: string;
-}): Promise<void> {
-  const child = spawn('unzip', ['-p', params.archivePath, params.entryName], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  if (!child.stdout || !child.stderr) {
-    child.kill();
-    throw new Error('Could not open unzip streams.');
-  }
-  let stderr = '';
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk) => {
-    stderr += chunk;
-  });
-
-  const output = createWriteStream(params.outputPath, { mode: 0o600 });
-  const extracted = pipeline(child.stdout, output);
-  const exited = new Promise<void>((resolve, reject) => {
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(`unzip failed for ${params.entryName}: ${stderr.trim() || `exit ${code}`}`));
-    });
-  });
-
-  try {
-    await Promise.all([extracted, exited]);
-  } catch (error) {
-    child.kill();
-    throw error;
-  }
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const hash = crypto.createHash('sha256');
-  const stream = createReadStream(filePath, { highWaterMark: 1024 * 1024 });
-  for await (const chunk of stream) {
-    hash.update(chunk);
-  }
-  return hash.digest('hex');
-}
-
-async function validateSqliteDatabaseArtifact(params: {
-  archivePath: string;
+async function validatePostgresDatabaseArtifact(params: {
   manifest: CanvasMigrationManifest;
   entries: string[];
 }): Promise<string[]> {
@@ -117,50 +60,20 @@ async function validateSqliteDatabaseArtifact(params: {
     return blockers;
   }
 
-  const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider ?? 'sqlite';
-  const backupKind = params.manifest.database?.backupKind ?? 'sqlite_snapshot';
-  const artifactPath = params.manifest.database?.artifactPath ?? SQLITE_ARCHIVE_PATH;
-  if (sourceProvider !== 'sqlite' || backupKind !== 'sqlite_snapshot' || artifactPath !== SQLITE_ARCHIVE_PATH) {
-    return blockers;
-  }
-
-  const artifactEntries = params.entries.filter((entry) => entry === SQLITE_ARCHIVE_PATH);
-  if (artifactEntries.length !== 1) {
-    blockers.push(
-      artifactEntries.length === 0
-        ? 'Migration archive is missing data/sqlite.db.'
-        : 'Migration archive contains multiple data/sqlite.db entries.',
-    );
-    return blockers;
-  }
-
-  const tempRoot = await fs.mkdtemp(path.join(tmpdir(), 'canvas-migration-sqlite-'));
-  const snapshotPath = path.join(tempRoot, 'sqlite.db');
-  try {
-    await extractArchiveEntryToFile({
-      archivePath: params.archivePath,
-      entryName: SQLITE_ARCHIVE_PATH,
-      outputPath: snapshotPath,
-    });
-
-    const expectedSha256 = params.manifest.database?.artifactSha256;
-    if (expectedSha256) {
-      const actualSha256 = await sha256File(snapshotPath);
-      if (actualSha256 !== expectedSha256) {
-        blockers.push('SQLite database snapshot checksum does not match the migration manifest.');
-      }
-    }
-
-    try {
-      assertSqliteDatabaseReadable(snapshotPath);
-    } catch (error) {
-      blockers.push(`SQLite database snapshot is invalid: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  } finally {
-    await fs.rm(tempRoot, { recursive: true, force: true });
-  }
+  const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider;
+  if (sourceProvider !== 'postgres') return blockers;
+  const backupKind = params.manifest.database?.backupKind ?? 'none';
+  if (backupKind !== 'postgres_dump' && backupKind !== 'none') blockers.push('PostgreSQL migration archive has an unsupported database backup kind.');
+  const artifactPath = params.manifest.database?.artifactPath;
+  if (artifactPath && !params.entries.includes(artifactPath)) blockers.push(`Migration archive is missing ${artifactPath}.`);
 
   return blockers;
+}
+
+function hasUnsupportedSQLiteSource(manifest: CanvasMigrationManifest | null, entries: string[]): boolean {
+  if (entries.includes('data/sqlite.db')) return true;
+  if (!manifest?.components.database) return false;
+  return manifest.source?.databaseProvider === 'sqlite';
 }
 
 function parseComponents(value: unknown): MigrationComponents | null {
@@ -232,10 +145,10 @@ function parseExportSecurity(value: unknown): MigrationExportSecurity | undefine
 function parseExportDatabase(value: unknown): MigrationExportDatabase | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const database = value as Record<string, unknown>;
-  const provider = database.provider === 'sqlite' || database.provider === 'postgres' || database.provider === 'unknown'
+  const provider = database.provider === 'postgres' || database.provider === 'unknown'
     ? database.provider
     : 'unknown';
-  const backupKind = database.backupKind === 'sqlite_snapshot' || database.backupKind === 'postgres_dump' || database.backupKind === 'none'
+  const backupKind = database.backupKind === 'postgres_dump' || database.backupKind === 'none'
     ? database.backupKind
     : 'none';
   return {
@@ -411,47 +324,8 @@ async function readLocalImportContext(warnings: string[]): Promise<LocalImportCo
     }
   }
 
-  let sqlite: ReturnType<typeof openOrganizationBootstrapDatabase> | null = null;
-  try {
-    sqlite = openOrganizationBootstrapDatabase();
-    const organization = sqlite.prepare(`
-      SELECT organization_id AS organizationId, deployment_mode AS deploymentMode, team_features_enabled AS teamFeaturesEnabled
-      FROM canvas_organization_settings
-      ORDER BY created_at ASC
-      LIMIT 1
-    `).get() as { organizationId: string; deploymentMode: string; teamFeaturesEnabled: number } | undefined;
-    const users = sqlite.prepare(`
-      SELECT id, email
-      FROM user
-      ORDER BY created_at ASC
-    `).all() as LocalUser[];
-    const workspaces = sqlite.prepare(`
-      SELECT
-        id,
-        organization_id AS organizationId,
-        type,
-        owner_user_id AS ownerUserId,
-        root_relative_path AS rootRelativePath,
-        display_name AS displayName
-      FROM canvas_workspaces
-      WHERE status = 'active'
-      ORDER BY created_at ASC
-    `).all() as LocalWorkspace[];
-
-    return {
-      databaseProvider: getDatabaseProvider(),
-      deploymentMode: organization?.deploymentMode || getDeploymentMode(),
-      organizationId: organization?.organizationId || null,
-      teamFeaturesEnabled: organization ? organization.teamFeaturesEnabled === 1 : false,
-      users,
-      workspaces,
-    };
-  } catch (error) {
-    warnings.push(`Target mapping context could not be read: ${error instanceof Error ? error.message : 'unknown error'}`);
-    return fallback;
-  } finally {
-    sqlite?.close();
-  }
+  warnings.push('Target mapping context is unavailable because PostgreSQL is not configured.');
+  return fallback;
 }
 
 function parseReconnectManifest(raw: string | null): MigrationImportReconnectRequirement[] {
@@ -712,23 +586,14 @@ async function buildDryRun(params: {
   const blockers: string[] = [];
 
   if (params.manifest.components.database) {
-    const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider ?? 'sqlite';
-    const backupKind = params.manifest.database?.backupKind ?? 'sqlite_snapshot';
-    const artifactPath = params.manifest.database?.artifactPath ?? 'data/sqlite.db';
+    const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider;
     if (sourceProvider === 'postgres') {
       if (target.databaseProvider !== 'postgres') {
         blockers.push('This export requires a Postgres target before database restore can be staged.');
       }
-      blockers.push('Postgres database restore is not supported by the migration restore engine; use Full Backup restore or the SQLite-to-Postgres migration flow.');
-    } else if (sourceProvider !== 'sqlite') {
-      blockers.push(`Source database provider ${sourceProvider} is not supported by the restore engine.`);
+      blockers.push('Postgres database restore is not supported by the migration restore engine; use Full Backup restore or a dedicated provider migration.');
     } else {
-      if (backupKind !== 'sqlite_snapshot' || artifactPath !== 'data/sqlite.db') {
-        blockers.push('SQLite database restore requires a sanitized data/sqlite.db snapshot in the migration archive.');
-      }
-      if (target.databaseProvider !== 'sqlite') {
-        blockers.push(`Target database provider ${target.databaseProvider} requires a provider-aware import path before SQLite database restore.`);
-      }
+      blockers.push(`Source database provider ${sourceProvider ?? 'unknown'} is not supported by the PostgreSQL-only restore engine.`);
     }
   }
 
@@ -869,8 +734,12 @@ export async function inspectMigrationArchive(params: {
     compatibility.message,
     ...(manifest?.warnings ?? []),
   ];
+  const unsupportedSQLiteSource = hasUnsupportedSQLiteSource(manifest, entries);
+  if (unsupportedSQLiteSource) {
+    warnings.push('SQLite migration archives are no longer supported by the migration inspector; export a PostgreSQL migration archive.');
+  }
   let reconnect: MigrationImportReconnectRequirement[] = [];
-  if (manifest?.components.secrets || manifest?.security?.secretsMode === 'reconnect_manifest') {
+  if (!unsupportedSQLiteSource && (manifest?.components.secrets || manifest?.security?.secretsMode === 'reconnect_manifest')) {
     const rawReconnect = await unzipText(['-p', params.archivePath, 'data/reconnect-manifest.json'], 20 * 1024 * 1024)
       .catch(() => null);
     reconnect = parseReconnectManifest(rawReconnect);
@@ -878,13 +747,12 @@ export async function inspectMigrationArchive(params: {
       warnings.push('Secrets were selected in the source export, but no reconnect manifest was found.');
     }
   }
-  const dryRun = manifest
+  const dryRun = manifest && !unsupportedSQLiteSource
     ? await buildDryRun({ manifest, entries, reconnect, warnings })
     : undefined;
 
   if (dryRun && manifest) {
-    const databaseBlockers = await validateSqliteDatabaseArtifact({
-      archivePath: params.archivePath,
+    const databaseBlockers = await validatePostgresDatabaseArtifact({
       manifest,
       entries,
     });

@@ -9,6 +9,7 @@ import * as Y from 'yjs';
 import { collaborationStateProof, isCollaborationStateProof } from './state-proof';
 import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
+import { fileGuestApi } from '@/app/lib/file-guests/types';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 import { COLLABORATION_FAILURE_CODES } from './failure';
 import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
@@ -210,12 +211,13 @@ async function requestSession(
   representation: RequestedTextCollaborationRepresentation,
   workspaceId: string,
   signal?: AbortSignal,
+  guestInvitationId?: string,
 ): Promise<CollaborationSessionResponse> {
   signal?.throwIfAborted();
-  const response = await fetch('/api/files/collaboration/session', {
+  const response = await fetch(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
     signal,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
     body: JSON.stringify({ path, representation, ...COLLABORATION_CLIENT_CAPABILITIES }),
   });
   const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
@@ -256,7 +258,7 @@ async function refreshEntrySession(entry: RegistryEntry, scope: AbortController)
   assertRequestActive(entry, scope);
   const previous = entry.session;
   if (!previous) throw new Error('Collaboration is not ready.');
-  const refreshed = requireTextSession(await requestSession(entry.path, 'auto', entry.key.split('\0')[0], scope.signal),
+  const refreshed = requireTextSession(await requestSession(entry.path, 'auto', entry.key.split('\0')[0], scope.signal, previous.guestAccess?.invitationId),
     previous.representation as TextCollaborationRepresentation);
   assertRequestActive(entry, scope);
   if (refreshed.documentId !== previous.documentId || refreshed.lifecycleGeneration !== previous.lifecycleGeneration
@@ -298,9 +300,10 @@ function createEntry(
   key: string,
   path: string,
   representation: TextCollaborationRepresentation,
+  workspaceId: string,
   initialSession?: CollaborationSessionResponse | null,
 ): RegistryEntry {
-  const workspaceId = key.split('\0')[0];
+  const guestInvitationId = initialSession?.guestAccess?.invitationId;
   const entry: RegistryEntry = {
     key,
     path,
@@ -337,7 +340,7 @@ function createEntry(
       ]);
       if (entry.lifecycle.signal.aborted || registry.get(key) !== entry) return;
       const session = requireTextSession(
-        entry.session || await requestSession(entry.path, representation, workspaceId, entry.requests.signal),
+        entry.session || await requestSession(entry.path, representation, workspaceId, entry.requests.signal, guestInvitationId),
         representation,
       );
       assertEntryActive(entry);
@@ -357,7 +360,7 @@ function createEntry(
         stateProof: session.stateProof,
       }) ?? undefined;
       const persistence = new IndexeddbPersistence(
-        `canvas:${session.documentId}:${session.lifecycleGeneration}:${representation}`,
+        `canvas:${guestInvitationId ? `guest:${guestInvitationId}:` : ''}${session.documentId}:${session.lifecycleGeneration}:${representation}`,
         entry.doc,
       );
       entry.persistence = persistence;
@@ -401,6 +404,11 @@ function createEntry(
         transition(entry, { type: 'document_changed' });
         if (entry.pendingAuthoritativeSnapshot) reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
       });
+      const denyAccess = (message: string) => {
+        if (entry.session) entry.session = { ...entry.session, permission: 'read' };
+        entry.provider?.disconnect();
+        transition(entry, { type: 'authentication_failed', message });
+      };
       entry.startProvider = () => {
         const scope = entry.requests;
         const active = () => !entry.lifecycle.signal.aborted && scope === entry.requests && !scope.signal.aborted;
@@ -442,10 +450,7 @@ function createEntry(
           },
           onAuthenticationFailed: ({ reason }) => {
             if (!active()) return;
-            transition(entry, {
-              type: 'authentication_failed',
-              message: reason || 'Collaboration authentication failed.',
-            });
+            denyAccess(reason || 'Collaboration authentication failed.');
           },
           onStateless: ({ payload }) => {
             if (!active()) return;
@@ -462,6 +467,10 @@ function createEntry(
                 documentSequence?: number;
                 checkpointSequence?: number;
               };
+              if (message.type === 'access_revoked' || message.type === 'update_rejected') {
+                denyAccess(message.message || 'File access was revoked. Local changes are preserved.');
+                return;
+              }
               if (message.type === 'degraded') {
                 transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.', code: message.code });
                 return;
@@ -533,10 +542,10 @@ function createEntry(
           let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
             assertRequestActive(entry, scope);
-            const response = await fetch('/api/files/collaboration/checkpoint', {
+            const response = await fetch(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/checkpoint` : '/api/files/collaboration/checkpoint', {
               signal: scope.signal,
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+              headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
               body: JSON.stringify({ token: entry.session.token, stateVector, stateProof }),
             });
             const payload = await response.json().catch(() => ({})) as Record<string, unknown> & {
@@ -575,7 +584,7 @@ function createEntry(
             && entry.clientState.durability === 'checkpointed_file') return;
           const message = error instanceof Error ? error.message : 'Checkpoint failed.';
           if (scope === entry.requests && !scope.signal.aborted) {
-            if (authenticationFailed) transition(entry, { type: 'authentication_failed', message });
+            if (authenticationFailed) denyAccess(message);
             else transition(entry, { type: generationChanged || (requestCode && isCollaborationCheckpointValidationErrorCode(requestCode))
               ? 'degraded' : 'checkpoint_failed', message, code: requestCode });
           }
@@ -634,17 +643,17 @@ export function useCollaborationDocument(input: {
   } | null>(null);
   const key = input.enabled && input.workspaceId && input.path
     ? input.session
-      ? `${input.workspaceId}\0${input.documentKey ?? input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
+      ? `${input.workspaceId}\0${input.session.guestAccess?.invitationId || ''}\0${input.session.user.id}\0${input.documentKey ?? input.path}\0${input.session.documentId}\0${input.session.lifecycleGeneration}\0${input.representation}`
       : input.waitForSession ? state?.owner === owner ? state.key : null
         : `${input.workspaceId}\0${input.path}\0${input.representation}`
     : null;
   useEffect(() => {
-    if (!key || !input.path) {
+    if (!key || !input.path || !input.workspaceId) {
       return;
     }
     let entry = registry.get(key);
     if (!entry) {
-      entry = createEntry(key, input.path, input.representation, input.session);
+      entry = createEntry(key, input.path, input.representation, input.workspaceId, input.session);
       registry.set(key, entry);
     } else if (input.session) {
       try { adoptEntryLocation(entry, input.path, input.session); }
@@ -666,7 +675,7 @@ export function useCollaborationDocument(input: {
         }, 1_000);
       }
     };
-  }, [input.path, input.representation, input.session, key, owner]);
+  }, [input.path, input.representation, input.session, input.workspaceId, key, owner]);
   return key && state?.key === key && state.owner === owner && state.path === input.path
     && (!input.waitForSession || input.session) ? state.document : null;
 }

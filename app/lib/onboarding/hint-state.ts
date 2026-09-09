@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 
 import type { HintDefinition, PageDefinition } from '@/app/components/onboarding/hint-config';
-import { db, getDatabaseProvider } from '@/app/lib/db';
+import { db } from '@/app/lib/db';
 import { pageOnboardingState, userHintState } from '@/app/lib/db/schema';
 
 type HintTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -16,18 +16,10 @@ export type DismissUserHintResult = {
   completed: boolean;
 };
 
-const isPostgresRuntime = getDatabaseProvider() === 'postgres';
-
 async function runHintTransaction<T>(
-  sqliteCallback: (tx: HintTransaction) => T,
-  postgresCallback: (tx: HintTransaction) => Promise<T>,
+  callback: (tx: HintTransaction) => Promise<T>,
 ): Promise<T> {
-  if (isPostgresRuntime) {
-    return (db as unknown as {
-      transaction<Result>(callback: (tx: HintTransaction) => Promise<Result>): Promise<Result>;
-    }).transaction(postgresCallback);
-  }
-  return db.transaction(sqliteCallback);
+  return db.transaction(callback);
 }
 
 export function isHintDismissedForVersion(
@@ -91,142 +83,14 @@ export async function dismissUserHint(input: {
     updatedAt: now,
   };
 
-  return runHintTransaction(
-    (tx) => {
-      tx.insert(userHintState).values(values).onConflictDoUpdate({
-        target: [userHintState.userId, userHintState.hintKey],
-        set: conflictUpdate,
-      }).run();
-      const rows = tx.select().from(userHintState).where(wherePage).all();
-      const result = resolveDismissResult(userId, hintDef, pageDef, rows);
-      if (result.completed) {
-        tx.insert(pageOnboardingState).values({
-          userId,
-          page: pageDef.page,
-          completed: true,
-          completedAt: now,
-          version: pageDef.version,
-          createdAt: now,
-          updatedAt: now,
-        }).onConflictDoUpdate({
-          target: [pageOnboardingState.userId, pageOnboardingState.page],
-          set: {
-            completed: true,
-            completedAt: now,
-            version: pageDef.version,
-            updatedAt: now,
-          },
-        }).run();
-      }
-      return result;
-    },
-    async (tx) => {
-      await tx.insert(userHintState).values(values).onConflictDoUpdate({
-        target: [userHintState.userId, userHintState.hintKey],
-        set: conflictUpdate,
-      });
-      const rows = await tx.select().from(userHintState).where(wherePage);
-      const result = resolveDismissResult(userId, hintDef, pageDef, rows);
-      if (result.completed) {
-        await tx.insert(pageOnboardingState).values({
-          userId,
-          page: pageDef.page,
-          completed: true,
-          completedAt: now,
-          version: pageDef.version,
-          createdAt: now,
-          updatedAt: now,
-        }).onConflictDoUpdate({
-          target: [pageOnboardingState.userId, pageOnboardingState.page],
-          set: {
-            completed: true,
-            completedAt: now,
-            version: pageDef.version,
-            updatedAt: now,
-          },
-        });
-      }
-      return result;
-    },
-  );
-}
-
-export async function completeUserHintPage(input: {
-  userId: string;
-  pageDef: PageDefinition;
-  now?: Date;
-}): Promise<void> {
-  const { userId, pageDef } = input;
-  const now = input.now ?? new Date();
-
-  const insertHintRows = (tx: HintTransaction) => {
-    for (const hint of pageDef.hints) {
-      tx.insert(userHintState).values({
-        userId,
-        hintKey: hint.hintKey,
-        page: pageDef.page,
-        dismissed: true,
-        dismissedAt: now,
-        version: pageDef.version,
-        createdAt: now,
-        updatedAt: now,
-      }).onConflictDoUpdate({
-        target: [userHintState.userId, userHintState.hintKey],
-        set: {
-          dismissed: true,
-          dismissedAt: now,
-          version: pageDef.version,
-          updatedAt: now,
-        },
-      }).run();
-    }
-  };
-  const insertPageRow = (tx: HintTransaction) => {
-    tx.insert(pageOnboardingState).values({
-      userId,
-      page: pageDef.page,
-      completed: true,
-      completedAt: now,
-      version: pageDef.version,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: [pageOnboardingState.userId, pageOnboardingState.page],
-      set: {
-        completed: true,
-        completedAt: now,
-        version: pageDef.version,
-        updatedAt: now,
-      },
-    }).run();
-  };
-
-  await runHintTransaction(
-    (tx) => {
-      insertHintRows(tx);
-      insertPageRow(tx);
-    },
-    async (tx) => {
-      for (const hint of pageDef.hints) {
-        await tx.insert(userHintState).values({
-          userId,
-          hintKey: hint.hintKey,
-          page: pageDef.page,
-          dismissed: true,
-          dismissedAt: now,
-          version: pageDef.version,
-          createdAt: now,
-          updatedAt: now,
-        }).onConflictDoUpdate({
-          target: [userHintState.userId, userHintState.hintKey],
-          set: {
-            dismissed: true,
-            dismissedAt: now,
-            version: pageDef.version,
-            updatedAt: now,
-          },
-        });
-      }
+  return runHintTransaction(async (tx) => {
+    await tx.insert(userHintState).values(values).onConflictDoUpdate({
+      target: [userHintState.userId, userHintState.hintKey],
+      set: conflictUpdate,
+    });
+    const rows = await tx.select().from(userHintState).where(wherePage);
+    const result = resolveDismissResult(userId, hintDef, pageDef, rows);
+    if (result.completed) {
       await tx.insert(pageOnboardingState).values({
         userId,
         page: pageDef.page,
@@ -244,8 +108,65 @@ export async function completeUserHintPage(input: {
           updatedAt: now,
         },
       });
-    },
-  );
+    }
+    return result;
+  });
+}
+
+export async function completeUserHintPage(input: {
+  userId: string;
+  pageDef: PageDefinition;
+  now?: Date;
+}): Promise<void> {
+  const { userId, pageDef } = input;
+  const now = input.now ?? new Date();
+
+  const insertHintRows = async (tx: HintTransaction) => {
+    for (const hint of pageDef.hints) {
+      await tx.insert(userHintState).values({
+        userId,
+        hintKey: hint.hintKey,
+        page: pageDef.page,
+        dismissed: true,
+        dismissedAt: now,
+        version: pageDef.version,
+        createdAt: now,
+        updatedAt: now,
+      }).onConflictDoUpdate({
+        target: [userHintState.userId, userHintState.hintKey],
+        set: {
+          dismissed: true,
+          dismissedAt: now,
+          version: pageDef.version,
+          updatedAt: now,
+        },
+      });
+    }
+  };
+  const insertPageRow = async (tx: HintTransaction) => {
+    await tx.insert(pageOnboardingState).values({
+      userId,
+      page: pageDef.page,
+      completed: true,
+      completedAt: now,
+      version: pageDef.version,
+      createdAt: now,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: [pageOnboardingState.userId, pageOnboardingState.page],
+      set: {
+        completed: true,
+        completedAt: now,
+        version: pageDef.version,
+        updatedAt: now,
+      },
+    });
+  };
+
+  await runHintTransaction(async (tx) => {
+    await insertHintRows(tx);
+    await insertPageRow(tx);
+  });
 }
 
 export async function resetUserHintPage(input: {
@@ -272,25 +193,13 @@ export async function resetUserHintPage(input: {
     updatedAt: now,
   };
 
-  await runHintTransaction(
-    (tx) => {
-      tx.update(userHintState)
-        .set({ dismissed: false, dismissedAt: null, version: pageDef.version, updatedAt: now })
-        .where(wherePage)
-        .run();
-      tx.insert(pageOnboardingState).values(pageValues).onConflictDoUpdate({
-        target: [pageOnboardingState.userId, pageOnboardingState.page],
-        set: pageUpdate,
-      }).run();
-    },
-    async (tx) => {
-      await tx.update(userHintState)
-        .set({ dismissed: false, dismissedAt: null, version: pageDef.version, updatedAt: now })
-        .where(wherePage);
-      await tx.insert(pageOnboardingState).values(pageValues).onConflictDoUpdate({
-        target: [pageOnboardingState.userId, pageOnboardingState.page],
-        set: pageUpdate,
-      });
-    },
-  );
+  await runHintTransaction(async (tx) => {
+    await tx.update(userHintState)
+      .set({ dismissed: false, dismissedAt: null, version: pageDef.version, updatedAt: now })
+      .where(wherePage);
+    await tx.insert(pageOnboardingState).values(pageValues).onConflictDoUpdate({
+      target: [pageOnboardingState.userId, pageOnboardingState.page],
+      set: pageUpdate,
+    });
+  });
 }

@@ -3,10 +3,6 @@ import 'server-only';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   getTeamMembershipByUserId,
   transitionTeamMembership,
   type TeamMembership,
@@ -72,9 +68,9 @@ async function readOrganizationUserState(
     FROM canvas_organization_settings settings
     INNER JOIN organization_user_permissions permissions
       ON permissions.organization_id = settings.organization_id
-      AND permissions.user_id = ?
+      AND permissions.user_id = $1
     INNER JOIN "user" users ON users.id = permissions.user_id
-    WHERE settings.organization_id = ?
+    WHERE settings.organization_id = $2
     LIMIT 1
   `, [userId, organizationId]) as OrganizationUserState | undefined;
   return row ?? null;
@@ -89,8 +85,8 @@ async function activeAdminLikeUsersExcluding(
     SELECT COUNT(*) AS count
     FROM organization_user_permissions permissions
     INNER JOIN "user" users ON users.id = permissions.user_id
-    WHERE permissions.organization_id = ?
-      AND permissions.user_id != ?
+    WHERE permissions.organization_id = $1
+      AND permissions.user_id != $2
       AND permissions.role IN ('owner', 'admin')
       AND COALESCE(permissions.status, 'active') = 'active'
       AND COALESCE(users.banned, 0) != 1
@@ -104,7 +100,6 @@ export async function suspendTeamMembershipUser(input: {
   actorUserId: string;
   reason?: string | null;
   database?: MembershipSuspensionDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<MembershipSuspensionResult> {
   if (input.targetUserId === input.actorUserId) {
@@ -115,9 +110,8 @@ export async function suspendTeamMembershipUser(input: {
   }
   const database = input.database ?? await openDb();
   const closeDatabase = input.database === undefined;
-  const databaseProvider = input.databaseProvider ?? getDatabaseProvider();
   const now = input.now ?? Date.now();
-  await database.run(databaseProvider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const state = await readOrganizationUserState(
       database,
@@ -177,8 +171,8 @@ export async function suspendTeamMembershipUser(input: {
     const banReason = `${TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX}${reason}`;
     const banned = await database.run(`
       UPDATE "user"
-      SET banned = 1, ban_reason = ?, ban_expires = NULL, updated_at = ?
-      WHERE id = ?
+      SET banned = 1, ban_reason = $1, ban_expires = NULL, updated_at = $2
+      WHERE id = $3
     `, [banReason, now, input.targetUserId]);
     if (changesFromRunResult(banned) !== 1) {
       throw new MembershipSuspensionError(
@@ -187,7 +181,7 @@ export async function suspendTeamMembershipUser(input: {
       );
     }
     const sessionsRevoked = changesFromRunResult(await database.run(
-      'DELETE FROM "session" WHERE user_id = ?',
+      'DELETE FROM "session" WHERE user_id = $1',
       [input.targetUserId],
     ));
     const suspended = await transitionTeamMembership(database, {
@@ -202,7 +196,6 @@ export async function suspendTeamMembershipUser(input: {
       enqueueSeatReduction: true,
       transactionMode: 'existing',
       now,
-      databaseProvider,
     });
     await database.run('COMMIT');
     return {

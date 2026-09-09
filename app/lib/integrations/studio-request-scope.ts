@@ -3,15 +3,9 @@ import 'server-only';
 import type { NextRequest } from 'next/server';
 
 import { createStudioScope } from '@/app/lib/integrations/studio-scope';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { getPostgresWorkspaceState } from '@/app/lib/workspaces/postgres-runtime';
 import { requireSessionWorkspace } from '@/app/lib/workspaces/request';
-import { resolveDefaultWorkspaceContext } from '@/app/lib/workspaces/service';
 import { ensureStudioWorkspaceFilesMigrated } from '@/app/lib/integrations/studio-workspace-file-migration';
 
 type AuthSession = Parameters<typeof requireSessionWorkspace>[0];
@@ -32,26 +26,8 @@ async function defaultStudioWorkspaceId(session: AuthSession): Promise<string | 
     role: session.user.role,
   });
 
-  if (getDatabaseProvider() === 'postgres') {
-    const state = await getPostgresWorkspaceState(actor);
-    return state.defaultWorkspace?.workspaceId ?? null;
-  }
-
-  const sqlite = openOrganizationBootstrapDatabase();
-  try {
-    sqlite.exec('BEGIN IMMEDIATE');
-    const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-    const workspace = status.organizationId
-      ? resolveDefaultWorkspaceContext(sqlite, { actor, organizationId: status.organizationId })
-      : null;
-    sqlite.exec('COMMIT');
-    return workspace?.workspaceId ?? null;
-  } catch (error) {
-    if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
-    throw error;
-  } finally {
-    sqlite.close();
-  }
+  const state = await getPostgresWorkspaceState(actor);
+  return state.defaultWorkspace?.workspaceId ?? null;
 }
 
 export async function requireStudioRequestScope(

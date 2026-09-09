@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
+import { publishWorkspaceUpload } from '@/app/lib/filesystem/upload-events';
 import { replaceWorkspaceFileFromPath } from '@/app/lib/filesystem/workspace-files';
 import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
 import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
 import {
   completeWorkspaceUploadFile,
-  publicWorkspaceUploadSession,
 } from '@/app/lib/files/workspace-upload-service';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -38,6 +37,7 @@ export async function POST(
       fileId,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
+      includeFullSession: false,
       commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
         await runWorkspaceUploadWrite({
           workspace: workspaceResult.workspace,
@@ -58,13 +58,10 @@ export async function POST(
       },
     });
 
+    let committed;
     if (!result.alreadyCompleted) {
       await syncPublicSharesAfterWrite([result.file.targetPath], workspaceResult.workspace);
-      invalidateWorkspaceFileViews({
-        fileOptions,
-        fullTree: true,
-        mutations: [{ path: result.file.targetPath, type: 'add' }],
-      });
+      committed = await publishWorkspaceUpload(workspaceResult.workspace, result.file.targetPath);
       await recordAuditEvent({
         organizationId: workspaceResult.workspace.organizationId,
         workspaceId: workspaceResult.workspace.workspaceId,
@@ -89,8 +86,9 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      upload: publicWorkspaceUploadSession(result.session),
+      uploadId: result.session.id,
       file: result.file,
+      committed,
       alreadyCompleted: result.alreadyCompleted,
     });
   } catch (error) {

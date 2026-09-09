@@ -5,7 +5,6 @@ import type * as YTypes from 'yjs';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { openDb, type SqlConnection } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import {
   applyExactTextEdits,
   resolveExactTextEditMatchCount,
@@ -866,7 +865,7 @@ async function readOperation(database: SqlConnection, operationId: string): Prom
     `SELECT operation.*, COALESCE(initiator.name, initiator.email, initiator.id) AS initiated_by_display_name
      FROM collaboration_agent_operations operation
      LEFT JOIN "user" initiator ON initiator.id = operation.initiated_by_user_id
-     WHERE operation.operation_id = ? LIMIT 1`,
+     WHERE operation.operation_id = $1 LIMIT 1`,
     [operationId],
   ) as AgentOperationRow | undefined) || null;
 }
@@ -879,8 +878,8 @@ async function transitionOperation(input: {
   fields?: Record<string, unknown>;
 }): Promise<AgentOperationRow> {
   const fields = { ...(input.fields || {}), status: input.status, updated_at: Date.now() };
-  const assignments = Object.keys(fields).map((field) => `${field} = ?`).join(', ');
-  const statusPlaceholders = input.expectedStatuses.map(() => '?').join(', ');
+  const assignments = Object.keys(fields).map((field, index) => `${field} = $${index + 1}`).join(', ');
+  const statusPlaceholders = input.expectedStatuses.map((_, index) => `$${index + Object.keys(fields).length + 4}`).join(', ');
   const params = [
     ...Object.values(fields),
     input.row.operation_id,
@@ -891,7 +890,7 @@ async function transitionOperation(input: {
   const result = await input.database.run(
     `UPDATE collaboration_agent_operations
      SET ${assignments}, cas_version = cas_version + 1
-     WHERE operation_id = ? AND cas_version = ? AND run_generation = ? AND status IN (${statusPlaceholders})`,
+     WHERE operation_id = $${Object.keys(fields).length + 1} AND cas_version = $${Object.keys(fields).length + 2} AND run_generation = $${Object.keys(fields).length + 3} AND status IN (${statusPlaceholders})`,
     params,
   );
   if (changes(result) !== 1) throw new Error('Agent operation state changed concurrently; reload its current status.');
@@ -980,7 +979,7 @@ async function createOrLoadOperation(input: {
   }
   const payloadHash = operationPayloadHash(input);
   const existing = await input.database.get(
-    'SELECT * FROM collaboration_agent_operations WHERE document_id = ? AND initiated_by_user_id = ? AND idempotency_key = ? LIMIT 1',
+    'SELECT * FROM collaboration_agent_operations WHERE document_id = $1 AND initiated_by_user_id = $2 AND idempotency_key = $3 LIMIT 1',
     [input.documentId, input.initiatedByUserId, input.idempotencyKey],
   ) as AgentOperationRow | undefined;
   if (existing) {
@@ -990,8 +989,8 @@ async function createOrLoadOperation(input: {
   if (input.correlationId && triggerDepth > 0) {
     const chainDuplicate = await input.database.get(
       `SELECT * FROM collaboration_agent_operations
-       WHERE document_id = ? AND initiated_by_user_id = ? AND correlation_id = ?
-         AND payload_hash = ? AND operation_type = ?
+       WHERE document_id = $1 AND initiated_by_user_id = $2 AND correlation_id = $3
+         AND payload_hash = $4 AND operation_type = $5
        ORDER BY created_at ASC LIMIT 1`,
       [input.documentId, input.initiatedByUserId, input.correlationId, payloadHash, input.operationType],
     ) as AgentOperationRow | undefined;
@@ -1018,7 +1017,7 @@ async function createOrLoadOperation(input: {
       requested_mode, atomicity, operation_payload, status, base_state_vector,
       base_document_sequence, result_json, cas_version, expires_at, correlation_id,
       causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'preparing', ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'preparing', $21, $22, NULL, 0, $23, $24, $25, $26, $27, $28, $29)`,
     [
       operationId,
       input.documentId,
@@ -1230,7 +1229,7 @@ async function applyStoredOperation(input: {
   });
 
   const initiator = await input.database.get(
-    'SELECT name, email FROM "user" WHERE id = ? LIMIT 1',
+    'SELECT name, email FROM "user" WHERE id = $1 LIMIT 1',
     [row.initiated_by_user_id],
   ) as { name?: string | null; email?: string | null } | undefined;
   const initiatorName = initiator?.name?.trim() || initiator?.email?.trim() || row.initiated_by_user_id;
@@ -1558,7 +1557,6 @@ export async function applyPersistedAgentTextOperation(input: {
   baseDocumentSequence?: number;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
-  if (getDatabaseProvider() !== 'postgres') throw new Error('Agent collaboration operations require Postgres.');
   return serialized(input.documentId, async (queue) => {
     const database = await openDb();
     try {
@@ -1772,7 +1770,6 @@ export async function getAgentOperation(input: {
   workspace: WorkspaceContext;
   userId: string;
 }): Promise<AgentOperationView | null> {
-  if (getDatabaseProvider() !== 'postgres') return null;
   const database = await openDb();
   try {
     const row = await readOperation(database, input.operationId);
@@ -1794,15 +1791,15 @@ export async function listAgentOperations(input: {
   userId: string;
   pendingOnly?: boolean;
 }): Promise<AgentOperationView[]> {
-  if (getDatabaseProvider() !== 'postgres' || !input.workspace.permissions.canRead) return [];
+  if (!input.workspace.permissions.canRead) return [];
   const database = await openDb();
   try {
     const rows = await database.all(
       `SELECT operation.*, COALESCE(initiator.name, initiator.email, initiator.id) AS initiated_by_display_name
        FROM collaboration_agent_operations operation
        LEFT JOIN "user" initiator ON initiator.id = operation.initiated_by_user_id
-       WHERE operation.document_id = ? AND operation.workspace_id = ?
-         AND (? = 0 OR operation.status IN ('needs_review', 'partially_applied', 'semantic_conflict', 'cancel_requested'))
+       WHERE operation.document_id = $1 AND operation.workspace_id = $2
+         AND ($3 = 0 OR operation.status IN ('needs_review', 'partially_applied', 'semantic_conflict', 'cancel_requested'))
        ORDER BY operation.updated_at DESC LIMIT 50`,
       [
         input.documentId,
@@ -1837,7 +1834,7 @@ async function rememberAction(database: SqlConnection, row: AgentOperationRow, a
   if (existing && existing !== idempotencyKey) return row;
   keys[action] = idempotencyKey;
   const updated = await database.run(
-    'UPDATE collaboration_agent_operations SET action_keys_json = ?, updated_at = ? WHERE operation_id = ? AND cas_version = ?',
+    'UPDATE collaboration_agent_operations SET action_keys_json = $1, updated_at = $2 WHERE operation_id = $3 AND cas_version = $4',
     [JSON.stringify(keys), Date.now(), row.operation_id, row.cas_version],
   );
   if (changes(updated) !== 1) throw new Error('Agent operation action raced with another request; reload its status.');
@@ -2000,7 +1997,6 @@ export async function detectLateAgentSemanticConflicts(input: {
   doc: YTypes.Doc;
   observedDocumentSequence?: number | null;
 }): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const memoryWindows = recentAgentChangeWindows.get(input.documentId);
   if (!memoryWindows) return;
 
@@ -2074,7 +2070,6 @@ export async function detectLateAgentSemanticConflicts(input: {
 
 /** Safe restart recovery never replays an uncertain authoritative apply. */
 export async function recoverCollaborationAgentOperations(now = Date.now()): Promise<void> {
-  if (getDatabaseProvider() !== 'postgres') return;
   const database = await openDb();
   try {
     const rows = await database.all(
@@ -2131,7 +2126,7 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
     const recentRows = await database.all(
       `SELECT * FROM collaboration_agent_operations
        WHERE status IN ('applied_to_ydoc', 'persisted_yjs', 'checkpointed_file', 'partially_applied', 'reverted')
-         AND applied_at IS NOT NULL AND applied_at >= ? AND reverse_payload IS NOT NULL`,
+         AND applied_at IS NOT NULL AND applied_at >= $1 AND reverse_payload IS NOT NULL`,
       [now - SEMANTIC_CHANGE_WINDOW_MS],
     ) as AgentOperationRow[];
     for (const row of recentRows) {

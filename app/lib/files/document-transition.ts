@@ -2,6 +2,7 @@
 type DocumentTransitionGuard = {
   prepare: () => Promise<void>;
   hasPendingChanges: () => boolean;
+  localChangeVersion?: () => number | undefined;
 };
 
 const guards = new Map<string, DocumentTransitionGuard>();

@@ -73,6 +73,10 @@ const http = require('http');
 const { guardHttpRequestLifecycle } = require('./server/http-request-lifecycle');
 const fs = require('fs');
 const next = require('next');
+const { runWithRequestIdentity } = require('./app/lib/security/request-identity');
+const { handleHtmlPreviewBoundary } = require('./server/html-preview-boundary');
+const { isHtmlPreviewHost } = require('./app/lib/html-preview-origin');
+const { handleHttpRequestSafely } = require('./server/http-request-boundary');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
 const {
@@ -395,8 +399,7 @@ async function runStartupDatabaseMigrations() {
   const { runStartupDatabaseMigrations: migrateDatabase } = require('./app/lib/db/startup-migrations');
   await migrateDatabase();
   // Runtime modules can be loaded later by Next.js on demand. They must not
-  // reopen the schema migration path while long-lived SQLite connections are
-  // already serving requests.
+  // reopen the schema migration path while requests are already being served.
   process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED = 'true';
 }
 
@@ -548,8 +551,8 @@ function recoverStaleAutomationRuns() {
   }
 }
 
-const server = http.createServer((req, res) => {
-  guardHttpRequestLifecycle(req, res);
+async function routeHttpRequest(req, res) {
+  if (handleHtmlPreviewBoundary(req, res)) return;
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname.startsWith('/media/')) {
@@ -576,7 +579,19 @@ const server = http.createServer((req, res) => {
   // Terminal kill endpoint is now handled by Next.js API routes
   // See app/api/terminal/kill/route.ts
 
-  handle(req, res);
+  await handle(req, res);
+}
+
+const server = http.createServer((req, res) => {
+  guardHttpRequestLifecycle(req, res);
+  handleHttpRequestSafely(req, res, () => runWithRequestIdentity(req, () => routeHttpRequest(req, res)));
+});
+server.prependListener('upgrade', (request, socket) => {
+  if (isHtmlPreviewHost(request.headers.host)) {
+    delete request.headers.cookie;
+    delete request.headers.authorization;
+    socket.destroy();
+  }
 });
 
 let shutdownInProgress = false;

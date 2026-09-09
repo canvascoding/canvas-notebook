@@ -86,18 +86,20 @@ export function reduceTextCollaborationClientState(
     case 'indexeddb_hydrated':
       return withReadiness({ ...state, indexedDbHydrated: true });
     case 'provider_status':
+      if (state.connection === 'denied') return state;
       return withReadiness({
         ...state,
         // A TCP/WebSocket reconnect is not proof of renewed authorization.
-        connection: state.connection === 'denied' ? 'denied' : event.permission === 'read'
+        connection: event.permission === 'read'
           ? 'read_only'
           : event.status === 'connected'
             ? state.remoteSynced ? 'live' : 'connecting'
             : event.status === 'connecting' ? 'reconnecting' : 'offline',
-        error: state.connection === 'denied' || state.durability === 'degraded' ? state.error : null,
-        failure: state.connection === 'denied' || state.durability === 'degraded' ? state.failure : null,
+        error: state.durability === 'degraded' ? state.error : null,
+        failure: state.durability === 'degraded' ? state.failure : null,
       });
     case 'remote_synced':
+      if (state.connection === 'denied') return state;
       return withReadiness({
         ...state,
         remoteSynced: true,

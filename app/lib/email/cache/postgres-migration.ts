@@ -5,9 +5,8 @@ export type EmailCachePostgresQueryable = Pick<Pool, 'query'>;
 /**
  * Installs the PostgreSQL-only email cache schema.
  *
- * These tables intentionally do not live in the shared SQLite-shaped Drizzle
- * schema. The cache relies on jsonb, and SQLite runtimes bypass durable email
- * caching rather than receiving a different, subtly incompatible schema.
+ * These tables intentionally stay separate from the shared Drizzle schema.
+ * The cache relies on PostgreSQL jsonb semantics.
  * Account ownership is re-authorized by the email service before every lookup.
  * The cache only binds users locally because managed Control Plane accounts do
  * not necessarily have a corresponding row in local email_accounts.

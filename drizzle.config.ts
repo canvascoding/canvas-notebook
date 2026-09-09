@@ -1,9 +1,9 @@
 const config = {
   schema: "./app/lib/db/schema.ts",
   out: "./drizzle",
-  dialect: "sqlite",
+  dialect: "postgresql",
   dbCredentials: {
-    url: "sqlite.db",
+    url: process.env.DATABASE_URL || "postgresql://canvas:build-placeholder@localhost:5432/canvas_notebook",
   },
 };
 

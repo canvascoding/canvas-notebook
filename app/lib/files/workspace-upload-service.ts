@@ -17,9 +17,9 @@ import {
 import { sanitizeWorkspaceUploadPath } from '@/app/lib/files/upload-paths';
 import { createAtomicTempPath, resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
+import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { OfficeUploadAttempt } from './workspace-upload-flow';
 
 const SESSION_FILE_NAME = 'session.json';
@@ -74,10 +74,24 @@ export class WorkspaceUploadServiceError extends Error {
   }
 }
 
+const fileLocks = new Map<string, Promise<void>>();
+const cancellingSessions = new Set<string>();
+const uploadCompletionSemaphore = new AsyncSemaphore(16);
+
 async function withFileLock<T>(key: string, task: () => Promise<T>): Promise<T> {
-  // All files share session.json, so sibling chunks must serialize as well.
-  // Publication always takes Upload-Session first, then Workspace; never reverse.
-  return withWorkspaceMutationLock(`workspace-upload:${key.split(':', 1)[0]}`, task);
+  const previous = fileLocks.get(key) ?? Promise.resolve();
+  let release = () => {};
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  fileLocks.set(key, current);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (fileLocks.get(key) === current) fileLocks.delete(key);
+  }
 }
 
 function uploadsRoot(): string {
@@ -133,10 +147,39 @@ async function writeSession(session: WorkspaceUploadSession): Promise<void> {
   }
 }
 
-async function readSession(sessionId: string): Promise<WorkspaceUploadSession | null> {
+async function writeFileProgress(session: WorkspaceUploadSession, file: WorkspaceUploadFileRecord): Promise<void> {
+  const progressPath = `${uploadFilePath(session.id, file.id)}.json`;
+  const temporaryPath = createAtomicTempPath(progressPath);
+  session.updatedAt = new Date().toISOString();
+  try {
+    // The immutable manifest is never rewritten by independent file writers.
+    await fs.writeFile(temporaryPath, JSON.stringify({ uploadedBytes: file.uploadedBytes, status: file.status, updatedAt: session.updatedAt }), { mode: 0o600 });
+    await fs.rename(temporaryPath, progressPath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+}
+
+async function readSession(sessionId: string, onlyFileId?: string): Promise<WorkspaceUploadSession | null> {
   try {
     const raw = await fs.readFile(sessionStatusPath(sessionId), 'utf8');
-    return JSON.parse(raw) as WorkspaceUploadSession;
+    const session = JSON.parse(raw) as WorkspaceUploadSession;
+    const files = onlyFileId ? [findSessionFile(session, onlyFileId)] : session.files;
+    for (let index = 0; index < files.length; index += 16) {
+      await Promise.all(files.slice(index, index + 16).map(async (file) => {
+        try {
+          const progress = JSON.parse(await fs.readFile(`${uploadFilePath(sessionId, file.id)}.json`, 'utf8')) as Pick<WorkspaceUploadFileRecord, 'status' | 'uploadedBytes'> & { updatedAt: string };
+          file.status = progress.status;
+          file.uploadedBytes = progress.uploadedBytes;
+          if (progress.updatedAt > session.updatedAt) session.updatedAt = progress.updatedAt;
+        } catch (error) {
+          if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') throw error;
+          // Older sessions store progress in the manifest; missing sidecars preserve it.
+        }
+      }));
+    }
+    session.status = session.files.every((file) => file.status === 'completed') ? 'completed' : 'receiving';
+    return session;
   } catch (error) {
     if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       return null;
@@ -314,9 +357,11 @@ export async function writeWorkspaceUploadChunk(params: {
   offset: number;
   expectedBytes: number;
   body: ReadableStream<Uint8Array> | null;
+  includeFullSession?: boolean;
 }): Promise<{ session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyReceived: boolean }> {
   return withFileLock(`${params.sessionId}:${params.fileId}`, async () => {
-    const session = await readSession(params.sessionId);
+    if (cancellingSessions.has(params.sessionId)) throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
+    const session = await readSession(params.sessionId, params.includeFullSession === false ? params.fileId : undefined);
     assertSessionAccess(session, params.userId, params.workspace);
     if (session.status !== 'receiving') {
       throw new WorkspaceUploadServiceError('UPLOAD_NOT_RECEIVING', 409, 'Upload session is no longer receiving data.');
@@ -412,8 +457,13 @@ export async function writeWorkspaceUploadChunk(params: {
 
     file.uploadedBytes += receivedBytes;
     file.status = file.uploadedBytes === file.size ? 'uploaded' : 'uploading';
-    await writeSession(session);
-    return { session, file, alreadyReceived: false };
+    try {
+      await writeFileProgress(session, file);
+    } catch (error) {
+      await fs.truncate(partPath, params.offset).catch(() => undefined);
+      throw error;
+    }
+    return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file, alreadyReceived: false };
   });
 }
 
@@ -422,6 +472,7 @@ export async function completeWorkspaceUploadFile(params: {
   fileId: string;
   userId: string;
   workspace: WorkspaceContext;
+  includeFullSession?: boolean;
   commit: (input: {
     session: WorkspaceUploadSession;
     file: WorkspaceUploadFileRecord;
@@ -429,8 +480,9 @@ export async function completeWorkspaceUploadFile(params: {
     persistOfficeAttempt: (attempt: OfficeUploadAttempt) => Promise<void>;
   }) => Promise<void>;
 }): Promise<{ session: WorkspaceUploadSession; file: WorkspaceUploadFileRecord; alreadyCompleted: boolean }> {
-  return withFileLock(`${params.sessionId}:${params.fileId}`, () => withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
-    const session = await readSession(params.sessionId);
+  return withFileLock(`${params.sessionId}:${params.fileId}`, async () => {
+    if (cancellingSessions.has(params.sessionId)) throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
+    const session = await readSession(params.sessionId, params.includeFullSession === false ? params.fileId : undefined);
     assertSessionAccess(session, params.userId, params.workspace);
     const file = findSessionFile(session, params.fileId);
     if (file.status === 'completed') {
@@ -472,22 +524,27 @@ export async function completeWorkspaceUploadFile(params: {
 
     let persistActive = true;
     try {
-      await params.commit({ session, file, sourcePath, persistOfficeAttempt: async (attempt) => {
-        if (!persistActive) throw new Error('The upload commit has already finished.');
-        if (file.officeAttempt && JSON.stringify(file.officeAttempt) !== JSON.stringify(attempt)) throw new WorkspaceUploadServiceError('UPLOAD_REVISION_CONFLICT', 409, 'The upload starting revision is immutable.');
-        file.officeAttempt = Object.freeze({ ...attempt });
-        await writeSession(session);
-      } });
+      await uploadCompletionSemaphore.run(async () => {
+        if (cancellingSessions.has(params.sessionId)) {
+          throw new WorkspaceUploadServiceError('UPLOAD_CANCELLED', 409, 'Upload was cancelled.');
+        }
+        await params.commit({ session, file, sourcePath, persistOfficeAttempt: async (attempt) => {
+          if (!persistActive) throw new Error('The upload commit has already finished.');
+          if (file.officeAttempt && JSON.stringify(file.officeAttempt) !== JSON.stringify(attempt)) throw new WorkspaceUploadServiceError('UPLOAD_REVISION_CONFLICT', 409, 'The upload starting revision is immutable.');
+          file.officeAttempt = Object.freeze({ ...attempt });
+          await writeSession(session);
+        } });
+      });
     } finally { persistActive = false; }
     file.status = 'completed';
     file.uploadedBytes = file.size;
     if (session.files.every((candidate) => candidate.status === 'completed')) {
       session.status = 'completed';
     }
-    await writeSession(session);
+    await writeFileProgress(session, file);
     await fs.rm(sourcePath, { force: true }).catch(() => undefined);
-    return { session, file, alreadyCompleted: false };
-  }));
+    return { session: params.includeFullSession === false ? session : (await readSession(session.id))!, file, alreadyCompleted: false };
+  });
 }
 
 export async function cancelWorkspaceUploadSession(params: {
@@ -497,7 +554,11 @@ export async function cancelWorkspaceUploadSession(params: {
 }): Promise<void> {
   const session = await readSession(params.sessionId);
   assertSessionAccess(session, params.userId, params.workspace);
-  await fs.rm(sessionDir(params.sessionId), { recursive: true, force: true });
+  cancellingSessions.add(params.sessionId);
+  try {
+    await Promise.all([...fileLocks].filter(([key]) => key.startsWith(`${params.sessionId}:`)).map(([, pending]) => pending));
+    await fs.rm(sessionDir(params.sessionId), { recursive: true, force: true });
+  } finally { cancellingSessions.delete(params.sessionId); }
 }
 
 export function workspaceUploadLimits() {

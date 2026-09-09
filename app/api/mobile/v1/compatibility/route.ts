@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
 import { createMobileCompatibility } from '@/app/lib/mobile/compatibility';
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
-import { getDeploymentMode } from '@/app/lib/organization/bootstrap';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 
 export const dynamic = 'force-dynamic';
 

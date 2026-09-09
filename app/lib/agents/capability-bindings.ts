@@ -77,7 +77,7 @@ export async function listAgentCapabilityBindings(agentId: string): Promise<Agen
     const rows = await database.all(
       `SELECT id, agent_id, resource_type, scope_type, resource_id, name, version, requirement, revision
        FROM agent_capability_bindings
-       WHERE agent_id = ?
+       WHERE agent_id = $1
        ORDER BY resource_type ASC, name ASC, resource_id ASC`,
       [agentId],
     ) as BindingRow[];
@@ -102,14 +102,14 @@ export async function replaceAgentCapabilityBindings(
   const database = await openDb();
   try {
     await database.run('BEGIN');
-    await database.run(`DELETE FROM agent_capability_bindings WHERE agent_id = ?`, [agentId]);
+    await database.run(`DELETE FROM agent_capability_bindings WHERE agent_id = $1`, [agentId]);
     const now = Date.now();
     for (const binding of normalized) {
       await database.run(
         `INSERT INTO agent_capability_bindings (
           id, agent_id, resource_type, scope_type, resource_id, name,
           version, requirement, revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9, $10)`,
         [
           `agent-binding-${randomUUID()}`,
           agentId,

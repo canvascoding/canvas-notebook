@@ -162,14 +162,14 @@ function getCacheTtl(result: FileReferenceValidationResult): number {
 export async function validateFileReference(
   filePath: string,
   fileTree: FileNode[],
-  options: { fileTreeWorkspaceId?: string | null } = {},
+  options: { fileTreeWorkspaceId?: string | null; preferFresh?: boolean } = {},
 ): Promise<FileReferenceValidationResult> {
   const normalizedPath = normalizeChatFilePath(filePath);
   const workspaceId = getActiveWorkspaceId();
   const resolvedWorkspaceId = workspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID;
   const cacheKey = buildValidationCacheKey(workspaceId, normalizedPath);
 
-  const canUseTree = options.fileTreeWorkspaceId === undefined || options.fileTreeWorkspaceId === workspaceId;
+  const canUseTree = !options.preferFresh && (options.fileTreeWorkspaceId === undefined || options.fileTreeWorkspaceId === workspaceId);
   const nodeInTree = canUseTree ? findNodeInTree(normalizedPath, fileTree) : null;
   if (nodeInTree !== null) {
     clearNegativeRetry(cacheKey);
@@ -190,7 +190,7 @@ export async function validateFileReference(
   }
 
   const url = withWorkspaceQuery(`/api/files/exists?path=${encodeURIComponent(normalizedPath)}`, workspaceId);
-  const promise = fetch(url, {
+  const promise: Promise<FileReferenceValidationResult> = fetch(url, {
     credentials: 'include',
     cache: 'no-store',
     headers: workspaceHeaders(workspaceId),
@@ -205,6 +205,7 @@ export async function validateFileReference(
     })
     .catch(() => missingValidationResult(normalizedPath))
     .then((result) => {
+      if (validationCache.get(cacheKey)?.promise !== promise) return result;
       validationCache.set(cacheKey, {
         value: result,
         expiresAt: Date.now() + getCacheTtl(result),

@@ -4,6 +4,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 import { ensureActiveFileLineage } from './lineage-revision-repository';
 import type { FileCollaborationTransaction } from './types';
+import { revokeFileGuestPathScope } from '@/app/lib/file-guests/lifecycle';
 
 type ArchivedLineageRow = {
   id: string;
@@ -46,6 +47,7 @@ async function archiveActivePathScope(
     trashEntryId?: string | null;
   },
 ): Promise<void> {
+  await revokeFileGuestPathScope(transaction, params);
   await transaction.run(`
     UPDATE file_collaboration_lineages
     SET status = 'archived', archived_at = $1, trash_entry_id = $2
@@ -324,6 +326,7 @@ export async function moveFileCollaborationPathScope(
     createLineageId: () => string;
   },
 ): Promise<void> {
+  await revokeFileGuestPathScope(transaction, { workspaceId: params.workspace.workspaceId, path: params.oldPath, nowMs: params.nowMs });
   await materializeLegacyLineagesInPathScope(transaction, {
     workspace: params.workspace,
     path: params.oldPath,

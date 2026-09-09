@@ -6,10 +6,6 @@ import {
 } from '@/app/lib/auth';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
-import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
 import { activateLicenseCert } from '@/app/lib/license';
 import { assertSeatActivationCapacity } from '@/app/lib/license/seat-limit';
 import {
@@ -92,10 +88,9 @@ async function rollbackQuietly(database: Pick<SqlConnection, 'run'>): Promise<vo
 
 async function withActivationTransaction<T>(
   database: Pick<SqlConnection, 'run'>,
-  databaseProvider: DatabaseProvider,
   operation: () => Promise<T>,
 ): Promise<T> {
-  await database.run(databaseProvider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const result = await operation();
     await database.run('COMMIT');
@@ -221,8 +216,8 @@ async function latestMembershipPrepareOperation(
   const row = await database.get(`
     SELECT operation_id
     FROM team_seat_outbox
-    WHERE organization_id = ?
-      AND membership_id = ?
+    WHERE organization_id = $1
+      AND membership_id = $2
       AND operation_kind = 'seat_prepare'
     ORDER BY created_at DESC, id DESC
     LIMIT 1
@@ -345,7 +340,6 @@ export async function beginDirectMembershipActivation(input: {
   displayName: string;
   role: Extract<TeamMembershipRole, 'admin' | 'member'>;
   database?: MembershipOrchestratorDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<MembershipActivation> {
   const database = input.database ?? await openDb();
@@ -386,7 +380,7 @@ export async function beginDirectMembershipActivation(input: {
           reason: 'direct_membership_activation_started',
           metadata: { operationType: 'member_create' },
           now,
-          databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+
         });
       } catch (error) {
         membership = await getTeamMembershipByCandidateEmail(
@@ -592,7 +586,6 @@ export async function recordDirectMembershipSeatPreparation(input: {
   response: unknown;
   actorUserId?: string | null;
   database?: MembershipOrchestratorDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<MembershipActivation> {
   const database = input.database ?? await openDb();
@@ -630,7 +623,7 @@ export async function recordDirectMembershipSeatPreparation(input: {
             quoteHash: prepared.quote.quoteHash,
           },
           now,
-          databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+
         });
       } else if (
         membership.status !== 'billing_pending'
@@ -758,7 +751,6 @@ export async function recordDirectMembershipSeatAuthorizationStatus(input: {
   response: unknown;
   actorUserId?: string | null;
   database?: MembershipOrchestratorDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<DirectMembershipSeatQuote> {
   const database = input.database ?? await openDb();
@@ -791,7 +783,7 @@ export async function recordDirectMembershipSeatAuthorizationStatus(input: {
           quoteHash: current.quote.quoteHash,
         },
         now,
-        databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+
       });
     }
     if (
@@ -849,7 +841,6 @@ export async function beginDirectMembershipSeatRequote(input: {
   currentResponse?: unknown;
   actorUserId?: string | null;
   database?: MembershipOrchestratorDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: number;
 }): Promise<MembershipActivation> {
   const database = input.database ?? await openDb();
@@ -903,8 +894,8 @@ export async function beginDirectMembershipSeatRequote(input: {
     const count = await database.get(`
       SELECT COUNT(*) AS count
       FROM team_seat_outbox
-      WHERE organization_id = ?
-        AND membership_id = ?
+      WHERE organization_id = $1
+        AND membership_id = $2
         AND operation_kind = 'seat_prepare'
     `, [input.organizationId, input.membershipId]) as { count: number } | undefined;
     const request = createTeamSeatPrepareRequest({
@@ -1225,7 +1216,6 @@ export async function completeDirectMembershipActivation(input: {
   password: string;
   actorUserId?: string | null;
   database?: MembershipOrchestratorDatabase;
-  databaseProvider?: DatabaseProvider;
   identity?: MembershipIdentityPort;
   verifyCertificate?: (response: TeamSeatExecuteResponse, desiredQuantity: number) => Promise<void>;
   now?: number;
@@ -1307,7 +1297,6 @@ export async function completeDirectMembershipActivation(input: {
       }
       const reactivated = await withActivationTransaction(
         database,
-        input.databaseProvider ?? getDatabaseProvider(),
         async () => {
           const current = await getTeamMembershipById(
             database,
@@ -1350,7 +1339,7 @@ export async function completeDirectMembershipActivation(input: {
             seatOperationType: 'member_create',
             transactionMode: 'existing',
             now,
-            databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+
           });
           const projection = await getActiveTeamMembershipProjection(
             database,
@@ -1393,7 +1382,6 @@ export async function completeDirectMembershipActivation(input: {
 
     const activated = await withActivationTransaction(
       database,
-      input.databaseProvider ?? getDatabaseProvider(),
       async () => {
         let current = await getTeamMembershipById(
           database,
@@ -1419,7 +1407,7 @@ export async function completeDirectMembershipActivation(input: {
             controlPlaneOperationId: executed.operation.operationId,
             transactionMode: 'existing',
             now,
-            databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+
           });
         }
         if (current.status === 'billing_pending') {
@@ -1449,7 +1437,7 @@ export async function completeDirectMembershipActivation(input: {
             seatOperationType: operation.operationType!,
             transactionMode: 'existing',
             now,
-            databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+
           });
         } else if (
           current.status !== 'active'

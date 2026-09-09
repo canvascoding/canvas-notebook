@@ -1120,7 +1120,7 @@ export function TodosClient({ title }: { title: string }) {
     } finally {
       setIsMutating(false);
     }
-  }, [t]);
+  }, [loadTodos, t]);
 
   const toggleDone = useCallback(async (todo: TodoItem) => {
     try {

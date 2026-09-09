@@ -1,7 +1,6 @@
 import { and, asc, desc, eq, like, or, sql } from 'drizzle-orm';
 
 import { db } from '../db';
-import { getDatabaseProvider } from '../db/provider';
 import { memoryReviewJobs, piSessions, piUsageEvents, user } from '../db/schema';
 import { MEMORY_MANAGER_AGENT_ID } from '../memory/constants';
 import type {
@@ -321,15 +320,7 @@ function getGrouping(filters: UsageFilters) {
       };
     case 'day':
     default: {
-      if (getDatabaseProvider() === 'postgres') {
-        const dayKey = sql<string>`to_char(to_timestamp(${piUsageEvents.assistantTimestamp}), 'YYYY-MM-DD')`;
-        return {
-          groupKey: dayKey,
-          label: dayKey,
-          orderBy: asc(dayKey),
-        };
-      }
-      const dayKey = sql<string>`strftime('%Y-%m-%d', ${piUsageEvents.assistantTimestamp}, 'unixepoch')`;
+      const dayKey = sql<string>`to_char(to_timestamp(${piUsageEvents.assistantTimestamp}), 'YYYY-MM-DD')`;
       return {
         groupKey: dayKey,
         label: dayKey,

@@ -43,13 +43,8 @@ function getBootstrapAdminConfig() {
   };
 }
 
-function translateSqlitePlaceholders(sql: string): string {
-  let index = 0;
-  return sql.replace(/\?/g, () => `$${++index}`);
-}
-
 function createPostgresRuntimeDb(client: PoolClient): PostgresRuntimeDb {
-  const query = (sql: string, params?: unknown[]) => client.query(translateSqlitePlaceholders(sql), params);
+  const query = (sql: string, params?: unknown[]) => client.query(sql, params);
 
   return {
     get: async (sql: string, params?: unknown[]) => {

@@ -2,7 +2,8 @@
 
 This directory contains internal remediation records and the raw artifacts referenced by them. Treat all contents as confidential: the reports describe unpatched attack paths and the archives contain scanner evidence.
 
-- The active remediation tracker is [2026-07-29-security-review.md](2026-07-29-security-review.md).
+- The active remediation tracker is [2026-09-08-security-hardening.md](2026-09-08-security-hardening.md).
+- The [July remediation record](2026-07-29-security-review.md) retains the historical findings and their closure evidence.
 - `artifacts/` mirrors the raw outputs retained for this review. An archive name ending in `partial` or `interrupted` is **not** a completed scan and must not be treated as proof that its scope is clean.
 - Do not publish this directory or its artifacts in a public repository, issue tracker, or release attachment.
 

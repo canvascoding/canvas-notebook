@@ -21,13 +21,13 @@ postgres_runtime_desired() {
   postgres_bool "$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)" && return 0
   case "$provider" in
     postgres) return 0 ;;
-    sqlite) return 1 ;;
+    sqlite) fail "SQLite is no longer supported. Use CANVAS_DATABASE_PROVIDER=postgres." ;;
     "")
       database_url="$(config_json_read env.DATABASE_URL)"
       [[ "$database_url" =~ ^postgres(ql)?:// ]]
       return
       ;;
-    *) fail "Invalid CANVAS_DATABASE_PROVIDER '${provider}'. Expected sqlite or postgres." ;;
+    *) fail "Invalid CANVAS_DATABASE_PROVIDER '${provider}'. PostgreSQL is the only supported provider." ;;
   esac
 }
 

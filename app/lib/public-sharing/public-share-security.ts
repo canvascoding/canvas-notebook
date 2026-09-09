@@ -14,7 +14,7 @@ export const STRICT_PUBLIC_HTML_CSP = [
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'none'",
-  "frame-ancestors 'none'",
+  "frame-ancestors 'self'",
 ].join('; ');
 
 export const INTERACTIVE_PUBLIC_HTML_CSP = [
@@ -30,7 +30,7 @@ export const INTERACTIVE_PUBLIC_HTML_CSP = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'none'",
-  "frame-ancestors 'none'",
+  "frame-ancestors 'self'",
 ].join('; ');
 
 export const PUBLIC_SHARE_ASSET_CSP = [

@@ -1,7 +1,6 @@
 import { and, asc, desc, eq, gte, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { studioGenerationOutputs, studioGenerations, user } from '@/app/lib/db/schema';
 
 import type {
@@ -136,11 +135,7 @@ function serializeFilters(filters: StudioUsageFilters, access: StudioUsageAccess
 }
 
 function dayExpression() {
-  if (getDatabaseProvider() === 'postgres') {
-    return sql<string>`to_char(to_timestamp(${studioGenerationOutputs.createdAt}), 'YYYY-MM-DD')`;
-  }
-
-  return sql<string>`strftime('%Y-%m-%d', ${studioGenerationOutputs.createdAt}, 'unixepoch')`;
+  return sql<string>`to_char(to_timestamp(${studioGenerationOutputs.createdAt} / 1000.0), 'YYYY-MM-DD')`;
 }
 
 async function loadGenerationTotals(whereClause: ReturnType<typeof buildGenerationWhere>) {

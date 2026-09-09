@@ -24,6 +24,8 @@ interface ShareMarkdownDialogProps {
   kind?: 'markdown' | 'html';
   markdownExportUrl?: string;
   markdownPdfUrl?: string;
+  embedded?: boolean;
+  workspaceId?: string;
 }
 
 type BrowserStatusPayload = {
@@ -60,15 +62,21 @@ export function ShareMarkdownDialog({
   kind = 'markdown',
   markdownExportUrl,
   markdownPdfUrl,
+  embedded = false,
+  workspaceId,
 }: ShareMarkdownDialogProps) {
   const t = useTranslations('notebook');
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const selectedWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const activeWorkspaceId = workspaceId ?? selectedWorkspaceId;
   const [loading, setLoading] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [browserStatusLoading, setBrowserStatusLoading] = useState(false);
   const [browserExportsAvailable, setBrowserExportsAvailable] = useState<boolean | null>(null);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [error, setError] = useState<string>('');
+  const epoch = useRef(0);
+  const pending = useRef(new Set<AbortController>());
+  const previewSequence = useRef(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const internalHeaders = useCallback((contentType?: string): HeadersInit | undefined => {
@@ -93,6 +101,11 @@ export function ShareMarkdownDialog({
       return;
     }
 
+    const generation = epoch.current;
+    const sequence = ++previewSequence.current;
+    const controller = new AbortController();
+    pending.current.add(controller);
+    const current = () => generation === epoch.current && sequence === previewSequence.current && !controller.signal.aborted;
     setLoading(true);
     setError('');
 
@@ -104,6 +117,8 @@ export function ShareMarkdownDialog({
       const response = await fetch(
         exportUrl,
         {
+          signal: controller.signal,
+          cache: 'no-store',
           credentials: isPublicMarkdownExport ? 'same-origin' : 'include',
           headers: isPublicMarkdownExport ? undefined : internalHeaders(),
         }
@@ -117,13 +132,15 @@ export function ShareMarkdownDialog({
       }
 
       const html = await response.text();
-      setHtmlContent(html);
+      if (current()) setHtmlContent(html);
     } catch (err) {
+      if (!current()) return;
       const message = err instanceof Error ? err.message : t('failedToLoadPreview');
       setError(message);
       toast.error(message);
     } finally {
-      setLoading(false);
+      pending.current.delete(controller);
+      if (current()) setLoading(false);
     }
   }, [filePath, internalHeaders, internalUrl, kind, markdownExportUrl, t]);
 
@@ -133,9 +150,14 @@ export function ShareMarkdownDialog({
       return;
     }
 
+    const generation = epoch.current;
+    const controller = new AbortController();
+    pending.current.add(controller);
+    const current = () => generation === epoch.current && !controller.signal.aborted;
     setBrowserStatusLoading(true);
     try {
       const response = await fetch('/api/agents/browser', {
+        signal: controller.signal,
         credentials: 'include',
         cache: 'no-store',
       });
@@ -143,32 +165,45 @@ export function ShareMarkdownDialog({
         success?: boolean;
         data?: BrowserStatusPayload;
       };
+      if (!current()) return;
       if (!response.ok || !payload.success) {
         setBrowserExportsAvailable(null);
         return;
       }
       setBrowserExportsAvailable(payload.data?.capability?.browserExportsAvailable ?? null);
     } catch {
-      setBrowserExportsAvailable(null);
+      if (current()) setBrowserExportsAvailable(null);
     } finally {
-      setBrowserStatusLoading(false);
+      pending.current.delete(controller);
+      if (current()) setBrowserStatusLoading(false);
     }
   }, [markdownPdfUrl]);
 
   useEffect(() => {
-    if (open && filePath) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      loadHtmlExport();
-      void loadBrowserExportAvailability();
-    } else {
-      setHtmlContent('');
-      setError('');
-      setBrowserExportsAvailable(null);
-      setBrowserStatusLoading(false);
-    }
+    const controllers = pending.current;
+    const generation = epoch.current;
+    queueMicrotask(() => {
+      if (epoch.current !== generation) return;
+      setPdfLoading(false);
+      if (open && filePath) {
+        void loadHtmlExport();
+        void loadBrowserExportAvailability();
+      } else {
+        setHtmlContent('');
+        setError('');
+        setBrowserExportsAvailable(null);
+        setBrowserStatusLoading(false);
+      }
+    });
+    return () => { epoch.current = generation + 1; controllers.forEach((controller) => controller.abort()); controllers.clear(); };
   }, [open, filePath, kind, loadBrowserExportAvailability, loadHtmlExport]);
 
   const handleDownloadPDF = async () => {
+    if (pdfLoading || !open) return;
+    const generation = epoch.current;
+    const controller = new AbortController();
+    pending.current.add(controller);
+    const current = () => generation === epoch.current && !controller.signal.aborted;
     setPdfLoading(true);
     try {
       const publicMarkdownPdf = kind === 'markdown' && markdownPdfUrl;
@@ -176,6 +211,7 @@ export function ShareMarkdownDialog({
         ? internalUrl('/api/files/html-pdf')
         : markdownPdfUrl || internalUrl('/api/files/markdown-pdf');
       const response = await fetch(pdfUrl, {
+        signal: controller.signal,
         method: 'POST',
         credentials: publicMarkdownPdf ? 'same-origin' : 'include',
         headers: publicMarkdownPdf ? undefined : internalHeaders('application/json'),
@@ -193,6 +229,7 @@ export function ShareMarkdownDialog({
       }
 
       const blob = await response.blob();
+      if (!current()) return;
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
@@ -204,19 +241,21 @@ export function ShareMarkdownDialog({
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
       toast.success(t('pdfDownloadStarted'));
     } catch (err) {
+      if (!current()) return;
       const message = err instanceof Error ? err.message : t('failedToGeneratePdf');
       toast.error(message);
     } finally {
-      setPdfLoading(false);
+      pending.current.delete(controller);
+      if (current()) setPdfLoading(false);
     }
   };
 
   const hasPreview = kind === 'html' || !!htmlContent;
   const showPdfDownload = browserExportsAvailable !== false;
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent layout="viewport" showCloseButton={false} className="gap-0">
+  const content = (
+    <>
+      {!embedded && (
         <DialogHeader className="px-3 sm:px-5 lg:px-6 pt-3 sm:pt-5 pb-2 shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base md:text-lg">
             <FileText className="h-4 md:h-5 w-4 md:w-5 shrink-0" />
@@ -228,6 +267,7 @@ export function ShareMarkdownDialog({
             {t('shareDescription', { fileName })}
           </DialogDescription>
         </DialogHeader>
+      )}
 
         <div className="flex-1 min-h-0 px-3 sm:px-5 lg:px-6 pb-3 sm:pb-5 overflow-hidden">
           {loading ? (
@@ -284,7 +324,7 @@ export function ShareMarkdownDialog({
           </div>
 
           <div className="grid grid-cols-1 gap-2 order-1 sm:order-2 sm:flex sm:items-center sm:justify-end">
-            <Button
+            {!embedded && <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
               size="sm"
@@ -292,7 +332,7 @@ export function ShareMarkdownDialog({
             >
               <X className="h-4 w-4 shrink-0" aria-hidden="true" />
               <span className="min-w-0 truncate">{t('close')}</span>
-            </Button>
+            </Button>}
 
             {showPdfDownload ? (
               <Button
@@ -318,7 +358,11 @@ export function ShareMarkdownDialog({
             )}
           </div>
         </div>
-      </DialogContent>
+    </>
+  );
+  return embedded ? <div className="flex h-[min(65dvh,650px)] min-h-72 flex-col">{content}</div> : (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent layout="viewport" showCloseButton={false} className="gap-0">{content}</DialogContent>
     </Dialog>
   );
 }

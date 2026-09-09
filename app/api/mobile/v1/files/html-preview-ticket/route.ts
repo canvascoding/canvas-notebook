@@ -2,10 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
 import { isHtmlFile } from '@/app/lib/html-preview';
-import {
-  issueMobileHtmlPreviewTicket,
-  mobileHtmlPreviewPath,
-} from '@/app/lib/mobile/html-preview-ticket';
+import { mobileHtmlPreviewPath } from '@/app/lib/mobile/html-preview-ticket';
+import { issueHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
 import {
   MobileFilesError,
   normalizeMobileFilePath,
@@ -41,9 +39,9 @@ export async function POST(request: NextRequest) {
       fileOptions: workspaceFileOptions(workspaceResult.workspace),
       path: filePath,
     });
-    const issued = issueMobileHtmlPreviewTicket({
-      userId: workspaceResult.session.user.id,
-      sessionId: String(workspaceResult.session.session.id),
+    const issued = await issueHtmlPreviewTicket({
+      session:workspaceResult.session,
+      kind:'workspace',
       rootHtmlPath: filePath,
       workspace: workspaceResult.workspace,
     });

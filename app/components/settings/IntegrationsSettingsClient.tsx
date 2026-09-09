@@ -62,7 +62,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHintContext } from '@/app/components/onboarding/HintProvider';
-import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/contracts';
 import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
 import { cn } from '@/lib/utils';
 

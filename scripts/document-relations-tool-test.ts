@@ -15,7 +15,7 @@ async function main() {
   const outsidePath = path.join(dataDir, 'outside.md');
   process.env.DATA = dataDir;
   process.env.CANVAS_DATA_ROOT = dataDir;
-  process.env.DATABASE_PROVIDER = 'sqlite';
+  process.env.DATABASE_PROVIDER = 'postgres';
 
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;

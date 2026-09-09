@@ -88,14 +88,24 @@ export function filterFileNodes(nodes: FileNode[], filter: FileFilter = {}): Fil
   });
 }
 
+const sortedTreeCache = new WeakMap<FileNode[], Map<string, FileNode[]>>();
+
 export function sortFileTree(
   nodes: FileNode[],
   sortKey: FileSortKey,
   direction: FileSortDirection,
 ): FileNode[] {
-  return sortFileNodes(nodes, sortKey, direction).map((node) => (
-    node.children
-      ? { ...node, children: sortFileTree(node.children, sortKey, direction) }
-      : node
-  ));
+  const key = `${sortKey}:${direction}`;
+  const cached = sortedTreeCache.get(nodes)?.get(key);
+  if (cached) return cached;
+  const sorted = sortFileNodes(nodes, sortKey, direction).map((node) => {
+    if (!node.children) return node;
+    const children = sortFileTree(node.children, sortKey, direction);
+    return children === node.children ? node : { ...node, children };
+  });
+  const result = sorted.every((node, index) => node === nodes[index]) ? nodes : sorted;
+  const variants = sortedTreeCache.get(nodes) ?? new Map<string, FileNode[]>();
+  variants.set(key, result);
+  sortedTreeCache.set(nodes, variants);
+  return result;
 }

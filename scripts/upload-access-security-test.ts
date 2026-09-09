@@ -7,7 +7,7 @@ async function main(): Promise<void> {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-upload-access-security-'));
   process.env.DATA = tempRoot;
   process.env.CANVAS_DATA_ROOT = tempRoot;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 
   try {
     const { saveUploadBuffer } = await import('@/app/lib/filesystem/upload-handler');

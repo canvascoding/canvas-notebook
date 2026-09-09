@@ -139,10 +139,10 @@ function sendEnvelope(entry: Entry, message: ExcalidrawClientEnvelope, durable =
   if (entry.socket?.readyState === WebSocket.OPEN && entry.initialized) entry.socket.send(serialized);
 }
 
-async function requestSession(path: string): Promise<CollaborationSessionResponse> {
+async function requestSession(path: string, workspaceId: string): Promise<CollaborationSessionResponse> {
   const response = await fetch('/api/files/collaboration/session', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     body: JSON.stringify({ path, provider: 'excalidraw', representation: 'excalidraw_scene' }),
   });
   const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
@@ -170,7 +170,7 @@ async function uploadAsset(entry: Entry, file: BinaryFileData): Promise<void> {
   const response = await fetch('/api/files/excalidraw-assets', {
     method: 'POST',
     headers: {
-      ...workspaceHeaders(),
+      ...workspaceHeaders(entry.key.split('\0')[0]),
       'Content-Type': file.mimeType || decoded.mimeType,
       'X-Excalidraw-File-Id': file.id,
     },
@@ -356,7 +356,7 @@ async function connect(entry: Entry): Promise<void> {
     entry.initialized = false;
     emit(entry);
     try {
-      const session = await requestSession(entry.path);
+      const session = await requestSession(entry.path, entry.key.split('\0')[0]);
       if (entry.stopped || generation !== entry.generation) return;
       entry.session = session;
       entry.lifecycleGeneration = session.lifecycleGeneration;
@@ -536,7 +536,7 @@ function snapshot(entry: Entry): ExcalidrawCollaborationDocument {
     },
     async loadAsset(metadata) {
       const response = await fetch(`/api/files/excalidraw-assets/${encodeURIComponent(metadata.fileId)}`, {
-        headers: workspaceHeaders(),
+        headers: workspaceHeaders(entry.key.split('\0')[0]),
       });
       if (!response.ok) throw new Error(`Could not load Excalidraw asset ${metadata.fileId}.`);
       const data = new Uint8Array(await response.arrayBuffer());
@@ -557,11 +557,12 @@ function snapshot(entry: Entry): ExcalidrawCollaborationDocument {
 }
 
 export function useExcalidrawCollaboration(input: {
+  documentId?: string;
   enabled: boolean;
   workspaceId: string | null;
   path: string;
 }): ExcalidrawCollaborationDocument | null {
-  const key = input.enabled && input.workspaceId ? `${input.workspaceId}\0${input.path}\0excalidraw` : null;
+  const key = input.enabled && input.workspaceId ? `${input.workspaceId}\0${input.documentId ?? input.path}\0excalidraw` : null;
   const [state, setState] = useState<ExcalidrawCollaborationDocument | null>(null);
   useEffect(() => {
     if (!key) return;
@@ -570,13 +571,14 @@ export function useExcalidrawCollaboration(input: {
       entry = createEntry(key, input.path);
       registry.set(key, entry);
     }
+    entry.path = input.path;
     entry.stopped = false;
     if (entry.cleanupTimer) clearTimeout(entry.cleanupTimer);
     entry.refs += 1;
     const update = () => setState(snapshot(entry));
     entry.listeners.add(update);
     update();
-    void connect(entry);
+    if (!entry.socket || entry.socket.readyState === WebSocket.CLOSED) void connect(entry);
     return () => {
       entry.listeners.delete(update);
       entry.refs -= 1;

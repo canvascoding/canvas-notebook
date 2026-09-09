@@ -291,8 +291,11 @@ config_json_write() {
       ;;
     env.CANVAS_DATABASE_PROVIDER)
       value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
-      if [[ "$value" != "sqlite" && "$value" != "postgres" ]]; then
-        fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. Expected sqlite or postgres."
+      if [[ "$value" == "sqlite" ]]; then
+        fail "SQLite is no longer supported. Use CANVAS_DATABASE_PROVIDER=postgres."
+      fi
+      if [[ "$value" != "postgres" ]]; then
+        fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. PostgreSQL is the only supported provider."
       fi
       ;;
     env.CANVAS_POSTGRES_MODE)
@@ -332,9 +335,10 @@ config_json_normalize_database_provider() {
   local value="$1"
   value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
   case "$value" in
-    ""|sqlite) printf 'sqlite\n' ;;
+    "") printf 'postgres\n' ;;
     postgres) printf 'postgres\n' ;;
-    *) fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. Expected sqlite or postgres." ;;
+    sqlite) fail "SQLite is no longer supported. Use CANVAS_DATABASE_PROVIDER=postgres." ;;
+    *) fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. PostgreSQL is the only supported provider." ;;
   esac
 }
 
@@ -437,27 +441,14 @@ config_json_ensure_database_config() {
   team_features="$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)"
   provider_raw="$(config_json_read env.CANVAS_DATABASE_PROVIDER)"
   database_url="$(config_json_read env.DATABASE_URL)"
-  if [[ -z "$(printf '%s' "$provider_raw" | xargs)" && "$database_url" =~ ^postgres(ql)?:// ]]; then
-    provider="postgres"
-  else
-    provider="$(config_json_normalize_database_provider "$provider_raw")" || return 1
-  fi
+  provider="$(config_json_normalize_database_provider "$provider_raw")" || return 1
 
-  if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
-    if [[ "${CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE:-false}" != "true" ]]; then
-      fail "${deployment_mode} requires CANVAS_DATABASE_PROVIDER=postgres."
-    fi
+  if config_json_deployment_requires_postgres "$deployment_mode" "$team_features"; then
     config_json_write env.CANVAS_POSTGRES_REQUIRED true
   fi
 
   config_json_write env.CANVAS_DEPLOYMENT_MODE "$deployment_mode"
   config_json_write env.CANVAS_DATABASE_PROVIDER "$provider"
-
-  if [[ "$provider" != "postgres" ]]; then
-    config_json_write env.CANVAS_POSTGRES_MODE ""
-    config_json_write env.CANVAS_POSTGRES_VECTOR_ENABLED false
-    return 0
-  fi
 
   postgres_mode="$(config_json_normalize_postgres_mode "$(config_json_read env.CANVAS_POSTGRES_MODE)")" || return 1
   config_json_write env.CANVAS_POSTGRES_MODE "$postgres_mode"

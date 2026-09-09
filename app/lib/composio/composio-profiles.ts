@@ -145,7 +145,7 @@ async function getDefaultProfileRow(
   return await database.get(`
     SELECT id, owner_user_id, name, composio_user_id, is_default, status, created_at, updated_at
     FROM composio_connection_profiles
-    WHERE owner_user_id = ? AND is_default = 1 AND status = 'active'
+    WHERE owner_user_id = $1 AND is_default = 1 AND status = 'active'
     ORDER BY created_at ASC, id ASC
     LIMIT 1
   `, [ownerUserId]) as ProfileRow | undefined || null;
@@ -160,13 +160,13 @@ async function getOwnedProfileRow(
   return await database.get(`
     SELECT id, owner_user_id, name, composio_user_id, is_default, status, created_at, updated_at
     FROM composio_connection_profiles
-    WHERE id = ? AND owner_user_id = ?${options.activeOnly ? " AND status = 'active'" : ''}
+    WHERE id = $1 AND owner_user_id = $2${options.activeOnly ? " AND status = 'active'" : ''}
     LIMIT 1
   `, [profileId, ownerUserId]) as ProfileRow | undefined || null;
 }
 
 async function assertUserExists(database: SqlConnection, userId: string): Promise<void> {
-  const row = await database.get('SELECT id FROM "user" WHERE id = ? LIMIT 1', [userId]) as { id: string } | undefined;
+  const row = await database.get('SELECT id FROM "user" WHERE id = $1 LIMIT 1', [userId]) as { id: string } | undefined;
   if (!row) {
     throw new ComposioProfileError('COMPOSIO_PROFILE_USER_NOT_FOUND', 'The profile owner does not exist.', 404);
   }
@@ -206,7 +206,7 @@ async function insertProfile(input: {
     await database.run(`
       INSERT INTO composio_connection_profiles (
         id, owner_user_id, name, composio_user_id, is_default, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5, 'active', $6, $7)
       ON CONFLICT DO NOTHING
     `, [
       createProfileId(),
@@ -241,7 +241,7 @@ export async function ensureDefaultComposioProfile(ownerUserIdValue: string): Pr
     const conflictingIdentity = await database.get(`
       SELECT owner_user_id
       FROM composio_connection_profiles
-      WHERE composio_user_id = ?
+      WHERE composio_user_id = $1
       LIMIT 1
     `, [composioUserId]) as { owner_user_id: string } | undefined;
     if (conflictingIdentity && conflictingIdentity.owner_user_id !== ownerUserId) {
@@ -290,7 +290,7 @@ export async function listComposioProfiles(ownerUserIdValue: string): Promise<Co
              )
         ) AS automation_count
       FROM composio_connection_profiles profile
-      WHERE profile.owner_user_id = ? AND profile.status = 'active'
+      WHERE profile.owner_user_id = $1 AND profile.status = 'active'
       ORDER BY profile.is_default DESC, profile.created_at ASC, profile.id ASC
     `, [ownerUserId]) as ProfileWithUsageRow[];
     return rows.map(profileFromRow);
@@ -311,7 +311,7 @@ export async function createComposioProfile(input: {
     const row = await database.get(`
       SELECT id, owner_user_id, name, composio_user_id, is_default, status, created_at, updated_at
       FROM composio_connection_profiles
-      WHERE owner_user_id = ? AND composio_user_id = ? AND status = 'active'
+      WHERE owner_user_id = $1 AND composio_user_id = $2 AND status = 'active'
       LIMIT 1
     `, [ownerUserId, composioUserId]) as ProfileRow | undefined;
     if (!row) {
@@ -337,8 +337,8 @@ export async function renameComposioProfile(input: {
     }
     await database.run(`
       UPDATE composio_connection_profiles
-      SET name = ?, updated_at = ?
-      WHERE id = ? AND owner_user_id = ? AND status = 'active'
+      SET name = $1, updated_at = $2
+      WHERE id = $3 AND owner_user_id = $4 AND status = 'active'
     `, [name, Date.now(), profileId, ownerUserId]);
     const updated = await getOwnedProfileRow(database, ownerUserId, profileId, { activeOnly: true });
     if (!updated) {
@@ -369,7 +369,7 @@ export async function archiveComposioProfile(input: {
     const usage = await database.get(`
       SELECT COUNT(*) AS count
       FROM composio_workspace_profile_overrides
-      WHERE profile_id = ?
+      WHERE profile_id = $1
     `, [profileId]) as { count: number } | undefined;
     if (Number(usage?.count || 0) > 0) {
       throw new ComposioProfileError(
@@ -381,11 +381,11 @@ export async function archiveComposioProfile(input: {
     const automationUsage = await database.get(`
       SELECT COUNT(*) AS count
       FROM automation_jobs
-      WHERE composio_profile_id = ?
+      WHERE composio_profile_id = $1
          OR (
            composio_profile_id IS NULL
-           AND composio_user_id = ?
-           AND COALESCE(responsible_user_id, owner_user_id, created_by_user_id) = ?
+           AND composio_user_id = $2
+           AND COALESCE(responsible_user_id, owner_user_id, created_by_user_id) = $3
          )
     `, [profileId, profile.composio_user_id, ownerUserId]) as { count: number } | undefined;
     if (Number(automationUsage?.count || 0) > 0) {
@@ -397,8 +397,8 @@ export async function archiveComposioProfile(input: {
     }
     await database.run(`
       UPDATE composio_connection_profiles
-      SET status = 'archived', updated_at = ?
-      WHERE id = ? AND owner_user_id = ? AND status = 'active'
+      SET status = 'archived', updated_at = $1
+      WHERE id = $2 AND owner_user_id = $3 AND status = 'active'
     `, [Date.now(), profileId, ownerUserId]);
   });
 }
@@ -427,7 +427,7 @@ async function getWorkspaceOverride(
   return await database.get(`
     SELECT user_id, workspace_id, profile_id, created_at, updated_at
     FROM composio_workspace_profile_overrides
-    WHERE user_id = ? AND workspace_id = ?
+    WHERE user_id = $1 AND workspace_id = $2
     LIMIT 1
   `, [userId, workspaceId]) as OverrideRow | undefined || null;
 }
@@ -502,7 +502,7 @@ export async function resolveOwnedComposioProfileBinding(input: {
       : await database.get(`
           SELECT id, owner_user_id, name, composio_user_id, is_default, status, created_at, updated_at
           FROM composio_connection_profiles
-          WHERE owner_user_id = ? AND composio_user_id = ? AND status = 'active'
+          WHERE owner_user_id = $1 AND composio_user_id = $2 AND status = 'active'
           LIMIT 1
         `, [userId, composioUserId]) as ProfileRow | undefined || null;
     if (!row || (composioUserId && row.composio_user_id !== composioUserId)) {
@@ -551,7 +551,7 @@ export async function setComposioWorkspaceProfileOverride(input: {
     await database.run(`
       INSERT INTO composio_workspace_profile_overrides (
         user_id, workspace_id, profile_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?)
+      ) VALUES ($1, $2, $3, $4, $5)
       ON CONFLICT (user_id, workspace_id) DO UPDATE SET
         profile_id = excluded.profile_id,
         updated_at = excluded.updated_at
@@ -570,7 +570,7 @@ export async function clearComposioWorkspaceProfileOverride(input: {
   if (workspace.workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID) {
     await withDatabase((database) => database.run(`
       DELETE FROM composio_workspace_profile_overrides
-      WHERE user_id = ? AND workspace_id = ?
+      WHERE user_id = $1 AND workspace_id = $2
     `, [userId, workspace.workspaceId]));
   }
   return resolveEffectiveComposioProfile({ userId, workspaceId: workspace.workspaceId });

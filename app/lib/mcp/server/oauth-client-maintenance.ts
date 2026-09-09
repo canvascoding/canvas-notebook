@@ -38,9 +38,9 @@ export async function pruneUnusedDirectMcpDynamicClients(
         FROM oauth_client stale_client
         INNER JOIN oauth_client_resource direct_resource
           ON direct_resource.client_id = stale_client.client_id
-        WHERE direct_resource.resource_id = ?
+        WHERE direct_resource.resource_id = $1
           AND stale_client.created_at IS NOT NULL
-          AND stale_client.created_at < ?
+          AND stale_client.created_at < $2
           AND stale_client.user_id IS NULL
           AND stale_client.client_secret IS NULL
           AND stale_client.token_endpoint_auth_method = 'none'
@@ -60,7 +60,7 @@ export async function pruneUnusedDirectMcpDynamicClients(
             WHERE refresh_token.client_id = stale_client.client_id
           )
         ORDER BY stale_client.created_at ASC
-        LIMIT ?
+        LIMIT $3
       )
     `, [resource, cutoff, DIRECT_MCP_UNUSED_DYNAMIC_CLIENT_PRUNE_LIMIT]);
     return changesFromRunResult(result);

@@ -186,6 +186,10 @@ assert.equal(mask.length, markdown.length);
 assert.doesNotMatch(mask, /ignored-inline|ignored-comment|ignored-fence/);
 assert.match(mask, /research\/Market Analysis/);
 
+const unicodeSyntax = '📎 Visible ![[images/visible.png]]\n\n```md\n![[images/private.png]]\n```';
+assert.equal(createObsidianSyntaxMask(unicodeSyntax).length, unicodeSyntax.length);
+assert.deepEqual(parseObsidianWikiLinks(unicodeSyntax).map((link) => link.path), ['images/visible.png']);
+
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Normal **GFM** with `$code` and $E=mc^2$.'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('A `code` span and\n\n```ts\nconst x = 1\n```'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('See [[Note]].'), false);

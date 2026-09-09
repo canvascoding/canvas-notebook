@@ -4,13 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
-import {
-  ensureOrganizationBootstrapForUser,
-  openOrganizationBootstrapDatabase,
-} from '@/app/lib/organization/bootstrap';
 import { areProjectFeaturesEnabled } from '@/app/lib/projects/features';
-import { createCanvasProject, listCanvasProjects, normalizeSlug } from '@/app/lib/projects/service';
+import { normalizeSlug } from '@/app/lib/projects/slug';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { getPostgresWorkspaceState } from '@/app/lib/workspaces/postgres-runtime';
 
@@ -49,7 +44,7 @@ export async function GET(request: NextRequest) {
     const permissionResponse = assertAdminActor(actor);
     if (permissionResponse) return permissionResponse;
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -78,7 +73,7 @@ export async function GET(request: NextRequest) {
               AND w.project_id = p.id
               AND w.type = 'project'
               AND w.status = 'active'
-            WHERE p.organization_id = ? AND p.status = 'active'
+            WHERE p.organization_id = $1 AND p.status = 'active'
             ORDER BY lower(p.name) ASC, p.created_at ASC
           `,
           [state.status.organizationId],
@@ -87,26 +82,6 @@ export async function GET(request: NextRequest) {
       } finally {
         await database.close();
       }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      const projects = listCanvasProjects(sqlite, status.organizationId).map((project) => {
-        const workspace = sqlite.prepare(`
-          SELECT id
-          FROM canvas_workspaces
-          WHERE organization_id = ? AND project_id = ? AND type = 'project' AND status = 'active'
-          LIMIT 1
-        `).get(status.organizationId, project.id) as { id: string } | undefined;
-        return { ...project, workspaceId: workspace?.id ?? null };
-      });
-      return NextResponse.json({ success: true, projects });
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     return jsonServerError('[API] Projects get error:', error, 'Could not load projects');
@@ -129,7 +104,7 @@ export async function POST(request: NextRequest) {
       ? payload.customerId.trim()
       : null;
 
-    if (getDatabaseProvider() === 'postgres') {
+    {
       const state = await getPostgresWorkspaceState(actor);
       if (!state.status.organizationId) {
         return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
@@ -138,7 +113,7 @@ export async function POST(request: NextRequest) {
       try {
         if (customerId) {
           const customer = await database.get(
-            'SELECT id FROM canvas_customers WHERE organization_id = ? AND id = ? AND status = ? LIMIT 1',
+            'SELECT id FROM canvas_customers WHERE organization_id = $1 AND id = $2 AND status = $3 LIMIT 1',
             [state.status.organizationId, customerId, 'active'],
           ) as { id: string } | undefined;
           if (!customer) {
@@ -150,7 +125,7 @@ export async function POST(request: NextRequest) {
         const id = `prj_${randomUUID()}`;
         const baseSlug = normalizeSlug(typeof payload.slug === 'string' ? payload.slug : name);
         const rows = await database.all(
-          'SELECT slug FROM canvas_projects WHERE organization_id = ? AND (slug = ? OR slug LIKE ?)',
+          'SELECT slug FROM canvas_projects WHERE organization_id = $1 AND (slug = $2 OR slug LIKE $3)',
           [state.status.organizationId, baseSlug, `${baseSlug}-%`],
         ) as Array<{ slug: string }>;
         const used = new Set(rows.map((row) => row.slug));
@@ -160,7 +135,7 @@ export async function POST(request: NextRequest) {
           `
             INSERT INTO canvas_projects (
               id, organization_id, customer_id, name, slug, status, description, metadata_json, created_by_user_id, archived_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?, NULL, ?, ?)
+            ) VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $8, NULL, $9, $10)
           `,
           [
             id,
@@ -179,26 +154,6 @@ export async function POST(request: NextRequest) {
       } finally {
         await database.close();
       }
-    }
-
-    const sqlite = openOrganizationBootstrapDatabase();
-    try {
-      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
-      if (!status.organizationId) {
-        return NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 });
-      }
-      const project = createCanvasProject(sqlite, {
-        organizationId: status.organizationId,
-        name,
-        slug: typeof payload.slug === 'string' ? payload.slug : undefined,
-        customerId,
-        description: typeof payload.description === 'string' ? payload.description : null,
-        metadataJson: typeof payload.metadataJson === 'string' ? payload.metadataJson : null,
-        createdByUserId: actor.userId,
-      });
-      return NextResponse.json({ success: true, project }, { status: 201 });
-    } finally {
-      sqlite.close();
     }
   } catch (error) {
     if (error instanceof Error && /Name/u.test(error.message)) {

@@ -294,6 +294,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
         <button
           type="button"
           onClick={handleClick}
+          data-chat-file-reference
           className="inline cursor-pointer p-0 text-left align-baseline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
           title={`Open ${normalizedPath || href}`}
         >
@@ -307,6 +308,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
     <button
       type="button"
       onClick={handleClick}
+      data-chat-file-reference
       className="inline cursor-pointer p-0 text-left align-baseline text-primary underline underline-offset-2 transition-colors hover:text-primary/80"
       title={`Open ${normalizedPath || href}`}
     >
@@ -375,7 +377,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
     'min-w-0 max-w-full break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
   const toneClasses =
     variant === 'user'
-      ? '[&_blockquote]:border-primary-foreground/40 [&_pre]:border-primary-foreground/20 [&_pre]:bg-primary-foreground/10 [&_code]:bg-primary-foreground/15'
+      ? '[&_blockquote]:border-primary-foreground/40 [&_pre]:border-primary-foreground/20 [&_pre]:bg-primary-foreground/10 [&_code]:bg-primary-foreground/15 [&_[data-chat-file-reference]]:text-primary-foreground [&_[data-chat-file-reference]:hover]:text-primary-foreground/80'
       : '[&_blockquote]:border-border/80 [&_pre]:border-border [&_pre]:bg-background/80 [&_code]:bg-background/80';
   const tableBorderClasses =
     variant === 'user'

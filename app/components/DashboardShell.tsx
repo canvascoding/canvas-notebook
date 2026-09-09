@@ -59,11 +59,11 @@ import {
   useShouldShowWorkspaceSwitcher,
 } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
-import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { requestCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-request';
 import { createNotebookDocumentLocationWatcher } from '@/app/lib/notebook/document-location-watcher';
 import { notebookUrlAfterDocumentMove } from '@/app/lib/notebook/document-location-url';
 import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { remapPath } from '@/app/lib/files/path-mutation-state';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
   getNotebookNavigationIntent,
@@ -157,6 +157,8 @@ type SurfaceTabProps = {
 
 type OpenNotebookFileOptions = {
   dockChatIfFull?: boolean;
+  workspaceId?: string;
+  transitionId?: string;
 };
 
 function SurfaceTab({
@@ -708,7 +710,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (!notebookMountedRef.current) return { status: 'superseded' as const, path: normalizedPath };
     cancelPendingDocumentOpen();
     const generation = documentOpenGenerationRef.current;
-    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const workspaceId = options.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
     useFileStore.getState().ensureTreeWorkspace(workspaceId);
     const before = useFileStore.getState();
     const canOpen = () => notebookMountedRef.current && documentOpenGenerationRef.current === generation
@@ -751,7 +753,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
 
     showOpenedDocument(options.dockChatIfFull);
-    const transitionId = createWorkspaceFileTransitionId();
+    const transitionId = options.transitionId ?? createWorkspaceFileTransitionId();
     const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, {
       transitionId,
       workspaceId,
@@ -776,22 +778,34 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     return result;
   }, [cancelPendingDocumentOpen, replaceDocumentTabs, showOpenedDocument]);
 
+  const bridgedRequestRef = useRef<NotebookFileReferenceRequest | null>(null);
+  const completedBridgeRequests = useRef(new Set<string>());
   const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
-    openedPathRef.current = request.path;
-    const result = await openNotebookFile(request.path, { dockChatIfFull: true });
-    if (result?.status !== 'opened') {
-      if (openedPathRef.current === request.path) openedPathRef.current = null;
-      return;
-    }
-
-    clearPendingNotebookFileReference(request.requestId);
-    notifyWorkspaceFileOpened(request.path, 'chat-reference');
-    if (request.blockId || request.heading) {
-      requestWorkspaceMarkdownLocation({
-        path: request.path,
-        blockId: request.blockId,
-        heading: request.heading,
+    if (bridgedRequestRef.current?.requestId === request.requestId || completedBridgeRequests.current.has(request.requestId)) return;
+    bridgedRequestRef.current = request;
+    const isCurrent = () => bridgedRequestRef.current === request;
+    try {
+      // Calling even for the current workspace supersedes an older pending switch.
+      await useWorkspaceStore.getState().setActiveWorkspace(request.workspaceId, 'chat');
+      if (!isCurrent() || useWorkspaceStore.getState().activeWorkspaceId !== request.workspaceId) return;
+      openedPathRef.current = request.path;
+      const result = await openNotebookFile(request.path, {
+        dockChatIfFull: true, workspaceId: request.workspaceId, transitionId: request.requestId,
       });
+      if (!isCurrent() || useWorkspaceStore.getState().activeWorkspaceId !== request.workspaceId) return;
+      if (result?.status !== 'opened') {
+        if (openedPathRef.current === request.path) openedPathRef.current = null;
+        return;
+      }
+      notifyWorkspaceFileOpened(request.path, 'chat-reference', request.workspaceId);
+      if (request.blockId || request.heading) {
+        requestWorkspaceMarkdownLocation({ path: request.path, blockId: request.blockId, heading: request.heading });
+      }
+    } finally {
+      completedBridgeRequests.current.add(request.requestId);
+      if (completedBridgeRequests.current.size > 256) completedBridgeRequests.current.delete(completedBridgeRequests.current.values().next().value!);
+      clearPendingNotebookFileReference(request.requestId);
+      if (isCurrent()) bridgedRequestRef.current = null;
     }
   }, [openNotebookFile]);
 
@@ -936,6 +950,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'email' });
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
+      if (bridgedRequestRef.current?.workspaceId === nextWorkspaceId) return;
       if (!restoredTabs.activePath) {
         dispatch({ type: 'SHOW_CHAT' });
         return;
@@ -952,7 +967,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookFile, routeFilePath]);
 
   useEffect(() => {
-    const handleWorkspaceFileOpen = () => {
+    const handleWorkspaceFileOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string | null }>).detail;
+      if (detail?.workspaceId !== undefined && detail.workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
       showOpenedDocument(true);
       setMobileExplorerOpen(false);
     };
@@ -1028,8 +1045,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   useEffect(() => {
     const closeDocumentTabsAtPaths = (paths: Iterable<string>) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
+      const file = useFileStore.getState().currentFile;
       const closedPaths = Array.from(paths);
+      const preservedPath = file?.unavailable ? file.path : null;
       const nextTabs = closeNotebookDocumentTabsAtPaths(documentTabsRef.current, closedPaths);
+      if (preservedPath) {
+        const preserved = openNotebookDocumentTab(nextTabs, preservedPath);
+        if (preserved.status !== 'limit-reached') replaceDocumentTabs(activeWorkspaceId, preserved.state);
+        return;
+      }
       if (nextTabs === documentTabsRef.current) return;
       cancelPendingDocumentOpen();
 
@@ -1050,43 +1074,30 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const handlePathsDeleted = (event: Event) => {
       const { paths, workspaceId } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
       if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      if (workspaceId) setClosedDocuments((current) => ({
+        ...current,
+        [workspaceId]: (current[workspaceId] ?? []).filter((path) => !paths.some((root) => isSameOrDescendantPath(path, root))),
+      }));
       closeDocumentTabsAtPaths(paths);
     };
     const handlePathRenamed = (event: Event) => {
       if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
       const { oldPath, newPath, workspaceId } = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
       if (workspaceId !== activeWorkspaceId || workspaceId !== useWorkspaceStore.getState().activeWorkspaceId) return;
+      setClosedDocuments((current) => ({
+        ...current,
+        [workspaceId]: [...new Set((current[workspaceId] ?? []).map((path) => remapPath(path, oldPath, newPath)))],
+      }));
       replaceDocumentTabs(
         activeWorkspaceId,
         renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
       );
     };
-    const handleWatcherFileChange = (event: Event) => {
-      const detail = (event as CustomEvent<FileEvent>).detail;
-      if (
-        !detail
-        || (detail.type !== 'unlink' && detail.type !== 'unlinkDir')
-        || (detail.workspaceId && detail.workspaceId !== activeWorkspaceId)
-      ) {
-        return;
-      }
-      const tabs = documentTabsRef.current;
-      const fileState = useFileStore.getState();
-      // Raw unlink is also emitted during a rename. Known collaborative tabs
-      // stay alive until their identity is resolved; active recovery remains visible.
-      closeDocumentTabsAtPaths(tabs.openPaths.filter(path => isSameOrDescendantPath(path, detail.relativePath)
-        && !(Object.hasOwn(tabs.documentIds ?? {}, path) && tabs.documentIds?.[path])
-        && !(fileState.currentFileWorkspaceId === activeWorkspaceId && fileState.currentFile?.path === path
-          && fileState.currentFile.collaboration?.crdtCapable && fileState.currentFile.collaboration.document?.id)));
-    };
-    const fileWatcher = getFileWatcherClient();
     window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
     window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
-    fileWatcher.addEventListener('filechange', handleWatcherFileChange);
     return () => {
       window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
       window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
-      fileWatcher.removeEventListener('filechange', handleWatcherFileChange);
     };
   }, [activeWorkspaceId, cancelPendingDocumentOpen, dispatch, openNotebookFile, replaceDocumentTabs]);
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { publicShareFileResponse } from '@/app/lib/public-sharing/public-file-response';
+import { publicShareFileResponse, publicShareNotFoundResponse } from '@/app/lib/public-sharing/public-file-response';
+import { resolvePublicHtmlSiteAssetWorkspacePath } from '@/app/lib/public-sharing/public-share-security';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { resolvePublicShareToken } from '@/app/lib/public-sharing/public-file-shares';
 import { buildPublicRequestUrl } from '@/app/lib/utils/request-origin';
@@ -28,19 +29,27 @@ async function handlePublicFileRequest(
   method: 'GET' | 'HEAD',
 ) {
   const { token, filename } = await context.params;
-  const decodedToken = decodeURIComponent(token);
+  let decodedToken: string;
+  try {
+    decodedToken = decodeURIComponent(token);
+  } catch {
+    return publicShareNotFoundResponse();
+  }
 
   if (method === 'GET') {
     const previewCheck = await resolvePublicShareToken(decodedToken, { recordAccess: false });
     if (
       previewCheck.ok
+      && resolvePublicHtmlSiteAssetWorkspacePath(previewCheck.workspacePath, filename) === previewCheck.workspacePath
       && !wantsAttachmentDownload(request)
       && (isExcalidrawFilePath(previewCheck.workspacePath) || isBrowserDocumentNavigation(request))
     ) {
-      return NextResponse.redirect(buildPublicRequestUrl(
+      const response = NextResponse.redirect(buildPublicRequestUrl(
         request,
         publicPreviewPath(decodedToken, previewCheck.share.fileName, previewCheck.share.shortCode)
       ));
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
     }
 
     if (!previewCheck.ok) {
@@ -48,7 +57,7 @@ async function handlePublicFileRequest(
     }
   }
 
-  const resolved = await resolvePublicShareToken(decodedToken);
+  const resolved = await resolvePublicShareToken(decodedToken, { recordAccess: method !== 'HEAD' });
   return publicShareFileResponse(request, resolved, method, { requestedPathParts: filename });
 }
 

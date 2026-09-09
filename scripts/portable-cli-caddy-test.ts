@@ -9,6 +9,15 @@ import { commandRequiresOperationLock } from '../cli/src/core/operationLock';
 import { resolveDefaultPaths } from '../cli/src/core/platform';
 import type { CanvasCliConfig, CommandResult, CommandRunner, RunOptions, RuntimeContext } from '../cli/src/core/types';
 
+const previewConfig = renderCaddyfile('notebook.example.com', 3456, undefined, 'https://documents.example.net');
+assert.ok(previewConfig.includes('https://documents.example.net {'));
+assert.ok(previewConfig.includes('method GET HEAD'));
+assert.ok(previewConfig.includes('path /__preview/*'));
+for (const header of ['Cookie', 'Authorization', 'Proxy-Authorization']) assert.ok(previewConfig.includes(`header_up -${header}`));
+assert.ok(previewConfig.includes('header_down -Set-Cookie'));
+assert.throws(() => renderCaddyfile('notebook.example.com', 3456, undefined, 'https://notebook.example.com:444'));
+assert.throws(() => renderCaddyfile('notebook.example.com', 3456, undefined, 'http://documents.example.net'));
+
 class CaddyTestRunner implements CommandRunner {
   calls: Array<{ command: string; args: string[]; liveContent: string | null }> = [];
   installed = true;

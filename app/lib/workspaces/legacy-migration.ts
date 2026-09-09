@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { normalizeDataScopeId, resolveSystemMigrationDir } from '@/app/lib/runtime-data-paths';
 import { resolveLegacyWorkspaceRoot } from './context';
-import { workspaceAbsoluteRoot, type WorkspaceRecord } from './service';
+import { workspaceAbsoluteRoot, type WorkspaceRecord } from './contracts';
 
 const LEGACY_WORKSPACE_IMPORT_NAME = '_legacy-workspace-import';
 const MARKER_VERSION = 1;
@@ -99,7 +99,7 @@ function readExistingManifest(markerPath: string): Pick<LegacyWorkspaceMigration
 export function migrateLegacyWorkspaceToPersonalWorkspace(params: {
   organizationId: string;
   userId: string;
-  personalWorkspace: WorkspaceRecord;
+  personalWorkspace: Pick<WorkspaceRecord, 'rootRelativePath'>;
 }): LegacyWorkspaceMigrationResult {
   const sourceRoot = resolveLegacyWorkspaceRoot();
   const targetRoot = workspaceAbsoluteRoot(params.personalWorkspace.rootRelativePath);

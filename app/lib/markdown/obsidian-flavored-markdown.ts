@@ -44,7 +44,8 @@ function blankRange(mask: string[], source: string, start: number, end: number):
  * Offsets from regex matches against this mask always map to the source string.
  */
 function scanObsidianSyntax(markdown: string): { hasComment: boolean; mask: string } {
-  const mask = Array.from(markdown);
+  // Regex and source positions use UTF-16 offsets, including surrogate pairs.
+  const mask = markdown.split('');
   let commentOpen = false;
   let hasComment = false;
   let fence: { char: '`' | '~'; length: number } | null = null;

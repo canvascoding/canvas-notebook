@@ -1,16 +1,15 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { getTableConfig } from 'drizzle-orm/sqlite-core';
+import { getTableConfig } from 'drizzle-orm/pg-core';
 import { Pool, types } from 'pg';
 
 import * as schema from './schema';
-import {
-  MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY,
-  TEAM_SEAT_LEGACY_MIGRATION_KEY,
-  TEAM_SEAT_LEGACY_MIGRATION_METADATA,
-  TEAM_SEAT_LEGACY_MIGRATION_REASON,
-} from './migrate';
+const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-membership-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_METADATA = '{"source":"organization_user_permissions","billableOperationsCreated":0}';
+const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'legacy organization user permissions';
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
+import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
@@ -33,6 +32,7 @@ type SchemaColumn = {
   hasDefault: boolean;
   default?: unknown;
   table?: PostgresSchemaTable;
+  getSQLType?: () => string;
 };
 
 type SqlChunk = {
@@ -86,15 +86,24 @@ export function getPostgresSchemaTables(): PostgresSchemaTable[] {
 function columnType(column: SchemaColumn): string {
   if (column.autoIncrement) return 'bigserial';
 
+  const sqlType = column.getSQLType?.().toLowerCase();
+  if (sqlType === 'text' || sqlType === 'bigint' || sqlType === 'bigserial' || sqlType === 'double precision') {
+    return sqlType;
+  }
+
   switch (column.columnType) {
-    case 'SQLiteText':
+    case 'PgText':
       return 'text';
-    case 'SQLiteReal':
+    case 'PgDoublePrecision':
       return 'double precision';
-    case 'SQLiteBoolean':
-    case 'SQLiteInteger':
-    case 'SQLiteTimestamp':
+    case 'PgBigInt53':
+    case 'PgBigInt64':
       return 'bigint';
+    case 'PgBigSerial53':
+    case 'PgBigSerial64':
+      return 'bigserial';
+    case 'PgCustomColumn':
+      return column.dataType === 'string' ? 'text' : 'bigint';
     default:
       if (column.dataType === 'string') return 'text';
       if (column.dataType === 'number' || column.dataType === 'boolean' || column.dataType === 'date') return 'bigint';
@@ -146,7 +155,7 @@ function renderSqlFragment(fragment: unknown): string | null {
   return rendered.trim() || null;
 }
 
-function createTableSql(table: PostgresSchemaTable): string {
+export function createTableSql(table: PostgresSchemaTable): string {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
   const config = getTableConfig(table as never) as {
     columns: SchemaColumn[];
@@ -632,6 +641,12 @@ export async function runPostgresMemoryReviewerOptInBackfill(pool: PgQueryable):
       databaseProvider: 'postgres',
     });
   }
+}
+
+/** Runs the PostgreSQL-only upgrades retained from the legacy migration runner. */
+export async function runPostgresLegacySchemaUpgrades(pool: PgQueryable): Promise<void> {
+  await runPostgresMemoryReviewerOptInBackfill(pool);
+  await runPostgresTeamSeatLegacyBackfill(pool);
 }
 
 export function createPostgresPool(): Pool {
@@ -1361,6 +1376,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   }
 
   await pool.query('ALTER TABLE memory_user_settings ALTER COLUMN automatic_memory_enabled SET DEFAULT 0');
+  for (const statement of PUBLIC_SHARE_UNIQUENESS_STATEMENTS) await pool.query(statement);
   await runPostgresMemoryReviewerOptInBackfill(pool);
 
   await pool.query(`

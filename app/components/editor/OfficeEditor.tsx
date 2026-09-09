@@ -31,6 +31,8 @@ interface OfficeEditorProps {
   onChange?: () => void;
   readOnly?: boolean;
   sourceUrl?: string;
+  preserveSnapshot?: boolean;
+  contentRevision?: string;
 }
 
 function OfficeDocumentLoadingSkeleton({ path, extension }: { path: string; extension: string }) {
@@ -78,10 +80,21 @@ function OfficeDocumentLoadingSkeleton({ path, extension }: { path: string; exte
 export interface OfficeEditorRef {
   save: () => Promise<string | null>;
   hasChanges: () => boolean;
+  changeVersion: () => number;
+  markSaved: (version: number) => void;
 }
 
 export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
-  function OfficeEditor({ path, extension, updateDraft, onChange, readOnly = false, sourceUrl }, ref) {
+  function OfficeEditor({ path: currentPath, extension, updateDraft, onChange, readOnly = false, sourceUrl: currentSourceUrl, preserveSnapshot = false, contentRevision }, ref) {
+    const dirtyRef = useRef(false);
+    const changeVersionRef = useRef(0);
+    const [hasLocalChanges, setHasLocalChanges] = useState(false);
+    const [snapshot, setSnapshot] = useState(() => ({ path: currentPath, sourceUrl: currentSourceUrl, revision: contentRevision }));
+    if (preserveSnapshot && snapshot.revision !== contentRevision && !hasLocalChanges) {
+      setSnapshot({ path: currentPath, sourceUrl: currentSourceUrl, revision: contentRevision });
+    }
+    const path = preserveSnapshot ? snapshot.path : currentPath;
+    const sourceUrl = preserveSnapshot ? snapshot.sourceUrl : currentSourceUrl;
     const t = useTranslations('notebook');
     const docxEditorRef = useRef<{ save: () => Promise<ArrayBuffer | null> } | null>(null);
     const spreadsheetEditorRef = useRef<{ save: () => Promise<string | null>; getData: () => { name: string; data: (string | number | boolean)[][] }[] | null; hasChanges: () => boolean } | null>(null);
@@ -112,7 +125,10 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
         
         return null;
       },
+      changeVersion: () => changeVersionRef.current,
+      markSaved: (version) => { if (version === changeVersionRef.current) { dirtyRef.current = false; setHasLocalChanges(false); } },
       hasChanges: () => {
+        if (dirtyRef.current) return true;
         if (extension === 'xlsx' || extension === 'csv' || extension === 'xls') {
           return spreadsheetEditorRef.current?.hasChanges() || false;
         }
@@ -223,7 +239,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
             path={path}
             documentBuffer={docxBuffer}
             mode={readOnly ? 'viewing' : 'editing'}
-            onChange={() => {}}
+            onChange={() => { dirtyRef.current = true; setHasLocalChanges(true); changeVersionRef.current += 1; onChange?.(); }}
           />
         </div>
       );
@@ -249,7 +265,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
           <SpreadsheetEditorComponent
             ref={spreadsheetEditorRef}
             path={path}
-            onChange={onChange}
+            onChange={() => { dirtyRef.current = true; setHasLocalChanges(true); changeVersionRef.current += 1; onChange?.(); }}
             readOnly={readOnly}
             sourceUrl={sourceUrl}
           />

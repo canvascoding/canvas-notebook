@@ -29,7 +29,7 @@ export async function getValidToken(provider: string): Promise<OAuthToken | null
   try {
     const row = await db.get(
       `SELECT * FROM oauth_tokens 
-       WHERE provider = ? 
+       WHERE provider = $1
        AND is_valid = 1 
        ORDER BY updated_at DESC 
        LIMIT 1`,
@@ -42,7 +42,7 @@ export async function getValidToken(provider: string): Promise<OAuthToken | null
     if (row.expires_at && row.expires_at < Date.now()) {
       // Mark as invalid
       await db.run(
-        `UPDATE oauth_tokens SET is_valid = 0 WHERE id = ?`,
+        `UPDATE oauth_tokens SET is_valid = 0 WHERE id = $1`,
         [row.id]
       );
       return null;
@@ -70,7 +70,7 @@ export async function storeToken(token: OAuthToken): Promise<void> {
     await db.run(
       `INSERT INTO oauth_tokens 
        (id, provider, access_token, refresh_token, expires_at, scope, email, created_at, updated_at, is_valid)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)
        ON CONFLICT(provider) DO UPDATE SET
        access_token = excluded.access_token,
        refresh_token = excluded.refresh_token,
@@ -100,7 +100,7 @@ export async function deleteToken(provider: string): Promise<void> {
   const db = await openDb();
   try {
     await db.run(
-      `DELETE FROM oauth_tokens WHERE provider = ?`,
+      `DELETE FROM oauth_tokens WHERE provider = $1`,
       [provider]
     );
   } finally {

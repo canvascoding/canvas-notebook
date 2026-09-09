@@ -1,9 +1,13 @@
+import { remapWorkspacePresencePaths } from '@/app/lib/collaboration/presence';
 import { promises as fs, watch as fsWatch, type FSWatcher } from 'fs';
 import path from 'path';
 import { clearSubtreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { filesystemFileVersion } from './file-version';
+import type { WorkspaceFileEvent, WorkspaceFileEventType, WorkspacePathRenameMutation } from '@/app/lib/files/file-events';
 
 const IGNORED_PATTERNS = [
   'node_modules',
@@ -16,15 +20,10 @@ const IGNORED_PATTERNS = [
   'Thumbs.db',
 ];
 
-export type FileEventType = 'add' | 'change' | 'unlink' | 'addDir' | 'unlinkDir';
+export type FileEventType = WorkspaceFileEventType;
 
-export interface FileEvent {
-  type: FileEventType;
+export interface FileEvent extends WorkspaceFileEvent {
   workspaceId: string;
-  path: string;
-  relativePath: string;
-  dir: string;
-  timestamp: number;
 }
 
 export interface FileWatcherServerClient {
@@ -43,6 +42,7 @@ export interface WorkspaceFileMutation {
   workspace: WorkspaceContext;
   type: FileEventType;
   relativePath: string;
+  fileVersion?: string;
 }
 
 function normalizeRelativePath(value: string): string {
@@ -73,10 +73,13 @@ export class FileWatcherService {
   private subscriptions = new Map<string, Subscription>();
   private debounceTimer: NodeJS.Timeout | null = null;
   private pendingEvents: FileEvent[] = [];
-  private readonly debounceDelay = 500;
+  private readonly debounceDelay = 200;
+  private readonly maxDebounceDelay = 800;
+  private firstPendingAt: number | null = null;
   private clientLastActive = new Map<string, number>();
   private staleCheckInterval: NodeJS.Timeout | null = null;
   private readonly STALE_TIMEOUT_MS = 90_000;
+  private managedRenames = new Map<string, { mutation: WorkspacePathRenameMutation; committed: boolean }>();
 
   constructor() {
     this.startStaleCheck();
@@ -191,6 +194,49 @@ export class FileWatcherService {
     this.invalidateAndBroadcast(event, mutation.workspace);
   }
 
+  private findManagedRename(workspaceId: string, relativePath: string) {
+    return Array.from(this.managedRenames.values()).find(({ mutation }) => (
+      mutation.workspaceId === workspaceId && (
+        isSameOrDescendantPath(relativePath, mutation.oldPath)
+        || isSameOrDescendantPath(relativePath, mutation.newPath)
+      )
+    ));
+  }
+
+  /** Hold native rename/delete notifications until the filesystem and identity move commit. */
+  public async withRename<T>(
+    workspace: WorkspaceContext,
+    mutation: WorkspacePathRenameMutation,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const pending = { mutation, committed: false };
+    this.managedRenames.set(mutation.operationId, pending);
+    try {
+      const result = await operation();
+      pending.committed = true;
+      remapWorkspacePresencePaths(workspace.workspaceId, mutation.oldPath, mutation.newPath);
+      this.pendingEvents = this.pendingEvents.filter((event) => this.findManagedRename(event.workspaceId, event.relativePath) !== pending);
+      clearSubtreeCache(getParentDirectory(mutation.oldPath), workspace.workspaceId);
+      this.invalidateAndBroadcast({
+        type: 'rename', workspaceId: workspace.workspaceId,
+        path: this.toFullPath(mutation.newPath, workspace),
+        relativePath: mutation.newPath, dir: getParentDirectory(mutation.newPath),
+        timestamp: Date.now(), mutation,
+      }, workspace);
+      return result;
+    } finally {
+      this.managedRenames.delete(mutation.operationId);
+      // A failed operation may have rolled back. Re-read both paths rather than
+      // replaying an intermediate unlink that no longer describes the disk.
+      if (!pending.committed) {
+        for (const relativePath of [mutation.oldPath, mutation.newPath]) {
+          const event = await this.determineEventType('rename', relativePath, this.toFullPath(relativePath, workspace), workspace);
+          if (event) this.queueEvent(event);
+        }
+      }
+    }
+  }
+
   private getSubscriptionForClient(client: FileWatcherServerClient, dirPath: string): Subscription {
     const key = subscriptionKey(client.workspaceId, dirPath);
     let subscription = this.subscriptions.get(key);
@@ -225,8 +271,9 @@ export class FileWatcherService {
           : path.posix.join(relativeDir, filename.toString());
         const fullFilePath = path.join(fullPath, filename.toString());
 
+        const managedRename = this.findManagedRename(workspace.workspaceId, relativeFilePath);
         void this.determineEventType(eventType, relativeFilePath, fullFilePath, workspace).then((event) => {
-          if (event) this.queueEvent(event);
+          if (event && !managedRename?.committed) this.queueEvent(event);
         });
       });
 
@@ -245,17 +292,6 @@ export class FileWatcherService {
     const normalizedPath = normalizeRelativePath(relativePath);
     const dir = getParentDirectory(normalizedPath);
 
-    if (eventType === 'change') {
-      return {
-        type: 'change',
-        workspaceId: workspace.workspaceId,
-        path: fullPath,
-        relativePath: normalizedPath,
-        dir,
-        timestamp: Date.now(),
-      };
-    }
-
     try {
       const stats = await fs.stat(fullPath);
       const isDir = stats.isDirectory();
@@ -267,12 +303,13 @@ export class FileWatcherService {
         }
       }
       return {
-        type: isDir ? 'addDir' : 'add',
+        type: isDir ? 'addDir' : eventType === 'change' ? 'change' : 'add',
         workspaceId: workspace.workspaceId,
         path: fullPath,
         relativePath: normalizedPath,
         dir,
         timestamp: Date.now(),
+        fileVersion: filesystemFileVersion(stats),
       };
     } catch {
       const watcherKey = subscriptionKey(workspace.workspaceId, normalizedPath);
@@ -294,12 +331,19 @@ export class FileWatcherService {
   }
 
   private queueEvent(event: FileEvent): void {
+    const managedRename = this.findManagedRename(event.workspaceId, event.relativePath);
+    if (managedRename) {
+      return;
+    }
     this.pendingEvents.push(event);
+    this.firstPendingAt ??= Date.now();
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => this.flushEvents(), this.debounceDelay);
+    const delay = Math.min(this.debounceDelay, Math.max(0, this.maxDebounceDelay - (Date.now() - this.firstPendingAt)));
+    this.debounceTimer = setTimeout(() => this.flushEvents(), delay);
   }
 
   private flushEvents(): void {
+    this.debounceTimer = null; this.firstPendingAt = null;
     if (this.pendingEvents.length === 0) return;
 
     const uniqueEvents = new Map<string, FileEvent>();
@@ -308,6 +352,10 @@ export class FileWatcherService {
     }
 
     for (const event of uniqueEvents.values()) {
+      const managedRename = this.findManagedRename(event.workspaceId, event.relativePath);
+      if (managedRename) {
+        continue;
+      }
       const subscription = this.subscriptions.get(subscriptionKey(event.workspaceId, event.dir));
       const workspace = subscription?.workspace;
       if (workspace) this.invalidateAndBroadcast(event, workspace);
@@ -344,6 +392,7 @@ export class FileWatcherService {
       relativePath,
       dir: getParentDirectory(relativePath),
       timestamp: Date.now(),
+      fileVersion: mutation.fileVersion,
     };
   }
 
@@ -377,6 +426,7 @@ export class FileWatcherService {
         if (now - lastActive > this.STALE_TIMEOUT_MS) this.removeClient(clientId);
       }
     }, 15_000);
+    this.staleCheckInterval.unref();
   }
 
   private removeClient(clientId: string): void {
@@ -391,10 +441,13 @@ export class FileWatcherService {
     this.clients.clear();
     this.clientLastActive.clear();
     this.subscriptions.clear();
+    this.managedRenames.clear();
     if (this.staleCheckInterval) clearInterval(this.staleCheckInterval);
     this.staleCheckInterval = null;
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = null;
+    this.firstPendingAt = null;
+    this.pendingEvents = [];
   }
 }
 
@@ -403,6 +456,14 @@ let fileWatcherInstance: FileWatcherService | null = null;
 export function getFileWatcher(): FileWatcherService {
   if (!fileWatcherInstance) fileWatcherInstance = new FileWatcherService();
   return fileWatcherInstance;
+}
+
+export function withWorkspacePathRenameEvent<T>(
+  workspace: WorkspaceContext,
+  mutation: WorkspacePathRenameMutation,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return getFileWatcher().withRename(workspace, mutation, operation);
 }
 
 export function publishWorkspaceFileMutation(mutation: WorkspaceFileMutation): void {

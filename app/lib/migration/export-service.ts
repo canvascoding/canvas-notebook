@@ -4,7 +4,6 @@ import crypto from 'crypto';
 import path from 'path';
 import { createReadStream, createWriteStream, promises as fs } from 'fs';
 import { PassThrough } from 'stream';
-import type Database from 'better-sqlite3';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
@@ -27,7 +26,7 @@ import {
   type MigrationExportSource,
   type MigrationFileEntry,
 } from '@/app/lib/migration/types';
-import { resolveNotebookRuntimeProfile, type NotebookDatabaseProvider } from '@/app/lib/runtime/notebook-runtime';
+import { resolveNotebookRuntimeProfile } from '@/app/lib/runtime/notebook-runtime';
 import {
   ensureMigrationDir,
   getMigrationDataRoot,
@@ -37,11 +36,10 @@ import {
   getSelectedMigrationExportComponentPaths,
   resolveMigrationDataPath,
 } from '@/app/lib/migration/component-paths';
-import { getDatabaseProvider, getDeploymentMode } from '@/app/lib/organization/bootstrap';
-import { loadBetterSqlite3 } from '@/app/lib/db/optional-sqlite';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 
 const EXPORT_STATUS_FILE = 'status.json';
-const SQLITE_FILE_NAME = 'sqlite.db';
 const EXPORT_WRITE_THROTTLE_MS = 750;
 const RECONNECT_MANIFEST_ARCHIVE_PATH = 'data/reconnect-manifest.json';
 
@@ -196,144 +194,6 @@ async function addZipEntry(
   });
 }
 
-const ALLOWED_SANITIZE_TABLES = new Set([
-  'public_file_shares',
-  'session',
-  'verification',
-  'channel_link_tokens',
-  'oauth_tokens',
-  'todo_email_reply_events',
-  'todo_email_reply_watchers',
-  'composio_webhook_subscriptions',
-  'automation_webhook_triggers',
-  'account',
-]);
-
-function assertAllowedSanitizeTable(tableName: string): void {
-  if (!ALLOWED_SANITIZE_TABLES.has(tableName)) {
-    throw new Error(`Unexpected migration sanitize table: ${tableName}`);
-  }
-}
-
-function quoteSqlIdentifier(identifier: string): string {
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(identifier)) {
-    throw new Error(`Unexpected SQL identifier: ${identifier}`);
-  }
-  return `"${identifier}"`;
-}
-
-function tableExists(sqlite: InstanceType<typeof Database>, tableName: string): boolean {
-  assertAllowedSanitizeTable(tableName);
-  const row = sqlite.prepare(`
-    SELECT 1
-    FROM sqlite_master
-    WHERE type = 'table' AND name = ?
-    LIMIT 1
-  `).get(tableName);
-  return Boolean(row);
-}
-
-function tableColumns(sqlite: InstanceType<typeof Database>, tableName: string): Set<string> {
-  assertAllowedSanitizeTable(tableName);
-  return new Set(
-    sqlite.prepare(`PRAGMA table_info(${quoteSqlIdentifier(tableName)})`).all()
-      .map((column) => (column as { name: string }).name),
-  );
-}
-
-function nullColumns(sqlite: InstanceType<typeof Database>, tableName: string, columns: string[]): void {
-  assertAllowedSanitizeTable(tableName);
-  if (!tableExists(sqlite, tableName)) return;
-  const existing = tableColumns(sqlite, tableName);
-  const assignments = columns
-    .filter((column) => existing.has(column))
-    .map((column) => `${quoteSqlIdentifier(column)} = NULL`);
-  if (assignments.length === 0) return;
-  sqlite.prepare(`UPDATE ${quoteSqlIdentifier(tableName)} SET ${assignments.join(', ')}`).run();
-}
-
-function sanitizeSqliteMigrationSnapshot(snapshotPath: string): void {
-  const BetterSqlite3 = loadBetterSqlite3();
-  const snapshot = new BetterSqlite3(snapshotPath);
-  try {
-    const transaction = snapshot.transaction(() => {
-      if (tableExists(snapshot, 'public_file_shares')) {
-        snapshot.prepare('DELETE FROM public_file_shares').run();
-      }
-      if (tableExists(snapshot, 'session')) {
-        snapshot.prepare('DELETE FROM session').run();
-      }
-      if (tableExists(snapshot, 'verification')) {
-        snapshot.prepare('DELETE FROM verification').run();
-      }
-      if (tableExists(snapshot, 'channel_link_tokens')) {
-        snapshot.prepare('DELETE FROM channel_link_tokens').run();
-      }
-      if (tableExists(snapshot, 'oauth_tokens')) {
-        snapshot.prepare('DELETE FROM oauth_tokens').run();
-      }
-      if (tableExists(snapshot, 'todo_email_reply_events')) {
-        snapshot.prepare('DELETE FROM todo_email_reply_events').run();
-      }
-      if (tableExists(snapshot, 'todo_email_reply_watchers')) {
-        snapshot.prepare('DELETE FROM todo_email_reply_watchers').run();
-      }
-      if (tableExists(snapshot, 'composio_webhook_subscriptions')) {
-        const columns = tableColumns(snapshot, 'composio_webhook_subscriptions');
-        const assignments: string[] = [];
-        const values: unknown[] = [];
-        if (columns.has('encrypted_secret')) {
-          assignments.push('encrypted_secret = ?');
-          values.push('redacted');
-        }
-        if (columns.has('secret_preview')) {
-          assignments.push('secret_preview = ?');
-          values.push('redacted');
-        }
-        if (columns.has('status')) {
-          assignments.push('status = ?');
-          values.push('paused');
-        }
-        if (assignments.length > 0) {
-          snapshot.prepare(`UPDATE ${quoteSqlIdentifier('composio_webhook_subscriptions')} SET ${assignments.join(', ')}`).run(...values);
-        }
-      }
-      if (tableExists(snapshot, 'automation_webhook_triggers')) {
-        const columns = tableColumns(snapshot, 'automation_webhook_triggers');
-        const assignments: string[] = [];
-        const values: unknown[] = [];
-        if (columns.has('status')) {
-          assignments.push('status = ?');
-          values.push('paused');
-        }
-        if (columns.has('secret_preview')) {
-          assignments.push('secret_preview = ?');
-          values.push('redacted');
-        }
-        if (columns.has('secret_hash')) {
-          assignments.push('secret_hash = ?');
-          values.push('redacted');
-        }
-        if (assignments.length > 0) {
-          snapshot.prepare(`UPDATE ${quoteSqlIdentifier('automation_webhook_triggers')} SET ${assignments.join(', ')}`).run(...values);
-        }
-      }
-      nullColumns(snapshot, 'account', [
-        'access_token',
-        'refresh_token',
-        'id_token',
-        'access_token_expires_at',
-        'refresh_token_expires_at',
-        'password',
-      ]);
-    });
-    transaction();
-    snapshot.pragma('wal_checkpoint(TRUNCATE)');
-  } finally {
-    snapshot.close();
-  }
-}
-
 async function maybeStat(pathname: string): Promise<import('fs').Stats | null> {
   try {
     return await fs.stat(pathname);
@@ -343,17 +203,6 @@ async function maybeStat(pathname: string): Promise<import('fs').Stats | null> {
     }
     throw error;
   }
-}
-
-async function sha256File(filePath: string): Promise<string> {
-  const hash = crypto.createHash('sha256');
-  await new Promise<void>((resolve, reject) => {
-    const stream = createReadStream(filePath, { highWaterMark: 1024 * 1024 });
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('error', reject);
-    stream.on('end', resolve);
-  });
-  return hash.digest('hex');
 }
 
 function extractEnvKeys(raw: string): string[] {
@@ -438,57 +287,14 @@ async function buildReconnectManifest(params: {
   };
 }
 
-async function createSqliteSnapshot(dataRoot: string, exportDir: string): Promise<{
-  filePath: string;
-  entry: MigrationFileEntry;
-  sha256: string;
-}> {
-  const BetterSqlite3 = loadBetterSqlite3();
-  const sourcePath = path.join(dataRoot, SQLITE_FILE_NAME);
-  const snapshotPath = path.join(exportDir, 'snapshot', SQLITE_FILE_NAME);
-  await fs.mkdir(path.dirname(snapshotPath), { recursive: true });
-
-  const source = new BetterSqlite3(sourcePath, { readonly: true, fileMustExist: true });
-  try {
-    await source.backup(snapshotPath);
-  } finally {
-    source.close();
-  }
-
-  sanitizeSqliteMigrationSnapshot(snapshotPath);
-
-  const snapshot = new BetterSqlite3(snapshotPath, { readonly: true, fileMustExist: true });
-  try {
-    const check = snapshot.prepare('PRAGMA quick_check').get() as { quick_check?: string } | undefined;
-    if (check?.quick_check !== 'ok') {
-      throw new Error(`SQLite snapshot quick_check failed: ${check?.quick_check || 'unknown'}`);
-    }
-  } finally {
-    snapshot.close();
-  }
-
-  const stats = await fs.stat(snapshotPath);
-  const sha256 = await sha256File(snapshotPath);
-  return {
-    filePath: snapshotPath,
-    sha256,
-    entry: {
-      component: 'database',
-      archivePath: `data/${SQLITE_FILE_NAME}`,
-      size: stats.size,
-      modifiedAt: stats.mtime.toISOString(),
-    },
-  };
-}
-
 function normalizeDatabaseProvider(value: string | null | undefined): MigrationExportDatabase['provider'] {
   const normalized = value?.trim().toLowerCase();
-  if (normalized === 'sqlite' || normalized === 'postgres') return normalized;
+  if (normalized === 'postgres') return normalized;
   return 'unknown';
 }
 
-function runtimeDatabaseProvider(provider: MigrationExportDatabase['provider']): NotebookDatabaseProvider | null {
-  return provider === 'sqlite' || provider === 'postgres' ? provider : null;
+function runtimeDatabaseProvider(provider: MigrationExportDatabase['provider']): 'postgres' | null {
+  return provider === 'postgres' ? provider : null;
 }
 
 function buildFeatures(source: MigrationExportSource): MigrationExportFeatures {
@@ -526,7 +332,7 @@ function buildRuntimeManifest(params: {
 
   return {
     runtimeMode: profile.runtimeMode,
-    databaseProvider: profile.databaseProvider,
+    databaseProvider: 'postgres',
     vectorProvider: profile.vectorProvider,
     postgresRequired: profile.postgresRequired,
     capabilities,
@@ -535,17 +341,17 @@ function buildRuntimeManifest(params: {
 
 function buildDatabaseManifest(params: {
   source: MigrationExportSource;
-  sqliteSnapshot: { entry: MigrationFileEntry; sha256: string } | null;
+  postgresDump: { entry: MigrationFileEntry; sha256: string } | null;
 }): MigrationExportDatabase {
   const provider = normalizeDatabaseProvider(params.source.databaseProvider);
-  if (provider === 'sqlite' && params.sqliteSnapshot) {
+  if (provider === 'postgres' && params.postgresDump) {
     return {
       provider,
       logicalSchemaVersion: null,
       migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
-      backupKind: 'sqlite_snapshot',
-      artifactPath: params.sqliteSnapshot.entry.archivePath,
-      artifactSha256: params.sqliteSnapshot.sha256,
+      backupKind: 'postgres_dump',
+      artifactPath: params.postgresDump.entry.archivePath,
+      artifactSha256: params.postgresDump.sha256,
       pgvectorEnabled: null,
       pgvectorVersion: null,
       postgresVersion: null,
@@ -664,14 +470,8 @@ async function runExport(job: MigrationExportJob): Promise<void> {
 
     await ensureMigrationDir(exportDir);
     const files: MigrationFileEntry[] = [];
-    let sqliteSnapshot: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;
-
-    if (job.components.database && job.source.databaseProvider === 'sqlite') {
-      job.phase = 'Creating SQLite backup';
-      await persist(true);
-      sqliteSnapshot = await createSqliteSnapshot(dataRoot, exportDir);
-      files.push(sqliteSnapshot.entry);
-    } else if (job.components.database) {
+    const postgresDump: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;
+    if (job.components.database) {
       job.phase = 'Recording database provider metadata';
       await persist(true);
     }
@@ -703,7 +503,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       virtualFileContents.set(reconnectManifest.entry.archivePath, reconnectManifest.content);
     }
 
-    const database = buildDatabaseManifest({ source: job.source, sqliteSnapshot });
+    const database = buildDatabaseManifest({ source: job.source, postgresDump });
     const features = buildFeatures(job.source);
     const runtime = buildRuntimeManifest({ source: job.source, database, features });
 
@@ -740,9 +540,6 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     });
 
     const filePathByArchivePath = new Map<string, string>();
-    if (sqliteSnapshot) {
-      filePathByArchivePath.set(sqliteSnapshot.entry.archivePath, sqliteSnapshot.filePath);
-    }
 
     for (const entry of files) {
       const matchingRoot = componentRoots

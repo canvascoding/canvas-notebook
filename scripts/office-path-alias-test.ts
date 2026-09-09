@@ -9,7 +9,7 @@ async function main(): Promise<void> {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-office-aliases-'));
   process.env.DATA = dataRoot;
   process.env.CANVAS_DATA_ROOT = dataRoot;
-  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
   process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
   process.env.BETTER_AUTH_BASE_URL = 'http://localhost:3000';
   try {

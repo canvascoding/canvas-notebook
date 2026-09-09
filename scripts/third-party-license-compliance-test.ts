@@ -334,7 +334,6 @@ assert(
 
 for (const [name, version] of [
   ['@types/trusted-types', '2.0.7'],
-  ['@types/yauzl', '2.10.3'],
 ] as const) {
   const component = inventory.components.find((candidate) => (
     candidate.name === name && candidate.versionOrCommit === version
@@ -374,7 +373,6 @@ for (const [name, version] of [
   ['@eigenpal/docx-js-editor', '0.5.3'],
   ['client-only', '0.0.1'],
   ['dingbat-to-unicode', '1.0.1'],
-  ['github-from-package', '0.0.0'],
   ['https', '1.0.0'],
   ['is-reference', '1.2.1'],
   ['server-only', '0.0.1'],
@@ -644,7 +642,7 @@ for (const [name, version, revision] of exactSourceComponents) {
   assert(component.licenseTextSha256);
 }
 
-for (const name of ['github-from-package', 'webworkify']) {
+for (const name of ['webworkify']) {
   const component = inventory.components.find((candidate) => candidate.name === name);
   assert(component, `${name} must be inventoried`);
   assert.equal(

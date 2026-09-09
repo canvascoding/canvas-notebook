@@ -2,7 +2,7 @@ import 'server-only';
 
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import type { CapabilityResolutionContext } from '@/app/lib/capabilities/types';
-import type { OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionState } from '@/app/lib/organization/contracts';
 import type { CapabilityDataStorageScope } from '@/app/lib/runtime-data-paths';
 
 export type CapabilityManagementScope = 'user' | 'organization';

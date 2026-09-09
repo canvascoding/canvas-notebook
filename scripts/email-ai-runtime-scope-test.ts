@@ -41,7 +41,7 @@ type TestTool = {
 const tempRoot = mkdtempSync(path.join(os.tmpdir(), 'canvas-email-ai-runtime-scope-'));
 process.env.DATA = tempRoot;
 process.env.CANVAS_DATA_ROOT = tempRoot;
-process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 
 const organizationId = 'org-email-runtime';
 const userId = 'user-email-runtime';

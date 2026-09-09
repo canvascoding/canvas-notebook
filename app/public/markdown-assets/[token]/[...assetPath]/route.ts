@@ -6,6 +6,8 @@ import { NextRequest } from 'next/server';
 import {
   publicShareFileStreamResponse,
   publicShareNotFoundResponse,
+  openPublicShareResponseFile,
+  type PublicShareResponseFile,
 } from '@/app/lib/public-sharing/public-file-response';
 import {
   getPublicShareMimeType,
@@ -14,6 +16,7 @@ import {
 } from '@/app/lib/public-sharing/public-file-shares';
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
 import { collectPublicMarkdownImageWorkspacePaths } from '@/app/lib/public-sharing/public-markdown-images';
+import { assertPublicShareStillActive, readPublicShareText } from '@/app/lib/public-sharing/public-share-text';
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.mdx', '.markdown']);
 
@@ -49,12 +52,12 @@ async function handlePublicMarkdownAssetRequest(
 
   let markdown: string;
   try {
-    markdown = await fs.readFile(resolved.fullPath, 'utf8');
+    markdown = await readPublicShareText(resolved);
   } catch {
     return publicShareNotFoundResponse();
   }
 
-  const allowedAssetPaths = collectPublicMarkdownImageWorkspacePaths(markdown, resolved.workspacePath);
+  const allowedAssetPaths = collectPublicMarkdownImageWorkspacePaths(markdown, resolved.workspacePath, resolved.workspace.workspaceId);
   if (!allowedAssetPaths.has(requestedWorkspacePath)) {
     return publicShareNotFoundResponse();
   }
@@ -68,20 +71,23 @@ async function handlePublicMarkdownAssetRequest(
     const fullPath = await resolveExistingWorkspacePath(requestedWorkspacePath, { workspace: resolved.workspace });
     const stats = await fs.stat(fullPath);
     if (!stats.isFile()) return publicShareNotFoundResponse();
-
-    return publicShareFileStreamResponse(
-      request,
-      {
-        workspacePath: requestedWorkspacePath,
-        fileName: path.posix.basename(requestedWorkspacePath),
-        fullPath,
-        sizeBytes: stats.size,
-        mimeType,
-        asSiteAsset: false,
-      },
-      method,
-      resolved.share.securityMode,
-    );
+    let file: PublicShareResponseFile = {
+      workspacePath: requestedWorkspacePath,
+      fileName: path.posix.basename(requestedWorkspacePath),
+      fullPath,
+      sizeBytes: stats.size,
+      fileIdentity: `${stats.dev}:${stats.ino}:${stats.birthtimeMs}`,
+      mimeType,
+      asSiteAsset: false,
+    };
+    if (method === 'GET') file = await openPublicShareResponseFile(file);
+    try {
+      await assertPublicShareStillActive(resolved);
+      return publicShareFileStreamResponse(request, file, method, resolved.share.securityMode);
+    } catch (error) {
+      await file.handle?.close();
+      throw error;
+    }
   } catch {
     return publicShareNotFoundResponse();
   }

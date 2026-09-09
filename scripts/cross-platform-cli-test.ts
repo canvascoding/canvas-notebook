@@ -294,7 +294,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(freshConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
     assert.match(String(freshConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/u);
     const config = materializeConfig(configureRuntimeAndDatabase(createDefaultConfig(paths, 'linux'), {
-      database: 'sqlite',
+      database: 'postgres',
     }));
     assert.deepEqual(orphanedComposeLogFollowerPids([
       `101 1 docker compose -f ${paths.composeFile} --project-directory ${paths.installDir} logs -f --tail=120 canvas-notebook`,
@@ -331,6 +331,8 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=managed$/m);
     const missingPostgresCredentials = configureRuntimeAndDatabase(config, { database: 'postgres' });
+    missingPostgresCredentials.env.DATABASE_URL = '';
+    missingPostgresCredentials.env.CANVAS_POSTGRES_PASSWORD = '';
     assert.throws(
       () => materializeConfig(missingPostgresCredentials, undefined, { allowPostgresSecretGeneration: false }),
       /database prepare-postgres/u,
@@ -347,25 +349,12 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(teamConfig.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.equal(teamConfig.env.CANVAS_POSTGRES_REQUIRED, true);
 
-    assert.throws(
-      () => configureRuntimeAndDatabase(config, { runtime: 'team', database: 'sqlite' }),
-      /Team runtime requires --database postgres/u,
-    );
-
-    const inconsistentTeamSqlite = structuredClone(config);
-    inconsistentTeamSqlite.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
-    inconsistentTeamSqlite.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
-    assert.throws(
-      () => materializeConfig(inconsistentTeamSqlite),
-      /requires CANVAS_DATABASE_PROVIDER=postgres/u,
-    );
-
     const preparedPostgres = materializePostgresInfrastructureConfig(config);
-    assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'sqlite');
+    assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'postgres');
     assert.equal(preparedPostgres.env.CANVAS_POSTGRES_REQUIRED, true);
     assert.equal(preparedPostgres.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.match(String(preparedPostgres.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
-    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^COMPOSE_PROFILES=$/m);
+    assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
     assert.match(composeEnvText(preparedPostgres, composePath(preparedPostgres.dataDir, 'linux')), /^CANVAS_POSTGRES_PASSWORD=/m);
 
     const redactedPostgres = redactConfig(postgresConfig);
@@ -378,7 +367,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       configSecretState(postgresConfig).CANVAS_POSTGRES_PASSWORD.fingerprint,
       secretState.CANVAS_POSTGRES_PASSWORD.fingerprint,
     );
-    assert.deepEqual(configSecretState(config).CANVAS_POSTGRES_PASSWORD, { present: false, fingerprint: null });
+    assert.equal(configSecretState(config).CANVAS_POSTGRES_PASSWORD.present, true);
     const dynamicSecretConfig = structuredClone(postgresConfig);
     dynamicSecretConfig.env.CANVAS_INSTANCE_TOKEN = 'dynamic-instance-token';
     dynamicSecretConfig.env.OPENAI_API_KEY = 'dynamic-openai-key';
@@ -398,14 +387,11 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.match(dynamicSecretState.CUSTOM_SECRET_KEY.fingerprint || '', /^[a-f0-9]{64}$/u);
     assert.match(dynamicSecretState.openai_api_key.fingerprint || '', /^[a-f0-9]{64}$/u);
 
-    assert.equal(postgresRuntimeDesired(config), false);
+    assert.equal(postgresRuntimeDesired(config), true);
     assert.equal(postgresRuntimeDesired(postgresConfig), true);
     const postgresRequiredConfig = structuredClone(config);
     postgresRequiredConfig.env.CANVAS_POSTGRES_REQUIRED = true;
     assert.equal(postgresRuntimeDesired(postgresRequiredConfig), true);
-    const explicitSqliteWithLegacyUrl = structuredClone(config);
-    explicitSqliteWithLegacyUrl.env.DATABASE_URL = 'postgresql://canvas:legacy-password@postgres:5432/canvas_notebook';
-    assert.equal(postgresRuntimeDesired(explicitSqliteWithLegacyUrl), false);
     const legacyUrlOnly = normalizeConfig({
       env: {
         DATABASE_URL: 'postgresql://canvas:legacy-password@postgres:5432/canvas_notebook',
@@ -422,7 +408,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     const legacyWithoutEnv = normalizeConfig({}, createDefaultConfig(paths, 'linux'));
     assert.equal(legacyWithoutEnv.env.CANVAS_DATABASE_PROVIDER, '');
     assert.equal(legacyWithoutEnv.env.CANVAS_POSTGRES_MODE, '');
-    assert.equal(materializeConfig(legacyWithoutEnv).env.CANVAS_DATABASE_PROVIDER, 'sqlite');
+    assert.equal(materializeConfig(legacyWithoutEnv).env.CANVAS_DATABASE_PROVIDER, 'postgres');
 
     const externalPostgres = configureRuntimeAndDatabase(config, {
       database: 'postgres',
@@ -441,6 +427,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       database: 'postgres',
       postgresMode: 'external',
     });
+    missingExternalUrl.env.DATABASE_URL = '';
     assert.throws(
       () => materializeConfig(missingExternalUrl, undefined, { allowPostgresSecretGeneration: false }),
       /External Postgres requires DATABASE_URL/u,
@@ -492,7 +479,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     try {
       const reset = async () => {
         const config = materializeConfig(configureRuntimeAndDatabase(createDefaultConfig(paths, 'linux'), {
-          database: 'sqlite',
+          database: 'postgres',
         }));
         config.image = mutableImage;
         await writeConfig(config);
@@ -536,7 +523,16 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       config = await reset();
       process.env.CANVAS_UPDATE_DEADLINE_EPOCH_MS = String(Date.now() + 32000);
       process.env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS = '30';
-      const success = await captureConsole(() => update(context, docker, config, true, { image: targetImage }));
+      let proxySynchronized = false;
+      const success = await captureConsole(() => update(context, docker, config, true, {
+        image: targetImage,
+        syncProxy: async (applied) => {
+          assert.equal(runner.runningImageId, 'new-image-id');
+          assert.ok(applied.env.CANVAS_INTERNAL_API_KEY, 'proxy receives the materialized app identity key');
+          proxySynchronized = true;
+        },
+      }));
+      assert.equal(proxySynchronized, true, 'update synchronizes managed ingress before reporting success');
       assert.equal(process.exitCode, undefined);
       assert.equal(JSON.parse(success.at(-1) || '{}').success, true);
       assert.equal((JSON.parse(await readFile(paths.configFile, 'utf8')) as { image: string }).image, mutableImage);
@@ -549,6 +545,16 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       else process.env.CANVAS_UPDATE_DEADLINE_EPOCH_MS = originalDeadline;
       if (originalReserve === undefined) delete process.env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS;
       else process.env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS = originalReserve;
+
+      config = await reset();
+      const proxyFailure = await captureConsole(() => update(context, docker, config, true, {
+        image: targetImage,
+        syncProxy: async () => { throw new Error('proxy validation failed'); },
+      }));
+      assert.equal(process.exitCode, 1);
+      assert.equal(JSON.parse(proxyFailure.at(-1) || '{}').phase, 'proxy');
+      assert.equal(JSON.parse(proxyFailure.at(-1) || '{}').rolledBack, true);
+      assert.equal(runner.runningImageId, 'old-image-id');
 
       config = await reset();
       const operationId = '8767a5c7-1a6d-4768-b760-d1c7d42fe095';
@@ -607,6 +613,10 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
 
       config = await reset();
       const freshPostgresConfig = materializePostgresInfrastructureConfig(config);
+      const uninitializedPostgresConfig = structuredClone(freshPostgresConfig);
+      uninitializedPostgresConfig.env.DATABASE_URL = '';
+      uninitializedPostgresConfig.env.CANVAS_POSTGRES_PASSWORD = '';
+      await writeEnvFiles(uninitializedPostgresConfig, composePath(uninitializedPostgresConfig.dataDir, 'linux'));
       await writeConfig(freshPostgresConfig);
       runner.postgresInitialized = false;
       runner.calls = [];

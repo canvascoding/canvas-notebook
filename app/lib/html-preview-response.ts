@@ -7,14 +7,11 @@ import { NextResponse } from 'next/server';
 import {
   createReadStream,
   getFileStats,
-  readFile,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import {
-  createHtmlPreviewDocument,
   getHtmlPreviewAssetContentType,
   HTML_PREVIEW_ASSET_CSP,
-  HTML_PREVIEW_CSP,
   isHtmlFile,
 } from '@/app/lib/html-preview';
 
@@ -48,20 +45,6 @@ export async function createWorkspaceHtmlPreviewResponse(input: {
   fileOptions: WorkspaceFileOperationOptions;
   routePrefix: string;
 }) {
-  if (!isHtmlFile(input.filePath)) {
-    return streamWorkspaceHtmlPreviewAsset(input.filePath, input.fileOptions);
-  }
-
-  const html = (await readFile(input.filePath, input.fileOptions)).toString('utf-8');
-  const document = createHtmlPreviewDocument(html, input.filePath, input.routePrefix);
-  const body = Buffer.from(document, 'utf-8');
-  return new NextResponse(body, {
-    status: 200,
-    headers: {
-      ...privatePreviewHeaders,
-      'Content-Type': 'text/html; charset=utf-8',
-      'Content-Length': body.length.toString(),
-      'Content-Security-Policy': HTML_PREVIEW_CSP,
-    },
-  });
+  if (isHtmlFile(input.filePath)) throw new Error('HTML documents require an isolated preview ticket');
+  return streamWorkspaceHtmlPreviewAsset(input.filePath, input.fileOptions);
 }

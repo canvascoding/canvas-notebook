@@ -99,7 +99,7 @@ const refreshedCertificate = signLicense(keyPair.privateKey, keyId, {
 
 process.env.DATA = dataRoot;
 process.env.CANVAS_INSTANCE_ID = instanceId;
-process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 process.env.CANVAS_LICENSE_CERT = 'community-certificate-for-mock-claim'.padEnd(96, 'x');
 process.env.CANVAS_LICENSE_PUBLIC_KEY = publicKeyPem;
 process.env.CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS = fingerprint;

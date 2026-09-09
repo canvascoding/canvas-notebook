@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getDatabaseProvider, openDb, type SqlConnection } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import type { DirectMcpAccessPrincipal } from '@/app/lib/mcp/server/access-token-verifier';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import {
@@ -37,14 +37,14 @@ async function lockDirectMcpWorkspaceIds(
   database: SqlConnection,
   workspaceIds: readonly string[],
 ): Promise<void> {
-  if (!workspaceIds.length || getDatabaseProvider() !== 'postgres') return;
+  if (!workspaceIds.length) return;
 
   // Postgres row locks cannot protect a setting that has just been deleted,
   // so use one transaction-scoped advisory lock per workspace. Every write
   // path below takes the same locks before changing settings or grants.
   for (const workspaceId of workspaceIds) {
     await database.run(
-      "SELECT pg_advisory_xact_lock(hashtext('direct-mcp-workspace:' || ?))",
+      "SELECT pg_advisory_xact_lock(hashtext('direct-mcp-workspace:' || $1))",
       [workspaceId],
     );
   }
@@ -55,7 +55,7 @@ async function areDirectMcpWorkspacesEnabled(
   workspaceIds: readonly string[],
 ): Promise<boolean> {
   if (!workspaceIds.length) return true;
-  const placeholders = workspaceIds.map(() => '?').join(', ');
+  const placeholders = workspaceIds.map((_, index) => `$${index + 1}`).join(', ');
   const rows = await database.all(`
     SELECT workspace_id
     FROM mcp_direct_workspace_setting
@@ -79,7 +79,7 @@ export async function loadDirectMcpWorkspaceListingForUser(
   const database = await openDb();
   try {
     const identity = await database.get(
-      'SELECT email, role FROM "user" WHERE id = ? LIMIT 1',
+      'SELECT email, role FROM "user" WHERE id = $1 LIMIT 1',
       [userId],
     ) as { email?: unknown; role?: unknown } | undefined;
     if (!identity || typeof identity.email !== 'string') {
@@ -103,7 +103,7 @@ export async function listDirectMcpAllowedWorkspaceIds(
     const rows = await database.all(`
       SELECT workspace_id
       FROM mcp_direct_workspace_grant
-      WHERE client_id = ? AND user_id = ?
+      WHERE client_id = $1 AND user_id = $2
     `, [principal.clientId, principal.userId]) as Array<{ workspace_id: unknown }>;
     return new Set(rows
       .map((row) => typeof row.workspace_id === 'string' ? row.workspace_id : null)
@@ -191,7 +191,7 @@ export async function setDirectMcpWorkspaceEnabled(input: {
       await database.run(`
         INSERT INTO mcp_direct_workspace_setting (
           workspace_id, enabled_by_user_id, enabled_at, updated_at
-        ) VALUES (?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4)
         ON CONFLICT(workspace_id) DO UPDATE SET
           enabled_by_user_id = excluded.enabled_by_user_id,
           updated_at = excluded.updated_at
@@ -200,11 +200,11 @@ export async function setDirectMcpWorkspaceEnabled(input: {
       // Disabling a workspace revokes every existing client selection, so a
       // later re-enable requires an explicit, fresh per-connection choice.
       await database.run(
-        'DELETE FROM mcp_direct_workspace_grant WHERE workspace_id = ?',
+        'DELETE FROM mcp_direct_workspace_grant WHERE workspace_id = $1',
         [input.workspaceId],
       );
       await database.run(
-        'DELETE FROM mcp_direct_workspace_setting WHERE workspace_id = ?',
+        'DELETE FROM mcp_direct_workspace_setting WHERE workspace_id = $1',
         [input.workspaceId],
       );
     }
@@ -259,13 +259,13 @@ export async function replaceDirectMcpAllowedWorkspaces(input: {
     }
     await database.run(`
       DELETE FROM mcp_direct_workspace_grant
-      WHERE client_id = ? AND user_id = ?
+      WHERE client_id = $1 AND user_id = $2
     `, [input.clientId, input.userId]);
     for (const workspaceId of workspaceIds) {
       await database.run(`
         INSERT INTO mcp_direct_workspace_grant (
           client_id, user_id, workspace_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?)
+        ) VALUES ($1, $2, $3, $4, $5)
       `, [input.clientId, input.userId, workspaceId, updatedAt, updatedAt]);
     }
     await database.run('COMMIT');

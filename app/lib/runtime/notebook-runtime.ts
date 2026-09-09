@@ -1,5 +1,5 @@
 export type NotebookRuntimeMode = 'personal' | 'team';
-export type NotebookDatabaseProvider = 'sqlite' | 'postgres';
+export type NotebookDatabaseProvider = 'postgres';
 export type NotebookVectorProvider = 'none' | 'pgvector' | 'external';
 export type NotebookDeploymentMode = 'community' | 'managed-single' | 'managed-team' | 'enterprise-onprem' | string;
 
@@ -12,14 +12,8 @@ export type NotebookRuntimeCapabilityKey =
 export type NotebookRuntimeCapabilities = Record<NotebookRuntimeCapabilityKey, boolean>;
 
 export type NotebookRuntimeCompatibilityCode =
-  | 'team_requires_postgres'
-  | 'multi_user_requires_postgres'
-  | 'team_workspace_requires_postgres'
-  | 'vector_search_requires_postgres'
   | 'vector_provider_required'
-  | 'pgvector_requires_postgres'
   | 'pgvector_required'
-  | 'live_collaboration_requires_postgres';
 
 export interface NotebookRuntimeCompatibilityProblem {
   code: NotebookRuntimeCompatibilityCode;
@@ -108,15 +102,13 @@ export function capabilitiesFromFeatures(features: Record<string, unknown> | nul
 
 export function runtimeModeFromCapabilities(
   capabilities: NotebookRuntimeCapabilities,
-  provider?: NotebookDatabaseProvider | null,
-  postgresRequired?: boolean,
+  _provider?: NotebookDatabaseProvider | null,
+  _postgresRequired?: boolean,
 ): NotebookRuntimeMode {
   return capabilities.multiUser ||
     capabilities.teamWorkspace ||
     capabilities.vectorSearch ||
-    capabilities.liveCollaboration ||
-    provider === 'postgres' ||
-    postgresRequired === true
+    capabilities.liveCollaboration
     ? 'team'
     : 'personal';
 }
@@ -130,29 +122,11 @@ export function validateRuntimeCompatibility(input: {
 }): NotebookRuntimeCompatibilityProblem[] {
   const blockers: NotebookRuntimeCompatibilityProblem[] = [];
 
-  if (input.runtimeMode === 'team' && input.databaseProvider !== 'postgres') {
-    blockers.push(problem('team_requires_postgres', 'Team runtime currently requires Postgres.'));
-  }
-  if (input.capabilities.multiUser && input.databaseProvider !== 'postgres') {
-    blockers.push(problem('multi_user_requires_postgres', 'Multi-user capability currently requires Postgres.'));
-  }
-  if (input.capabilities.teamWorkspace && input.databaseProvider !== 'postgres') {
-    blockers.push(problem('team_workspace_requires_postgres', 'Team workspace capability currently requires Postgres.'));
-  }
-  if (input.capabilities.vectorSearch && input.databaseProvider !== 'postgres') {
-    blockers.push(problem('vector_search_requires_postgres', 'Vector search capability currently requires Postgres.'));
-  }
   if (input.capabilities.vectorSearch && input.vectorProvider === 'none') {
     blockers.push(problem('vector_provider_required', 'Vector search capability requires a vector provider.'));
   }
-  if (input.vectorProvider === 'pgvector' && input.databaseProvider !== 'postgres') {
-    blockers.push(problem('pgvector_requires_postgres', 'pgvector requires Postgres.'));
-  }
   if (input.capabilities.vectorSearch && input.vectorProvider === 'pgvector' && input.pgvectorEnabled === false) {
     blockers.push(problem('pgvector_required', 'This feature requires CANVAS_POSTGRES_VECTOR_ENABLED=true.'));
-  }
-  if (input.capabilities.liveCollaboration && input.databaseProvider !== 'postgres') {
-    blockers.push(problem('live_collaboration_requires_postgres', 'Production live collaboration currently requires Postgres.'));
   }
 
   return blockers;
@@ -176,7 +150,7 @@ export function resolveNotebookRuntimeProfile(input: {
   const fallbackCapabilities = defaultRuntimeMode === 'team' ? teamRuntimeCapabilities : personalRuntimeCapabilities;
   const capabilities = mergeCapabilities(fallbackCapabilities, input.capabilities);
   const runtimeMode = requestedRuntimeMode || runtimeModeFromCapabilities(capabilities, input.databaseProvider, input.postgresRequired ?? false);
-  const databaseProvider = input.databaseProvider || (runtimeMode === 'team' ? 'postgres' : 'sqlite');
+  const databaseProvider: NotebookDatabaseProvider = 'postgres';
   const vectorProvider = normalizeVectorProvider(input.vectorProvider) || (capabilities.vectorSearch ? 'pgvector' : 'none');
   const postgresRequired = input.postgresRequired ?? (
     runtimeMode === 'team' ||

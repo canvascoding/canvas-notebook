@@ -5,10 +5,6 @@ import { randomUUID } from 'node:crypto';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
 import {
-  getDatabaseProvider,
-  type DatabaseProvider,
-} from '@/app/lib/db/provider';
-import {
   getActiveTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
 import {
@@ -78,7 +74,6 @@ export type TeamLicenseLifecycleResult = {
 
 type TeamLicenseLifecycleOptions = {
   database?: LifecycleDatabase;
-  databaseProvider?: DatabaseProvider;
   now?: Date;
 };
 
@@ -142,7 +137,7 @@ async function appendLifecycleTransition(
       membership_revision,
       metadata_json,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, NULL, 'system', ?, NULL, NULL, ?, ?)
+    ) VALUES ($1, $2, $3, $4, $5, NULL, 'system', $6, NULL, NULL, $7, $8)
   `, [
     `team-membership-transition-${randomUUID()}`,
     input.membershipId,
@@ -188,7 +183,7 @@ async function appendLifecycleAudit(
       summary,
       metadata_json,
       created_at
-    ) VALUES (?, ?, ?, 'license', 'license_lifecycle', 'organization', ?, ?, 'success', ?, ?, ?)
+    ) VALUES ($1, $2, $3, 'license', 'license_lifecycle', 'organization', $4, $5, 'success', $6, $7, $8)
   `, [
     `audit-${randomUUID()}`,
     input.organizationId,
@@ -229,10 +224,10 @@ async function disableUserForLicenseFallback(
     UPDATE "user"
     SET
       banned = 1,
-      ban_reason = ?,
+      ban_reason = $1,
       ban_expires = NULL,
-      updated_at = ?
-    WHERE id = ?
+      updated_at = $2
+    WHERE id = $3
       AND COALESCE(banned, 0) = 0
   `, [
     TEAM_LICENSE_FALLBACK_BAN_REASON,
@@ -244,9 +239,9 @@ async function disableUserForLicenseFallback(
 
   await database.run(`
     UPDATE organization_user_permissions
-    SET status = 'disabled', updated_at = ?
-    WHERE organization_id = ?
-      AND user_id = ?
+    SET status = 'disabled', updated_at = $1
+    WHERE organization_id = $2
+      AND user_id = $3
       AND status = 'active'
   `, [
     input.now,
@@ -254,7 +249,7 @@ async function disableUserForLicenseFallback(
     input.userId,
   ]);
   const sessionResult = await database.run(
-    'DELETE FROM session WHERE user_id = ?',
+    'DELETE FROM session WHERE user_id = $1',
     [input.userId],
   );
   return {
@@ -273,9 +268,9 @@ async function restoreUserFromLicenseFallback(
 ): Promise<boolean> {
   const permissionResult = await database.run(`
     UPDATE organization_user_permissions
-    SET status = 'active', updated_at = ?
-    WHERE organization_id = ?
-      AND user_id = ?
+    SET status = 'active', updated_at = $1
+    WHERE organization_id = $2
+      AND user_id = $3
       AND status = 'disabled'
   `, [
     input.now,
@@ -290,10 +285,10 @@ async function restoreUserFromLicenseFallback(
       banned = 0,
       ban_reason = NULL,
       ban_expires = NULL,
-      updated_at = ?
-    WHERE id = ?
+      updated_at = $1
+    WHERE id = $2
       AND COALESCE(banned, 0) != 0
-      AND ban_reason = ?
+      AND ban_reason = $3
   `, [
     input.now,
     input.userId,
@@ -303,9 +298,9 @@ async function restoreUserFromLicenseFallback(
 
   await database.run(`
     UPDATE organization_user_permissions
-    SET status = 'disabled', updated_at = ?
-    WHERE organization_id = ?
-      AND user_id = ?
+    SET status = 'disabled', updated_at = $1
+    WHERE organization_id = $2
+      AND user_id = $3
       AND status = 'active'
   `, [
     input.now,
@@ -322,7 +317,7 @@ async function remainingFallbackUsers(
     SELECT COUNT(*) AS count
     FROM "user" user_account
     WHERE COALESCE(user_account.banned, 0) != 0
-      AND user_account.ban_reason = ?
+      AND user_account.ban_reason = $1
   `, [
     TEAM_LICENSE_FALLBACK_BAN_REASON,
   ]) as { count?: number | string } | undefined;
@@ -379,11 +374,11 @@ async function reconcileWithinTransaction(
     LEFT JOIN organization_user_permissions permission
       ON permission.organization_id = membership.organization_id
       AND permission.user_id = membership.user_id
-    WHERE membership.organization_id = ?
+    WHERE membership.organization_id = $1
       AND membership.status = 'active'
       AND membership.user_id IS NOT NULL
       AND membership.accepted_at IS NOT NULL
-      AND membership.user_id != ?
+      AND membership.user_id != $2
     ORDER BY
       CASE membership.role
         WHEN 'admin' THEN 0
@@ -421,9 +416,9 @@ async function reconcileWithinTransaction(
   for (const membership of membershipsToSuspend) {
     const updateResult = await database.run(`
       UPDATE team_memberships
-      SET status = 'suspended', suspended_at = ?, updated_at = ?
-      WHERE organization_id = ?
-        AND id = ?
+      SET status = 'suspended', suspended_at = $1, updated_at = $2
+      WHERE organization_id = $3
+        AND id = $4
         AND status = 'active'
     `, [
       now,
@@ -452,9 +447,9 @@ async function reconcileWithinTransaction(
       if (membership.permission_status === 'active') {
         await database.run(`
           UPDATE organization_user_permissions
-          SET status = 'disabled', updated_at = ?
-          WHERE organization_id = ?
-            AND user_id = ?
+          SET status = 'disabled', updated_at = $1
+          WHERE organization_id = $2
+            AND user_id = $3
             AND status = 'active'
         `, [
           now,
@@ -463,7 +458,7 @@ async function reconcileWithinTransaction(
         ]);
       }
       const sessionResult = await database.run(
-        'DELETE FROM session WHERE user_id = ?',
+        'DELETE FROM session WHERE user_id = $1',
         [membership.user_id],
       );
       revokedSessions += changesFromRunResult(sessionResult);
@@ -474,7 +469,7 @@ async function reconcileWithinTransaction(
     const soloUsers = await database.all(`
       SELECT user_account.id
       FROM "user" user_account
-      WHERE user_account.id != ?
+      WHERE user_account.id != $1
         AND COALESCE(user_account.banned, 0) = 0
       ORDER BY user_account.created_at ASC, user_account.id ASC
     `, [
@@ -515,12 +510,12 @@ async function reconcileWithinTransaction(
       INNER JOIN organization_user_permissions permission
         ON permission.organization_id = membership.organization_id
         AND permission.user_id = membership.user_id
-      WHERE membership.organization_id = ?
+      WHERE membership.organization_id = $1
         AND membership.status = 'suspended'
         AND membership.user_id IS NOT NULL
         AND membership.accepted_at IS NOT NULL
         AND COALESCE(user_account.banned, 0) != 0
-        AND user_account.ban_reason = ?
+        AND user_account.ban_reason = $2
         AND permission.status = 'disabled'
         AND (
           SELECT transition.reason
@@ -528,7 +523,7 @@ async function reconcileWithinTransaction(
           WHERE transition.membership_id = membership.id
           ORDER BY transition.created_at DESC, transition.id DESC
           LIMIT 1
-        ) IN (?, ?)
+        ) IN ($3, $4)
       ORDER BY
         CASE membership.role
           WHEN 'admin' THEN 0
@@ -557,12 +552,12 @@ async function reconcileWithinTransaction(
         UPDATE team_memberships
         SET
           status = 'active',
-          activated_at = ?,
+          activated_at = $1,
           suspended_at = NULL,
           removed_at = NULL,
-          updated_at = ?
-        WHERE organization_id = ?
-          AND id = ?
+          updated_at = $2
+        WHERE organization_id = $3
+          AND id = $4
           AND status = 'suspended'
       `, [
         now,
@@ -598,9 +593,9 @@ async function reconcileWithinTransaction(
       ? (await database.get(`
           SELECT id
           FROM team_memberships
-          WHERE organization_id = ?
+          WHERE organization_id = $1
             AND status = 'active'
-            AND user_id != ?
+            AND user_id != $2
           ORDER BY updated_at DESC, id ASC
           LIMIT 1
         `, [
@@ -666,10 +661,9 @@ export async function reconcileTeamLicenseLifecycle(
   options: TeamLicenseLifecycleOptions = {},
 ): Promise<TeamLicenseLifecycleResult> {
   const policy = resolveEffectiveSeatPolicy(status);
-  const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
   const database = options.database ?? await (await import('@/app/lib/db')).openDb();
   const ownsDatabase = !options.database;
-  await database.run(databaseProvider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  await database.run('BEGIN');
   try {
     const result = await reconcileWithinTransaction(
       database,

@@ -7,7 +7,7 @@ import {
 } from '@/app/lib/license/entitlements';
 import { listMobileWorkspaceMembers, updateMobileWorkspaceMember } from '@/app/lib/mobile/workspaces';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { WorkspaceOperationError } from '@/app/lib/workspaces/service';
+import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export const dynamic = 'force-dynamic';

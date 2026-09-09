@@ -13,7 +13,7 @@ const DEFAULT_POSTGRES_USER = 'canvas';
 const SECRET_FINGERPRINT_DOMAIN = 'canvas-notebook/secret-state/v1';
 const SCRYPT_OPTIONS = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 
-export type CliDatabaseProvider = 'sqlite' | 'postgres';
+export type CliDatabaseProvider = 'postgres';
 export type CliPostgresMode = 'managed' | 'external';
 export type CliRuntimeMode = 'personal' | 'team';
 
@@ -241,14 +241,13 @@ function normalized(value: EnvValue): string {
   return String(value ?? '').trim().toLowerCase();
 }
 
-function truthyEnvValue(value: EnvValue): boolean {
-  return ['true', '1', 'yes', 'on'].includes(normalized(value));
-}
-
 function normalizeDatabaseProviderValue(value: EnvValue): CliDatabaseProvider {
-  const provider = normalized(value) || 'sqlite';
-  if (provider === 'sqlite' || provider === 'postgres') return provider;
-  throw new Error(`Invalid CANVAS_DATABASE_PROVIDER "${provider}". Expected sqlite or postgres.`);
+  const provider = normalized(value) || 'postgres';
+  if (provider === 'postgres' || provider === 'postgresql') return 'postgres';
+  if (provider === 'sqlite') {
+    throw new Error('SQLite is no longer supported. Use CANVAS_DATABASE_PROVIDER=postgres.');
+  }
+  throw new Error(`Invalid CANVAS_DATABASE_PROVIDER "${provider}". PostgreSQL is the only supported provider.`);
 }
 
 function normalizePostgresModeValue(value: EnvValue): CliPostgresMode {
@@ -266,14 +265,6 @@ function normalizeRuntimeModeValue(value: string): CliRuntimeMode {
     return 'team';
   }
   throw new Error(`Invalid runtime "${value}". Expected personal or team.`);
-}
-
-function deploymentRequiresPostgres(deploymentMode: EnvValue, teamFeaturesEnabled: EnvValue): boolean {
-  const mode = normalized(deploymentMode).replace(/_/gu, '-');
-  return mode.includes('team') ||
-    mode.includes('enterprise') ||
-    mode.includes('advanced') ||
-    truthyEnvValue(teamFeaturesEnabled);
 }
 
 function requireUrlSafePostgresPart(key: string, value: EnvValue): void {
@@ -345,13 +336,8 @@ export function configureRuntimeAndDatabase(
   }
 
   if (options.database) {
-    if (options.runtime === 'team' && options.database !== 'postgres') {
-      throw new Error('Team runtime requires --database postgres.');
-    }
-    next.env.CANVAS_DATABASE_PROVIDER = options.database;
-    next.env.CANVAS_POSTGRES_MODE = options.database === 'postgres'
-      ? options.postgresMode || normalizePostgresModeValue(next.env.CANVAS_POSTGRES_MODE)
-      : '';
+    next.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    next.env.CANVAS_POSTGRES_MODE = options.postgresMode || normalizePostgresModeValue(next.env.CANVAS_POSTGRES_MODE);
   } else if (options.postgresMode) {
     next.env.CANVAS_DATABASE_PROVIDER = 'postgres';
     next.env.CANVAS_POSTGRES_MODE = options.postgresMode;
@@ -418,21 +404,8 @@ export function normalizeDatabaseConfig(
   options: { allowSecretGeneration?: boolean } = {},
 ): CanvasCliConfig {
   const next = structuredClone(config);
-  const rawProvider = normalized(next.env.CANVAS_DATABASE_PROVIDER);
-  const provider = !rawProvider && /^postgres(?:ql)?:\/\//iu.test(String(next.env.DATABASE_URL || '').trim())
-    ? 'postgres'
-    : normalizeDatabaseProviderValue(next.env.CANVAS_DATABASE_PROVIDER);
+  const provider = normalizeDatabaseProviderValue(next.env.CANVAS_DATABASE_PROVIDER);
   next.env.CANVAS_DATABASE_PROVIDER = provider;
-
-  if (deploymentRequiresPostgres(next.env.CANVAS_DEPLOYMENT_MODE, next.env.CANVAS_TEAM_FEATURES_ENABLED) && provider !== 'postgres') {
-    throw new Error(`${next.env.CANVAS_DEPLOYMENT_MODE || 'This deployment'} requires CANVAS_DATABASE_PROVIDER=postgres.`);
-  }
-
-  if (next.env.CANVAS_DATABASE_PROVIDER !== 'postgres') {
-    next.env.CANVAS_POSTGRES_MODE = '';
-    next.env.CANVAS_POSTGRES_VECTOR_ENABLED = false;
-    return next;
-  }
 
   const postgresMode = normalizePostgresModeValue(next.env.CANVAS_POSTGRES_MODE);
   next.env.CANVAS_POSTGRES_MODE = postgresMode;
@@ -527,8 +500,7 @@ export function containerEnvText(config: CanvasCliConfig): string {
 }
 
 export function composeEnvText(config: CanvasCliConfig, composeDataDir: string): string {
-  const postgresProfile = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite') === 'postgres'
-    && normalizePostgresModeValue(config.env.CANVAS_POSTGRES_MODE) === 'managed'
+  const postgresProfile = normalizePostgresModeValue(config.env.CANVAS_POSTGRES_MODE) === 'managed'
     ? 'postgres'
     : '';
   const entries: Record<string, EnvValue> = {

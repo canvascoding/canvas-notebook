@@ -82,7 +82,7 @@ async function memorySettings(userId: string) {
       SELECT automatic_memory_enabled, memory_prompt_max_tokens,
         sensitive_memory_enabled, automatic_memory_enabled_at,
         automatic_memory_disabled_at, settings_revision, updated_at
-      FROM memory_user_settings WHERE user_id = ?
+      FROM memory_user_settings WHERE user_id = $1
     `, [userId]) as Record<string, unknown> | undefined;
     const review = await connection.get(`
       SELECT
@@ -96,11 +96,11 @@ async function memorySettings(userId: string) {
           AND (result_json IS NULL OR result_json NOT LIKE '%"cancelled":true%') THEN completed_at ELSE NULL END) AS last_completed_at,
         MIN(CASE WHEN status IN ('scheduled', 'retry_wait') THEN scheduled_for ELSE NULL END) AS next_scheduled_at,
         MAX(CASE WHEN error_code IS NOT NULL THEN COALESCE(started_at, created_at) ELSE NULL END) AS last_error_at
-      FROM memory_review_jobs WHERE user_id = ?
+      FROM memory_review_jobs WHERE user_id = $1
     `, [userId]) as Record<string, unknown> | undefined;
     const lastError = await connection.get(`
       SELECT error_code FROM memory_review_jobs
-      WHERE user_id = ? AND error_code IS NOT NULL
+      WHERE user_id = $1 AND error_code IS NOT NULL
       ORDER BY COALESCE(started_at, created_at) DESC LIMIT 1
     `, [userId]) as Record<string, unknown> | undefined;
     const reviewCounts = {

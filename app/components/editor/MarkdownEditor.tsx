@@ -249,6 +249,7 @@ export interface MarkdownEditorProps {
   documentKey?: string;
   expectedCollaborationDocumentId?: string | null;
   externalValueSync?: 'always' | 'when-blurred';
+  externalCollaboration?: { resolution: import('@/app/lib/collaboration/client').TextCollaborationSessionResolution; document: CollaborationDocument | null };
   collaborationEnabled?: boolean;
   collaborationSession?: CollaborationSessionResponse | null;
   onCollaborationChange?: (document: CollaborationDocument | null) => void;
@@ -5729,6 +5730,7 @@ export function MarkdownEditor({
   expectedCollaborationDocumentId,
   externalValueSync = 'always',
   collaborationEnabled = false,
+  externalCollaboration,
   onCollaborationChange,
   agentTargets = [],
   showNotebookMetadata: requestedNotebookMetadata = false,
@@ -5751,15 +5753,16 @@ export function MarkdownEditor({
     value, enabled: !collaborationEnabled, frontmatter, readOnly, externalValueSync, onChange,
   });
   const localDocument = local.document;
-  const collaborationSession = useTextCollaborationSession({
-    enabled: collaborationEnabled,
+  const internalCollaborationSession = useTextCollaborationSession({
+    enabled: collaborationEnabled && !externalCollaboration,
     workspaceId: activeWorkspaceId,
     path: filePath,
     expectedDocumentId: expectedCollaborationDocumentId,
   });
+  const collaborationSession = externalCollaboration?.resolution ?? internalCollaborationSession;
   const resolvedCollaborationSession = collaborationSession.session;
-  const collaborationDocument = useCollaborationDocument({
-    enabled: collaborationEnabled,
+  const internalCollaborationDocument = useCollaborationDocument({
+    enabled: collaborationEnabled && !externalCollaboration,
     documentKey,
     waitForSession: true,
     workspaceId: activeWorkspaceId,
@@ -5769,6 +5772,7 @@ export function MarkdownEditor({
     session: resolvedCollaborationSession,
   });
   const isMobileKeyboardActive = useMobileKeyboardActive();
+  const collaborationDocument = externalCollaboration?.document ?? internalCollaborationDocument;
   const liveMarkdown = useLiveMarkdown(collaborationDocument, value);
   const displayedValue = local.snapshot?.markdown ?? liveMarkdown.content;
   const parsedDocument = useMemo(() => frontmatter === 'metadata'

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { db, getDatabaseProvider, openDb } from '@/app/lib/db';
+import { db, openDb } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/types';
@@ -188,7 +188,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
     let created = false;
 
     try {
-      await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+      await connection.run('BEGIN');
       transactionStarted = true;
       await lockPiSessionCreationForUser(connection, input.userId);
 
@@ -196,7 +196,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
         `SELECT id, session_id, user_id, agent_id, workspace_id, session_kind,
                 forked_from_session_id, forked_from_sequence
          FROM pi_sessions
-         WHERE user_id = ? AND client_request_id = ?
+         WHERE user_id = $1 AND client_request_id = $2
          ORDER BY id ASC
          LIMIT 2`,
         [input.userId, input.clientRequestId],
@@ -221,7 +221,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
         }
         targetSessionId = existingRequest.session_id;
         const countRow = await connection.get(
-          'SELECT COUNT(*) AS message_count FROM pi_messages WHERE pi_session_db_id = ?',
+          'SELECT COUNT(*) AS message_count FROM pi_messages WHERE pi_session_db_id = $1',
           [existingRequest.id],
         ) as { message_count?: unknown } | undefined;
         copiedMessageCount = integer(countRow?.message_count);
@@ -235,7 +235,6 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
         };
       }
 
-      const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
       const source = await connection.get(
         `SELECT id, session_id, user_id, agent_id, title, title_generation_state,
                 session_kind, forked_from_session_id, forked_from_sequence,
@@ -244,8 +243,8 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
                 organization_id, customer_id, project_id, workspace_id, workspace_type,
                 workspace_name, workspace_root_relative_path
          FROM pi_sessions
-         WHERE session_id = ? AND user_id = ? AND agent_id = ?
-         LIMIT 1${forUpdate}`,
+         WHERE session_id = $1 AND user_id = $2 AND agent_id = $3
+         LIMIT 1 FOR UPDATE`,
         [input.sourceSessionId, input.userId, input.agentId],
       ) as ForkSessionRow | undefined;
       if (!source) {
@@ -272,7 +271,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
       const selectedMessage = await connection.get(
         `SELECT role, content, timestamp, sequence
          FROM pi_messages
-         WHERE pi_session_db_id = ? AND sequence = ?
+         WHERE pi_session_db_id = $1 AND sequence = $2
          LIMIT 1`,
         [source.id, input.throughSequence],
       ) as ForkMessageRow | undefined;
@@ -294,7 +293,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
                 MIN(sequence) AS minimum_sequence,
                 MAX(sequence) AS maximum_sequence
          FROM pi_messages
-         WHERE pi_session_db_id = ? AND sequence <= ?`,
+         WHERE pi_session_db_id = $1 AND sequence <= $2`,
         [source.id, input.throughSequence],
       ) as Record<string, unknown>;
       const prefixCount = integer(historyAudit.message_count);
@@ -317,12 +316,12 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
       const titleRows = await connection.all(
         `SELECT title
          FROM pi_sessions
-         WHERE user_id = ? AND session_kind = 'conversation' AND ${workspaceCondition}`,
+         WHERE user_id = $1 AND session_kind = 'conversation' AND ${workspaceCondition}`,
         [input.userId, input.workspaceId],
       ) as Array<{ title?: string | null }>;
       if (includeLegacyTitles) {
         const legacyTitleRows = await connection.all(
-          'SELECT title FROM ai_sessions WHERE user_id = ?',
+          'SELECT title FROM ai_sessions WHERE user_id = $1',
           [input.userId],
         ) as Array<{ title?: string | null }>;
         titleRows.push(...legacyTitleRows);
@@ -353,10 +352,10 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
            runtime_provider_installation_id, runtime_catalog_revision,
            runtime_policy_revision, runtime_selection_source
          ) VALUES (
-           ?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?, ?,
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'app', NULL,
-           'conversation', NULL, ?, ?, NULL, 0,
-           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           $1, $2, $3, $4, $5, $6, $7, $8, 'manual', $9, $10,
+           $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NULL, 'app', NULL,
+           'conversation', NULL, $21, $22, NULL, 0,
+           $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33
          )
          RETURNING id`,
         [
@@ -399,9 +398,9 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
 
       const copyResult = await connection.run(
         `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
-         SELECT ?, role, content, timestamp, sequence
+         SELECT $1, role, content, timestamp, sequence
          FROM pi_messages
-         WHERE pi_session_db_id = ? AND sequence <= ?
+         WHERE pi_session_db_id = $2 AND sequence <= $3
          ORDER BY sequence ASC, id ASC`,
         [inserted.id, source.id, input.throughSequence],
       );
@@ -413,8 +412,8 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
       const channelSessionKey = webChannelSessionKey(input.userId);
       await connection.run(
         `UPDATE session_channel_links
-         SET is_primary = 0, updated_at = ?
-         WHERE user_id = ? AND channel_id = ? AND channel_session_key = ? AND channel_thread_key = ''`,
+         SET is_primary = 0, updated_at = $1
+         WHERE user_id = $2 AND channel_id = $3 AND channel_session_key = $4 AND channel_thread_key = ''`,
         [nowTimestamp, input.userId, WEB_CHANNEL_ID, channelSessionKey],
       );
       await connection.run(
@@ -422,7 +421,7 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
            session_id, user_id, channel_id, channel_session_key, channel_thread_key,
            display_name, is_primary, delivery_policy, last_inbound_at, last_outbound_at,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, '', ?, 1, 'last_active', NULL, NULL, ?, ?)`,
+         ) VALUES ($1, $2, $3, $4, '', $5, 1, 'last_active', NULL, NULL, $6, $7)`,
         [input.targetSessionId, input.userId, WEB_CHANNEL_ID, channelSessionKey, title, nowTimestamp, nowTimestamp],
       );
 

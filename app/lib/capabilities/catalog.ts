@@ -360,7 +360,7 @@ export async function resolveEffectiveCapabilitySnapshot(
     try {
       const row = await connection.get(
         `SELECT role FROM organization_user_permissions
-         WHERE organization_id = ? AND user_id = ? AND status = 'active'`,
+         WHERE organization_id = $1 AND user_id = $2 AND status = 'active'`,
         [context.organizationId, context.userId],
       ) as { role?: string | null } | undefined;
       effectiveContext = { ...context, role: row?.role || null };

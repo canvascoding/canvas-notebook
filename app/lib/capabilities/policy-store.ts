@@ -63,7 +63,7 @@ export class CapabilityPolicyStore {
 
   async listOrganizationPolicies(organizationId: string): Promise<CapabilityPolicy[]> {
     const rows = await this.connection.all(
-      `SELECT * FROM capability_policies WHERE organization_id = ? ORDER BY resource_type, resource_id, target_type, target_id`,
+      `SELECT * FROM capability_policies WHERE organization_id = $1 ORDER BY resource_type, resource_id, target_type, target_id`,
       [organizationId],
     ) as CapabilityPolicyRow[];
     return rows.map(mapPolicy);
@@ -71,7 +71,7 @@ export class CapabilityPolicyStore {
 
   async getPolicy(id: string): Promise<CapabilityPolicy | null> {
     const row = await this.connection.get(
-      `SELECT * FROM capability_policies WHERE id = ?`,
+      `SELECT * FROM capability_policies WHERE id = $1`,
       [id],
     ) as CapabilityPolicyRow | undefined;
     return row ? mapPolicy(row) : null;
@@ -89,7 +89,7 @@ export class CapabilityPolicyStore {
   }): Promise<CapabilityPolicy> {
     const existing = await this.connection.get(
       `SELECT * FROM capability_policies
-       WHERE organization_id = ? AND resource_type = ? AND resource_id = ? AND target_type = ? AND target_id = ?`,
+       WHERE organization_id = $1 AND resource_type = $2 AND resource_id = $3 AND target_type = $4 AND target_id = $5`,
       [input.organizationId, input.resourceType, input.resourceId, input.targetType, input.targetId],
     ) as CapabilityPolicyRow | undefined;
 
@@ -101,8 +101,8 @@ export class CapabilityPolicyStore {
       const updatedAt = Date.now();
       const updateResult = await this.connection.run(
         `UPDATE capability_policies
-         SET effect = ?, revision = ?, updated_by_user_id = ?, updated_at = ?
-         WHERE id = ? AND revision = ?`,
+         SET effect = $1, revision = $2, updated_by_user_id = $3, updated_at = $4
+         WHERE id = $5 AND revision = $6`,
         [input.effect, nextRevision, input.actorUserId, updatedAt, existing.id, existing.revision],
       );
       if (changedRowCount(updateResult) === 0) {
@@ -125,7 +125,7 @@ export class CapabilityPolicyStore {
         `INSERT INTO capability_policies (
           id, organization_id, resource_type, resource_id, target_type, target_id,
           effect, revision, created_by_user_id, updated_by_user_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8, $9, $10, $11)`,
         [
           id,
           input.organizationId,
@@ -143,7 +143,7 @@ export class CapabilityPolicyStore {
     } catch (error) {
       const racedPolicy = await this.connection.get(
         `SELECT id FROM capability_policies
-         WHERE organization_id = ? AND resource_type = ? AND resource_id = ? AND target_type = ? AND target_id = ?`,
+         WHERE organization_id = $1 AND resource_type = $2 AND resource_id = $3 AND target_type = $4 AND target_id = $5`,
         [input.organizationId, input.resourceType, input.resourceId, input.targetType, input.targetId],
       );
       if (racedPolicy) {
@@ -169,7 +169,7 @@ export class CapabilityPolicyStore {
       throw new CapabilityPolicyConflictError();
     }
     const deleteResult = await this.connection.run(
-      `DELETE FROM capability_policies WHERE id = ? AND organization_id = ? AND revision = ?`,
+      `DELETE FROM capability_policies WHERE id = $1 AND organization_id = $2 AND revision = $3`,
       [input.id, input.organizationId, input.expectedRevision],
     );
     if (changedRowCount(deleteResult) === 0) {

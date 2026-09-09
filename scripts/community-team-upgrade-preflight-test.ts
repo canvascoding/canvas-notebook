@@ -19,7 +19,7 @@ const previousEnvironment = {
 
 process.env.DATA = dataRoot;
 process.env.CANVAS_INSTANCE_ID = 'self_community_team_preflight_test';
-process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
 process.env.CANVAS_LICENSE_CONTROL_PLANE_URL = 'https://api.control.example.test';
 process.env.CANVAS_LICENSE_CONTROL_PLANE_WEB_URL = 'https://control.example.test/';
 process.env.CANVAS_TEAM_SEAT_CLIENT_ENABLED = 'true';
@@ -298,17 +298,17 @@ async function main() {
 
     assert.deepEqual(await getCommunityTeamUpgradeRuntimeSnapshot(), {
       notebookVersion: '2026.8.1.2',
-      databaseEngine: 'sqlite',
+      databaseEngine: 'postgres',
       teamReady: false,
     });
-    const sqliteReadiness = await getCommunityTeamRuntimeReadiness({
+    const unconfiguredReadiness = await getCommunityTeamRuntimeReadiness({
       storageProbe: async () => true,
     });
-    assert.equal(sqliteReadiness.ready, false);
-    assert.ok(sqliteReadiness.blockers.some(
-      (blocker) => blocker.code === 'TEAM_RUNTIME_DATABASE_POSTGRES_REQUIRED',
+    assert.equal(unconfiguredReadiness.ready, false);
+    assert.ok(unconfiguredReadiness.blockers.some(
+      (blocker) => blocker.code === 'TEAM_RUNTIME_DATABASE_CONFIG_INVALID',
     ));
-    assert.ok(sqliteReadiness.blockers.some(
+    assert.ok(unconfiguredReadiness.blockers.some(
       (blocker) => blocker.code === 'TEAM_RUNTIME_PGVECTOR_NOT_CONFIGURED',
     ));
 

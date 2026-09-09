@@ -4,11 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 
-import {
-  getDatabaseProvider,
-  normalizeDatabaseProvider,
-} from '@/app/lib/db/provider';
-import type { OrganizationPermissionState } from '@/app/lib/organization/bootstrap';
+import type { OrganizationPermissionState } from '@/app/lib/organization/contracts';
 import {
   resolveCanvasDataRoot,
   resolveOrganizationSettingsDir,
@@ -200,8 +196,8 @@ export async function resolveKnowledgeResourceStatus(
   settings: KnowledgeParsingSettings,
   state?: OrganizationPermissionState | null,
 ): Promise<KnowledgeResourceStatus> {
-  const databaseProvider = normalizeDatabaseProvider(state?.databaseProvider || getDatabaseProvider());
-  const postgresReady = databaseProvider === 'postgres';
+  const databaseProvider = 'postgres';
+  const postgresReady = true;
   const pgvectorReady = process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true';
   const totalMb = Math.round(os.totalmem() / 1024 / 1024);
   const freeMb = Math.round(os.freemem() / 1024 / 1024);

@@ -265,7 +265,7 @@ export async function loadDirectMcpGrantState(
       INNER JOIN "user" local_user
         ON local_user.id = auth_session.user_id
       INNER JOIN oauth_client
-        ON oauth_client.client_id = ?
+        ON oauth_client.client_id = $1
       INNER JOIN oauth_consent active_consent
         ON active_consent.id = (
           SELECT latest_consent.id
@@ -279,7 +279,7 @@ export async function loadDirectMcpGrantState(
           LIMIT 1
         )
       LEFT JOIN mcp_revoked_access_token revoked_access_token
-        ON revoked_access_token.token_hash = ?
+        ON revoked_access_token.token_hash = $2
        AND revoked_access_token.client_id = oauth_client.client_id
        AND revoked_access_token.session_id = auth_session.id
        AND revoked_access_token.user_id = local_user.id
@@ -287,8 +287,8 @@ export async function loadDirectMcpGrantState(
         ON grant_revocation.client_id = oauth_client.client_id
        AND grant_revocation.session_id = auth_session.id
        AND grant_revocation.user_id = local_user.id
-      WHERE auth_session.id = ?
-        AND auth_session.user_id = ?
+      WHERE auth_session.id = $3
+        AND auth_session.user_id = $4
       LIMIT 1
     `, [
       claims.clientId,

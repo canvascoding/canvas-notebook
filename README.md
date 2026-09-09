@@ -228,7 +228,7 @@ All persistent application state lives under `/data` in the container. With `com
 |---|---|
 | `/data/workspaces/` | Current user, organization, team, and project workspace files |
 | `/data/workspace/` | Legacy personal-workspace alias used by older installations |
-| `/data/sqlite.db` | Legacy SQLite database retained for existing installations and migration |
+| `/data/sqlite.db` | Unsupported legacy artifact; the runtime ignores it and migration archives containing it are rejected |
 | `/data/skills/` and `/data/plugins/` | Installed agent extensions |
 | `/data/secrets/` | Credentials managed through the application settings |
 | `/data/system/backups/` | Locally generated backup artifacts |

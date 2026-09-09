@@ -1,4 +1,6 @@
-import { markdownFileToHtmlDocument } from '@/app/lib/pdf/markdown-to-html';
+import { markdownFileToHtmlDocument, markdownTextToHtmlDocument } from '@/app/lib/pdf/markdown-to-html';
+import { createHash } from 'node:crypto';
+import path from 'node:path';
 import { resolveExistingWorkspacePath, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import {
   resolveWorkspaceBrandProfile,
@@ -22,7 +24,12 @@ async function getCacheKey(
   filePath: string,
   fileOptions: WorkspaceFileOperationOptions | undefined,
   brandState: ResolvedWorkspaceBrandProfileState,
+  markdown?: string,
 ): Promise<string> {
+  const workspaceId = fileOptions?.workspace?.workspaceId ?? 'legacy';
+  if (markdown !== undefined) {
+    return `${workspaceId}\0${filePath}\0content:${createHash('sha256').update(markdown).digest('hex')}\0${workspaceBrandProfileCacheKey(brandState)}`;
+  }
   const fullPath = await resolveExistingWorkspacePath(filePath, fileOptions);
   const stats = await fs.stat(fullPath);
 
@@ -30,7 +37,6 @@ async function getCacheKey(
     throw new Error('Path must point to a file');
   }
 
-  const workspaceId = fileOptions?.workspace?.workspaceId ?? 'legacy';
   return `${workspaceId}\0${filePath}\0${stats.size}\0${stats.mtimeMs}\0${workspaceBrandProfileCacheKey(brandState)}`;
 }
 
@@ -57,12 +63,13 @@ export async function getCachedMarkdownHtmlDocument(
   filePath: string,
   fileOptions?: WorkspaceFileOperationOptions,
   providedBrandState?: ResolvedWorkspaceBrandProfileState,
+  providedMarkdown?: string,
 ): Promise<string> {
   const now = Date.now();
   pruneCache(now);
 
   const brandState = providedBrandState ?? await resolveMarkdownExportBrandState(fileOptions);
-  const cacheKey = await getCacheKey(filePath, fileOptions, brandState);
+  const cacheKey = await getCacheKey(filePath, fileOptions, brandState, providedMarkdown);
   const cached = markdownHtmlCache.get(cacheKey);
 
   if (cached && cached.expiresAt > now) {
@@ -70,7 +77,12 @@ export async function getCachedMarkdownHtmlDocument(
     return cached.html;
   }
 
-  const html = await markdownFileToHtmlDocument(filePath, fileOptions, brandState.profile);
+  const html = providedMarkdown === undefined
+    ? await markdownFileToHtmlDocument(filePath, fileOptions, brandState.profile)
+    : await markdownTextToHtmlDocument(providedMarkdown, {
+      title: path.basename(filePath, path.extname(filePath)), assetBasePath: path.dirname(filePath),
+      fileOptions, brandProfile: brandState.profile,
+    });
   markdownHtmlCache.set(cacheKey, {
     html,
     expiresAt: now + CACHE_TTL_MS,

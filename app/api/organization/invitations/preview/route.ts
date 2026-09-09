@@ -5,20 +5,24 @@ import {
   previewTeamMembershipInvitation,
   TeamInvitationError,
 } from '@/app/lib/organization/team-invitations';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { publicRateLimit, publicResourceRateLimit } from '@/app/lib/security/public-rate-limit';
+import { readBoundedJson } from '@/app/lib/api/bounded-json';
 
 export async function POST(request: NextRequest) {
-  const licenseResponse = await requireTeamRuntimeRoute();
-  if (licenseResponse) return licenseResponse;
-  const limited = rateLimit(request, {
+  const limited = await publicRateLimit({
     limit: 30,
+    globalLimit: 600,
     windowMs: 60_000,
     keyPrefix: 'membership-invitation-preview',
   });
   if (!limited.ok) return limited.response;
+  const licenseResponse = await requireTeamRuntimeRoute();
+  if (licenseResponse) return licenseResponse;
 
   try {
-    const body = await request.json().catch(() => ({})) as { token?: unknown };
+    const parsed = await readBoundedJson(request);
+    if (parsed.response) return parsed.response;
+    const body = (parsed.body ?? {}) as { token?: unknown };
     if (typeof body.token !== 'string') {
       return NextResponse.json({
         success: false,
@@ -26,6 +30,8 @@ export async function POST(request: NextRequest) {
         error: 'Invitation token is required.',
       }, { status: 400 });
     }
+    const targetLimit = await publicResourceRateLimit({ limit: 60, windowMs: 60_000, keyPrefix: 'membership-invitation-preview' }, body.token);
+    if (!targetLimit.ok) return targetLimit.response;
     const preview = await previewTeamMembershipInvitation({
       token: body.token,
     });

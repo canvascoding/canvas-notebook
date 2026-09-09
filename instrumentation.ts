@@ -1,7 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import {
   isDatabaseUnavailableError,
-  isSqliteDatabaseUnavailableError,
 } from "@/app/lib/db/errors";
 import { assertProductionAuthSecret } from "@/app/lib/security/auth-secret";
 
@@ -34,7 +33,7 @@ export async function register() {
 
 function shouldSuppressDevelopmentRequestError(error: unknown): boolean {
   if (process.env.NODE_ENV !== "development") return false;
-  return isDatabaseUnavailableError(error) || isSqliteDatabaseUnavailableError(error);
+  return isDatabaseUnavailableError(error);
 }
 
 export const onRequestError: typeof Sentry.captureRequestError = (error, request, context) => {

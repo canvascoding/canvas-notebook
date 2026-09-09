@@ -52,7 +52,7 @@ Commands:
   database status
              Show configured database provider status
   database prepare-postgres --timeout <seconds>
-             Prepare local Postgres service without migrating SQLite data
+             Prepare the local Postgres service
   database reconcile-postgres-auth --timeout <seconds>
              Reconcile local Postgres auth, then render env and restart the app
   admin reset-password --email <email> [--name <name>] [--password-stdin]

@@ -127,7 +127,10 @@ function parseComposeProfiles(value) {
 
 function resolveDockerComposeEnvironment(envFile) {
   const fileEnv = loadEnvFile(envFile);
-  const provider = normalizeEnvValue(fileEnv.CANVAS_DATABASE_PROVIDER || process.env.CANVAS_DATABASE_PROVIDER || 'sqlite');
+  const provider = normalizeEnvValue(fileEnv.CANVAS_DATABASE_PROVIDER || process.env.CANVAS_DATABASE_PROVIDER || 'postgres');
+  if (provider === 'sqlite') {
+    throw new Error('SQLite is no longer supported. Use CANVAS_DATABASE_PROVIDER=postgres.');
+  }
   const deploymentMode = fileEnv.CANVAS_DEPLOYMENT_MODE || process.env.CANVAS_DEPLOYMENT_MODE || 'single_user';
   const teamFeaturesEnabled = isTruthyEnv(fileEnv.CANVAS_TEAM_FEATURES_ENABLED || process.env.CANVAS_TEAM_FEATURES_ENABLED);
   const needsPostgres = deploymentRequiresPostgres(deploymentMode, teamFeaturesEnabled);

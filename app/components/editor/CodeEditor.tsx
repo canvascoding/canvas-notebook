@@ -385,7 +385,7 @@ export function CodeEditor({
     expectedDocumentId: expectedCollaborationDocumentId,
   });
   const internalCollaboration = useCollaborationDocument({
-    enabled: shouldCollaborate && !collaborationDocument,
+    enabled: shouldCollaborate && collaborationDocument === undefined,
     documentKey,
     waitForSession: true,
     workspaceId: activeWorkspaceId,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -14,6 +14,7 @@ import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
 import { searchWorkspaceFileReferences } from '@/app/lib/files/client';
 import { sortFileNodes, sortFileTree } from '@/app/lib/files/sort';
+import { useExplorerScrollAnchor } from './useExplorerScrollAnchor';
 
 interface UseFileExplorerViewModelOptions {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -62,6 +63,7 @@ function directoryLoadState(nodes: FileNodeType[], path: string): { exists: bool
 }
 
 export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplorerViewModelOptions) {
+  const lastScrolledSelection = useRef<string | null>(null);
   const [isRestoring, setIsRestoring] = useState(false);
   const [searchState, setSearchState] = useState<SearchState>({
     query: '',
@@ -82,7 +84,10 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     hydrateClientPreferences,
     currentDirectory,
     selectedNode,
+    browserReveal,
+    workspaceFileVersion,
     selectAllInDirectory,
+    setMultiSelectPaths,
     clearMultiSelect,
     searchQuery,
     browserMode,
@@ -100,7 +105,10 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     hydrateClientPreferences: state.hydrateClientPreferences,
     currentDirectory: state.currentDirectory,
     selectedNode: state.selectedNode,
+    browserReveal: state.browserReveal,
+    workspaceFileVersion: state.workspaceFileVersion,
     selectAllInDirectory: state.selectAllInDirectory,
+    setMultiSelectPaths: state.setMultiSelectPaths,
     clearMultiSelect: state.clearMultiSelect,
     searchQuery: state.searchQuery,
     browserMode: state.browserMode,
@@ -230,21 +238,6 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
   }, [activeWorkspaceId, hydrateClientPreferences, loadFileTree, loadSubdirectory, refreshRootTree, resetWorkspaceView, variant]);
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!containerRef.current?.contains(document.activeElement)) return;
-      if ((event.ctrlKey || event.metaKey) && event.key === 'a') {
-        event.preventDefault();
-        selectAllInDirectory(currentDirectory);
-      }
-      if (event.key === 'Escape') {
-        clearMultiSelect();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [clearMultiSelect, containerRef, currentDirectory, selectAllInDirectory]);
-
-  useEffect(() => {
     if (browserMode !== 'grid') return;
     if (currentDirectory === '.') return;
     if (activeDirectoryChildren !== null) return;
@@ -266,7 +259,8 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
 
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
-      setSearchState({ query, results: null, total: null, isSearching: true, error: null });
+      setSearchState((previous) => previous.query === query ? { ...previous, isSearching: true, error: null }
+        : { query, results: null, total: null, isSearching: true, error: null });
       try {
         if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
         const result = await searchWorkspaceFileReferences({
@@ -285,14 +279,14 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
         if (controller.signal.aborted) return;
         setSearchState({ query, results: nextResults, total: result.total, isSearching: false, error: null });
       } catch (error) {
-        if (!(error instanceof DOMException && error.name === 'AbortError')) {
-          setSearchState({
+        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError')) {
+          setSearchState((previous) => ({
             query,
-            results: null,
-            total: null,
+            results: previous.query === query ? previous.results : null,
+            total: previous.query === query ? previous.total : null,
             isSearching: false,
             error: error instanceof Error ? error.message : 'Failed to search files',
-          });
+          }));
         }
       }
     }, 200);
@@ -301,7 +295,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeWorkspaceId, normalizedSearchQuery]);
+  }, [activeWorkspaceId, normalizedSearchQuery, workspaceFileVersion]);
 
   const filteredTree = useMemo(
     () => sortFileTree(
@@ -362,17 +356,62 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     [searchResultNodes]
   );
 
+  const visibleSelectionPaths = useMemo(() => {
+    if (normalizedSearchQuery) return searchResults?.map((node) => node.path) ?? [];
+    if (browserMode === 'grid') return gridItems.map((node) => node.path);
+    if (browserMode === 'list') return filteredListChildren?.map((node) => node.path) ?? [];
+    return null;
+  }, [browserMode, filteredListChildren, gridItems, normalizedSearchQuery, searchResults]);
+
   useEffect(() => {
-    if (!selectedNode || isRestoring || isLoadingTree) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!containerRef.current?.contains(document.activeElement)) return;
+      const target = event.target;
+      const isTextInput = (typeof HTMLInputElement !== 'undefined' && target instanceof HTMLInputElement)
+        || (typeof HTMLTextAreaElement !== 'undefined' && target instanceof HTMLTextAreaElement)
+        || (target instanceof HTMLElement && target.isContentEditable);
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !isTextInput) {
+        event.preventDefault();
+        if (visibleSelectionPaths !== null) {
+          setMultiSelectPaths(visibleSelectionPaths, true);
+        } else {
+          selectAllInDirectory(currentDirectory);
+        }
+      }
+      if (event.key === 'Escape') {
+        clearMultiSelect();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [clearMultiSelect, containerRef, currentDirectory, selectAllInDirectory, setMultiSelectPaths, visibleSelectionPaths]);
+
+  useExplorerScrollAnchor(containerRef, `${activeWorkspaceId}\0${browserMode}\0${currentDirectory}\0${normalizedSearchQuery}`, searchResultNodes);
+
+  useEffect(() => {
+    if (!selectedNode) { lastScrolledSelection.current = null; return; }
+    if (isRestoring || isLoadingTree) return;
+    const selection = `${activeWorkspaceId}\0${browserMode}\0${currentDirectory}\0${selectedNode.path}`;
+    const needsReveal = browserReveal?.status === 'ready' && browserReveal.path === selectedNode.path
+      && browserReveal.workspaceId === activeWorkspaceId;
+    if (!needsReveal && lastScrolledSelection.current === selection) return;
 
     const frame = window.requestAnimationFrame(() => {
       const activeItem = Array.from(containerRef.current?.querySelectorAll<HTMLElement>('[data-file-path]') ?? [])
         .find((element) => element.dataset.filePath === selectedNode.path);
-      activeItem?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      if (activeItem) {
+        lastScrolledSelection.current = selection;
+        activeItem.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      }
+      const pending = useFileStore.getState().browserReveal;
+      if (activeItem && pending?.status === 'ready' && pending.path === selectedNode.path
+        && pending.workspaceId === useWorkspaceStore.getState().activeWorkspaceId) {
+        useFileStore.setState({ browserReveal: { ...pending, status: 'visible' } });
+      }
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [browserMode, containerRef, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
+  }, [activeWorkspaceId, browserMode, browserReveal, containerRef, currentDirectory, fileTree, filteredListChildren, isLoadingTree, isRestoring, searchResultNodes, selectedNode]);
 
   return {
     browserMode,
