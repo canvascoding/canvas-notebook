@@ -5,6 +5,7 @@ import type { AssistantMessage, AssistantMessageEventStream, Model } from '@eare
 import { buildPiSummaryOrientation } from '../app/lib/pi/compaction/orientation';
 import { generatePiRollingSummaryV2 } from '../app/lib/pi/compaction/summary-generator';
 import { validatePiRollingSummaryBody } from '../app/lib/pi/compaction/summary-contract';
+import { buildPiSummarySourceInput } from '../app/lib/pi/compaction/summary-input';
 
 const model: Model<'openai-completions'> = {
   id: 'orientation-test', name: 'test', api: 'openai-completions', provider: 'test', baseUrl: 'https://example.invalid',
@@ -61,6 +62,7 @@ async function main() {
     previousSummaryText: null, model, streamFn, sessionId: 'focus-test', focusTopic: 'revised itinerary' });
   assert.ok(result);
   assert.ok(prompts.length >= 3, 'exercise multiple digests and final summary');
+  assert.doesNotMatch(prompts.at(-1)!, /Old background\./, 'final summary must not receive the raw transcript again after digesting it');
   for (const prompt of prompts) {
     assert.match(prompt, /December/);
     assert.match(prompt, /Yes, do that/);
@@ -73,6 +75,27 @@ async function main() {
   }
   assert.equal(JSON.stringify({ source, recent }), original);
   assert.doesNotMatch(result, /Yes, do that/, 'orientation is not appended as compacted user history');
+  const callsBeforeShort = prompts.length;
+  assert.ok(await generatePiRollingSummaryV2({ messagesToSummarize: [source[0]], recentMessages: recent,
+    previousSummaryText: null, model, streamFn, sessionId: 'short-history' }));
+  assert.equal(prompts.length - callsBeforeShort, 1, 'short histories need only one model call');
+  const boundedSource = buildPiSummarySourceInput({ sourceRecords: Array.from({ length: 12 }, (_, i) => `Segment ${i + 1}: ${'detail '.repeat(2000)}`),
+    prior: 'prior '.repeat(20_000), anchors: 'deadline '.repeat(2000), users: 'user '.repeat(2000),
+    instruction: 'Return a summary.', maximumCharacters: 12_000 });
+  assert.ok(boundedSource.length <= 12_000 && boundedSource.length > 0);
+  for (let i = 1; i <= 12; i++) assert.match(boundedSource, new RegExp(`Segment ${i}:`), 'all digest segments retain a budget');
+  assert.match(boundedSource, /<\/untrusted_source_segments>/);
+  let slowCalls = 0;
+  await assert.rejects(generatePiRollingSummaryV2({ messagesToSummarize: source, recentMessages: recent,
+    previousSummaryText: null, model, sessionId: 'shared-deadline', totalTimeoutMs: 300, idleTimeoutMs: 1000,
+    streamFn: async () => {
+      slowCalls++;
+      return { result: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return assistant('- One digest.');
+      } } as AssistantMessageEventStream;
+    } }), (error: unknown) => Boolean(error && typeof error === 'object' && 'reasonCode' in error && error.reasonCode === 'summary_total_timeout'));
+  assert.equal(slowCalls, 2, 'later chunks must share the original attempt deadline');
   // A tool-only compacted region must not erase a real task in the retained tail.
   assert.ok(await generatePiRollingSummaryV2({ messagesToSummarize: [unsafe[3]], recentMessages: recent,
     previousSummaryText: null, model, streamFn, sessionId: 'tool-only-region' }));

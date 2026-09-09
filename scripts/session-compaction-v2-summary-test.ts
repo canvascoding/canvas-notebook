@@ -161,7 +161,7 @@ async function main() {
   assert.ok(firstSummary.includes('123456789abcdef'));
   assert.ok(firstSummary.includes('> Implement PR #1111 in app/lib/pi/first-cycle.ts and preserve this exact request.'));
   assert.ok(firstSummary.includes("session_search(query='<keywords>', session_id='continuity-session')"));
-  assert.ok(progress.includes('digest:streaming'));
+  assert.ok(!progress.includes('digest:streaming'), 'short history should use one direct summary');
   assert.ok(progress.includes('summary:streaming'));
 
   const focusTopic = 'database migration safety';

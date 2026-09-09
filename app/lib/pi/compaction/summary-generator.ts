@@ -18,6 +18,7 @@ import type {
 import { estimateTextTokens } from '../history-budget';
 import { isPiActionableUserMessage } from './selection';
 import { buildPiSummaryOrientation, PI_SUMMARY_RELEVANCE_POLICY } from './orientation';
+import { buildPiSummarySourceInput } from './summary-input';
 import {
   assemblePiRollingSummary,
   PI_NO_USER_TASK_SENTINEL,
@@ -342,6 +343,7 @@ export async function generatePiRollingSummaryV2(
   input: GeneratePiRollingSummaryInput,
 ): Promise<string | null> {
   assertActive(input.signal);
+  const attemptDeadline = Date.now() + (input.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS);
   const knownSecrets = input.knownSecrets ?? [];
   const sessionId = input.sessionId ?? '';
   const diagnosticContext = {
@@ -380,12 +382,23 @@ export async function generatePiRollingSummaryV2(
     return null;
   }
 
+  const prior = redactPiCompactionText(input.previousSummaryText ?? '', knownSecrets)
+    .slice(0, V2_PRIOR_SUMMARY_MAX_CHARACTERS);
+  const focusTopic = redactPiCompactionText(input.focusTopic ?? '', knownSecrets).trim();
+  const sourceTokens = estimateTextTokens(prior) + estimateTextTokens(recovery.redactedTranscript);
+  const targetTokens = getPiRollingSummaryTargetTokens(sourceTokens, input.model.contextWindow);
+  const summaryOutputReserve = Math.min(input.model.maxTokens, Math.max(8_192, targetTokens * 2));
+  const directLimit = Math.min(12_000, Math.max(0,
+    (availablePromptTokens(input.model, SUMMARY_SYSTEM_PROMPT_V2, summaryOutputReserve) * 4 - orientation.text.length) * 0.4,
+  ));
+  const direct = recovery.redactedTranscript.length <= directLimit;
+  const digestChunks = direct ? [] : recovery.digestChunks;
   const digestBodies: string[] = [];
   const digestOutputReserve = input.model.reasoning
     ? Math.min(input.model.maxTokens, 8_192)
     : V2_DIGEST_OUTPUT_TOKENS;
   let repairUsed = false;
-  for (const chunk of recovery.digestChunks) {
+  for (const chunk of digestChunks) {
     const maximumDigestInputCharacters = Math.max(
       0,
       (availablePromptTokens(input.model, DIGEST_SYSTEM_PROMPT, digestOutputReserve) - 256) * 4 - orientation.text.length,
@@ -396,7 +409,7 @@ export async function generatePiRollingSummaryV2(
       `Segment ${chunk.ordinal}/${chunk.total}; SHA-256 ${chunk.digest}.`,
       asUntrustedRecord('session_segment', boundedChunk),
     ].join('\n\n');
-    const digestDeadline = Date.now() + (input.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS);
+    const digestDeadline = attemptDeadline;
     let repairReason: 'empty_digest' | 'digest_too_large' | null = null;
     let digestBody: string | null = null;
     while (digestBody === null) {
@@ -475,17 +488,11 @@ export async function generatePiRollingSummaryV2(
     input.onProgress?.({ stage: 'digest', status: 'completed', completed: chunk.ordinal, total: chunk.total });
   }
   const digestSection = renderPiCompactionChunkDigests({
-    chunks: recovery.digestChunks,
+    chunks: digestChunks,
     bodies: digestBodies,
     knownSecrets,
   });
 
-  const prior = redactPiCompactionText(input.previousSummaryText ?? '', knownSecrets)
-    .slice(0, V2_PRIOR_SUMMARY_MAX_CHARACTERS);
-  const focusTopic = redactPiCompactionText(input.focusTopic ?? '', knownSecrets).trim();
-  const sourceTokens = estimateTextTokens(prior) + estimateTextTokens(recovery.redactedTranscript);
-  const targetTokens = getPiRollingSummaryTargetTokens(sourceTokens, input.model.contextWindow);
-  const summaryOutputReserve = Math.min(input.model.maxTokens, Math.max(8_192, targetTokens * 2));
   // Bound deterministic excerpts/digests as well as the model body. Small
   // windows must not accumulate the same 64k of artifacts as a 262k model.
   const maximumSummaryCharacters = Math.max(1, Math.min(
@@ -500,17 +507,12 @@ export async function generatePiRollingSummaryV2(
     modelMaxOutputTokens: input.model.maxTokens,
     maximumBodyCharacters: maximumSummaryBodyCharacters,
     maximumCharacters: maximumSummaryCharacters,
+    strategy: direct ? 'direct' : 'digests',
+    digestCount: digestChunks.length,
   });
-  const rawSummaryInput = [
-    prior ? asUntrustedRecord('prior_rolling_summary', prior) : '',
-    recovery.anchorIndex.text,
-    recovery.verbatimUserSection,
-    digestSection,
-    asUntrustedRecord('current_compacted_transcript', recovery.redactedTranscript),
-    `Aim for approximately ${targetTokens} tokens in the updated rolling summary. `
+  const summaryInstruction = `Aim for approximately ${targetTokens} tokens in the updated rolling summary. `
       + 'This is a writing target, not a hard limit: preserve essential facts and exact identifiers. '
-      + `Return only the five required sections; the storage safety ceiling is ${maximumSummaryBodyCharacters} characters.`,
-  ].filter(Boolean).join('\n\n');
+      + `Return only the five required sections; the storage safety ceiling is ${maximumSummaryBodyCharacters} characters.`;
   const maximumInputCharacters = Math.min(
     160_000,
     Math.max(
@@ -525,7 +527,7 @@ export async function generatePiRollingSummaryV2(
       : input.messagesToSummarize,
     knownSecrets,
   );
-  const summaryDeadline = Date.now() + (input.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS);
+  const summaryDeadline = attemptDeadline;
   let summaryRepairUsed = false;
   while (true) {
     const remainingTimeoutMs = summaryDeadline - Date.now();
@@ -534,10 +536,17 @@ export async function generatePiRollingSummaryV2(
       ? `The previous candidate exceeded ${maximumSummaryBodyCharacters} characters. Regenerate it from the source records, `
         + `make it materially shorter, and never exceed ${maximumSummaryBodyCharacters} characters.`
       : '';
-    const boundedSummaryInput = boundPiCompactionSummaryInput(
-      [rawSummaryInput, repairInstruction].filter(Boolean).join('\n\n'),
-      maximumInputCharacters,
-    );
+    const boundedSummaryInput = buildPiSummarySourceInput({
+      sourceRecords: direct ? [recovery.redactedTranscript] : digestChunks.map((chunk, index) => (
+        `Segment ${chunk.ordinal}/${chunk.total}:\n${digestBodies[index]}`
+      )),
+      prior,
+      anchors: recovery.anchorIndex.text,
+      users: recovery.verbatimUserSection,
+      instruction: [summaryInstruction, repairInstruction].filter(Boolean).join('\n\n'),
+      maximumCharacters: maximumInputCharacters,
+    });
+    if (!boundedSummaryInput) return null;
     let summaryMessage: AssistantMessage;
     try {
       summaryMessage = await callSummaryModel({ ...input, totalTimeoutMs: remainingTimeoutMs }, {

@@ -8,7 +8,8 @@ const model = {
   baseUrl: 'https://example.invalid', reasoning: false, input: ['text'],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128_000, maxTokens: 4096,
 } satisfies Model<'openai-completions'>;
-const messages = [{ role: 'user', content: 'Continue the implementation.', timestamp: 1 }] as AgentMessage[];
+// Large enough to exercise the digest path rather than the short-history fast path.
+const messages = [{ role: 'user', content: 'Continue the implementation. '.repeat(600), timestamp: 1 }] as AgentMessage[];
 const summary = '## Active Task\nContinue the implementation.\n## Completed Work\nNone.\n## Decisions and Constraints\nPreserve history.\n## Files, Commands, and Exact Errors\nNone.\n## Remaining Work\nImplementation.';
 
 function response(text: string, thinkingOnly = false): AssistantMessage {

@@ -113,13 +113,14 @@ function fitDigestSection(section: string, maximumCharacters: number): string {
   const segments = section.slice(section.indexOf(PI_COMPACTION_DIGESTS_HEADING) + PI_COMPACTION_DIGESTS_HEADING.length)
     .trim()
     .split(/\n\n(?=### Segment )/u);
-  let result = heading;
-  for (const segment of segments) {
-    const addition = `${result.endsWith('\n') ? '' : '\n\n'}${segment}`;
-    if (result.length + addition.length > maximumCharacters) break;
-    result += addition;
+  const kept: string[] = [];
+  let used = heading.length;
+  for (const segment of [...segments].reverse()) {
+    if (used + segment.length + 2 > maximumCharacters) continue;
+    kept.unshift(segment);
+    used += segment.length + 2;
   }
-  return result === heading ? '' : result;
+  return kept.length ? heading + kept.join('\n\n') : '';
 }
 
 export function validatePiRollingSummaryBody(input: {
