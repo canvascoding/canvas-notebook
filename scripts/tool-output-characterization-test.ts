@@ -86,8 +86,9 @@ async function main() {
     const rawText = firstTextPart(rawToolResult);
     const projectedText = firstTextPart(projectedToolResult);
     assert.match(rawText, /Later Brave result/);
-    assert.doesNotMatch(projectedText, /Later Brave result/);
-    assert.match(projectedText, /tool result truncated for loaded chat context/);
+    assert.match(projectedText, /Later Brave result/, 'bounded search formatting retains later sources');
+    assert.ok(projectedText.length <= 6_000);
+    assert.doesNotMatch(projectedText, /tool result truncated for loaded chat context/);
     assert.equal(projectAgentMessageForLoadedContext(rawToolResult, 'raw'), rawToolResult);
 
     process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
@@ -106,7 +107,8 @@ async function main() {
     assert.equal(managed.mode, 'managed');
     assert.equal(managed.results[0].snippet, longFirstSnippet);
     assert.equal(managed.results[2].snippet, longLaterSnippet);
-    assert.equal(managed.results[1].content, base64ImageData);
+    assert.equal(managed.results[1].content, undefined, 'managed fields are validated and include_content=false ignores provider page bodies');
+    assert.doesNotMatch(formatWebSearchResults(managed), new RegExp(base64ImageData.slice(0, 40)));
     assert.equal(fetchCalls, 2, 'managed include_content=false must not fetch result pages');
 
     globalThis.fetch = async (input, init) => {

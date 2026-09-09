@@ -126,7 +126,8 @@ function responseHeaders(headers: IncomingHttpHeaders): Headers {
 }
 
 export async function requestPublicHttpUrl(url: URL, options: PublicHttpRequestOptions): Promise<Response> {
-  const target = await resolvePublicNetworkAddress(url);
+  const target = await withRequestAbort(resolvePublicNetworkAddress(url), options.signal);
+  options.signal?.throwIfAborted();
   const headers = new Headers(options.headers);
   headers.set('host', url.host);
 
@@ -167,15 +168,21 @@ export async function requestPublicHttpUrl(url: URL, options: PublicHttpRequestO
 
 export async function fetchExternalResourceSafely(
   rawUrl: string,
-  options?: { maxBytes?: number; timeoutMs?: number }
+  options?: { maxBytes?: number; timeoutMs?: number; signal?: AbortSignal }
 ) {
   const maxBytes = options?.maxBytes ?? DEFAULT_MAX_BYTES;
   const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error('Fetch byte and time limits must be positive integers.');
+  }
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = options?.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let currentUrl = new URL(rawUrl);
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
     const response = await requestPublicHttpUrl(currentUrl, {
       timeoutMs,
+      signal,
     });
 
     if (response.status >= 300 && response.status < 400) {
@@ -192,26 +199,59 @@ export async function fetchExternalResourceSafely(
     }
 
     if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
       throw new Error('Failed to fetch resource: ' + response.status + ' ' + response.statusText);
     }
 
     const advertisedLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(advertisedLength) && advertisedLength > maxBytes) {
+      void response.body?.cancel().catch(() => undefined);
       throw new Error('Remote file exceeds ' + Math.round(maxBytes / (1024 * 1024)) + 'MB limit');
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    if (buffer.length > maxBytes) {
-      throw new Error('Remote file exceeds ' + Math.round(maxBytes / (1024 * 1024)) + 'MB limit');
-    }
+    const buffer = await readBoundedResponseBody(response, maxBytes, signal);
 
     return {
       buffer,
       contentType: response.headers.get('content-type') || 'application/octet-stream',
       finalUrl: currentUrl.toString(),
+      statusCode: response.status,
     };
   }
 
   throw new Error('Too many redirects');
+}
+
+function withRequestAbort<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation;
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('Request aborted.'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    operation.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
+/** Enforce the byte ceiling before buffering an untrusted complete response. */
+export async function readBoundedResponseBody(response: Response, maxBytes: number, signal?: AbortSignal): Promise<Buffer> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error('Fetch byte limit must be a positive integer.');
+  const reader = response.body?.getReader();
+  if (!reader) return Buffer.alloc(0);
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const chunk = await withRequestAbort(reader.read(), signal);
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > maxBytes) throw new Error(`Remote file exceeds ${maxBytes}-byte limit`);
+      chunks.push(Buffer.from(chunk.value));
+    }
+    return Buffer.concat(chunks, bytes);
+  } finally {
+    // Do not wait for a peer that never finishes its stream cancellation.
+    void reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }

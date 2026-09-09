@@ -1,11 +1,13 @@
 # Providerunabhängige Web- und Tool-Ausgaben
 
-Stand: 2026-09-09. Planungsgrundlage: Canvas Notebook `caba97d5`, lokales Hermes-Repo `f293e7206b`. Umsetzung läuft: Schritte 1 und 2 implementiert; Provideraufbereitung und gemeinsame Kontextbudgets folgen.
+Stand: 2026-09-09. Planungsgrundlage: Canvas Notebook `caba97d5`, lokales Hermes-Repo `f293e7206b`. Umsetzung läuft: Schritte 1 bis 3 implementiert; externe Tools, gemeinsame Kontextbudgets und UI-Darstellung folgen.
 
 ## Umsetzungsstand
 
 - Schritt 1: Charakterisierung und Fixtures in Commit `27ce0b96`; lange erste Treffer verdrängen im Ausgangsstand nachfolgende Quellen.
 - Schritt 2: Private Ergebnisablage mit 4-MiB-Datei- und 64-MiB-Sitzungsgrenzen, sitzungsrelative `tool-output://`-Verweise, lesbare Manifeste, Offset-Paginierung in `read`, Nachschlagen mit `rg`, Schreibschutz, selektiver Fork und Sitzungsbereinigung. Die vorhandene Kernel-Sperrfunktion schützt die Quota über Prozesse hinweg. Gespeicherte Identität und Verweise enthalten keinen absoluten DATA-Pfad; ein Umzug des Datenverzeichnisses ist getestet. Der bestehende Full-Backup-Scanner schließt `tool-outputs` nicht aus und übernimmt Datei-Statistiken ins Archiv.
+- Schritt 3: Brave direkt, Brave managed und Ollama verwenden dieselbe auf 6.000 Zeichen begrenzte Tool-Darstellung mit höchstens 800 Zeichen Suchauszug pro Treffer. Vollständiger bereinigter Quelltext wird vor der Darstellung gespeichert. Managed-Antworten übernehmen nur validierte Felder. HTTP-Seitenabrufe und nachgeladene Suchseiten nutzen denselben Extraktionsdienst; zehn URLs teilen sich maximal 10.000 Zeichen. Metadaten werden zuerst reserviert, überlange URLs über vollständige Quelldateien nachgelesen. Der gemeinsame HTTP-Transport begrenzt den Datenstrom vor dem vollständigen Puffern, prüft Weiterleitungen und unterstützt eine Gesamtdauer sowie Abbruch während DNS und Body-Übertragung. Provider-JSON hat zusätzlich eine 16-MiB-Eingangsgrenze.
+- Web-Prüfungen: `npm run test:pi:web-outputs`, Suchservice und aktualisierte Charakterisierung. Die Tests führen alle drei aktiven Suchtools sowie einen Dummy-Provider durch die gemeinsame Formatierung aus, lesen ausgelassene Inhalte aus der Ablage und prüfen Weiterleitungen auf private Adressen, DNS-Abbruch, Stream-Limit und fehlende Ablageidentität.
 - Automatische Prüfungen: `npm run test:pi:tool-outputs`, bestehender `workspace-mutation-lock-test.ts`, ESLint der geänderten Dateien und vollständiger Typecheck. Die umfassende vorhandene Tool-Registry-Suite erreicht ohne PostgreSQL-Konfiguration ihren Datenbankteil nicht; die neuen Lifecycle-Tests führen die echten Fork-/Löschfunktionen mit isolierten DB-Mocks und echten temporären Dateien aus.
 - Nutzerentscheidung: Nur Code und automatisierte Tests; interaktive UI-Abnahme später. Keine Browser-Tests und keine Container-Builds für diese Umsetzung.
 

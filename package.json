@@ -73,6 +73,7 @@
     "test:pi:usage": "tsx scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts",
     "test:pi:tool-outputs": "tsx --conditions react-server scripts/tool-output-characterization-test.ts && tsx --conditions react-server scripts/tool-output-store-test.ts && tsx --conditions react-server scripts/tool-output-read-test.ts && tsx --conditions react-server scripts/tool-output-lifecycle-test.ts && tsx --conditions react-server scripts/tool-output-maintenance-test.ts",
+    "test:pi:web-outputs": "tsx --conditions react-server scripts/web-content-service-test.ts && tsx --conditions react-server scripts/web-tool-output-test.ts && tsx --conditions react-server scripts/web-fetch-boundaries-test.ts && tsx --conditions react-server scripts/safe-external-fetch-test.ts",
     "test:pi:exact-text": "tsx scripts/exact-text-patch-test.ts",
     "test:pi:effective-tools": "tsx scripts/effective-tool-manifest-test.ts",
     "test:pi:email-agent-policy": "tsx scripts/email-agent-policy-test.ts",
