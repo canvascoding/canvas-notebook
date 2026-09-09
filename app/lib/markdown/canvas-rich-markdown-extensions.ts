@@ -14,6 +14,7 @@ import {
 import { CanvasOrderedList, CanvasListItem, CanvasBulletList } from './core/lists-and-tables';
 import { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
 import { CanvasDocument } from './core/document';
+import { createBlockStartHint } from './core/block-start-hint';
 import { CanvasPortableInlineMark, renderInlineWithMarkedWhitespace } from './core/inline-mark-whitespace';
 export { CanvasParagraph, CanvasBlockquote, CanvasHeading } from './core/base-blocks';
 import { TextSelection } from '@tiptap/pm/state';
@@ -320,7 +321,7 @@ export const CanvasCallout = Node.create({
   markdownTokenizer: {
     name: 'canvasCallout',
     level: 'block',
-    start: (source) => source.search(/^ {0,3}>[ \t]*\[!/mu),
+    start: createBlockStartHint(/^ {0,3}>[ \t]*\[!/mu, '>', 3),
     tokenize: (source, _tokens, lexer) => {
       const match = source.match(/^(?: {0,3}>[^\r\n]*(?:\r?\n|$))+/u);
       if (!match) return undefined;
@@ -459,7 +460,7 @@ export const CanvasDetails = Node.create({
   markdownTokenizer: {
     name: 'canvasDetails',
     level: 'block',
-    start: (source) => source.search(/^<details(?:\s+open(?:=(?:"open"|'open'|open))?)?>[ \t]*$/mu),
+    start: createBlockStartHint(/^<details(?:\s+open(?:=(?:"open"|'open'|open))?)?>[ \t]*$/mu, '<details'),
     tokenize: (source, _tokens, lexer) => {
       const match = source.match(
         /^<details(?:\s+(open)(?:=(?:"open"|'open'|open))?)?>[ \t]*\r?\n<summary>([^\r\n]*)<\/summary>[ \t]*\r?\n([\s\S]*?)\r?\n<\/details>(?:\r?\n|$)/u,
@@ -610,7 +611,7 @@ export const MarkdownFootnoteDefinition = Node.create({
   markdownTokenizer: {
     name: 'markdownFootnoteDefinition',
     level: 'block',
-    start: (source) => source.search(/^\[\^[^\]\r\n]+\]:/mu),
+    start: createBlockStartHint(/^\[\^[^\]\r\n]+\]:/mu, '[^'),
     tokenize: (source, _tokens, lexer) => {
       const match = source.match(
         /^\[\^([^\]\s\r\n]+)\]:[ \t]*([^\r\n]*)(?:\r?\n((?:(?: {2,}|\t)[^\r\n]*(?:\r?\n|$))*))?/u,

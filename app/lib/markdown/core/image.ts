@@ -1,4 +1,5 @@
 import Image from '@tiptap/extension-image';
+import { createBlockStartHint } from './block-start-hint';
 import { imageAlignment, imageAlignmentFromStyle, imageDimension, IMAGE_ALIGNMENT_STYLES, parsePortableImage, serializePortableImage } from './portable-image';
 
 export const CanvasImage = Image.extend({
@@ -16,7 +17,7 @@ export const CanvasImage = Image.extend({
   },
   markdownTokenizer: {
     name: 'canvasPortableImage', level: 'block',
-    start: (source) => source.search(/^<img /mu),
+    start: createBlockStartHint(/^<img /mu, '<img '),
     tokenize(source) {
       const raw = source.match(/^<img [^\r\n]+>[ \t]*(?:\r?\n|$)/u)?.[0];
       const image = raw ? parsePortableImage(raw) : null;

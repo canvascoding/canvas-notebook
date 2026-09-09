@@ -3,6 +3,7 @@ import { Marked } from 'canvas-markdown-parser';
 import { proseEntities } from './prose-entities';
 import { EXPLICIT_TABLE_HARD_BREAK_PATTERN, EXPLICIT_TABLE_HARD_BREAK_START } from './table-breaks';
 import { LIST_BOUNDARY_PATTERN, LIST_BOUNDARY_START_PATTERN } from './list-boundary';
+import { createBlockStartHint } from './block-start-hint';
 
 export const CANVAS_MARKED_OPTIONS = {
   breaks: false,
@@ -33,7 +34,7 @@ export function createCanvasMarkedInstance(): TiptapMarkedInstance {
     extensions: [{
       name: 'canvasListBoundary',
       level: 'block',
-      start(source) { return source.search(LIST_BOUNDARY_START_PATTERN); },
+      start: createBlockStartHint(LIST_BOUNDARY_START_PATTERN, '<!-- canvas-list-boundary -->', 3),
       tokenizer(source) {
         const raw = source.match(LIST_BOUNDARY_PATTERN)?.[0];
         if (!raw) return undefined;

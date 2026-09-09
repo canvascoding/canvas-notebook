@@ -56,21 +56,10 @@ assert.match(
   /openRichBlockDialog: openRichBlockDialogFromSlash/u,
   'slash commands must share the same dialog insertion path as the toolbar',
 );
-assert.match(
-  editorSource,
-  /insertMathAtRange[\s\S]*?deleteRange[\s\S]*?insertInlineMath/u,
-  'inline formulas must delete a selected/slash range before calculating their insert position',
-);
-assert.match(
-  editorSource,
-  /handleDetailsToggle/u,
-  'toggling a collapsible section must persist its open state in the editor document',
-);
-assert.match(
-  editorSource,
-  /handleDetailsSummaryClick[\s\S]*?setDetailsOpen/u,
-  'clicking the native details summary must persist the open state without a second toggle control',
-);
+// Formula replacement and details activation are behavior-tested against the
+// real editor in collaboration-block-editor-test.ts (included in rich-blocks).
+// Their helpers no longer live in MarkdownEditor, and native toggle events
+// must not persist remote projection or read-only browsing as local writes.
 assert.doesNotMatch(
   editorSource,
   /canvas-details-toggle/u,
