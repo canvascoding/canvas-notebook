@@ -17,20 +17,27 @@ test('image size and alignment checkpoint, undo, reload and render in Read mode'
   const path = `editor-image-${randomUUID()}.md`;
   const asset = `editor-image-${randomUUID()}.svg`;
   await page.addInitScript((id) => localStorage.setItem('canvas.activeWorkspaceId', id), workspace.id);
-  expect((await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
-    name: asset, mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="240"><rect width="480" height="240" fill="#729b91"/><circle cx="240" cy="120" r="64" fill="#f7ead3"/></svg>'),
-  } } })).ok()).toBe(true);
-  await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
-  const original = await (await page.request.get(`/api/mobile/v1/notebook/document?path=${path}`, { headers })).json();
-  expect((await page.request.put('/api/mobile/v1/notebook/document', { headers, data: {
-    path, content: `# Image check\n\n![Diagram](${asset})`, expectedSha256: original.document.sha256, baseRevisionId: original.document.revisionId,
-  } })).ok()).toBe(true);
+  expect((await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } })).ok()).toBe(true);
   const read = async () => (await (await page.request.get(`/api/files/read?path=${path}`, { headers })).json()).data?.content as string;
   try {
     await page.goto(`/notebook?path=${path}`);
     const editor = page.locator('.tiptap-editor-shell .ProseMirror');
     await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
+    await editor.click();
+    await page.getByRole('button', { name: 'Insert', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Image', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Insert image', exact: true });
+    await dialog.getByLabel('Image files', { exact: true }).setInputFiles({
+      name: asset, mimeType: 'image/svg+xml', buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="240"><rect width="480" height="240" fill="#729b91"/><circle cx="240" cy="120" r="64" fill="#f7ead3"/></svg>'),
+    });
+    await dialog.getByLabel('Alt text', { exact: true }).fill('Diagram');
+    await dialog.getByRole('button', { name: 'Insert image', exact: true }).click();
     const image = editor.getByRole('img', { name: 'Diagram', exact: true });
+    await expect(image).toBeVisible();
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0)).toBe(true);
+    // The editor preview and imported asset must belong to the same workspace.
+    expect((await page.request.get(`/api/files/read?path=${asset}`, { headers })).ok()).toBe(true);
+    expect((await page.request.get(`/api/files/read?path=${asset}`)).status()).toBe(404);
     await image.click();
     const toolbar = page.getByRole('toolbar', { name: 'Image tools' });
     await toolbar.getByRole('spinbutton', { name: 'Image width' }).fill('240');

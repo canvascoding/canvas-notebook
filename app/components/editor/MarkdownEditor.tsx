@@ -204,6 +204,7 @@ import {
 } from '@/app/lib/markdown/markdown-image-path';
 import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { workspaceHeaders } from '@/app/lib/files/client';
 import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditorClient';
@@ -3272,6 +3273,7 @@ function MarkdownImageDialog({
   target?: EditorRangeTarget | null;
 }) {
   const t = useTranslations('notebook');
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<'upload' | 'url'>('upload');
   const [source, setSource] = useState('');
@@ -3336,6 +3338,7 @@ function MarkdownImageDialog({
 
       const response = await fetch('/api/markdown/images/import', {
         method: 'POST',
+        headers: workspaceHeaders(workspaceId),
         body: formData,
         signal: request.signal,
       });
@@ -3356,7 +3359,7 @@ function MarkdownImageDialog({
         setSubmitting(false);
       }
     }
-  }, [alt, begin, editor, filePath, finish, handleOpenChange, isCurrent, mode, resolveTarget, source, submitting, t]);
+  }, [alt, begin, editor, filePath, finish, handleOpenChange, isCurrent, mode, resolveTarget, source, submitting, t, workspaceId]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

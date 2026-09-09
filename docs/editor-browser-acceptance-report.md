@@ -14,6 +14,22 @@ Der [Abnahmeablauf](editor-browser-acceptance-runbook.md) bleibt die vollständi
 
 Private Laufartefakte liegen unter `~/.codex/tmp/editor-fbd6-browser-20260909/`: QA-Inventar, Vorher-/Nachher-Screenshots, Binärsicherung und ein JSON-Nachweis mit Dokument-/Block-ID. Zugangsdaten und Transporttickets werden nicht in den Bericht übernommen.
 
+## Bildimport im gemeinsamen Workspace
+
+**Gefunden:** Der normale Uploaddialog legte einen Bildblock mit relativem Pfad an, dessen Vorschau nicht laden konnte. Die Datei war über den alten Standard-Workspace erreichbar (HTTP 200), im aktiven gemeinsamen Workspace fehlte sie (HTTP 404). Der Importrequest enthielt keinen Workspace-Header.
+
+**Korrektur und Nachweis:** Der Dialog übergibt jetzt den Workspace des laufenden Aufrufs. Ein erneuter Upload war im gemeinsamen Workspace erreichbar und im Standard-Workspace nicht vorhanden. Die erweiterte `editor-image-controls.spec.ts` verwendet den echten Uploaddialog und besteht vollständig: laden, Größe/Ausrichtung ändern, Resize, Undo/Redo, Checkpoint, Reload, Resize-Abbruch und Read-Ansicht einschließlich kleiner Bildschirmbreite. Laufzeit: 17,7 Sekunden. ESLint und `editor-interaction-lifecycle-test.tsx` bestehen.
+
+Zusätzlich wurde im interaktiven Browser eine echte Serverantwort des Imports zurückgehalten, der Dialog abgebrochen und zu einer anderen Datei gewechselt. Nach Freigabe der Antwort blieben beide strukturierten Dokumentzustände unverändert. Die bereits serverseitig hochgeladene Testdatei wird separat bereinigt.
+
+## Bisherige Blockbedienung
+
+Absatz B wurde mit nativer Mausgeste am Griff hinter C verschoben. Quellmarkierung und Einfügelinie wurden während des Drags visuell geprüft. Die ursprünglichen IDs, Inhalte und Nachbarn blieben erhalten. Undo/Redo, Read/Source/Edit sowie Checkpoint und Reload bestätigten das Ergebnis. Das Bewegungsmenü und `Alt+Shift+↑/↓` wurden ebenfalls mit Undo geprüft.
+
+Der Codeblock wurde per Tastatur vor die Tabelle und per Griff hinter den Callout bewegt. Undo stellte jeweils den vollständigen vorherigen Dokumentbaum einschließlich IDs und Codewortlaut wieder her. Ein regulär importierter Bildblock bestand Bewegung per Tastatur und Griff mit derselben ID und exakter Wiederherstellung per Undo; Breite 240 px und Zentrierung wurden visuell geprüft.
+
+**Testmaterial:** Die ursprüngliche Fixture ist als Quelltext nicht kanonisch und bleibt beim regulären Import mit `roundtrip_changed` im Source-Modus. Die vorher dokumentierte strikte Blockprüfung hatte diesen Eintrittspfad nicht geprüft. Der Browserlauf verwendet deshalb ihre vom produktiven Codec serialisierte Fassung. Unterschiede sind Tabellenstriche, Leerzeilen und die Schreibweise des Callout-Typs; Inhalte und strukturierte Blöcke bleiben erhalten. Die Importschutzprüfung wurde nicht geändert.
+
 ## Noch auszuführen
 
-Die zehn Abnahmegruppen, die getrennten Clipboard-/IME-/Touch-Prüfungen und Browser-Latenzmessungen sind hier noch nicht als bestanden bewertet.
+Gruppe 1 ist teilweise geprüft; Trennlinie, Mobilmenü und vollständige Copy-/Paste-Folgen stehen noch aus. Die übrigen Abnahmegruppen sind bis auf den beschriebenen verspäteten Bildimport noch nicht vollständig geprüft. Clipboard-/IME-/Touch-Prüfungen und Browser-Latenzmessungen sind ebenfalls offen.
