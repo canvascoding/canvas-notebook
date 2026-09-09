@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
@@ -8,7 +9,7 @@ import {
   archiveFileCollaborationPaths,
   type FileActorType,
 } from '@/app/lib/files/collaboration-policy';
-import { getParentDirectory } from '@/app/lib/files/path-utils';
+import { getParentDirectories, getParentDirectory } from '@/app/lib/files/path-utils';
 import { deleteWorkspaceFileMetadata } from '@/app/lib/files/workspace-file-metadata';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
@@ -18,7 +19,10 @@ import {
   getFileStats,
 } from '@/app/lib/filesystem/workspace-files';
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
-import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import {
+  normalizeWorkspaceRelativePath,
+  resolveExistingWorkspacePath,
+} from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 type WorkspaceSaveDestination =
@@ -68,6 +72,15 @@ function hasMissingPathCode(error: unknown) {
   );
 }
 
+function hasCreateCollisionCode(error: unknown) {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && 'code' in error
+    && ['EEXIST', 'FILE_REVISION_CONFLICT'].includes(String(error.code)),
+  );
+}
+
 async function workspacePathExists(filePath: string, workspace: WorkspaceContext) {
   try {
     await getFileStats(filePath, { workspace });
@@ -100,7 +113,20 @@ async function availableWorkspacePath(
   }
 }
 
+async function missingWorkspaceDirectories(directoryPath: string, workspace: WorkspaceContext) {
+  const directoryPaths = [
+    ...getParentDirectories(directoryPath),
+    directoryPath,
+  ].filter((candidate) => candidate !== '.');
+  const missing: string[] = [];
+  for (const candidate of directoryPaths) {
+    if (!(await workspacePathExists(candidate, workspace))) missing.push(candidate);
+  }
+  return missing;
+}
+
 async function rollbackSavedAttachments(params: {
+  directories: string[];
   fileOptions: { workspace: WorkspaceContext };
   paths: string[];
   workspace: WorkspaceContext;
@@ -127,7 +153,19 @@ async function rollbackSavedAttachments(params: {
     }
   }
 
-  if (deletedPaths.length > 0) {
+  const deletedDirectories: string[] = [];
+  for (const directoryPath of [...params.directories].reverse()) {
+    try {
+      const absolutePath = await resolveExistingWorkspacePath(params.workspace, directoryPath);
+      await fs.rmdir(absolutePath);
+      deletedDirectories.push(directoryPath);
+    } catch (error) {
+      if (hasMissingPathCode(error)) continue;
+      rollbackErrors.push(error);
+    }
+  }
+
+  if (deletedPaths.length > 0 || deletedDirectories.length > 0) {
     try {
       await syncPublicSharesAfterDelete(deletedPaths, params.workspace);
     } catch (error) {
@@ -135,8 +173,14 @@ async function rollbackSavedAttachments(params: {
     }
     invalidateWorkspaceFileViews({
       fileOptions: params.fileOptions,
-      subtreeDirs: deletedPaths.map(getParentDirectory),
-      mutations: deletedPaths.map((savedPath) => ({ path: savedPath, type: 'unlink' as const })),
+      subtreeDirs: [
+        ...deletedPaths.map(getParentDirectory),
+        ...deletedDirectories.map(getParentDirectory),
+      ],
+      mutations: [
+        ...deletedPaths.map((savedPath) => ({ path: savedPath, type: 'unlink' as const })),
+        ...deletedDirectories.map((directoryPath) => ({ path: directoryPath, type: 'unlinkDir' as const })),
+      ],
     });
   }
   return rollbackErrors;
@@ -152,47 +196,51 @@ export async function saveDownloadedEmailAttachmentsToWorkspace(input: {
   if (input.attachments.length === 0) return [];
   const fileOptions = { workspace: input.workspace };
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
-    let paths: string[];
-
-    if (input.destination.type === 'file') {
-      if (input.attachments.length !== 1) {
-        throw new Error('A file destination can only be used for one email attachment.');
-      }
-      const destinationPath = normalizeWorkspaceRelativePath(input.destination.path);
-      const parentDirectory = path.posix.dirname(destinationPath);
-      if (input.destination.createParentDirectories && parentDirectory !== '.') {
-        await createDirectoryIfAbsent(parentDirectory, fileOptions);
-      }
-      paths = [destinationPath];
-    } else {
-      const targetDirectory = normalizeWorkspaceRelativePath(input.destination.path);
-      if (input.destination.createIfMissing) {
-        await createDirectoryIfAbsent(targetDirectory, fileOptions);
-      }
-      const targetStats = await getFileStats(targetDirectory, fileOptions);
-      if (!targetStats.isDirectory) throw new Error('The selected workspace destination is not a folder.');
-      const reservedPaths = new Set<string>();
-      paths = [];
-      for (const attachment of input.attachments) {
-        const candidatePath = targetDirectory === '.'
-          ? attachment.attachment.filename
-          : `${targetDirectory}/${attachment.attachment.filename}`;
-        paths.push(input.destination.renameConflicts
-          ? await availableWorkspacePath(
-              targetDirectory,
-              attachment.attachment.filename,
-              reservedPaths,
-              input.workspace,
-            )
-          : candidatePath);
-      }
-    }
-
-    const saved: SavedEmailAttachment[] = [];
-    const savedPaths: string[] = [];
+    const createdDirectories: string[] = [];
+    const attemptedPaths: string[] = [];
     try {
+      let paths: string[];
+
+      if (input.destination.type === 'file') {
+        if (input.attachments.length !== 1) {
+          throw new Error('A file destination can only be used for one email attachment.');
+        }
+        const destinationPath = normalizeWorkspaceRelativePath(input.destination.path);
+        const parentDirectory = path.posix.dirname(destinationPath);
+        if (input.destination.createParentDirectories && parentDirectory !== '.') {
+          createdDirectories.push(...await missingWorkspaceDirectories(parentDirectory, input.workspace));
+          await createDirectoryIfAbsent(parentDirectory, fileOptions);
+        }
+        paths = [destinationPath];
+      } else {
+        const targetDirectory = normalizeWorkspaceRelativePath(input.destination.path);
+        if (input.destination.createIfMissing) {
+          createdDirectories.push(...await missingWorkspaceDirectories(targetDirectory, input.workspace));
+          await createDirectoryIfAbsent(targetDirectory, fileOptions);
+        }
+        const targetStats = await getFileStats(targetDirectory, fileOptions);
+        if (!targetStats.isDirectory) throw new Error('The selected workspace destination is not a folder.');
+        const reservedPaths = new Set<string>();
+        paths = [];
+        for (const attachment of input.attachments) {
+          const candidatePath = targetDirectory === '.'
+            ? attachment.attachment.filename
+            : `${targetDirectory}/${attachment.attachment.filename}`;
+          paths.push(input.destination.renameConflicts
+            ? await availableWorkspacePath(
+                targetDirectory,
+                attachment.attachment.filename,
+                reservedPaths,
+                input.workspace,
+              )
+            : candidatePath);
+        }
+      }
+
+      const saved: SavedEmailAttachment[] = [];
       for (let index = 0; index < input.attachments.length; index += 1) {
         const item = input.attachments[index];
+        attemptedPaths.push(paths[index]);
         const savedFile = await writeWorkspaceFileContent({
           workspace: input.workspace,
           fileOptions,
@@ -203,7 +251,6 @@ export async function saveDownloadedEmailAttachmentsToWorkspace(input: {
           createOnly: true,
           encoded: true,
         });
-        savedPaths.push(savedFile.path);
         saved.push({
           attachmentId: item.attachment.id,
           contentType: item.attachment.contentType,
@@ -215,9 +262,13 @@ export async function saveDownloadedEmailAttachmentsToWorkspace(input: {
       }
       return saved;
     } catch (operationError) {
+      const rollbackPaths = hasCreateCollisionCode(operationError)
+        ? attemptedPaths.slice(0, -1)
+        : attemptedPaths;
       const rollbackErrors = await rollbackSavedAttachments({
+        directories: createdDirectories,
         fileOptions,
-        paths: savedPaths,
+        paths: rollbackPaths,
         workspace: input.workspace,
       });
       if (rollbackErrors.length > 0) {
