@@ -5,6 +5,8 @@ import {
   EMAIL_AGENT_ALLOWED_TOOL_NAMES,
   filterToolsToAllowedNames,
 } from '../app/lib/pi/email-agent-policy';
+import fs from 'node:fs';
+import path from 'node:path';
 
 function tool(name: string): AgentTool {
   return {
@@ -25,4 +27,12 @@ assert.deepEqual(
   ], new Set(EMAIL_AGENT_ALLOWED_TOOL_NAMES)).map((entry) => entry.name),
   ['email_read_message', 'email_download_attachment', 'read'],
 );
+
+const emailToolsSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'lib', 'pi', 'workspace-email-tools.ts'),
+  'utf8',
+);
+assert.match(emailToolsSource, /if \(!context\.workspaceId\)/u);
+assert.match(emailToolsSource, /workspaceId: context\.workspaceId/u);
+assert.doesNotMatch(emailToolsSource, /workspaceId: mailbox\.workspaceId \|\| context\.workspaceId/u);
 console.log('email-agent-policy-test: ok');

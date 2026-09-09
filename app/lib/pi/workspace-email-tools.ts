@@ -286,10 +286,13 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
           const mailbox = await requireMailbox(context, value.mailboxId);
           const messageId = value.messageId || bound?.providerMessageId;
           if (!messageId) throw new Error('messageId is required.');
+          if (!context.workspaceId) {
+            throw new Error('Email attachments can only be saved from an active workspace session.');
+          }
           const folder = value.folder || bound?.folder;
           const workspace = await resolveAgentSessionWorkspaceForUser({
             userId: requireUser(context),
-            workspaceId: mailbox.workspaceId || context.workspaceId,
+            workspaceId: context.workspaceId,
             permissions: ['canWrite'],
           });
           const downloaded = await downloadEmailAttachment(
