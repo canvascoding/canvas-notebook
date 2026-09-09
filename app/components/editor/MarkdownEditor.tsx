@@ -25,6 +25,8 @@ import { CanvasImage as Image } from '@/app/lib/markdown/core/image';
 import { MarkdownImageControls } from './MarkdownImageControls';
 import { MarkdownUrlPaste } from './MarkdownUrlPaste';
 import { MarkdownDomSelection } from './MarkdownDomSelection';
+import { MarkdownBlockMoveMenu } from './MarkdownBlockMoveMenu';
+import { MarkdownBlockMovement } from '@/app/lib/editor/block-move-command';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { CanvasTaskList as TaskList } from '@/app/lib/markdown/core/lists-and-tables';
 import { TaskItem } from '@tiptap/extension-task-item';
@@ -2167,6 +2169,7 @@ function createEditorExtensions(
 ) {
   const extensions = [
     MarkdownDomSelection,
+    MarkdownBlockMovement.configure({ onRejected: () => toast.info(labels.blockMoveCancelled) }),
     StarterKit.configure({
       document: false,
       blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false,
@@ -3967,6 +3970,7 @@ function MarkdownToolbar({
         aria-label={t('markdownEditorToolbar')}
         data-testid="markdown-desktop-toolbar"
       >
+        <MarkdownBlockMoveMenu editor={editor} />
         <TooltipIconButton
           label="Undo"
           disabled={!canUseCommands || !toolbarState.canUndo}
@@ -4586,6 +4590,7 @@ function MobileMarkdownToolbar({
         onTouchEndCapture={releaseToolbarVisibility}
         onTouchCancelCapture={releaseToolbarVisibility}
       >
+        <MarkdownBlockMoveMenu editor={editor} mobile />
         <MobileToolbarButton label={labels.addBlock} disabled={!canUseCommands} active={activeSheet === 'blocks'} onClick={() => openSheet('blocks')}>
           <Plus className="h-5 w-5" />
         </MobileToolbarButton>

@@ -2,6 +2,7 @@ import type { Editor, Range } from '@tiptap/core';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { Selection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
+import { StepMap } from '@tiptap/pm/transform';
 import { BLOCK_MOVE_TRANSACTION_META, createBlockReference, resolveBlockReference, type BlockReference } from './block-reference';
 
 export type BlockInsertPlacement = 'above' | 'below';
@@ -372,6 +373,7 @@ export function applyReorderableBlockMove(
   editor: Editor,
   capturedSource: ReorderableBlockRange,
   destination: BlockDropTarget | number,
+  options: { preserveSelection?: boolean } = {},
 ): BlockMoveResult {
   if (editor.isDestroyed || !editor.isEditable) return { ok: false, reason: 'read_only' };
   const source = resolveReorderableBlockRange(editor, capturedSource);
@@ -411,7 +413,20 @@ export function applyReorderableBlockMove(
     }
     const selectionPosition = Math.min(adjustedInsertPosition + 1, transaction.doc.content.size);
 
-    if (selectionPosition >= 0) {
+    if (options.preserveSelection) {
+      // The move retains these positions even though its PM steps are a
+      // delete/insert. Capture the final selection in this same history item.
+      const mapResult = (position: number, association = 1) => {
+        const moved = (position > source.from && position < source.to)
+          || (position === source.from && association > 0)
+          || (position === source.to && association < 0);
+        return moved ? StepMap.empty.mapResult(adjustedInsertPosition + position - source.from, association)
+          : transaction.mapping.mapResult(position, association);
+      };
+      transaction.setSelection(editor.state.selection.map(transaction.doc, {
+        map: (position, association) => mapResult(position, association).pos, mapResult,
+      }));
+    } else if (selectionPosition >= 0) {
       transaction.setSelection(Selection.near(transaction.doc.resolve(selectionPosition), 1));
     }
 
