@@ -23,6 +23,7 @@ import {
   piSystemPromptSnapshotDbFields,
 } from '@/app/lib/pi/system-prompt-snapshot';
 import {
+  estimatePiMessageTokens,
   estimateTextTokens,
   isPiHistoryCompositionSendable,
   type PiHistoryComposition,
@@ -30,6 +31,7 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import { projectAgentMessageForLoadedContext } from '@/app/lib/pi/message-projection';
 import { createPiRuntimeContextStatusProjection } from '@/app/lib/pi/runtime-context-status';
 import { ContextStatusMeasurementCache, measurePiContextStatus } from '@/app/lib/pi/context-status-measurement';
 import { measureStoredPiContextStatus } from '@/app/lib/pi/stored-context-measurement';
@@ -625,7 +627,13 @@ export class LivePiRuntime {
       // Agent message objects mutate while streaming. Take an immutable input
       // at a durable boundary; never count individual text/thinking deltas.
       const messages = structuredClone(this.agent.state.messages);
-      const composition = this.composeHistory(messages, this.getBrowserRuntimeContextTokenEstimate(), 'full');
+      // Match live preflight (and persisted-context loading) before the byte
+      // guard, so huge raw tool text cannot masquerade as a current overflow.
+      const composition = this.composeHistory(
+        messages.map((message) => projectAgentMessageForLoadedContext(message, 'context')),
+        this.getBrowserRuntimeContextTokenEstimate(),
+        'full',
+      );
       const systemPrompt = this.getEffectiveSystemPrompt();
       const tools = this.getEffectiveTools();
       const latestUser = messages.findLast(isUserMessage);
@@ -2206,7 +2214,13 @@ export class LivePiRuntime {
     const additionalContextTokens = runtimeContext ? estimateTextTokens(runtimeContext) : 0;
     const systemPromptTokens = estimateTextTokens(this.getEffectiveSystemPrompt());
     const toolTokens = estimatePiToolSchemaTokens(this.getEffectiveTools());
-    const projection = this.projectHistory(messages, additionalContextTokens);
+    // Apply the existing provider-boundary projection before history selection.
+    // Raw MCP results may be enormous but are already bounded for model input.
+    // Automatic selection here would drop uncovered messages based on raw size,
+    // forcing compaction even when the complete normalized request fits easily.
+    // Keep originals for persistence/summary generation; never mutate agent state.
+    const contextMessages = messages.map((message) => projectAgentMessageForLoadedContext(message, 'context'));
+    const projection = this.projectHistory(contextMessages, additionalContextTokens, 'full');
     const preflight = projection.composition;
     const projectedCandidate = await this.injectRuntimeContext(preflight.llmMessages, runtimeContext);
     const exactPreflight = await this.buildFinalPayload(projectedCandidate);
@@ -2218,11 +2232,33 @@ export class LivePiRuntime {
       finalSnapshot: exactPreflight.budgetSnapshot,
       providerActualInputTokens: this.lastProviderInputUsage?.inputTokens ?? null,
     });
-    if (
-      !exactInspection.pressure.shouldCompact
+    const canSendWithoutCompaction = !exactInspection.pressure.shouldCompact
       && this.isFinalPayloadSendable(exactPreflight.budgetSnapshot)
-      && isPiHistoryCompositionSendable(preflight, this.summary)
-    ) {
+      && isPiHistoryCompositionSendable(preflight, this.summary);
+    const projectedMessageCount = contextMessages.filter((message, index) => message !== messages[index]).length;
+    if (projectedMessageCount > 0 || !canSendWithoutCompaction) {
+      logPiCompactionDiagnostic('info', 'normalized_preflight', {
+        sessionId: this.sessionId,
+        messageCount: messages.length,
+        projectedMessageCount,
+        rawHistoryTokens: messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
+        effectiveHistoryTokens: preflight.minimumRequiredTokens,
+        completeHistoryMeasured: !preflight.contextBudgetExceeded,
+        normalizedHistoryTokens: preflight.contextBudgetExceeded ? null : exactInspection.pressure.authoritativeHistoryTokens,
+        normalizedRequestTokens: preflight.contextBudgetExceeded ? null : exactPreflight.budgetSnapshot.estimatedTotalTokens,
+        normalizedMessageBytes: preflight.contextBudgetExceeded ? null : exactPreflight.budgetSnapshot.serializedMessageBytes,
+        triggerTokens: exactInspection.budget.triggerTokens,
+        hardRequestLimitExceeded: exactInspection.pressure.hardRequestLimitExceeded,
+        omittedMessageCount: preflight.omittedMessages.length,
+        decision: canSendWithoutCompaction ? 'send' : 'compact',
+        reason: canSendWithoutCompaction ? 'normalized_context_below_trigger'
+          : preflight.contextBudgetExceeded ? 'history_projection_overflow'
+            : exactInspection.pressure.hardRequestLimitExceeded ? 'normalized_request_overflow'
+              : exactInspection.pressure.shouldCompact ? 'normalized_trigger_reached'
+                : 'summary_coverage_required',
+      });
+    }
+    if (canSendWithoutCompaction) {
       this.lastComposition = preflight;
       this.cachePreparedRuntimePayload(exactPreflight);
       return projectedCandidate;
