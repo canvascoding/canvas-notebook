@@ -59,6 +59,9 @@ export type RuntimeCompactionTranslationKey =
   | 'compactionStatusBreaker'
   | 'compactionStatusAlreadyRunning'
   | 'compactionStatusTooLarge'
+  | 'compactionStatusRetainedTooLarge'
+  | 'compactionStatusFixedTooLarge'
+  | 'compactionStatusPayloadTooLarge'
   | 'compactionStatusSummaryProviderError'
   | 'compactionStatusNotSmaller'
   | 'compactionStatusSummaryIdleTimeout'
@@ -81,9 +84,13 @@ export function getRuntimeCompactionStatusTranslationKey(
     case 'nothing_eligible':
       return 'compactionStatusNothingEligible';
     case 'latest_unit_too_large':
-    case 'fixed_context_too_large':
-    case 'payload_bytes_exceeded':
       return 'compactionStatusTooLarge';
+    case 'retained_context_too_large':
+      return 'compactionStatusRetainedTooLarge';
+    case 'fixed_context_too_large':
+      return 'compactionStatusFixedTooLarge';
+    case 'payload_bytes_exceeded':
+      return 'compactionStatusPayloadTooLarge';
     case 'active_tool_chain':
       return 'compactionStatusActiveToolChain';
     case 'history_not_durable':

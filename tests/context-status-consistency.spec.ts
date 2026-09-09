@@ -94,3 +94,14 @@ test('trigger overflow is yellow and unclamped in text; compact and legacy fallb
   await expect(page.getByTestId('chat-context-progress')).toHaveAttribute('data-context-percent', '90');
   await expect(page.getByTestId('chat-context-progress')).toHaveAttribute('data-context-basis', 'budget');
 });
+
+test('retained context failure is consistent and does not blame the latest user message', async ({ page }, info) => {
+  await page.getByRole('button', { name: 'Retained overflow', exact: true }).click();
+  await expect(page.getByTestId('chat-runtime-notice')).toContainText('recent messages and tool results');
+  await expect(page.getByTestId('chat-runtime-notice')).not.toContainText('Current message or attachments');
+  await page.getByTestId('chat-header-menu-trigger').click();
+  await expect(page.getByTestId('chat-context-details')).toContainText('recent messages and tool results');
+  await expect(page.getByTestId('chat-context-progress')).toHaveAttribute('data-context-percent', '174');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath('retained-context-overflow.png'), fullPage: true, animations: 'disabled' });
+});

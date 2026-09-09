@@ -51,7 +51,9 @@ assert.equal(getRuntimeCompactionStatusTranslationKey({
   ...baseStatus,
   state: 'failed',
   reasonCode: 'payload_bytes_exceeded',
-}), 'compactionStatusTooLarge');
+}), 'compactionStatusPayloadTooLarge');
+assert.equal(getRuntimeCompactionStatusTranslationKey({ ...baseStatus, state: 'failed', reasonCode: 'retained_context_too_large' }), 'compactionStatusRetainedTooLarge');
+assert.equal(getRuntimeCompactionStatusTranslationKey({ ...baseStatus, state: 'failed', reasonCode: 'fixed_context_too_large' }), 'compactionStatusFixedTooLarge');
 assert.equal(getRuntimeCompactionStatusTranslationKey({
   ...baseStatus,
   state: 'deferred',

@@ -6,6 +6,8 @@
 
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { projectAgentMessageForLoadedContext } from '../message-projection';
+import { logPiCompactionDiagnostic } from './diagnostics';
 
 import {
   DEFAULT_PI_CONTEXT_BUDGET_POLICY,
@@ -187,12 +189,16 @@ export type PiHermesHistoryProjection = Readonly<{
 export function projectPiHermesHistory(
   input: ProjectPiHermesHistoryInput,
 ): PiHermesHistoryProjection {
+  // Apply the same bounded tool representation used by final payload
+  // normalization BEFORE selecting a protected tail or testing byte limits.
+  // Projection clones changed messages; durable message IDs and raw state stay intact.
+  const messages = input.messages.map((message) => projectAgentMessageForLoadedContext(message, 'context'));
   const policy = validatePiContextBudgetPolicy(
     input.policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
   );
   const rollout = getPiCompactionRolloutDecision(input.rolloutMode);
   const inspection = inspectPiRuntimeCompactionPressure({
-    messages: input.messages,
+    messages,
     model: input.model,
     outputReserveTokens: input.requestOutputTokens,
     fixedRequestTokens:
@@ -203,7 +209,7 @@ export function projectPiHermesHistory(
     policy,
   });
   const pruning = prunePiSessionHistory({
-    messages: input.messages,
+    messages,
     estimateMessageTokens: estimatePiMessageTokens,
     enabled: rollout.pruningEnabled && input.pruningMode === 'candidate',
     protectLastMessages: policy.protectLastMessages,
@@ -235,6 +241,18 @@ export async function preparePiHermesCompactionCandidate(
   );
   const rollout = getPiCompactionRolloutDecision(input.rolloutMode);
   const projection = projectPiHermesHistory({ ...input, pruningMode: 'candidate' });
+  logPiCompactionDiagnostic('info', 'candidate_projection', {
+    sessionId: input.sessionId,
+    attemptId: input.compactionAttemptId ?? null,
+    selectionMode: input.selectionMode ?? 'automatic',
+    rawEstimatedTokens: input.messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
+    projectedEstimatedTokens: projection.inspection.roughHistoryTokens,
+    messageCount: input.messages.length,
+    minimumRequiredTokens: projection.composition.minimumRequiredTokens,
+    availableHistoryTokens: projection.composition.availableHistoryTokens,
+    contextBudgetExceeded: projection.composition.contextBudgetExceeded,
+    payloadBudgetExceeded: projection.composition.payloadBudgetExceeded,
+  });
   if (rollout.shadowEvaluationEnabled) {
     const telemetry = createPiCompactionShadowTelemetry({
       messages: input.messages,
