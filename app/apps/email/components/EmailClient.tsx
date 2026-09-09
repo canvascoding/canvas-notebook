@@ -127,6 +127,7 @@ export function EmailClient({
   const activeAccountRef = useRef<string>('');
   const activeFolderRef = useRef('INBOX');
   const appliedContextIntentRef = useRef<string | null>(null);
+  const appliedSearchToolCallRef = useRef<string | null>(null);
 
   const activeAccount = useMemo(
     () => accounts.find((account) => account.id === activeAccountId) || accounts[0] || null,
@@ -617,6 +618,7 @@ export function EmailClient({
   useEffect(() => {
     if (!contextIntent) {
       appliedContextIntentRef.current = null;
+      appliedSearchToolCallRef.current = null;
       return;
     }
 
@@ -667,6 +669,11 @@ export function EmailClient({
           || contextIntent.toolName === 'email_search_messages')
         && contextIntent.query !== undefined
       ) {
+        appliedContextIntentRef.current = intentKey;
+        // Late tool results can resolve the mailbox without replaying a search
+        // the user has already edited or submitted.
+        if (contextIntent.toolCallId && appliedSearchToolCallRef.current === contextIntent.toolCallId) return;
+        appliedSearchToolCallRef.current = contextIntent.toolCallId;
         clearReader();
         setQuery(contextIntent.query);
         setSubmittedQuery(contextIntent.query);
