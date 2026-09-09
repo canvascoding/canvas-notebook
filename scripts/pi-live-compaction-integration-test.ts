@@ -457,7 +457,7 @@ async function main(): Promise<void> {
     'running',
     'manual compaction must acknowledge its running state without waiting for the summary provider',
   );
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let attempt = 0; summaryCalls === 0 && attempt < 200; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(summaryCalls, 1);
   assert.equal(events.filter((event) => event.type === 'context_compacted').length, 0, 'success must not be emitted before the private candidate completes and commits');
   assert.equal(
@@ -519,6 +519,7 @@ async function main(): Promise<void> {
   assert.ok((succeededStatus?.compactionStatus?.afterTokens ?? 0) > 0);
   assert.ok((succeededStatus?.compactionStatus?.triggerTokens ?? 0) > 0);
   assert.ok((succeededStatus?.compactionStatus?.targetTokens ?? 0) > 0);
+  assert.ok(succeededStatus!.compactionStatus!.beforeTokens! > succeededStatus!.compactionStatus!.afterTokens!, 'before/after metrics compare complete contexts');
   const marker = (runtime.agent.state.messages as AgentMessage[]).at(-1) as unknown as Record<string, unknown>;
   assert.equal(marker.role, 'compact-break');
   assert.equal(marker.attemptId, attempts[0].id);
@@ -556,8 +557,9 @@ async function main(): Promise<void> {
     },
   };
   const abortPromise = runtime.compactNow();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let attempt = 0; abortCalls === 0 && attempt < 200; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(abortCalls, 1);
+  const abortRevision = (await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision;
   await runtime.abort();
   await assert.rejects(abortPromise, /aborted/i);
   abortResult.resolve(createSummaryMessage('Late aborted summary'));
@@ -566,7 +568,7 @@ async function main(): Promise<void> {
   assert.ok(events.some((event) => (
     (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'aborted'
   )));
-  assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, 1);
+  assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, abortRevision);
 
   appendHistoryBatch('stale');
   const staleResult = deferred<AssistantMessage>();
@@ -578,8 +580,9 @@ async function main(): Promise<void> {
     },
   };
   const stalePromise = runtime.compactNow();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let attempt = 0; staleCalls === 0 && attempt < 200; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(staleCalls, 1);
+  const staleRevision = (await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision;
   runtime.setPageContext('context-changed-during-compaction');
   await assert.rejects(stalePromise, /stale/i);
   staleResult.resolve(createSummaryMessage('Late stale summary'));
@@ -588,7 +591,7 @@ async function main(): Promise<void> {
   assert.ok(events.some((event) => (
     (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'stale'
   )));
-  assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, 1);
+  assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, staleRevision);
 
   appendHistoryBatch('timeout');
   const timeoutResult = deferred<AssistantMessage>();
@@ -603,9 +606,12 @@ async function main(): Promise<void> {
       timeoutCalls += 1;
       return { result: () => timeoutResult.promise } as AssistantMessageEventStream;
     },
-    compactionPolicy: { timeoutMs: 10, retryDelaysMs: [0] },
+    compactionPolicy: { timeoutMs: 250, retryDelaysMs: [0] },
   };
-  await assert.rejects(runtime.compactNow(), /total time ceiling/i);
+  const timeoutRejected = assert.rejects(runtime.compactNow(), /total time ceiling/i);
+  for (let attempt = 0; timeoutCalls === 0 && attempt < 100; attempt++) await new Promise((resolve) => setTimeout(resolve, 10));
+  const timeoutRevision = (await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision;
+  await timeoutRejected;
   assert.equal(timeoutCalls, 1);
   timeoutResult.resolve(createSummaryMessage('Late timed out summary'));
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -613,7 +619,7 @@ async function main(): Promise<void> {
   assert.ok(events.some((event) => (
     (event.status as { compactionStatus?: { state?: string } } | undefined)?.compactionStatus?.state === 'failed'
   )));
-  assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, 1);
+  assert.equal((await loadPiSessionWithSummary(sessionId, userId, session?.agentId))?.summary.summaryRevision, timeoutRevision);
 
   const exactBudgetRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
   const initialCandidate = [{ role: 'user', content: 'original candidate', timestamp: 1 }] as unknown as AgentMessage[];
@@ -814,7 +820,8 @@ async function main(): Promise<void> {
   assert.equal(disposedTimerFired, false, 'disposing a runtime must cancel pending idle compaction');
 
   const finalAttempts = await db.select().from(piSessionCompactionAttempts);
-  assert.deepEqual(finalAttempts.map((attempt) => attempt.state), ['succeeded', 'aborted', 'stale', 'timed_out']);
+  // SQL without ORDER BY has no insertion-order guarantee, especially after updates.
+  assert.deepEqual(finalAttempts.map((attempt) => attempt.state).sort(), ['succeeded', 'aborted', 'stale', 'timed_out'].sort());
   console.log('pi-live-compaction-integration-test: ok');
 }
 

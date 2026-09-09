@@ -22,6 +22,7 @@ export type PiCompactionReasonCode =
   | 'nothing_eligible'
   | 'latest_unit_too_large'
   | 'fixed_context_too_large'
+  | 'retained_context_too_large'
   | 'active_tool_chain'
   | 'history_not_durable'
   | 'summary_provider_error'

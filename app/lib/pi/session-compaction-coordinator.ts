@@ -192,14 +192,17 @@ function getCandidateMetrics(
   active: ActiveAttempt,
   finishedAt: Date,
 ): PiCompactionAttemptMetrics {
+  const afterTokens = candidate.composition.contextBudgetExceeded || candidate.composition.payloadBudgetExceeded
+    ? Math.max(candidate.composition.estimatedHistoryTokens, candidate.composition.minimumRequiredTokens)
+    : candidate.composition.estimatedHistoryTokens;
   return {
     ...baseMetrics,
-    afterEstimatedTokens: candidate.composition.estimatedHistoryTokens,
+    afterEstimatedTokens: afterTokens,
     afterEstimatedBytes: candidate.composition.estimatedHistoryBytes,
     triggerTokens: candidate.composition.triggerHistoryTokens,
     targetTokens: candidate.composition.targetHistoryTokens,
     afterPressureBasisPoints: pressureBasisPoints(
-      candidate.composition.estimatedHistoryTokens,
+      afterTokens,
       candidate.composition.triggerHistoryTokens,
     ),
     summarizedUnitCount: candidate.unsummarizedMessageCount,
@@ -224,7 +227,8 @@ function getTerminalMetrics(
 function candidateFailureReason(candidate: PreparePiHistoryContextResult): PiCompactionReasonCode {
   if (candidate.summaryFailureReason) return candidate.summaryFailureReason;
   if (candidate.composition.payloadBudgetExceeded) return 'payload_bytes_exceeded';
-  if (candidate.composition.contextBudgetExceeded) return 'fixed_context_too_large';
+  if (candidate.composition.contextBudgetExceeded) return candidate.composition.availableHistoryTokens > 0
+    ? 'retained_context_too_large' : 'fixed_context_too_large';
   if (candidate.summaryFailed) return 'summary_provider_error';
   return candidate.composition.softThresholdExceeded
     ? 'nothing_eligible'

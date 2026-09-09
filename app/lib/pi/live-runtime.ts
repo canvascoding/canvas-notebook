@@ -739,7 +739,8 @@ export class LivePiRuntime {
     const generation = this.createCompactionGeneration(input.runtimeContext);
     const systemPromptTokens = estimateTextTokens(this.getEffectiveSystemPrompt());
     const toolTokens = estimatePiToolSchemaTokens(this.getEffectiveTools());
-    const before = this.composeHistory(input.messages, input.additionalContextTokens);
+    // Compare complete effective context, not the selected pre-compaction tail.
+    const before = this.composeHistory(input.messages, input.additionalContextTokens, 'full');
     const activeAttempt = getActivePiSessionCompaction(this.getCompactionScope());
     const attemptId = activeAttempt?.attemptId ?? `compact-${randomUUID()}`;
     const ownsStatus = activeAttempt === null;
@@ -1248,6 +1249,9 @@ export class LivePiRuntime {
       throw new Error(
         'Context compaction cannot run because the system prompt, tools, output reserve, or latest message already exceeds the selected model context window.',
       );
+    }
+    if (result.reasonCode === 'retained_context_too_large') {
+      throw new Error('The required conversation context, including recent messages and tool results, still exceeds the model window. No messages were removed. Use a larger-context model or reduce the active conversation context.');
     }
     if (result.state === 'cooldown_active') {
       throw new Error(
@@ -2309,6 +2313,9 @@ export class LivePiRuntime {
         `It requires at least ${preflight.minimumRequiredTokens.toLocaleString()} history tokens after system, tool, and output reserves. ` +
         'Use a larger-context model or shorten the latest message/attachments.',
       );
+    }
+    if (result.reasonCode === 'retained_context_too_large') {
+      throw new Error('The required conversation context, including recent messages and tool results, exceeds the model window after normalization. Use a larger-context model or reduce the active conversation context.');
     }
     if (result.state === 'aborted') {
       throw new Error('Context compaction was aborted before the model request.');

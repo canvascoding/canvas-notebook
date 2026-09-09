@@ -202,6 +202,9 @@ export async function prepareAutomationHistoryWithCompaction(
   if (result.reasonCode === 'fixed_context_too_large') {
     throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
   }
+  if (result.reasonCode === 'retained_context_too_large') {
+    throw new Error('The required automation context, including recent messages and tool results, exceeds the model window after normalization.');
+  }
   if (result.state === 'aborted' || input.signal.aborted) {
     throw new Error('Automation context compaction was aborted.');
   }

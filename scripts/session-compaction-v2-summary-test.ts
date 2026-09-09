@@ -498,7 +498,7 @@ async function main() {
     systemPromptTokens: 117_000, model, toolTokens: 0,
     selectionMode: 'force', sessionId: 'reject-final-budget', summaryMode: 'hermes_v2', streamFn: summaryStream(40_000),
   });
-  assert.equal(overBudget.summaryFailureReason, 'fixed_context_too_large');
+  assert.equal(overBudget.summaryFailureReason, 'retained_context_too_large');
   assert.equal(overBudget.summaryUpdated, false);
   assert.deepEqual(overBudget.summary, emptySummary);
 

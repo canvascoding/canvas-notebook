@@ -74,7 +74,7 @@ export type PreparePiHistoryContextResult = {
   summaryAttempted: boolean;
   summaryUpdated: boolean;
   summaryFailed: boolean;
-  summaryFailureReason?: 'summary_idle_timeout' | 'summary_total_timeout' | 'summary_not_smaller' | 'fixed_context_too_large';
+  summaryFailureReason?: 'summary_idle_timeout' | 'summary_total_timeout' | 'summary_not_smaller' | 'fixed_context_too_large' | 'retained_context_too_large';
   unsummarizedMessageCount: number;
   safeToSend: boolean;
 };
@@ -600,7 +600,8 @@ export async function preparePiHistoryContext({
       nextSummary = summary;
       summaryUpdated = false;
       summaryFailed = true;
-      summaryFailureReason = fits ? 'summary_not_smaller' : 'fixed_context_too_large';
+      summaryFailureReason = fits ? 'summary_not_smaller'
+        : composition.availableHistoryTokens > 0 ? 'retained_context_too_large' : 'fixed_context_too_large';
     }
   }
 
