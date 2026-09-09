@@ -33,6 +33,14 @@ async function main() {
   moduleInternals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
     if (request === '@earendil-works/pi-agent-core') return {};
+    if (request === '@earendil-works/pi-ai') {
+      return {
+        isContextOverflow: () => false,
+        getModels: () => [],
+        getProviders: () => [],
+        registerBuiltInApiProviders: () => undefined,
+      };
+    }
     if (request === '@earendil-works/pi-ai/compat') {
       return {
         getModels: () => [],
