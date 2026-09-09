@@ -4322,13 +4322,43 @@
         "refresh": "Refresh",
         "loading": "Loading connected clients…",
         "empty": "You have not authorized any MCP clients yet.",
-        "authorizedAt": "Authorized {time}",
+        "consentRecordedAt": "Consent recorded {time}",
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect {client}? This immediately removes its access to your Canvas data.",
         "disconnected": "MCP client disconnected.",
         "approvedPermissions": "Approved permissions",
         "resourceUnavailable": "The server's OAuth resource is missing or disabled. Ask the administrator to check the server configuration.",
-        "tokenNotVerified": "This shows stored approval and server policy, not the token currently used by the client. After a permissions update, reconnect the client to obtain a new token.",
+        "copyServerAddress": "Copy server address",
+        "usableGrantCount": "{count, plural, one {# verified authorization grant} other {# verified authorization grants}}",
+        "lastSuccessfulRequestAt": "Last successful request {time}",
+        "sessionExpiresAt": "Current client session expires {time}",
+        "refreshExpiresAt": "Refresh authorization expires {time}",
+        "authorizationStatus": {
+          "usable": {
+            "title": "Ready to use",
+            "description": "Canvas has verified an active authorization and current access to at least one selected workspace."
+          },
+          "expired": {
+            "title": "Authorization expired",
+            "description": "Reconnect this client in your MCP client to continue."
+          },
+          "revoked": {
+            "title": "Authorization revoked",
+            "description": "Reconnect this client in your MCP client to grant access again."
+          },
+          "access_denied": {
+            "title": "Access currently denied",
+            "description": "Canvas cannot use this client's authorization with the current access rules."
+          },
+          "authorization_required": {
+            "title": "Authorization required",
+            "description": "Canvas has recorded consent, but cannot verify a usable authorization. Reconnect this client in your MCP client."
+          },
+          "unknown": {
+            "title": "Authorization status unavailable",
+            "description": "Canvas cannot verify whether this client can currently access your data."
+          }
+        },
         "permissionsComplete": "Approval and server policy cover all currently enabled tools.",
         "permissionsMissing": {
           "title": "Additional OAuth permission required",

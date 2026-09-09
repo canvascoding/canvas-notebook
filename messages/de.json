@@ -4321,13 +4321,43 @@
         "refresh": "Aktualisieren",
         "loading": "Lade verbundene Clients …",
         "empty": "Du hast noch keine MCP-Clients autorisiert.",
-        "authorizedAt": "Autorisiert {time}",
+        "consentRecordedAt": "Zustimmung erfasst {time}",
         "disconnect": "Trennen",
         "disconnectConfirm": "{client} trennen? Der Zugriff auf deine Canvas-Daten wird sofort entfernt.",
         "disconnected": "MCP-Client getrennt.",
         "approvedPermissions": "Genehmigte Berechtigungen",
         "resourceUnavailable": "Die OAuth-Ressource des Servers fehlt oder ist deaktiviert. Bitte den Administrator, die Server-Konfiguration zu prüfen.",
-        "tokenNotVerified": "Diese Anzeige prüft gespeicherte Zustimmung und Server-Richtlinie, nicht das aktuell vom Client verwendete Token. Verbinde den Client nach einem Berechtigungsupdate neu, damit er ein neues Token erhält.",
+        "copyServerAddress": "Server-Adresse kopieren",
+        "usableGrantCount": "{count, plural, one {# bestätigte Berechtigung} other {# bestätigte Berechtigungen}}",
+        "lastSuccessfulRequestAt": "Letzte erfolgreiche Anfrage {time}",
+        "sessionExpiresAt": "Aktuelle Client-Sitzung läuft ab {time}",
+        "refreshExpiresAt": "Aktualisierungsberechtigung läuft ab {time}",
+        "authorizationStatus": {
+          "usable": {
+            "title": "Einsatzbereit",
+            "description": "Canvas hat eine aktive Berechtigung und aktuellen Zugriff auf mindestens einen ausgewählten Workspace bestätigt."
+          },
+          "expired": {
+            "title": "Berechtigung abgelaufen",
+            "description": "Verbinde diesen Client in deinem MCP-Client erneut, um fortzufahren."
+          },
+          "revoked": {
+            "title": "Berechtigung widerrufen",
+            "description": "Verbinde diesen Client in deinem MCP-Client erneut, um den Zugriff wieder zu erteilen."
+          },
+          "access_denied": {
+            "title": "Zugriff derzeit verweigert",
+            "description": "Canvas kann die Berechtigung dieses Clients mit den aktuellen Zugriffsregeln nicht verwenden."
+          },
+          "authorization_required": {
+            "title": "Berechtigung erforderlich",
+            "description": "Canvas hat Zustimmung erfasst, kann aber keine nutzbare Berechtigung bestätigen. Verbinde diesen Client in deinem MCP-Client erneut."
+          },
+          "unknown": {
+            "title": "Berechtigungsstatus nicht verfügbar",
+            "description": "Canvas kann nicht bestätigen, ob dieser Client derzeit auf deine Daten zugreifen kann."
+          }
+        },
         "permissionsComplete": "Zustimmung und Server-Richtlinie decken alle aktuell aktivierten Werkzeuge ab.",
         "permissionsMissing": {
           "title": "Zusätzliche OAuth-Berechtigung erforderlich",

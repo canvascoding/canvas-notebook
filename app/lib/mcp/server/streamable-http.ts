@@ -20,6 +20,7 @@ import {
   completeDirectMcpDiagnostic,
   failDirectMcpDiagnostic,
   recordDirectMcpRequestClientName,
+  recordDirectMcpRequestPrincipal,
   runWithDirectMcpDiagnostic,
   type DirectMcpDiagnosticContext,
 } from '@/app/lib/mcp/server/diagnostics';
@@ -169,6 +170,7 @@ async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> 
   const { resource } = resolveDirectMcpOAuthConfig();
   const authorization = request.headers.get('authorization') || '';
   const token = authorization.replace(/^Bearer\s+/iu, '');
+  recordDirectMcpRequestPrincipal(principal, token);
   return {
     token,
     clientId: principal.clientId,

@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import Module from 'node:module';
+import { PGlite } from '@electric-sql/pglite';
+import { drizzle } from 'drizzle-orm/pglite';
+import { runPostgresMigrations } from '../app/lib/db/postgres';
+import * as schema from '../app/lib/db/schema';
 
 const STATE = 'state-value-must-never-appear-in-diagnostics';
 const CLIENT_ID = 'client-id-must-never-appear-in-diagnostics';
@@ -18,6 +23,15 @@ async function main(): Promise<void> {
   const dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-mcp-server-diagnostics-'));
   const previousData = process.env.DATA;
   process.env.DATA = dataRoot;
+  const postgres = new PGlite();
+  await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
+  const database = drizzle(postgres, { schema });
+  const moduleInternals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+  const originalLoad = moduleInternals._load;
+  moduleInternals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/db') return { db: database };
+    return originalLoad(request, parent, isMain);
+  };
 
   const {
     beginDirectMcpDiagnostic,
@@ -154,6 +168,8 @@ async function main(): Promise<void> {
   } finally {
     console.info = originalInfo;
     console.error = originalError;
+    moduleInternals._load = originalLoad;
+    await postgres.close();
     if (previousData === undefined) delete process.env.DATA;
     else process.env.DATA = previousData;
     await rm(dataRoot, { recursive: true, force: true });
