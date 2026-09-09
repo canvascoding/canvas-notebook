@@ -23,11 +23,13 @@ Object.defineProperty(globalThis, 'ResizeObserver', { value: class { observe() {
 dom.window.Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 dom.window.Range.prototype.getBoundingClientRect = () => new dom.window.DOMRect();
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+dom.window.HTMLElement.prototype.getClientRects = function () { return [this.getBoundingClientRect()] as unknown as DOMRectList; };
 
 async function main() {
   const { EditorView } = await import('@codemirror/view');
   const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = internals._load;
+  const originalResizeObserver = globalThis.ResizeObserver;
   const workspace = { activeWorkspaceId: null };
   const files = { currentFile: null };
   internals._load = (request, parent, isMain) => {
@@ -186,8 +188,8 @@ async function main() {
       return { get types() { return [...data.keys()]; }, setData: (key: string, value: string) => data.set(key, value),
         getData: (key: string) => data.get(key) ?? '', effectAllowed: 'none', dropEffect: 'none' };
     };
-    const drag = (target: EventTarget, type: string, transfer: ReturnType<typeof createTransfer>) => {
-      const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 100 });
+    const drag = (target: EventTarget, type: string, transfer: ReturnType<typeof createTransfer>, point: MouseEventInit = {}) => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 100, ...point });
       Object.defineProperty(event, 'dataTransfer', { value: transfer });
       target.dispatchEvent(event);
       return event;
@@ -303,10 +305,118 @@ async function main() {
       await act(async () => { drag(oldDom, 'drop', lateTransfer); drag(rich().view.dom, 'drop', lateTransfer); });
       assert.deepEqual(rich().getJSON(), newBefore, 'old drag callbacks do not cross a view replacement');
     }
-    console.log('Real MarkdownEditor lifecycle: StrictMode, code/image/rule grips, insertion, drag selection/history, revoked gestures, Rich/Read/Source, delayed acknowledgements, normalization, permissions and file replacement passed.');
+    const layoutObservers: Array<{ elements: Set<Element>; disconnected: boolean }> = [];
+    Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: class {
+      record = { elements: new Set<Element>(), disconnected: false };
+      constructor() { layoutObservers.push(this.record); }
+      observe(element: Element) { this.record.elements.add(element); }
+      unobserve(element: Element) { this.record.elements.delete(element); }
+      disconnect() { this.record.disconnected = true; }
+    } });
+    await render({ value: '> AAA\n>\n> BBB\n>\n> CCC\n', documentKey: 'layout-and-scroll', layout: 'document', mode: 'rich' });
+    const layoutEditor = rich();
+    const viewport = container.querySelector<HTMLElement>('[data-testid="markdown-scroll-container"]')!;
+    viewport.getBoundingClientRect = () => new dom.window.DOMRect(20, 40, 504, 304);
+    for (const [key, value] of Object.entries({ clientTop: 2, clientLeft: 2, clientWidth: 500, clientHeight: 300, scrollHeight: 1000 })) {
+      Object.defineProperty(viewport, key, { value, configurable: true });
+    }
+    viewport.scrollTop = 50; viewport.scrollLeft = 10;
+    const sourceFrom = findPosition(layoutEditor, 'paragraph', 'BBB');
+    const targetFrom = findPosition(layoutEditor, 'paragraph', 'AAA');
+    const sourceDom = layoutEditor.view.nodeDOM(sourceFrom) as HTMLElement;
+    const targetDom = layoutEditor.view.nodeDOM(targetFrom) as HTMLElement;
+    let sourceRect = new dom.window.DOMRect(140, 200, 260, 80);
+    let targetRect = new dom.window.DOMRect(140, 120, 300, 30);
+    const scrolledRect = (rect: DOMRect) => new dom.window.DOMRect(rect.x - viewport.scrollLeft + 10,
+      rect.y - viewport.scrollTop + 50, rect.width, rect.height);
+    sourceDom.getBoundingClientRect = () => scrolledRect(sourceRect);
+    targetDom.getBoundingClientRect = () => scrolledRect(targetRect);
+    layoutEditor.view.posAtCoords = () => ({ pos: targetFrom + 1, inside: -1 });
+    await act(async () => { layoutEditor.commands.setTextSelection(sourceFrom + 1); });
+    const layoutBefore = layoutEditor.getJSON();
+    const control = () => container.querySelector<HTMLElement>('.tiptap-block-controls')!;
+    const grip = () => container.querySelector<HTMLButtonElement>('.tiptap-block-drag-handle')!;
+    assert.equal(control().style.left, '64px');
+    assert.equal(control().style.top, '220px', 'a tall block grip stays near its first line');
+    const layoutTransfer = createTransfer();
+    await act(async () => {
+      drag(grip(), 'dragstart', layoutTransfer);
+      drag(layoutEditor.view.dom, 'dragover', layoutTransfer, { clientX: 200, clientY: 100 });
+    });
+    const overlay = () => container.querySelector<HTMLElement>('.tiptap-block-drag-overlay-source')!;
+    const indicator = () => container.querySelector<HTMLElement>('.tiptap-block-drop-indicator')!;
+    assert.equal(overlay().style.left, '128px'); assert.equal(overlay().style.width, '260px');
+    assert.equal(indicator().style.top, '128px'); assert.equal(indicator().style.width, '300px');
+    await act(async () => {
+      sourceRect = new dom.window.DOMRect(160, 230, 310, 160);
+      targetRect = new dom.window.DOMRect(150, 130, 340, 36);
+      sourceDom.dispatchEvent(new dom.window.Event('load'));
+      layoutEditor.view.dom.parentElement!.classList.add('layout-probe');
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+    assert.equal(control().style.left, '84px'); assert.equal(control().style.top, '250px');
+    assert.equal(overlay().style.width, '310px'); assert.equal(overlay().style.height, '160px');
+    assert.equal(indicator().style.left, '138px'); assert.equal(indicator().style.top, '138px');
+    assert.equal(indicator().style.width, '340px');
+    assert.deepEqual(layoutEditor.getJSON(), layoutBefore, 'layout updates never edit the document');
+    const wrapper = layoutEditor.view.dom.parentElement!;
+    await act(async () => { wrapper.hidden = true; await new Promise(resolve => setTimeout(resolve, 30)); });
+    assert.equal(overlay(), null, 'a hidden source ends its gesture');
+    assert.equal(control(), null);
+    await act(async () => {
+      wrapper.hidden = false;
+      await new Promise(resolve => setTimeout(resolve, 30));
+      drag(layoutEditor.view.dom, 'drop', layoutTransfer, { clientX: 200, clientY: 100 });
+    });
+    assert.deepEqual(layoutEditor.getJSON(), layoutBefore);
+    for (const cancel of ['escape', 'leave', 'permission', 'visibility']) {
+      const transfer = createTransfer();
+      const beforeScroll = viewport.scrollTop;
+      await act(async () => {
+        drag(grip(), 'dragstart', transfer);
+        drag(layoutEditor.view.dom, 'dragover', transfer, { clientX: 200, clientY: 340 });
+        await new Promise(resolve => setTimeout(resolve, 40));
+      });
+      assert(viewport.scrollTop > beforeScroll, `${cancel}: the mounted editor scrolls at its visible bottom edge`);
+      assert.equal(overlay().style.top, '238px', 'the overlay retains content coordinates while the viewport scrolls');
+      await act(async () => {
+        if (cancel === 'escape') window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+        else if (cancel === 'leave') drag(layoutEditor.view.dom, 'dragleave', transfer);
+        else if (cancel === 'permission') { layoutEditor.setEditable(false); layoutEditor.setEditable(true); }
+        else {
+          Object.defineProperty(document, 'hidden', { value: true, configurable: true });
+          document.dispatchEvent(new dom.window.Event('visibilitychange'));
+          Object.defineProperty(document, 'hidden', { value: false, configurable: true });
+        }
+      });
+      const stopped = viewport.scrollTop;
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
+      assert.equal(viewport.scrollTop, stopped, `${cancel}: scrolling stops immediately`);
+      assert.deepEqual(layoutEditor.getJSON(), layoutBefore);
+    }
+    const transfer = createTransfer();
+    await act(async () => {
+      drag(grip(), 'dragstart', transfer);
+      drag(layoutEditor.view.dom, 'dragover', transfer, { clientX: 200, clientY: 340 });
+      await new Promise(resolve => setTimeout(resolve, 30));
+    });
+    const activeObservers = layoutObservers.filter(record => !record.disconnected
+      && record.elements.has(viewport) && record.elements.has(layoutEditor.view.dom));
+    assert.equal(activeObservers.length, 1, 'StrictMode retains only the current block layout observer');
+    await act(async () => { layoutEditor.destroy(); });
+    assert(activeObservers[0].disconnected, 'editor destruction releases layout observers before React unmount');
+    const stoppedOnDestroy = viewport.scrollTop;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
+    assert.equal(viewport.scrollTop, stoppedOnDestroy);
+    await render({ mode: 'read', value: props.value });
+    const stoppedOnUnmount = viewport.scrollTop;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
+    assert.equal(viewport.scrollTop, stoppedOnUnmount, 'unmount stops the old viewport and its callbacks');
+    console.log('Real MarkdownEditor lifecycle: StrictMode, code/image/rule grips, layout updates, bounded autoscroll, drag selection/history, revoked gestures, Rich/Read/Source, delayed acknowledgements, normalization, permissions and file replacement passed.');
   } finally {
     await act(async () => root.unmount());
     internals._load = originalLoad;
+    Object.defineProperty(globalThis, 'ResizeObserver', { value: originalResizeObserver, configurable: true });
     dom.window.close();
   }
 }

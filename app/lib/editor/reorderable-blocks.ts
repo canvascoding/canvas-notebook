@@ -4,6 +4,7 @@ import { Selection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
 import { StepMap } from '@tiptap/pm/transform';
 import { BLOCK_MOVE_TRANSACTION_META, createBlockReference, resolveBlockReference, type BlockReference } from './block-reference';
+import { blockElementRect, type BlockElementRect } from './block-control-layout';
 
 export type BlockInsertPlacement = 'above' | 'below';
 
@@ -23,6 +24,7 @@ export type ReorderableBlockRange = {
 export type BlockControlPosition = {
   blockRange: ReorderableBlockRange;
   menuRange: Range | null;
+  left: number;
   top: number;
 };
 
@@ -34,10 +36,7 @@ export type BlockDropTarget = {
   target: ReorderableBlockRange;
 };
 
-export type BlockOverlayRect = {
-  height: number;
-  top: number;
-};
+export type BlockOverlayRect = BlockElementRect;
 
 export const CANVAS_BLOCK_DRAG_DATA_TYPE = 'application/x-canvas-editor-block';
 
@@ -253,11 +252,13 @@ export function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivE
     ? { from: menuPosition, to: menuPosition } : null;
 
   if (blockDom instanceof HTMLElement) {
-    const blockRect = blockDom.getBoundingClientRect();
+    const blockRect = blockElementRect(container, blockDom);
+    if (!blockRect) return null;
     return {
       blockRange,
       menuRange,
-      top: Math.max(6, blockRect.top - containerRect.top + container.scrollTop + (blockRect.height / 2) - 12),
+      left: Math.max(8, blockRect.left - 64),
+      top: Math.max(6, blockRect.top + Math.min(blockRect.height, 48) / 2 - 12),
     };
   }
 
@@ -267,7 +268,8 @@ export function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivE
   return {
     blockRange,
     menuRange,
-    top: Math.max(6, coords.top - containerRect.top + container.scrollTop),
+    left: Math.max(8, coords.left - containerRect.left - container.clientLeft + container.scrollLeft - 64),
+    top: Math.max(6, coords.top - containerRect.top - container.clientTop + container.scrollTop),
   };
 }
 
@@ -346,11 +348,8 @@ export function getBlockDropIndicatorTop(
   const targetDom = editor.view.nodeDOM(target.from);
   if (!(targetDom instanceof HTMLElement)) return null;
 
-  const containerRect = container.getBoundingClientRect();
-  const targetRect = targetDom.getBoundingClientRect();
-  const targetEdge = dropTarget.placement === 'before' ? targetRect.top : targetRect.bottom;
-
-  return Math.max(4, targetEdge - containerRect.top + container.scrollTop);
+  const rect = blockElementRect(container, targetDom);
+  return rect ? Math.max(4, rect.top + (dropTarget.placement === 'after' ? rect.height : 0)) : null;
 }
 
 export function getBlockOverlayRect(
@@ -363,13 +362,8 @@ export function getBlockOverlayRect(
   const blockDom = editor.view.nodeDOM(current.from);
   if (!(blockDom instanceof HTMLElement)) return null;
 
-  const containerRect = container.getBoundingClientRect();
-  const blockRect = blockDom.getBoundingClientRect();
-
-  return {
-    height: Math.max(20, blockRect.height),
-    top: Math.max(4, blockRect.top - containerRect.top + container.scrollTop),
-  };
+  const rect = blockElementRect(container, blockDom);
+  return rect ? { ...rect, height: Math.max(20, rect.height), top: Math.max(4, rect.top) } : null;
 }
 
 export type BlockMoveResult = { ok: true } | {

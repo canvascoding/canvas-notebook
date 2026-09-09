@@ -30,6 +30,7 @@ for (const key of ['window', 'Window', 'document', 'DOMParser', 'navigator', 'El
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true });
 Object.defineProperty(globalThis, 'ResizeObserver', { value: class { observe() {} unobserve() {} disconnect() {} }, configurable: true });
 dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+dom.window.HTMLElement.prototype.getClientRects = function () { return [this.getBoundingClientRect()] as unknown as DOMRectList; };
 dom.window.Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 dom.window.Range.prototype.getBoundingClientRect = () => new dom.window.DOMRect();
 

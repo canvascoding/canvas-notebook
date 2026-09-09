@@ -1164,10 +1164,6 @@ li.task-list-item > p {
   z-index: 100;
 }
 
-.tiptap-block-controls {
-  left: 0.75rem;
-}
-
 .tiptap-block-control-button {
   cursor: pointer;
 }
@@ -1182,9 +1178,7 @@ li.task-list-item > p {
 
 .tiptap-block-drag-overlay {
   border-radius: var(--radius);
-  left: 4.5rem;
   pointer-events: none;
-  right: 1.25rem;
 }
 
 .tiptap-block-drag-overlay-source {
@@ -1200,9 +1194,7 @@ li.task-list-item > p {
   background: var(--primary);
   border-radius: var(--radius);
   height: 2px;
-  left: 4.75rem;
   pointer-events: none;
-  right: 1.5rem;
   transform: translateY(-1px);
 }
 

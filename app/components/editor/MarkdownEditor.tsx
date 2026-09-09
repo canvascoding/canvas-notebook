@@ -222,6 +222,8 @@ import { useEditorRangeTarget } from '@/app/hooks/use-editor-range-target';
 import { useEditorToolbarTarget } from '@/app/hooks/use-editor-toolbar-target';
 import { useEditorAsyncAction } from '@/app/hooks/use-editor-async-action';
 import { attachMarkdownDetailsInteractions } from '@/app/lib/editor/details-interactions';
+import { observeBlockControlLayout } from '@/app/lib/editor/block-control-layout';
+import { createBlockDragAutoscroll, type BlockDragAutoscroll } from '@/app/lib/editor/block-drag-autoscroll';
 import { mergeMarkdownEditorMetadata } from '@/app/lib/markdown/editor-document';
 import { insertMathAtRange, insertRichFootnoteAtRange, replaceRichBlockTitle, richBlockContentMarkdown, updateFootnoteDefinition } from '@/app/lib/editor/rich-block-commands';
 import { createEditorNodeTarget, createEditorRangeTarget, invalidateEditorTarget, resolveEditorNodeTarget, resolveEditorRangeTarget, type EditorNodeTarget, type EditorRangeTarget } from '@/app/lib/editor/interaction-target';
@@ -1762,8 +1764,10 @@ function MarkdownBlockControls({
   const dragStateRef = useRef<ReorderableBlockRange | null>(null);
   const dragGestureRef = useRef<string | null>(null);
   const dragPointerRef = useRef<Pick<DragEvent, 'clientX' | 'clientY'> | null>(null);
+  const autoscrollRef = useRef<BlockDragAutoscroll | null>(null);
 
   const clearDragState = useCallback(() => {
+    autoscrollRef.current?.stop();
     dragStateRef.current = null;
     dragGestureRef.current = null;
     dragPointerRef.current = null;
@@ -1780,8 +1784,10 @@ function MarkdownBlockControls({
       return;
     }
 
-    setDragSourceOverlay(getBlockOverlayRect(editor, container, source));
-  }, [editor, scrollContainerRef]);
+    const rect = getBlockOverlayRect(editor, container, source);
+    if (!rect) { clearDragState(); return; }
+    setDragSourceOverlay(rect);
+  }, [clearDragState, editor, scrollContainerRef]);
 
   const updateDropTarget = useCallback((event: Pick<DragEvent, 'clientX' | 'clientY'>): BlockDropTarget | null => {
     const container = scrollContainerRef.current;
@@ -1792,14 +1798,14 @@ function MarkdownBlockControls({
       return null;
     }
 
+    updateDragSourceOverlay();
+    if (!dragStateRef.current) return null;
     const dropTarget = getBlockDropTarget(editor, event, source);
     dragPointerRef.current = { clientX: event.clientX, clientY: event.clientY };
     const nextTop = dropTarget ? getBlockDropIndicatorTop(editor, container, dropTarget) : null;
     const nextTargetOverlay = dropTarget ? getBlockOverlayRect(editor, container, dropTarget.target) : null;
     setDropIndicatorTop(nextTop);
     setDropTargetOverlay(nextTargetOverlay);
-    updateDragSourceOverlay();
-
     return dropTarget;
   }, [editor, scrollContainerRef, updateDragSourceOverlay]);
 
@@ -1862,22 +1868,32 @@ function MarkdownBlockControls({
 
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const handleScroll = () => {
+    if (!container || !editor || editor.isDestroyed) return;
+    let disposed = false;
+    const refresh = () => {
+      if (disposed || editor.isDestroyed) return;
       updatePosition();
       if (dragPointerRef.current) updateDropTarget(dragPointerRef.current);
       else updateDragSourceOverlay();
     };
-
-    container.addEventListener('scroll', handleScroll, { passive: true });
-    window.addEventListener('resize', handleScroll);
-
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-      window.removeEventListener('resize', handleScroll);
+    const autoscroll = createBlockDragAutoscroll(container,
+      () => Boolean(dragStateRef.current && !editor.isDestroyed && editor.isEditable && !editor.view.composing), refresh);
+    autoscrollRef.current = autoscroll;
+    const stopObserving = observeBlockControlLayout(container, editor.view.dom, () => {
+      refresh();
+      autoscroll.update(dragPointerRef.current);
+    });
+    const disposeLayout = () => {
+      if (disposed) return;
+      disposed = true;
+      stopObserving();
+      autoscroll.destroy();
+      if (autoscrollRef.current === autoscroll) autoscrollRef.current = null;
+      editor.off('destroy', disposeLayout);
     };
-  }, [scrollContainerRef, updateDragSourceOverlay, updateDropTarget, updatePosition]);
+    editor.on('destroy', disposeLayout);
+    return disposeLayout;
+  }, [editor, scrollContainerRef, updateDragSourceOverlay, updateDropTarget, updatePosition]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -1933,6 +1949,7 @@ function MarkdownBlockControls({
 
       stopNativeBlockDragEvent(event);
       const dropTarget = updateDropTarget(event);
+      autoscrollRef.current?.update(dragPointerRef.current);
       if (event.dataTransfer) {
         event.dataTransfer.dropEffect = dropTarget ? 'move' : 'none';
       }
@@ -1961,12 +1978,17 @@ function MarkdownBlockControls({
     const handleDragLeave = (event: DragEvent) => {
       const nextTarget = event.relatedTarget;
       if (nextTarget instanceof Node && editorElement.contains(nextTarget)) return;
+      dragPointerRef.current = null;
+      autoscrollRef.current?.stop();
       setDropIndicatorTop(null);
       setDropTargetOverlay(null);
     };
 
     const handleGlobalDragEnd = () => {
       clearDragState();
+    };
+    const handleVisibilityChange = () => {
+      if (editorElement.ownerDocument.hidden) clearDragState();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !dragStateRef.current) return;
@@ -1981,6 +2003,7 @@ function MarkdownBlockControls({
     window.addEventListener('drop', handleGlobalDragEnd);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('blur', handleGlobalDragEnd);
+    editorElement.ownerDocument.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       editorElement.removeEventListener('dragover', handleDragOver, true);
@@ -1990,6 +2013,7 @@ function MarkdownBlockControls({
       window.removeEventListener('drop', handleGlobalDragEnd);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('blur', handleGlobalDragEnd);
+      editorElement.ownerDocument.removeEventListener('visibilitychange', handleVisibilityChange);
       clearDragState();
     };
   }, [clearDragState, editor, labels.blockMoveCancelled, updateDropTarget]);
@@ -2001,22 +2025,23 @@ function MarkdownBlockControls({
       {dragSourceOverlay ? (
         <div
           className="tiptap-block-drag-overlay tiptap-block-drag-overlay-source absolute z-10"
-          style={{ height: dragSourceOverlay.height, top: dragSourceOverlay.top }}
+          style={dragSourceOverlay}
         />
       ) : null}
       {dropTargetOverlay ? (
         <div
           className="tiptap-block-drag-overlay tiptap-block-drag-overlay-target absolute z-10"
-          style={{ height: dropTargetOverlay.height, top: dropTargetOverlay.top }}
+          style={dropTargetOverlay}
         />
       ) : null}
-      {dropIndicatorTop !== null ? (
-        <div className="tiptap-block-drop-indicator absolute z-10" style={{ top: dropIndicatorTop }} />
+      {dropIndicatorTop !== null && dropTargetOverlay ? (
+        <div className="tiptap-block-drop-indicator absolute z-10"
+          style={{ top: dropIndicatorTop, left: dropTargetOverlay.left, width: dropTargetOverlay.width }} />
       ) : null}
       {position && !propertiesInteractionActive ? (
         <div
           className="tiptap-block-controls absolute z-10 flex items-center gap-1 opacity-70 hover:opacity-100 focus-within:opacity-100"
-          style={{ top: position.top }}
+          style={{ top: position.top, left: position.left }}
         >
           <Tooltip>
             <TooltipTrigger asChild>
@@ -2061,7 +2086,9 @@ function MarkdownBlockControls({
                 onDragEnd={clearDragState}
                 onDragStart={(event) => {
                   const source = resolveReorderableBlockRange(editor, position.blockRange);
-                  if (!source || !createEditorNodeTarget(editor, source.from) || !event.dataTransfer) {
+                  const container = scrollContainerRef.current;
+                  const rect = source && container ? getBlockOverlayRect(editor, container, source) : null;
+                  if (!source || !rect || !createEditorNodeTarget(editor, source.from) || !event.dataTransfer) {
                     clearDragState();
                     event.preventDefault();
                     return;
@@ -2070,10 +2097,7 @@ function MarkdownBlockControls({
                   dragStateRef.current = source;
                   const gestureId = crypto.getRandomValues(new Uint32Array(4)).join('-');
                   dragGestureRef.current = gestureId;
-                  const container = scrollContainerRef.current;
-                  if (container) {
-                    setDragSourceOverlay(getBlockOverlayRect(editor, container, source));
-                  }
+                  setDragSourceOverlay(rect);
                   event.dataTransfer.effectAllowed = 'move';
                   setCanvasBlockDragData(event.dataTransfer, gestureId);
                 }}

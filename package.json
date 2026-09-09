@@ -209,6 +209,7 @@
     "test:editor:mark-whitespace": "tsx --conditions react-server scripts/markdown-mark-whitespace-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:editor:blocks": "tsx --conditions react-server scripts/editor-block-structure-test.ts",
+    "test:editor:block-layout": "tsx scripts/markdown-block-layout-test.ts",
     "test:editor:local-document": "tsx --test scripts/local-markdown-document-test.ts scripts/local-markdown-rich-binding-test.ts scripts/local-markdown-source-binding-test.ts",
     "test:editor:local-lifecycle": "tsx scripts/local-markdown-editor-lifecycle-test.tsx",
     "test:editor:collaboration-scope": "tsx scripts/file-editor-collaboration-scope-test.tsx",
