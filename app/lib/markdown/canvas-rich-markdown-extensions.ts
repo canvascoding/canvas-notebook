@@ -1,4 +1,5 @@
 import { parseDetailsBlock } from './core/details-block';
+import { parseMarkdownBlockChildren } from './core/block-content';
 import {
   Mark,
   Node,
@@ -74,12 +75,7 @@ function blockContent(
   token: MarkdownToken,
   helpers: MarkdownParseHelpers,
 ): JSONContent[] {
-  // Nested list lexers emit text tokens even for a container's block body.
-  const parseBlocks = helpers.parseBlockChildren ?? helpers.parseChildren;
-  const tokens = (token.tokens ?? []).map(child => child.type === 'text'
-    ? { ...child, type: 'paragraph', tokens: child.tokens ?? [{ type: 'text', raw: child.raw, text: child.text }] }
-    : child);
-  const parsed = parseBlocks(tokens);
+  const parsed = parseMarkdownBlockChildren(token.tokens ?? [], helpers);
   return parsed.length > 0 ? parsed : [helpers.createNode('paragraph')];
 }
 

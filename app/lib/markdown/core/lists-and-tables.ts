@@ -4,6 +4,7 @@ import { OrderedList, BulletList, TaskList, TaskItem, ListItem, ORDERED_LIST_MAR
 import { Table, TableKit } from '@tiptap/extension-table';
 import type { JSONContent, MarkdownParseHelpers, MarkdownRendererHelpers, MarkdownToken } from '@tiptap/core';
 import { preserveAdjacentListBoundary } from './list-boundary';
+import { withMarkdownBlockChildren } from './block-content';
 
 const ORDERED_LIST_PREFIX = new RegExp(`^\\s*(?:${ORDERED_LIST_MARKER_PATTERN})[.)]\\s+`);
 
@@ -74,6 +75,9 @@ function listBlockRenderHelpers(helpers: MarkdownRendererHelpers): MarkdownRende
 }
 
 export const CanvasTaskItem = TaskItem.extend({
+  parseMarkdown(token, helpers) {
+    return TaskItem.config.parseMarkdown?.call(this, token, withMarkdownBlockChildren(helpers)) ?? [];
+  },
   renderMarkdown(node, helpers, context) {
     return TaskItem.config.renderMarkdown?.call(this, node, listBlockRenderHelpers(helpers), context) ?? '';
   },
@@ -81,7 +85,7 @@ export const CanvasTaskItem = TaskItem.extend({
 
 export const CanvasListItem = ListItem.extend({
   parseMarkdown(token, helpers) {
-    const parsed = ListItem.config.parseMarkdown?.call(this, token, helpers);
+    const parsed = ListItem.config.parseMarkdown?.call(this, token, withMarkdownBlockChildren(helpers));
     const items = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
     for (const item of items) {
       for (const paragraph of (token.tokens?.[0]?.text?.trim() === '&nbsp;' ? (item.content ?? []).slice(0, 1) : [])) {

@@ -471,7 +471,8 @@
     "test:editor:block-start-hints": "tsx scripts/markdown-block-start-hint-test.ts",
     "test:collaboration:container-races": "tsx --conditions react-server scripts/collaboration-block-container-races-test.ts",
     "test:editor:block-move-command": "tsx scripts/markdown-block-move-command-test.tsx",
-    "test:editor:block-clipboard": "tsx scripts/markdown-block-clipboard-test.ts"
+    "test:editor:block-clipboard": "tsx scripts/markdown-block-clipboard-test.ts",
+    "test:collaboration:block-sequences": "tsx --conditions react-server scripts/collaboration-block-sequences-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

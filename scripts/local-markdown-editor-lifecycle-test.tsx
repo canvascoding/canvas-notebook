@@ -311,6 +311,8 @@ async function main() {
       { type: 'codeBlock', markdown: 'AAA\n\n```ts\nconst x = 1;\n```\n\nCCC' },
       { type: 'horizontalRule', markdown: 'AAA\n\n---\n\nCCC' },
       { type: 'blockquote', markdown: 'AAA\n\n> Quote\n>\n> - Nested\n\nCCC' },
+      { type: 'nestedTaskBody', markdown: 'AAA\n\n- Outer\n  - [x] Task\n  \n    Tail\n\nCCC' },
+      { type: 'paragraphAfterTask', markdown: 'AAA\n\n- Outer\n  - [x] Task\n\n  After\n\nCCC' },
     ]) {
       await render({ mode: 'rich', value: fixture.markdown, documentKey: `native-${fixture.type}`, readOnly: false });
       const editor = rich();
