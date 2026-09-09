@@ -30,9 +30,7 @@ Der Codeblock wurde per Tastatur vor die Tabelle und per Griff hinter den Callou
 
 **Testmaterial:** Die ursprüngliche Fixture ist als Quelltext nicht kanonisch und bleibt beim regulären Import mit `roundtrip_changed` im Source-Modus. Die vorher dokumentierte strikte Blockprüfung hatte diesen Eintrittspfad nicht geprüft. Der Browserlauf verwendet deshalb ihre vom produktiven Codec serialisierte Fassung. Unterschiede sind Tabellenstriche, Leerzeilen und die Schreibweise des Callout-Typs; Inhalte und strukturierte Blöcke bleiben erhalten. Die Importschutzprüfung wurde nicht geändert.
 
-## Noch auszuführen
-
-### Mobiles Bewegungsmenü
+## Mobiles Bewegungsmenü
 
 Ein weiterer Browserbefund betraf den Menüanker: Nach Fokusverlust blendete sich die mobile Werkzeugleiste nach einer Sekunde aus. Das offene Menü verlor damit seinen Anker. Beim nächsten Touch machte die Capture-Phase die Leiste wieder sichtbar; das Menü sprang noch vor dem synthetischen Klick an einen anderen Ort. Der Eintrag wurde deshalb nicht ausgeführt. Die Leiste bleibt jetzt während der tatsächlichen Öffnungsdauer des Bewegungsmenüs sichtbar, einschließlich Aufhebung bei Schließen, Widerruf oder Unmount.
 
@@ -54,7 +52,7 @@ Nachweise: echte zuvor blockierte Datei wieder unter derselben ID geöffnet; Pos
 
 Beim eingefügten Bild ging zunächst die Zentrierung verloren: Die HTML-Zwischenablage normalisiert CSS-Leerzeichen, Semikolons und Nullwerte, während der Import die exakte kanonische Zeichenfolge verglich. Der HTML-Import liest jetzt die normalisierten Rand-Eigenschaften aus dem DOM; der strikte portable Markdown-Parser bleibt unverändert. Die 17 Clipboard-Testgruppen enthalten nun Bilder mit linker, mittlerer und rechter Ausrichtung und vergleichen auch alle kopierten Attribute. Sie und die portable Bildsuite bestehen. Die native Wiederholung behielt 240 px und Zentrierung sowie sämtliche sonstigen Attribute/Inhalte; ein zusätzlicher leerer Eingabeabsatz nach dem Paste bleibt erwartbar. Erneutes Kopieren, bestätigter Checkpoint und Reload ergaben denselben vollständigen Baum mit 101 eindeutigen Knoten-IDs. Das ist eine Chromium-Prüfung der nativen Zwischenablage, kein Nachweis für andere Betriebssysteme.
 
-Ein normaler abgebrochener HTTP-Aufruf beendete zweimal den lokalen Dev-Server mit `ECONNRESET`. Eine vorübergehende private Diagnose erfasst den Ursprung; reguläre Abbrüche mit vorhandenen Fehlerhandlern sind bereits sichtbar, der fatale Fall ist damit noch nicht erklärt oder behoben.
+Ein normaler abgebrochener HTTP-Aufruf beendete zunächst zweimal den lokalen Dev-Server mit `ECONNRESET`. Die später erfolgreiche Reproduktion und Korrektur sind im Abschnitt zu abgebrochenen HTTP-Anfragen dokumentiert.
 
 ## Containerwechsel und leere Absätze
 
@@ -97,3 +95,17 @@ Der Produktionsbuild für `df550d6f` besteht. Die anschließend ergänzte Browse
 Der eigene HTTP-Server registriert deshalb sofort einen Listener für die gesamte Lebensdauer jeder Anfrage. Bekannte Verbindungsabbrüche schließen nur die betroffene Antwort; unerwartete Streamfehler bleiben protokolliert und erreichen weiterhin die Framework-Listener. Der globale Umgang mit Programmfehlern bleibt unverändert. Die TCP-Gegenprobe stürzt ohne Schutz ab und beantwortet mit Schutz auf demselben Server die nächste Health-Anfrage. Syntaxprüfung und scoped ESLint bestehen.
 
 `editor-structure-lifecycle.spec.ts` hält die neuen Browserregressionen dauerhaft fest: Peer-Löschung der Drag-Quelle, Peer-Löschung des Vorschauziels sowie Ordnerumbenennung mit neu belegtem altem Pfad und anschließendem Reload. Alle drei bestehen gegen den aktuellen Host-Server (1,2 Minuten). Diese automatisierte Suite verwendet unabhängige Kontexte derselben Admin-Identität; die vorher beschriebene interaktive Prüfung verwendete zwei unterschiedliche Nutzer. Der Build wird nach der HTTP-Korrektur abschließend erneuert.
+
+## Tatsächlicher Dateischreibfehler
+
+Nur die eigene neutrale Testdatei und ihr eigener Testordner bekamen vorübergehend keine Schreibrechte. Eine normale Tastatureingabe erzeugte daraufhin einen echten `EACCES` beim Dateicheckpoint. Die UI meldete „File saving paused“, der ursprüngliche Dateiinhalt blieb unverändert und die neue Eingabe blieb im Editor erhalten. Über die normale Downloadaktion wurde der vollständige Binärzustand gesichert. Sein unabhängig gelesener Blockbaum enthält exakt sämtliche JSON-Felder und IDs des sichtbaren Zustands; JSON-Prototypen der ProseMirror-Attribute sind dabei keine Dokumentdaten.
+
+Die Rechte wurden in einem `finally`-Block vollständig wiederhergestellt. „Retry file saving“, bestätigter Checkpoint und Reload behielten anschließend denselben vollständigen Dokumentbaum. Das ist ein tatsächlicher Dateisystemfehler, kein simulierter API-Fehler und kein Nachweis eines PostgreSQL-Ausfalls. Während des letzten Serverlaufs erfasste die private Diagnose 82 reguläre Verbindungsabbrüche und keinen unbehandelten Fehler.
+
+## Abschluss dieses Durchlaufs und verbleibende Abnahme
+
+Die eigenen Testdateien und -ordner einschließlich fehlgeschlagener Testläufe wurden über die reguläre Lösch-API ohne Fehler in den Papierkorb verschoben. Die QA-Browser und der eigene Host-Dev-Server wurden geschlossen; der verwaltete Containerstack bleibt unverändert. Private Screenshots, vollständige Recovery-Dateien und strukturierte Zustandsvergleiche bleiben im genannten lokalen Artefaktordner erhalten.
+
+Eine Gesamtfreigabe bleibt offen. Priorisierte Restfälle sind direkte Agentenausführung im laufenden Serverprozess, konfliktbehaftete Containerzyklen mit Browser-Recovery, eindeutige Agentenziele nach Split/Join, die vollständigen Rechte-/Workspace-Widerrufsfolgen, alte Offline-Repliken über einen Generationswechsel sowie Browserprozess-Neustart mit erhaltenem IndexedDB-Profil. Hinzu kommen tatsächliche Datenbankfehler, vertauschte Checkpointantworten, große Dokumente und Betriebssystem-IME beziehungsweise Hardware-Touch. Der isoliert reproduzierte Chromium-Autoscrollbefund bleibt ebenfalls offen. Diese Punkte werden durch die bestandenen Kern-/Komponententests und Teilprüfungen nicht als erledigt gewertet.
+
+Der abschließende vollständige `npm run build` auf Produktstand `44f15e11` besteht einschließlich TypeScript und Seitengenerierung. Der Build verwendet ein isoliertes DATA-Verzeichnis. Alle vier bestehenden verwalteten Container sind weiterhin gesund; es wurde kein Container gebaut oder ausgetauscht. Die zehn Produktkorrekturen liegen in einzelnen nachvollziehbaren Commits; eine Veröffentlichung wurde nicht ausgeführt.

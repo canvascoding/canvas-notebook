@@ -2,6 +2,8 @@
 
 Stand: 2026-09-09. Ursprünglicher Audit auf `b0cb34bd`, ergänzt um die umgesetzten Teilstände 7.8 bis 7.18. Diese Bestandsaufnahme gehört zum [Umsetzungsplan](editor-structure-lifecycle-plan.md). Die Gesamtfreigabe ist offen. „Bestanden“ bezeichnet hier ausschließlich die genannten ausgeführten Kern-/Komponententests; JSDOM liefert keinen Nachweis für Browserlayout, native Zwischenablage oder Betriebssystem-IME.
 
+Aktualisierung nach Browserfreigabe, Teilstand 7.20: Die folgende Tabelle bewahrt den Ausgangsstand der Kernabnahme. Die inzwischen ausgeführten Browserfälle, zehn Korrekturen, reale Dateischreibstörung und verbleibende Restfälle stehen im [aktuellen Browserbericht](editor-browser-acceptance-report.md). Insbesondere sind Peer-/Agentenreview-Drag, native Zwischenablage, gelöschte Drag-Quelle/-Ziel, konkurrierende Moves über getrennten WebSocket und bekannte Tabs über Ordnerumbenennung nun teilweise beziehungsweise vollständig für die dort genannten Folgen belegt. Die Gesamtmatrix ist weiterhin nicht vollständig freigegeben.
+
 ## Die zwölf verpflichtenden Szenarien
 
 | Nr. | Erwartung | Konkreter Nachweis | Verbleibende Abnahme |
@@ -99,4 +101,4 @@ Teilstand 7.18 besteht erneut alle neun Benchmarkfälle sowie tatsächliche loka
 
 Der endgültige Teilstand 7.18 besteht den frischen vollständigen Produktionsbuild mit TypeScript und 333 Seiten sowie den Test am gebauten Checkpoint-Modul. Das isolierte DATA bleibt leer; keine Browser, Server oder Container gestartet.
 
-Die tatsächliche Binding-/Komponentenmessung liegt in Teilstand 7.16 und 7.18 vor; große Dokumente haben weiterhin messbare Latenzen. Weitere Profile und das Langzeitverhalten der Operationsdaten bleiben offen. Die Browserabnahme wartet weiter auf die bereits erfragte explizite Freigabe gemäß `AGENTS.md`.
+Die tatsächliche Binding-/Komponentenmessung liegt in Teilstand 7.16 und 7.18 vor; große Dokumente haben weiterhin messbare Latenzen. Weitere Profile und das Langzeitverhalten der Operationsdaten bleiben offen. Nach erteilter Browserfreigabe dokumentiert Teilstand 7.20 den ausgeführten Durchlauf und die weiterhin offenen Abnahmefälle.

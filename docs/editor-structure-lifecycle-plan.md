@@ -441,6 +441,18 @@ GitNexus `detect_changes` erfasst die erwarteten fünf Dateien und zwei Symbole 
 
 Teilstand 7.19 bereitet die noch ausstehende Browserabnahme konkret vor. Der [Abnahmeablauf](editor-browser-acceptance-runbook.md) enthält Umgebungsvoraussetzungen, zehn aufeinanderfolgende Fallgruppen, erforderliche Identitäts-/Persistenznachweise und die tatsächlichen Grenzen der bestehenden E2E-Dateien. Eine neue neutrale Markdown-Fixture besteht den strikten Checkpoint-Test mit 48 eindeutigen Knoten-IDs, unveränderten Validierungsbytes und vollständigem binärem Wiederöffnen. Der Produktcode bleibt auf `b40f9a08`; dessen erfolgreicher Build gilt weiterhin. Browser, Server und Container wurden für die Vorbereitung nicht gestartet. Die Gesamtfreigabe bleibt bis zur tatsächlichen Abnahme offen.
 
+Teilstand 7.20 führt nach Nutzerfreigabe die Browserprüfung auf dem aktuellen Worktree am verwalteten lokalen PostgreSQL-Stack aus. Der [Browserbericht](editor-browser-acceptance-report.md) dokumentiert zehn daraus entstandene Korrekturen: erster Block-Root nach Hydration, Workspace beim Bildimport, offener Mobilmenüanker, stabile React-NodeView-Montage, noch nicht initialisierte Dokumentidentität, normalisierte Bildausrichtung aus HTML, innere leere Absätze beim Markdown-Checkpoint, Widerruf gelöschter Drag-Ziele, URL-Nachführung bestätigter Dokument-IDs und vollständiger HTTP-Request-Lifecycle bei Verbindungsabbruch.
+
+Nachgewiesen sind unter anderem normale Maus-/Tastatur-/emulierte Touch-Bedienung, native Zwischenablage, Containerwechsel, identitätserhaltender Drag mit Peer-Einfügung und angenommenem Agentenreview, konkurrierende Moves über eine echte WebSocket-Unterbrechung, Ordnerumbenennung mit neu belegtem altem Pfad sowie ein tatsächlicher Dateischreibfehler mit vollständigem binärem Export und erfolgreichem Retry/Reload. Drei neue dauerhafte Browserregressionen bestehen. Die automatisierten und interaktiven Identitäten sowie die Grenzen jedes Nachweises stehen im Bericht; der separate Agententreiber ersetzt keinen direkten Agentenlauf im Serverprozess.
+
+Die nächsten Abnahmeschritte bleiben getrennt und in dieser Reihenfolge offen:
+
+1. Direkten Agentenlauf im selben Serverprozess und Agentenziele nach Copy/Split/Join mit gleichen Texten prüfen. Die Ziel-ID muss erhalten bleiben oder ausdrücklich Review verlangen.
+2. Gegenläufige Containerbewegungen und gelöschte Eltern in zwei Browsern prüfen. Gesperrte Projektionen müssen alle betroffenen Inhalte in der normalen Recovery erhalten.
+3. Rechteverlust, Workspace-/Ansichtswechsel und verspätete Bestätigungen vollständig prüfen. Danach alte Offline-Repliken über einen Generationwechsel sowie einen tatsächlichen Browserprozess-Neustart mit demselben IndexedDB-Profil prüfen.
+4. Verzögerte und vertauschte Checkpointantworten sowie echte Datenbankfehler prüfen. Der bereits bestandene Dateisystemfehler deckt diese Fehlerklassen nicht ab.
+5. Browser-Latenzen großer Dokumente, Betriebssystem-IME und Hardware-Touch abnehmen. Den auch ohne Editorcode reproduzierten Chromium-Autoscroll nach Dragabbruch gesondert über Browserversion und Betriebsart eingrenzen.
+
 Abschlusskriterium (noch nicht erfüllt): Die Matrix unten ist vollständig bestanden; keine ungeklärten Konsistenzfehler oder unbestätigten Speicheranzeigen. `npm run build`, passende Typ-/Lintprüfungen und betroffene Integrationssuiten sind erfolgreich. Kein Containerbau ohne ausdrückliche Beauftragung.
 
 ## 9. Abnahmematrix und Messung
@@ -472,7 +484,7 @@ Für große und tief verschachtelte Dokumente werden Transaktionsdauer, Zielaufl
 - `replaceRichMarkdownInYDoc` ist HIGH und erreicht auch mobile und Agentenpfade. Validator-/Äquivalenzänderungen sind ebenfalls HIGH. Vor Codeänderungen wird die Analyse für die konkreten Symbole erneut geprüft.
 - Ein neues Blockmodell wäre eine größere Adapter-/Speichermigration mit eigener Kompatibilitätsabnahme. Dieser Aufwand wird nicht als einfacher Drag-Fix eingeplant.
 - Ein erfolgreicher Code-/ProseMirror-Test ersetzt keine Browserabnahme. Gemäß `AGENTS.md` werden Playwright/vergleichbare Browserläufe erst nach expliziter Nutzerfreigabe ausgeführt. Für einen später benötigten lokalen Stack gilt `canvas-local-team-seat-dev`; keine parallelen Testumgebungen.
-- Durchgeführt: Quellcode-/Historienanalyse, GitNexus-Kontext/Impact, Kern-/Komponenten-/Replikenprüfungen, dokumentierte PostgreSQL-Integration und CPU-/Editor-Messung. Der aktuelle vollständige Build ist in Teilstand 7.18 belegt; die einzelnen Teilstände halten ihren jeweiligen Testumfang fest.
-- Nicht durchgeführt: neue Browser-/E2E-Abnahme, Containerbau, Deployment oder Änderung produktiver Dokumente. Der Screenshot belegt daher weiterhin keinen nachgewiesenen Reparaturerfolg an der ursprünglichen Datei.
+- Durchgeführt: Quellcode-/Historienanalyse, GitNexus-Kontext/Impact, Kern-/Komponenten-/Replikenprüfungen, dokumentierte PostgreSQL-Integration, CPU-/Editor-Messung und die in Teilstand 7.20 beschriebenen Browserprüfungen. Der Browserbericht hält die jeweils gebaute Fassung und die noch offenen Abnahmefälle fest.
+- Nicht durchgeführt: vollständige Browsermatrix, Containerbau, Deployment oder Änderung produktiver Dokumente. Der Screenshot belegt daher weiterhin keinen nachgewiesenen Reparaturerfolg an der ursprünglichen Datei.
 
 Die Architekturentscheidung aus Schritt 3 ist umgesetzt: fortbestehender Blockinhalt und kollaborative Platzierung sind getrennt. Die abschließende Freigabe richtet sich nach der aktuellen Abnahmematrix. Weitere Leistungsoptimierung und Logverdichtung brauchen eigene Nachweise; sie rechtfertigen weder schwächere Integritätsprüfungen noch das Löschen von Offline-/Undo-/Idempotenzbelegen.
