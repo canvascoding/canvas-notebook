@@ -56,4 +56,12 @@ Beim eingefügten Bild ging zunächst die Zentrierung verloren: Die HTML-Zwische
 
 Ein normaler abgebrochener HTTP-Aufruf beendete zweimal den lokalen Dev-Server mit `ECONNRESET`. Eine vorübergehende private Diagnose erfasst den Ursprung; reguläre Abbrüche mit vorhandenen Fehlerhandlern sind bereits sichtbar, der fatale Fall ist damit noch nicht erklärt oder behoben.
 
+## Containerwechsel und leere Absätze
+
+Eine frische Fixture bestand die Bewegung desselben Absatzes in Zitat, Aufgabenpunkt, Hinweis, Details-Inhalt und Fußnote: richtige Eltern-ID, unveränderte Absatz-ID und vollständiges Undo. Beim Herausnehmen beider Zitatabsätze wurde der leere Zitatwrapper entfernt; zweimaliges Undo stellte exakt den vorherigen Baum her. Der erste Pflichtabsatz eines Aufgabenpunkts ist absichtlich kein selbständig verschiebbarer Geschwisterblock; ohne passende andere Aufgabenliste wird kein ungültiges Root-Ziel angeboten.
+
+Nach dem Herausbewegen des ersten Details-Absatzes hinter die Fußnote reproduzierte sich `roundtrip_unstable`. Ursache war ein leerer Cursorabsatz, der durch den Move zu einem inneren Absatz wurde: Die eigenen Tokenizer für Fußnote, Hinweis und Details verschluckten dessen reine Leerzeilen beim Markdown-Rückweg. `CanvasDocument` markiert jetzt sämtliche inneren leeren Absätze eindeutig mit dem bereits unterstützten `&nbsp;`-Format. Die Prüflogik wurde nicht gelockert.
+
+Die neue Regression scheiterte vor der Korrektur in drei von zehn Blockkombinationen und besteht danach vollständig, einschließlich binärer Wiederöffnung. Empty-Block-/EOF- und gesamte Markdown-Core-Suite bestehen. Der volle pausierte Zustand wurde im Browser heruntergeladen. Nach kontrolliertem Neustart des eigenen Host-Servers mit dem neuen Codec speicherte derselbe offene Browserzustand über „Retry file saving“ erfolgreich und unverändert. Auch das Herausnehmen des letzten Details-Absatzes, Erhalt von Summary/Container-ID, vollständiges Undo dieses Moves und Reload bestanden. Container-Geometrie und die übrigen konkurrierenden Lifecycle-Folgen bleiben noch offen.
+
 Die übrigen Abnahmegruppen sind bis auf den beschriebenen verspäteten Bildimport noch nicht vollständig geprüft. IME-/Hardware-Touch-Prüfungen und Browser-Latenzmessungen sind ebenfalls offen.
