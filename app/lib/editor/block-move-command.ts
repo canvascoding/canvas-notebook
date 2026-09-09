@@ -1,7 +1,7 @@
 import { Extension, type Editor } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
 import { createEditorSelectionTarget } from './interaction-target';
-import { applyReorderableBlockMove, getReorderableBlockRangeAt, resolveReorderableBlockRange,
+import { applyReorderableBlockMove, getReorderableBlockRangeAt, getSelectedReorderableBlockRange, resolveReorderableBlockRange,
   type BlockDropTarget, type BlockMoveResult, type ReorderableBlockRange } from './reorderable-blocks';
 
 export type BlockMoveDirection = 'up' | 'down';
@@ -9,9 +9,7 @@ export type BlockMoveDirection = 'up' | 'down';
 /** A command acts on one selected block or list item, never a guessed range. */
 export function captureBlockMoveSource(editor: Editor): ReorderableBlockRange | null {
   if (!createEditorSelectionTarget(editor)) return null;
-  const selection = editor.state.selection;
-  const source = getReorderableBlockRangeAt(editor, selection.from);
-  return source && selection.from >= source.from && selection.to <= source.to ? source : null;
+  return getSelectedReorderableBlockRange(editor);
 }
 
 export function blockMoveSibling(editor: Editor, captured: ReorderableBlockRange, direction: BlockMoveDirection): BlockDropTarget | null {

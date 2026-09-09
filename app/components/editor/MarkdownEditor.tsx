@@ -140,6 +140,7 @@ import {
   isMobileToolbarReleaseInside,
 } from '@/app/lib/editor/mobile-toolbar-gesture';
 import {
+  CANVAS_BLOCK_DRAG_DATA_TYPE,
   createCurrentBlockCommandTarget,
   createInsertedBlockCommandTarget,
   getBlockDropIndicatorTop,
@@ -1759,10 +1760,12 @@ function MarkdownBlockControls({
   const [dropTargetOverlay, setDropTargetOverlay] = useState<BlockOverlayRect | null>(null);
   const [propertiesInteractionActive, setPropertiesInteractionActive] = useState(false);
   const dragStateRef = useRef<ReorderableBlockRange | null>(null);
+  const dragGestureRef = useRef<string | null>(null);
   const dragPointerRef = useRef<Pick<DragEvent, 'clientX' | 'clientY'> | null>(null);
 
   const clearDragState = useCallback(() => {
     dragStateRef.current = null;
+    dragGestureRef.current = null;
     dragPointerRef.current = null;
     setDragSourceOverlay(null);
     setDropIndicatorTop(null);
@@ -1817,7 +1820,7 @@ function MarkdownBlockControls({
       updatePosition();
       if (!dragStateRef.current) return;
       const source = resolveReorderableBlockRange(editor, dragStateRef.current);
-      if (!editor.isEditable || !source) {
+      if (editor.isDestroyed || !editor.isEditable || editor.view.composing || !source) {
         clearDragState();
         toast.info(labels.blockMoveCancelled);
         return;
@@ -1826,18 +1829,33 @@ function MarkdownBlockControls({
       if (dragPointerRef.current) updateDropTarget(dragPointerRef.current);
       else updateDragSourceOverlay();
     };
-    const frame = window.requestAnimationFrame(updatePosition);
+    let frame = window.requestAnimationFrame(updatePosition);
+    const editorDom = editor.view.dom;
+    const handleCompositionStart = () => {
+      clearDragState();
+      setPosition(null);
+    };
+    const handleCompositionEnd = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updatePosition);
+    };
     editor.on('selectionUpdate', updatePosition);
     editor.on('transaction', handleTransaction);
+    editor.on('update', handleTransaction);
     editor.on('focus', updatePosition);
     editor.on('destroy', clearDragState);
+    editorDom.addEventListener('compositionstart', handleCompositionStart, true);
+    editorDom.addEventListener('compositionend', handleCompositionEnd);
 
     return () => {
       window.cancelAnimationFrame(frame);
       editor.off('selectionUpdate', updatePosition);
       editor.off('transaction', handleTransaction);
+      editor.off('update', handleTransaction);
       editor.off('focus', updatePosition);
       editor.off('destroy', clearDragState);
+      editorDom.removeEventListener('compositionstart', handleCompositionStart, true);
+      editorDom.removeEventListener('compositionend', handleCompositionEnd);
       clearDragState();
     };
   }, [clearDragState, editor, labels.blockMoveCancelled, updateDragSourceOverlay, updateDropTarget, updatePosition]);
@@ -1928,11 +1946,15 @@ function MarkdownBlockControls({
 
       stopNativeBlockDragEvent(event);
 
-      const dropTarget = source ? updateDropTarget(event) : null;
+      // Payloads are readable at drop time. During dragover the browser may
+      // expose only MIME types, so identity is checked before the mutation.
+      const matchesGesture = dragGestureRef.current !== null
+        && event.dataTransfer?.getData(CANVAS_BLOCK_DRAG_DATA_TYPE) === dragGestureRef.current;
+      const dropTarget = source && matchesGesture ? updateDropTarget(event) : null;
       clearDragState();
       if (!source || !dropTarget) return;
 
-      const result = applyReorderableBlockMove(editor, source, dropTarget);
+      const result = applyReorderableBlockMove(editor, source, dropTarget, { preserveSelection: true });
       if (!result.ok && result.reason !== 'no_change') toast.info(labels.blockMoveCancelled);
     };
 
@@ -1972,7 +1994,7 @@ function MarkdownBlockControls({
     };
   }, [clearDragState, editor, labels.blockMoveCancelled, updateDropTarget]);
 
-  if (!editor?.isEditable || (!position && !dragSourceOverlay && !dropTargetOverlay && dropIndicatorTop === null)) return null;
+  if (!editor || editor.isDestroyed || !editor.isEditable || (!position && !dragSourceOverlay && !dropTargetOverlay && dropIndicatorTop === null)) return null;
 
   return (
     <>
@@ -2028,29 +2050,32 @@ function MarkdownBlockControls({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                aria-label={labels.openBlockMenuHint}
+                aria-label={position.menuRange ? labels.openBlockMenuHint : labels.dragBlockHint}
                 className="tiptap-block-control-button tiptap-block-drag-handle"
                 draggable
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  onOpenCommandMenu(editor, position.menuRange);
+                  if (position.menuRange) onOpenCommandMenu(editor, position.menuRange);
                 }}
                 onDragEnd={clearDragState}
                 onDragStart={(event) => {
                   const source = resolveReorderableBlockRange(editor, position.blockRange);
-                  if (!editor.isEditable || !source || !event.dataTransfer) {
+                  if (!source || !createEditorNodeTarget(editor, source.from) || !event.dataTransfer) {
+                    clearDragState();
                     event.preventDefault();
                     return;
                   }
 
                   dragStateRef.current = source;
+                  const gestureId = crypto.getRandomValues(new Uint32Array(4)).join('-');
+                  dragGestureRef.current = gestureId;
                   const container = scrollContainerRef.current;
                   if (container) {
                     setDragSourceOverlay(getBlockOverlayRect(editor, container, source));
                   }
                   event.dataTransfer.effectAllowed = 'move';
-                  setCanvasBlockDragData(event.dataTransfer);
+                  setCanvasBlockDragData(event.dataTransfer, gestureId);
                 }}
                 onMouseDown={(event) => {
                   event.stopPropagation();
@@ -2061,7 +2086,7 @@ function MarkdownBlockControls({
             </TooltipTrigger>
             <TooltipContent side="bottom" className="flex flex-col gap-1 text-left">
               <span>{labels.dragBlockHint}</span>
-              <span>{labels.openBlockMenuHint}</span>
+              {position.menuRange ? <span>{labels.openBlockMenuHint}</span> : null}
             </TooltipContent>
           </Tooltip>
         </div>

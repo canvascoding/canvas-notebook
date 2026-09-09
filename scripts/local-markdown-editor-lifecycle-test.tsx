@@ -5,9 +5,10 @@ import React, { StrictMode, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { NextIntlClientProvider } from 'next-intl';
 import type { Editor } from '@tiptap/core';
+import { AllSelection, NodeSelection } from '@tiptap/pm/state';
 import messages from '../messages/en.json';
 import type { MarkdownEditorProps } from '../app/components/editor/MarkdownEditor';
-import { getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
+import { CANVAS_BLOCK_DRAG_DATA_TYPE, getReorderableBlockRangeAt, moveReorderableBlock } from '../app/lib/editor/reorderable-blocks';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost' });
 for (const key of ['window', 'Window', 'document', 'DOMParser', 'navigator', 'Element', 'Document', 'HTMLElement', 'HTMLInputElement',
@@ -21,6 +22,7 @@ Object.defineProperty(globalThis, 'ResizeObserver', { value: class { observe() {
 // JSDOM has no layout. These tests inspect document state and lifecycle, not geometry.
 dom.window.Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 dom.window.Range.prototype.getBoundingClientRect = () => new dom.window.DOMRect();
+dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 
 async function main() {
   const { EditorView } = await import('@codemirror/view');
@@ -170,7 +172,138 @@ async function main() {
     assert.equal(values.at(-1), 'AAA\n\nBBB\n', 'source edit remains undoable after a second rename');
     await render({ documentKey: 'new-open-lifetime', value: values.at(-1) });
     assert.equal(rich().can().undo(), false, 'a new open lifetime resets history even at the same path');
-    console.log('Real MarkdownEditor lifecycle: StrictMode, block moves, Rich/Read/Source, shared undo, delayed acknowledgements, blur, normalization, permissions and file replacement passed.');
+
+    const findPosition = (editor: Editor, type: string, text?: string) => {
+      let found = -1;
+      editor.state.doc.descendants((node, from) => {
+        if (node.type.name === type && (text === undefined || node.textContent === text)) found = from;
+      });
+      assert(found >= 0, `missing ${type}/${text}`);
+      return found;
+    };
+    const createTransfer = () => {
+      const data = new Map<string, string>();
+      return { get types() { return [...data.keys()]; }, setData: (key: string, value: string) => data.set(key, value),
+        getData: (key: string) => data.get(key) ?? '', effectAllowed: 'none', dropEffect: 'none' };
+    };
+    const drag = (target: EventTarget, type: string, transfer: ReturnType<typeof createTransfer>) => {
+      const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 100 });
+      Object.defineProperty(event, 'dataTransfer', { value: transfer });
+      target.dispatchEvent(event);
+      return event;
+    };
+    for (const fixture of [
+      { type: 'codeBlock', markdown: 'AAA\n\n```ts\nconst x = 1;\n```\n\nCCC\n' },
+      { type: 'image', markdown: 'AAA\n\n![Alt](image.png)\n\nCCC\n' },
+      { type: 'horizontalRule', markdown: 'AAA\n\n---\n\nCCC\n' },
+    ]) {
+      await render({ value: fixture.markdown, documentKey: `grip-${fixture.type}`, filePath: 'grips.md', layout: 'document',
+        showNotebookMetadata: false, externalValueSync: 'always', mode: 'rich' });
+      const editor = rich();
+      const selectSource = async () => act(async () => {
+        const from = findPosition(editor, fixture.type);
+        if (fixture.type === 'codeBlock') editor.commands.setTextSelection(from + 3);
+        else editor.commands.setNodeSelection(from);
+      });
+      await selectSource();
+      const sourceId = editor.state.doc.nodeAt(findPosition(editor, fixture.type))!.attrs.id;
+      const before = editor.getJSON();
+      const beforeSelection = editor.state.selection.toJSON();
+      editor.view.posAtCoords = () => ({ pos: findPosition(editor, 'paragraph', 'CCC') + 1, inside: -1 });
+      const handle = () => {
+        const element = container.querySelector<HTMLButtonElement>('.tiptap-block-drag-handle');
+        assert(element, `${fixture.type} has a real mounted drag handle`);
+        return element;
+      };
+      await act(async () => handle().click());
+      assert.equal(container.querySelector('.tiptap-slash-menu'), null, 'an atom/code grip does not invent a text-format target');
+      assert.deepEqual(editor.state.selection.toJSON(), beforeSelection);
+      const transfer = createTransfer();
+      await act(async () => { assert.equal(drag(handle(), 'dragstart', transfer).defaultPrevented, false); });
+      assert(transfer.types.includes(CANVAS_BLOCK_DRAG_DATA_TYPE));
+      assert(container.querySelector('.tiptap-block-drag-overlay-source'));
+      const protectedTransfer = { ...transfer, getData: () => '' };
+      await act(async () => { assert.equal(drag(editor.view.dom, 'dragover', protectedTransfer).defaultPrevented, true); });
+      assert.equal(protectedTransfer.dropEffect, 'move', 'preview works while dragover exposes only MIME types');
+      assert(container.querySelector('.tiptap-block-drop-indicator'));
+      await act(async () => { assert.equal(drag(editor.view.dom, 'drop', transfer).defaultPrevented, true); });
+      assert.deepEqual(editor.getJSON(), { ...before, content: [before.content![0], before.content![2], before.content![1]] });
+      if (fixture.type === 'codeBlock') assert.equal(editor.state.selection.$from.parent.attrs.id, sourceId);
+      else {
+        assert(editor.state.selection instanceof NodeSelection);
+        assert.equal(editor.state.selection.node.attrs.id, sourceId);
+      }
+      assert.equal(container.querySelector('.tiptap-block-drag-overlay-source'), null);
+      const moved = editor.getJSON();
+      const movedSelection = editor.state.selection.toJSON();
+      await act(async () => { assert(editor.commands.undo()); });
+      assert.deepEqual(editor.getJSON(), before);
+      assert.deepEqual(editor.state.selection.toJSON(), beforeSelection);
+      await act(async () => { assert(editor.commands.redo()); });
+      assert.deepEqual(editor.getJSON(), moved);
+      assert.deepEqual(editor.state.selection.toJSON(), movedSelection);
+      await act(async () => { assert(editor.commands.undo()); });
+      await selectSource();
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>('.tiptap-block-controls button')!.click();
+        await new Promise(resolve => setTimeout(resolve, 25));
+      });
+      assert.equal(editor.state.doc.childCount, before.content!.length + 1, 'plus inserts beside the atom/code block');
+      assert.equal(editor.state.doc.child(1).attrs.id, sourceId);
+      assert.equal(editor.state.doc.child(2).type.name, 'paragraph');
+      assert.equal(editor.state.doc.child(2).textContent, '');
+      assert.equal(editor.state.selection.$from.parent.attrs.id, editor.state.doc.child(2).attrs.id);
+      assert(container.querySelector('.tiptap-slash-menu'), 'the insertion menu targets the new paragraph');
+      await act(async () => {
+        window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+        assert(editor.commands.undo());
+      });
+      assert.deepEqual(editor.getJSON(), before);
+      assert.equal(editor.can().undo(), false);
+      for (const cancel of ['permission', 'composition', 'escape', 'blur', 'dragend']) {
+        await selectSource();
+        const lateTransfer = createTransfer();
+        await act(async () => { drag(handle(), 'dragstart', lateTransfer); });
+        assert(container.querySelector('.tiptap-block-drag-overlay-source'));
+        await act(async () => {
+          if (cancel === 'permission') { editor.setEditable(false); editor.setEditable(true); }
+          else if (cancel === 'composition') {
+            editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionstart', { bubbles: true }));
+            editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionend', { bubbles: true }));
+            await new Promise(resolve => setTimeout(resolve, 30));
+          } else if (cancel === 'escape') window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+          else window.dispatchEvent(new dom.window.Event(cancel));
+        });
+        assert.equal(container.querySelector('.tiptap-block-drag-overlay-source'), null, `${cancel} clears the drag`);
+        await act(async () => { drag(editor.view.dom, 'drop', lateTransfer); });
+        assert.deepEqual(editor.getJSON(), before, `${cancel} prevents a late drop even after editability is restored`);
+      }
+      await selectSource();
+      const obsoleteTransfer = createTransfer();
+      await act(async () => {
+        drag(handle(), 'dragstart', obsoleteTransfer);
+        window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+      });
+      const freshTransfer = createTransfer();
+      await act(async () => { drag(handle(), 'dragstart', freshTransfer); });
+      assert.notEqual(freshTransfer.getData(CANVAS_BLOCK_DRAG_DATA_TYPE), obsoleteTransfer.getData(CANVAS_BLOCK_DRAG_DATA_TYPE));
+      await act(async () => { drag(editor.view.dom, 'drop', obsoleteTransfer); });
+      assert.deepEqual(editor.getJSON(), before, 'a late old transfer cannot execute the new gesture');
+      await act(async () => { drag(editor.view.dom, 'drop', freshTransfer); });
+      assert.deepEqual(editor.getJSON(), before, 'a mismatched drop cancels the current gesture');
+      await act(async () => { editor.view.dispatch(editor.state.tr.setSelection(new AllSelection(editor.state.doc))); });
+      assert.equal(container.querySelector('.tiptap-block-drag-handle'), null, 'a multiple-block selection has no guessed grip');
+      await selectSource();
+      const lateTransfer = createTransfer();
+      const oldDom = editor.view.dom;
+      await act(async () => { drag(handle(), 'dragstart', lateTransfer); });
+      await render({ mode: 'read', value: fixture.markdown });
+      await render({ mode: 'rich' });
+      const newBefore = rich().getJSON();
+      await act(async () => { drag(oldDom, 'drop', lateTransfer); drag(rich().view.dom, 'drop', lateTransfer); });
+      assert.deepEqual(rich().getJSON(), newBefore, 'old drag callbacks do not cross a view replacement');
+    }
+    console.log('Real MarkdownEditor lifecycle: StrictMode, code/image/rule grips, insertion, drag selection/history, revoked gestures, Rich/Read/Source, delayed acknowledgements, normalization, permissions and file replacement passed.');
   } finally {
     await act(async () => root.unmount());
     internals._load = originalLoad;

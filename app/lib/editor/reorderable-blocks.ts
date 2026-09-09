@@ -22,7 +22,7 @@ export type ReorderableBlockRange = {
 
 export type BlockControlPosition = {
   blockRange: ReorderableBlockRange;
-  menuRange: Range;
+  menuRange: Range | null;
   top: number;
 };
 
@@ -41,8 +41,8 @@ export type BlockOverlayRect = {
 
 export const CANVAS_BLOCK_DRAG_DATA_TYPE = 'application/x-canvas-editor-block';
 
-export function setCanvasBlockDragData(dataTransfer: DataTransfer): void {
-  dataTransfer.setData(CANVAS_BLOCK_DRAG_DATA_TYPE, 'move');
+export function setCanvasBlockDragData(dataTransfer: DataTransfer, gestureId = 'move'): void {
+  dataTransfer.setData(CANVAS_BLOCK_DRAG_DATA_TYPE, gestureId);
 }
 
 export function hasCanvasBlockDragData(dataTransfer: DataTransfer | null | undefined): boolean {
@@ -166,6 +166,14 @@ export function resolveReorderableBlockRange(
   return { ...range, ...current };
 }
 
+/** A selection must identify one whole movable unit, including selected atoms. */
+export function getSelectedReorderableBlockRange(editor: Editor): ReorderableBlockRange | null {
+  if (editor.isDestroyed) return null;
+  const selection = editor.state.selection;
+  const source = getReorderableBlockRangeAt(editor, selection.from);
+  return source && selection.from >= source.from && selection.to <= source.to ? source : null;
+}
+
 function createEmptyListItemNode(editor: Editor, source: ReorderableBlockRange) {
   const paragraph = editor.schema.nodes.paragraph.create();
   return source.node.type.createAndFill(null, paragraph) ?? source.node.type.create(null, paragraph);
@@ -176,7 +184,7 @@ export function createInsertedBlockCommandTarget(
   placement: BlockInsertPlacement,
   blockRange?: ReorderableBlockRange,
 ): Range | null {
-  if (editor.isDestroyed || !editor.isEditable || editor.isActive('codeBlock')) return null;
+  if (editor.isDestroyed || !editor.isEditable || editor.view.composing) return null;
 
   if (blockRange) {
     const current = resolveReorderableBlockRange(editor, blockRange);
@@ -187,11 +195,14 @@ export function createInsertedBlockCommandTarget(
     const cursorPosition = insertPosition + (isListItem ? 2 : 1);
     const content = isListItem ? createEmptyListItemNode(editor, blockRange) : { type: 'paragraph' };
 
-    editor.chain().focus().insertContentAt(insertPosition, content).setTextSelection(cursorPosition).run();
+    const before = editor.state.doc;
+    const applied = editor.chain().focus().insertContentAt(insertPosition, content).setTextSelection(cursorPosition).run();
+    if (!applied || editor.state.doc === before) return null;
 
     return { from: cursorPosition, to: cursorPosition };
   }
 
+  if (editor.isActive('codeBlock')) return null;
   const { $from } = editor.state.selection;
   const textblockDepth = findActiveTextblockDepth(editor);
   if (!textblockDepth) return null;
@@ -227,19 +238,19 @@ export function createCurrentBlockCommandTarget(editor: Editor, menuRange?: Rang
 }
 
 export function getBlockInsertButtonPosition(editor: Editor, container: HTMLDivElement): BlockControlPosition | null {
-  if (!editor.isEditable || editor.isActive('codeBlock')) return null;
+  if (editor.isDestroyed || !editor.isEditable || editor.view.composing) return null;
 
   const { $from } = editor.state.selection;
   const textblockDepth = findActiveTextblockDepth(editor);
-  if (!textblockDepth) return null;
-
-  const blockRange = getReorderableBlockRangeAt(editor, editor.state.selection.from);
+  const blockRange = getSelectedReorderableBlockRange(editor);
   if (!blockRange) return null;
 
   const blockDom = editor.view.nodeDOM(blockRange.from);
   const containerRect = container.getBoundingClientRect();
-  const menuPosition = $from.start(textblockDepth);
-  const menuRange = { from: menuPosition, to: menuPosition };
+  const menuPosition = textblockDepth ? $from.start(textblockDepth)
+    : blockRange.node.isTextblock ? blockRange.from + 1 : null;
+  const menuRange = !editor.isActive('codeBlock') && blockRange.node.type.name !== 'codeBlock' && menuPosition !== null
+    ? { from: menuPosition, to: menuPosition } : null;
 
   if (blockDom instanceof HTMLElement) {
     const blockRect = blockDom.getBoundingClientRect();
@@ -273,7 +284,7 @@ export function getBlockDropTarget(
   event: Pick<DragEvent, 'clientX' | 'clientY'>,
   source: ReorderableBlockRange,
 ): BlockDropTarget | null {
-  if (editor.isDestroyed || !editor.isEditable) return null;
+  if (editor.isDestroyed || !editor.isEditable || editor.view.composing) return null;
   const current = resolveReorderableBlockRange(editor, source);
   if (!current) return null;
   source = current;
@@ -373,7 +384,7 @@ export function applyReorderableBlockMove(
   destination: BlockDropTarget | number,
   options: { preserveSelection?: boolean } = {},
 ): BlockMoveResult {
-  if (editor.isDestroyed || !editor.isEditable) return { ok: false, reason: 'read_only' };
+  if (editor.isDestroyed || !editor.isEditable || editor.view.composing) return { ok: false, reason: 'read_only' };
   const source = resolveReorderableBlockRange(editor, capturedSource);
   if (!source) return { ok: false, reason: 'source_changed' };
   let insertPosition: number;
@@ -397,6 +408,8 @@ export function applyReorderableBlockMove(
   try {
     const beforeDocument = editor.state.doc;
     const transaction = closeHistory(editor.state.tr).delete(source.from, source.to);
+    // Reordering an existing block must not also create a trailing paragraph.
+    transaction.setMeta('skipTrailingNode', true);
     const adjustedInsertPosition = transaction.mapping.map(insertPosition);
     transaction.insert(adjustedInsertPosition, source.node).scrollIntoView();
     transaction.doc.check();

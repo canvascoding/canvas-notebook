@@ -18,7 +18,8 @@ import { createLocalMarkdownRichExtension, LOCAL_MARKDOWN_PROJECTION } from '../
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { BLOCK_MOVE_TRANSACTION_META } from '../app/lib/editor/block-reference';
-import { applyReorderableBlockMove, getBlockDropTarget, getReorderableBlockRangeAt, resolveReorderableBlockRange } from '../app/lib/editor/reorderable-blocks';
+import { applyReorderableBlockMove, createInsertedBlockCommandTarget, getBlockDropTarget, getBlockInsertButtonPosition,
+  getReorderableBlockRangeAt, resolveReorderableBlockRange } from '../app/lib/editor/reorderable-blocks';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { pretendToBeVisual: true, url: 'http://localhost' });
 for (const key of ['window', 'Window', 'document', 'DOMParser', 'navigator', 'Element', 'Document', 'HTMLElement', 'HTMLInputElement',
@@ -301,6 +302,55 @@ test('nested moves retain simultaneous peer text through selective undo, redo an
     } finally { restored.destroy(); }
     assert.deepEqual(h.errors, []);
   } finally { editor.destroy(); peer.destroy(); h.destroy(); }
+});
+
+for (const collaborative of [false, true]) test(`code and atom controls have independent insert targets and reject unavailable writes (collaborative=${collaborative})`, async () => {
+  for (const fixture of [
+    { markdown: 'AAA\n\n```ts\nconst x = 1;\n```\n\nCCC', type: 'codeBlock' },
+    { markdown: 'AAA\n\n![Alt](image.png)\n\nCCC', type: 'image' },
+    { markdown: 'AAA\n\n---\n\nCCC', type: 'horizontalRule' },
+  ]) {
+    const h = harness(collaborative, fixture.markdown);
+    const editor = h.mount();
+    const container = document.createElement('div');
+    try {
+      await Promise.resolve();
+      const from = position(editor, fixture.type);
+      if (fixture.type === 'codeBlock') editor.commands.setTextSelection(from + 2);
+      else editor.commands.setNodeSelection(from);
+      const source = captureBlockMoveSource(editor)!;
+      const controls = getBlockInsertButtonPosition(editor, container)!;
+      assert.equal(controls.blockRange.reference.id, source.reference.id);
+      assert.equal(controls.menuRange, null);
+      const before = editor.getJSON();
+      for (const placement of ['above', 'below'] as const) {
+        const target = createInsertedBlockCommandTarget(editor, placement, source)!;
+        assert(target, `${fixture.type}/${placement}`);
+        assert.equal(editor.state.doc.resolve(target.from).parent.type.name, 'paragraph');
+        assert.equal(editor.state.doc.resolve(target.from).parent.textContent, '');
+        assert.equal(resolveReorderableBlockRange(editor, source)!.node.eq(source.node), true);
+        assert(editor.commands.undo());
+        assert.deepEqual(editor.getJSON(), before);
+      }
+      editor.setEditable(false);
+      assert.equal(getBlockInsertButtonPosition(editor, container), null);
+      assert.equal(createInsertedBlockCommandTarget(editor, 'below', source), null);
+      editor.setEditable(true);
+      // A pending atom/code target may coexist with IME input at a text caret.
+      editor.commands.setTextSelection(2);
+      editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionstart', { bubbles: true }));
+      assert.equal(getBlockInsertButtonPosition(editor, container), null);
+      assert.equal(createInsertedBlockCommandTarget(editor, 'below', source), null);
+      assert.deepEqual(applyReorderableBlockMove(editor, source, editor.state.doc.content.size), { ok: false, reason: 'read_only' });
+      editor.view.dom.dispatchEvent(new dom.window.CompositionEvent('compositionend', { bubbles: true }));
+      await Promise.resolve();
+      editor.registerPlugin(new Plugin({ filterTransaction: transaction => !transaction.docChanged }));
+      await Promise.resolve();
+      assert.equal(createInsertedBlockCommandTarget(editor, 'below', source), null, 'a rejected insertion cannot open a menu at old content');
+      assert.deepEqual(editor.getJSON(), before);
+      assert.deepEqual(h.errors, []);
+    } finally { editor.destroy(); h.destroy(); }
+  }
 });
 
 for (const collaborative of [false, true]) test(`a rejected keyboard move reports failure without changing content or selection (collaborative=${collaborative})`, async () => {
