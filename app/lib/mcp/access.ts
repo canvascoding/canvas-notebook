@@ -1,5 +1,7 @@
 import 'server-only';
 
+import crypto from 'node:crypto';
+
 import { assertUserSeatAccess } from '@/app/lib/license/seat-limit';
 import { assertUserOrganizationAdmin, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { readMcpConfig, type McpServerConfig } from './config';
@@ -45,7 +47,10 @@ export async function assertMcpConnectionAccess(
   if (normalized.userId && (!actor || actor.userId !== normalized.userId)) throw new McpAccessError('MCP actor does not match the connection owner.');
   if (normalized.organizationId && actor && normalized.organizationId !== actor.organizationId) throw new McpAccessError('The requested organization is no longer active.');
   const config = await readMcpConfig(normalized);
-  const selected = Object.entries(config.mcpServers).find(([name, item]) => item.connectionId === serverNameOrId || name === serverNameOrId);
+  const systemConnectionId = (name: string) => `system-${crypto.createHash('sha256').update(name).digest('hex')}`;
+  const selected = Object.entries(config.mcpServers).find(([name, item]) => item.connectionId === serverNameOrId
+    || name === serverNameOrId
+    || (normalized.legacy === true && systemConnectionId(name) === serverNameOrId));
   if (!selected) throw new McpAccessError('MCP connection not found.', 404, 'MCP_CONNECTION_NOT_FOUND');
   const [serverName, connection] = selected;
   if (actor && connection.ownerUserId !== actor.userId) throw new McpAccessError('MCP connection belongs to another user.');

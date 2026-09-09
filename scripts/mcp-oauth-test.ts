@@ -5,6 +5,8 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { installMcpAccessMocks } from './fixtures/mcp-test-access';
+
 async function modeOf(filePath: string): Promise<number> {
   const stat = await fs.stat(filePath);
   return stat.mode & 0o777;
@@ -29,6 +31,7 @@ function readJson(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 }
 
 async function main() {
+  const accessMocks = installMcpAccessMocks();
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-oauth-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
   process.env.BASE_URL = 'http://localhost:3000';
@@ -157,6 +160,7 @@ async function main() {
     } = await import('../app/lib/mcp/oauth');
     const { hashMcpServerConfig } = await import('../app/lib/mcp/manager');
     const { createMcpProxyTool } = await import('../app/lib/mcp/proxy-tool');
+    const { assertMcpConnectionAccess } = await import('../app/lib/mcp/access');
 
     const serverConfig = {
       url: 'https://example.test/mcp',
@@ -173,6 +177,14 @@ async function main() {
       settings: { toolPrefix: 'server', idleTimeout: 10 },
       mcpServers: { remote: serverConfig },
     }, null, 2), MCP_SYSTEM_SCOPE);
+
+    const systemConnectionId = `system-${crypto.createHash('sha256').update('remote').digest('hex')}`;
+    assert.equal((await assertMcpConnectionAccess(systemConnectionId, MCP_SYSTEM_SCOPE)).serverName, 'remote');
+    accessMocks.memberships.set('foreign-user', { organizationId: 'foreign-org', role: 'owner', status: 'active' });
+    await assert.rejects(
+      () => assertMcpConnectionAccess(systemConnectionId, { userId: 'foreign-user' }),
+      /connection not found/i,
+    );
 
     const started = await startMcpOAuth('remote', 'http://localhost:3000', MCP_SYSTEM_SCOPE);
     const authorizationUrl = new URL(started.authorizationUrl);
@@ -227,7 +239,6 @@ async function main() {
     assert.equal(token.refreshToken, 'refresh-token-1');
     assert.equal(token.issuer, baseUrl);
     assert.equal(token.resource, 'https://example.test/mcp');
-    const systemConnectionId = `system-${crypto.createHash('sha256').update('remote').digest('hex')}`;
     const tokenPath = await getOAuthTokenPath('remote', MCP_SYSTEM_SCOPE);
     assert.equal(tokenPath, path.join(tempRoot, 'settings', 'connections', systemConnectionId, 'tokens.json'));
     assert.equal(await modeOf(tokenPath), 0o600);
@@ -333,6 +344,7 @@ async function main() {
     console.log('mcp-oauth-test: ok');
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    accessMocks.restore();
   }
 }
 
