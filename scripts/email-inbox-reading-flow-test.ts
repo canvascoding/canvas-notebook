@@ -85,6 +85,10 @@ const messageReaderSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailMessageReader.tsx'),
   'utf8',
 );
+const attachmentActionsSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailAttachmentActions.tsx'),
+  'utf8',
+);
 const composeDialogSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'apps', 'email', 'components', 'EmailComposeDialog.tsx'),
   'utf8',
@@ -103,6 +107,14 @@ const mailboxNavigationSource = fs.readFileSync(
 );
 const messageRouteSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'route.ts'),
+  'utf8',
+);
+const attachmentRouteSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'attachments', '[attachmentId]', 'route.ts'),
+  'utf8',
+);
+const attachmentCollectionRouteSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'api', 'email', 'accounts', '[accountId]', 'messages', '[messageId]', 'attachments', 'route.ts'),
   'utf8',
 );
 const errorSource = fs.readFileSync(
@@ -151,6 +163,13 @@ assert.match(mailboxNavigationSource, /export function EmailMailboxNavigation/u)
 assert.match(messageReaderSource, /export function EmailMessageViewer/u);
 assert.match(messageReaderSource, /DOMPurify\.sanitize/u);
 assert.match(messageReaderSource, /sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"/u);
+assert.match(messageReaderSource, /<EmailAttachmentActions/u);
+assert.match(attachmentActionsSource, /downloadAttachment/u);
+assert.match(attachmentActionsSource, /downloadAllAttachments/u);
+assert.match(attachmentActionsSource, /attachment\.downloadable !== false/u);
+assert.match(attachmentActionsSource, /<WorkspaceDestinationPicker/u);
+assert.match(attachmentActionsSource, /targetWorkspaceId/u);
+assert.match(attachmentActionsSource, /\/attachments`/u);
 
 const surfaceLayerSource = notebookShellSource.slice(
   notebookShellSource.indexOf('function SurfaceLayer('),
@@ -163,6 +182,13 @@ assert.match(notebookShellSource, /inert=\{!active\}/u);
 assert.match(notebookShellSource, /<EmailClient contextIntent=\{emailContext\} embedded \/>/u);
 assert.match(messageRouteSource, /code: 'EMAIL_MESSAGE_NOT_FOUND'/u);
 assert.match(messageRouteSource, /status: 404/u);
+assert.match(attachmentRouteSource, /downloadEmailAttachment/u);
+assert.match(attachmentRouteSource, /'Cache-Control': 'private, no-store'/u);
+assert.match(attachmentRouteSource, /fileContentDisposition/u);
+assert.match(attachmentCollectionRouteSource, /export async function GET/u);
+assert.match(attachmentCollectionRouteSource, /export async function POST/u);
+assert.match(attachmentCollectionRouteSource, /downloadEmailAttachmentBatch/u);
+assert.match(attachmentCollectionRouteSource, /saveDownloadedEmailAttachmentsToWorkspace/u);
 assert.match(errorSource, /readonly code = 'EMAIL_MESSAGE_NOT_FOUND'/u);
 
 console.log('email-inbox-reading-flow-test: ok');

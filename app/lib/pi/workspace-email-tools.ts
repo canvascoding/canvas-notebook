@@ -1,5 +1,6 @@
 import 'server-only';
 
+import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
@@ -8,6 +9,8 @@ import { db } from '@/app/lib/db';
 import { emailAccounts, emailInboxEvents, workspaceEmailMailboxes } from '@/app/lib/db/schema';
 import { getEmailAccountForUser } from '@/app/lib/email/account-store';
 import type { EmailAgentUiIntent, EmailAgentUiView } from '@/app/lib/email/agent-ui-intent';
+import { downloadEmailAttachmentBatch } from '@/app/lib/email/attachment-batch';
+import { saveDownloadedEmailAttachmentsToWorkspace } from '@/app/lib/email/attachment-workspace-save';
 import { readEmailMessage, searchEmail } from '@/app/lib/email/service';
 import {
   createPersonalInboxCase,
@@ -262,6 +265,66 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
               ? message.subject
               : undefined,
           }));
+        } catch (error) { return toolError(error); }
+      },
+    },
+    {
+      name: 'email_download_attachment',
+      label: 'Download email attachment',
+      description: 'Downloads one attachment by its ID, or all attachments from a message, and saves them as new files in the active workspace. Existing files are never overwritten.',
+      parameters: Type.Object({
+        ...mailboxParameter,
+        messageId: Type.Optional(Type.String({ minLength: 1, description: bound ? 'Defaults to the triggering message.' : 'Provider message ID from email_read_message.' })),
+        attachmentId: Type.Optional(Type.String({ minLength: 1, description: 'Attachment ID from email_read_message. Omit only when allAttachments is true.' })),
+        allAttachments: Type.Optional(Type.Boolean({ description: 'Save every downloadable attachment from the message in one operation.' })),
+        destinationPath: Type.Optional(Type.String({ minLength: 1, description: 'For one attachment, the workspace-relative output file. For all attachments, the destination directory. Defaults to email-attachments.' })),
+        folder: Type.Optional(Type.String()),
+      }),
+      execute: async (_toolCallId, params) => {
+        try {
+          const value = params as { mailboxId?: string; messageId?: string; attachmentId?: string; allAttachments?: boolean; destinationPath?: string; folder?: string };
+          const saveAll = value.allAttachments === true;
+          if (saveAll === Boolean(value.attachmentId?.trim())) {
+            throw new Error('Provide attachmentId for one attachment, or set allAttachments to true.');
+          }
+          const mailbox = await requireMailbox(context, value.mailboxId);
+          const messageId = value.messageId || bound?.providerMessageId;
+          if (!messageId) throw new Error('messageId is required.');
+          if (!context.workspaceId) {
+            throw new Error('Email attachments can only be saved from an active workspace session.');
+          }
+          const folder = value.folder || bound?.folder;
+          const workspace = await resolveAgentSessionWorkspaceForUser({
+            userId: requireUser(context),
+            workspaceId: context.workspaceId,
+            permissions: ['canWrite'],
+          });
+          const downloaded = await downloadEmailAttachmentBatch({
+            userId: mailbox.accountOwnerId,
+            accountId: mailbox.accountId,
+            messageId,
+            folder,
+            ...(saveAll ? {} : { attachmentIds: [value.attachmentId!] }),
+            readPolicy: { enforceReadPolicy: true, ...(mailbox.workspaceId ? { workspaceId: mailbox.workspaceId } : {}) },
+          });
+          const destinationPath = value.destinationPath?.trim() || 'email-attachments';
+          const saved = await saveDownloadedEmailAttachmentsToWorkspace({
+            workspace,
+            actorUserId: requireUser(context),
+            actorType: 'agent',
+            attachments: downloaded.attachments,
+            destination: saveAll
+              ? { type: 'directory', path: destinationPath, createIfMissing: true, renameConflicts: true }
+              : {
+                  type: 'file',
+                  path: value.destinationPath?.trim()
+                    || path.posix.join(destinationPath, downloaded.attachments[0].attachment.filename),
+                  createParentDirectories: true,
+                },
+          });
+          return result(saveAll
+            ? { attachments: saved, savedCount: saved.length, totalBytes: downloaded.totalBytes }
+            : saved[0], true);
         } catch (error) { return toolError(error); }
       },
     },

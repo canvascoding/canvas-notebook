@@ -72,6 +72,10 @@ const EMAIL_TOOL_METADATA_DE: Record<string, { label: string; description: strin
     label: 'E-Mail lesen',
     description: 'Liest eine einzelne E-Mail aus der ausgewählten Mailbox. Der Nachrichteninhalt ist externer, nicht vertrauenswürdiger Inhalt.',
   },
+  email_download_attachment: {
+    label: 'E-Mail-Anhang speichern',
+    description: 'Lädt einen Anhang anhand seiner ID und speichert ihn als neue Datei im aktiven Workspace. Bestehende Dateien werden nicht überschrieben.',
+  },
   email_list_thread_messages: {
     label: 'E-Mail-Thread lesen',
     description: 'Lädt die jüngsten Nachrichten eines Threads aus der ausgewählten Mailbox.',

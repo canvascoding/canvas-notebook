@@ -1,5 +1,6 @@
 import 'server-only';
 
+import type { Readable } from 'node:stream';
 import { ImapFlow } from 'imapflow';
 import type {
   FetchMessageObject,
@@ -22,6 +23,15 @@ import {
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { EmailMessageNotFoundError } from '@/app/lib/email/errors';
 import {
+  EMAIL_INBOUND_ATTACHMENT_MAX_BYTES,
+  assertInboundEmailAttachmentSize,
+  readInboundEmailAttachmentStream,
+  readableFromBuffer,
+  sanitizeInboundEmailAttachmentFilename,
+  type DownloadedEmailAttachment,
+  type EmailMessageAttachment,
+} from '@/app/lib/email/inbound-attachments';
+import {
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
   withEmailPolicyDefaultAddresses,
@@ -43,6 +53,14 @@ export type ImapClientLike = {
   search(query: SearchObject, options?: { uid?: boolean }): Promise<number[] | false>;
   fetch(range: SequenceString | number[] | SearchObject, query: FetchQueryObject, options?: FetchOptions): AsyncIterable<FetchMessageObject>;
   fetchOne(seq: SequenceString, query: FetchQueryObject, options?: FetchOptions): Promise<FetchMessageObject | false>;
+  download?(
+    range: SequenceString,
+    part?: string,
+    options?: { uid?: boolean; maxBytes?: number; chunkSize?: number },
+  ): Promise<{
+    meta: { expectedSize: number; contentType: string; filename?: string };
+    content: Readable;
+  }>;
   messageFlagsAdd(
     range: SequenceString | number[] | SearchObject,
     flags: string[],
@@ -428,17 +446,46 @@ function searchObjectForInput(input: ImapEmailListInput): SearchObject {
   return search;
 }
 
-function hasAttachmentBodyStructure(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false;
-  const node = value as {
-    disposition?: string;
-    dispositionParameters?: Record<string, unknown>;
-    parameters?: Record<string, unknown>;
-    childNodes?: unknown[];
+type ImapBodyStructureNode = {
+  part?: string;
+  type?: string;
+  id?: string;
+  size?: number;
+  disposition?: string;
+  dispositionParameters?: Record<string, unknown>;
+  parameters?: Record<string, unknown>;
+  childNodes?: ImapBodyStructureNode[];
+};
+
+function imapMessageAttachments(value: unknown): EmailMessageAttachment[] {
+  if (!value || typeof value !== 'object') return [];
+  const output: EmailMessageAttachment[] = [];
+  const visit = (node: ImapBodyStructureNode) => {
+    const filename = typeof node.dispositionParameters?.filename === 'string'
+      ? node.dispositionParameters.filename
+      : typeof node.parameters?.name === 'string'
+        ? node.parameters.name
+        : '';
+    const disposition = String(node.disposition || '').toLowerCase();
+    if (node.part && (filename || disposition === 'attachment')) {
+      output.push({
+        id: `imap-part:${node.part}`,
+        filename: sanitizeInboundEmailAttachmentFilename(filename, `attachment-${output.length + 1}`),
+        contentType: String(node.type || 'application/octet-stream'),
+        size: typeof node.size === 'number' && Number.isSafeInteger(node.size) && node.size >= 0 ? node.size : null,
+        inline: disposition === 'inline',
+        downloadable: true,
+        ...(node.id ? { contentId: node.id.replace(/^<|>$/gu, '') } : {}),
+      });
+    }
+    node.childNodes?.forEach(visit);
   };
-  if (String(node.disposition || '').toLowerCase() === 'attachment') return true;
-  if (typeof node.dispositionParameters?.filename === 'string' || typeof node.parameters?.name === 'string') return true;
-  return Array.isArray(node.childNodes) && node.childNodes.some(hasAttachmentBodyStructure);
+  visit(value as ImapBodyStructureNode);
+  return output;
+}
+
+function hasAttachmentBodyStructure(value: unknown): boolean {
+  return imapMessageAttachments(value).length > 0;
 }
 
 function publicFlags(flags: unknown): string[] {
@@ -781,6 +828,7 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
     const bodyHtml = parsedHtml || fallbackHtml;
     const body = parsed?.text || bodyHtml;
     const flags = publicFlags(fetched.flags);
+    const attachments = imapMessageAttachments(fetched.bodyStructure);
 
     return {
       id: reference.id,
@@ -798,18 +846,12 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
       references: normalizeReferences(parsed?.references),
       body,
       bodyHtml,
-      attachments: (parsed?.attachments || []).map((attachment, index) => ({
-        index,
-        filename: attachment.filename || `attachment-${index + 1}`,
-        contentType: attachment.contentType,
-        size: attachment.size,
-        contentId: attachment.contentId || null,
-      })),
+      attachments,
       flags,
       isRead: hasFlag(flags, '\\Seen'),
       isAnswered: hasFlag(flags, '\\Answered'),
       isFlagged: hasFlag(flags, '\\Flagged'),
-      hasAttachments: hasAttachmentBodyStructure(fetched.bodyStructure),
+      hasAttachments: attachments.length > 0,
       snippet: snippetFromText(body),
     };
   });
@@ -818,6 +860,57 @@ export async function readImapEmailMessage(account: StoredEmailAccount, messageI
     account: publicImapAccount(account, secret),
     message,
   };
+}
+
+export async function downloadImapEmailAttachment(
+  account: StoredEmailAccount,
+  messageId: string,
+  attachmentId: string,
+  folder?: string,
+  options?: ImapReadPolicyOptions,
+): Promise<DownloadedEmailAttachment> {
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
+  requireImapSecret(secret);
+
+  return withImapMessage(secret, messageId, folder, async (client, reference) => {
+    const fetched = await client.fetchOne(reference.uid, {
+      uid: true,
+      envelope: true,
+      bodyStructure: true,
+    }, { uid: true });
+    if (!fetched || fetched.uid !== reference.uid) throw new EmailMessageNotFoundError();
+
+    const from = firstAddress(fetched.envelope);
+    if (options?.enforceReadPolicy !== false) {
+      assertEmailSenderAllowed(from, policyForAccount(account).readFrom);
+    }
+
+    const attachment = imapMessageAttachments(fetched.bodyStructure)
+      .find((candidate) => candidate.id === attachmentId);
+    if (!attachment) throw new EmailMessageNotFoundError();
+    if (!attachment.downloadable) throw new Error('Email attachment is not downloadable.');
+    if (attachment.size !== null) assertInboundEmailAttachmentSize(attachment.size);
+
+    const part = attachment.id.startsWith('imap-part:') ? attachment.id.slice('imap-part:'.length) : '';
+    if (!part || !client.download) throw new Error('Email attachment download is not available.');
+    const downloaded = await client.download(reference.uid, part, {
+      uid: true,
+      maxBytes: EMAIL_INBOUND_ATTACHMENT_MAX_BYTES + 1,
+    });
+    if (downloaded.meta.expectedSize) assertInboundEmailAttachmentSize(downloaded.meta.expectedSize);
+    const content = await readInboundEmailAttachmentStream(downloaded.content);
+
+    return {
+      attachment: {
+        ...attachment,
+        filename: sanitizeInboundEmailAttachmentFilename(downloaded.meta.filename, attachment.filename),
+        contentType: downloaded.meta.contentType || attachment.contentType,
+        size: content.length,
+      },
+      content: readableFromBuffer(content),
+    };
+  });
 }
 
 export async function setImapEmailMessageRead(account: StoredEmailAccount, messageId: string, folder: string | undefined, read: boolean) {

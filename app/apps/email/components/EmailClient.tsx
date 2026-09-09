@@ -1010,11 +1010,18 @@ export function EmailClient({
     aiSummary: t('aiSummary'),
     archive: t('archive'),
     attachments: t('attachments'),
+    attachmentActions: t('attachmentActions'),
+    attachmentUnavailable: t('attachmentUnavailable'),
+    attachmentsSaveFailed: t('attachmentsSaveFailed'),
+    attachmentsSaved: t('attachmentsSaved', { count: '{count}' }),
     backToMessages: t('backToMessages'),
     cancel: t('composeCancel'),
     cc: t('cc'),
     date: t('date'),
     emptyBody: t('emptyBody'),
+    downloadAttachment: t('downloadAttachment'),
+    downloadAllAttachments: t('downloadAllAttachments'),
+    downloadLocally: t('downloadLocally'),
     forward: t('forward'),
     from: t('from'),
     loadingMessage: t('loadingMessage'),
@@ -1034,12 +1041,17 @@ export function EmailClient({
     replyAll: t('replyAll'),
     replyOptions: t('replyOptions'),
     retryMessage: t('retryMessage'),
+    saveAttachmentsDescription: t('saveAttachmentsDescription', { count: '{count}' }),
+    saveAttachmentsSubmit: t('saveAttachmentsSubmit'),
+    saveAttachmentsTitle: t('saveAttachmentsTitle'),
+    saveToWorkspace: t('saveToWorkspace'),
     selectMessage: t('selectMessage'),
     showRemoteImages: t('showRemoteImages'),
     summary: t('summary'),
     summaryReady: t('summaryReady'),
     summaryReadingContext: t('summaryReadingContext'),
     summaryWriting: t('summaryWriting'),
+    savingAttachments: t('savingAttachments'),
     to: t('to'),
     trash: t('trash'),
     unknownAttachmentType: t('unknownAttachmentType'),
@@ -1295,6 +1307,7 @@ export function EmailClient({
             <EmailMessageViewer
               key={`email-message-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
+              accountId={activeAccount?.id}
               allowRemoteResourcesByDefault={emailAllowRemoteImages}
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
               hasPendingUpdate={Boolean(pendingMessageUpdate)}
@@ -1327,6 +1340,7 @@ export function EmailClient({
             <EmailMessageViewer
               key={`email-message-dialog-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
               actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
+              accountId={activeAccount?.id}
               allowRemoteResourcesByDefault={emailAllowRemoteImages}
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
               className="bg-card"

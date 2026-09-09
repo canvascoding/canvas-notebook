@@ -78,9 +78,13 @@ export type EmailMessageDetail = EmailMessageSummary & {
   body?: string;
   bodyHtml?: string;
   attachments?: Array<{
+    id: string;
     filename: string;
     contentType?: string;
-    size?: number;
+    size?: number | null;
+    inline?: boolean;
+    downloadable?: boolean;
+    contentId?: string | null;
   }>;
 };
 
@@ -206,10 +210,17 @@ export type EmailMessageViewerLabels = {
   archive: string;
   backToMessages: string;
   attachments: string;
+  attachmentActions: string;
+  attachmentUnavailable: string;
+  attachmentsSaveFailed: string;
+  attachmentsSaved: string;
   cancel: string;
   cc: string;
   date: string;
   emptyBody: string;
+  downloadAttachment: string;
+  downloadAllAttachments: string;
+  downloadLocally: string;
   forward: string;
   from: string;
   loadingMessage: string;
@@ -229,12 +240,17 @@ export type EmailMessageViewerLabels = {
   replyAll: string;
   replyOptions: string;
   retryMessage: string;
+  saveAttachmentsDescription: string;
+  saveAttachmentsSubmit: string;
+  saveAttachmentsTitle: string;
+  saveToWorkspace: string;
   selectMessage: string;
   showRemoteImages: string;
   summary: string;
   summaryReady: string;
   summaryReadingContext: string;
   summaryWriting: string;
+  savingAttachments: string;
   to: string;
   trash: string;
   unknownAttachmentType: string;

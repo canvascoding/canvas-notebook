@@ -143,3 +143,17 @@ export async function managedEmailRequest<T>(
   });
   return readJson<T>(response, path);
 }
+
+export async function managedEmailBinaryRequest(
+  path: string,
+  scope?: ManagedEmailRequestScope | null,
+): Promise<Response> {
+  if (!isManagedEmailAvailable()) {
+    throw new Error('Managed email is not available. Configure local OAuth credentials or enable Canvas Managed Services.');
+  }
+  const response = await fetch(controlPlaneUrl(path), {
+    headers: managedEmailHeaders(undefined, scope),
+  });
+  if (!response.ok) await readJson<never>(response, path);
+  return response;
+}

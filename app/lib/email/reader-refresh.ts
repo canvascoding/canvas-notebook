@@ -2,7 +2,7 @@ export type EmailMessageRevisionInput = {
   attachments?: Array<{
     contentType?: string;
     filename: string;
-    size?: number;
+    size?: number | null;
   }>;
   body?: string;
   bodyHtml?: string;
