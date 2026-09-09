@@ -36,7 +36,7 @@ Die Gegenproben verwenden neutrale Dokumente. Der ursprüngliche private Screens
 
 - Der [CPU-Benchmark](editor-block-performance-block-start-hints.json) prüft sieben Dokumentklassen mit IDs/Inhalten, konkurrierendem Text, binärem Wiederöffnen und unverändernder Validierung. Für 5.000 Absätze: vollständiger Checkpoint etwa 370 ms, Move p95 etwa 15 ms. Das enthält keine DOM-, Netzwerk- oder Datenbankzeiten.
 - Der bestehende Index pro unveränderlichem ProseMirror-Dokument ist ausreichend schnell; zusätzliche Zielindexstrukturen sind bisher nicht begründet.
-- Für die tatsächliche Editor-Bindung einschließlich ProseMirror-/React-Aktualisierung fehlt eine separate Messung. Die Browser-Drop-Latenz bleibt ebenfalls offen.
+- Teilstand 7.16 ergänzt die [tatsächliche Editor-/React-Messung](editor-component-performance.md) in JSDOM mit neun Fällen, sieben Messwerten und zwei Aufwärmrunden. Eine pro Projektion erneuerte Nachfolgerzuordnung senkt den Move bei 5.000 kurzen Absätzen in der Bindung von etwa 924 auf 297 ms und im kollaborativen React-Editor von etwa 1.589 auf 972 ms. Lokaler Move und Mount bleiben unverändert langsam. Die Browser-Drop-Latenz ist damit nicht belegt.
 - 10.000 Moves erhöhen den Binärstand bei 1.000 Absätzen auf etwa 3,2 MiB. Operations-/Receipt-Daten bleiben erhalten. Eine Verdichtung muss eigene Undo-History, Idempotenzbelege und alte Offline-Repliken berücksichtigen; sie ist noch nicht implementiert und darf nicht durch unkontrolliertes Löschen ersetzt werden.
 
 ## Ausgeführte Prüfungen und Reihenfolge
@@ -86,4 +86,6 @@ Teilstand 7.15 besteht mit 14 Tests: zwölf Seed-Folgen mit 864 geplanten Schrit
 
 Der endgültige Teilstand 7.15 besteht außerdem einen frischen vollständigen Produktionsbuild mit TypeScript und 333 Seiten sowie den Test am gebauten Checkpoint-Validator mit beiden verschachtelten Absatzpositionen. Das isolierte DATA bleibt leer; keine Browser, Server oder Container gestartet.
 
-Als Nächstes folgen tatsächliche Binding-Messung und das Langzeitverhalten der Operationsdaten. Die Browserabnahme wartet weiter auf die bereits erfragte explizite Freigabe gemäß `AGENTS.md`. Das ist keine Sperre für diese unabhängigen Code- und Komponentenschritte.
+Teilstand 7.16 besteht Block-Tree/Tabellenpermutationen, Binding/Anker, Seed-Folgen, Container-Rennkombinationen, Befehls-/Menü-/Clipboard-, tatsächliche lokale Lifecycle-, Agentenziel- und Struktur-/Start-Recovery-Prüfungen. Scoped ESLint, der frische vollständige Produktionsbuild mit TypeScript und 333 Seiten und der Test am gebauten Checkpoint-Modul bestehen. GitNexus erfasst die erwarteten acht Dateien; das isolierte DATA bleibt leer. Keine Browser, Server oder Container gestartet.
+
+Die tatsächliche Binding-/Komponentenmessung liegt in Teilstand 7.16 vor; große Dokumente haben weiterhin messbare Latenzen. Weitere Profile, das Langzeitverhalten der Operationsdaten und die Übernahme externer Elternordner-Renames bleiben offen. Die Browserabnahme wartet weiter auf die bereits erfragte explizite Freigabe gemäß `AGENTS.md`.

@@ -308,15 +308,23 @@ export class CollaborationBlockTree {
       let moveIndex = 0;
       let current = this.project();
       for (const [parentId, children] of targetChildren) {
+        let indexedProjection: typeof current | null = null;
+        let successors = new Map<string, string | null>();
         for (let index = children.length - 1; index >= 0; index -= 1) {
           const blockId = children[index];
           const beforeId = children[index + 1] ?? null;
-          const siblings = current.children.get(parentId) ?? [];
+          if (indexedProjection !== current) {
+            const siblings = current.children.get(parentId) ?? [];
+            // Reuse adjacency while checking this unchanged projection. A move
+            // replaces the projection, so the next iteration rebuilds it.
+            successors = new Map(siblings.map((id, offset) => [id, siblings[offset + 1] ?? null]));
+            indexedProjection = current;
+          }
           // New blocks need an explicit placement even when their initial
           // numeric position happens to match. Concurrent insertions can share
           // that position; only the transaction keeps a whole column aligned.
-          if (before.has(blockId) && current.parents.get(blockId) === parentId && siblings.includes(blockId)
-            && (siblings[siblings.indexOf(blockId) + 1] ?? null) === beforeId) continue;
+          if (before.has(blockId) && current.parents.get(blockId) === parentId
+            && successors.get(blockId) === beforeId) continue;
           const id = `${prefix}:move:${moveIndex++}`;
           this.recordOperation({ ...operationStamp(id), kind: 'move', blockId, parentId, beforeId });
           current = this.project();
