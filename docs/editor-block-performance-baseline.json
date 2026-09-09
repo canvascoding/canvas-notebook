@@ -1,0 +1,225 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-09T00:42:35.342Z",
+  "commit": "0c5a1b6b365ce35ec22d164297fe8d3c4197209c",
+  "runtime": {
+    "node": "v26.7.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M1 Max"
+  },
+  "method": {
+    "samples": 15,
+    "warmups": 3,
+    "referenceWarmBatch": 10000,
+    "units": "milliseconds",
+    "scope": "In-process Yjs/ProseMirror CPU work; no DOM, network, database, browser frame or end-to-end drop timing.",
+    "history": "Deterministic persisted alternating moves, initialized outside timed samples; each measured move uses the production API.",
+    "validation": "One complete checkpoint validation per case; no performance pass/fail threshold."
+  },
+  "results": [
+    {
+      "name": "flat-100",
+      "blocks": 100,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 27224,
+      "bytesAfter": 32778,
+      "project": {
+        "p50Ms": 0.06695799999999963,
+        "p95Ms": 0.12433400000008987
+      },
+      "read": {
+        "p50Ms": 0.4045419999999922,
+        "p95Ms": 1.746458999999959
+      },
+      "referenceCold": {
+        "p50Ms": 0.024290999999948326,
+        "p95Ms": 0.05737499999997908
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00005314579999999296,
+        "p95Ms": 0.00006242920000000822
+      },
+      "move": {
+        "p50Ms": 0.31766700000002857,
+        "p95Ms": 0.3673749999999245
+      },
+      "validationMs": 39.51495799999998
+    },
+    {
+      "name": "flat-1000",
+      "blocks": 1000,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 283183,
+      "bytesAfter": 288775,
+      "project": {
+        "p50Ms": 0.36362499999995634,
+        "p95Ms": 0.48700000000008004
+      },
+      "read": {
+        "p50Ms": 2.7958750000000236,
+        "p95Ms": 3.382457999999815
+      },
+      "referenceCold": {
+        "p50Ms": 0.2095409999999447,
+        "p95Ms": 0.44087500000000546
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00005047919999999522,
+        "p95Ms": 0.00006152919999999539
+      },
+      "move": {
+        "p50Ms": 2.855792000000065,
+        "p95Ms": 3.7061660000001666
+      },
+      "validationMs": 217.2684589999999
+    },
+    {
+      "name": "flat-5000",
+      "blocks": 5000,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 1439184,
+      "bytesAfter": 1444776,
+      "project": {
+        "p50Ms": 3.568040999999994,
+        "p95Ms": 5.423500000000104
+      },
+      "read": {
+        "p50Ms": 16.505292000000054,
+        "p95Ms": 18.675792
+      },
+      "referenceCold": {
+        "p50Ms": 1.1428750000000036,
+        "p95Ms": 2.3339999999998327
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000029283399999985704,
+        "p95Ms": 0.00023700830000002496
+      },
+      "move": {
+        "p50Ms": 16.04041700000016,
+        "p95Ms": 18.386417000000165
+      },
+      "validationMs": 4132.397625
+    },
+    {
+      "name": "flat-1000-history-1000",
+      "blocks": 1000,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 578523,
+      "bytesAfter": 584115,
+      "project": {
+        "p50Ms": 1.328708000000006,
+        "p95Ms": 3.1666660000000775
+      },
+      "read": {
+        "p50Ms": 3.6694170000000668,
+        "p95Ms": 4.584374999999454
+      },
+      "referenceCold": {
+        "p50Ms": 0.2937499999998181,
+        "p95Ms": 0.7671250000003056
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000051170899999942776,
+        "p95Ms": 0.00008217500000000655
+      },
+      "move": {
+        "p50Ms": 3.651958999999806,
+        "p95Ms": 5.162374999999884
+      },
+      "validationMs": 214.35804199999984
+    },
+    {
+      "name": "flat-1000-history-10000",
+      "blocks": 1000,
+      "historyBefore": 10000,
+      "historyAfter": 10019,
+      "bytesBefore": 3296524,
+      "bytesAfter": 3302116,
+      "project": {
+        "p50Ms": 8.75054099999943,
+        "p95Ms": 9.539415999999619
+      },
+      "read": {
+        "p50Ms": 10.9984170000007,
+        "p95Ms": 11.360582999999679
+      },
+      "referenceCold": {
+        "p50Ms": 0.18054100000153994,
+        "p95Ms": 0.22875000000021828
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000042970800000148304,
+        "p95Ms": 0.000045912500000122235
+      },
+      "move": {
+        "p50Ms": 10.437375000001339,
+        "p95Ms": 10.969542000000729
+      },
+      "validationMs": 226.77279199999975
+    },
+    {
+      "name": "nested-depth-64",
+      "blocks": 258,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 368308,
+      "bytesAfter": 374012,
+      "project": {
+        "p50Ms": 0.4645410000011907,
+        "p95Ms": 1.4796249999999418
+      },
+      "read": {
+        "p50Ms": 0.8635410000006232,
+        "p95Ms": 1.5918750000000728
+      },
+      "referenceCold": {
+        "p50Ms": 0.0559159999993426,
+        "p95Ms": 0.07479200000125275
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000020850000000064027,
+        "p95Ms": 0.000023404200000004495
+      },
+      "move": {
+        "p50Ms": 0.8462089999993623,
+        "p95Ms": 1.6534580000006827
+      },
+      "validationMs": 35.416166000000885
+    },
+    {
+      "name": "table-80-by-6",
+      "blocks": 1042,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 577666,
+      "bytesAfter": 583426,
+      "project": {
+        "p50Ms": 0.7417909999985568,
+        "p95Ms": 2.19854099999975
+      },
+      "read": {
+        "p50Ms": 2.767208000001119,
+        "p95Ms": 3.459000000000742
+      },
+      "referenceCold": {
+        "p50Ms": 0.2202499999984866,
+        "p95Ms": 0.24995900000067195
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000026274999999986903,
+        "p95Ms": 0.00017961250000007566
+      },
+      "move": {
+        "p50Ms": 2.659417000000758,
+        "p95Ms": 3.4332909999993717
+      },
+      "validationMs": 49.86499999999978
+    }
+  ]
+}
