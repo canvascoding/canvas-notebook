@@ -1,3 +1,4 @@
+import { projectToolOutputBlocks } from '@/app/lib/pi/tool-output-block-budget';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
@@ -64,7 +65,7 @@ export async function prepareAutomationHistoryWithCompaction(
 ): Promise<PreparedAutomationHistory> {
   const toolTokens = estimatePiToolSchemaTokens(input.tools);
   const compose = (selectionMode: 'automatic' | 'hard_limit' | 'full' = 'automatic') => composePiHistoryForLlm({
-    messages: input.messages,
+    messages: projectToolOutputBlocks(input.messages, input.model),
     summary: input.summary,
     systemPromptTokens: input.systemPromptBudgetTokens,
     contextWindow: input.model.contextWindow,

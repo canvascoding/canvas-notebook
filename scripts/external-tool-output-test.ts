@@ -117,7 +117,10 @@ async function main() {
     assert.deepEqual((smallEval.details as { result: unknown }).result, evaluation);
 
     const small = { content: [{ type: 'text' as const, text: 'written' }, { type: 'image' as const, data: 'fixture', mimeType: 'image/png' }], details: { filePath: '/workspace/file.txt', sha256: 'hash', changeId: 'change-123' } };
-    assert.equal(await prepareToolOutput({ identity, toolCallId: 'small', toolName: 'write', result: small }), small);
+    const smallPrepared = await prepareToolOutput({ identity, toolCallId: 'small', toolName: 'write', result: small });
+    assert.deepEqual(smallPrepared.content, small.content);
+    assert.equal((smallPrepared.details as typeof small.details).changeId, small.details.changeId);
+    assert.equal((smallPrepared.details as typeof small.details).sha256, small.details.sha256);
     const noSession = await prepareToolOutput({ identity: null, toolCallId: 'no-session', toolName: 'future-provider', result: { content: [{ type: 'text', text: large }], details: {} } });
     assert.match(text(noSession), /No active session/);
     assert.equal(getToolOutputMetadata(noSession.details)?.references.length, 0);
@@ -153,6 +156,13 @@ async function main() {
     assert.equal(getToolOutputMetadata(failedStorage.details)?.references.length, 0);
     assert.match(text(failedStorage), /Full output unavailable/);
     assert.equal((failedStorage.details as { isError: boolean }).isError, true);
+    const resourceId = 'opaque'.repeat(100);
+    const mutation = await prepareToolOutput({ identity, toolCallId: 'mutation-identifiers', toolName: 'future',
+      result: { content: [{ type: 'text', text: JSON.stringify({ body: large, resourceId, changeId: 'change-123', sha256: 'a'.repeat(64) }) }], details: {} },
+    });
+    assert.ok(text(mutation).includes(resourceId), 'opaque camelCase identifiers are never shortened');
+    assert.match(text(mutation), /change-123/);
+    assert.ok(text(mutation).includes('a'.repeat(64)));
     console.log('external-tool-output-test: ok (mocked providers/page; real storage and adapters)');
   } finally {
     modules._load = originalLoad;

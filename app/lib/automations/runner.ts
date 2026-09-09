@@ -1,5 +1,6 @@
+import { finalizeToolOutputBlocks } from '@/app/lib/pi/tool-output-block-storage';
 
-import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
+import { runAgentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Api, ProviderId } from '@earendil-works/pi-ai';
 
 import {
@@ -641,14 +642,17 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
         let latestProviderSourceMessages: AgentMessage[] | null = null;
         let latestProviderBudgetSnapshot: PiContextBudgetSnapshot | null = null;
-        const prepareExactAutomationPayload = (messages: AgentMessage[]) => preparePiFinalPayload({
-          messages,
-          model,
-          effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
-          effectiveTools: tools || [],
-          requestOutputTokenCap,
-          runtimeContractRevision: 'canvas-pi-automation-v1',
-        }, automationImageNormalizationOptions);
+        const prepareExactAutomationPayload = async (messages: AgentMessage[]) => {
+          await finalizeToolOutputBlocks(messages, model, executionContext);
+          return preparePiFinalPayload({
+            messages,
+            model,
+            effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
+            effectiveTools: tools || [],
+            requestOutputTokenCap,
+            runtimeContractRevision: 'canvas-pi-automation-v1',
+          }, automationImageNormalizationOptions);
+        };
         const recoverAutomationPayload = async (
           sourceMessages: AgentMessage[],
           signal: AbortSignal,
@@ -758,6 +762,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           undefined,
           {
             titleOverride: piSessionTitle,
+            toolOutputModel: model,
             agentId: job.agentId,
             persistedLength: existingMessages.length,
             channelId: deliveryResolution.channelId,
@@ -772,21 +777,23 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
         const loopEvents: string[] = [];
         let loopMessages: AgentMessage[] = [];
-        for await (const event of agentLoop(
+        loopMessages = await runAgentLoop(
           [promptMessage],
           context,
           config,
+          async (event) => {
+            if (loopEvents.length < MAX_EVENTS_LOG) {
+              const json = JSON.stringify(projectAgentEventForExternal(event));
+              loopEvents.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
+            }
+            if (event.type === 'message_end' && !loopMessages.includes(event.message)) {
+              loopMessages.push(event.message);
+              finalMessages = loopMessages;
+            }
+          },
           executionSignal,
           mainRequestStreamFn,
-        )) {
-          if (loopEvents.length < MAX_EVENTS_LOG) {
-            const json = JSON.stringify(projectAgentEventForExternal(event));
-            loopEvents.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
-          }
-          if (event.type === 'agent_end') {
-            loopMessages = event.messages;
-          }
-        }
+        );
         assertAutomationExecutionActive(executionSignal);
         events.push(...loopEvents);
         finalMessages = loopMessages;
@@ -852,6 +859,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             undefined,
             {
               titleOverride: piSessionTitle,
+              toolOutputModel: model,
               agentId: job.agentId,
               persistedLength,
               channelId: deliveryResolution.channelId,
@@ -942,6 +950,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             undefined,
             {
               titleOverride: piSessionTitle,
+              toolOutputModel: model,
               agentId: job.agentId,
               persistedLength,
               channelId: deliveryResolution.channelId,

@@ -14,6 +14,7 @@ import {
 } from '@/app/lib/pi/agent-bash-runtime';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { readTextWindow } from '@/app/lib/pi/text-read-window';
+import { formatTextReadResult } from '@/app/lib/pi/text-read-result';
 import { TOOL_OUTPUT_READ_DEFAULT_CHARACTERS, TOOL_OUTPUT_READ_MAX_CHARACTERS } from '@/app/lib/pi/tool-output-policy';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
@@ -251,11 +252,12 @@ export const piTools: AgentTool[] = [
           ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))
           : collaborative?.sha256 ?? sha256;
         const window = readTextWindow(text, offset, Math.max(2, readTextLimit));
-        const range = `Offset: ${window.offset}; nextOffset: ${window.nextOffset}; totalChars: ${window.totalChars}; eof: ${window.eof}`;
+        const formatted = formatTextReadResult(window.text, window, textSha256,
+          collaborativeScene ? '\nSource: live Excalidraw collaboration scene' : collaborative ? '\nSource: live Yjs collaboration state' : '');
         return {
           content: [{
             type: 'text',
-            text: `SHA-256: ${textSha256}${collaborativeScene ? '\nSource: live Excalidraw collaboration scene' : collaborative ? '\nSource: live Yjs collaboration state' : ''}\n${range}\n\n${window.text}${!window.eof ? `\n[...content truncated after ${window.nextOffset - window.offset} characters; continue with read using nextOffset]` : ''}`,
+            text: formatted.text,
           }],
           details: {
             filePath,
@@ -268,6 +270,7 @@ export const piTools: AgentTool[] = [
             nextOffset: window.nextOffset,
             eof: window.eof,
             totalChars: window.totalChars,
+            toolOutputReadWindow: formatted.layout,
             ...(isStoredOutput ? { toolOutputRead: true, reference: filePath } : {}),
             collaboration: collaborativeScene
               ? {

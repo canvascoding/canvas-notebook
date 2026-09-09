@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { finalizeToolOutputBlocks } from './tool-output-block-storage';
+import { getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from './context-budget';
 import type { AgentContext, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
@@ -407,7 +409,7 @@ async function resolveEphemeralTools(
   return filterToolsToAllowedNames(allTools, allowedToolNames);
 }
 
-async function runEphemeralWorker(params: {
+export async function runEphemeralWorker(params: {
   request: DelegateTaskRequest;
   sessionId: string;
   promptMessage: Extract<AgentMessage, { role: 'user' }>;
@@ -421,6 +423,8 @@ async function runEphemeralWorker(params: {
   let finalMessages: AgentMessage[] = [params.promptMessage];
   const provider = params.runtime.selection.selection.providerId;
   const model = params.runtime.model;
+  const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
+  let effectiveSystemPrompt = params.systemPrompt;
   const persistFinalMessages = async () => {
     const persistedLength = finalMessages[0]?.role === 'user' ? 1 : 0;
     await savePiSession(
@@ -434,12 +438,13 @@ async function runEphemeralWorker(params: {
         titleOverride: buildEphemeralSessionTitle(params.request.goal),
         agentId: params.request.sourceAgentId,
         persistedLength,
+        toolOutputModel: model,
       },
     );
   };
 
   try {
-    const { agentLoop } = await import('@earendil-works/pi-agent-core');
+    const { runAgentLoop } = await import('@earendil-works/pi-agent-core');
     const context: AgentContext = {
       systemPrompt: params.systemPrompt,
       messages: [],
@@ -449,10 +454,11 @@ async function runEphemeralWorker(params: {
       model,
       thinkingLevel: params.runtime.selection.selection.thinkingLevel as ThinkingLevel,
       convertToLlm: async (messages: AgentMessage[]) => {
-        const { prepareMessagesForEffectiveModel } = await import('@/app/lib/pi/multimodal-preparation');
-        return prepareMessagesForEffectiveModel(
-          messages,
-          model,
+        const { preparePiFinalPayload } = await import('@/app/lib/pi/multimodal-preparation');
+        await finalizeToolOutputBlocks(messages, model, params.executionContext);
+        const prepared = await preparePiFinalPayload(
+          { messages, model, effectiveInstructions: [{ role: 'system', content: effectiveSystemPrompt }],
+            effectiveTools: params.tools, requestOutputTokenCap, runtimeContractRevision: 'canvas-pi-delegation-v1' },
           {
             workspaceImageRoot: params.executionContext.workspaceRoot,
             allowedImageFileRoots: [params.executionContext.workspaceRoot],
@@ -460,36 +466,37 @@ async function runEphemeralWorker(params: {
             uploadWorkspaceId: params.executionContext.workspaceId,
           },
         );
+        if (prepared.budgetSnapshot.contextBudgetExceeded || prepared.budgetSnapshot.payloadBudgetExceeded) {
+          throw new Error('Delegated worker payload exceeds the selected model context or transfer budget.');
+        }
+        return prepared.messages;
       },
       prepareNextTurn: async (turnContext: { context: AgentContext }) => {
         const nextWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
           workspaceId: params.executionContext.workspaceId,
           rootPath: params.executionContext.workspaceRoot,
         });
+        effectiveSystemPrompt = replaceWorkspaceFileTreePromptBlock(params.baseSystemPrompt, nextWorkspaceFileTree.promptBlock);
         return {
           context: {
             ...turnContext.context,
-            systemPrompt: replaceWorkspaceFileTreePromptBlock(
-              params.baseSystemPrompt,
-              nextWorkspaceFileTree.promptBlock,
-            ),
+            systemPrompt: effectiveSystemPrompt,
           },
         };
       },
       sessionId: params.sessionId,
     };
 
-    for await (const event of agentLoop(
+    finalMessages = await runAgentLoop(
       [params.promptMessage],
       context,
       config,
+      async (event) => {
+        if (event.type === 'message_end' && !finalMessages.includes(event.message)) finalMessages.push(event.message);
+      },
       params.signal,
-      params.runtime.streamFn,
-    )) {
-      if (event.type === 'agent_end') {
-        finalMessages = event.messages;
-      }
-    }
+      withPiRequestOutputTokenCap(params.runtime.streamFn, requestOutputTokenCap),
+    );
 
     await persistFinalMessages();
 

@@ -519,12 +519,13 @@ async function normalizePiMessage(
     // This prevents context explosion when tools like 'ls' list many image files
     // Images should only be included when explicitly returned by the tool (e.g., read tool)
     const normalizedContent = await normalizeImageArray(message.content, false, options);
-    return normalizedContent === message.content
-      ? (message as ToolResultMessage)
-      : {
-          ...message,
-          content: normalizedContent,
-        };
+    // UI/store metadata and tool execution usage are not provider input. Keep
+    // deferred-tool activation, which providers do consume at this boundary.
+    return {
+      role: 'toolResult', toolCallId: message.toolCallId, toolName: message.toolName,
+      content: normalizedContent, isError: message.isError, timestamp: message.timestamp,
+      ...(message.addedToolNames ? { addedToolNames: message.addedToolNames } : {}),
+    } satisfies ToolResultMessage;
   }
 
   return message as Message;

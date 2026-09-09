@@ -1,4 +1,5 @@
 import { readTextWindow } from './text-read-window';
+import type { ToolOutputMetadata } from './tool-output-metadata';
 
 export type WebOutputSource = {
   title: string;
@@ -57,7 +58,7 @@ export function formatWebSourceList(sources: WebOutputSource[], options: {
   maxChars: number;
   maxContentChars: number;
   sourceCount?: number;
-}): { text: string; shownCount: number; omittedCount: number; truncated: boolean } {
+}): { text: string; shownCount: number; omittedCount: number; truncated: boolean; layout: NonNullable<ToolOutputMetadata['webLayout']> } {
   const shown = sources.slice(0, options.kind === 'search' ? 20 : 10);
   const sourceCount = Math.max(sources.length, options.sourceCount ?? sources.length);
   const omittedCount = Math.max(0, sourceCount - shown.length);
@@ -97,6 +98,8 @@ export function formatWebSourceList(sources: WebOutputSource[], options: {
     : shown.map(() => options.maxContentChars);
   const allocation = fairAllocation(bodies.map((body, i) => Math.min(body.length, perSourceLimit[i])), options.maxChars - metadataSize());
   let truncated = omittedCount > 0;
+  const layout: NonNullable<ToolOutputMetadata['webLayout']> = { headerEnd: header.length, sources: [] };
+  let position = header.length;
   const text = header + metadata.map((meta, index) => {
     const source = shown[index];
     const shortened = bodies[index].length > allocation[index]
@@ -104,7 +107,11 @@ export function formatWebSourceList(sources: WebOutputSource[], options: {
       || source.title.length > titleLimit || source.url.length > urlLimit;
     if (shortened) truncated = true;
     const body = headTailToolText(bodies[index], allocation[index]);
-    return meta.slice(0, -excerptLabel.length) + `Excerpt (${String(allocation[index]).padStart(4, ' ')} chars max): ` + body + '\n';
+    const prefix = meta.slice(0, -excerptLabel.length) + `Excerpt (${String(allocation[index]).padStart(4, ' ')} chars max): `;
+    layout.sources.push({ start: position, bodyStart: position + prefix.length, end: position + prefix.length + body.length,
+      ...(options.kind === 'pages' ? { status: source.error ? 'failed' : String(source.statusCode ?? 'ok') } : {}) });
+    position += prefix.length + body.length + 1;
+    return prefix + body + '\n';
   }).join('');
-  return { text, shownCount: shown.length, omittedCount, truncated };
+  return { text, shownCount: shown.length, omittedCount, truncated, layout };
 }

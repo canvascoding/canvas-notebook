@@ -22,6 +22,11 @@ export type ToolOutputMetadata = {
   shownCount?: number;
   omittedCount?: number;
   excerpted?: boolean;
+  outcomeFields?: Record<string, unknown>;
+  webLayout?: {
+    headerEnd: number;
+    sources: Array<{ start: number; bodyStart: number; end: number; status?: string; referenceIndex?: number }>;
+  };
 };
 
 export function getToolOutputMetadata(details: unknown): ToolOutputMetadata | null {

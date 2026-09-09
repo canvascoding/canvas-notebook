@@ -31,7 +31,8 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
-import { projectAgentMessageForLoadedContext } from '@/app/lib/pi/message-projection';
+import { projectToolOutputBlocks } from '@/app/lib/pi/tool-output-block-budget';
+import { finalizeToolOutputBlocks } from '@/app/lib/pi/tool-output-block-storage';
 import { createPiRuntimeContextStatusProjection } from '@/app/lib/pi/runtime-context-status';
 import { ContextStatusMeasurementCache, measurePiContextStatus } from '@/app/lib/pi/context-status-measurement';
 import { measureStoredPiContextStatus } from '@/app/lib/pi/stored-context-measurement';
@@ -630,7 +631,7 @@ export class LivePiRuntime {
       // Match live preflight (and persisted-context loading) before the byte
       // guard, so huge raw tool text cannot masquerade as a current overflow.
       const composition = this.composeHistory(
-        messages.map((message) => projectAgentMessageForLoadedContext(message, 'context')),
+        projectToolOutputBlocks(messages, this.model),
         this.getBrowserRuntimeContextTokenEstimate(),
         'full',
       );
@@ -2218,8 +2219,9 @@ export class LivePiRuntime {
     // Raw MCP results may be enormous but are already bounded for model input.
     // Automatic selection here would drop uncovered messages based on raw size,
     // forcing compaction even when the complete normalized request fits easily.
-    // Keep originals for persistence/summary generation; never mutate agent state.
-    const contextMessages = messages.map((message) => projectAgentMessageForLoadedContext(message, 'context'));
+    // Keep base contents for persistence/summary generation. Finalization attaches
+    // only stable views and references to the completed result metadata.
+    const contextMessages = await finalizeToolOutputBlocks(messages, this.model, this.executionContext);
     const projection = this.projectHistory(contextMessages, additionalContextTokens, 'full');
     const preflight = projection.composition;
     const projectedCandidate = await this.injectRuntimeContext(preflight.llmMessages, runtimeContext);
@@ -2701,6 +2703,7 @@ export class LivePiRuntime {
         {
           agentId: this.agentId,
           persistedLength: startIndex,
+          toolOutputModel: this.model,
           expectedSummaryRevision: this.summary.summaryRevision,
         },
       );

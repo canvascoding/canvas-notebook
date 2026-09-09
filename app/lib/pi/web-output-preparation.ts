@@ -64,5 +64,10 @@ export async function prepareWebToolOutput(input: {
   metadata.shownCount = formatted.shownCount;
   metadata.omittedCount = formatted.omittedCount;
   metadata.excerpted = formatted.truncated;
+  metadata.webLayout = formatted.layout;
+  metadata.webLayout.sources.forEach((row, index) => {
+    const referenceIndex = metadata.references.findIndex(reference => reference.reference === sources[index].reference);
+    if (referenceIndex >= 0) row.referenceIndex = referenceIndex;
+  });
   return markPreparedToolOutput({ content: [{ type: 'text' as const, text }], details: { toolOutput: metadata } });
 }

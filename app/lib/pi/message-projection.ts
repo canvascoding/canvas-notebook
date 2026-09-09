@@ -1,4 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { resizeTextReadResult } from './text-read-result';
 
 export type PiMessageProjectionMode = 'raw' | 'context' | 'display';
 
@@ -216,7 +217,15 @@ export function projectAgentMessageForLoadedContext(
 ): AgentMessage {
   if (mode === 'raw') return message;
   if (message.role === 'toolResult') {
-    return compactToolResultMessage(message, mode, rawContentLength);
+    const ranged = resizeTextReadResult(message, getTextLimit(mode)) ?? message;
+    const projected = compactToolResultMessage(ranged, mode, rawContentLength);
+    const view = (message.details as { toolOutputView?: unknown } | undefined)?.toolOutputView;
+    // A server-created view is bounded independently; legacy details truncation
+    // must not silently corrupt its text or its exact pagination coordinates.
+    if (view && mode === 'context') return { ...projected, details: {
+      ...(projected as { details?: Record<string, unknown> }).details, toolOutputView: view,
+    } } as AgentMessage;
+    return projected;
   }
   return compactInlineImagesForProjection(message, mode, rawContentLength);
 }

@@ -1,3 +1,5 @@
+import { finalizeToolOutputBlocksForPersistence } from './tool-output-block-storage';
+import type { ToolOutputBudgetModel } from './tool-output-block-budget';
 import { db, openDb, type SqlConnection } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { toDatabaseTimestamp } from '../db/timestamps';
@@ -358,6 +360,7 @@ export async function savePiSession(
     runtimeSnapshot?: AiSessionRuntimeSnapshot;
     systemPromptSnapshot?: PiSystemPromptSnapshot;
     expectedSummaryRevision?: number;
+    toolOutputModel?: ToolOutputBudgetModel;
   },
 ): Promise<PiSessionSaveResult> {
   const agentId = resolveSessionAgentId(options?.agentId);
@@ -484,6 +487,14 @@ export async function savePiSession(
     isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
     outboundAt: lastMessageAt,
   });
+
+  if (options?.toolOutputModel) {
+    const owned = session ?? await findUnambiguousOwnedPiSessionForRuntime({ sessionId, userId });
+    await finalizeToolOutputBlocksForPersistence(messages, options.toolOutputModel, owned ? {
+      sessionId, userId, organizationId: owned.organizationId,
+      ...(owned.workspaceId ? { workspaceId: owned.workspaceId } : {}),
+    } : null);
+  }
 
   const projectedNewMessages = newMessages.map((message, index) => ({
     role: message.role,

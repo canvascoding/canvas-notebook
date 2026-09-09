@@ -1,3 +1,4 @@
+import { projectToolOutputBlocks } from '../tool-output-block-budget';
 /**
  * Runtime integration for the Hermes-derived compaction capabilities.
  * The engine is shared by live chat and automations; persistence and locking
@@ -187,12 +188,13 @@ export type PiHermesHistoryProjection = Readonly<{
 export function projectPiHermesHistory(
   input: ProjectPiHermesHistoryInput,
 ): PiHermesHistoryProjection {
+  const messages = projectToolOutputBlocks(input.messages, input.model);
   const policy = validatePiContextBudgetPolicy(
     input.policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
   );
   const rollout = getPiCompactionRolloutDecision(input.rolloutMode);
   const inspection = inspectPiRuntimeCompactionPressure({
-    messages: input.messages,
+    messages,
     model: input.model,
     outputReserveTokens: input.requestOutputTokens,
     fixedRequestTokens:
@@ -203,7 +205,7 @@ export function projectPiHermesHistory(
     policy,
   });
   const pruning = prunePiSessionHistory({
-    messages: input.messages,
+    messages,
     estimateMessageTokens: estimatePiMessageTokens,
     enabled: rollout.pruningEnabled && input.pruningMode === 'candidate',
     protectLastMessages: policy.protectLastMessages,

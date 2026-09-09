@@ -3,7 +3,7 @@
  * independent from a provider's own request limits: the store is the final
  * safeguard for data that is offered for later, session-scoped reading.
  */
-export const TOOL_OUTPUT_POLICY_VERSION = 'phase2-v1';
+export const TOOL_OUTPUT_POLICY_VERSION = 'tool-output-v1';
 
 export const MAX_TOOL_OUTPUT_FILE_BYTES = 4 * 1024 * 1024;
 export const MAX_TOOL_OUTPUT_SESSION_BYTES = 64 * 1024 * 1024;
