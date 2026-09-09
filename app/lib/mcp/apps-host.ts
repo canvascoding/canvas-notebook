@@ -6,9 +6,8 @@ import { db } from '@/app/lib/db';
 import { piSessions, session as authSessions } from '@/app/lib/db/schema';
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
-import { htmlPreviewOrigins, isHtmlPreviewHost } from '@/app/lib/html-preview-origin';
 import { assertMcpConnectionAccess, McpAccessError } from '@/app/lib/mcp/access';
-import { isMcpAppsEnabled } from '@/app/lib/mcp/apps-config';
+import { isMcpAppFrameHost, isMcpAppsEnabled, mcpAppOrigins } from '@/app/lib/mcp/apps-config';
 import { isMcpAppResourceMimeType } from '@/app/lib/mcp/apps-metadata';
 import { readMcpAppResource } from '@/app/lib/mcp/manager';
 import type { McpAppInvocationDetails } from '@/app/lib/mcp/apps-types';
@@ -87,8 +86,8 @@ export async function issueMcpAppTicket(input: McpAppChat & {
     authSessionId: input.authSessionId, app: input.app, workspaceId,
     authVersion: connection.authVersion ?? 1, html: content.text, expiresAt,
   });
-  const { previewOrigin } = htmlPreviewOrigins();
-  return { frameUrl: `${previewOrigin}/__preview/${ticket}/mcp-app/frame`, frameOrigin: previewOrigin };
+  const { frameOrigin } = mcpAppOrigins();
+  return { frameUrl: `${frameOrigin}/__preview/${ticket}/mcp-app/frame`, frameOrigin };
 }
 
 async function resolveMcpAppTicket(ticket: string): Promise<AppTicket | null> {
@@ -114,9 +113,9 @@ const privateHeaders = {
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), clipboard-read=(), clipboard-write=()',
 };
 
-/** Trusted relay on the preview origin; the app itself has an opaque sandbox origin. */
+/** Trusted Canvas relay; the provider app itself has an opaque sandbox origin. */
 export function buildMcpAppSandboxDocument(canvasOrigin: string, documentPath: string, nonce: string): string {
-  // This relay is the preview-origin iframe. Its parent is the Canvas page, so
+  // This relay is trusted Canvas code. Its parent is the Canvas page, so
   // incoming parent messages and replies are intentionally bound to Canvas's
   // application origin. The nested app document below has an opaque origin.
   const config = JSON.stringify({ canvasOrigin, documentPath }).replace(/</gu, '\\u003c');
@@ -137,15 +136,16 @@ export function buildMcpAppSandboxDocument(canvasOrigin: string, documentPath: s
 
 export async function deliverMcpAppTicket(request: Request, ticket: string, mode: string): Promise<Response> {
   const unavailable = () => new Response(null, { status: 404, headers: privateHeaders });
-  if (!isHtmlPreviewHost(request.headers.get('host')) || !['frame', 'document'].includes(mode)) return unavailable();
+  if (!isMcpAppFrameHost(request.headers.get('host')) || !['frame', 'document'].includes(mode)) return unavailable();
   try {
     const record = await resolveMcpAppTicket(ticket);
     if (!record) return unavailable();
-    const { appOrigin, previewOrigin } = htmlPreviewOrigins();
+    const { appOrigin, frameOrigin } = mcpAppOrigins();
+    const frameAncestors = [...new Set([appOrigin, frameOrigin])].join(' ');
     const nonce = randomBytes(18).toString('base64');
     const csp = mode === 'frame'
       ? `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; frame-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${appOrigin}; sandbox allow-scripts allow-same-origin`
-      : `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${appOrigin} ${previewOrigin}; sandbox allow-scripts`;
+      : `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors ${frameAncestors}; sandbox allow-scripts`;
     const body = mode === 'frame'
       ? buildMcpAppSandboxDocument(appOrigin, `/__preview/${ticket}/mcp-app/document`, nonce) : record.html;
     return new Response(body, { headers: { ...privateHeaders, 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': csp } });

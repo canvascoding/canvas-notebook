@@ -46,7 +46,11 @@ moduleInternals._load = (request, parent, isMain) => {
     requireMcpUserAccess: async () => undefined,
     assertMcpConnectionAccess: async () => ({ connection: { authVersion } }),
   };
-  if (request.includes('mcp/apps-config')) return { isMcpAppsEnabled: () => enabled };
+  if (request.includes('mcp/apps-config')) return {
+    isMcpAppsEnabled: () => enabled,
+    mcpAppOrigins: () => ({ appOrigin: origin, frameOrigin: origin }),
+    isMcpAppFrameHost: (host: string | null) => host === 'localhost:3000',
+  };
   if (request.includes('mcp/apps-metadata')) return { isMcpAppResourceMimeType: (mime: unknown) => mime === 'text/html;profile=mcp-app' };
   if (request.includes('mcp/manager')) return {
     readMcpAppResource: async () => ({ contents: [{ uri: app.resourceUri, mimeType: 'text/html;profile=mcp-app', text: html }] }),
@@ -69,9 +73,10 @@ async function main(): Promise<void> {
   try {
     assert.throws(() => parseMcpAppDescriptor({ ...app, connectionId: 'bad' }), FixtureAccessError);
     const issued = await issueMcpAppTicket({ userId, sessionId, agentId, app, authSessionId: 'auth-1', authSessionExpiresAt: new Date(Date.now() + 60_000) });
+    assert.equal(issued.frameOrigin, origin);
     const ticket = issued.frameUrl.split('/')[4];
     assert.ok(ticket);
-    const frame = await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'preview.localhost:3000' } }), ticket, 'frame');
+    const frame = await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'localhost:3000' } }), ticket, 'frame');
     assert.equal(frame.status, 200);
     assert.match(frame.headers.get('content-security-policy') || '', /sandbox allow-scripts allow-same-origin/);
     assert.match(frame.headers.get('content-security-policy') || '', /frame-ancestors http:\/\/localhost:3000/);
@@ -82,17 +87,17 @@ async function main(): Promise<void> {
     assert.match(frameHtml, /http:\/\/localhost:3000/);
     assert.doesNotMatch(frameHtml, /config\.appOrigin/);
     assert.match(frameHtml, /frame\.sandbox='allow-scripts'/);
-    const document = await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'preview.localhost:3000' } }), ticket, 'document');
+    const document = await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'localhost:3000' } }), ticket, 'document');
     assert.equal(document.status, 200);
     assert.match(document.headers.get('content-security-policy') || '', /sandbox allow-scripts$/);
-    assert.equal(await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'localhost:3000' } }), ticket, 'frame').then((r) => r.status), 404);
-    assert.equal(await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'preview.localhost:3000' } }), 'bad', 'frame').then((r) => r.status), 404);
+    assert.equal(await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'preview.localhost:3000' } }), ticket, 'frame').then((r) => r.status), 404);
+    assert.equal(await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'localhost:3000' } }), 'bad', 'frame').then((r) => r.status), 404);
     authVersion += 1;
-    assert.equal(await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'preview.localhost:3000' } }), ticket, 'document').then((r) => r.status), 404);
+    assert.equal(await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'localhost:3000' } }), ticket, 'document').then((r) => r.status), 404);
     authVersion = 1;
     const revoked = await issueMcpAppTicket({ userId, sessionId, agentId, app, authSessionId: 'auth-1', authSessionExpiresAt: new Date(Date.now() + 60_000) });
     authSessionActive = false;
-    assert.equal(await deliverMcpAppTicket(new Request(revoked.frameUrl, { headers: { host: 'preview.localhost:3000' } }), revoked.frameUrl.split('/')[4], 'frame').then((r) => r.status), 404);
+    assert.equal(await deliverMcpAppTicket(new Request(revoked.frameUrl, { headers: { host: 'localhost:3000' } }), revoked.frameUrl.split('/')[4], 'frame').then((r) => r.status), 404);
     authSessionActive = true;
 
     let response = await POST(request({ action: 'call', app, sessionId, agentId, tool: 'submit_chart_filter', arguments: { minimum: 2 } }));

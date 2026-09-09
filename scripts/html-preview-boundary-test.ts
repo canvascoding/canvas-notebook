@@ -43,12 +43,17 @@ async function main() {
     }
     const post=await send(base+'/__preview/'+token+'/index.html',{method:'POST',headers:{host:previewHost}});
     assert.equal(post.status,404);await post.arrayBuffer();
+    const sameOriginMcp=await send(base+'/__preview/'+token+'/mcp-app/frame',{headers:{host:'app.example.test',cookie:'fixture'}});
+    assert.equal(sameOriginMcp.status,200);
+    assert.deepEqual(await sameOriginMcp.json(),{cookie:'fixture',authorization:null,internal:null});
+    const sameOriginMcpPost=await send(base+'/__preview/'+token+'/mcp-app/frame',{method:'POST',headers:{host:'app.example.test'}});
+    assert.equal(sameOriginMcpPost.status,404);await sameOriginMcpPost.arrayBuffer();
+    const sameOriginGeneric=await send(base+'/__preview/'+token+'/index.html',{headers:{host:'app.example.test'}});
+    assert.equal(sameOriginGeneric.status,404);await sameOriginGeneric.arrayBuffer();
     for(const headers of [{origin:'https://'+previewHost},{origin:'null'},{cookie:'fixture','sec-fetch-site':'same-site'},{cookie:'fixture','sec-fetch-site':'cross-site'}]) {
       const response=await send(base+'/api/files/write',{method:'POST',headers:{host:'app.example.test',...headers}});
       assert.equal(response.status,403);await response.arrayBuffer();
     }
-    const wrongHost=await send(base+'/__preview/'+token+'/index.html',{headers:{host:'app.example.test'}});
-    assert.equal(wrongHost.status,404);await wrongHost.arrayBuffer();
     for(const configured of ['https://app.example.test','http://192.0.2.1']) {
       process.env.BETTER_AUTH_BASE_URL=configured;
       const response=await send(base+'/api/health',{headers:{host:'app.example.test'}});

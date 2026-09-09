@@ -55,8 +55,8 @@ export function McpAppWidget({ descriptor, input, result, sessionId, agentId }: 
         return;
       }
       const url = new URL(body.data.frameUrl);
-      if (url.origin !== body.data.frameOrigin || url.hostname === window.location.hostname
-        || !['http:', 'https:'].includes(url.protocol) || (window.location.protocol === 'https:' && url.protocol !== 'https:')
+      if (url.origin !== body.data.frameOrigin || !['http:', 'https:'].includes(url.protocol)
+        || (window.location.protocol === 'https:' && url.protocol !== 'https:')
         || !/^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/frame$/u.test(url.pathname) || url.search || url.hash || url.username || url.password) throw new Error();
       setFrame({ url: url.href, origin: url.origin });
     }).catch(() => { if (!abort.signal.aborted) setError('unavailable'); });

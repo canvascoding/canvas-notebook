@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { McpAccessError, mcpErrorStatus, requireMcpUserAccess } from '@/app/lib/mcp/access';
-import { isMcpAppsEnabled } from '@/app/lib/mcp/apps-config';
+import { isMcpAppsEnabled, mcpAppOrigins } from '@/app/lib/mcp/apps-config';
 import { issueMcpAppTicket, parseMcpAppDescriptor, requireMcpAppChatAccess } from '@/app/lib/mcp/apps-host';
 import { callMcpAppTool } from '@/app/lib/mcp/manager';
 import { mcpReconnectDetails } from '@/app/lib/mcp/connection-health';
-import { htmlPreviewOrigins } from '@/app/lib/html-preview-origin';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -39,7 +38,7 @@ export async function POST(request: Request) {
   let connectionId: string | undefined;
   let userId: string | undefined;
   try {
-    if (request.headers.get('origin') !== htmlPreviewOrigins().appOrigin) throw new McpAccessError('Cross-origin app access is not allowed.', 403);
+    if (request.headers.get('origin') !== mcpAppOrigins().appOrigin) throw new McpAccessError('Cross-origin app access is not allowed.', 403);
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) throw new McpAccessError('Sign in to use MCP apps.', 401);
     userId = session.user.id;

@@ -134,7 +134,7 @@
     "test:mcp:oauth": "tsx --conditions react-server scripts/mcp-oauth-test.ts",
     "test:mcp:member-access": "tsx --conditions react-server scripts/mcp-member-access-test.ts",
     "test:mcp:apps": "tsx --conditions react-server scripts/mcp-apps-test.ts",
-    "test:mcp:apps-host": "tsx --conditions react-server scripts/mcp-apps-host-test.ts",
+    "test:mcp:apps-host": "tsx --conditions react-server scripts/mcp-apps-config-test.ts && tsx --conditions react-server scripts/mcp-apps-host-test.ts",
     "test:mcp:message-projection": "tsx --conditions react-server scripts/mcp-message-projection-test.ts",
     "test:mcp:api-routes": "tsx --conditions react-server scripts/mcp-api-routes-test.ts",
     "test:mcp:health": "tsx --conditions react-server scripts/mcp-connection-health-test.ts && tsx --conditions react-server scripts/mcp-health-monitor-test.ts",

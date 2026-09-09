@@ -1,17 +1,22 @@
 # MCP Apps security model
 
-Interactive MCP Apps are disabled by default. They are enabled only when
-`CANVAS_MCP_APPS_ENABLED=true` and Canvas can resolve its isolated HTML preview
-origin. If either condition is absent, the app API returns `404`.
+Interactive MCP Apps work after a normal Canvas update without additional DNS,
+subdomains, proxy routes, or environment settings. Set
+`CANVAS_MCP_APPS_ENABLED=false` only when an operator wants to disable them; the
+app API then returns `404`.
 
 ## Activation and routing
 
-Set `CANVAS_MCP_APPS_ENABLED=true` and configure a distinct preview origin, for
-example `CANVAS_HTML_PREVIEW_ORIGIN=https://preview.example.test`. The Canvas
-application origin comes from `BASE_URL` or `BETTER_AUTH_BASE_URL`. The preview
-host must route its `__preview/.../mcp-app/...` requests to the same Canvas
-server and process that issued the ticket; tickets are in memory, so a process
-restart invalidates them.
+By default, Canvas serves its fixed MCP relay through the normal application
+origin from `BASE_URL` or `BETTER_AUTH_BASE_URL`. The untrusted provider HTML
+does not inherit that origin: the relay places it in a nested iframe with a
+browser-enforced opaque origin and a restrictive CSP.
+
+An existing explicit `CANVAS_HTML_PREVIEW_ORIGIN` is still honored and adds a
+separate origin around the trusted relay. This is optional defense in depth for
+operators that already have the DNS and proxy route; MCP Apps do not require it.
+Both modes route `__preview/.../mcp-app/...` to the same Canvas process that
+issued the ticket. Tickets are in memory, so a process restart invalidates them.
 
 ## Eligibility and metadata
 
@@ -33,23 +38,24 @@ session and agent with current workspace `canRead` and `canRunAgent` access.
 It also checks the app connection for that same user before reading its
 resource. App HTML is limited to 2 MiB.
 
-Canvas returns a short-lived ticket URL on the isolated preview origin. Tickets
-expire after five minutes (or earlier with the login session), are kept only in
-process memory, and are limited to eight per user and 32 globally. Ticket use
-rechecks the login session, current connection authorization version, chat
-ownership, agent access, and workspace access.
+Canvas returns a short-lived ticket URL on its configured MCP frame origin.
+Tickets expire after five minutes (or earlier with the login session), are kept
+only in process memory, and are limited to eight per user and 32 globally.
+Ticket use rechecks the login session, current connection authorization version,
+chat ownership, agent access, and workspace access.
 
-The outer preview document is a relay. It embeds the app document in a nested
-`allow-scripts` sandbox, leaving the inner document with an opaque origin. The
-outer frame is limited to Canvas as an ancestor; the inner CSP permits no
-network connections, frames, workers, objects, forms, or external media/fonts.
+The outer document is fixed Canvas relay code. It embeds the provider document
+in a nested `allow-scripts` sandbox, leaving the inner document with an opaque
+origin. The outer frame is limited to Canvas as an ancestor; provider HTML is
+never inserted into that same-origin relay. The inner CSP permits no network
+connections, frames, workers, objects, forms, or external media/fonts.
 This also denies network access to domains an app might declare. Both layers
 use `no-referrer`; the browser permissions policy disables camera, microphone,
 geolocation, payment, USB, and clipboard access.
 
 Bridge messages are JSON-RPC objects only and are size capped at 2 MiB in the
 relay. The browser transport binds messages to the rendered iframe window and
-the ticket's preview origin. Canvas does not retain raw bridge message logs.
+the ticket's frame origin. Canvas does not retain raw bridge message logs.
 
 ## Tool calls and approvals
 

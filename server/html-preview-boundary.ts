@@ -1,6 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { htmlPreviewOrigins, isHtmlPreviewHost } from '../app/lib/html-preview-origin';
 
+const mcpAppPath = /^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/(?:frame|document)$/u;
+
 /** Preview vhosts never expose the app router or receive its credentials. */
 export function handleHtmlPreviewBoundary(request: IncomingMessage, response: ServerResponse): boolean {
   const pathname=new URL(request.url || '/', 'http://localhost').pathname;
@@ -11,6 +13,9 @@ export function handleHtmlPreviewBoundary(request: IncomingMessage, response: Se
     if(['GET','HEAD'].includes(request.method || '') && /^\/__preview\/[A-Za-z0-9_-]{43}\//u.test(pathname)) return false;
     response.writeHead(404,{'Cache-Control':'no-store'});response.end();return true;
   }
+  // The trusted MCP relay may use the normal app origin. The route handler
+  // still validates the configured frame host, ticket, login and ownership.
+  if (['GET','HEAD'].includes(request.method || '') && mcpAppPath.test(pathname)) return false;
   if (pathname.startsWith('/__preview/')) {
     response.writeHead(404,{'Cache-Control':'no-store'});response.end();return true;
   }
