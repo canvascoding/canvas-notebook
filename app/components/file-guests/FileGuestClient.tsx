@@ -71,7 +71,7 @@ export function FileGuestClient({ invitationId }: { invitationId: string }) {
     catch { setError('Abmelden fehlgeschlagen. Bitte erneut versuchen.'); }
     finally { setBusy(false); }
   };
-  return <main className="min-h-dvh bg-muted/30 px-4 pb-8 text-foreground sm:px-8">
+  return <main className="h-dvh overflow-y-auto bg-muted/30 px-4 pb-8 text-foreground sm:px-8">
     <header className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 py-6">
       <Link href="/" className="flex items-center gap-2 font-semibold tracking-tight"><FileText className="size-5" aria-hidden="true" />Canvas Notebook</Link>
       <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><LockKeyhole className="size-3.5" aria-hidden="true" />Persönlicher Dateizugang</span>

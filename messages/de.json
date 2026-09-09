@@ -507,6 +507,11 @@
       "embed": "Dokument einbetten",
       "embedHint": "Den Inhalt des verknüpften Workspace-Dokuments direkt anzeigen."
     },
+    "editorGuest": {
+      "linkDescription": "Füge einen Weblink in das geteilte Dokument ein.",
+      "imageSourceHint": "Füge eine HTTPS-Bildadresse oder den Pfad eines für diese Datei freigegebenen Bildes ein.",
+      "imageUnavailable": "Dieses Bild ist nicht freigegeben. Verwende eine HTTPS-Bildadresse oder ein freigegebenes Bild."
+    },
     "editorImage": {
       "tools": "Bildwerkzeuge",
       "resize": "Bildgröße ändern",

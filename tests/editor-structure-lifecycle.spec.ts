@@ -66,6 +66,7 @@ test.describe('Block and document identity through browser lifecycles', () => {
         await expect.poll(() => tree(peer)).toEqual(afterDelete);
         await expect(page.getByTestId('markdown-save-state')).toContainText('File checkpoint current');
         await page.reload({ waitUntil: 'domcontentloaded' });
+        await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
         await expect.poll(() => tree(page)).toEqual(afterDelete);
       } finally {
         await peerContext.close();

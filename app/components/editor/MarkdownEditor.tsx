@@ -23,6 +23,7 @@ import { Link } from '@tiptap/extension-link';
 import { Mathematics } from '@tiptap/extension-mathematics';
 import { CanvasImage as Image } from '@/app/lib/markdown/core/image';
 import { MarkdownImageControls } from './MarkdownImageControls';
+import { useMarkdownEditorAccess, WORKSPACE_MARKDOWN_ACCESS, type MarkdownEditorAccess } from './MarkdownEditorAccess';
 import { MarkdownUrlPaste } from './MarkdownUrlPaste';
 import { MarkdownDomSelection } from './MarkdownDomSelection';
 import { MarkdownBlockMoveMenu } from './MarkdownBlockMoveMenu';
@@ -508,7 +509,7 @@ function useMarkdownToolbarState(editor: MarkdownEditorWithMarkdown | null) {
   }) ?? EMPTY_TOOLBAR_STATE;
 }
 
-function useVisualViewportBottomOffset() {
+export function useVisualViewportBottomOffset() {
   useEffect(() => {
     const updateViewportOffset = () => {
       const viewport = window.visualViewport;
@@ -569,7 +570,7 @@ function useVisualViewportBottomOffset() {
   }, []);
 }
 
-function useMobileKeyboardActive() {
+export function useMobileKeyboardActive() {
   const [isKeyboardActive, setIsKeyboardActive] = useState(false);
   const largestViewportHeightRef = useRef(0);
   const viewportWidthRef = useRef(0);
@@ -1595,12 +1596,15 @@ function createSlashCommands(labels: SlashCommandLabels, actions?: SlashCommandA
   });
 }
 
-function MarkdownImageNodeView(props: NodeViewProps & { filePath?: string }) {
-  const { node, selected, filePath } = props;
+function MarkdownImageNodeView(props: NodeViewProps & { filePath?: string; access: MarkdownEditorAccess }) {
+  const { node, selected, filePath, access } = props;
+  const t = useTranslations('notebook');
   const src = typeof node.attrs.src === 'string' ? node.attrs.src : '';
   const alt = typeof node.attrs.alt === 'string' ? node.attrs.alt : '';
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const resolvedImage = resolveMarkdownImageUrl(src, filePath, { workspaceId });
+  const guestImage = access.workspace ? null : access.resolveImage(src, filePath);
+  const resolvedImage = access.workspace ? resolveMarkdownImageUrl(src, filePath, { workspaceId })
+    : guestImage ? { ok: true as const, src: guestImage } : { ok: false as const, error: t('editorGuest.imageUnavailable') };
   const linkPreviewLabel = parseLinkPreviewImageAlt(alt);
 
   if (linkPreviewLabel) {
@@ -1639,10 +1643,10 @@ function MarkdownImageNodeView(props: NodeViewProps & { filePath?: string }) {
     error={resolvedImage.ok ? undefined : resolvedImage.error} />;
 }
 
-function createMarkdownImageExtension(filePath?: string) {
+function createMarkdownImageExtension(filePath?: string, access: MarkdownEditorAccess = WORKSPACE_MARKDOWN_ACCESS) {
   return Image.extend({
     addNodeView() {
-      return withStableNodeViewMount(ReactNodeViewRenderer((props) => <MarkdownImageNodeView {...props} filePath={filePath} />));
+      return withStableNodeViewMount(ReactNodeViewRenderer((props) => <MarkdownImageNodeView {...props} filePath={filePath} access={access} />));
     },
   });
 }
@@ -2229,6 +2233,7 @@ function createEditorExtensions(
   remoteCaretLabel?: (name: string) => string,
   onCollaborationError?: (error: Error) => void,
   localDocument: LocalMarkdownDocument | null = null,
+  access: MarkdownEditorAccess = WORKSPACE_MARKDOWN_ACCESS,
 ) {
   const extensions = [
     MarkdownDomSelection,
@@ -2262,7 +2267,7 @@ function createEditorExtensions(
       autolink: false,
       linkOnPaste: true,
     }),
-    createMarkdownImageExtension(filePath),
+    createMarkdownImageExtension(filePath, access),
     TaskList,
     TaskItem.configure({
       HTMLAttributes: {
@@ -2286,10 +2291,12 @@ function createEditorExtensions(
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
     ...canvasRichMarkdownExtensions({
-      obsidianWikiLink: createObsidianWikiLinkNode(filePath),
+      ...(access.workspace ? { obsidianWikiLink: createObsidianWikiLinkNode(filePath) } : {}),
     }),
-    createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
-    ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
+    ...(access.workspace ? [
+      createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
+      ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
+    ] : []),
     ObsidianInlineFootnoteExtension,
     createCanvasMarkdownExtension(),
   ];
@@ -2695,6 +2702,7 @@ function MarkdownLinkDialog({
   target?: EditorRangeTarget | null;
 }) {
   const t = useTranslations('notebook');
+  const access = useMarkdownEditorAccess();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const resolveTarget = useEditorRangeTarget(editor, open, undefined, target);
   const restoreSelection = useCallback(() => {
@@ -2707,14 +2715,14 @@ function MarkdownLinkDialog({
   }, [editor, resolveTarget, t]);
   const initialWorkspaceTarget = getWorkspaceMarkdownNavigationTarget(initialHref, sourcePath) ?? '';
   const [mode, setMode] = useState<LinkDialogMode>(
-    initialHref && !initialWorkspaceTarget ? 'web' : 'workspace',
+    !access.workspace || (initialHref && !initialWorkspaceTarget) ? 'web' : 'workspace',
   );
   const [href, setHref] = useState(initialHref);
   const [workspaceTarget, setWorkspaceTarget] = useState(initialWorkspaceTarget);
   const [text, setText] = useState(initialText);
   const [previewEnabled, setPreviewEnabled] = useState(() => {
     const activeLink = editor ? getActiveLinkDetails(editor) : null;
-    return Boolean(editor && activeLink && findAdjacentLinkPreviewImageRange(editor, activeLink.range.to));
+    return Boolean(access.workspace && editor && activeLink && findAdjacentLinkPreviewImageRange(editor, activeLink.range.to));
   });
   const [embedEnabled, setEmbedEnabled] = useState(false);
   const [previewState, setPreviewState] = useState<LinkPreviewState>({ status: 'idle' });
@@ -2722,7 +2730,7 @@ function MarkdownLinkDialog({
   const linkActive = Boolean(editor?.isActive('link') || editor?.isActive('obsidianWikiLink'));
 
   useEffect(() => {
-    if (!open || mode !== 'web' || !previewEnabled) return;
+    if (!access.workspace || !open || mode !== 'web' || !previewEnabled) return;
 
     const previewUrl = normalizeLinkHref(href);
     if (!/^https?:\/\//iu.test(previewUrl)) return;
@@ -2760,10 +2768,10 @@ function MarkdownLinkDialog({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [href, mode, open, previewEnabled, t]);
+  }, [access.workspace, href, mode, open, previewEnabled, t]);
 
   useEffect(() => {
-    if (!open || mode !== 'workspace') return;
+    if (!access.workspace || !open || mode !== 'workspace') return;
     if (!activeWorkspaceId) return;
 
     let cancelled = false;
@@ -2778,7 +2786,7 @@ function MarkdownLinkDialog({
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, mode, open]);
+  }, [access.workspace, activeWorkspaceId, mode, open]);
 
   const workspaceIndexStatus = !activeWorkspaceId
     ? 'error'
@@ -2927,11 +2935,11 @@ function MarkdownLinkDialog({
         }}>
         <DialogHeader>
           <DialogTitle>{t('markdownEditorLinkDialogTitle')}</DialogTitle>
-          <DialogDescription>{t('markdownEditorLinkDialogDescription')}</DialogDescription>
+          <DialogDescription>{t(access.workspace ? 'markdownEditorLinkDialogDescription' : 'editorGuest.linkDescription')}</DialogDescription>
         </DialogHeader>
 
         <Tabs value={mode} onValueChange={(value) => setMode(value as LinkDialogMode)}>
-          <TabsList className="grid w-full grid-cols-2">
+          {access.workspace && <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="workspace" className="gap-2">
               <FileText className="h-4 w-4" />
               {t('markdownEditorLinkWorkspaceTab')}
@@ -2940,7 +2948,7 @@ function MarkdownLinkDialog({
               <Globe2 className="h-4 w-4" />
               {t('markdownEditorLinkWebTab')}
             </TabsTrigger>
-          </TabsList>
+          </TabsList>}
 
           <TabsContent value="workspace" className="mt-4 grid gap-4">
             <fieldset className="grid gap-2 rounded-md border p-3">
@@ -3062,12 +3070,12 @@ function MarkdownLinkDialog({
               </div>
             ) : null}
 
-            <fieldset className="grid gap-2 rounded-md border p-3">
+            {access.workspace && <fieldset className="grid gap-2 rounded-md border p-3">
               <legend className="px-1 text-sm font-medium">{t('editorLinkChoice.label')}</legend>
               <label className="flex items-center gap-2 text-sm"><input type="radio" name="web-link-presentation" checked={!previewEnabled} onChange={() => setPreviewEnabled(false)} />{t('editorLinkChoice.link')}</label>
               <label className="flex items-center gap-2 text-sm"><input type="radio" name="web-link-presentation" checked={previewEnabled} disabled={!/^https?:\/\//iu.test(normalizeLinkHref(href))} onChange={() => setPreviewEnabled(true)} />{t('editorLinkChoice.preview')}</label>
               <p className="text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
-            </fieldset>
+            </fieldset>}
 
             {previewEnabled ? (
               <div className="min-h-20 rounded-md border bg-muted/20 p-2">
@@ -3286,9 +3294,10 @@ function MarkdownImageDialog({
   target?: EditorRangeTarget | null;
 }) {
   const t = useTranslations('notebook');
+  const access = useMarkdownEditorAccess();
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<'upload' | 'url'>('upload');
+  const [mode, setMode] = useState<'upload' | 'url'>(access.workspace ? 'upload' : 'url');
   const [source, setSource] = useState('');
   const [alt, setAlt] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -3325,6 +3334,15 @@ function MarkdownImageDialog({
           return;
         }
 
+        if (!access.workspace) {
+          if (!access.resolveImage(trimmedSource, filePath)) {
+            setError(t('editorGuest.imageUnavailable'));
+            return;
+          }
+          insert([{ markdownSrc: trimmedSource, name: trimmedSource.split('/').pop() || 'image' }]);
+          return;
+        }
+
         if (!isRemoteImageImportSource(trimmedSource)) {
           insert([{ markdownSrc: directMarkdownImageSrc(trimmedSource, filePath), name: trimmedSource.split('/').pop() || 'image' }]);
           return;
@@ -3334,6 +3352,7 @@ function MarkdownImageDialog({
         return;
       }
 
+      if (!access.workspace) return;
       request = begin();
       if (!request) return;
       setSubmitting(true);
@@ -3372,22 +3391,22 @@ function MarkdownImageDialog({
         setSubmitting(false);
       }
     }
-  }, [alt, begin, editor, filePath, finish, handleOpenChange, isCurrent, mode, resolveTarget, source, submitting, t, workspaceId]);
+  }, [access, alt, begin, editor, filePath, finish, handleOpenChange, isCurrent, mode, resolveTarget, source, submitting, t, workspaceId]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('markdownEditorImageDialogTitle')}</DialogTitle>
-          <DialogDescription>{t('markdownEditorImageDialogDescription')}</DialogDescription>
+          <DialogDescription>{t(access.workspace ? 'markdownEditorImageDialogDescription' : 'editorGuest.imageSourceHint')}</DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
           <Tabs value={mode} onValueChange={(value) => setMode(value as 'upload' | 'url')}>
-            <TabsList className="grid w-full grid-cols-2">
+            {access.workspace && <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="upload">{t('markdownEditorImageTabUpload')}</TabsTrigger>
               <TabsTrigger value="url">{t('markdownEditorImageTabUrl')}</TabsTrigger>
-            </TabsList>
+            </TabsList>}
             <TabsContent value="upload" className="mt-4">
               <div className="grid gap-2">
                 <Label htmlFor="markdown-image-upload">{t('markdownEditorImageUploadLabel')}</Label>
@@ -3418,7 +3437,7 @@ function MarkdownImageDialog({
                     }
                   }}
                 />
-                <p className="text-xs text-muted-foreground">{t('markdownEditorImageUrlHint')}</p>
+                {access.workspace && <p className="text-xs text-muted-foreground">{t('markdownEditorImageUrlHint')}</p>}
               </div>
             </TabsContent>
           </Tabs>
@@ -4785,7 +4804,7 @@ function MobileMarkdownToolbar({
   );
 }
 
-function RichMarkdownEditor({
+export function RichMarkdownEditor({
   value,
   onChange,
   readOnly,
@@ -4809,6 +4828,7 @@ function RichMarkdownEditor({
   localDocument?: LocalMarkdownDocument | null;
 }) {
   const t = useTranslations('notebook');
+  const access = useMarkdownEditorAccess();
   const documentParts = useMemo(() => splitMarkdownEditorDocument(value, frontmatter), [value, frontmatter]);
   const latestValueRef = useRef(value);
   const dialogEditorRef = useRef<Editor | null>(null);
@@ -5006,8 +5026,10 @@ function RichMarkdownEditor({
       remoteCaretLabel,
       onCollaborationError,
       localDocument,
+      access,
     ),
     [
+      access,
       activeWorkspaceId,
       collaboration,
       filePath,
@@ -5349,6 +5371,14 @@ function RichMarkdownEditor({
         scrollToMarkdownHeadingAnchor(editorElement, href);
         return;
       }
+      if (!access.workspace) {
+        // Shared documents may link out, but cannot navigate private workspace files.
+        if (/^https?:\/\//iu.test(href) && !effectiveReadOnly) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (/^https?:\/\//iu.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+      }
       const workspaceTarget = getWorkspaceMarkdownNavigationTarget(href, filePath);
       if (!workspaceTarget) return;
 
@@ -5367,7 +5397,7 @@ function RichMarkdownEditor({
 
     editorElement.addEventListener('click', handleWorkspaceLinkClick, true);
     return () => editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
-  }, [activeWorkspaceId, editor, filePath, t]);
+  }, [access.workspace, activeWorkspaceId, editor, effectiveReadOnly, filePath, t]);
 
   useEffect(() => editor ? attachMarkdownDetailsInteractions(editor) : undefined, [editor]);
 
@@ -5548,7 +5578,7 @@ function RichMarkdownEditor({
             />
           ) : null}
           <EditorContent editor={editor} className="tiptap-editor-shell" />
-          {layout === 'document' && <MarkdownBacklinksPanel filePath={filePath} />}
+          {layout === 'document' && access.workspace && <MarkdownBacklinksPanel filePath={filePath} />}
           {!effectiveReadOnly && editor && blockCommandMenu ? (
             <MarkdownBlockCommandMenu
               key={blockCommandMenu.id}

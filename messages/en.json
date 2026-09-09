@@ -508,6 +508,11 @@
       "embed": "Embed document",
       "embedHint": "Show the linked workspace document inline."
     },
+    "editorGuest": {
+      "linkDescription": "Insert a web link into the shared document.",
+      "imageSourceHint": "Insert an HTTPS image URL or the path of an image shared with this file.",
+      "imageUnavailable": "This image is not shared. Use an HTTPS image URL or a shared image."
+    },
     "editorImage": {
       "tools": "Image tools",
       "resize": "Resize image",
