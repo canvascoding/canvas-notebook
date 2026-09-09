@@ -1,0 +1,12 @@
+diff --git a/node_modules/yjs/package.json b/node_modules/yjs/package.json
+index 1ea3fd1..5967969 100644
+--- a/node_modules/yjs/package.json
++++ b/node_modules/yjs/package.json
+@@ -28,6 +28,7 @@
+   "exports": {
+     ".": {
+       "types": "./dist/src/index.d.ts",
++      "node": "./dist/yjs.cjs",
+       "module": "./dist/yjs.mjs",
+       "import": "./dist/yjs.mjs",
+       "require": "./dist/yjs.cjs"
