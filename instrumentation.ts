@@ -23,6 +23,8 @@ export async function register() {
       initializeTeamMembershipSnapshotSyncRuntime();
       const { initializeTeamSeatOutboxWorkerRuntime } = await import("./app/lib/license/team-seat-outbox-worker");
       initializeTeamSeatOutboxWorkerRuntime();
+      const { initializeMcpConnectionHealthMonitor } = await import("./app/lib/mcp/health-monitor");
+      initializeMcpConnectionHealthMonitor();
     }
   }
 

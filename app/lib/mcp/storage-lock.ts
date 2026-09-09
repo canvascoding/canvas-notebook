@@ -105,6 +105,10 @@ async function readLockRecord(lockPath: string, maxLinks: number): Promise<LockR
     if (isMissing(error)) return null;
     throw lockUnavailable('MCP storage lock could not be inspected.', error);
   }
+  // On macOS a path lookup that races another process's unlink can return a
+  // still-open inode whose link count has already reached zero. It no longer
+  // names a lock, so retry acquisition instead of treating it as hostile.
+  if (before.nlink === 0) return null;
   if (!isPrivateRegularFile(before, maxLinks)) {
     throw lockUnavailable(`MCP storage lock must be a private regular file owned by the runtime user (mode=${(before.mode & 0o777).toString(8)}, links=${before.nlink}, owner=${before.uid}).`);
   }
@@ -127,6 +131,7 @@ async function readLockRecord(lockPath: string, maxLinks: number): Promise<LockR
     if (isMissing(error)) return null;
     throw lockUnavailable('MCP storage lock could not be inspected.', error);
   }
+  if (after.nlink === 0) return null;
   if (!isPrivateRegularFile(after, maxLinks)) {
     throw lockUnavailable(`MCP storage lock must be a private regular file owned by the runtime user (mode=${(after.mode & 0o777).toString(8)}, links=${after.nlink}, owner=${after.uid}).`);
   }

@@ -47,6 +47,8 @@ import {
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
 import { ToolOutputView } from '@/app/components/canvas-agent-chat/ToolOutputView';
+import { McpReconnectNotice } from '@/app/components/canvas-agent-chat/McpReconnectNotice';
+import { readMcpReconnectHint } from '@/app/lib/mcp/connection-health-types';
 import { deriveUploadAttachmentPreview, getAttachmentMediaUrl } from '@/app/lib/chat/attachment-preview';
 import { dedupeAttachments, contentToString, getPiMessageDetails } from '@/app/lib/chat/message-content';
 import { formatRunDuration } from '@/app/lib/chat/run-collapse';
@@ -198,6 +200,7 @@ export function ToolCallPill({
   const [copied, setCopied] = useState(false);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const display = getToolDisplayInfo(message.toolName, locale, getPiMessageDetails(message.piMessage));
+  const reconnect = readMcpReconnectHint(getPiMessageDetails(message.piMessage));
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
   const isPending = message.status === 'pending';
   const isRunning = isPending || message.status === 'sending' || message.status === 'aborting';
@@ -349,7 +352,7 @@ export function ToolCallPill({
   );
 
   return (
-    <div key={message.id} data-testid="chat-tool-subtle" className="flex justify-start py-0.5">
+    <div key={message.id} data-testid="chat-tool-subtle" className="flex flex-col items-start py-0.5">
       {isMobile ? (
         <Dialog open={isOpen} onOpenChange={handleOpenChange}>
           <DialogTrigger asChild>{renderTrigger()}</DialogTrigger>
@@ -375,6 +378,7 @@ export function ToolCallPill({
           </PopoverContent>
         </Popover>
       )}
+      {reconnect ? <McpReconnectNotice connection={reconnect} /> : null}
     </div>
   );
 }

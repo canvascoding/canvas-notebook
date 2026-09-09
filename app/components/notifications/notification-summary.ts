@@ -2,7 +2,7 @@
 
 export type NotificationItem = {
   id: string;
-  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention';
   title: string;
   detail: string | null;
   occurredAt: string;
@@ -18,6 +18,7 @@ export type NotificationItem = {
     | { kind: 'todo'; todoId: string }
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string }
+    | { kind: 'mcp'; connectionId: string }
     | { kind: 'memory'; scope: 'workspace' | 'organization'; entryId: string; collectionId: string; workspaceId?: string; organizationId?: string };
 };
 
@@ -33,6 +34,7 @@ export type NotificationSummary = {
     studio: number;
     automation: number;
     memoryApprovals: number;
+    mcpConnections?: number;
   };
   items: NotificationItem[];
   sections: {

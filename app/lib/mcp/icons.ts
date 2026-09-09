@@ -332,6 +332,10 @@ export async function getMcpServerIconMetadata(serverName: string, scope?: McpSc
   return metadata || null;
 }
 
+export async function readCachedMcpServerIcons(scope?: McpScope | null): Promise<Record<string, McpServerIconMetadata>> {
+  return (await readIconCache(scope)).servers;
+}
+
 export async function refreshMcpServerIcons(scope?: McpScope | null): Promise<Record<string, McpServerIconMetadata | null>> {
   const config = await readMcpConfig(scope);
   const cache = await readIconCache(scope);

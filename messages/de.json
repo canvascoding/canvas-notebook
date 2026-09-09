@@ -2785,7 +2785,8 @@
       "todo": "To-do benötigt Aufmerksamkeit",
       "studio": "Studio-Ergebnis bereit",
       "automation": "Automation benötigt Aufmerksamkeit",
-      "memory": "Memory-Freigabe erforderlich"
+      "memory": "Memory-Freigabe erforderlich",
+      "mcp": "MCP-Verbindung benötigt Aufmerksamkeit"
     },
     "empty": {
       "title": "Alles gelesen",
@@ -4542,6 +4543,23 @@
       "enabled": "Aktiviert",
       "disabled": "Deaktiviert",
       "connected": "Verbunden",
+      "health": {
+        "notChecked": "Der Verbindungsstatus wurde noch nicht geprüft.",
+        "never": "Noch nie",
+        "lastChecked": "Zuletzt geprüft: {value}",
+        "lastSuccessfulRequest": "Letzte erfolgreiche Anfrage: {value}",
+        "auth": {
+          "not_authorized": "Autorisierung erforderlich",
+          "authorized": "Autorisiert",
+          "refreshing": "Autorisierung wird erneuert",
+          "reauth_required": "Erneute Verbindung erforderlich"
+        },
+        "reachability": {
+          "unknown": "Erreichbarkeit unbekannt",
+          "reachable": "Erreichbar",
+          "unreachable": "Nicht erreichbar"
+        }
+      },
       "disconnected": "Getrennt",
       "enable": "Aktivieren",
       "disable": "Deaktivieren",

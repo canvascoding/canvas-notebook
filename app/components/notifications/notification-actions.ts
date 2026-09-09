@@ -1,4 +1,5 @@
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { mcpConnectionSettingsHref } from '@/app/lib/mcp/connection-health-types';
 import type { NotificationItem, NotificationSummary } from './notification-summary';
 
 export type NotificationMutation = {
@@ -35,6 +36,8 @@ export function notificationHref(item: NotificationItem): string {
       }
       return `/settings?${params.toString()}`;
     }
+    case 'mcp':
+      return mcpConnectionSettingsHref(item.target.connectionId);
   }
 }
 

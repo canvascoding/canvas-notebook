@@ -2786,7 +2786,8 @@
       "todo": "To-do needs attention",
       "studio": "Studio result ready",
       "automation": "Automation needs attention",
-      "memory": "Memory approval required"
+      "memory": "Memory approval required",
+      "mcp": "MCP connection needs attention"
     },
     "empty": {
       "title": "All read",
@@ -4543,6 +4544,23 @@
       "enabled": "Enabled",
       "disabled": "Disabled",
       "connected": "Connected",
+      "health": {
+        "notChecked": "Connection health has not been checked yet.",
+        "never": "Never",
+        "lastChecked": "Last checked: {value}",
+        "lastSuccessfulRequest": "Last successful request: {value}",
+        "auth": {
+          "not_authorized": "Authorization needed",
+          "authorized": "Authorized",
+          "refreshing": "Refreshing authorization",
+          "reauth_required": "Reconnect required"
+        },
+        "reachability": {
+          "unknown": "Reachability unknown",
+          "reachable": "Reachable",
+          "unreachable": "Unreachable"
+        }
+      },
       "disconnected": "Disconnected",
       "enable": "Enable",
       "disable": "Disable",

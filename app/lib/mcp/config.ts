@@ -275,5 +275,8 @@ export async function setMcpServerEnabled(serverName: string, enabled: boolean, 
   });
   const { closeMcpServer } = await import('@/app/lib/mcp/manager');
   await closeMcpServer(connectionId, scope);
+  const { recordMcpConnectionObservation } = await import('@/app/lib/mcp/connection-health');
+  const connection = parseAndValidateMcpConfig(updated.rawContent).mcpServers[serverName];
+  await recordMcpConnectionObservation(connection, scope, { kind: 'activation' });
   return updated;
 }

@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/mcp/manager';
 import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth } from '@/app/lib/mcp/oauth';
 import type { McpScope } from '@/app/lib/mcp/scope';
+import { mcpReconnectDetails } from '@/app/lib/mcp/connection-health';
 
 type McpAction =
   | 'list_servers'
@@ -544,7 +545,12 @@ export function createMcpProxyTool(userId?: string, systemScope?: McpScope): Age
             return errorResult(`Unsupported MCP action "${String((p as { action?: unknown }).action)}".`);
         }
       } catch (error) {
-        return errorResult(getErrorMessage(error));
+        let details = {};
+        try {
+          const { server } = resolveMcpTarget(p.server, p.tool);
+          if (server) details = await mcpReconnectDetails(server, scope, error);
+        } catch { /* Invalid targets cannot create a reconnect action. */ }
+        return errorResult(getErrorMessage(error), details);
       }
     },
   };

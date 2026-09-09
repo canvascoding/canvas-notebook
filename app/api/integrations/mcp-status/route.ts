@@ -4,9 +4,9 @@ import { auth } from '@/app/lib/auth';
 import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
 import { McpConfigValidationError, setMcpServerEnabled } from '@/app/lib/mcp/config';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
-import { refreshMcpServerIcons } from '@/app/lib/mcp/icons';
+import { readCachedMcpServerIcons } from '@/app/lib/mcp/icons';
 import { closeMcpServer, getMcpRuntimeStatus, listMcpTools } from '@/app/lib/mcp/manager';
-import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth } from '@/app/lib/mcp/oauth';
+import { clearMcpOAuth, getMcpOAuthStatus, startMcpOAuth, McpOAuthError } from '@/app/lib/mcp/oauth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type McpStatusAction = 'enable' | 'disable' | 'test' | 'authorize' | 'clear_auth';
@@ -62,8 +62,8 @@ export async function GET(request: NextRequest) {
 
     const [oauth, direct, icons] = await Promise.all([
       Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request), scope))),
-      buildDirectMcpTools(scope),
-      refreshMcpServerIcons(scope),
+      buildDirectMcpTools(scope, { cacheOnly: true }),
+      readCachedMcpServerIcons(scope),
     ]);
     return NextResponse.json({
       success: true,
@@ -138,6 +138,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof McpConfigValidationError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
+    if (error instanceof McpOAuthError) {
+      return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status || 400 });
     }
 
     console.error('[API] integrations/mcp-status POST error:', error);

@@ -12,6 +12,7 @@ import { MobileAppSetupCard } from '@/app/components/mobile/MobileAppSetupCard';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { MailboxConnectionForm } from '@/app/components/email/MailboxConnectionForm';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
+import { McpConnectionHealthStatus } from '@/app/components/settings/McpConnectionHealthStatus';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
 import { UpdateCenterPanel } from '@/app/components/settings/UpdateCenterPanel';
 import {
@@ -65,6 +66,7 @@ import { useHintContext } from '@/app/components/onboarding/HintProvider';
 import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/contracts';
 import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
 import { cn } from '@/lib/utils';
+import type { McpConnectionHealth } from '@/app/lib/mcp/connection-health-types';
 
 type EnvScope = 'integrations' | 'agents';
 
@@ -123,6 +125,8 @@ type McpEditorState = {
 type McpStatusState = {
   servers: Array<{
     name: string;
+    connectionId?: string;
+    health?: McpConnectionHealth | null;
     transport: string;
     enabled: boolean;
     connected: boolean;
@@ -986,9 +990,11 @@ function McpConfigCard(props: {
   onDeleteServer: (server: string) => Promise<void>;
   onRawChange: (value: string) => void;
   onSave: () => Promise<void>;
+  focusedConnectionId: string | null;
 }) {
   const t = useTranslations('settings');
-  const { editor, isOpen, onLoad, onLoadStatus, onOpenChange, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave } = props;
+  const { editor, isOpen, onLoad, onLoadStatus, onOpenChange, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave, focusedConnectionId } = props;
+  const focusedConnectionRef = useRef<HTMLDivElement | null>(null);
   const [serverDialogOpen, setServerDialogOpen] = useState(false);
   const [editingServerName, setEditingServerName] = useState<string | undefined>();
   const [serverDraft, setServerDraft] = useState<McpServerDraft>(() => createBlankMcpServerDraft());
@@ -1080,6 +1086,11 @@ function McpConfigCard(props: {
       .catch(() => undefined);
   };
 
+  useEffect(() => {
+    if (!focusedConnectionId || !focusedConnectionRef.current) return;
+    focusedConnectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [focusedConnectionId, configuredServers.length, editor.status]);
+
   const deleteServerFromDialog = () => {
     if (!editingServerName) return;
     void onDeleteServer(editingServerName)
@@ -1170,8 +1181,9 @@ function McpConfigCard(props: {
                     const oauth = editor.status?.oauth.find((entry) => entry.serverName === serverName);
                     const draft = toMcpServerDraft(serverName, serverConfig);
                     const enabled = status?.enabled ?? draft.enabled;
+                    const isFocusedConnection = status?.connectionId === focusedConnectionId;
                     return (
-                      <div key={serverName} className="flex flex-col gap-3 border-b border-border p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+                      <div ref={isFocusedConnection ? focusedConnectionRef : undefined} key={serverName} className="flex flex-col gap-3 border-b border-border p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
                         <button
                           type="button"
                           className="flex w-full min-w-0 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:w-auto"
@@ -1184,12 +1196,13 @@ function McpConfigCard(props: {
                               <span className="min-w-0 break-all font-medium">{serverName}</span>
                               <Badge variant="outline">{draft.mode === 'stdio' ? 'stdio' : 'http'}</Badge>
                               {status?.connected && <Badge>{t('mcpConfig.connected')}</Badge>}
-                              {oauth?.requiresAuth && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
+                              {oauth?.requiresAuth && !status?.health && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
                             </div>
                             <div className="mt-1 break-words text-xs text-muted-foreground">
                               {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
-                              {status?.lastError ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
+                              {status?.lastError && !status.health?.lastErrorCode ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
                             </div>
+                            <McpConnectionHealthStatus health={status?.health} requiresAuth={Boolean(oauth?.requiresAuth)} focused={isFocusedConnection} />
                             {oauth?.requiresAuth && oauth.redirectUri ? (
                               <div className="mt-1 break-all text-xs text-muted-foreground">
                                 {t('mcpConfig.oauthRedirectUri')}: {oauth.redirectUri}
@@ -2379,6 +2392,8 @@ export function IntegrationsSettingsClient({
 
   const requestedTabParam = searchParams.get('tab');
   const requestedIntegrationsSection = normalizeIntegrationsSection(searchParams.get('section'));
+  const requestedMcpConnectionId = searchParams.get('connection');
+  const hasRequestedMcpExternalServers = requestedIntegrationsSection === 'mcpConfig' || Boolean(requestedMcpConnectionId);
   const requestedTab = requestedTabParam === 'integrations'
     ? requestedIntegrationsSection === 'mcpConfig'
       ? 'mcp'
@@ -2388,6 +2403,7 @@ export function IntegrationsSettingsClient({
     : requestedTabParam;
   const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
+  const [mcpArea, setMcpArea] = useState<'canvas-server' | 'external-servers'>(() => hasRequestedMcpExternalServers ? 'external-servers' : 'canvas-server');
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
   const { activeTabOverride } = useHintContext();
@@ -2763,13 +2779,20 @@ export function IntegrationsSettingsClient({
 
   useEffect(() => {
     startTransition(() => {
+      setMcpArea(hasRequestedMcpExternalServers ? 'external-servers' : 'canvas-server');
+    });
+  }, [hasRequestedMcpExternalServers]);
+
+  useEffect(() => {
+    startTransition(() => {
       setEnvCardOpenByScope(getStoredEnvCardOpenState());
       setIntegrationsSectionOpenById(getStoredIntegrationsSectionOpenState());
     });
   }, []);
 
   useEffect(() => {
-    const section = normalizeIntegrationsSection(searchParams.get('section'));
+    const section = normalizeIntegrationsSection(searchParams.get('section'))
+      ?? (searchParams.get('connection') ? 'mcpConfig' : null);
     if (!section) {
       return;
     }
@@ -3235,7 +3258,22 @@ export function IntegrationsSettingsClient({
           )}
 
           {renderLazyTabContent('mcp',
-            <Tabs defaultValue="canvas-server" className="space-y-5">
+            <Tabs
+              value={mcpArea}
+              onValueChange={(value) => {
+                const nextArea = value === 'external-servers' ? 'external-servers' : 'canvas-server';
+                setMcpArea(nextArea);
+                const url = new URL(window.location.href);
+                if (nextArea === 'external-servers') {
+                  url.searchParams.set('section', 'mcpConfig');
+                } else {
+                  url.searchParams.delete('section');
+                  url.searchParams.delete('connection');
+                }
+                window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+              }}
+              className="space-y-5"
+            >
               <TabsList aria-label={t('mcpTabs.ariaLabel')}>
                 <TabsTrigger value="canvas-server">{t('mcpTabs.canvasServer')}</TabsTrigger>
                 <TabsTrigger value="external-servers">{t('mcpTabs.externalServers')}</TabsTrigger>
@@ -3255,6 +3293,7 @@ export function IntegrationsSettingsClient({
                   onDeleteServer={deleteMcpServer}
                   onRawChange={setMcpRawContent}
                   onSave={saveMcpConfig}
+                  focusedConnectionId={requestedMcpConnectionId}
                 />
               </TabsContent>
             </Tabs>,

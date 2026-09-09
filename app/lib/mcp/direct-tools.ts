@@ -1,7 +1,8 @@
 import type { Tool } from '@modelcontextprotocol/client';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 
-import { callMcpTool, listMcpTools } from '@/app/lib/mcp/manager';
+import { callMcpTool, listMcpTools, readCachedTools, hashMcpServerConfig } from '@/app/lib/mcp/manager';
+import { mcpReconnectDetails } from '@/app/lib/mcp/connection-health';
 import { isMcpServerEnabled, readMcpConfig } from '@/app/lib/mcp/config';
 import type { McpScope } from '@/app/lib/mcp/scope';
 
@@ -62,14 +63,14 @@ function makeDirectTool(serverName: string, tool: Tool, directName: string, scop
         const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message, server: serverName, tool: tool.name },
+          details: { error: message, server: serverName, tool: tool.name, ...await mcpReconnectDetails(serverName, scope, error).catch(() => ({})) },
         };
       }
     },
   };
 }
 
-export async function buildDirectMcpTools(scope?: McpScope | null): Promise<DirectMcpToolBuildResult> {
+export async function buildDirectMcpTools(scope?: McpScope | null, options: { cacheOnly?: boolean } = {}): Promise<DirectMcpToolBuildResult> {
   const config = await readMcpConfig(scope);
   const tools: AgentTool[] = [];
   const warnings: DirectMcpToolWarning[] = [];
@@ -84,7 +85,16 @@ export async function buildDirectMcpTools(scope?: McpScope | null): Promise<Dire
 
     let remoteTools: Tool[];
     try {
-      remoteTools = await listMcpTools(serverName, { preferCache: true, scope });
+      if (options.cacheOnly) {
+        const cached = await readCachedTools(serverName, hashMcpServerConfig(serverConfig), scope);
+        if (!cached) {
+          warnings.push({ server: serverName, message: 'Test this connection to load its tools.' });
+          continue;
+        }
+        remoteTools = cached;
+      } else {
+        remoteTools = await listMcpTools(serverName, { preferCache: true, scope });
+      }
     } catch (error) {
       warnings.push({ server: serverName, message: `Could not load direct MCP tools: ${getErrorMessage(error)}` });
       continue;
