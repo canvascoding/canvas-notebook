@@ -1,10 +1,11 @@
 import 'server-only';
 
 import crypto from 'node:crypto';
+import { resolveMcpCredentialScope } from './credential-storage';
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
 import { readMcpOAuthLifecycle } from '@/app/lib/mcp/oauth-lifecycle';
-import { requireMcpCredentialScope, type McpScope } from '@/app/lib/mcp/scope';
+import { type McpScope } from '@/app/lib/mcp/scope';
 import { readMcpTextFileIfExists, writeMcpTextFileAtomic } from '@/app/lib/mcp/storage';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import type { McpConnectionErrorCode, McpConnectionHealth, McpReconnectHint } from './connection-health-types';
@@ -44,9 +45,8 @@ async function readHealthFile(connection: Connection, generation: number, scope:
 }
 
 export async function readMcpConnectionHealth(connection: Connection, scope: McpScope): Promise<McpConnectionHealth> {
-  const ownedScope = requireMcpCredentialScope(scope);
-  if (!ownedScope.userId || connection.ownerUserId !== ownedScope.userId
-    || (connection.organizationId || null) !== (ownedScope.organizationId || null)) throw new Error('MCP connection owner does not match.');
+  const ownedScope = resolveMcpCredentialScope(connection, scope);
+  if (!ownedScope.userId) throw new Error('A personal MCP connection is required.');
   return readHealthFile(connection, (await readMcpOAuthLifecycle(connection.connectionId, ownedScope)).generation, ownedScope);
 }
 
@@ -128,7 +128,7 @@ export async function recordMcpConnectionObservation(
   options: { now?: number; generation?: number } = {},
 ): Promise<void> {
   if (!scope?.userId || !connection.connectionId) return;
-  const ownedScope = requireMcpCredentialScope(scope);
+  const ownedScope = resolveMcpCredentialScope({ ...connection, connectionId: connection.connectionId }, scope);
   await withMcpStorageLock(`health-${connection.connectionId}`, ownedScope, async () => {
     const current = Object.values((await readMcpConfig(ownedScope)).mcpServers).find((item) => item.connectionId === connection.connectionId);
     if (!current?.connectionId || hashMcpAuthConfig(current) !== hashMcpAuthConfig(connection)

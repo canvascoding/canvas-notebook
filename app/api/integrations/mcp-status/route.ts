@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@/app/lib/auth';
-import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
+import { assertMcpConnectionAccess, McpAccessError, mcpErrorStatus } from '@/app/lib/mcp/access';
+import { requireMcpRequestActor } from '@/app/lib/mcp/request-access';
 import { McpConfigValidationError, setMcpServerEnabled } from '@/app/lib/mcp/config';
 import { buildDirectMcpTools } from '@/app/lib/mcp/direct-tools';
 import { readCachedMcpServerIcons } from '@/app/lib/mcp/icons';
@@ -16,19 +16,6 @@ type McpStatusPostPayload = {
   server?: string;
 };
 
-async function requireMcpAdmin(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-  try {
-    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can manage MCP servers.');
-  } catch (error) {
-    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Forbidden' }, { status: 403 });
-  }
-  return session;
-}
-
 function getRequestOrigin(request: NextRequest): string {
   const forwardedHost = request.headers.get('x-forwarded-host');
   const forwardedProto = request.headers.get('x-forwarded-proto');
@@ -39,8 +26,8 @@ function getRequestOrigin(request: NextRequest): string {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await requireMcpAdmin(request);
-  if (session instanceof NextResponse) return session;
+  const actor = await requireMcpRequestActor(request);
+  if (actor instanceof NextResponse) return actor;
 
   try {
     const limited = rateLimit(request, {
@@ -51,17 +38,18 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
-    const scope = { userId: session.user.id };
+    const scope = { userId: actor.userId };
     const runtime = await getMcpRuntimeStatus(undefined, scope);
     if (summaryOnly) {
       return NextResponse.json({
         success: true,
-        data: runtime,
+        data: { ...runtime, canManageDefinitions: actor.canManageDefinitions },
       });
     }
 
+    const availableServers = runtime.servers.filter((server) => server.accessAllowed !== false);
     const [oauth, direct, icons] = await Promise.all([
-      Promise.all(runtime.servers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request), scope))),
+      Promise.all(availableServers.map((server) => getMcpOAuthStatus(server.name, getRequestOrigin(request), scope))),
       buildDirectMcpTools(scope, { cacheOnly: true }),
       readCachedMcpServerIcons(scope),
     ]);
@@ -69,9 +57,10 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         ...runtime,
+        canManageDefinitions: actor.canManageDefinitions,
         servers: runtime.servers.map((server) => ({
           ...server,
-          iconUrl: icons[server.name]?.fileName ? `/api/integrations/mcp-icon/${encodeURIComponent(server.name)}` : null,
+          iconUrl: server.accessAllowed !== false && icons[server.name]?.fileName ? `/api/integrations/mcp-icon/${encodeURIComponent(server.name)}` : null,
         })),
         oauth,
         directTools: direct.tools.map((tool) => ({
@@ -83,6 +72,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof McpAccessError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
     console.error('[API] integrations/mcp-status GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to read MCP status';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
@@ -90,8 +80,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireMcpAdmin(request);
-  if (session instanceof NextResponse) return session;
+  const actor = await requireMcpRequestActor(request);
+  if (actor instanceof NextResponse) return actor;
 
   try {
     const limited = rateLimit(request, {
@@ -107,35 +97,44 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'MCP server is required' }, { status: 400 });
     }
 
+    const scope = { userId: actor.userId };
+    const isManagementAction = payload.action === 'disable' || payload.action === 'clear_auth';
+    const { serverName } = await assertMcpConnectionAccess(server, scope, {
+      allowDisabled: payload.action === 'enable' || isManagementAction,
+      management: isManagementAction,
+      actor,
+    });
+
     if (payload.action === 'enable') {
-      await setMcpServerEnabled(server, true, { userId: session.user.id });
-      return NextResponse.json({ success: true, data: { server, enabled: true } });
+      await setMcpServerEnabled(serverName, true, scope);
+      return NextResponse.json({ success: true, data: { server: serverName, enabled: true } });
     }
 
     if (payload.action === 'disable') {
-      await setMcpServerEnabled(server, false, { userId: session.user.id });
-      await closeMcpServer(server, { userId: session.user.id });
-      return NextResponse.json({ success: true, data: { server, enabled: false } });
+      await setMcpServerEnabled(serverName, false, scope);
+      await closeMcpServer(serverName, scope);
+      return NextResponse.json({ success: true, data: { server: serverName, enabled: false } });
     }
 
     if (payload.action === 'test') {
-      const tools = await listMcpTools(server, { scope: { userId: session.user.id } });
-      return NextResponse.json({ success: true, data: { server, toolCount: tools.length } });
+      const tools = await listMcpTools(serverName, { scope });
+      return NextResponse.json({ success: true, data: { server: serverName, toolCount: tools.length } });
     }
 
     if (payload.action === 'authorize') {
-      const started = await startMcpOAuth(server, request.headers.get('origin'), { userId: session.user.id });
-      return NextResponse.json({ success: true, data: { server, ...started } });
+      const started = await startMcpOAuth(serverName, request.headers.get('origin'), scope);
+      return NextResponse.json({ success: true, data: { server: serverName, ...started } });
     }
 
     if (payload.action === 'clear_auth') {
-      await clearMcpOAuth(server, { userId: session.user.id });
-      await closeMcpServer(server, { userId: session.user.id });
-      return NextResponse.json({ success: true, data: { server, authorized: false } });
+      await clearMcpOAuth(serverName, scope);
+      await closeMcpServer(serverName, scope);
+      return NextResponse.json({ success: true, data: { server: serverName, authorized: false } });
     }
 
     return NextResponse.json({ success: false, error: 'Unsupported MCP status action' }, { status: 400 });
   } catch (error) {
+    if (error instanceof McpAccessError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: mcpErrorStatus(error) });
     if (error instanceof McpConfigValidationError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }

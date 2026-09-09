@@ -1,4 +1,5 @@
 import 'server-only';
+import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { markMcpConnectionIncidentRead } from '@/app/lib/mcp/connection-health';
@@ -22,11 +23,14 @@ export type McpConnectionAttentionItem = {
 
 export async function listMcpConnectionAttention(input: { userId: string; now?: number }): Promise<McpConnectionAttentionItem[]> {
   const scope = { userId: input.userId };
+  const actor = await requireMcpUserAccess(scope).catch(() => null);
+  if (!actor) return [];
   const config = await readMcpConfig(scope);
   const locale = await getUserPreferredLocale(input.userId).catch(() => 'en');
   const result: McpConnectionAttentionItem[] = [];
   for (const [serverName, connection] of Object.entries(config.mcpServers)) {
     if (!connection.connectionId || connection.enabled === false) continue;
+    try { await assertMcpConnectionAccess(connection.connectionId, scope, { actor }); } catch { continue; }
     const health = await readMcpConnectionStatus(serverName, connection as McpServerConfig & { connectionId: string }, scope, input.now);
     const incident = health.incident;
     if (!incident) continue;

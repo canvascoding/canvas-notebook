@@ -13,6 +13,7 @@ import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { MailboxConnectionForm } from '@/app/components/email/MailboxConnectionForm';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
 import { McpConnectionHealthStatus } from '@/app/components/settings/McpConnectionHealthStatus';
+import { McpSharedDefinitionsPanel } from '@/app/components/settings/McpSharedDefinitionsPanel';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
 import { UpdateCenterPanel } from '@/app/components/settings/UpdateCenterPanel';
 import {
@@ -125,7 +126,10 @@ type McpEditorState = {
 type McpStatusState = {
   servers: Array<{
     name: string;
+    displayName?: string;
     connectionId?: string;
+    accessAllowed?: boolean;
+    accessError?: string | null;
     health?: McpConnectionHealth | null;
     transport: string;
     enabled: boolean;
@@ -157,6 +161,7 @@ type McpStatusState = {
     expiresAt: string | null;
     reason?: string;
   }>;
+  canManageDefinitions?: boolean;
 };
 
 type McpCachedTool = {
@@ -991,9 +996,13 @@ function McpConfigCard(props: {
   onRawChange: (value: string) => void;
   onSave: () => Promise<void>;
   focusedConnectionId: string | null;
+  canManageConfiguration: boolean;
+  onPublishDefinition: (server: string, name: string) => Promise<void>;
+  onRenameConnection: (connectionId: string, displayName: string) => Promise<void>;
+  onRemoveConnection: (connectionId: string) => Promise<void>;
 }) {
   const t = useTranslations('settings');
-  const { editor, isOpen, onLoad, onLoadStatus, onOpenChange, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave, focusedConnectionId } = props;
+  const { editor, isOpen, onLoad, onLoadStatus, onOpenChange, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave, focusedConnectionId, canManageConfiguration, onPublishDefinition, onRenameConnection, onRemoveConnection } = props;
   const focusedConnectionRef = useRef<HTMLDivElement | null>(null);
   const [serverDialogOpen, setServerDialogOpen] = useState(false);
   const [editingServerName, setEditingServerName] = useState<string | undefined>();
@@ -1004,6 +1013,8 @@ function McpConfigCard(props: {
     isLoading: false,
     error: null,
   });
+  const [connectionDialog, setConnectionDialog] = useState<{ action: 'rename' | 'remove'; connectionId: string; displayName: string } | null>(null);
+  const [connectionDialogName, setConnectionDialogName] = useState('');
   const config = (() => {
     try {
       return parseMcpConfigFile(editor.rawContent);
@@ -1098,6 +1109,14 @@ function McpConfigCard(props: {
       .catch(() => undefined);
   };
 
+  const submitConnectionDialog = () => {
+    if (!connectionDialog) return;
+    const action = connectionDialog.action === 'rename'
+      ? onRenameConnection(connectionDialog.connectionId, connectionDialogName)
+      : onRemoveConnection(connectionDialog.connectionId);
+    void action.then(() => setConnectionDialog(null)).catch(() => undefined);
+  };
+
   return (
     <>
     <SettingsAccordionCard
@@ -1117,15 +1136,15 @@ function McpConfigCard(props: {
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {canManageConfiguration ? <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
               <span>{t('envCard.fileLabel')}: mcp.json</span>
               <span>•</span>
               <span>{t('envCard.formatLabel')}: JSON</span>
               <span>•</span>
               <span>{t('envCard.permissionsLabel')}: 0600</span>
-            </div>
+            </div> : null}
 
-            <div className="space-y-2 text-sm text-muted-foreground">
+            {canManageConfiguration ? <div className="space-y-2 text-sm text-muted-foreground">
               <p>{t('mcpConfig.secretNote')}</p>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <a
@@ -1149,7 +1168,7 @@ function McpConfigCard(props: {
                 </a>
                 <span>{t('mcpConfig.examplesCaution')}</span>
               </div>
-            </div>
+            </div> : null}
 
             {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
             {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
@@ -1165,10 +1184,10 @@ function McpConfigCard(props: {
                     {editor.isStatusLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                     {t('mcpConfig.refreshStatus')}
                   </Button>
-                  <Button type="button" className="w-full sm:w-auto" onClick={startAddServer}>
+                  {canManageConfiguration ? <Button type="button" className="w-full sm:w-auto" onClick={startAddServer}>
                     <Plus className="mr-2 h-4 w-4" />
                     {t('mcpConfig.addServer')}
-                  </Button>
+                  </Button> : null}
                 </div>
               </div>
 
@@ -1181,9 +1200,10 @@ function McpConfigCard(props: {
                     const oauth = editor.status?.oauth.find((entry) => entry.serverName === serverName);
                     const draft = toMcpServerDraft(serverName, serverConfig);
                     const enabled = status?.enabled ?? draft.enabled;
+                    const displayName = status?.displayName || serverName;
                     const isFocusedConnection = status?.connectionId === focusedConnectionId;
                     return (
-                      <div ref={isFocusedConnection ? focusedConnectionRef : undefined} key={serverName} className="flex flex-col gap-3 border-b border-border p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+                      <div data-mcp-connection-id={status?.connectionId} ref={isFocusedConnection ? focusedConnectionRef : undefined} key={serverName} className="flex flex-col gap-3 border-b border-border p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
                         <button
                           type="button"
                           className="flex w-full min-w-0 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:w-auto"
@@ -1193,7 +1213,7 @@ function McpConfigCard(props: {
                           <McpServerAvatar iconUrl={status?.iconUrl} serverName={serverName} />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="min-w-0 break-all font-medium">{serverName}</span>
+                              <span className="min-w-0 break-all font-medium">{displayName}</span>
                               <Badge variant="outline">{draft.mode === 'stdio' ? 'stdio' : 'http'}</Badge>
                               {status?.connected && <Badge>{t('mcpConfig.connected')}</Badge>}
                               {oauth?.requiresAuth && !status?.health && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
@@ -1202,7 +1222,7 @@ function McpConfigCard(props: {
                               {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
                               {status?.lastError && !status.health?.lastErrorCode ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
                             </div>
-                            <McpConnectionHealthStatus health={status?.health} requiresAuth={Boolean(oauth?.requiresAuth)} focused={isFocusedConnection} />
+                            {status?.accessError ? <p className="mt-2 text-xs text-destructive">{t('mcpConfig.accessDenied')}</p> : <McpConnectionHealthStatus health={status?.health} requiresAuth={Boolean(oauth?.requiresAuth)} focused={isFocusedConnection} />}
                             {oauth?.requiresAuth && oauth.redirectUri ? (
                               <div className="mt-1 break-all text-xs text-muted-foreground">
                                 {t('mcpConfig.oauthRedirectUri')}: {oauth.redirectUri}
@@ -1217,7 +1237,7 @@ function McpConfigCard(props: {
                             size="sm"
                             className="w-full sm:w-auto"
                             onClick={() => void onServerAction(serverName, 'test')}
-                            disabled={!enabled || Boolean(editor.activeServerAction) || editor.isSaving}
+                            disabled={!enabled || status?.accessAllowed === false || Boolean(editor.activeServerAction) || editor.isSaving}
                           >
                             {editor.activeServerAction === `${serverName}:test` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             {t('mcpConfig.testConnection')}
@@ -1229,20 +1249,30 @@ function McpConfigCard(props: {
                               size="sm"
                               className="w-full sm:w-auto"
                               onClick={() => void onServerAction(serverName, 'authorize')}
-                              disabled={!enabled || Boolean(editor.activeServerAction) || editor.isSaving}
+                              disabled={!enabled || status?.accessAllowed === false || Boolean(editor.activeServerAction) || editor.isSaving}
                             >
                               {editor.activeServerAction === `${serverName}:authorize` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                               {oauth.authorized ? t('mcpConfig.reauthorize') : t('mcpConfig.authorize')}
                             </Button>
                           )}
-                          <div className="flex items-center justify-end gap-2">
-                            <Button type="button" variant="ghost" size="icon" onClick={() => startEditServer(serverName)} title={t('mcpConfig.editServer')}>
-                              <Settings className="h-4 w-4" />
+                          {canManageConfiguration && draft.mode === 'http' ? (
+                            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => void onPublishDefinition(serverName, displayName)} disabled={Boolean(editor.activeServerAction) || editor.isSaving}>
+                              {editor.activeServerAction === `${serverName}:publish` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                              {t('mcpConfig.publishDefinition')}
                             </Button>
+                          ) : null}
+                          <div className="flex items-center justify-end gap-2">
+                            {canManageConfiguration ? <Button type="button" variant="ghost" size="icon" onClick={() => startEditServer(serverName)} title={t('mcpConfig.editServer')}>
+                              <Settings className="h-4 w-4" />
+                            </Button> : null}
+                            {status?.connectionId ? <>
+                              <Button type="button" variant="ghost" size="sm" onClick={() => { setConnectionDialog({ action: 'rename', connectionId: status.connectionId!, displayName }); setConnectionDialogName(displayName); }} disabled={Boolean(editor.activeServerAction) || editor.isSaving}>{t('mcpConfig.renameConnection')}</Button>
+                              <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => { setConnectionDialog({ action: 'remove', connectionId: status.connectionId!, displayName }); setConnectionDialogName(displayName); }} disabled={Boolean(editor.activeServerAction) || editor.isSaving}>{t('mcpConfig.removeConnection')}</Button>
+                            </> : null}
                             <Switch
                               checked={enabled}
                               onCheckedChange={(checked) => void onServerAction(serverName, checked ? 'enable' : 'disable')}
-                              disabled={Boolean(editor.activeServerAction) || editor.isSaving}
+                              disabled={(!enabled && status?.accessAllowed === false) || Boolean(editor.activeServerAction) || editor.isSaving}
                               aria-label={enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')}
                             />
                           </div>
@@ -1253,7 +1283,7 @@ function McpConfigCard(props: {
                 </div>
               )}
 
-              <details className="rounded-md border border-border p-3">
+              {canManageConfiguration ? <details className="rounded-md border border-border p-3">
                 <summary className="cursor-pointer text-sm font-medium">{t('mcpConfig.rawJson')}</summary>
                 <div className="mt-3 h-[360px] overflow-hidden rounded-md border border-input bg-background">
                   <CodeEditor value={editor.rawContent} onChange={onRawChange} path="mcp.json" readOnly={editor.isSaving} />
@@ -1268,7 +1298,7 @@ function McpConfigCard(props: {
                     {t('envCard.reload')}
                   </Button>
                 </div>
-              </details>
+              </details> : null}
             </div>
           </>
         )}
@@ -1284,6 +1314,13 @@ function McpConfigCard(props: {
       isSaving={editor.isSaving}
       error={editor.error}
     />
+    <Dialog open={Boolean(connectionDialog)} onOpenChange={(open) => { if (!open) setConnectionDialog(null); }}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>{connectionDialog?.action === 'rename' ? t('mcpConfig.renameConnection') : t('mcpConfig.removeConnection')}</DialogTitle><DialogDescription>{connectionDialog?.action === 'rename' ? t('mcpConfig.renameConnectionDescription') : t('mcpConfig.removeConnectionDescription', { name: connectionDialog?.displayName || '' })}</DialogDescription></DialogHeader>
+        {connectionDialog?.action === 'rename' ? <div className="space-y-2"><Label htmlFor="mcp-connection-name">{t('mcpConfig.connectionName')}</Label><Input id="mcp-connection-name" value={connectionDialogName} onChange={(event) => setConnectionDialogName(event.target.value)} maxLength={120} /></div> : null}
+        <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={() => setConnectionDialog(null)} disabled={editor.isSaving}>{t('mcpConfig.cancel')}</Button><Button type="button" variant={connectionDialog?.action === 'remove' ? 'destructive' : 'default'} onClick={submitConnectionDialog} disabled={(connectionDialog?.action === 'rename' && !connectionDialogName.trim()) || editor.isSaving}>{connectionDialog?.action === 'rename' ? t('mcpConfig.saveConnectionName') : t('mcpConfig.removeConnection')}</Button></div>
+      </DialogContent>
+    </Dialog>
     <Dialog open={Boolean(toolsDialog.server)} onOpenChange={(open) => { if (!open) closeToolsDialog(); }}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
@@ -2725,6 +2762,40 @@ export function IntegrationsSettingsClient({
     }
   }, [loadMcpConfig, loadMcpStatus, pollMcpAuthorizationStatus, t]);
 
+  const publishMcpDefinition = async (server: string, name: string) => {
+    setMcpEditor((current) => ({ ...current, activeServerAction: `${server}:publish`, error: null, success: null }));
+    try {
+      const response = await fetch('/api/integrations/mcp-definitions', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'publish', server, name }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || t('mcpConfig.errors.publish'));
+      setMcpEditor((current) => ({ ...current, activeServerAction: null, success: t('mcpConfig.definitionPublished', { server: name }) }));
+      window.dispatchEvent(new CustomEvent('mcp_definitions_updated'));
+    } catch (publishError) {
+      setMcpEditor((current) => ({ ...current, activeServerAction: null, error: publishError instanceof Error ? publishError.message : t('mcpConfig.errors.publish') }));
+      throw publishError;
+    }
+  };
+
+  const updateMcpConnection = async (action: 'rename' | 'remove', connectionId: string, displayName?: string) => {
+    setMcpEditor((current) => ({ ...current, isSaving: true, error: null, success: null }));
+    try {
+      const response = await fetch('/api/integrations/mcp-connections', {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, connectionId, ...(displayName ? { displayName } : {}) }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || t('mcpConfig.errors.connection'));
+      setMcpEditor((current) => ({ ...current, isSaving: false, success: action === 'rename' ? t('mcpConfig.connectionRenamed') : t('mcpConfig.connectionRemoved') }));
+      await Promise.all([loadMcpConfig(), loadMcpStatus()]);
+    } catch (connectionError) {
+      setMcpEditor((current) => ({ ...current, isSaving: false, error: connectionError instanceof Error ? connectionError.message : t('mcpConfig.errors.connection') }));
+      throw connectionError;
+    }
+  };
+
   useEffect(() => {
     if (effectiveTab !== 'secrets' || secretsInitialLoadStartedRef.current) {
       return;
@@ -2746,12 +2817,12 @@ export function IntegrationsSettingsClient({
     mcpInitialLoadStartedRef.current = true;
     startTransition(() => {
       void Promise.all([
-        loadState('integrations'),
+        ...(isAdmin ? [loadState('integrations')] : []),
         loadMcpConfig(),
         loadMcpStatus(),
       ]);
     });
-  }, [effectiveTab, loadMcpConfig, loadMcpStatus, loadState]);
+  }, [effectiveTab, isAdmin, loadMcpConfig, loadMcpStatus, loadState]);
 
   useEffect(() => {
     const locationParams = new URLSearchParams(locationQuery);
@@ -3282,6 +3353,8 @@ export function IntegrationsSettingsClient({
                 <McpServerSettingsPanel isAdmin={isAdmin} />
               </TabsContent>
               <TabsContent value="external-servers" className="mt-0">
+                <div className="space-y-4">
+                <McpSharedDefinitionsPanel onConnectionsChanged={async () => { await Promise.all([loadMcpConfig(), loadMcpStatus()]); }} />
                 <McpConfigCard
                   isOpen={integrationsSectionOpenById.mcpConfig}
                   onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
@@ -3294,7 +3367,12 @@ export function IntegrationsSettingsClient({
                   onRawChange={setMcpRawContent}
                   onSave={saveMcpConfig}
                   focusedConnectionId={requestedMcpConnectionId}
+                  canManageConfiguration={mcpEditor.status?.canManageDefinitions ?? false}
+                  onPublishDefinition={publishMcpDefinition}
+                  onRenameConnection={(connectionId, displayName) => updateMcpConnection('rename', connectionId, displayName)}
+                  onRemoveConnection={(connectionId) => updateMcpConnection('remove', connectionId)}
                 />
+                </div>
               </TabsContent>
             </Tabs>,
             { id: 'onboarding-settings-mcp' },

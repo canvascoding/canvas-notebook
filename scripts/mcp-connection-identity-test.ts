@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,7 +23,12 @@ function serverConfig(overrides: Record<string, unknown> = {}) {
 
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-identity-'));
+  const originalDataRoot = process.env.CANVAS_DATA_ROOT;
+  const originalMasterKey = process.env.INTEGRATIONS_ENV_MASTER_KEY;
   process.env.CANVAS_DATA_ROOT = dataRoot;
+  process.env.INTEGRATIONS_ENV_MASTER_KEY = crypto.randomBytes(32).toString('base64url');
+
+  try {
 
   const {
     parseAndValidateMcpConfig,
@@ -32,6 +38,8 @@ async function main() {
     writeMcpConfigRaw,
   } = await import('../app/lib/mcp/config');
   const { hashMcpAuthConfig } = await import('../app/lib/mcp/connection-identity');
+  const { readMcpCredentialJson, resolveMcpCredentialConnection, writeMcpCredentialJson } = await import('../app/lib/mcp/credential-storage');
+  const { resolveMcpStoragePath } = await import('../app/lib/mcp/storage');
 
   const userA = { userId: 'identity-user-a', organizationId: 'org-a' };
   const userB = { userId: 'identity-user-b', organizationId: 'org-a' };
@@ -111,6 +119,67 @@ async function main() {
     /unknown|connection.?id/i,
   );
 
+  const mixedUserScope = { userId: userA.userId };
+  const mixedOrgAScope = { userId: userA.userId, organizationId: 'org-a' };
+  const mixedOrgBScope = { userId: userA.userId, organizationId: 'org-b' };
+  await writeMcpConfigRaw(JSON.stringify({ mcpServers: {
+    primary: serverConfig({ organizationId: 'org-a' }),
+    shared: serverConfig({ organizationId: 'org-b', url: 'https://other-org.example.test/mcp' }),
+  } }), mixedOrgAScope);
+  const mixed = await readMcpConfig(mixedUserScope);
+  const primary = mixed.mcpServers.primary!;
+  const shared = mixed.mcpServers.shared!;
+  assert.equal(primary.organizationId, 'org-a');
+  assert.equal(shared.organizationId, 'org-b');
+  assert.ok(shared.connectionId);
+  assert.equal((await readMcpConfig(mixedOrgAScope)).mcpServers.shared?.organizationId, 'org-b', 'an explicit scope must not reject other personal connections while reading the shared config');
+
+  await writeMcpConfigRaw(JSON.stringify({ mcpServers: {
+    primary,
+    renamedShared: { ...shared, displayName: 'Renamed shared association' },
+  } }), mixedOrgAScope);
+  const renamedShared = (await readMcpConfig(mixedUserScope)).mcpServers.renamedShared!;
+  assert.equal(renamedShared.connectionId, shared.connectionId, 'renaming preserves the immutable connection identity');
+  assert.equal(renamedShared.organizationId, 'org-b', 'renaming preserves the immutable organization association');
+  await assert.rejects(
+    () => writeMcpConfigRaw(JSON.stringify({ mcpServers: {
+      primary,
+      renamedShared: { ...renamedShared, organizationId: 'org-a' },
+    } }), mixedOrgAScope),
+    /organization.*immutable/i,
+  );
+
+  const nullAssociationScope = { userId: 'null-association-user' };
+  await writeMcpConfigRaw(config('unassociated'), nullAssociationScope);
+  const unassociated = (await readMcpConfig(nullAssociationScope)).mcpServers.unassociated!;
+  assert.equal(unassociated.organizationId, null);
+  await assert.rejects(
+    () => writeMcpConfigRaw(config('unassociated', {
+      ...unassociated,
+      organizationId: 'org-a',
+    }), { userId: nullAssociationScope.userId, organizationId: 'org-a' }),
+    /organization.*immutable/i,
+    'an existing null organization association cannot later be bound',
+  );
+
+  assert.equal((await resolveMcpCredentialConnection('renamedShared', mixedUserScope)).connectionId, renamedShared.connectionId);
+  await assert.rejects(() => resolveMcpCredentialConnection('renamedShared', mixedOrgAScope), /organization/i, 'an explicit foreign organization scope cannot resolve the selected connection');
+  assert.equal((await resolveMcpCredentialConnection('renamedShared', mixedOrgBScope)).connectionId, renamedShared.connectionId);
+
+  const credentialPath = `connections/${renamedShared.connectionId}/tokens.json`;
+  await writeMcpCredentialJson(credentialPath, {
+    connectionId: renamedShared.connectionId,
+    organizationId: 'org-b',
+    value: 'test-only-credential',
+  }, mixedUserScope);
+  assert.equal((await readMcpCredentialJson<{ value: string }>(credentialPath, mixedUserScope))?.value, 'test-only-credential');
+  assert.equal((await readMcpCredentialJson<{ value: string }>(credentialPath, mixedOrgBScope))?.value, 'test-only-credential');
+  await assert.rejects(() => readMcpCredentialJson(credentialPath, mixedOrgAScope), /organization/i);
+  const sealedPath = resolveMcpStoragePath(credentialPath, mixedUserScope);
+  const envelope = JSON.parse(await fs.readFile(sealedPath, 'utf8')) as { organizationId: string | null };
+  await fs.writeFile(sealedPath, JSON.stringify({ ...envelope, organizationId: 'org-a' }));
+  await assert.rejects(() => readMcpCredentialJson(credentialPath, mixedUserScope), /decrypt|secret|authentication|invalid/i, 'clear organization routing is cryptographically bound to the encrypted credential');
+
   const oldRaw = JSON.stringify({ mcpServers: {
     'foo/bar': { url: 'https://legacy.example.test/mcp', auth: 'oauth', oauth: { issuer: 'https://legacy.example.test' } },
     foo_bar: { url: 'https://legacy.example.test/mcp', auth: 'oauth', oauth: { issuer: 'https://legacy.example.test' } },
@@ -132,6 +201,13 @@ async function main() {
   assert.equal(parseAndValidateMcpConfig(legacyState.rawContent).mcpServers['foo/bar'] !== undefined, true);
   assert.equal(hashMcpAuthConfig(legacyFoo), hashMcpAuthConfig(legacyFoo));
   console.log('mcp-connection-identity-test: ok');
+  } finally {
+    if (originalDataRoot === undefined) delete process.env.CANVAS_DATA_ROOT;
+    else process.env.CANVAS_DATA_ROOT = originalDataRoot;
+    if (originalMasterKey === undefined) delete process.env.INTEGRATIONS_ENV_MASTER_KEY;
+    else process.env.INTEGRATIONS_ENV_MASTER_KEY = originalMasterKey;
+    await fs.rm(dataRoot, { recursive: true, force: true });
+  }
 }
 
 main().catch((error) => {

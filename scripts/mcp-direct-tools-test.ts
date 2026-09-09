@@ -23,6 +23,7 @@ async function main() {
   await fs.writeFile(path.join(tempRoot, 'secrets', 'Canvas-Agents.env'), '', 'utf8');
 
   const { writeMcpConfigRaw } = await import('../app/lib/mcp/config');
+  const { MCP_SYSTEM_SCOPE } = await import('../app/lib/mcp/scope');
   const { closeAllMcpServers } = await import('../app/lib/mcp/manager');
   const { buildDirectMcpTools, createDirectMcpToolName } = await import('../app/lib/mcp/direct-tools');
 
@@ -72,9 +73,9 @@ async function main() {
       'fake-collision': baseServer,
       fake_collision: baseServer,
     },
-  }, null, 2));
+  }, null, 2), MCP_SYSTEM_SCOPE);
 
-  const direct = await buildDirectMcpTools();
+  const direct = await buildDirectMcpTools(MCP_SYSTEM_SCOPE);
   assert.equal(direct.tools.some((tool) => tool.name === 'mcp_fake_echo'), true);
   assert.equal(direct.warnings.some((warning) => /collision/i.test(warning.message)), true);
 
@@ -85,7 +86,7 @@ async function main() {
 
   const metadata = await getPiToolMetadata();
   const directMetadata = metadata.find((tool) => tool.name === 'mcp_fake_echo');
-  assert.equal(directMetadata?.group, 'MCP');
+  assert.equal(directMetadata, undefined, 'a system-scoped MCP tool is never published to a userless global registry');
 
   await closeAllMcpServers();
   moduleInternals._load = originalLoad;

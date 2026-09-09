@@ -16,8 +16,8 @@ async function main() {
   const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = internals._load;
   internals._load = (request, parent, isMain) => {
-    if (request.endsWith('/license/seat-limit')) return { assertUserSeatAccess: async ({ userId }: { userId: string }) => { if (userId === 'inactive') throw new Error('inactive'); } };
-    if (request.endsWith('/organization/permissions')) return { assertUserOrganizationAdmin: async () => undefined };
+    if (request.endsWith('/license/seat-limit')) return { assertUserSeatAccess: async ({ userId }: { userId: string }) => { if (userId === 'inactive') throw new Error('inactive'); return { mode: 'solo' }; } };
+    if (request.endsWith('/organization/permissions')) return { assertUserOrganizationAdmin: async () => undefined, readOrganizationPermissionForUser: async () => ({ configured: false, organizationId: null, permission: null }) };
     if (request.endsWith('/user-preferences')) return { getUserPreferredLocale: async () => 'de' };
     return originalLoad(request, parent, isMain);
   };

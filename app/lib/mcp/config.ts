@@ -219,11 +219,15 @@ export async function readMcpConfig(scope?: McpScope | null): Promise<McpConfig>
   return parseAndValidateMcpConfig(state.rawContent);
 }
 
-export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | null): Promise<McpConfigState> {
+export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | null, options: { expectedRaw?: string } = {}): Promise<McpConfigState> {
   const incoming = parseAndValidateMcpConfig(rawContent);
   const changed: Array<{ connection: McpServerConfig & { connectionId: string }; clearAuth: boolean; invalidatedGeneration?: number }> = [];
   const state = await withMcpStorageLock('config', scope, async () => {
-    const previous = parseAndValidateMcpConfig((await readMcpConfigStateUnlocked(scope)).rawContent);
+    const previousState = await readMcpConfigStateUnlocked(scope);
+    if (options.expectedRaw !== undefined && options.expectedRaw !== previousState.rawContent) {
+      throw Object.assign(new Error('MCP connections changed. Reload and try again.'), { status: 409, code: 'MCP_CONFIG_CONFLICT' });
+    }
+    const previous = parseAndValidateMcpConfig(previousState.rawContent);
     const hydrated = hydrateMcpConnectionIdentities(incoming, scope, previous);
     const nextById = new Map(Object.values(hydrated.mcpServers).map((server) => [server.connectionId, server]));
     for (const server of Object.values(previous.mcpServers)) {
@@ -236,7 +240,8 @@ export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | n
         // This lock only updates a short-lived generation record. No provider
         // request or refresh lock may be acquired while holding the config lock.
         const { invalidateMcpOAuthGeneration } = await import('@/app/lib/mcp/oauth-lifecycle');
-        invalidatedGeneration = (await invalidateMcpOAuthGeneration(server.connectionId, scope)).generation;
+        const { resolveMcpCredentialScope } = await import('@/app/lib/mcp/credential-storage');
+        invalidatedGeneration = (await invalidateMcpOAuthGeneration(server.connectionId, resolveMcpCredentialScope({ ...server, connectionId: server.connectionId }, scope))).generation;
       }
       changed.push({ connection: { ...server, connectionId: server.connectionId }, clearAuth, invalidatedGeneration });
     }

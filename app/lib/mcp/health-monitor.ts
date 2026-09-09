@@ -4,8 +4,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { resolveUsersDataRoot } from '@/app/lib/runtime-data-paths';
-import { assertUserSeatAccess } from '@/app/lib/license/seat-limit';
-import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
+import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { claimMcpConnectionProbe, classifyMcpConnectionFailure, recordMcpConnectionObservation } from '@/app/lib/mcp/connection-health';
 import { readMcpConnectionStatus } from '@/app/lib/mcp/connection-status';
@@ -23,11 +22,10 @@ const LEASE_FILE = 'mcp-health-monitor.json';
 type MonitorCursor = { nextRunAt: number; userOffset: number; connectionOffset: number; lease?: string };
 type Candidate = { userId: string; serverName: string; connection: McpServerConfig & { connectionId: string } };
 
-/** Current management policy; member definitions extend this guard in the access layer. */
+/** Probe only active users; each account is checked again before use. */
 async function mayProbeUser(userId: string): Promise<boolean> {
   try {
-    await assertUserSeatAccess({ userId });
-    await assertUserOrganizationAdmin(userId);
+    await requireMcpUserAccess({ userId });
     return true;
   } catch {
     return false;
@@ -74,6 +72,7 @@ export async function runMcpConnectionHealthChecks(now = Date.now()): Promise<nu
     const candidate = candidates[(cursor.connectionOffset + visited) % candidates.length];
     const scope = { userId: candidate.userId };
     try {
+      await assertMcpConnectionAccess(candidate.connection.connectionId, scope);
       const health = await readMcpConnectionStatus(candidate.serverName, candidate.connection, scope, now);
       if ((candidate.connection.auth === 'oauth' || candidate.connection.oauth) && health.authStatus === 'not_authorized') continue;
       if (!await claimMcpConnectionProbe(candidate.connection, scope, now)) continue;

@@ -1,9 +1,11 @@
+import crypto from 'node:crypto';
+import { requireMcpUserAccess } from './access';
 import type { Tool } from '@modelcontextprotocol/client';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 
 import { callMcpTool, listMcpTools, readCachedTools, hashMcpServerConfig } from '@/app/lib/mcp/manager';
 import { mcpReconnectDetails } from '@/app/lib/mcp/connection-health';
-import { isMcpServerEnabled, readMcpConfig } from '@/app/lib/mcp/config';
+import { isMcpServerEnabled, readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import type { McpScope } from '@/app/lib/mcp/scope';
 
 export type DirectMcpToolWarning = {
@@ -21,7 +23,8 @@ function sanitizeToolSegment(value: string): string {
   return value.trim().replace(/[^A-Za-z0-9_]/g, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').toLowerCase();
 }
 
-export function createDirectMcpToolName(serverName: string, toolName: string): string {
+export function createDirectMcpToolName(serverName: string, toolName: string, connectionId?: string): string {
+  if (connectionId) return `mcp_${connectionId.replace(/-/gu, '')}_${sanitizeToolSegment(toolName).slice(0, 17)}_${crypto.createHash('sha256').update(toolName).digest('hex').slice(0, 8)}`;
   const server = sanitizeToolSegment(serverName);
   const tool = sanitizeToolSegment(toolName);
   return `mcp_${server}_${tool}`;
@@ -45,16 +48,17 @@ function summarizeContent(result: Awaited<ReturnType<typeof callMcpTool>>): stri
   }).join('\n') || '(empty MCP tool result)';
 }
 
-function makeDirectTool(serverName: string, tool: Tool, directName: string, scope?: McpScope | null): AgentTool {
+function makeDirectTool(serverName: string, tool: Tool, directName: string, scope?: McpScope | null, connection?: McpServerConfig): AgentTool {
+  const identity = connection?.connectionId || serverName;
   return {
     name: directName,
-    label: `MCP ${serverName}.${tool.name}`,
+    label: `MCP ${connection?.displayName || serverName}.${tool.name}`,
     description: tool.description || `Direct MCP tool ${tool.name} from server ${serverName}.`,
     parameters: tool.inputSchema as AgentTool['parameters'],
     executionMode: 'sequential',
     execute: async (_toolCallId, params, signal): Promise<AgentToolResult<unknown>> => {
       try {
-        const result = await callMcpTool(serverName, tool.name, params as Record<string, unknown>, signal, scope);
+        const result = await callMcpTool(identity, tool.name, params as Record<string, unknown>, signal, scope);
         return {
           content: [{ type: 'text', text: summarizeContent(result) }],
           details: { server: serverName, tool: tool.name, result },
@@ -63,7 +67,7 @@ function makeDirectTool(serverName: string, tool: Tool, directName: string, scop
         const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message, server: serverName, tool: tool.name, ...await mcpReconnectDetails(serverName, scope, error).catch(() => ({})) },
+          details: { error: message, server: serverName, tool: tool.name, ...await mcpReconnectDetails(identity, scope, error).catch(() => ({})) },
         };
       }
     },
@@ -71,6 +75,7 @@ function makeDirectTool(serverName: string, tool: Tool, directName: string, scop
 }
 
 export async function buildDirectMcpTools(scope?: McpScope | null, options: { cacheOnly?: boolean } = {}): Promise<DirectMcpToolBuildResult> {
+  await requireMcpUserAccess(scope);
   const config = await readMcpConfig(scope);
   const tools: AgentTool[] = [];
   const warnings: DirectMcpToolWarning[] = [];
@@ -107,7 +112,7 @@ export async function buildDirectMcpTools(scope?: McpScope | null, options: { ca
         continue;
       }
 
-      const directName = createDirectMcpToolName(serverName, remoteTool.name);
+      const directName = createDirectMcpToolName(serverName, remoteTool.name, serverConfig.connectionId);
       if (!/^mcp_[A-Za-z0-9_]+$/u.test(directName)) {
         warnings.push({ server: serverName, tool: remoteTool.name, message: `Invalid generated direct MCP tool name: ${directName}` });
         continue;
@@ -118,7 +123,7 @@ export async function buildDirectMcpTools(scope?: McpScope | null, options: { ca
       }
 
       usedNames.add(directName);
-      tools.push(makeDirectTool(serverName, remoteTool, directName, scope));
+      tools.push(makeDirectTool(serverName, remoteTool, directName, scope, serverConfig));
     }
   }
 

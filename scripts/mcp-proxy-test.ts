@@ -23,6 +23,7 @@ async function main() {
   await fs.writeFile(path.join(tempRoot, 'secrets', 'Canvas-Agents.env'), '', 'utf8');
 
   const { writeMcpConfigRaw } = await import('../app/lib/mcp/config');
+  const { MCP_SYSTEM_SCOPE } = await import('../app/lib/mcp/scope');
   const { closeAllMcpServers } = await import('../app/lib/mcp/manager');
   const { createMcpProxyTool } = await import('../app/lib/mcp/proxy-tool');
 
@@ -43,7 +44,7 @@ async function main() {
     },
   }, null, 2));
 
-  const tool = createMcpProxyTool();
+  const tool = createMcpProxyTool(undefined, MCP_SYSTEM_SCOPE);
 
   const listServers = await tool.execute('list-servers', { action: 'list_servers' });
   assert.match(getText(listServers), /fake: stdio/);
@@ -101,7 +102,7 @@ async function main() {
     action: 'list_tools',
     server: 'missing',
   });
-  assert.match(getText(unknownServer), /^Error: Unknown MCP server "missing"/);
+  assert.match(getText(unknownServer), /^Error: MCP connection not found\./);
 
   await writeMcpConfigRaw(JSON.stringify({
     settings: {

@@ -130,7 +130,7 @@ async function main(): Promise<void> {
     assert.ok(durableHealth.lastSuccessfulRequestAt);
 
     const foreignBefore = await readMcpConnectionHealth(otherConnection, otherScope);
-    await recordMcpConnectionObservation(connection, otherScope, { kind: 'failure', code: 'network_error' }, { now: now + 7 * 60_000 });
+    await assert.rejects(() => recordMcpConnectionObservation(connection, otherScope, { kind: 'failure', code: 'network_error' }, { now: now + 7 * 60_000 }), /another user/);
     const foreignAfter = await readMcpConnectionHealth(otherConnection, otherScope);
     assert.deepEqual(foreignAfter, foreignBefore, 'a foreign user cannot write health for another connection object');
 

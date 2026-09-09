@@ -4493,6 +4493,27 @@
       "canvasServer": "MCP Server",
       "externalServers": "External MCP Servers"
     },
+    "mcpDefinitions": {
+      "title": "Approved MCP connections",
+      "description": "Add an approved server to your account. Your connection and authorization stay private.",
+      "loading": "Loading approved connections...",
+      "refresh": "Refresh",
+      "empty": "No approved MCP connections are available yet.",
+      "enabled": "Available",
+      "disabled": "Disabled",
+      "enable": "Enable",
+      "disable": "Disable",
+      "addConnection": "Add to my account",
+      "connectTitle": "Add {definition}",
+      "connectDescription": "Use a distinct label to tell multiple accounts apart.",
+      "accountLabel": "Account label",
+      "cancel": "Cancel",
+      "errors": {
+        "load": "Failed to load approved MCP connections.",
+        "connect": "Failed to add the MCP connection.",
+        "update": "Failed to update the approved MCP connection."
+      }
+    },
     "mcpConfig": {
       "title": "External MCP servers",
       "description": "Connect Canvas as a client to external MCP servers.",
@@ -4510,7 +4531,17 @@
       "refreshStatus": "Refresh status",
       "noServers": "No MCP servers configured.",
       "addServer": "Add server",
+      "publishDefinition": "Publish for members",
+      "definitionPublished": "{server} is available to members.",
       "editServer": "Edit server",
+      "renameConnection": "Rename",
+      "removeConnection": "Remove",
+      "saveConnectionName": "Save",
+      "renameConnectionDescription": "Choose a distinct label for this account.",
+      "removeConnectionDescription": "Remove {name} from your connected accounts?",
+      "connectionName": "Account label",
+      "connectionRenamed": "Connection renamed.",
+      "connectionRemoved": "Connection removed.",
       "cancel": "Cancel",
       "deleteServer": "Delete server",
       "backToServers": "Back to servers",
@@ -4598,8 +4629,11 @@
         "status": "Failed to load MCP status.",
         "action": "Failed to update MCP server.",
         "tools": "Failed to load cached MCP tools.",
+        "publish": "Failed to publish the shared MCP definition.",
+        "connection": "Failed to update the MCP connection.",
         "popupBlocked": "The OAuth window was blocked by the browser. Allow popups for this app and try again."
-      }
+      },
+      "accessDenied": "This account is unavailable under the current server approval or membership. Choose an approved server or contact your administrator."
     },
     "connectedApps": {
       "title": "Connected Apps",

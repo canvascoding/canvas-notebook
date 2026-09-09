@@ -8,6 +8,20 @@ import { requireMcpCredentialScope, type McpScope } from '@/app/lib/mcp/scope';
 import { readMcpTextFileIfExists, removeMcpStoragePath, writeMcpTextFileAtomic } from '@/app/lib/mcp/storage';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 
+export function resolveMcpCredentialScope(
+  connection: Pick<McpServerConfig, 'ownerUserId' | 'organizationId'> & { connectionId: string },
+  scope?: McpScope | null,
+): McpScope {
+  const requested = requireMcpCredentialScope(scope);
+  if (!requested.userId) return requested;
+  if (connection.ownerUserId !== requested.userId) throw new Error('MCP connection belongs to another user.');
+  const organizationId = connection.organizationId || null;
+  if (requested.organizationId && requested.organizationId !== organizationId) {
+    throw new Error('MCP connection belongs to another organization.');
+  }
+  return { userId: requested.userId, organizationId };
+}
+
 export async function resolveMcpCredentialConnection(serverName: string, scope?: McpScope | null): Promise<McpServerConfig & { connectionId: string }> {
   const ownedScope = requireMcpCredentialScope(scope);
   const config = await readMcpConfig(ownedScope);
@@ -18,7 +32,9 @@ export async function resolveMcpCredentialConnection(serverName: string, scope?:
   if (!selected) throw new Error(`Unknown MCP connection "${serverName}".`);
   const [name, server] = selected;
   const connectionId = server.connectionId || systemId(name);
-  return { ...server, connectionId };
+  const connection = { ...server, connectionId };
+  resolveMcpCredentialScope(connection, ownedScope);
+  return connection;
 }
 
 function bindingFor(relativePath: string, scope: McpScope, connectionId?: string): McpSecretBinding {
@@ -28,23 +44,39 @@ function bindingFor(relativePath: string, scope: McpScope, connectionId?: string
   return { ownerUserId: scope.userId || 'system', organizationId: scope.organizationId || null, connectionId: id, purpose: relativePath };
 }
 
+function envelopeOrganizationId(payload: unknown, scope: McpScope): string | null {
+  const value = (payload as { organizationId?: unknown })?.organizationId;
+  if (value === undefined) return scope.organizationId || null;
+  if (value !== null && (typeof value !== 'string' || !value.trim())) throw new Error('Invalid MCP credential organization binding.');
+  if (scope.organizationId && value !== scope.organizationId) throw new Error('MCP credential organization binding does not match the requested scope.');
+  return value || null;
+}
+
 export async function writeMcpCredentialJson(relativePath: string, payload: unknown, scope?: McpScope | null): Promise<void> {
   const ownedScope = requireMcpCredentialScope(scope);
   const connectionId = (payload as { connectionId?: string })?.connectionId;
-  const binding = bindingFor(relativePath, ownedScope, connectionId);
+  const organizationId = envelopeOrganizationId(payload, ownedScope);
+  const binding = bindingFor(relativePath, { ...ownedScope, organizationId }, connectionId);
   const sealed = await sealMcpSecret(payload, binding);
-  // The clear ID only routes state lookup. Authentication binds it to the secret.
-  await writeMcpTextFileAtomic(relativePath, JSON.stringify({ connectionId: binding.connectionId, sealed }), ownedScope);
+  // Clear routing fields are bound into the secret's AAD and cannot change its authority.
+  await writeMcpTextFileAtomic(relativePath, JSON.stringify({ connectionId: binding.connectionId, organizationId, sealed }), ownedScope);
 }
 
 export async function readMcpCredentialJson<T>(relativePath: string, scope?: McpScope | null): Promise<T | null> {
   const ownedScope = requireMcpCredentialScope(scope);
   const { content } = await readMcpTextFileIfExists(relativePath, ownedScope);
   if (content === null) return null;
-  let envelope: { connectionId?: string; sealed?: string };
+  let envelope: { connectionId?: string; organizationId?: string | null; sealed?: string };
   try { envelope = JSON.parse(content); } catch { throw new Error('Invalid MCP credential storage envelope.'); }
   if (typeof envelope.connectionId !== 'string' || typeof envelope.sealed !== 'string') throw new Error('Invalid MCP credential storage envelope.');
-  const binding = bindingFor(relativePath, ownedScope, envelope.connectionId);
+  if (envelope.organizationId !== undefined && envelope.organizationId !== null && (typeof envelope.organizationId !== 'string' || !envelope.organizationId.trim())) {
+    throw new Error('Invalid MCP credential storage envelope.');
+  }
+  if (ownedScope.organizationId && envelope.organizationId !== undefined && envelope.organizationId !== ownedScope.organizationId) {
+    throw new Error('MCP credential organization binding does not match the requested scope.');
+  }
+  // Pre-association envelopes bind the caller's requested scope exactly as before.
+  const binding = bindingFor(relativePath, { ...ownedScope, organizationId: envelope.organizationId === undefined ? ownedScope.organizationId || null : envelope.organizationId }, envelope.connectionId);
   if (binding.connectionId !== envelope.connectionId) throw new Error('MCP credential connection binding does not match.');
   return openMcpSecret<T>(envelope.sealed, binding);
 }
@@ -53,14 +85,15 @@ export async function readMcpCredentialJson<T>(relativePath: string, scope?: Mcp
 export async function migrateMcpConnectionCredentials(serverName: string, scope?: McpScope | null): Promise<string> {
   const ownedScope = requireMcpCredentialScope(scope);
   const connection = await resolveMcpCredentialConnection(serverName, ownedScope);
+  const credentialScope = resolveMcpCredentialScope(connection, ownedScope);
   const directory = `connections/${connection.connectionId}`;
   const legacyName = connection.legacyOAuthName || (ownedScope.legacy ? serverName : null);
   if (!legacyName) return directory;
-  return withMcpStorageLock(`migration-${connection.connectionId}`, ownedScope, async () => {
+  return withMcpStorageLock(`migration-${connection.connectionId}`, credentialScope, async () => {
     const marker = `${directory}/migration.json`;
     const oldDirectory = path.posix.join('mcp-oauth', legacyName.replace(/[^A-Za-z0-9_.-]/g, '_') || 'server');
-    if ((await readMcpTextFileIfExists(marker, ownedScope)).content === null) {
-      const legacyToken = await readMcpTextFileIfExists(`${oldDirectory}/tokens.json`, ownedScope);
+    if ((await readMcpTextFileIfExists(marker, credentialScope)).content === null) {
+      const legacyToken = await readMcpTextFileIfExists(`${oldDirectory}/tokens.json`, credentialScope);
       let token: Record<string, unknown> | null = null;
       try { token = legacyToken.content ? JSON.parse(legacyToken.content) : null; } catch { /* Reauthorize invalid legacy data. */ }
       const valid = !connection.legacyOAuthAmbiguous && token?.serverName === legacyName
@@ -69,23 +102,23 @@ export async function migrateMcpConnectionCredentials(serverName: string, scope?
       if (valid) {
         for (const filename of ['tokens.json', 'client.json', 'scope-challenge.json']) {
           const target = `${directory}/${filename}`;
-          if ((await readMcpTextFileIfExists(target, ownedScope)).content !== null) continue;
-          const source = await readMcpTextFileIfExists(`${oldDirectory}/${filename}`, ownedScope);
+          if ((await readMcpTextFileIfExists(target, credentialScope)).content !== null) continue;
+          const source = await readMcpTextFileIfExists(`${oldDirectory}/${filename}`, credentialScope);
           if (!source.content) continue;
           const payload = JSON.parse(source.content) as Record<string, unknown>;
           await writeMcpCredentialJson(target, {
             ...payload, configHash: hashMcpAuthConfig(connection), connectionId: connection.connectionId,
-            ownerUserId: ownedScope.userId, organizationId: ownedScope.organizationId || null, authVersion: connection.authVersion || 1,
-          }, ownedScope);
+            ownerUserId: credentialScope.userId, organizationId: credentialScope.organizationId || null, authVersion: connection.authVersion || 1,
+          }, credentialScope);
         }
       }
       // Publish the marker only after every encrypted write succeeds. Missing keys
       // never discard legacy data; a subsequent attempt can finish the migration.
-      await writeMcpTextFileAtomic(marker, JSON.stringify({ version: 1, reauthRequired: Boolean(token && !valid) }), ownedScope);
+      await writeMcpTextFileAtomic(marker, JSON.stringify({ version: 1, reauthRequired: Boolean(token && !valid) }), credentialScope);
     }
-    await removeMcpStoragePath(oldDirectory, ownedScope, { recursive: true });
+    await removeMcpStoragePath(oldDirectory, credentialScope, { recursive: true });
     // In-flight pre-upgrade flows cannot be safely rebound; remove their PKCE secrets.
-    await removeMcpStoragePath('mcp-oauth/.state', ownedScope, { recursive: true });
+    await removeMcpStoragePath('mcp-oauth/.state', credentialScope, { recursive: true });
     return directory;
   });
 }

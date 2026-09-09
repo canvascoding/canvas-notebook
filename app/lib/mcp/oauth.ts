@@ -3,8 +3,9 @@ import path from 'path';
 import { promises as fs } from 'node:fs';
 
 import { type McpServerConfig } from '@/app/lib/mcp/config';
+import { assertMcpConnectionAccess } from '@/app/lib/mcp/access';
 import { hashMcpAuthConfig, hashMcpLegacyConfig } from '@/app/lib/mcp/connection-identity';
-import { migrateMcpConnectionCredentials, readMcpCredentialJson, resolveMcpCredentialConnection, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
+import { migrateMcpConnectionCredentials, readMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
 import { commitMcpOAuthLifecycle, fencedMcpOAuthWrite, invalidateMcpOAuthLifecycle, readMcpOAuthLifecycle, withMcpOAuthLifecycleLock } from '@/app/lib/mcp/oauth-lifecycle';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import { classifyMcpConnectionFailure, recordMcpConnectionObservation } from '@/app/lib/mcp/connection-health';
@@ -69,6 +70,8 @@ type OAuthScopeChallengeRecord = {
 
 type OAuthStateRecord = {
   connectionId: string;
+  ownerUserId?: string;
+  organizationId?: string | null;
   authVersion: number;
   lifecycleGeneration: number;
   state: string;
@@ -89,7 +92,7 @@ type OAuthStateRecord = {
   expiresAt: string;
 };
 
-type OAuthConnectionSnapshot = Pick<OAuthStateRecord, 'connectionId' | 'authVersion' | 'configHash' | 'lifecycleGeneration'>;
+type OAuthConnectionSnapshot = Pick<OAuthStateRecord, 'connectionId' | 'organizationId' | 'authVersion' | 'configHash' | 'lifecycleGeneration'>;
 
 export type OAuthTokenRecord = {
   lifecycleGeneration?: number;
@@ -512,12 +515,14 @@ function createPkcePair(): { verifier: string; challenge: string } {
   return { verifier, challenge };
 }
 
-async function resolveServerForOAuth(serverName: string, scope?: McpScope | null): Promise<{ serverConfig: McpServerConfig & { connectionId: string }; oauth: OAuthServerConfig; configHash: string }> {
+async function resolveServerForOAuth(serverName: string, scope?: McpScope | null): Promise<{ serverConfig: McpServerConfig & { connectionId: string }; credentialScope: McpScope; oauth: OAuthServerConfig; configHash: string }> {
+  // Status reads use this resolver too. They must remain available for a
+  // disabled or historical connection so Settings can explain its state.
   const serverConfig = await resolveMcpCredentialConnection(serverName, scope);
   if (serverConfig.enabled === false) throw new McpOAuthError('MCP connection is disabled.', 409);
   const oauth = getOAuthConfig(serverConfig);
   if (!oauth) throw new McpOAuthError(`MCP server "${serverName}" is not configured for OAuth.`);
-  return { serverConfig, oauth, configHash: hashMcpServerConfig(serverConfig) };
+  return { serverConfig, credentialScope: resolveMcpCredentialScope(serverConfig, scope), oauth, configHash: hashMcpServerConfig(serverConfig) };
 }
 
 export async function getMcpOAuthStatus(serverName: string, requestOrigin?: string | null, scope?: McpScope | null): Promise<McpOAuthStatus> {
@@ -527,6 +532,7 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
   let authVersion = 0;
   try {
     const serverConfig = await resolveMcpCredentialConnection(serverName, normalizedScope);
+    const credentialScope = resolveMcpCredentialScope(serverConfig, normalizedScope);
     configured = true;
     authVersion = serverConfig.authVersion || 1;
 
@@ -546,8 +552,8 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
       };
     }
 
-    const lifecycle = await readMcpOAuthLifecycle(serverConfig.connectionId, normalizedScope);
-    const token = await readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, scope)), normalizedScope);
+    const lifecycle = await readMcpOAuthLifecycle(serverConfig.connectionId, credentialScope);
+    const token = await readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, credentialScope)), credentialScope);
     const bound = isBoundOAuthToken(token, serverConfig, lifecycle.generation);
     const authorized = bound && (!isExpired(token) || Boolean(token.refreshToken));
     const redirectUri = getRedirectUri(oauth, requestOrigin);
@@ -584,15 +590,15 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
 
 export async function startMcpOAuth(serverName: string, requestOrigin?: string | null, mcpScope?: McpScope | null): Promise<McpOAuthStartResult> {
   const normalizedScope = requireMcpCredentialScope(mcpScope);
-  const scope = normalizedScope;
-  const { serverConfig, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
-  const lifecycle = await readMcpOAuthLifecycle(serverConfig.connectionId, normalizedScope);
+  const { serverConfig, credentialScope, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
+  await assertMcpConnectionAccess(serverConfig.connectionId, normalizedScope);
+  const lifecycle = await readMcpOAuthLifecycle(serverConfig.connectionId, credentialScope);
   const snapshot: OAuthConnectionSnapshot = {
     connectionId: serverConfig.connectionId, authVersion: serverConfig.authVersion || 1,
-    configHash, lifecycleGeneration: lifecycle.generation,
+    organizationId: credentialScope.organizationId || null, configHash, lifecycleGeneration: lifecycle.generation,
   };
-  return withMcpOAuthLifecycleLock(serverConfig.connectionId, normalizedScope, async () => {
-    await assertCurrentOAuthState(snapshot, normalizedScope);
+  return withMcpOAuthLifecycleLock(serverConfig.connectionId, credentialScope, async () => {
+    await assertCurrentOAuthState(snapshot, credentialScope);
     const redirectUri = getRedirectUri(oauth, requestOrigin);
     const endpoints = await resolveOAuthEndpoints(oauth, serverConfig);
     const client = await resolveClient(
@@ -603,7 +609,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       endpoints.clientIdMetadataDocumentSupported,
       snapshot,
       endpoints.registrationUrl,
-      normalizedScope,
+      credentialScope,
     );
     const pkce = createPkcePair();
     const state = base64Url(crypto.randomBytes(24));
@@ -611,8 +617,8 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       Array.isArray(oauth.scopes) ? oauth.scopes : endpoints.scopesSupported,
     );
     const [existingToken, scopeChallenge] = await Promise.all([
-      readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, scope)), normalizedScope),
-      readJsonIfExists<OAuthScopeChallengeRecord>((await getOAuthScopeChallengeRelativePath(serverName, scope)), normalizedScope),
+      readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, credentialScope)), credentialScope),
+      readJsonIfExists<OAuthScopeChallengeRecord>((await getOAuthScopeChallengeRelativePath(serverName, credentialScope)), credentialScope),
     ]);
     if (existingToken?.configHash === configHash && (existingToken.lifecycleGeneration ?? 0) === lifecycle.generation && existingToken.scope) {
       existingToken.scope.split(/\s+/u).filter(Boolean).forEach((entry) => requestedScopes.add(entry));
@@ -636,11 +642,13 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       authorizationUrl.searchParams.set('scope', oauthScope);
     }
 
-    await assertCurrentOAuthState(snapshot, normalizedScope);
-    await fencedMcpOAuthWrite(snapshot.connectionId, snapshot.lifecycleGeneration, normalizedScope, () => writeJsonPrivate(getOAuthStateRelativePath(state), {
+    await assertCurrentOAuthState(snapshot, credentialScope);
+    await fencedMcpOAuthWrite(snapshot.connectionId, snapshot.lifecycleGeneration, credentialScope, () => writeJsonPrivate(getOAuthStateRelativePath(state), {
       state,
       serverName,
       connectionId: serverConfig.connectionId,
+      ownerUserId: credentialScope.userId || undefined,
+      organizationId: credentialScope.organizationId || null,
       authVersion: serverConfig.authVersion || 1,
       lifecycleGeneration: lifecycle.generation,
       codeVerifier: pkce.verifier,
@@ -657,7 +665,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       configHash,
       createdAt: new Date().toISOString(),
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-    } satisfies OAuthStateRecord, normalizedScope));
+    } satisfies OAuthStateRecord, credentialScope));
 
     return {
       authorizationUrl: authorizationUrl.toString(),
@@ -738,25 +746,59 @@ async function resolveClientSecretForRefresh(
   return undefined;
 }
 
-async function consumeOAuthState(state: string, responseIssuer: string | null | undefined, scope?: McpScope | null): Promise<OAuthStateRecord> {
-  const normalizedScope = requireMcpCredentialScope(scope);
+async function readOAuthStateForCallback(stateRelativePath: string, scope: McpScope): Promise<{ stored: OAuthStateRecord | null; storageScope: McpScope }> {
+  try {
+    return { stored: await readJsonIfExists<OAuthStateRecord>(stateRelativePath, scope), storageScope: scope };
+  } catch (firstError) {
+    // Older state envelopes did not expose an organization routing field. A
+    // user-only callback can still recover them by trying that user's current
+    // connection associations; explicit organization scopes never broaden.
+    if (!scope.userId || scope.organizationId) throw firstError;
+    const { readMcpConfig } = await import('@/app/lib/mcp/config');
+    const config = await readMcpConfig(scope);
+    const organizations = new Set(Object.values(config.mcpServers)
+      .filter((connection) => connection.ownerUserId === scope.userId && typeof connection.organizationId === 'string' && connection.organizationId)
+      .map((connection) => connection.organizationId as string));
+    for (const organizationId of organizations) {
+      const storageScope = { userId: scope.userId, organizationId } satisfies McpScope;
+      try {
+        const stored = await readJsonIfExists<OAuthStateRecord>(stateRelativePath, storageScope);
+        if (stored) return { stored, storageScope };
+      } catch {
+        // A sealed state for another association cannot authenticate under this AAD.
+      }
+    }
+    throw firstError;
+  }
+}
+
+async function consumeOAuthState(state: string, responseIssuer: string | null | undefined, scope?: McpScope | null): Promise<{ stored: OAuthStateRecord; credentialScope: McpScope }> {
+  const requestedScope = requireMcpCredentialScope(scope);
   if (!/^[A-Za-z0-9_-]{32}$/u.test(state)) throw new McpOAuthError('Invalid or expired OAuth state.');
   const stateRelativePath = getOAuthStateRelativePath(state);
-  return withMcpStorageLock(`oauth-state-${state}`, normalizedScope, async () => {
-    const stored = await readJsonIfExists<OAuthStateRecord>(stateRelativePath, normalizedScope);
+  const routedRead = await readOAuthStateForCallback(stateRelativePath, requestedScope);
+  const routed = routedRead.stored;
+  if (!routed) throw new McpOAuthError('Invalid or expired OAuth state.');
+  const credentialScope = resolveMcpCredentialScope({
+    connectionId: routed.connectionId,
+    ownerUserId: routed.ownerUserId || requestedScope.userId || undefined,
+    organizationId: routed.organizationId ?? routedRead.storageScope.organizationId ?? requestedScope.organizationId ?? null,
+  }, requestedScope);
+  return withMcpStorageLock(`oauth-state-${state}`, credentialScope, async () => {
+    const stored = await readJsonIfExists<OAuthStateRecord>(stateRelativePath, credentialScope);
     const expiry = stored ? Date.parse(stored.expiresAt) : Number.NaN;
     if (!stored || stored.state !== state || !Number.isFinite(expiry) || expiry <= Date.now()) {
-      await removeMcpStoragePath(stateRelativePath, normalizedScope).catch(() => undefined);
+      await removeMcpStoragePath(stateRelativePath, credentialScope).catch(() => undefined);
       throw new McpOAuthError('Invalid or expired OAuth state.');
     }
-    await removeMcpStoragePath(stateRelativePath, normalizedScope);
+    await removeMcpStoragePath(stateRelativePath, credentialScope);
     if (stored.authorizationResponseIssParameterSupported && !responseIssuer) {
       throw new McpOAuthError('OAuth authorization response is missing the required issuer parameter.');
     }
     if (responseIssuer && responseIssuer !== stored.issuer) {
       throw new McpOAuthError('OAuth authorization response issuer does not exactly match the expected issuer.');
     }
-    return stored;
+    return { stored, credentialScope };
   });
 }
 
@@ -765,14 +807,17 @@ export async function rejectMcpOAuthCallback(state: string, responseIssuer?: str
 }
 
 async function assertCurrentOAuthState(stored: OAuthConnectionSnapshot, scope?: McpScope | null): Promise<void> {
+  await assertMcpConnectionAccess(stored.connectionId, scope);
   const current = await resolveMcpCredentialConnection(stored.connectionId, scope);
+  const credentialScope = resolveMcpCredentialScope(current, scope);
   if (
     current.connectionId !== stored.connectionId
+    || (stored.organizationId ?? null) !== (credentialScope.organizationId || null)
     || current.enabled === false
     || (current.authVersion || 1) !== stored.authVersion
     || hashMcpAuthConfig(current) !== stored.configHash
   ) throw new McpOAuthError('OAuth authorization state no longer matches the current MCP connection.');
-  const lifecycle = await readMcpOAuthLifecycle(stored.connectionId, scope);
+  const lifecycle = await readMcpOAuthLifecycle(stored.connectionId, credentialScope);
   if (lifecycle.generation !== stored.lifecycleGeneration) throw new McpOAuthError('OAuth authorization state was invalidated.');
 }
 
@@ -785,29 +830,30 @@ export async function recordMcpOAuthScopeChallenge(
 ): Promise<string[]> {
   const normalizedScope = requireMcpCredentialScope(scope);
   const connection = await resolveMcpCredentialConnection(serverName, normalizedScope);
+  const credentialScope = resolveMcpCredentialScope(connection, normalizedScope);
   if (configHash !== hashMcpAuthConfig(connection) && configHash !== hashMcpLegacyConfig(connection)) {
     throw new McpOAuthError('MCP connection changed before its scope challenge could be saved.', 409);
   }
   configHash = hashMcpAuthConfig(connection);
-  const lifecycle = await readMcpOAuthLifecycle(connection.connectionId, normalizedScope);
-  const snapshot: OAuthConnectionSnapshot = { connectionId: connection.connectionId, authVersion: connection.authVersion || 1, configHash, lifecycleGeneration: lifecycle.generation };
-  const challengePath = (await getOAuthScopeChallengeRelativePath(serverName, scope));
-  return withMcpOAuthLifecycleLock(connection.connectionId, normalizedScope, async () => {
-    await assertCurrentOAuthState(snapshot, normalizedScope);
-    const existing = await readJsonIfExists<OAuthScopeChallengeRecord>(challengePath, normalizedScope);
+  const lifecycle = await readMcpOAuthLifecycle(connection.connectionId, credentialScope);
+  const snapshot: OAuthConnectionSnapshot = { connectionId: connection.connectionId, organizationId: credentialScope.organizationId || null, authVersion: connection.authVersion || 1, configHash, lifecycleGeneration: lifecycle.generation };
+  const challengePath = (await getOAuthScopeChallengeRelativePath(serverName, credentialScope));
+  return withMcpOAuthLifecycleLock(connection.connectionId, credentialScope, async () => {
+    await assertCurrentOAuthState(snapshot, credentialScope);
+    const existing = await readJsonIfExists<OAuthScopeChallengeRecord>(challengePath, credentialScope);
     const scopes = new Set(
       existing?.configHash === configHash && (existing.lifecycleGeneration ?? 0) === lifecycle.generation ? existing.scopes : [],
     );
     requiredScope?.split(/\s+/u).filter(Boolean).forEach((entry) => scopes.add(entry));
     const accumulated = Array.from(scopes);
     if (!accumulated.length) return accumulated;
-    await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, normalizedScope, () => writeJsonPrivate(challengePath, {
+    await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, credentialScope, () => writeJsonPrivate(challengePath, {
       lifecycleGeneration: lifecycle.generation,
       configHash,
       scopes: accumulated,
       resourceMetadataUrl,
       recordedAt: new Date().toISOString(),
-    } satisfies OAuthScopeChallengeRecord, normalizedScope));
+    } satisfies OAuthScopeChallengeRecord, credentialScope));
     return accumulated;
   });
 }
@@ -819,8 +865,8 @@ export async function completeMcpOAuthCallback(
   scope?: McpScope | null,
 ): Promise<OAuthTokenRecord> {
   const normalizedScope = normalizeMcpScope(scope);
-  const stored = await consumeOAuthState(state, responseIssuer, normalizedScope);
-  await assertCurrentOAuthState(stored, normalizedScope);
+  const { stored, credentialScope } = await consumeOAuthState(state, responseIssuer, normalizedScope);
+  await assertCurrentOAuthState(stored, credentialScope);
 
   const params = new URLSearchParams();
   params.set('grant_type', 'authorization_code');
@@ -861,19 +907,19 @@ export async function completeMcpOAuthCallback(
   const callbackChallengePath = path.posix.join('connections', stored.connectionId, 'scope-challenge.json');
 
   try {
-    await withMcpOAuthLifecycleLock(stored.connectionId, normalizedScope, async () => {
-      await assertCurrentOAuthState(stored, normalizedScope);
-      await commitMcpOAuthLifecycle(stored.connectionId, stored.lifecycleGeneration, state, normalizedScope, async () => {
-        await writeJsonPrivate(callbackTokenPath, token, normalizedScope);
+    await withMcpOAuthLifecycleLock(stored.connectionId, credentialScope, async () => {
+      await assertCurrentOAuthState(stored, credentialScope);
+      await commitMcpOAuthLifecycle(stored.connectionId, stored.lifecycleGeneration, state, credentialScope, async () => {
+        await writeJsonPrivate(callbackTokenPath, token, credentialScope);
       });
-      await removeMcpStoragePath(callbackChallengePath, normalizedScope).catch(() => undefined);
+      await removeMcpStoragePath(callbackChallengePath, credentialScope).catch(() => undefined);
     });
   } catch (error) {
     await revokeOAuthTokens(token, stored.clientSecret);
     throw error;
   }
-  const completedConnection = await resolveMcpCredentialConnection(stored.connectionId, normalizedScope);
-  await recordMcpConnectionObservation(completedConnection, normalizedScope, { kind: 'authorized' }, { generation: stored.lifecycleGeneration });
+  const completedConnection = await resolveMcpCredentialConnection(stored.connectionId, credentialScope);
+  await recordMcpConnectionObservation(completedConnection, credentialScope, { kind: 'authorized' }, { generation: stored.lifecycleGeneration });
   return token;
 }
 
@@ -884,53 +930,54 @@ export async function clearMcpOAuth(
 ): Promise<void> {
   const normalizedScope = requireMcpCredentialScope(scope);
   const connection = options?.connectionSnapshot || await resolveMcpCredentialConnection(serverName, normalizedScope);
+  const credentialScope = resolveMcpCredentialScope(connection, normalizedScope);
   const cutoff = options?.alreadyInvalidated
     ? options.invalidatedGeneration
-    : (await invalidateMcpOAuthLifecycle(connection.connectionId, normalizedScope)).generation;
+    : (await invalidateMcpOAuthLifecycle(connection.connectionId, credentialScope)).generation;
   if (!Number.isSafeInteger(cutoff) || Number(cutoff) < 1) throw new McpOAuthError('Missing OAuth invalidation generation.');
   // Invalidate before waiting for an in-flight provider request to finish.
   const { closeMcpServer } = await import('@/app/lib/mcp/manager');
-  await closeMcpServer(connection.connectionId, normalizedScope);
+  await closeMcpServer(connection.connectionId, credentialScope);
   let tokenToRevoke: OAuthTokenRecord | null = null;
   let clientSecret: string | undefined;
   let preservedAuthorization = false;
-  await withMcpOAuthLifecycleLock(connection.connectionId, normalizedScope, async () => {
+  await withMcpOAuthLifecycleLock(connection.connectionId, credentialScope, async () => {
     const directory = `connections/${connection.connectionId}`;
-    const client = await readJsonIfExists<OAuthClientRecord>(`${directory}/client.json`, normalizedScope).catch(() => null);
+    const client = await readJsonIfExists<OAuthClientRecord>(`${directory}/client.json`, credentialScope).catch(() => null);
     clientSecret = client?.clientSecret;
     for (const file of ['tokens.json', 'client.json', 'scope-challenge.json']) {
       const relativePath = `${directory}/${file}`;
-      const artifact = await readJsonIfExists<{ lifecycleGeneration?: number }>(relativePath, normalizedScope).catch(() => null);
+      const artifact = await readJsonIfExists<{ lifecycleGeneration?: number }>(relativePath, credentialScope).catch(() => null);
       if (artifact && (artifact.lifecycleGeneration ?? 0) >= Number(cutoff)) {
         if (file === 'tokens.json') preservedAuthorization = true;
         continue;
       }
       if (file === 'tokens.json') tokenToRevoke = artifact as OAuthTokenRecord | null;
-      await removeMcpStoragePath(relativePath, normalizedScope);
+      await removeMcpStoragePath(relativePath, credentialScope);
     }
     if (connection.legacyOAuthName && !connection.legacyOAuthAmbiguous) {
-      await removeMcpStoragePath(`mcp-oauth/${sanitizeServerName(connection.legacyOAuthName)}`, normalizedScope, { recursive: true });
+      await removeMcpStoragePath(`mcp-oauth/${sanitizeServerName(connection.legacyOAuthName)}`, credentialScope, { recursive: true });
     }
     // Pre-upgrade PKCE states are not valid in the bound connection format.
-    await removeMcpStoragePath('mcp-oauth/.state', normalizedScope, { recursive: true });
-    const files = await fs.readdir(resolveMcpStoragePath(getOAuthStateRelativeDir(), normalizedScope)).catch((error: NodeJS.ErrnoException) => {
+    await removeMcpStoragePath('mcp-oauth/.state', credentialScope, { recursive: true });
+    const files = await fs.readdir(resolveMcpStoragePath(getOAuthStateRelativeDir(), credentialScope)).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return [];
       throw error;
     });
     for (const file of files) {
       if (!/^[A-Za-z0-9_-]{32}\.json$/u.test(file)) continue;
       const statePath = path.posix.join(getOAuthStateRelativeDir(), file);
-      const raw = (await readMcpTextFileIfExists(statePath, normalizedScope)).content;
+      const raw = (await readMcpTextFileIfExists(statePath, credentialScope)).content;
       if (!raw) continue;
       let envelope: { connectionId?: string };
       try { envelope = JSON.parse(raw); } catch { continue; }
       if (envelope.connectionId !== connection.connectionId) continue;
-      const pending = await readJsonIfExists<OAuthStateRecord>(statePath, normalizedScope).catch(() => null);
-      if (!pending || pending.lifecycleGeneration < Number(cutoff)) await removeMcpStoragePath(statePath, normalizedScope);
+      const pending = await readJsonIfExists<OAuthStateRecord>(statePath, credentialScope).catch(() => null);
+      if (!pending || pending.lifecycleGeneration < Number(cutoff)) await removeMcpStoragePath(statePath, credentialScope);
     }
   });
   // Local invalidation is authoritative; provider failures cannot undo it.
-  if (!preservedAuthorization) await recordMcpConnectionObservation(connection, normalizedScope, { kind: 'disconnect' }, { generation: Number(cutoff) });
+  if (!preservedAuthorization) await recordMcpConnectionObservation(connection, credentialScope, { kind: 'disconnect' }, { generation: Number(cutoff) });
   await revokeOAuthTokens(tokenToRevoke, clientSecret);
 }
 
@@ -950,14 +997,15 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
   if (!getOAuthConfig(serverConfig)) return null;
   const normalizedScope = requireMcpCredentialScope(scope);
   const connection = await resolveMcpCredentialConnection(serverName, normalizedScope);
+  const credentialScope = resolveMcpCredentialScope(connection, normalizedScope);
   const configHash = hashMcpAuthConfig(serverConfig);
   if (connection.enabled === false || hashMcpAuthConfig(connection) !== configHash
     || (connection.authVersion || 1) !== (serverConfig.authVersion || 1)) {
     throw new McpOAuthError('MCP connection is disabled or changed. Reconnect before continuing.', 409);
   }
-  const tokenRelativePath = await getOAuthTokenRelativePath(serverName, normalizedScope);
-  const lifecycle = await readMcpOAuthLifecycle(connection.connectionId, normalizedScope);
-  const token = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, normalizedScope);
+  const tokenRelativePath = await getOAuthTokenRelativePath(serverName, credentialScope);
+  const lifecycle = await readMcpOAuthLifecycle(connection.connectionId, credentialScope);
+  const token = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, credentialScope);
   if (!isBoundOAuthToken(token, connection, lifecycle.generation)) {
     throw new McpOAuthError(`MCP server "${serverName}" requires OAuth authorization. Use mcp auth_start.`, 401, 'reauth_required');
   }
@@ -974,39 +1022,39 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
     || Boolean(options?.rejectedAccessToken ? value.accessToken === options.rejectedAccessToken : options?.forceRefresh);
   if (!needsRefresh(token)) return token.accessToken;
 
-  return withMcpOAuthLifecycleLock(connection.connectionId, normalizedScope, async () => {
+  return withMcpOAuthLifecycleLock(connection.connectionId, credentialScope, async () => {
     const snapshot: OAuthConnectionSnapshot = {
       connectionId: connection.connectionId, authVersion: connection.authVersion || 1,
-      configHash, lifecycleGeneration: lifecycle.generation,
+      organizationId: credentialScope.organizationId || null, configHash, lifecycleGeneration: lifecycle.generation,
     };
-    await assertCurrentOAuthState(snapshot, normalizedScope);
-    const current = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, normalizedScope);
+    await assertCurrentOAuthState(snapshot, credentialScope);
+    const current = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, credentialScope);
     if (!isBoundOAuthToken(current, connection, lifecycle.generation)) {
       throw new McpOAuthError(`MCP server "${serverName}" requires OAuth authorization. Use mcp auth_start.`, 401, 'reauth_required');
     }
     assertAuthorizationState(current);
     if (!needsRefresh(current)) return current.accessToken;
     if (!current.refreshToken) {
-      await recordMcpConnectionObservation(connection, normalizedScope, { kind: 'failure', code: 'reauth_required' }, { generation: lifecycle.generation });
+      await recordMcpConnectionObservation(connection, credentialScope, { kind: 'failure', code: 'reauth_required' }, { generation: lifecycle.generation });
       throw new McpOAuthError(`OAuth token for MCP server "${serverName}" expired. Use mcp auth_start.`, 401, 'reauth_required');
     }
-    await recordMcpConnectionObservation(connection, normalizedScope, { kind: 'refreshing' }, { generation: lifecycle.generation });
+    await recordMcpConnectionObservation(connection, credentialScope, { kind: 'refreshing' }, { generation: lifecycle.generation });
     try {
       const oauth = getOAuthConfig(connection);
       const endpoints = await resolveOAuthEndpoints(oauth || {}, connection);
       if (current.issuer !== endpoints.issuer || current.resource !== endpoints.resource) {
         throw new McpOAuthError(`OAuth credentials for MCP server "${serverName}" do not match the current authorization server or resource. Reauthorize in Settings > Integrations.`, 401, 'reauth_required');
       }
-      const clientSecret = await resolveClientSecretForRefresh(serverName, oauth, current.clientId, endpoints.issuer, normalizedScope);
-      await assertCurrentOAuthState(snapshot, normalizedScope);
+      const clientSecret = await resolveClientSecretForRefresh(serverName, oauth, current.clientId, endpoints.issuer, credentialScope);
+      await assertCurrentOAuthState(snapshot, credentialScope);
       const params = new URLSearchParams({ grant_type: 'refresh_token', refresh_token: current.refreshToken, client_id: current.clientId, resource: endpoints.resource });
       let refreshed: Awaited<ReturnType<typeof exchangeToken>>;
       try {
         refreshed = await exchangeToken(params, endpoints.tokenUrl, clientSecret);
       } catch (error) {
         if (error instanceof McpOAuthError && (error.code === 'invalid_grant' || error.code === 'invalid_token')) {
-          await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, normalizedScope, () => removeMcpStoragePath(tokenRelativePath, normalizedScope));
-          await recordMcpConnectionObservation(connection, normalizedScope, { kind: 'failure', code: 'reauth_required' }, { generation: lifecycle.generation });
+          await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, credentialScope, () => removeMcpStoragePath(tokenRelativePath, credentialScope));
+          await recordMcpConnectionObservation(connection, credentialScope, { kind: 'failure', code: 'reauth_required' }, { generation: lifecycle.generation });
           throw new McpOAuthError(`OAuth token for MCP server "${serverName}" could not be refreshed. Reauthorize in Settings > Integrations.`, 401, 'reauth_required');
         }
         throw error;
@@ -1018,17 +1066,17 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
         expiresAt: refreshed.expiresAt, updatedAt: new Date().toISOString(),
       };
       try {
-        await assertCurrentOAuthState(snapshot, normalizedScope);
-        await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, normalizedScope, () => writeJsonPrivate(tokenRelativePath, updated, normalizedScope));
+        await assertCurrentOAuthState(snapshot, credentialScope);
+        await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, credentialScope, () => writeJsonPrivate(tokenRelativePath, updated, credentialScope));
       } catch (error) {
         await revokeOAuthTokens(updated, clientSecret);
         throw error;
       }
-      await recordMcpConnectionObservation(connection, normalizedScope, { kind: 'authorized' }, { generation: lifecycle.generation });
+      await recordMcpConnectionObservation(connection, credentialScope, { kind: 'authorized' }, { generation: lifecycle.generation });
       return updated.accessToken;
     } catch (error) {
       const failureCode = classifyMcpConnectionFailure(error) || 'configuration_error';
-      await recordMcpConnectionObservation(connection, normalizedScope, { kind: 'failure', code: failureCode }, { generation: lifecycle.generation });
+      await recordMcpConnectionObservation(connection, credentialScope, { kind: 'failure', code: failureCode }, { generation: lifecycle.generation });
       throw error;
     }
   });

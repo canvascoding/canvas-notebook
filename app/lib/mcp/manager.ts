@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
+import { resolveMcpCredentialScope } from './credential-storage';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
 import { classifyMcpConnectionFailure, recordMcpConnectionObservation, type McpConnectionObservation } from '@/app/lib/mcp/connection-health';
@@ -374,16 +376,13 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
 
 async function readCurrentMcpConnection(entry: ManagedConnection): Promise<McpServerConfig> {
   entry.abortController.signal.throwIfAborted();
-  const config = await readMcpConfig(entry.scope);
-  const current = entry.config.connectionId
-    ? Object.values(config.mcpServers).find((server) => server.connectionId === entry.config.connectionId)
-    : config.mcpServers[entry.serverName];
+  const { connection: current } = await assertMcpConnectionAccess(entry.config.connectionId || entry.serverName, entry.scope);
   if (!current || !isMcpServerEnabled(current) || hashMcpAuthConfig(current) !== hashMcpAuthConfig(entry.config)
     || current.authVersion !== entry.config.authVersion) {
     throw new Error('MCP connection was removed, disabled or changed. Reconnect before continuing.');
   }
   if (current.connectionId && entry.scope?.userId) {
-    const lifecycle = await readMcpOAuthLifecycle(current.connectionId, entry.scope);
+    const lifecycle = await readMcpOAuthLifecycle(current.connectionId, resolveMcpCredentialScope({ ...current, connectionId: current.connectionId }, entry.scope));
     if (lifecycle.generation !== entry.authGeneration || lifecycle.lastCompletedState !== entry.authorizationState) {
       throw Object.assign(new Error('MCP authorization changed. Reconnect the client and retry explicitly.'), { code: 'mcp_connection_changed', status: 409 });
     }
@@ -436,16 +435,15 @@ async function fetchManagedMcpRequest(entry: ManagedConnection, input: RequestIn
 }
 
 async function getManagedConnection(serverName: string, signal?: AbortSignal, scope?: McpScope | null): Promise<ManagedConnection> {
+  const selected = await assertMcpConnectionAccess(serverName, scope);
+  serverName = selected.serverName;
   const normalizedScope = normalizeMcpScope(scope);
-  const config = await readMcpConfig(normalizedScope);
-  const serverConfig = config.mcpServers[serverName];
-  if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
-  if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
+  const serverConfig = selected.connection;
 
   const configHash = hashMcpServerConfig(serverConfig);
   const key = getEntryKey(normalizedScope, serverName, configHash);
   const lifecycle = serverConfig.connectionId && normalizedScope?.userId
-    ? await readMcpOAuthLifecycle(serverConfig.connectionId, normalizedScope) : undefined;
+    ? await readMcpOAuthLifecycle(serverConfig.connectionId, resolveMcpCredentialScope({ ...serverConfig, connectionId: serverConfig.connectionId }, normalizedScope)) : undefined;
   const authGeneration = lifecycle?.generation;
   const store = getStore();
   let entry = store.entries.get(key);
@@ -519,6 +517,7 @@ async function withManagedConnection<T>(
   entry.activeCalls += 1;
   entry.lastUsedAt = Date.now();
   try {
+    await readCurrentMcpConnection(entry);
     const result = await fn(entry, entry.client);
     entry.lastError = undefined;
     await observeManagedConnection(entry, { kind: 'success' });
@@ -577,8 +576,10 @@ async function writeCache(cache: McpCacheFile, scope?: McpScope | null): Promise
 }
 
 export async function readCachedTools(serverName: string, configHash: string, scope?: McpScope | null): Promise<Tool[] | null> {
+  const selected = await assertMcpConnectionAccess(serverName, scope);
+  if (hashMcpServerConfig(selected.connection) !== configHash) return null;
   const cache = await readCache(scope);
-  const entry = cache.servers[serverName];
+  const entry = cache.servers[selected.serverName];
   return entry?.configHash === configHash ? entry.tools : null;
 }
 
@@ -595,22 +596,22 @@ async function writeCachedTools(serverName: string, configHash: string, tools: T
 }
 
 export async function listConfiguredMcpServers(scope?: McpScope | null) {
+  const actor = await requireMcpUserAccess(scope);
   const config = await readMcpConfig(scope);
-  return Object.entries(config.mcpServers).map(([name, serverConfig]) => ({
-    name,
-    transport: getServerTransport(serverConfig),
-    configHash: hashMcpServerConfig(serverConfig),
-    enabled: isMcpServerEnabled(serverConfig),
-    configured: true,
+  const entries = await Promise.all(Object.entries(config.mcpServers).map(async ([name, serverConfig]) => {
+    try { await assertMcpConnectionAccess(name, scope, { allowDisabled: true, actor }); } catch { return null; }
+    return { name, connectionId: serverConfig.connectionId || null, displayName: serverConfig.displayName || name,
+      transport: getServerTransport(serverConfig), configHash: hashMcpServerConfig(serverConfig),
+      enabled: isMcpServerEnabled(serverConfig), configured: true };
   }));
+  return entries.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 }
 
 export async function listMcpTools(serverName: string, options: { preferCache?: boolean; signal?: AbortSignal; scope?: McpScope | null } = {}): Promise<Tool[]> {
+  const selected = await assertMcpConnectionAccess(serverName, options.scope);
+  serverName = selected.serverName;
   const scope = normalizeMcpScope(options.scope);
-  const config = await readMcpConfig(scope);
-  const serverConfig = config.mcpServers[serverName];
-  if (!serverConfig) throw new Error(`Unknown MCP server "${serverName}".`);
-  if (!isMcpServerEnabled(serverConfig)) throw new Error(`MCP server "${serverName}" is disabled.`);
+  const serverConfig = selected.connection;
   const configHash = hashMcpServerConfig(serverConfig);
 
   if (options.preferCache) {
@@ -680,11 +681,17 @@ export async function cleanupIdleMcpServers(now = Date.now(), scope?: McpScope |
   return closed;
 }
 
+function matchesManagedOwner(entry: ManagedConnection, scope: McpScope | null): boolean {
+  if (!scope?.userId) return !entry.scope?.userId;
+  return entry.scope?.userId === scope.userId
+    && (!scope.organizationId || entry.config.organizationId === scope.organizationId);
+}
+
 export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
   const store = getStore();
   for (const [key, entry] of store.entries) {
-    if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
+    if (!matchesManagedOwner(entry, normalizedScope)) continue;
     if (entry.serverName !== serverName && entry.config.connectionId !== serverName) continue;
     logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     store.entries.delete(key);
@@ -698,7 +705,7 @@ export async function closeMcpServersForScope(scope?: McpScope | null): Promise<
   const normalizedScope = normalizeMcpScope(scope);
   const store = getStore();
   for (const [key, entry] of store.entries) {
-    if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
+    if (!matchesManagedOwner(entry, normalizedScope)) continue;
     logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     store.entries.delete(key);
     entry.closed = true;
@@ -760,26 +767,32 @@ export function startMcpIdleCleanup(): void {
 }
 
 export async function getMcpRuntimeStatus(serverName?: string, scope?: McpScope | null) {
+  const actor = await requireMcpUserAccess(scope);
   const normalizedScope = normalizeMcpScope(scope);
   const config = await readMcpConfig(normalizedScope);
   const cache = await readCache(normalizedScope);
   const store = getStore();
   const entries = await Promise.all(Object.entries(config.mcpServers)
-    .filter(([name]) => !serverName || name === serverName)
+    .filter(([name, item]) => !serverName || name === serverName || item.connectionId === serverName)
     .map(async ([name, serverConfig]) => {
+      let accessAllowed = true;
+      try { await assertMcpConnectionAccess(name, normalizedScope, { allowDisabled: true, actor }); } catch { accessAllowed = false; }
       const configHash = hashMcpServerConfig(serverConfig);
       const managed = store.entries.get(getEntryKey(normalizedScope, name, configHash));
       const cached = cache.servers[name]?.configHash === configHash ? cache.servers[name] : undefined;
-      const health = serverConfig.connectionId && normalizedScope?.userId
+      const health = accessAllowed && serverConfig.connectionId && normalizedScope?.userId
         ? await readMcpConnectionStatus(name, serverConfig as McpServerConfig & { connectionId: string }, normalizedScope) : null;
       return {
         name,
         connectionId: serverConfig.connectionId || null,
+        displayName: serverConfig.displayName || name,
+        accessAllowed,
+        accessError: accessAllowed ? null : 'MCP_ACCESS_DENIED',
         health,
         transport: getServerTransport(serverConfig),
         configHash,
         enabled: isMcpServerEnabled(serverConfig),
-        connected: isMcpServerEnabled(serverConfig) && Boolean(managed?.client),
+        connected: accessAllowed && isMcpServerEnabled(serverConfig) && Boolean(managed?.client),
         protocolVersion: managed?.client?.getNegotiatedProtocolVersion() || null,
         activeCalls: managed?.activeCalls || 0,
         lastUsedAt: managed?.lastUsedAt ? new Date(managed.lastUsedAt).toISOString() : null,
@@ -791,6 +804,7 @@ export async function getMcpRuntimeStatus(serverName?: string, scope?: McpScope 
     }));
 
   return {
+    canManageDefinitions: actor?.canManageDefinitions ?? true,
     configPath: resolveMcpConfigPath(normalizedScope),
     cachePath: resolveCachePath(normalizedScope),
     servers: entries,

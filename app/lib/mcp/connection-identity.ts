@@ -35,14 +35,12 @@ export function validateMcpConnectionId(value: unknown): asserts value is string
 export function hydrateMcpConnectionIdentities(config: McpConfig, scope: McpScope | null | undefined, previous?: McpConfig): McpConfig {
   const normalized = normalizeMcpScope(scope);
   if (!normalized?.userId) return config; // Explicit system configuration is migrated separately.
-  const organizationId = normalized.organizationId || null;
   const seen = new Set<string>();
   const priorById = new Map(Object.values(previous?.mcpServers || {}).map((server) => [server.connectionId, server]));
   const legacyNames = Object.keys(config.mcpServers).map((name) => name.replace(/[^A-Za-z0-9_.-]/g, '_') || 'server');
   const result: McpConfig = { ...config, mcpServers: {} };
   for (const [name, server] of Object.entries(config.mcpServers)) {
-    if (server.ownerUserId !== undefined && server.ownerUserId !== normalized.userId) throw new Error('MCP connection belongs to another user.');
-    if (server.organizationId !== undefined && server.organizationId !== organizationId) throw new Error('MCP connection belongs to another organization.');
+    if (server.ownerUserId !== undefined && server.ownerUserId !== normalized.userId) throw new Error('MCP connection owner belongs to another user.');
     if (server.schemaVersion !== undefined && server.schemaVersion !== 1) throw new Error('Unsupported MCP connection schema version.');
     const prior = previous ? (server.connectionId ? priorById.get(server.connectionId) : previous.mcpServers[name]) : undefined;
     if (server.connectionId !== undefined) {
@@ -52,6 +50,27 @@ export function hydrateMcpConnectionIdentities(config: McpConfig, scope: McpScop
     const connectionId = prior?.connectionId || server.connectionId || crypto.randomUUID();
     if (seen.has(connectionId)) throw new Error('Duplicate MCP connection ID.');
     seen.add(connectionId);
+    const ownerUserId: string = prior?.ownerUserId || normalized.userId;
+    // An existing unassociated connection stays unassociated. `??` would treat
+    // its persisted null as missing and let an edit bind it to an organization.
+    let organizationId = prior
+      ? prior.organizationId || null
+      : (server.organizationId === undefined ? normalized.organizationId || null : server.organizationId);
+    if (ownerUserId !== normalized.userId) throw new Error('MCP connection owner belongs to another user.');
+    if (prior && server.ownerUserId !== undefined && server.ownerUserId !== ownerUserId) {
+      throw new Error('MCP connection owner is immutable.');
+    }
+    if (prior && server.organizationId !== undefined && server.organizationId !== organizationId) {
+      throw new Error('MCP connection organization association is immutable.');
+    }
+    if (organizationId !== null && (typeof organizationId !== 'string' || !organizationId.trim())) {
+      throw new Error('MCP connection organization association is invalid.');
+    }
+    if (organizationId !== null) {
+      const validatedAssociation = normalizeMcpScope({ userId: normalized.userId, organizationId });
+      if (!validatedAssociation?.organizationId) throw new Error('MCP connection organization association is invalid.');
+      organizationId = validatedAssociation.organizationId;
+    }
     const authVersion = prior
       ? (prior.authVersion || 1) + (hashMcpAuthConfig(prior) === hashMcpAuthConfig(server) ? 0 : 1)
       : previous ? 1 : server.authVersion || 1;
@@ -71,7 +90,7 @@ export function hydrateMcpConnectionIdentities(config: McpConfig, scope: McpScop
     } : {};
     result.mcpServers[name] = {
       ...clean, ...provenance, schemaVersion: 1, connectionId,
-      ownerUserId: normalized.userId, organizationId,
+      ownerUserId, organizationId,
       displayName: typeof server.displayName === 'string' && server.displayName.trim() ? server.displayName.trim() : name,
       authVersion,
     };

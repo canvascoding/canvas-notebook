@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@/app/lib/auth';
-import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
+import { assertMcpConnectionAccess, mcpErrorStatus } from '@/app/lib/mcp/access';
 import { startMcpOAuth } from '@/app/lib/mcp/oauth';
+import { requireMcpRequestActor } from '@/app/lib/mcp/request-access';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function escapeHtml(value: string): string {
@@ -39,16 +39,8 @@ function getRequestOrigin(request: NextRequest): string {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return htmlResponse('MCP OAuth failed', 'You must be signed in to authorize this MCP server.', 401);
-  }
-
-  try {
-    await assertUserOrganizationAdmin(session.user.id, 'Only organization admins can authorize MCP servers.');
-  } catch (error) {
-    return htmlResponse('MCP OAuth failed', error instanceof Error ? error.message : 'Forbidden.', 403);
-  }
+  const actor = await requireMcpRequestActor(request);
+  if (actor instanceof NextResponse) return htmlResponse('MCP OAuth failed', 'You must be signed in with an active membership to authorize this MCP server.', actor.status);
 
   const limited = rateLimit(request, {
     limit: 20,
@@ -63,10 +55,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const started = await startMcpOAuth(server, getRequestOrigin(request), { userId: session.user.id });
+    const scope = { userId: actor.userId };
+    const { serverName } = await assertMcpConnectionAccess(server, scope, { actor });
+    const started = await startMcpOAuth(serverName, getRequestOrigin(request), scope);
     return NextResponse.redirect(started.authorizationUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to start MCP OAuth.';
-    return htmlResponse('MCP OAuth failed', message, 400);
+    return htmlResponse('MCP OAuth failed', message, mcpErrorStatus(error, 400));
   }
 }

@@ -1,3 +1,4 @@
+import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
 import type { CallToolResult, Tool } from '@modelcontextprotocol/client';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
@@ -498,10 +499,7 @@ export function createMcpProxyTool(userId?: string, systemScope?: McpScope): Age
       const p = params as McpProxyParams;
       const scope = getMcpScope(userId) || (systemScope?.legacy === true ? systemScope : undefined);
       try {
-        if (userId) {
-          const { assertUserOrganizationAdmin } = await import('@/app/lib/organization/permissions');
-          await assertUserOrganizationAdmin(userId, 'Only organization admins can use MCP servers.');
-        }
+        await requireMcpUserAccess(scope);
         switch (p.action) {
           case 'list_servers':
             return await handleListServers(scope);
@@ -529,6 +527,7 @@ export function createMcpProxyTool(userId?: string, systemScope?: McpScope): Age
           case 'auth_status': {
             const server = normalizeServerName(p.server);
             if (!server) throw new Error('auth_status requires server.');
+            await assertMcpConnectionAccess(server, scope, { allowDisabled: true, management: true });
             return await handleAuthStatus(server, scope);
           }
           case 'auth_start': {
@@ -539,6 +538,7 @@ export function createMcpProxyTool(userId?: string, systemScope?: McpScope): Age
           case 'auth_clear': {
             const server = normalizeServerName(p.server);
             if (!server) throw new Error('auth_clear requires server.');
+            await assertMcpConnectionAccess(server, scope, { allowDisabled: true, management: true });
             return await handleAuthClear(server, scope);
           }
           default:

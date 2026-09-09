@@ -1,10 +1,23 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+
+const moduleInternals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+const originalLoad = moduleInternals._load;
+moduleInternals._load = (request, parent, isMain) => {
+  if (request.includes('license/seat-limit')) return { assertUserSeatAccess: async ({ userId }: { userId: string }) => ({ userId, mode: 'team', organizationId: 'fixture-org' }) };
+  if (request.includes('organization/permissions')) return {
+    readOrganizationPermissionForUser: async () => ({ configured: true, organizationId: 'fixture-org', permission: { role: 'admin', status: 'active' } }),
+    assertUserOrganizationAdmin: async () => undefined,
+  };
+  if (request === 'server-only') return {};
+  return originalLoad(request, parent, isMain);
+};
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'mcp-oauth-registration-'));
@@ -123,6 +136,7 @@ async function main() {
     fixture.closeAllConnections();
     await new Promise<void>((resolve) => fixture.close(() => resolve()));
     await fs.rm(root, { recursive: true, force: true });
+    moduleInternals._load = originalLoad;
   }
 }
 

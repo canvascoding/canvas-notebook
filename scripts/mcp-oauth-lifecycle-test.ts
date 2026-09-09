@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -26,6 +27,36 @@ type StoredToken = {
   expiresAt?: string;
   updatedAt: string;
 };
+
+type Membership = { organizationId: string; role: 'admin' | 'member'; status: 'active' | 'suspended' };
+const memberships = new Map<string, Membership>();
+const moduleInternals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+const originalLoad = moduleInternals._load;
+
+function mockedModule(request: string): unknown | null {
+  if (request.includes('license/seat-limit')) return {
+    assertUserSeatAccess: async ({ userId }: { userId: string }) => {
+      const membership = memberships.get(userId);
+      if (!membership || membership.status !== 'active') throw Object.assign(new Error('Seat access is inactive.'), { status: 403 });
+      return { userId, mode: 'team', organizationId: membership.organizationId };
+    },
+  };
+  if (request.includes('organization/permissions')) return {
+    readOrganizationPermissionForUser: async (userId: string) => {
+      const membership = memberships.get(userId);
+      return membership
+        ? { configured: true, organizationId: membership.organizationId, permission: { role: membership.role, status: membership.status } }
+        : { configured: false, organizationId: null, permission: null };
+    },
+    assertUserOrganizationAdmin: async (userId: string) => {
+      if (memberships.get(userId)?.role !== 'admin') throw new Error('Admin required.');
+    },
+  };
+  if (request === 'server-only') return {};
+  return null;
+}
+
+moduleInternals._load = (request, parent, isMain) => mockedModule(request) ?? originalLoad(request, parent, isMain);
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -82,6 +113,7 @@ async function settlesWithin<T>(operation: Promise<T>, label: string): Promise<T
 
 async function refreshWorker(): Promise<void> {
   const scope = { userId: process.env.MCP_OAUTH_LIFECYCLE_USER_ID || '' };
+  memberships.set(scope.userId, { organizationId: 'fixture-org-b', role: 'admin', status: 'active' });
   const { readMcpConfig } = await import('../app/lib/mcp/config');
   const { hashMcpAuthConfig } = await import('../app/lib/mcp/connection-identity');
   const { getValidMcpAccessToken } = await import('../app/lib/mcp/oauth');
@@ -95,6 +127,7 @@ async function main(): Promise<void> {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-oauth-lifecycle-'));
   const userScope = { userId: 'oauth-lifecycle-user' };
   const userScopeOther = { userId: 'oauth-lifecycle-other-user' };
+  memberships.set(userScope.userId, { organizationId: 'fixture-org-b', role: 'admin', status: 'active' });
   const originalEnv = {
     CANVAS_DATA_ROOT: process.env.CANVAS_DATA_ROOT,
     DATA: process.env.DATA,
@@ -194,6 +227,7 @@ async function main(): Promise<void> {
     const { hashMcpAuthConfig } = await import('../app/lib/mcp/connection-identity');
     const { readMcpCredentialJson, resolveMcpCredentialConnection, writeMcpCredentialJson } = await import('../app/lib/mcp/credential-storage');
     const { readMcpOAuthLifecycle } = await import('../app/lib/mcp/oauth-lifecycle');
+    const { resolveMcpStoragePath } = await import('../app/lib/mcp/storage');
     const {
       clearMcpOAuth,
       completeMcpOAuthCallback,
@@ -412,6 +446,69 @@ async function main(): Promise<void> {
     await writeMcpConfigRaw(JSON.stringify({ settings: { toolPrefix: 'fixture', idleTimeout: 10 }, mcpServers: {} }), userScope);
     assert.equal(await readMcpCredentialJson<StoredToken>(`connections/${connection.connectionId}/tokens.json`, userScope), null, 'credentials must be cleared before the connection configuration is removed');
 
+    await writeMcpConfigRaw(JSON.stringify({
+      settings: { toolPrefix: 'fixture', idleTimeout: 10 },
+      mcpServers: {
+        orgBound: {
+          url: `${baseUrl}/resource-org-bound`,
+          auth: 'oauth',
+          organizationId: 'fixture-org-b',
+          oauth: {
+            issuer: baseUrl,
+            authorizationUrl: `${baseUrl}/authorize`,
+            tokenUrl: `${baseUrl}/token`,
+            clientId: 'fixture-client',
+            scopes: ['mcp'],
+          },
+        },
+      },
+    }), userScope);
+    const orgBound = (await readMcpConfig(userScope)).mcpServers.orgBound!;
+    assert.ok(orgBound.connectionId);
+    const orgBoundAuthorization = await startMcpOAuth('orgBound', 'http://localhost:3000', userScope);
+    await assert.rejects(
+      completeMcpOAuthCallback('foreign-org-code', orgBoundAuthorization.state, baseUrl, { userId: userScope.userId, organizationId: 'fixture-org-a' }),
+      /organization|invalid|expired/i,
+      'a callback cannot use a state sealed for a different connection organization',
+    );
+    await completeMcpOAuthCallback('bound-org-code', orgBoundAuthorization.state, baseUrl, userScope);
+    const orgBoundTokenPath = `connections/${orgBound.connectionId}/tokens.json`;
+    const orgBoundToken = await readMcpCredentialJson<StoredToken>(orgBoundTokenPath, userScope);
+    assert.ok(orgBoundToken?.accessToken, 'the correctly bound callback persists a token');
+    assert.equal((await readMcpCredentialJson<StoredToken>(orgBoundTokenPath, { userId: userScope.userId, organizationId: 'fixture-org-b' }))?.accessToken, orgBoundToken.accessToken);
+    await assert.rejects(
+      readMcpCredentialJson(orgBoundTokenPath, { userId: userScope.userId, organizationId: 'fixture-org-a' }),
+      /organization/i,
+    );
+
+    await clearMcpOAuth('orgBound', userScope);
+    const legacyRoutedAuthorization = await startMcpOAuth('orgBound', 'http://localhost:3000', userScope);
+    const legacyStatePath = resolveMcpStoragePath(`oauth-states/${legacyRoutedAuthorization.state}.json`, userScope);
+    const legacyStateEnvelope = JSON.parse(await fs.readFile(legacyStatePath, 'utf8')) as Record<string, unknown>;
+    delete legacyStateEnvelope.organizationId;
+    await fs.writeFile(legacyStatePath, JSON.stringify(legacyStateEnvelope), { mode: 0o600 });
+    await completeMcpOAuthCallback('legacy-routed-org-code', legacyRoutedAuthorization.state, baseUrl, userScope);
+    assert.ok(
+      (await readMcpCredentialJson<StoredToken>(orgBoundTokenPath, userScope))?.accessToken,
+      'a user-only callback can route an old state envelope using the connection association',
+    );
+
+    await clearMcpOAuth('orgBound', userScope);
+    const roleChangedAuthorization = await startMcpOAuth('orgBound', 'http://localhost:3000', userScope);
+    memberships.set(userScope.userId, { organizationId: 'fixture-org-b', role: 'member', status: 'active' });
+    await assert.rejects(
+      completeMcpOAuthCallback('demoted-member-code', roleChangedAuthorization.state, baseUrl, userScope),
+      /approved|access|organization/i,
+      'callback persistence rechecks a role change after authorization begins',
+    );
+    assert.equal(await readMcpCredentialJson<StoredToken>(orgBoundTokenPath, userScope), null, 'a demoted member cannot persist an OAuth callback token');
+    await assert.rejects(
+      startMcpOAuth('orgBound', 'http://localhost:3000', userScope),
+      /approved|access|organization/i,
+      'authorization cannot begin for a connection the current role is no longer approved to use',
+    );
+    memberships.set(userScope.userId, { organizationId: 'fixture-org-b', role: 'admin', status: 'active' });
+
     console.log('mcp-oauth-lifecycle-test: ok');
   } finally {
     await close(fixture).catch(() => undefined);
@@ -420,6 +517,7 @@ async function main(): Promise<void> {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
+    moduleInternals._load = originalLoad;
   }
 }
 

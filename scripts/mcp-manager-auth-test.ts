@@ -1,10 +1,29 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import http from 'node:http';
+import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createMcpHandler, Server } from '@modelcontextprotocol/server';
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
+}
+
+const moduleInternals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+const originalLoad = moduleInternals._load;
+moduleInternals._load = (request, parent, isMain) => {
+  if (request.includes('license/seat-limit')) return { assertUserSeatAccess: async ({ userId }: { userId: string }) => ({ userId, mode: 'team', organizationId: 'fixture-org' }) };
+  if (request.includes('organization/permissions')) return {
+    readOrganizationPermissionForUser: async () => ({ configured: true, organizationId: 'fixture-org', permission: { role: 'admin', status: 'active' } }),
+    assertUserOrganizationAdmin: async () => undefined,
+  };
+  if (request === 'server-only') return {};
+  return originalLoad(request, parent, isMain);
+};
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-manager-auth-'));
@@ -15,6 +34,8 @@ async function main() {
   let refreshes = 0;
   let executions = 0;
   let rejectedCalls = 0;
+  let pendingToolCallRelease: ReturnType<typeof deferred> | null = null;
+  let toolCallEntered = deferred();
   const authorizations: string[] = [];
   const methods: string[] = [];
   const handler = createMcpHandler(() => {
@@ -22,6 +43,12 @@ async function main() {
     mcp.setRequestHandler('tools/list', async () => ({ tools: [{ name: 'change', inputSchema: { type: 'object' } }] }));
     mcp.setRequestHandler('tools/call', async () => {
       executions += 1;
+      const release = pendingToolCallRelease;
+      if (release) {
+        pendingToolCallRelease = null;
+        toolCallEntered.resolve();
+        await release.promise;
+      }
       return { content: [{ type: 'text', text: 'changed' }] };
     });
     return mcp;
@@ -62,15 +89,19 @@ async function main() {
   assert(address && typeof address === 'object');
   url = `http://127.0.0.1:${address.port}`;
   const scope = { userId: 'manager-oauth-user' };
+  const credentialScope = { userId: scope.userId, organizationId: 'fixture-org' };
+  const otherScope = { userId: 'manager-other-user' };
   const { readMcpConfig, writeMcpConfigRaw, setMcpServerEnabled } = await import('../app/lib/mcp/config');
   const { hashMcpAuthConfig } = await import('../app/lib/mcp/connection-identity');
   const { writeMcpCredentialJson, readMcpCredentialJson } = await import('../app/lib/mcp/credential-storage');
   const { callMcpTool, listMcpTools, getMcpRuntimeStatus, probeMcpConnection, closeAllMcpServers } = await import('../app/lib/mcp/manager');
   const { recordMcpConnectionObservation } = await import('../app/lib/mcp/connection-health');
   const { completeMcpOAuthLifecycle } = await import('../app/lib/mcp/oauth-lifecycle');
+  const { clearMcpOAuth } = await import('../app/lib/mcp/oauth');
   const { buildDirectMcpTools } = await import('../app/lib/mcp/direct-tools');
   try {
-    await writeMcpConfigRaw(JSON.stringify({ mcpServers: { remote: { url: `${url}/mcp`, auth: 'oauth', oauth: { issuer: url, authorizationUrl: `${url}/authorize`, tokenUrl: `${url}/token`, clientId: 'fixture' } } } }), scope);
+    await writeMcpConfigRaw(JSON.stringify({ mcpServers: { remote: { url: `${url}/mcp`, auth: 'oauth', organizationId: 'fixture-org', oauth: { issuer: url, authorizationUrl: `${url}/authorize`, tokenUrl: `${url}/token`, clientId: 'fixture' } } } }), scope);
+    await writeMcpConfigRaw(JSON.stringify({ mcpServers: { other: { url: `${url}/mcp`, auth: 'none', organizationId: 'fixture-org' } } }), otherScope);
     const connection = (await readMcpConfig(scope)).mcpServers.remote;
     const tokenPath = `connections/${connection.connectionId}/tokens.json`;
     const token = {
@@ -79,7 +110,7 @@ async function main() {
       clientId: 'fixture', accessToken: 'initial', refreshToken: 'refresh-initial', tokenType: 'Bearer',
       updatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3600_000).toISOString(),
     };
-    await writeMcpCredentialJson(tokenPath, token, scope);
+    await writeMcpCredentialJson(tokenPath, token, credentialScope);
     await getMcpRuntimeStatus(undefined, scope);
     await buildDirectMcpTools(scope, { cacheOnly: true });
     assert.equal(methods.length, 0, 'passive status and direct-tool metadata reads never contact providers');
@@ -92,7 +123,7 @@ async function main() {
     await listMcpTools('remote', { scope });
     assert(authorizations.includes('Bearer initial'));
     // A cached client must use a replacement credential on its next request.
-    await writeMcpCredentialJson(tokenPath, { ...token, accessToken: 'replacement' }, scope);
+    await writeMcpCredentialJson(tokenPath, { ...token, accessToken: 'replacement' }, credentialScope);
     await callMcpTool('remote', 'change', {}, undefined, scope);
     assert.equal(authorizations.at(-1), 'Bearer replacement');
     assert.equal(executions, 1);
@@ -107,14 +138,14 @@ async function main() {
     assert.equal(executions, 2);
     assert.equal(authorizations.at(-1), 'Bearer renewed-1');
     const otherWorkerState = crypto.randomBytes(24).toString('base64url');
-    await writeMcpCredentialJson(tokenPath, { ...token, accessToken: 'other-account', authorizationState: otherWorkerState }, scope);
+    await writeMcpCredentialJson(tokenPath, { ...token, accessToken: 'other-account', authorizationState: otherWorkerState }, credentialScope);
     await assert.rejects(() => callMcpTool('remote', 'change', {}, undefined, scope), /authorization changed/i, 'a cached session cannot receive a token before its new authorization state is published');
     assert.equal(executions, 2);
     await completeMcpOAuthLifecycle(connection.connectionId!, 0, otherWorkerState, scope);
     await listMcpTools('remote', { scope });
     const discoverCount = methods.filter((method) => method === 'server/discover').length;
     const nextWorkerState = crypto.randomBytes(24).toString('base64url');
-    await writeMcpCredentialJson(tokenPath, { ...token, accessToken: 'next-account', authorizationState: nextWorkerState }, scope);
+    await writeMcpCredentialJson(tokenPath, { ...token, accessToken: 'next-account', authorizationState: nextWorkerState }, credentialScope);
     await completeMcpOAuthLifecycle(connection.connectionId!, 0, nextWorkerState, scope);
     await listMcpTools('remote', { scope });
     assert.equal(methods.filter((method) => method === 'server/discover').length, discoverCount + 1, 'authorization completed by another worker replaces the cached client without a local close callback');
@@ -128,12 +159,30 @@ async function main() {
     assert.equal(executions, 2);
     assert.equal((await getMcpRuntimeStatus(undefined, scope)).servers[0].health?.incident, null, 'disabled connections produce no alarm');
     await setMcpServerEnabled('remote', true, scope);
-    await writeMcpCredentialJson(tokenPath, { ...token, refreshToken: undefined, expiresAt: new Date(Date.now() - 60_000).toISOString() }, scope);
+    await writeMcpCredentialJson(tokenPath, { ...token, refreshToken: undefined, expiresAt: new Date(Date.now() - 60_000).toISOString() }, credentialScope);
     const beforeExpiryRead = methods.length;
     const expired = (await getMcpRuntimeStatus(undefined, scope)).servers[0].health;
     assert.equal(expired?.authStatus, 'reauth_required');
     assert.equal(expired?.incident?.kind, 'reauth_required', 'expired non-refreshable credentials notify without a failed user action');
     assert.equal(methods.length, beforeExpiryRead, 'expiry status reconciliation is local');
+
+    await writeMcpCredentialJson(tokenPath, { ...token, accessToken: 'close-regression', expiresAt: new Date(Date.now() + 3600_000).toISOString() }, credentialScope);
+    await listMcpTools('remote', { scope });
+    await listMcpTools('other', { scope: otherScope });
+    assert.equal((await getMcpRuntimeStatus(undefined, scope)).servers[0].connected, true);
+    assert.equal((await getMcpRuntimeStatus(undefined, otherScope)).servers[0].connected, true);
+    const releaseHeldCall = deferred();
+    toolCallEntered = deferred();
+    pendingToolCallRelease = releaseHeldCall;
+    const pendingCall = callMcpTool('remote', 'change', {}, undefined, scope);
+    // Closing the transport may reject before clearMcpOAuth returns.
+    void pendingCall.catch(() => undefined);
+    await toolCallEntered.promise;
+    await clearMcpOAuth(connection.connectionId!, scope);
+    releaseHeldCall.resolve();
+    await assert.rejects(pendingCall, /abort|closed|connection/i, 'OAuth clear aborts an in-flight client opened from a user-only scope');
+    assert.equal((await getMcpRuntimeStatus(undefined, scope)).servers[0].connected, false, 'clearing an org-bound connection closes its user-only manager entry');
+    assert.equal((await getMcpRuntimeStatus(undefined, otherScope)).servers[0].connected, true, 'clearing one owner never closes another account client');
     console.log('mcp-manager-auth-test: ok');
   } finally {
     await closeAllMcpServers();
@@ -141,6 +190,7 @@ async function main() {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await fs.rm(root, { recursive: true, force: true });
+    moduleInternals._load = originalLoad;
   }
 }
 
