@@ -146,6 +146,8 @@ type McpStatusState = {
   oauth: Array<{
     serverName: string;
     authorized: boolean;
+    lastCompletedState?: string | null;
+    authVersion?: number;
     requiresAuth: boolean;
     redirectUri: string | null;
     expiresAt: string | null;
@@ -2391,6 +2393,12 @@ export function IntegrationsSettingsClient({
   const { activeTabOverride } = useHintContext();
   const secretsInitialLoadStartedRef = useRef(false);
   const mcpInitialLoadStartedRef = useRef(false);
+  const mcpAuthorizationFlowsRef = useRef(new Map<string, string>());
+
+  useEffect(() => {
+    const flows = mcpAuthorizationFlowsRef.current;
+    return () => flows.clear();
+  }, []);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
   const workspaceManagementOpen = searchParams.get('workspaceManagement') === '1';
@@ -2586,9 +2594,10 @@ export function IntegrationsSettingsClient({
     }
   }, [t]);
 
-  const pollMcpAuthorizationStatus = useCallback(async (server: string) => {
+  const pollMcpAuthorizationStatus = useCallback(async (server: string, expectedState: string) => {
     for (let attempt = 0; attempt < 30; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 2000 : 3000));
+      if (mcpAuthorizationFlowsRef.current.get(server) !== expectedState) return;
 
       try {
         const response = await fetch('/api/integrations/mcp-status', {
@@ -2597,17 +2606,21 @@ export function IntegrationsSettingsClient({
         });
         const payload = await response.json();
         if (!response.ok || !payload.success) continue;
+        if (mcpAuthorizationFlowsRef.current.get(server) !== expectedState) return;
 
         const nextStatus = payload.data as McpStatusState;
         const oauth = nextStatus.oauth.find((entry) => entry.serverName === server);
-        const authorized = Boolean(oauth?.authorized);
+        const authorized = Boolean(oauth?.authorized && oauth.lastCompletedState === expectedState);
         setMcpEditor((current) => ({
           ...current,
           status: nextStatus,
           success: authorized ? t('mcpConfig.authorizationCompleted', { server }) : current.success,
         }));
 
-        if (authorized) return;
+        if (authorized) {
+          mcpAuthorizationFlowsRef.current.delete(server);
+          return;
+        }
       } catch {
         // Keep polling; transient errors should not interrupt the OAuth window flow.
       }
@@ -2615,6 +2628,8 @@ export function IntegrationsSettingsClient({
   }, [t]);
 
   const runMcpServerAction = useCallback(async (server: string, action: McpServerAction) => {
+    let authWindow: Window | null = null;
+    if (action === 'authorize' || action === 'clear_auth' || action === 'disable') mcpAuthorizationFlowsRef.current.delete(server);
     setMcpEditor((current) => ({
       ...current,
       activeServerAction: `${server}:${action}`,
@@ -2624,23 +2639,36 @@ export function IntegrationsSettingsClient({
 
     try {
       if (action === 'authorize') {
-        const authWindow = window.open('about:blank', '_blank');
+        authWindow = window.open('about:blank', '_blank');
         if (!authWindow) {
           throw new Error(t('mcpConfig.errors.popupBlocked'));
         }
-        try {
-          authWindow.opener = null;
-        } catch {
-          // Some browsers expose opener as read-only; the OAuth route itself is same-origin until it redirects.
+        authWindow.opener = null;
+        const response = await fetch('/api/integrations/mcp-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ server, action: 'authorize' }),
+        });
+        const payload = await response.json();
+        const authorizationUrl = payload.data?.authorizationUrl;
+        const state = payload.data?.state;
+        if (!response.ok || !payload.success || typeof authorizationUrl !== 'string' || typeof state !== 'string') {
+          throw new Error(payload.error || t('mcpConfig.errors.action'));
         }
-        authWindow.location.href = `/api/mcp/oauth/start?server=${encodeURIComponent(server)}`;
+        const validatedUrl = new URL(authorizationUrl);
+        if (validatedUrl.protocol !== 'http:' && validatedUrl.protocol !== 'https:') {
+          throw new Error(t('mcpConfig.errors.action'));
+        }
+        authWindow.location.href = validatedUrl.toString();
+        mcpAuthorizationFlowsRef.current.set(server, state);
 
         setMcpEditor((current) => ({
           ...current,
           activeServerAction: null,
           success: t('mcpConfig.authorizationStarted', { server, count: 0 }),
         }));
-        void pollMcpAuthorizationStatus(server);
+        void pollMcpAuthorizationStatus(server, state);
         return;
       }
 
@@ -2671,6 +2699,7 @@ export function IntegrationsSettingsClient({
       await Promise.all([loadMcpConfig(), loadMcpStatus()]);
     } catch (actionError) {
       const message = actionError instanceof Error ? actionError.message : t('mcpConfig.errors.action');
+      if (action === 'authorize') authWindow?.close();
       setMcpEditor((current) => ({
         ...current,
         activeServerAction: null,

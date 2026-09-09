@@ -133,7 +133,8 @@ async function main() {
     } }), scope);
     const endpointChanged = await getMcpOAuthStatus('renamed', undefined, scope);
     assert.equal(endpointChanged.authorized, false);
-    assert.match(endpointChanged.reason || '', /does not match/i);
+    assert.equal(endpointChanged.code, 'reauth_required');
+    assert.equal(await readMcpCredentialJson(`${directory}/tokens.json`, scope), null, 'auth configuration changes must remove obsolete credentials');
 
     const noKeyScope = { userId: 'missing-key-user', organizationId: 'migration-org' };
     const noKeyServer = legacyServer('https://missing-key.example.test/mcp');

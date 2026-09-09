@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
+import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
 
 import {
   Client,
@@ -41,7 +42,10 @@ type ManagedConnection = {
   configHash: string;
   transport: TransportType;
   config: McpServerConfig;
+  abortController: AbortController;
+  closed?: boolean;
   client?: Client;
+  connectingClient?: Client;
   connecting?: Promise<Client>;
   activeCalls: number;
   lastUsedAt: number;
@@ -294,6 +298,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
       },
     },
   );
+  entry.connectingClient = client;
 
   if (entry.transport === 'stdio') {
     if (process.env.MCP_ALLOW_STDIO !== 'true') {
@@ -341,32 +346,67 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
     const validatedUrl = await assertMcpHttpUrlAllowed(url, `MCP server "${entry.serverName}" URL`);
     logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url, timeoutMs });
-    const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash, entry.scope);
-    const headers = await resolveHttpHeaders(entry.config, accessToken, entry.scope);
     try {
       await withTimeout(client.connect(new StreamableHTTPClientTransport(validatedUrl, {
-        fetch: (input, init) => fetchMcpHttp(input, init, { timeoutMs }),
-        ...(headers ? {
-          requestInit: {
-            headers,
-          },
-        } : {}),
+        fetch: (input, init) => fetchManagedMcpRequest(entry, input, init),
         onInsufficientScope: 'throw',
       })), timeoutMs, signal);
     } catch (error) {
+      entry.abortController.abort(error);
       await client.close().catch(() => undefined);
       throw error;
     }
     logMcp('info', 'Connected HTTP server', {
       server: entry.serverName,
       url,
-      authenticated: Boolean(accessToken),
       protocolVersion: client.getNegotiatedProtocolVersion(),
     });
     return client;
   }
 
   throw new Error(`MCP server "${entry.serverName}" must define a stdio command or unauthenticated HTTP url.`);
+}
+
+async function readCurrentMcpConnection(entry: ManagedConnection): Promise<McpServerConfig> {
+  entry.abortController.signal.throwIfAborted();
+  const config = await readMcpConfig(entry.scope);
+  const current = entry.config.connectionId
+    ? Object.values(config.mcpServers).find((server) => server.connectionId === entry.config.connectionId)
+    : config.mcpServers[entry.serverName];
+  if (!current || !isMcpServerEnabled(current) || hashMcpAuthConfig(current) !== hashMcpAuthConfig(entry.config)
+    || current.authVersion !== entry.config.authVersion) {
+    throw new Error('MCP connection was removed, disabled or changed. Reconnect before continuing.');
+  }
+  return current;
+}
+
+async function fetchManagedMcpRequest(entry: ManagedConnection, input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const current = await readCurrentMcpConnection(entry);
+  const identity = current.connectionId || entry.serverName;
+  const token = await getValidMcpAccessToken(identity, current, entry.configHash, entry.scope);
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+  const authenticatedHeaders = await resolveHttpHeaders(current, token, entry.scope);
+  for (const [name, value] of Object.entries(authenticatedHeaders || {})) headers.set(name, value);
+  // Token refresh and secret loading may yield to a concurrent config change.
+  await readCurrentMcpConnection(entry);
+  entry.abortController.signal.throwIfAborted();
+  const response = await fetchMcpHttp(input, {
+    ...init, headers,
+    signal: AbortSignal.any([
+      entry.abortController.signal,
+      ...(init?.signal ? [init.signal] : input instanceof Request ? [input.signal] : []),
+    ]),
+  }, { timeoutMs: getTimeoutMs(current) });
+  if (response.status === 401 && token) {
+    await response.body?.cancel();
+    // Refresh is safe to perform here; the rejected operation is never replayed.
+    await getValidMcpAccessToken(identity, current, entry.configHash, entry.scope, { forceRefresh: true, rejectedAccessToken: token });
+    const error = new Error('MCP authorization was renewed. The previous operation was not replayed; reconnect and retry it explicitly.');
+    Object.assign(error, { code: 'mcp_auth_renewed', status: 409 });
+    throw error;
+  }
+  return response;
 }
 
 async function getManagedConnection(serverName: string, signal?: AbortSignal, scope?: McpScope | null): Promise<ManagedConnection> {
@@ -389,6 +429,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
       configHash,
       transport: getServerTransport(serverConfig),
       config: serverConfig,
+      abortController: new AbortController(),
       activeCalls: 0,
       lastUsedAt: Date.now(),
     };
@@ -399,12 +440,19 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
   entry.lastUsedAt = Date.now();
   if (!entry.client) {
     entry.connecting ??= createClient(entry, signal)
-      .then((client) => {
+      .then(async (client) => {
+        if (entry.closed || entry.abortController.signal.aborted) {
+          await client.close().catch(() => undefined);
+          throw new Error('MCP connection was closed while connecting.');
+        }
         entry.client = client;
         entry.lastError = undefined;
         return client;
       })
       .catch((error) => {
+        entry.closed = true;
+        entry.abortController.abort(error);
+        store.entries.delete(key);
         entry.lastError = getErrorMessage(error);
         logMcp('error', 'Connection failed', {
           server: entry.serverName,
@@ -415,6 +463,7 @@ async function getManagedConnection(serverName: string, signal?: AbortSignal, sc
       })
       .finally(() => {
         entry.connecting = undefined;
+        entry.connectingClient = undefined;
       });
     await entry.connecting;
   }
@@ -448,8 +497,7 @@ async function withManagedConnection<T>(
         error.resourceMetadataUrl?.toString(),
         entry.scope,
       );
-      await entry.client.close().catch(() => undefined);
-      entry.client = undefined;
+      await closeMcpServer(entry.config.connectionId || serverName, entry.scope);
       const scopeText = challengedScopes.length ? ` Required scopes: ${challengedScopes.join(' ')}.` : '';
       const stepUpError = new Error(
         `MCP server "${serverName}" requires additional OAuth authorization.${scopeText} Use mcp auth_start to continue.`,
@@ -459,6 +507,8 @@ async function withManagedConnection<T>(
     }
     const enhanced = enhanceMcpError(error);
     entry.lastError = enhanced.message;
+    // Transport/auth failures must not leave a stale session available for reuse.
+    await closeMcpServer(entry.config.connectionId || serverName, entry.scope);
     throw enhanced;
   } finally {
     entry.activeCalls = Math.max(0, entry.activeCalls - 1);
@@ -587,10 +637,12 @@ export async function closeMcpServer(serverName: string, scope?: McpScope | null
   const store = getStore();
   for (const [key, entry] of store.entries) {
     if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
-    if (entry.serverName !== serverName) continue;
+    if (entry.serverName !== serverName && entry.config.connectionId !== serverName) continue;
     logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    await entry.client?.close().catch(() => undefined);
     store.entries.delete(key);
+    entry.closed = true;
+    entry.abortController.abort(new Error('MCP connection closed.'));
+    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
   }
 }
 
@@ -600,8 +652,10 @@ export async function closeMcpServersForScope(scope?: McpScope | null): Promise<
   for (const [key, entry] of store.entries) {
     if (getMcpScopeKey(entry.scope) !== getMcpScopeKey(normalizedScope)) continue;
     logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    await entry.client?.close().catch(() => undefined);
     store.entries.delete(key);
+    entry.closed = true;
+    entry.abortController.abort(new Error('MCP connection closed.'));
+    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
   }
 }
 
@@ -609,7 +663,9 @@ export async function closeAllMcpServers(): Promise<void> {
   const store = getStore();
   for (const entry of store.entries.values()) {
     logMcp('info', 'Closing server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
-    await entry.client?.close().catch(() => undefined);
+    entry.closed = true;
+    entry.abortController.abort(new Error('MCP connection closed.'));
+    await (entry.client || entry.connectingClient)?.close().catch(() => undefined);
   }
   store.entries.clear();
 }

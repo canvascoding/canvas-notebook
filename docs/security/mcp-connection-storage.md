@@ -62,3 +62,35 @@ recovery fails closed. Before manually removing a `.mcp-storage-locks` entry,
 stop every process using that data root and confirm the recorded owner has
 stopped. Shared-file deployments across multiple hosts require a distributed
 lock implementation; these file locks deliberately do not guess remote liveness.
+
+## OAuth lifecycle
+
+Every outbound HTTP request loads current credentials. Refreshes are serialized
+per connection across local processes and re-read the token after obtaining the
+lock, including refresh-token rotation. A 401 can renew credentials, but the
+rejected operation is never automatically replayed. The caller must explicitly
+retry, so a write action cannot be duplicated by transport recovery.
+
+Disconnect and authorization configuration changes increment a durable generation
+before waiting for provider requests. Registration, pending PKCE state, token
+refresh and callback completion verify the current connection revision and
+generation before saving. Cleanup removes only older generations, preserving a
+new authorization that completed after a configuration change. Generation records
+contain no credentials and remain as private files after disconnect. Include them
+in backups with the connection configuration and credentials.
+
+Pending states are consumed once under a cross-process lock and expire after ten
+minutes. Disabled connections cannot start or complete authorization. UI polling
+matches the exact completed OAuth state so an existing token cannot make a new
+login appear complete.
+
+When discovery advertises a revocation endpoint, new tokens retain it for a
+bounded, best-effort revocation attempt on disconnect. Local invalidation and
+credential removal succeed even when that endpoint fails. Revocation support and
+grant propagation are provider-dependent; no successful remote revocation is
+assumed from a failed request. See [RFC 7009](https://www.rfc-editor.org/rfc/rfc7009.html).
+
+Refreshable expired tokens remain authorized until refresh fails definitively.
+Rate limits, network errors and provider outages preserve credentials for retry;
+invalid grants require a new login. Unsupported token types and invalid token
+lifetimes are rejected.

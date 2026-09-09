@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { closeMcpServer } from '@/app/lib/mcp/manager';
 import { completeMcpOAuthCallback, rejectMcpOAuthCallback } from '@/app/lib/mcp/oauth';
 
 function escapeHtml(value: string): string {
@@ -19,7 +20,12 @@ function htmlResponse(title: string, message: string, status = 200) {
     `<!doctype html><html><head><meta charset="utf-8"><title>${safeTitle}</title></head><body><h1>${safeTitle}</h1><p>${safeMessage}</p></body></html>`,
     {
       status,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer',
+        'Content-Security-Policy': "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      },
     },
   );
 }
@@ -52,6 +58,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const token = await completeMcpOAuthCallback(code, state, responseIssuer, { userId: session.user.id });
+    await closeMcpServer(token.connectionId || token.serverName, { userId: session.user.id });
     return htmlResponse('MCP OAuth complete', `Authorization saved for ${token.serverName}. You can close this window.`);
   } catch (callbackError) {
     const message = callbackError instanceof Error ? callbackError.message : 'OAuth callback failed.';
