@@ -189,10 +189,11 @@ export function createFileGuestService(dependencies: {
   }
 
   async function manage(workspace: WorkspaceContext, id: string, input: { policyRevision: number; permission?: FileGuestPermission; expiresAt?: Date | null; revoke?: boolean }) {
-    assertFileGuestManager(workspace, input.permission);
     const row = await invitationById(id);
     if (row.workspaceId !== workspace.workspaceId) throw new FileGuestError('Einladung nicht gefunden.', 404);
     if (row.createdByUserId !== workspace.actor!.userId && !workspace.permissions.canManageWorkspace) throw new FileGuestError('Nur der Einladende oder die Workspace-Verwaltung kann diese Freigabe ändern.');
+    const effectivePermission = input.permission ?? parseFileGuestPermission(row.permission);
+    assertFileGuestManager(workspace, !input.revoke && effectivePermission === 'write' ? 'write' : 'read');
     if (!Number.isSafeInteger(input.policyRevision) || input.policyRevision < 1) throw new FileGuestError('Eine gültige Version der Einstellungen ist erforderlich.', 400);
     if (input.expiresAt && (!Number.isFinite(input.expiresAt.getTime()) || input.expiresAt.getTime() <= Date.now())) throw new FileGuestError('Das Ablaufdatum muss in der Zukunft liegen.', 400);
     const [updated] = await db.update(invitations).set({

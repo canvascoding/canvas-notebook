@@ -51,6 +51,18 @@ async function main() {
     Object.assign(fileGuestService, guests);
     const alice = await guests.create({ workspace, path: 'notes.md', email: 'alice@example.test', permission: 'write', expiresAt: null });
     const bob = await guests.create({ workspace, path: 'notes.md', email: 'bob@example.test', permission: 'read', expiresAt: new Date(Date.now() + 60_000) });
+    const expiryGuard = await guests.create({ workspace, path: 'notes.md', email: 'expiry-guard@example.test', permission: 'write', expiresAt: null });
+    const noWriteWorkspace = { ...workspace, permissions: { ...workspace.permissions, canWrite: false } };
+    await assert.rejects(guests.manage(noWriteWorkspace, expiryGuard.id, {
+      policyRevision: expiryGuard.policyRevision,
+      expiresAt: new Date(Date.now() + 120_000),
+    }), /Schreibrechte/);
+    const downgradedGuard = await guests.manage(noWriteWorkspace, expiryGuard.id, {
+      policyRevision: expiryGuard.policyRevision,
+      permission: 'read',
+      expiresAt: new Date(Date.now() + 120_000),
+    });
+    assert.equal(downgradedGuard.permission, 'read', 'Managers without write access may only reduce a write invitation');
     assert.equal(alice.assetCount, 1);
     const duplicate = await Promise.all(Array.from({ length: 12 }, () => guests.create({ workspace, path: 'notes.md', email: 'alice@example.test', permission: 'read', expiresAt: new Date(Date.now() + 60_000) })));
     assert.ok(duplicate.every((entry) => entry.id === alice.id && entry.permission === 'write' && entry.expiresAt === null));
