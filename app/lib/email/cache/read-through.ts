@@ -236,6 +236,7 @@ function attachmentMetadata(value: unknown, index: number): EmailCachedMessageDe
     size: nullableNumber(attachment.size),
     ...(attachment.inline !== undefined ? { inline: Boolean(attachment.inline) } : {}),
     ...(attachment.isInline !== undefined ? { inline: Boolean(attachment.isInline) } : {}),
+    ...(attachment.downloadable !== undefined ? { downloadable: Boolean(attachment.downloadable) } : {}),
     ...(attachment.contentId !== undefined ? { contentId: attachment.contentId === null ? null : stringValue(attachment.contentId) } : {}),
   };
 }

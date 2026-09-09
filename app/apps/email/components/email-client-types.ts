@@ -78,9 +78,13 @@ export type EmailMessageDetail = EmailMessageSummary & {
   body?: string;
   bodyHtml?: string;
   attachments?: Array<{
+    id: string;
     filename: string;
     contentType?: string;
-    size?: number;
+    size?: number | null;
+    inline?: boolean;
+    downloadable?: boolean;
+    contentId?: string | null;
   }>;
 };
 

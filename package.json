@@ -242,6 +242,7 @@
     "test:email:derived-draft": "tsx scripts/email-derived-draft-html-test.ts",
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
+    "test:email:inbound-attachments": "tsx --conditions react-server scripts/email-inbound-attachments-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
     "test:email:agent-profile": "tsx --conditions react-server scripts/email-agent-profile-test.ts",
     "test:email:workspace-postgres-migration": "tsx --conditions react-server scripts/workspace-email-postgres-migration-test.ts",
