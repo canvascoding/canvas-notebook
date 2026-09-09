@@ -1,6 +1,7 @@
 import { Extension, type Editor } from '@tiptap/core';
 import { Plugin } from '@tiptap/pm/state';
 import { createEditorSelectionTarget } from './interaction-target';
+import { createNativeBlockDragPlugin } from './native-block-drag';
 import { applyReorderableBlockMove, getReorderableBlockRangeAt, getSelectedReorderableBlockRange, resolveReorderableBlockRange,
   type BlockDropTarget, type BlockMoveResult, type ReorderableBlockRange } from './reorderable-blocks';
 
@@ -36,11 +37,12 @@ export function moveBlockInDirection(editor: Editor, direction: BlockMoveDirecti
 
 export const MarkdownBlockMovement = Extension.create<{ onRejected?: () => void }>({
   name: 'canvasBlockMovement',
+  priority: 11000,
   addOptions: () => ({}),
   addProseMirrorPlugins() {
     const editor = this.editor;
     const onRejected = this.options.onRejected;
-    return [new Plugin({ props: { handleKeyDown(view, event) {
+    return [createNativeBlockDragPlugin(editor, onRejected), new Plugin({ props: { handleKeyDown(view, event) {
       if (!event.altKey || !event.shiftKey || event.ctrlKey || event.metaKey
         || !['ArrowUp', 'ArrowDown'].includes(event.key) || event.isComposing || view.composing
         || (event.target instanceof Element && event.target.closest('[contenteditable="false"]'))) return false;

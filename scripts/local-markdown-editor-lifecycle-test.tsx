@@ -186,7 +186,7 @@ async function main() {
     const createTransfer = () => {
       const data = new Map<string, string>();
       return { get types() { return [...data.keys()]; }, setData: (key: string, value: string) => data.set(key, value),
-        getData: (key: string) => data.get(key) ?? '', effectAllowed: 'none', dropEffect: 'none' };
+        getData: (key: string) => data.get(key) ?? '', clearData: () => data.clear(), files: [], effectAllowed: 'none', dropEffect: 'none' };
     };
     const drag = (target: EventTarget, type: string, transfer: ReturnType<typeof createTransfer>, point: MouseEventInit = {}) => {
       const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX: 10, clientY: 100, ...point });
@@ -305,6 +305,34 @@ async function main() {
       await act(async () => { drag(oldDom, 'drop', lateTransfer); drag(rich().view.dom, 'drop', lateTransfer); });
       assert.deepEqual(rich().getJSON(), newBefore, 'old drag callbacks do not cross a view replacement');
     }
+    for (const fixture of [
+      { type: 'paragraph', markdown: 'AAA\n\nBBB\n\nCCC' },
+      { type: 'image', markdown: 'AAA\n\n![Alt](image.png)\n\nCCC' },
+      { type: 'codeBlock', markdown: 'AAA\n\n```ts\nconst x = 1;\n```\n\nCCC' },
+      { type: 'horizontalRule', markdown: 'AAA\n\n---\n\nCCC' },
+      { type: 'blockquote', markdown: 'AAA\n\n> Quote\n>\n> - Nested\n\nCCC' },
+    ]) {
+      await render({ mode: 'rich', value: fixture.markdown, documentKey: `native-${fixture.type}`, readOnly: false });
+      const editor = rich();
+      const before = editor.getJSON();
+      const source = editor.state.doc.child(1);
+      const data = createTransfer();
+      await act(async () => {
+        editor.commands.setNodeSelection(editor.state.doc.firstChild!.nodeSize);
+        drag(editor.view.dom, 'dragstart', data);
+        editor.view.posAtCoords = () => ({ pos: 0, inside: -1 });
+        drag(editor.view.dom, 'drop', data);
+      });
+      assert(!editor.isDestroyed, `${fixture.type}: moving a block must keep the rich view mounted`);
+      assert(editor.state.doc.firstChild!.eq(source), `${fixture.type}: the actual editor preserves native-drag identity`);
+      assert(editor.state.selection instanceof NodeSelection);
+      assert.equal(editor.state.selection.from, 0);
+      await act(async () => { assert(editor.commands.undo()); });
+      assert.deepEqual(editor.getJSON(), before);
+      assert.equal(editor.can().undo(), false);
+      await act(async () => { assert(editor.commands.redo()); });
+      assert(editor.state.doc.firstChild!.eq(source));
+    }
     const layoutObservers: Array<{ elements: Set<Element>; disconnected: boolean }> = [];
     Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: class {
       record = { elements: new Set<Element>(), disconnected: false };
@@ -412,7 +440,7 @@ async function main() {
     const stoppedOnUnmount = viewport.scrollTop;
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 40)); });
     assert.equal(viewport.scrollTop, stoppedOnUnmount, 'unmount stops the old viewport and its callbacks');
-    console.log('Real MarkdownEditor lifecycle: StrictMode, code/image/rule grips, layout updates, bounded autoscroll, drag selection/history, revoked gestures, Rich/Read/Source, delayed acknowledgements, normalization, permissions and file replacement passed.');
+    console.log('Real MarkdownEditor lifecycle: StrictMode, code/image/rule grips, layout updates, bounded autoscroll, native block identity, drag selection/history, revoked gestures, Rich/Read/Source, delayed acknowledgements, normalization, permissions and file replacement passed.');
   } finally {
     await act(async () => root.unmount());
     internals._load = originalLoad;

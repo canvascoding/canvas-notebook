@@ -2,9 +2,20 @@ import Paragraph from '@tiptap/extension-paragraph';
 import Blockquote from '@tiptap/extension-blockquote';
 import Heading from '@tiptap/extension-heading';
 import CodeBlock from '@tiptap/extension-code-block';
+import HorizontalRule from '@tiptap/extension-horizontal-rule';
 import { renderInlineWithMarkedWhitespace } from './inline-mark-whitespace';
 
 const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;';
+
+/** A leading thematic break must not masquerade as YAML frontmatter. */
+export const CanvasHorizontalRule = HorizontalRule.extend({
+  renderMarkdown(_node, _helpers, context) {
+    const previous = context.previousNode;
+    const startsBody = (!context.parentType || context.parentType === 'doc')
+      && (!previous || (previous.type === 'paragraph' && !previous.content?.length));
+    return startsBody ? '***' : '---';
+  },
+});
 
 /** Literal fence markers in code must not terminate the serialized block. */
 export const CanvasCodeBlock = CodeBlock.extend({

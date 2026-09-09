@@ -125,6 +125,7 @@ if (!process.argv.includes('--probe')) {
       '- [x] Task\n\n  > [!note] **Title**\n  > **Body** and `code`\n\nTAIL',
       '<details>\n<summary>Outer</summary>\n\n<details open>\n<summary>Inner</summary>\n\n````txt\n</details>\n```\n<details>\n````\n\n</details>\n\n</details>\n\nTAIL',
       '> [!note] Empty body\n\nTAIL',
+      '***\n\nTAIL',
     ]) {
       const fixture = markdown.createRichMarkdownYDoc(body, 'tiptap_blocks'); documents.push(fixture);
       const saved = Y.encodeStateAsUpdate(fixture);

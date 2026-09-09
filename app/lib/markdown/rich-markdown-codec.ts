@@ -7,7 +7,7 @@ import { CanvasTaskList as TaskList } from './core/lists-and-tables';
 import UniqueID from '@tiptap/extension-unique-id';
 import { MarkdownManager } from '@tiptap/markdown';
 import StarterKit from '@tiptap/starter-kit';
-import { CanvasCodeBlock } from './core/base-blocks';
+import { CanvasCodeBlock, CanvasHorizontalRule } from './core/base-blocks';
 
 import { getMarkdownSourceModeReason } from '@/app/lib/editor/text-editor-guards';
 import {
@@ -59,8 +59,8 @@ export type MarkdownRichModeAnalysis =
 
 export function richMarkdownCodecExtensions() {
   return [
-    StarterKit.configure({ document: false, codeBlock: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false }),
-    CanvasCodeBlock,
+    StarterKit.configure({ document: false, codeBlock: false, horizontalRule: false, link: false, paragraph: false, blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false }),
+    CanvasCodeBlock, CanvasHorizontalRule,
     ...canvasRichMarkdownExtensions(),
     Link.configure({ openOnClick: false, autolink: false }),
     Image,

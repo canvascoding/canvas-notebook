@@ -32,7 +32,7 @@ import { CanvasTaskList as TaskList } from '@/app/lib/markdown/core/lists-and-ta
 import { CanvasTaskItem as TaskItem } from '@/app/lib/markdown/core/lists-and-tables';
 import { CanvasTableKit as TableKit } from '@/app/lib/markdown/core/lists-and-tables';
 import { CanvasUniqueID as UniqueID } from '@/app/lib/editor/canvas-unique-id';
-import { CanvasCodeBlock as CodeBlock } from '@/app/lib/markdown/core/base-blocks';
+import { CanvasCodeBlock as CodeBlock, CanvasHorizontalRule } from '@/app/lib/markdown/core/base-blocks';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
@@ -2223,6 +2223,7 @@ function createEditorExtensions(
       document: false,
       blockquote: false, heading: false, orderedList: false, bulletList: false, listItem: false,
       codeBlock: false,
+      horizontalRule: false,
       link: false,
       paragraph: false,
       undoRedo: collaboration || localDocument ? false : undefined,
@@ -2232,6 +2233,7 @@ function createEditorExtensions(
       showOnlyCurrent: true,
     }),
     CodeBlockWithMermaid,
+    CanvasHorizontalRule,
     Mathematics.configure({
       inlineOptions: {
         onClick: (node, pos) => actions?.editMath?.('inline', String(node.attrs.latex ?? ''), pos),
