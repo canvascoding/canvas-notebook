@@ -1,6 +1,6 @@
 # Abnahme: Blockbearbeitung und Dokument-Lifecycle
 
-Stand: 2026-09-09. Ursprünglicher Audit auf `b0cb34bd`, ergänzt um die umgesetzten Teilstände 7.8 bis 7.17.2. Diese Bestandsaufnahme gehört zum [Umsetzungsplan](editor-structure-lifecycle-plan.md). Die Gesamtfreigabe ist offen. „Bestanden“ bezeichnet hier ausschließlich die genannten ausgeführten Kern-/Komponententests; JSDOM liefert keinen Nachweis für Browserlayout, native Zwischenablage oder Betriebssystem-IME.
+Stand: 2026-09-09. Ursprünglicher Audit auf `b0cb34bd`, ergänzt um die umgesetzten Teilstände 7.8 bis 7.18. Diese Bestandsaufnahme gehört zum [Umsetzungsplan](editor-structure-lifecycle-plan.md). Die Gesamtfreigabe ist offen. „Bestanden“ bezeichnet hier ausschließlich die genannten ausgeführten Kern-/Komponententests; JSDOM liefert keinen Nachweis für Browserlayout, native Zwischenablage oder Betriebssystem-IME.
 
 ## Die zwölf verpflichtenden Szenarien
 
@@ -37,6 +37,7 @@ Die Gegenproben verwenden neutrale Dokumente. Der ursprüngliche private Screens
 - Der [CPU-Benchmark](editor-block-performance-block-start-hints.json) prüft sieben Dokumentklassen mit IDs/Inhalten, konkurrierendem Text, binärem Wiederöffnen und unverändernder Validierung. Für 5.000 Absätze: vollständiger Checkpoint etwa 370 ms, Move p95 etwa 15 ms. Das enthält keine DOM-, Netzwerk- oder Datenbankzeiten.
 - Der bestehende Index pro unveränderlichem ProseMirror-Dokument ist ausreichend schnell; zusätzliche Zielindexstrukturen sind bisher nicht begründet.
 - Teilstand 7.16 ergänzt die [tatsächliche Editor-/React-Messung](editor-component-performance.md) in JSDOM mit neun Fällen, sieben Messwerten und zwei Aufwärmrunden. Eine pro Projektion erneuerte Nachfolgerzuordnung senkt den Move bei 5.000 kurzen Absätzen in der Bindung von etwa 924 auf 297 ms und im kollaborativen React-Editor von etwa 1.589 auf 972 ms. Lokaler Move und Mount bleiben unverändert langsam. Die Browser-Drop-Latenz ist damit nicht belegt.
+- Teilstand 7.18 entfernt nach CPU-Profil die wiederholte vollständige Importanalyse aus der Moduswahl bereits bestätigter Rich-Dokumente. Struktur-/Checkpoint-Validierung und lokale bzw. Plain-Text-Importprüfung bleiben bestehen. Der gleiche Benchmark senkt bei 5.000 Absätzen den kollaborativen Move auf etwa 773 ms und Peer-Text auf 341 ms; der lokale Kontrollpfad bleibt bei etwa 371 ms. Reale Pointer-Reaktion und Browserdarstellung sind weiterhin nicht gemessen.
 - 10.000 Moves erhöhen den Binärstand bei 1.000 Absätzen auf etwa 3,2 MiB. Operations-/Receipt-Daten bleiben erhalten. Eine Verdichtung muss eigene Undo-History, Idempotenzbelege und alte Offline-Repliken berücksichtigen; sie ist noch nicht implementiert und darf nicht durch unkontrolliertes Löschen ersetzt werden.
 
 ## Ausgeführte Prüfungen und Reihenfolge
@@ -92,4 +93,8 @@ Teilstand 7.17 erhält bekannte kollaborative Tab-Identitäten über Speichern, 
 
 Der endgültige Teilstand 7.17.2 besteht den vollständigen Produktionsbuild mit TypeScript und 333 Seiten, den Test am gebauten Checkpoint-Modul, zusätzlichen vollständigen Typecheck und scoped ESLint. Der Dashboard-Test bestätigt auch die gebündelte Explorer-Aktualisierung nach externem Elternordner-Rename. Das isolierte DATA bleibt leer; keine Browser, Server oder Container gestartet.
 
-Die tatsächliche Binding-/Komponentenmessung liegt in Teilstand 7.16 vor; große Dokumente haben weiterhin messbare Latenzen. Weitere Profile und das Langzeitverhalten der Operationsdaten bleiben offen. Die Browserabnahme wartet weiter auf die bereits erfragte explizite Freigabe gemäß `AGENTS.md`.
+Teilstand 7.18 besteht erneut alle neun Benchmarkfälle sowie tatsächliche lokale Lifecycle-, Struktur-/Startup-Recovery- und Preservation-Prüfungen. Die Moduswahl benutzt bei bestehenden Rich-Sessions die bestätigte Representation; ungültige Strukturprojektionen werden weiterhin entfernt und bleiben wiederherstellbar. Scoped ESLint besteht.
+
+Der endgültige Teilstand 7.18 besteht den frischen vollständigen Produktionsbuild mit TypeScript und 333 Seiten sowie den Test am gebauten Checkpoint-Modul. Das isolierte DATA bleibt leer; keine Browser, Server oder Container gestartet.
+
+Die tatsächliche Binding-/Komponentenmessung liegt in Teilstand 7.16 und 7.18 vor; große Dokumente haben weiterhin messbare Latenzen. Weitere Profile und das Langzeitverhalten der Operationsdaten bleiben offen. Die Browserabnahme wartet weiter auf die bereits erfragte explizite Freigabe gemäß `AGENTS.md`.

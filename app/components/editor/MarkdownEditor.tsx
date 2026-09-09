@@ -5757,7 +5757,16 @@ export function MarkdownEditor({
   const parsedDocument = useMemo(() => frontmatter === 'metadata'
     ? parseCanvasMarkdownDocument(displayedValue)
     : { body: displayedValue, error: null }, [displayedValue, frontmatter]);
-  const richModeAnalysis = useMemo(() => analyzeMarkdownRichMode(displayedValue, frontmatter), [displayedValue, frontmatter]);
+  const authoritativeRepresentation = collaborationSession.session?.representation;
+  const richModeAnalysis = useMemo(() => {
+    // Existing rich sessions edit their authoritative structured document, not
+    // a new Markdown import. Their live projection and checkpoint still validate
+    // structure; reparsing its export here only repeats the mode-selection work.
+    if (collaborationEnabled && isRichTextCollaborationRepresentation(authoritativeRepresentation)) {
+      return { mode: 'rich' as const, ...splitMarkdownEditorDocument(displayedValue, frontmatter) };
+    }
+    return analyzeMarkdownRichMode(displayedValue, frontmatter);
+  }, [authoritativeRepresentation, collaborationEnabled, displayedValue, frontmatter]);
   const sourceModeRequired = richModeAnalysis.mode !== 'rich';
   const isPresentationDocument = useMemo(
     () => Boolean(filePath && isMarpMarkdown(filePath, value)),
@@ -5777,7 +5786,6 @@ export function MarkdownEditor({
   const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
     filePath ? consumeWorkspaceMarkdownLocation(filePath) : null
   ));
-  const authoritativeRepresentation = collaborationSession.session?.representation;
   const needsRichUpgrade = collaborationEnabled && authoritativeRepresentation !== 'tiptap_blocks'
     && (authoritativeRepresentation === 'tiptap_xml' || richModeAnalysis.mode !== 'source')
     && collaborationDocument?.session?.permission === 'write';
