@@ -165,6 +165,7 @@ const results = cases.map(runCase);
 const report = {
   schemaVersion: 1, measuredAt: new Date().toISOString(),
   commit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+  workingTreeDirty: Boolean(execFileSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).trim()),
   runtime: { node: process.version, platform: process.platform, arch: process.arch, cpu: os.cpus()[0]?.model },
   method: { samples, warmups, referenceWarmBatch: 10_000, units: 'milliseconds',
     scope: 'In-process Yjs/ProseMirror CPU work; no DOM, network, database, browser frame or end-to-end drop timing.',

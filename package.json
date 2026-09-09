@@ -203,6 +203,7 @@
     "test:editor:startup-recovery": "tsx scripts/markdown-startup-recovery-test.tsx",
     "test:collaboration:production-modules": "node scripts/collaboration-production-module-test.mjs",
     "bench:collaboration:blocks": "tsx --conditions react-server scripts/collaboration-block-performance.ts",
+    "test:editor:generate-ids": "tsx scripts/rich-node-id-generation-test.ts",
     "test:editor:table-breaks": "tsx --conditions react-server scripts/markdown-table-breaks-test.ts",
     "test:editor:mark-whitespace": "tsx --conditions react-server scripts/markdown-mark-whitespace-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",

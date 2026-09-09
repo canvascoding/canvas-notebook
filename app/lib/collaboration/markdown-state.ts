@@ -2,7 +2,7 @@ import 'server-only';
 
 import { preserveAlignedStableIds, stableIdCounts, type RichMarkdownJsonNode } from '../editor/rich-node-identities';
 
-import { generateUniqueIds } from '@tiptap/extension-unique-id';
+import { generateRichNodeIds } from '../editor/generate-rich-node-ids';
 import { getSchema, type JSONContent } from '@tiptap/core';
 import type * as YTypes from 'yjs';
 
@@ -33,7 +33,7 @@ function createRichDocument(json: JSONContent, format: RichDocumentFormat): YTyp
   if (format === 'tiptap_xml') return TiptapTransformer.toYdoc(json, 'body', extensions);
   const doc = new Y.Doc();
   try {
-    const content = json.content?.length ? json : generateUniqueIds({ type: 'doc', content: [{ type: 'paragraph' }] }, extensions);
+    const content = json.content?.length ? json : generateRichNodeIds({ type: 'doc', content: [{ type: 'paragraph' }] }, extensions);
     CollaborationBlockTree.create(doc, getSchema(extensions).nodeFromJSON(content));
     return doc;
   } catch (error) { doc.destroy(); throw error; }
@@ -53,7 +53,7 @@ export function createRichMarkdownYDoc(markdown: string, format: RichDocumentFor
   const parts = splitCanvasMarkdownForRichEditor(markdown);
   const manager = markdownManager();
   const extensions = richMarkdownSchemaExtensions();
-  const json = generateUniqueIds(manager.parse(parts.body), extensions);
+  const json = generateRichNodeIds(manager.parse(parts.body), extensions);
   const doc = createRichDocument(json, format);
   if (parts.prefix) doc.getText('frontmatter').insert(0, parts.prefix);
   const finalLineEnding = parts.body.match(/((?:\r?\n)+)$/u)?.[1];

@@ -1,5 +1,5 @@
 import { Extension, getSchema, type JSONContent } from '@tiptap/core';
-import { generateUniqueIds } from '@tiptap/extension-unique-id';
+import { generateRichNodeIds } from './generate-rich-node-ids';
 import { closeHistory, history, redo, redoDepth, undo, undoDepth } from '@tiptap/pm/history';
 import { EditorState, Selection, type Transaction } from '@tiptap/pm/state';
 import type { Node as ProseMirrorNode } from '@tiptap/pm/model';
@@ -87,7 +87,7 @@ export class LocalMarkdownDocument {
       const parsed = this.manager.parse(analysis.body);
       const current = this.richJson(previous);
       preserveAlignedStableIds(current, parsed, stableIdCounts(current));
-      content = this.schema.nodeFromJSON(generateUniqueIds(parsed, this.extensions)).content;
+      content = this.schema.nodeFromJSON(generateRichNodeIds(parsed, this.extensions)).content;
     }
     const doc = previous.type.create({ ...previous.attrs, [SOURCE]: markdown, [RICH]: analysis.mode === 'rich' }, content);
     doc.check();

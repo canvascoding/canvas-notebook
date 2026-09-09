@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "measuredAt": "2026-09-09T00:57:49.579Z",
+  "commit": "8d973bd54a09956e064daf3a0a4487c8df6dc3e0",
+  "workingTreeDirty": true,
+  "runtime": {
+    "node": "v26.7.0",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpu": "Apple M1 Max"
+  },
+  "method": {
+    "samples": 15,
+    "warmups": 3,
+    "referenceWarmBatch": 10000,
+    "units": "milliseconds",
+    "scope": "In-process Yjs/ProseMirror CPU work; no DOM, network, database, browser frame or end-to-end drop timing.",
+    "history": "Deterministic persisted alternating moves, initialized outside timed samples; each measured move uses the production API.",
+    "validation": "One complete checkpoint validation per case; no performance pass/fail threshold."
+  },
+  "results": [
+    {
+      "name": "flat-100",
+      "blocks": 100,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 27224,
+      "bytesAfter": 32778,
+      "project": {
+        "p50Ms": 0.054417000000000826,
+        "p95Ms": 0.12287500000002183
+      },
+      "read": {
+        "p50Ms": 0.36554100000000744,
+        "p95Ms": 0.5239579999999933
+      },
+      "referenceCold": {
+        "p50Ms": 0.030750000000011823,
+        "p95Ms": 0.06016599999998107
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000046583399999997254,
+        "p95Ms": 0.00004991250000000491
+      },
+      "move": {
+        "p50Ms": 0.3021249999999327,
+        "p95Ms": 0.35379199999999855
+      },
+      "validationMs": 34.76345900000001
+    },
+    {
+      "name": "flat-1000",
+      "blocks": 1000,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 283183,
+      "bytesAfter": 288775,
+      "project": {
+        "p50Ms": 0.38829099999998107,
+        "p95Ms": 2.0062500000000227
+      },
+      "read": {
+        "p50Ms": 2.810292000000004,
+        "p95Ms": 4.111499999999978
+      },
+      "referenceCold": {
+        "p50Ms": 0.19775000000004184,
+        "p95Ms": 1.6319159999999329
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000030070799999998597,
+        "p95Ms": 0.00004929159999999228
+      },
+      "move": {
+        "p50Ms": 2.5474159999999983,
+        "p95Ms": 3.5345419999999876
+      },
+      "validationMs": 171.14091699999983
+    },
+    {
+      "name": "flat-5000",
+      "blocks": 5000,
+      "historyBefore": 0,
+      "historyAfter": 19,
+      "bytesBefore": 1439184,
+      "bytesAfter": 1444776,
+      "project": {
+        "p50Ms": 2.7901659999999993,
+        "p95Ms": 3.455417000000125
+      },
+      "read": {
+        "p50Ms": 14.693874999999935,
+        "p95Ms": 15.769166000000041
+      },
+      "referenceCold": {
+        "p50Ms": 0.9284999999999854,
+        "p95Ms": 1.2129999999999654
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00004544999999998254,
+        "p95Ms": 0.00005306660000001102
+      },
+      "move": {
+        "p50Ms": 14.4096669999999,
+        "p95Ms": 15.718165999999883
+      },
+      "validationMs": 3035.363667
+    },
+    {
+      "name": "flat-1000-history-1000",
+      "blocks": 1000,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 578523,
+      "bytesAfter": 584115,
+      "project": {
+        "p50Ms": 1.2385420000000522,
+        "p95Ms": 2.3467920000002778
+      },
+      "read": {
+        "p50Ms": 3.4477499999993597,
+        "p95Ms": 4.282915999999204
+      },
+      "referenceCold": {
+        "p50Ms": 0.18591600000036124,
+        "p95Ms": 0.2104170000002341
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00004520830000001297,
+        "p95Ms": 0.00005382499999996071
+      },
+      "move": {
+        "p50Ms": 3.2178750000002765,
+        "p95Ms": 4.055250000000342
+      },
+      "validationMs": 164.66095799999948
+    },
+    {
+      "name": "flat-1000-history-10000",
+      "blocks": 1000,
+      "historyBefore": 10000,
+      "historyAfter": 10019,
+      "bytesBefore": 3296524,
+      "bytesAfter": 3302116,
+      "project": {
+        "p50Ms": 8.70916699999998,
+        "p95Ms": 9.14666699999998
+      },
+      "read": {
+        "p50Ms": 10.705917000000227,
+        "p95Ms": 11.264000000000124
+      },
+      "referenceCold": {
+        "p50Ms": 0.17854199999965203,
+        "p95Ms": 0.34291599999960454
+      },
+      "referenceWarm": {
+        "p50Ms": 0.000026062499999989087,
+        "p95Ms": 0.0001224833000000217
+      },
+      "move": {
+        "p50Ms": 10.188625000000684,
+        "p95Ms": 11.007125000000087
+      },
+      "validationMs": 179.8000830000001
+    },
+    {
+      "name": "nested-depth-64",
+      "blocks": 258,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 368308,
+      "bytesAfter": 374012,
+      "project": {
+        "p50Ms": 0.422750000000633,
+        "p95Ms": 2.1607500000000073
+      },
+      "read": {
+        "p50Ms": 0.8999170000006416,
+        "p95Ms": 1.8558750000001965
+      },
+      "referenceCold": {
+        "p50Ms": 0.053417000000081316,
+        "p95Ms": 0.07462499999928696
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00002094170000000304,
+        "p95Ms": 0.000021787500000027648
+      },
+      "move": {
+        "p50Ms": 0.8980000000001382,
+        "p95Ms": 2.122041999999965
+      },
+      "validationMs": 31.842415999999503
+    },
+    {
+      "name": "table-80-by-6",
+      "blocks": 1042,
+      "historyBefore": 1000,
+      "historyAfter": 1019,
+      "bytesBefore": 577666,
+      "bytesAfter": 583426,
+      "project": {
+        "p50Ms": 0.7701660000002448,
+        "p95Ms": 2.699874999999338
+      },
+      "read": {
+        "p50Ms": 2.607375000000502,
+        "p95Ms": 3.1182920000001104
+      },
+      "referenceCold": {
+        "p50Ms": 0.18712500000037835,
+        "p95Ms": 0.2797920000002705
+      },
+      "referenceWarm": {
+        "p50Ms": 0.00002369589999998425,
+        "p95Ms": 0.00021392919999998412
+      },
+      "move": {
+        "p50Ms": 2.3140000000003056,
+        "p95Ms": 3.6515830000007554
+      },
+      "validationMs": 44.75870799999939
+    }
+  ]
+}
