@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import path from 'path';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
-import { assertMcpHttpUrlAllowed } from '@/app/lib/mcp/network-policy';
+import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import {
   normalizeMcpScope,
   type McpScope,
@@ -248,7 +248,7 @@ function requireAbsoluteUrl(value: string, label: string): string {
 }
 
 async function readAuthorizationServerMetadataUrl(metadataUrl: string, expectedIssuer: string): Promise<AuthorizationServerMetadata> {
-  const response = await fetch(await assertMcpHttpUrlAllowed(metadataUrl, 'OAuth authorization-server metadata URL'));
+  const response = await fetchMcpHttp(metadataUrl, undefined, { purpose: 'OAuth authorization-server metadata URL', maxBytes: 1024 * 1024 });
   if (!response.ok) {
     throw new McpOAuthError(`OAuth discovery failed with status ${response.status}.`, response.status);
   }
@@ -281,7 +281,7 @@ async function readAuthorizationServerMetadataUrl(metadataUrl: string, expectedI
 }
 
 async function readProtectedResourceMetadataUrl(metadataUrl: string): Promise<ProtectedResourceMetadata> {
-  const response = await fetch(await assertMcpHttpUrlAllowed(metadataUrl, 'OAuth protected-resource metadata URL'));
+  const response = await fetchMcpHttp(metadataUrl, undefined, { purpose: 'OAuth protected-resource metadata URL', maxBytes: 1024 * 1024 });
   if (!response.ok) {
     throw new McpOAuthError(`OAuth protected resource discovery failed with status ${response.status}.`, response.status);
   }
@@ -458,7 +458,7 @@ async function resolveClient(
     throw new McpOAuthError('OAuth MCP server requires oauth.clientId unless Dynamic Client Registration is available.');
   }
 
-  const response = await fetch(await assertMcpHttpUrlAllowed(registrationUrl, 'OAuth dynamic client registration URL'), {
+  const response = await fetchMcpHttp(registrationUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -468,7 +468,7 @@ async function resolveClient(
       response_types: ['code'],
       application_type: getOAuthApplicationType(redirectUri),
     }),
-  });
+  }, { purpose: 'OAuth registration URL', maxBytes: 1024 * 1024 });
   if (!response.ok) {
     throw new McpOAuthError(`OAuth dynamic client registration failed with status ${response.status}.`);
   }
@@ -642,7 +642,7 @@ async function exchangeToken(params: URLSearchParams, tokenUrl: string, clientSe
   if (clientSecret) {
     headers.Authorization = `Basic ${Buffer.from(`${params.get('client_id')}:${clientSecret}`).toString('base64')}`;
   }
-  const response = await fetch(await assertMcpHttpUrlAllowed(tokenUrl, 'OAuth token URL'), { method: 'POST', headers, body: params });
+  const response = await fetchMcpHttp(tokenUrl, { method: 'POST', headers, body: params }, { purpose: 'OAuth token URL', maxBytes: 1024 * 1024 });
   if (!response.ok) {
     throw new McpOAuthError(`OAuth token endpoint returned status ${response.status}.`, response.status);
   }

@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { fetchMcpHttp } from '@/app/lib/mcp/http';
 
 import {
   Client,
@@ -344,6 +345,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     const headers = await resolveHttpHeaders(entry.config, accessToken, entry.scope);
     try {
       await withTimeout(client.connect(new StreamableHTTPClientTransport(validatedUrl, {
+        fetch: (input, init) => fetchMcpHttp(input, init, { timeoutMs }),
         ...(headers ? {
           requestInit: {
             headers,

@@ -473,7 +473,8 @@
     "test:security:pdf-network": "tsx --conditions react-server scripts/pdf-network-security-test.ts",
     "test:security:html-preview": "tsx scripts/html-preview-assets-test.ts && tsx scripts/html-preview-origin-test.ts && tsx scripts/html-preview-boundary-test.ts",
     "test:security:workspaces": "tsx --conditions react-server scripts/security-workspace-scope-test.ts",
-    "test:security:dependencies": "tsx scripts/security-dependencies-test.ts"
+    "test:security:dependencies": "tsx scripts/security-dependencies-test.ts",
+    "test:mcp:network": "tsx scripts/mcp-network-test.ts && tsx scripts/mcp-network-dns-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
