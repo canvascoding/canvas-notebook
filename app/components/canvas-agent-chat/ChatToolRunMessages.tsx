@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ComponentType } from 'react';
+import { StoredToolOutputPreview, type ToolOutputScope } from './StoredToolOutputPreview';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Brain,
@@ -182,6 +183,7 @@ export function ToolCallPill({
   onMediaClick,
   onAttachmentOpen,
   previewGroup,
+  toolOutputScope,
   open,
   onOpenChange,
 }: {
@@ -189,6 +191,7 @@ export function ToolCallPill({
   onMediaClick?: (mediaUrl: string) => void;
   onAttachmentOpen?: AttachmentOpenHandler;
   previewGroup?: Attachment[];
+  toolOutputScope?: ToolOutputScope;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -323,6 +326,7 @@ export function ToolCallPill({
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
             {t('toolOutput')}
           </div>
+          <StoredToolOutputPreview details={getPiMessageDetails(message.piMessage)} scope={toolOutputScope} />
           {imageAttachments.length > 0 ? (
             <div data-testid="chat-tool-attachments" className="mb-2 flex flex-wrap gap-2">
               {imageAttachments.map((attachment, index) => (
@@ -405,6 +409,7 @@ export function ToolBatchDisclosure({
   onMediaClick,
   onAttachmentOpen,
   previewGroups,
+  toolOutputScope,
 }: {
   batch: ToolBatch;
   expanded: boolean;
@@ -412,6 +417,7 @@ export function ToolBatchDisclosure({
   onMediaClick?: (mediaUrl: string) => void;
   onAttachmentOpen?: AttachmentOpenHandler;
   previewGroups?: Map<string, Attachment[]>;
+  toolOutputScope?: ToolOutputScope;
 }) {
   const t = useTranslations('chat');
   const locale = useLocale();
@@ -483,6 +489,7 @@ export function ToolBatchDisclosure({
                 <div key={call.id} data-testid="chat-run-step" className="min-w-0 overflow-hidden">
                   <ToolCallPill
                     message={message}
+                    toolOutputScope={toolOutputScope}
                     onMediaClick={onMediaClick}
                     onAttachmentOpen={onAttachmentOpen}
                     previewGroup={call.message ? previewGroups?.get(call.message.id) : undefined}

@@ -4,6 +4,7 @@ import { createRef, Fragment, type RefObject, useCallback, useEffect, useMemo, u
 import { Check, ChevronDown, Copy, ExternalLink, GitFork, Loader2, Lock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import type { ToolOutputScope } from './StoredToolOutputPreview';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { ChatMessageIdentity } from '@/app/components/canvas-agent-chat/ChatMessageIdentity';
@@ -411,8 +412,10 @@ export function ChatMessageList({
   onForkAssistantMessage,
   forkDisabled,
   forkDisabledLabel,
+  toolOutputScope,
 }: {
   messages: ChatMessage[];
+  toolOutputScope?: ToolOutputScope;
   assistantName: string;
   assistantAgentId: string;
   assistantIconId?: string | null;
@@ -454,6 +457,7 @@ export function ChatMessageList({
         const batchDisclosure = toolBatch && toolVerbosity !== 'minimal' ? (
           <ToolBatchDisclosure
             batch={toolBatch}
+            toolOutputScope={toolOutputScope}
             expanded={expandedRunKeys.has(toolBatch.key)}
             onToggle={() => onToggleRunDisclosure(toolBatch.key)}
             onMediaClick={onMediaClick}

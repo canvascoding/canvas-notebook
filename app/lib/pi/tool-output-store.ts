@@ -644,9 +644,10 @@ export async function cloneToolOutputs(
           for (const name of names) {
             const copyKey = `${reference.callDirectory}/${name}`;
             if (copied.has(copyKey)) continue;
-            const sourceFile = path.join(sourceCallDirectory, name);
-            const stats = await fs.lstat(sourceFile);
-            validatePrivateRegularFile(stats, 'Tool output source file');
+            // Runtime DATA artifacts must not be scanned into the build output.
+            const sourceFile = path.join(/* turbopackIgnore: true */ sourceCallDirectory, name);
+            // readSafeFile validates type/ownership, rejects links, and compares
+            // the inode before and after opening; no separate path probe needed.
             await writeAtomicFile(targetCallDirectory, name, await readSafeFile(sourceFile, 'Tool output source file'));
             copied.add(copyKey);
           }
@@ -679,6 +680,68 @@ export async function deleteToolOutputs(identity: ToolOutputIdentity): Promise<v
     await removeDirectoryContents(sessionDirectory);
     await fs.rmdir(sessionDirectory);
   });
+}
+
+/** Remove old unpublished files only after the caller successfully reads the
+ * persisted reference set. The same kernel lock serializes writes and pruning. */
+export async function pruneUnreferencedToolOutputs(identity: ToolOutputIdentity, references: readonly string[], olderThan: number): Promise<number> {
+  const retained = new Set(references.map((reference) => {
+    const parsed = parseReference(reference);
+    return `${parsed.callDirectory}/${parsed.fileName.replace(/\.manifest\.json$/, '')}`;
+  }));
+  return withSessionLock(identity, async () => {
+    const directory = await inspectExistingSessionDirectory(identity);
+    if (!directory) return 0;
+    let removed = 0;
+    for (const call of await fs.readdir(directory, { withFileTypes: true })) {
+      if (!CALL_DIRECTORY_PATTERN.test(call.name)) continue;
+      const callPath = await assertSafeChildDirectory(directory, call.name, 'Tool output call directory');
+      for (const file of await fs.readdir(callPath, { withFileTypes: true })) {
+        const outputName = file.name.replace(/\.manifest\.json$/, '');
+        const isTemporary = /^\.output-[a-f0-9]{32}\.(?:txt|json)(?:\.manifest\.json)?\.[a-f0-9]{32}\.tmp$/.test(file.name);
+        if ((!STORED_FILE_PATTERN.test(file.name) && !isTemporary) || retained.has(`${call.name}/${outputName}`)) continue;
+        const filePath = path.join(callPath, file.name);
+        const stats = await fs.lstat(filePath);
+        validatePrivateRegularFile(stats, 'Tool output orphan file');
+        if (stats.mtimeMs >= olderThan) continue;
+        await fs.unlink(filePath); removed += 1;
+      }
+      if ((await fs.readdir(callPath)).length === 0) await fs.rmdir(callPath);
+    }
+    return removed;
+  });
+}
+
+async function newestStoredFileTime(directory: string): Promise<number> {
+  const stats = await fs.lstat(directory);
+  validatePrivateDirectory(stats, 'Tool output staging directory');
+  let newest = stats.mtimeMs;
+  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+    const child = path.join(directory, entry.name);
+    const childStats = await fs.lstat(child);
+    if (childStats.isDirectory()) newest = Math.max(newest, await newestStoredFileTime(child));
+    else { validatePrivateRegularFile(childStats, 'Tool output staging file'); newest = Math.max(newest, childStats.mtimeMs); }
+  }
+  return newest;
+}
+
+/** A clone publishes by rename. Old private staging trees are failed clones,
+ * never published session data; fresh nested files keep an in-flight clone. */
+export async function pruneAbandonedToolOutputClones(owner: ToolOutputIdentity, olderThan: number): Promise<number> {
+  // Reuse the complete owner path validation before listing staging siblings.
+  await listToolOutputSessionsForOwner(owner);
+  const parent = path.dirname(getToolOutputSessionDirectory(owner));
+  const entries = await fs.readdir(parent, { withFileTypes: true }).catch((error) => {
+    if (isNotFound(error)) return []; throw error;
+  });
+  let removed = 0;
+  for (const entry of entries) {
+    if (!/^\.session-clone-[a-f0-9]{32}$/.test(entry.name)) continue;
+    const directory = path.join(parent, entry.name);
+    if (await newestStoredFileTime(directory) >= olderThan) continue;
+    await removeDirectoryContents(directory); await fs.rmdir(directory); removed += 1;
+  }
+  return removed;
 }
 
 /**

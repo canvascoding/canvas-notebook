@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { fetchReadableWebContent } from '@/app/lib/integrations/web-content-service';
+import { searchStoredToolOutput } from './tool-output-search';
 import { prepareWebToolOutput } from './web-output-preparation';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { searchWeb } from '@/app/lib/integrations/brave-search-service';
@@ -12,7 +13,6 @@ import {
   getErrorMessage,
   isAbortError,
   resolveAgentPath,
-  resolveReadToolPath,
   throwIfAborted,
 } from '@/app/lib/pi/tool-runtime-helpers';
 
@@ -152,6 +152,7 @@ export function createRipgrepTool(): AgentTool {
       'Always pass a non-empty pattern; do not call this tool with an empty object.',
       'Examples: {"pattern":"Acme"}; {"pattern":"Acme|Contoso","path":"research","glob":"*.md","ignoreCase":true}.',
       'The path defaults to the active workspace. Use this for fast content lookup before falling back to bash.',
+      'A tool-output:// path returns up to 20 short matches with UTF-16 offsets for paginated read, including very long JSON lines.',
     ].join(' '),
     parameters: Type.Object({
       pattern: Type.String({
@@ -183,9 +184,12 @@ export function createRipgrepTool(): AgentTool {
 
       try {
         throwIfAborted(signal);
-        const targetPath = searchPath?.startsWith('tool-output://')
-          ? (await resolveReadToolPath(searchPath)).fullPath
-          : resolveAgentPath(searchPath || '.');
+        if (searchPath?.startsWith('tool-output://')) {
+          const context = getAgentExecutionContext();
+          if (!context) throw new Error('Searching stored tool output requires an active session.');
+          return await searchStoredToolOutput(context, searchPath, pattern, { ignoreCase, maxResults, signal });
+        }
+        const targetPath = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(targetPath);
         const args = ['-n', '--color', 'never', '--no-heading'];
         if (ignoreCase) {

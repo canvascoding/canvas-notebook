@@ -1442,6 +1442,7 @@ export default function CanvasAgentChat({
             )}
 
             <ChatMessageList
+              toolOutputScope={sessionId && activeWorkspaceId ? { sessionId, agentId: activeSessionAgentId, workspaceId: activeWorkspaceId } : undefined}
               messages={messages}
               assistantName={activeAgentDisplayName}
               assistantAgentId={activeSessionAgentId}
