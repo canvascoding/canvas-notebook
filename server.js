@@ -70,6 +70,7 @@ Module._load = function loadWithServerOnlyMarker(request, parent, isMain) {
 };
 
 const http = require('http');
+const { guardHttpRequestLifecycle } = require('./server/http-request-lifecycle');
 const fs = require('fs');
 const next = require('next');
 // Terminal service now runs as separate process via Unix Socket
@@ -548,6 +549,7 @@ function recoverStaleAutomationRuns() {
 }
 
 const server = http.createServer((req, res) => {
+  guardHttpRequestLifecycle(req, res);
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname.startsWith('/media/')) {

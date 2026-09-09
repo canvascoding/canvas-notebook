@@ -435,6 +435,7 @@
     "test:files:rename": "tsx --conditions react-server scripts/file-rename-service-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
     "test:collaboration:durability": "tsx scripts/collaboration-state-proof-test.ts && tsx scripts/collaboration-client-durability-test.tsx && tsx --conditions react-server scripts/collaboration-checkpoint-proof-test.ts",
+    "test:server:http-lifecycle": "node scripts/http-request-lifecycle-test.cjs",
     "test:collaboration:checkpoint-errors": "tsx scripts/collaboration-checkpoint-errors-test.ts",
     "test:collaboration:presence": "tsx --conditions react-server scripts/file-presence-policy-test.ts",
     "test:collaboration:agent": "tsx --conditions react-server scripts/file-agent-coauthoring-test.ts && tsx scripts/collaboration-agent-operations-client-test.ts && tsx scripts/collaboration-agent-target-decorations-test.ts",
