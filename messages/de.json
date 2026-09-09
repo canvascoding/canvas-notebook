@@ -1411,6 +1411,18 @@
     "toolStatusAborting": "Wird gestoppt",
     "toolStatusError": "Fehler",
     "toolStatusDone": "Fertig",
+    "mcpApp": {
+      "loading": "Interaktive MCP-App wird geladen …",
+      "unavailable": "Diese interaktive MCP-App ist nicht verfügbar.",
+      "reload": "Widget neu laden",
+      "requestApproval": "{tool} ausführen lassen?",
+      "allow": "Erlauben",
+      "reject": "Ablehnen",
+      "callFailed": "Der Tool-Aufruf der MCP-App ist fehlgeschlagen.",
+      "reconnect": "Verbinde dieses MCP-Konto erneut, um fortzufahren.",
+      "disabled": "MCP-Apps sind deaktiviert.",
+      "oversized": "Diese MCP-App-Nachricht ist zu groß."
+    },
     "toolBatchSummary": "{label} · {count, plural, one {# Tool-Aufruf} other {# Tool-Aufrufe}}",
     "toolBatchProgress": "{completed}/{total} fertig",
     "toolBatchErrors": "{count, plural, one {# Fehler} other {# Fehler}}",

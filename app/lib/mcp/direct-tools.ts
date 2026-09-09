@@ -3,7 +3,8 @@ import { requireMcpUserAccess } from './access';
 import type { Tool } from '@modelcontextprotocol/client';
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core';
 
-import { callMcpTool, listMcpTools, readCachedTools, hashMcpServerConfig } from '@/app/lib/mcp/manager';
+import { callMcpToolWithCurrentMetadata, listMcpTools, readCachedTools, hashMcpServerConfig } from '@/app/lib/mcp/manager';
+import { filterMcpToolsForModel, readMcpAppToolMetadata } from '@/app/lib/mcp/apps-metadata';
 import { mcpReconnectDetails } from '@/app/lib/mcp/connection-health';
 import { isMcpServerEnabled, readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import type { McpScope } from '@/app/lib/mcp/scope';
@@ -34,9 +35,9 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown MCP direct tool error';
 }
 
-function summarizeContent(result: Awaited<ReturnType<typeof callMcpTool>>): string {
+function summarizeContent(result: Awaited<ReturnType<typeof callMcpToolWithCurrentMetadata>>['result']): string {
   if (!Array.isArray(result.content)) {
-    return JSON.stringify(result, null, 2);
+    return '(MCP tool returned no displayable content.)';
   }
   return result.content.map((block) => {
     if (block.type === 'text') return block.text;
@@ -44,7 +45,7 @@ function summarizeContent(result: Awaited<ReturnType<typeof callMcpTool>>): stri
     if (block.type === 'audio') return `[audio ${block.mimeType}]`;
     if (block.type === 'resource') return `[resource ${block.resource.uri}]`;
     if (block.type === 'resource_link') return `[resource link ${block.uri}]`;
-    return JSON.stringify(block);
+    return '[unsupported MCP content]';
   }).join('\n') || '(empty MCP tool result)';
 }
 
@@ -58,10 +59,19 @@ function makeDirectTool(serverName: string, tool: Tool, directName: string, scop
     executionMode: 'sequential',
     execute: async (_toolCallId, params, signal): Promise<AgentToolResult<unknown>> => {
       try {
-        const result = await callMcpTool(identity, tool.name, params as Record<string, unknown>, signal, scope);
+        const invocation = await callMcpToolWithCurrentMetadata(identity, tool.name, params as Record<string, unknown>, signal, scope);
+        const app = invocation.connectionId ? readMcpAppToolMetadata(invocation.tool) : null;
         return {
-          content: [{ type: 'text', text: summarizeContent(result) }],
-          details: { server: serverName, tool: tool.name, result },
+          content: [{ type: 'text', text: summarizeContent(invocation.result) }],
+          details: {
+            server: serverName,
+            tool: tool.name,
+            result: invocation.result,
+            ...(app ? {
+              mcpApp: { version: 1 as const, connectionId: invocation.connectionId!, toolName: invocation.tool.name, resourceUri: app.resourceUri },
+              mcpToolInput: params as Record<string, unknown>,
+            } : {}),
+          },
         };
       } catch (error) {
         const message = getErrorMessage(error);
@@ -96,9 +106,9 @@ export async function buildDirectMcpTools(scope?: McpScope | null, options: { ca
           warnings.push({ server: serverName, message: 'Test this connection to load its tools.' });
           continue;
         }
-        remoteTools = cached;
+        remoteTools = filterMcpToolsForModel(cached);
       } else {
-        remoteTools = await listMcpTools(serverName, { preferCache: true, scope });
+        remoteTools = filterMcpToolsForModel(await listMcpTools(serverName, { preferCache: true, scope }));
       }
     } catch (error) {
       warnings.push({ server: serverName, message: `Could not load direct MCP tools: ${getErrorMessage(error)}` });

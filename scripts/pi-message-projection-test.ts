@@ -4,10 +4,18 @@ import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { PGlite } from '@electric-sql/pglite';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { drizzle } from 'drizzle-orm/pglite';
+
+import { runPostgresMigrations } from '../app/lib/db/postgres';
+import * as schema from '../app/lib/db/schema';
+import { MAIN_AGENT_ID } from '../app/lib/agents/main-agent';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-pi-message-projection-'));
 process.env.DATA = dataDir;
+let postgres: PGlite | null = null;
+let database: ReturnType<typeof drizzle<typeof schema>>;
 
 const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
@@ -15,6 +23,20 @@ const moduleInternals = Module as typeof Module & {
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (
+    request === '@/app/lib/db'
+    || (request === '../db' && parent?.filename?.endsWith('/app/lib/pi/session-store.ts'))
+  ) {
+    return {
+      db: database,
+      openDb: async () => ({
+        get: async (sql: string, params: unknown[] = []) => (await postgres!.query(sql, params)).rows[0],
+        all: async (sql: string, params: unknown[] = []) => (await postgres!.query(sql, params)).rows,
+        run: async (sql: string, params: unknown[] = []) => { await postgres!.query(sql, params); },
+        close: async () => {},
+      }),
+    };
+  }
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
       getModels: () => [],
@@ -26,12 +48,18 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 async function main() {
+  postgres = new PGlite();
+  await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
+  database = drizzle(postgres, { schema });
   const { eq } = await import('drizzle-orm');
-  const { db } = await import('../app/lib/db');
+  const db = database;
   const { user, piMessages, piSessions } = await import('../app/lib/db/schema');
   const { savePiSession, loadPiSessionWithSummary } = await import('../app/lib/pi/session-store');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
-  const { parsePersistedPiMessage } = await import('../app/lib/pi/message-projection');
+  const {
+    parsePersistedPiMessage,
+    projectAgentMessageForLoadedContext,
+  } = await import('../app/lib/pi/message-projection');
   const { normalizePiMessagesForLlm } = await import('../app/lib/pi/message-normalization');
 
   const now = new Date();
@@ -120,7 +148,7 @@ async function main() {
   assert.equal(rawParts[0].text, hugeText);
   assert.match(String(rawParts[1].text), /omitted from persisted chat history/);
 
-  const loaded = await loadPiSessionWithSummary(sessionId, userId, 'canvas-agent');
+  const loaded = await loadPiSessionWithSummary(sessionId, userId, MAIN_AGENT_ID);
   assert.ok(loaded);
   const projectedTool = loaded.messages.find((message) => message.role === 'toolResult') as unknown as Record<string, unknown>;
   assert.ok(projectedTool);
@@ -134,8 +162,8 @@ async function main() {
   assert.equal(projectedToolDetails.filePath, 'case.pdf');
   assert.equal(projectedToolDetails.type, 'image');
   assert.equal(projectedToolDetails.mimeType, 'image/png');
-  assert.equal(projectedToolDetails.previewUrl, '/api/files/preview?path=case.pdf&w=192&preset=mini');
-  assert.equal(projectedToolDetails.mediaUrl, '/api/media/case.pdf');
+  assert.match(String(projectedToolDetails.previewUrl), /absolute server path omitted/);
+  assert.match(String(projectedToolDetails.mediaUrl), /absolute server path omitted/);
   assert.equal(projectedToolDetails.resolvedPath, undefined);
 
   const projectedUserImage = loaded.messages.find((message) => {
@@ -158,6 +186,135 @@ async function main() {
   assert.match(normalizedToolJson, /raw database record/);
   assert.doesNotMatch(normalizedToolJson, new RegExp(uniqueTailMarker));
   assert.doesNotMatch(normalizedToolJson, new RegExp(imageData.slice(0, 200)));
+
+  const mcpToolResult = {
+    role: 'toolResult',
+    toolName: 'account_lookup',
+    toolCallId: 'mcp-projection-tool',
+    content: [{ type: 'text', text: 'MCP account lookup completed.' }],
+    details: {
+      mcpApp: {
+        version: 1,
+        connectionId: 'mcp-connection-1',
+        toolName: 'account_lookup',
+        resourceUri: 'https://mcp.fixture.test/resource',
+        internalWidgetDescriptor: { token: 'WIDGET_DESCRIPTOR_MUST_NOT_REACH_MODEL' },
+      },
+      mcpToolInput: { args: { accountId: 'MCP_INPUT_MUST_NOT_REACH_MODEL' } },
+      result: {
+        content: [
+          { type: 'text', text: 'MCP result text.' },
+          { type: 'image', data: 'MCP_PERSISTED_BINARY_PAYLOAD', mimeType: 'image/png' },
+        ],
+        structuredContent: {
+          account: 'safe model result',
+          args: { businessField: 'GENERIC_ARGS_MUST_REACH_MODEL' },
+        },
+        _meta: {
+          args: 'MCP_META_ARGS_MUST_NOT_REACH_MODEL',
+          internalWidgetDescriptor: 'MCP_META_WIDGET_MUST_NOT_REACH_MODEL',
+          original: 'MCP_PERSISTED_META_PAYLOAD',
+        },
+      },
+    },
+    timestamp: now.getTime() + 4,
+  } as unknown as AgentMessage;
+  const mcpContext = projectAgentMessageForLoadedContext(mcpToolResult, 'context') as unknown as Record<string, unknown>;
+  const mcpContextJson = JSON.stringify(mcpContext);
+  assert.match(mcpContextJson, /safe model result/);
+  assert.match(mcpContextJson, /GENERIC_ARGS_MUST_REACH_MODEL/);
+  assert.doesNotMatch(mcpContextJson, /MCP_INPUT_MUST_NOT_REACH_MODEL/);
+  assert.doesNotMatch(mcpContextJson, /MCP_META_ARGS_MUST_NOT_REACH_MODEL/);
+  assert.doesNotMatch(mcpContextJson, /MCP_META_WIDGET_MUST_NOT_REACH_MODEL/);
+  assert.doesNotMatch(mcpContextJson, /WIDGET_DESCRIPTOR_MUST_NOT_REACH_MODEL/);
+  assert.doesNotMatch(mcpContextJson, /mcpApp/);
+  assert.doesNotMatch(mcpContextJson, /mcpToolInput/);
+
+  const mcpDisplay = projectAgentMessageForLoadedContext(mcpToolResult, 'display') as unknown as Record<string, unknown>;
+  const mcpDisplayJson = JSON.stringify(mcpDisplay);
+  assert.match(mcpDisplayJson, /MCP_INPUT_MUST_NOT_REACH_MODEL/);
+  assert.match(mcpDisplayJson, /MCP_META_ARGS_MUST_NOT_REACH_MODEL/);
+  assert.match(mcpDisplayJson, /WIDGET_DESCRIPTOR_MUST_NOT_REACH_MODEL/);
+
+  await savePiSession(
+    'sess-mcp-projection',
+    userId,
+    'test-provider',
+    'test-model',
+    [mcpToolResult],
+    undefined,
+    { systemPromptSnapshot: buildPiSystemPromptSnapshotFromText('mcp prompt', now) },
+  );
+  const loadedMcpSession = await loadPiSessionWithSummary(
+    'sess-mcp-projection',
+    userId,
+    MAIN_AGENT_ID,
+    { projectionMode: 'display' },
+  );
+  const loadedMcpMessage = loadedMcpSession?.messages[0] as unknown as Record<string, unknown>;
+  assert.match(JSON.stringify(loadedMcpMessage.details), /MCP_META_ARGS_MUST_NOT_REACH_MODEL/);
+  assert.match(JSON.stringify(loadedMcpMessage.details), /MCP_PERSISTED_BINARY_PAYLOAD/);
+  assert.match(JSON.stringify(loadedMcpMessage.details), /MCP_PERSISTED_META_PAYLOAD/);
+
+  const displayMcpPayload = `MCP_DISPLAY_500KB_${'x'.repeat(500_000)}`;
+  const displayMcpMessage = {
+    ...mcpToolResult,
+    details: {
+      ...(mcpToolResult as unknown as { details: Record<string, unknown> }).details,
+      result: { content: [{ type: 'text', text: displayMcpPayload }], _meta: { retained: 'MCP_DISPLAY_META' } },
+    },
+  } as AgentMessage;
+  await savePiSession(
+    'sess-mcp-display-projection', userId, 'test-provider', 'test-model', [displayMcpMessage], undefined,
+    { systemPromptSnapshot: buildPiSystemPromptSnapshotFromText('display mcp prompt', now) },
+  );
+  const loadedDisplayMcp = await loadPiSessionWithSummary(
+    'sess-mcp-display-projection', userId, MAIN_AGENT_ID, { projectionMode: 'display' },
+  );
+  const loadedDisplayMcpJson = JSON.stringify((loadedDisplayMcp?.messages[0] as unknown as Record<string, unknown>).details);
+  assert.match(loadedDisplayMcpJson, /MCP_DISPLAY_500KB_/);
+  assert.match(loadedDisplayMcpJson, /MCP_DISPLAY_META/);
+  const loadedContextMcp = await loadPiSessionWithSummary('sess-mcp-display-projection', userId, MAIN_AGENT_ID);
+  const loadedContextMcpJson = JSON.stringify((loadedContextMcp?.messages[0] as unknown as Record<string, unknown>).details);
+  assert.ok(loadedContextMcpJson.length < 20_000);
+  assert.doesNotMatch(loadedContextMcpJson, /MCP_DISPLAY_META/);
+
+  const oversizedMcpToolResult = {
+    ...mcpToolResult,
+    details: {
+      ...(mcpToolResult as unknown as { details: Record<string, unknown> }).details,
+      result: { content: [{ type: 'text', text: 'MCP_OVERSIZED_RESULT '.repeat(120_000) }] },
+    },
+  } as AgentMessage;
+  const oversizedMcpDisplay = projectAgentMessageForLoadedContext(oversizedMcpToolResult, 'display') as unknown as Record<string, unknown>;
+  const oversizedMcpDetails = oversizedMcpDisplay.details as Record<string, unknown>;
+  assert.ok(JSON.stringify(oversizedMcpDetails).length < 2 * 1024 * 1024);
+  assert.deepEqual(oversizedMcpDetails.mcpApp, {
+    version: 1,
+    connectionId: 'mcp-connection-1',
+    toolName: 'account_lookup',
+    resourceUri: 'https://mcp.fixture.test/resource',
+  });
+  await savePiSession(
+    'sess-mcp-oversized-projection',
+    userId,
+    'test-provider',
+    'test-model',
+    [oversizedMcpToolResult],
+    undefined,
+    { systemPromptSnapshot: buildPiSystemPromptSnapshotFromText('oversized mcp prompt', now) },
+  );
+  const persistedOversizedMcp = await loadPiSessionWithSummary(
+    'sess-mcp-oversized-projection',
+    userId,
+    MAIN_AGENT_ID,
+    { projectionMode: 'display' },
+  );
+  const persistedOversizedMcpDetails = (persistedOversizedMcp?.messages[0] as unknown as Record<string, unknown>)
+    .details as Record<string, unknown>;
+  assert.ok(JSON.stringify(persistedOversizedMcpDetails).length < 2 * 1024 * 1024);
+  assert.deepEqual(persistedOversizedMcpDetails.mcpApp, oversizedMcpDetails.mcpApp);
+  assert.match(JSON.stringify(persistedOversizedMcpDetails.result), /persistence limit/);
 
   const activitySessionId = 'sess-activity-clock';
   const staleAssistantTimestamp = new Date('2024-01-01T00:00:00.000Z').getTime();
@@ -241,8 +398,9 @@ async function main() {
 }
 
 main()
-  .finally(() => {
+  .finally(async () => {
     moduleInternals._load = originalLoad;
+    await postgres?.close();
     rmSync(dataDir, { recursive: true, force: true });
   })
   .catch((error) => {

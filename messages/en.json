@@ -1412,6 +1412,18 @@
     "toolStatusAborting": "Stopping",
     "toolStatusError": "Error",
     "toolStatusDone": "Done",
+    "mcpApp": {
+      "loading": "Loading interactive MCP app…",
+      "unavailable": "This interactive MCP app is unavailable.",
+      "reload": "Reload widget",
+      "requestApproval": "Allow {tool} to run?",
+      "allow": "Allow",
+      "reject": "Reject",
+      "callFailed": "The MCP app tool call failed.",
+      "reconnect": "Reconnect this MCP account to continue.",
+      "disabled": "MCP apps are disabled.",
+      "oversized": "This MCP app message is too large."
+    },
     "toolBatchSummary": "{label} · {count, plural, one {# tool call} other {# tool calls}}",
     "toolBatchProgress": "{completed}/{total} done",
     "toolBatchErrors": "{count, plural, one {# error} other {# errors}}",

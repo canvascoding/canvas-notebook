@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.8.1
-- Lockfile SHA-256: `5c7cbc9cbbcfec1344645f04d55ea3e3976ce5d448d841dd9963ef3e1c1ea3c6`
-- Distributed components: 1448
+- Lockfile SHA-256: `f0ce86f337bffe45b2708eedb0f86e76abc361438168e5acd43bc67df6cb6e4f`
+- Distributed components: 1449
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -244,6 +244,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @mixmark-io/domino | 2.2.0 | runtime | BSD-2-Clause | allowed |
 | @modelcontextprotocol/client | 2.0.0 | runtime | MIT | allowed |
 | @modelcontextprotocol/core | 2.0.0 | runtime | MIT | allowed |
+| @modelcontextprotocol/ext-apps | 2.0.0 | runtime | MIT | allowed |
 | @modelcontextprotocol/sdk | 1.29.0 | runtime | MIT | allowed |
 | @modelcontextprotocol/server | 2.0.0 | runtime | MIT | allowed |
 | @mozilla/readability | 0.6.0 | runtime | Apache-2.0 | allowed |
@@ -1840,7 +1841,7 @@ SOFTWARE.
 
 ### License text 0382b0057770
 
-Applies to @modelcontextprotocol/client@2.0.0, @modelcontextprotocol/core@2.0.0, @modelcontextprotocol/server@2.0.0.
+Applies to @modelcontextprotocol/client@2.0.0, @modelcontextprotocol/core@2.0.0, @modelcontextprotocol/ext-apps@2.0.0, @modelcontextprotocol/server@2.0.0.
 
 Copyright notices:
 

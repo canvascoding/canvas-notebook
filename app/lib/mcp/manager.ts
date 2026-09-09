@@ -6,12 +6,21 @@ import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
 import { classifyMcpConnectionFailure, recordMcpConnectionObservation, type McpConnectionObservation } from '@/app/lib/mcp/connection-health';
 import { readMcpOAuthLifecycle } from '@/app/lib/mcp/oauth-lifecycle';
 import { readMcpConnectionStatus } from '@/app/lib/mcp/connection-status';
+import {
+  MCP_APP_RESOURCE_MIME_TYPE,
+  isMcpAppResourceMimeType,
+  isMcpAppToolVisibleToApp,
+  isMcpAppToolVisibleToModel,
+  readMcpAppToolMetadata,
+} from '@/app/lib/mcp/apps-metadata';
+import { isMcpAppsEnabled } from '@/app/lib/mcp/apps-config';
 
 import {
   Client,
   InsufficientScopeError,
   StreamableHTTPClientTransport,
   type CallToolResult,
+  type ReadResourceResult,
   type Tool,
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -297,6 +306,13 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   const client = new Client(
     { name: 'canvas-notebook-mcp-proxy', version: '1.0.0' },
     {
+      capabilities: isMcpAppsEnabled() ? {
+        extensions: {
+          'io.modelcontextprotocol/ui': {
+            mimeTypes: [MCP_APP_RESOURCE_MIME_TYPE],
+          },
+        },
+      } as never : undefined,
       versionNegotiation: {
         mode: 'auto',
         probe: {
@@ -636,11 +652,102 @@ export async function callMcpTool(
   signal?: AbortSignal,
   scope?: McpScope | null,
 ): Promise<CallToolResult> {
+  return (await callMcpToolWithCurrentMetadata(serverName, toolName, args, signal, scope)).result;
+}
+
+export type McpToolCallWithCurrentMetadata = {
+  result: CallToolResult;
+  tool: Tool;
+  connectionId: string | null;
+};
+
+/** Executes a model-visible tool and returns the exact, live tool metadata. */
+export async function callMcpToolWithCurrentMetadata(
+  serverName: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  scope?: McpScope | null,
+): Promise<McpToolCallWithCurrentMetadata> {
   return withManagedConnection(serverName, async (entry, client) => {
+    const currentTools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
+    const currentTool = currentTools.tools.find((tool) => tool.name === toolName);
+    if (!currentTool) throw new Error(`Unknown MCP tool "${toolName}" on server "${entry.serverName}".`);
+    if (!isMcpAppToolVisibleToModel(currentTool)) {
+      throw new Error(`MCP tool "${toolName}" is available only to its MCP App and cannot be called by a model.`);
+    }
     logMcp('info', 'Calling tool', { server: serverName, tool: toolName });
     const result = await withTimeout(client.callTool({ name: toolName, arguments: args }), getTimeoutMs(entry.config), signal) as CallToolResult;
     logMcp(result.isError ? 'warn' : 'info', 'Tool call finished', { server: serverName, tool: toolName, isError: Boolean(result.isError) });
+    return { result, tool: currentTool, connectionId: entry.config.connectionId || null };
+  }, signal, scope);
+}
+
+function requireMcpAppsEnabled(): void {
+  if (!isMcpAppsEnabled()) throw new Error('MCP Apps are disabled by instance policy.');
+}
+
+function assertCurrentMcpAppSourceTool(
+  tools: readonly Tool[],
+  sourceToolName: string,
+  resourceUri: string,
+): Tool {
+  const sourceTool = tools.find((tool) => tool.name === sourceToolName);
+  const metadata = sourceTool ? readMcpAppToolMetadata(sourceTool) : null;
+  if (!sourceTool || !metadata || metadata.resourceUri !== resourceUri
+    || (!isMcpAppToolVisibleToApp(sourceTool) && !isMcpAppToolVisibleToModel(sourceTool))) {
+    throw new Error('The MCP App resource is not currently bound to the selected source tool.');
+  }
+  return sourceTool;
+}
+
+/** Reads only the UI resource currently bound to an app-visible source tool. */
+export async function readMcpAppResource(
+  connectionId: string,
+  sourceToolName: string,
+  resourceUri: string,
+  scope?: McpScope | null,
+): Promise<ReadResourceResult> {
+  requireMcpAppsEnabled();
+  return withManagedConnection(connectionId, async (entry, client) => {
+    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config));
+    assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
+    const result = await withTimeout(client.readResource({ uri: resourceUri }), getTimeoutMs(entry.config));
+    const contents = Array.isArray(result.contents) ? result.contents : [];
+    if (!contents.some((content) => content.uri === resourceUri && isMcpAppResourceMimeType(content.mimeType))) {
+      throw new Error('The MCP server did not return the requested MCP App HTML resource.');
+    }
     return result;
+  }, undefined, scope);
+}
+
+/**
+ * Executes an app-visible tool after revalidating the source UI binding and
+ * target visibility on the live connection. This is separate from model tool
+ * invocation, which always rejects app-only tools.
+ */
+export async function callMcpAppTool(
+  connectionId: string,
+  sourceToolName: string,
+  resourceUri: string,
+  targetToolName: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+  scope?: McpScope | null,
+): Promise<CallToolResult> {
+  requireMcpAppsEnabled();
+  return withManagedConnection(connectionId, async (entry, client) => {
+    const tools = await withTimeout(client.listTools(), getTimeoutMs(entry.config), signal);
+    assertCurrentMcpAppSourceTool(tools.tools, sourceToolName, resourceUri);
+    const targetTool = tools.tools.find((tool) => tool.name === targetToolName);
+    if (!targetTool || !isMcpAppToolVisibleToApp(targetTool)) {
+      throw new Error(`MCP App tool "${targetToolName}" is not visible to the selected app.`);
+    }
+    return withTimeout(
+      client.callTool({ name: targetToolName, arguments: args }),
+      getTimeoutMs(entry.config),
+      signal,
+    ) as Promise<CallToolResult>;
   }, signal, scope);
 }
 
