@@ -439,6 +439,8 @@ Der endgültige Teilstand 7.18 besteht einen frischen vollständigen Produktions
 
 GitNexus `detect_changes` erfasst die erwarteten fünf Dateien und zwei Symbole (`MarkdownEditor`, `richModeAnalysis`). Der Gesamtumfang wird wegen sechs modellierter Editor-Abläufe als HIGH bewertet, obwohl die vorab erfassten direkten Aufrufer LOW ergaben. Die Pfade betreffen Inhaltsrückmeldung, lokalen Dokumentzustand, Subscription und Representation-/Formatfreigabe; sie wurden anhand des Komponentenquelltexts und der genannten Lifecycle-, Recovery-, Preservation- und Buildprüfungen geprüft. Das ist keine Browserabnahme.
 
+Teilstand 7.19 bereitet die noch ausstehende Browserabnahme konkret vor. Der [Abnahmeablauf](editor-browser-acceptance-runbook.md) enthält Umgebungsvoraussetzungen, zehn aufeinanderfolgende Fallgruppen, erforderliche Identitäts-/Persistenznachweise und die tatsächlichen Grenzen der bestehenden E2E-Dateien. Eine neue neutrale Markdown-Fixture besteht den strikten Checkpoint-Test mit 48 eindeutigen Knoten-IDs, unveränderten Validierungsbytes und vollständigem binärem Wiederöffnen. Der Produktcode bleibt auf `b40f9a08`; dessen erfolgreicher Build gilt weiterhin. Browser, Server und Container wurden für die Vorbereitung nicht gestartet. Die Gesamtfreigabe bleibt bis zur tatsächlichen Abnahme offen.
+
 Abschlusskriterium (noch nicht erfüllt): Die Matrix unten ist vollständig bestanden; keine ungeklärten Konsistenzfehler oder unbestätigten Speicheranzeigen. `npm run build`, passende Typ-/Lintprüfungen und betroffene Integrationssuiten sind erfolgreich. Kein Containerbau ohne ausdrückliche Beauftragung.
 
 ## 9. Abnahmematrix und Messung

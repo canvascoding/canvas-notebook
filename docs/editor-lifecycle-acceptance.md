@@ -21,6 +21,8 @@ Stand: 2026-09-09. Ursprünglicher Audit auf `b0cb34bd`, ergänzt um die umgeset
 
 Die Gegenproben verwenden neutrale Dokumente. Der ursprüngliche private Screenshot wurde dadurch weder rekonstruiert noch als repariert nachgewiesen.
 
+Der [vorbereitete Browser-Abnahmeablauf](editor-browser-acceptance-runbook.md) ordnet die offenen Fälle zehn aufeinanderfolgenden Gruppen zu und enthält eine geprüfte neutrale Fixture. Der Quelltextaudit auf `b40f9a08` bestätigt: Die vorhandenen Live-Tests verwenden zwei Kontexte derselben Admin-Identität, ihr Reconnect-Fall lädt die Seite neu, und die Browser-Recovery-Fixture verwendet Plain Text mit ersetzten APIs. Deshalb bleiben zwei tatsächliche Nutzer, echte Transportunterbrechung, Block-Recovery und erhaltenes Browserprofil über einen Prozessneustart eigenständige ausstehende Nachweise. Keine dieser Browserprüfungen wurde in diesem Audit gestartet.
+
 ## Zusätzliche Bedienanforderungen aus Abschnitt 7 des Plans
 
 | Bereich | Befund im geprüften Produktcode | Nächster konkreter Schritt |
