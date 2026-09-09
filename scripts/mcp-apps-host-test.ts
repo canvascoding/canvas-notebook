@@ -78,6 +78,9 @@ async function main(): Promise<void> {
     assert.equal(frame.headers.get('cache-control'), 'private, no-store, max-age=0');
     const frameHtml = await frame.text();
     assert.match(frameHtml, /event\.origin==='null'/);
+    assert.match(frameHtml, /canvasOrigin/);
+    assert.match(frameHtml, /http:\/\/localhost:3000/);
+    assert.doesNotMatch(frameHtml, /config\.appOrigin/);
     assert.match(frameHtml, /frame\.sandbox='allow-scripts'/);
     const document = await deliverMcpAppTicket(new Request(issued.frameUrl, { headers: { host: 'preview.localhost:3000' } }), ticket, 'document');
     assert.equal(document.status, 200);

@@ -115,8 +115,11 @@ const privateHeaders = {
 };
 
 /** Trusted relay on the preview origin; the app itself has an opaque sandbox origin. */
-export function buildMcpAppSandboxDocument(appOrigin: string, documentPath: string, nonce: string): string {
-  const config = JSON.stringify({ appOrigin, documentPath }).replace(/</gu, '\\u003c');
+export function buildMcpAppSandboxDocument(canvasOrigin: string, documentPath: string, nonce: string): string {
+  // This relay is the preview-origin iframe. Its parent is the Canvas page, so
+  // incoming parent messages and replies are intentionally bound to Canvas's
+  // application origin. The nested app document below has an opaque origin.
+  const config = JSON.stringify({ canvasOrigin, documentPath }).replace(/</gu, '\\u003c');
   return `<!doctype html><html><head><meta charset="utf-8"><style nonce="${nonce}">html,body,iframe{margin:0;width:100%;height:100%;border:0;overflow:hidden}</style></head><body><script nonce="${nonce}">
   const config=${config};
   const frame=document.createElement('iframe');
@@ -124,11 +127,11 @@ export function buildMcpAppSandboxDocument(appOrigin: string, documentPath: stri
   const valid=(value)=>{try{return value&&typeof value==='object'&&!Array.isArray(value)&&value.jsonrpc==='2.0'&&JSON.stringify(value).length<=2097152;}catch{return false;}};
   window.addEventListener('message',(event)=>{
     if(!valid(event.data))return;
-    if(event.source===parent&&event.origin===config.appOrigin)frame.contentWindow?.postMessage(event.data,'*');
-    else if(event.source===frame.contentWindow&&event.origin==='null')parent.postMessage(event.data,config.appOrigin);
+    if(event.source===parent&&event.origin===config.canvasOrigin)frame.contentWindow?.postMessage(event.data,'*');
+    else if(event.source===frame.contentWindow&&event.origin==='null')parent.postMessage(event.data,config.canvasOrigin);
   });
   frame.src=config.documentPath;document.body.append(frame);
-  parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/sandbox-proxy-ready',params:{}},config.appOrigin);
+  parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/sandbox-proxy-ready',params:{}},config.canvasOrigin);
   </script></body></html>`;
 }
 
