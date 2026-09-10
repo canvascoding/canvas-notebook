@@ -1,8 +1,48 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
+import { PGlite } from '@electric-sql/pglite';
+import { session } from '../app/lib/db/schema';
 import { evaluateIsolatedModule, sourceFunction } from './helpers/isolated-source-module';
 
+async function verifyPostgresTimestampCleanup() {
+  const database = new PGlite();
+  try {
+    await database.exec('CREATE TABLE session (id text PRIMARY KEY, expires_at bigint NOT NULL)');
+    const now = Date.now();
+    const expired = Number(session.expiresAt.mapToDriverValue(new Date(now - 60_000)));
+    const valid = Number(session.expiresAt.mapToDriverValue(new Date(now + 3_600_000)));
+    assert.equal(expired, now - 60_000, 'the real schema stores epoch milliseconds');
+    await database.query('INSERT INTO session VALUES ($1,$2),($3,$4),($5,$6),($7,$8)', [
+      'expired-ms', expired, 'valid-ms', valid,
+      'expired-seconds', Math.floor(expired / 1_000), 'valid-seconds', Math.floor(valid / 1_000),
+    ]);
+    let release!: () => void;
+    const closed = new Promise<void>((resolve) => { release = resolve; });
+    const warnings: unknown[] = [];
+    const exported = evaluateIsolatedModule<{ scheduleExpiredSessionCleanup: () => void }>(sourceFunction('server.js', 'scheduleExpiredSessionCleanup'), {
+      './app/lib/db/index': {
+        getDatabaseProvider: () => 'postgres',
+        openDb: async () => ({
+          run: async (sql: string) => ({ changes: (await database.query(sql)).affectedRows }),
+          close: release,
+        }),
+      },
+    }, {
+      console: { log() {}, warn: (...args: unknown[]) => warnings.push(args) },
+      setInterval: () => ({ unref() {} }),
+    });
+    exported.scheduleExpiredSessionCleanup();
+    await closed;
+    assert.deepEqual(warnings, []);
+    assert.deepEqual((await database.query<{ id: string }>('SELECT id FROM session ORDER BY id')).rows.map((row) => row.id),
+      ['valid-ms', 'valid-seconds'], 'delete expired millisecond sessions without deleting valid legacy second sessions');
+  } finally {
+    await database.close();
+  }
+}
+
 async function main() {
+  await verifyPostgresTimestampCleanup();
   const unhandled: unknown[] = [];
   const listener = (error: unknown) => { unhandled.push(error); };
   process.on('unhandledRejection', listener);

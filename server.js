@@ -485,8 +485,12 @@ function scheduleExpiredSessionCleanup() {
     const { openDb, getDatabaseProvider } = require('./app/lib/db/index');
     const isPostgres = getDatabaseProvider() === 'postgres';
     const CLEANUP_INTERVAL_MS = 15 * 60 * 1000;
+    // Current pgTimestamp values are epoch milliseconds; older installations
+    // can still contain epoch seconds. Preserve valid sessions in either unit.
     const cleanupQuery = isPostgres
-      ? "DELETE FROM session WHERE expires_at < floor(extract(epoch from now()))::bigint"
+      ? `DELETE FROM session WHERE
+          (expires_at < 100000000000 AND expires_at < floor(extract(epoch from now()))::bigint)
+          OR (expires_at >= 100000000000 AND expires_at < floor(extract(epoch from now()) * 1000)::bigint)`
       : "DELETE FROM session WHERE expires_at < unixepoch()";
     let cleanupInFlight = false;
     async function purgeExpiredSessions() {
