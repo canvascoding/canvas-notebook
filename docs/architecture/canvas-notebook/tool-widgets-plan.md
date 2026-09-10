@@ -281,3 +281,19 @@ meldet dann keinen Erfolg und führt keine automatische Wiederholung aus.
 - **Noch offen:** echte Browserprüfung für Layout, Tastatur, Fokus, Scrollverhalten,
   Theme-/Localewechsel, Karten im Minimalmodus und Interaktion mit dem vorhandenen
   Editor. Ohne diese Prüfung ist die UI-Abnahme nicht als bestanden markiert.
+
+
+## Erweiterung: Todos und Freigabelinks (10. September 2026)
+
+1. Todo-Karten für Erstellen, Prüfen und Aktualisieren mit aktueller, autorisierter
+   Sicht auf Titel, Status, Fälligkeit, Kategorie, Priorität und Zuständigkeit.
+   „Prüfen / erledigen“ öffnet den vorhandenen Todo-Detaildialog; Erledigen, Kommentar
+   und Chat-Fortsetzung werden dort ausgeführt. Keine zweite Abschlusslogik.
+2. Freigabelink-Karten für create/list/revoke mit Status, Ablauf und begrenzten
+   Host-Aktionen: aktuell autorisierten Link kopieren und Freigabeverwaltung öffnen.
+   Mehrere Ergebnisse desselben Aufrufs bleiben an ihre konkreten IDs gebunden.
+3. Gemeinsamen Ressourcen-/Datenadapter typisieren, gespeicherte Bindung und
+   Workspace-Rechte erneut prüfen, bestehende Sandbox und Frame-Limits beibehalten.
+4. Pro Typ Bindungs-, Berechtigungs-, Projektions- und Datenbegrenzungstests,
+   danach MCP-/Automationsregression und Produktionsbuild. Browserprüfung bleibt
+   von der noch ausstehenden ausdrücklichen Freigabe abhängig (AGENTS.md).

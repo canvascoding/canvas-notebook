@@ -10,7 +10,7 @@ import { ToolAppSlotPool } from '@/app/lib/tool-apps/slot-pool';
 import { useMcpAppChatContext } from './McpAppChatContext';
 import { McpReconnectNotice } from './McpReconnectNotice';
 import { ToolAppWidget } from './ToolAppWidget';
-import { AutomationAppActions } from './AutomationAppActions';
+import { BuiltinToolAppActions } from './BuiltinToolAppActions';
 
 const frameSlots = new ToolAppSlotPool(4);
 
@@ -48,7 +48,7 @@ function ToolAppSlot(props: { invocation: ToolAppInvocation; sessionId: string; 
 
   return <div ref={elementRef} data-testid="tool-app-slot" className="flow-root">
     {visible && active ? <ToolAppWidget {...props} actions={builtinApp
-      ? (data, update, refresh) => <AutomationAppActions data={data} update={update} refresh={refresh}
+      ? (data, update, refresh) => <BuiltinToolAppActions data={data} update={update} refresh={refresh}
         app={builtinApp}
         sessionId={props.sessionId} agentId={props.agentId} /> : undefined} /> : <div
       style={{ height: retainedHeight }} className="flex items-center p-3 text-xs text-muted-foreground"

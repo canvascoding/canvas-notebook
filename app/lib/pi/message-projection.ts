@@ -1,5 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { readBuiltinToolAppMessage } from '@/app/lib/tool-apps/types';
+import { AUTOMATION_APP_URI, readBuiltinToolAppMessage } from '@/app/lib/tool-apps/types';
 
 export type PiMessageProjectionMode = 'raw' | 'context' | 'display';
 
@@ -234,8 +234,9 @@ function compactToolResultMessage(
     builtinDetails = compactDetailsValue(rest) as Record<string, unknown>;
     if (mode === 'display' && builtin) {
       builtinDetails.toolApp = builtin;
-      // Preserve only the validated binding, never bypass the normal job-data limits.
-      builtinDetails.job = { ...(isRecord(builtinDetails.job) ? builtinDetails.job : {}), id: builtin.entityId };
+      // Preserve only the validated binding, never bypass the entity-data limits.
+      const entityKey = builtin.resourceUri === AUTOMATION_APP_URI ? 'job' : 'todo';
+      builtinDetails[entityKey] = { ...(isRecord(builtinDetails[entityKey]) ? builtinDetails[entityKey] : {}), id: builtin.entityId };
       if (record.toolName === 'automation_manage') {
         builtinDetails.action = 'call';
         builtinDetails.operation = builtin.operation;

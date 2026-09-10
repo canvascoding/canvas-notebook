@@ -8,7 +8,11 @@ import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { getAutomationJob } from '@/app/lib/automations/store';
 import { McpAccessError } from '@/app/lib/mcp/access';
 import type { McpAppChat } from '@/app/lib/mcp/apps-host';
-import { readBuiltinToolAppMessage, type BuiltinToolAppDescriptor } from './types';
+import { getTodo } from '@/app/lib/todos/store';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
+import { presentAutomationAppData } from './automation-data';
+import { presentTodoAppData } from './todo-data';
+import { TODO_APP_URI, readBuiltinToolAppMessage, type BuiltinToolAppDescriptor } from './types';
 
 /** Re-authorize the stored operation and its entity, never the browser's snapshot. */
 export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: BuiltinToolAppDescriptor) {
@@ -29,9 +33,20 @@ export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: Builtin
     || stored.operation !== app.operation || stored.toolCallId !== app.toolCallId) {
     throw new McpAccessError('Widget does not belong to this tool result.', 403);
   }
+  if (stored.resourceUri === TODO_APP_URI) {
+    try {
+      const todo = await getTodo(chat.userId, stored.entityId);
+      const workspace = await resolveAgentSessionWorkspaceForUser({ userId: chat.userId, workspaceId: session.workspaceId });
+      if (!todo || (todo.scopeKind === 'user' && todo.workspaceType === 'personal'
+        ? workspace.workspaceType !== 'personal'
+        : todo.workspaceId !== workspace.workspaceId || todo.workspaceType !== workspace.workspaceType
+          || (todo.organizationId ?? null) !== (workspace.organizationId ?? null))) throw new Error('scope');
+      return presentTodoAppData(todo);
+    } catch { throw new McpAccessError('Todo is unavailable.', 404); }
+  }
   const job = await getAutomationJob(stored.entityId);
   if (!job || job.deletedAt) throw new McpAccessError('Automation is unavailable.', 404);
   try { await assertCanAccessAutomationJob(chat.userId, job); }
   catch { throw new McpAccessError('Automation is unavailable.', 404); }
-  return job;
+  return presentAutomationAppData(job, chat.userId);
 }

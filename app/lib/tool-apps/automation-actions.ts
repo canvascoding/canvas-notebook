@@ -9,7 +9,7 @@ import { McpAccessError } from '@/app/lib/mcp/access';
 import { requireMcpAppChatAccess, type McpAppChat } from '@/app/lib/mcp/apps-host';
 import { requireBuiltinToolAppAccess } from './builtin-access';
 import { presentAutomationAppData } from './automation-data';
-import type { BuiltinToolAppDescriptor } from './types';
+import { AUTOMATION_APP_URI, type BuiltinToolAppDescriptor } from './types';
 
 /** Caller reserves the idle runtime; DB writes share the automation transaction. */
 export async function appendToolAppActionEvent(tx: AutomationStoreTransaction, chat: McpAppChat,
@@ -39,6 +39,7 @@ export async function appendToolAppActionEvent(tx: AutomationStoreTransaction, c
 
 export async function changeAutomationAppStatus(chat: McpAppChat, app: BuiltinToolAppDescriptor,
   status: 'active' | 'paused', expectedRevision: number, locale: string, expectedUpdatedAt?: string) {
+  if (app.resourceUri !== AUTOMATION_APP_URI) throw new McpAccessError('Invalid automation widget.', 400);
   const { withExclusivePiSessionExecution, PiSessionBusyError } = await import('@/app/lib/pi/session-exclusive-execution');
   try {
     const data = await withExclusivePiSessionExecution({ ...chat,

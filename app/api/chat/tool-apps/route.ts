@@ -4,7 +4,7 @@ import { McpAccessError, mcpErrorStatus } from '@/app/lib/mcp/access';
 import { isMcpAppsEnabled, mcpAppOrigins } from '@/app/lib/mcp/apps-config';
 import { issueBuiltinToolAppTicket } from '@/app/lib/mcp/apps-host';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { readBuiltinToolAppDescriptor } from '@/app/lib/tool-apps/types';
+import { AUTOMATION_APP_URI, readBuiltinToolAppDescriptor } from '@/app/lib/tool-apps/types';
 import { readBoundedWidgetJson } from '@/app/lib/tool-apps/request';
 import { AutomationMutationError } from '@/app/lib/automations/mutation-errors';
 
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       agentId: typeof body.agentId === 'string' ? body.agentId : '' };
     let data;
     if (body.action === 'status') {
-      if ((body.status !== 'active' && body.status !== 'paused') || !Number.isSafeInteger(body.expectedRevision) || Number(body.expectedRevision) < 1
+      if (app.resourceUri !== AUTOMATION_APP_URI || (body.status !== 'active' && body.status !== 'paused') || !Number.isSafeInteger(body.expectedRevision) || Number(body.expectedRevision) < 1
         || typeof body.expectedUpdatedAt !== 'string' || body.expectedUpdatedAt.length > 40 || !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
         throw new McpAccessError('Invalid automation status or revision.', 400);
       }

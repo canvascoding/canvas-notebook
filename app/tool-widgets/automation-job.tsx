@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App, applyDocumentTheme, applyHostStyleVariables, type McpUiHostContext } from '@modelcontextprotocol/ext-apps';
-import { readAutomationAppData, type AutomationAppData } from '../lib/tool-apps/automation-data';
+import { readAutomationAppData } from '../lib/tool-apps/automation-data';
 import { WidgetField, WidgetShell } from './components';
+import { useWidget } from './use-widget';
 import { createTranslator } from 'use-intl/core';
 import { describeFriendlyScheduleLocalized } from '../lib/automations/schedule-presentation';
 import type { AutomationWeekday } from '../lib/automations/types';
@@ -10,25 +9,8 @@ import type { AutomationWeekday } from '../lib/automations/types';
 declare const __CANVAS_WIDGET_MESSAGES__: Record<'de' | 'en', { widget: Record<string, string>; automations: { scheduleSummary: Record<string, string>; intervalUnits: Record<string, string>; weekdays: Record<string, string> } }>;
 
 function AutomationView() {
-  const [job, setJob] = useState<AutomationAppData | null>(null);
-  const [locale, setLocale] = useState('de');
-  const [operation, setOperation] = useState('inspect_automation_job');
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    const app = new App({ name: 'Canvas Automation', version: '1.0.0' }, {}, { strict: true });
-    const hostChanged = (context: McpUiHostContext) => {
-      applyDocumentTheme(context.theme ?? 'light');
-      if (context.styles?.variables) applyHostStyleVariables(context.styles.variables);
-      if (context.locale) { document.documentElement.lang = context.locale; setLocale(context.locale); }
-    };
-    app.ontoolresult = (result) => setJob(readAutomationAppData(result.structuredContent));
-    app.ontoolinput = ({ arguments: args }) => { if (typeof args?.operation === 'string') setOperation(args.operation); };
-    app.onhostcontextchanged = hostChanged;
-    void app.connect().then(() => hostChanged(app.getHostContext() ?? {})).catch(() => setFailed(true));
-    return () => { void app.close(); };
-  }, []);
+  const { data: job, locale, operation, failed, t } = useWidget('Canvas Automation', readAutomationAppData);
   const messages = __CANVAS_WIDGET_MESSAGES__[locale.startsWith('de') ? 'de' : 'en'];
-  const t = createTranslator({ locale, messages: messages.widget });
   const scheduleT = createTranslator({ locale, messages: messages.automations });
   const days: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
   const weekdayLabels = Object.fromEntries(days.map((day) => [day, scheduleT(`weekdays.${day}`)])) as Record<AutomationWeekday, string>;

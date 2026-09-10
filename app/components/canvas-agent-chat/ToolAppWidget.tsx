@@ -9,7 +9,6 @@ import { McpAppFrameTransport } from '@/app/lib/mcp/apps-browser-transport';
 import { readMcpReconnectHint, type McpReconnectHint } from '@/app/lib/mcp/connection-health-types';
 import { readToolAppHostContext } from '@/app/lib/tool-apps/host-context';
 import type { ToolAppInvocation } from '@/app/lib/tool-apps/types';
-import { readAutomationAppData, type AutomationAppData } from '@/app/lib/tool-apps/automation-data';
 import { McpReconnectNotice } from './McpReconnectNotice';
 import { Button } from '@/components/ui/button';
 
@@ -17,7 +16,7 @@ type Approval = { tool: string; arguments: Record<string, unknown>; resolve: (re
 type Frame = { url: string; origin: string; result?: CallToolResult };
 type Props = {
   invocation: ToolAppInvocation; sessionId: string; agentId: string;
-  actions?: (data: AutomationAppData, update: (data: AutomationAppData) => void, refresh: () => void) => ReactNode;
+  actions?: (data: unknown, update: (data: Record<string, unknown>) => void, refresh: () => void) => ReactNode;
 };
 const failedResult = (message: string): CallToolResult => ({ content: [{ type: 'text', text: message }], isError: true });
 
@@ -158,7 +157,7 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
     } catch { request.resolve(failedResult('Tool call failed.')); if (!abort.signal.aborted) setCallFailed(true); }
     finally { if (activeCallRef.current === abort) { activeCallRef.current = null; setBusy(false); } }
   };
-  const data = builtin ? readAutomationAppData(payload?.result.structuredContent) : null;
+  const data = builtin ? payload?.result.structuredContent : null;
   const refresh = () => {
     setFrame(null); setError(null); setReady(false); setReconnect(null); setCallFailed(false); setReload((n) => n + 1);
   };
@@ -168,7 +167,7 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
       {!payloadUnavailable ? <Button size="xs" variant="outline" onClick={refresh}>{t('reload')}</Button> : null}
     </div> : <>
       {!ready ? <p className="p-3 text-xs text-muted-foreground" role="status">{t('loading')}</p> : null}
-      {frame ? <iframe ref={frameRef} title={builtin ? (data?.name || 'Canvas Automation') : invocation.descriptor.toolName}
+      {frame ? <iframe ref={frameRef} title={builtin ? t('frameTitle') : invocation.descriptor.toolName}
         sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" style={{ height }} className="block w-full border-0" /> : null}
       {ready && data && actions ? actions(data, (next) => setFrame((current) => current ? {
         ...current, result: { content: [], structuredContent: next },
