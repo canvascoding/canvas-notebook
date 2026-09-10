@@ -53,6 +53,7 @@
     "test:pi:provider-contract": "tsx scripts/pi-provider-payload-contract-test.mts",
     "test:pi:server-import": "tsx --conditions react-server scripts/pi-server-import-test.mts",
     "test:pi:postgres-contract": "npm run test:automation:runner && npm run test:pi:session-store-revision",
+    "test:bootstrap-admin-wrapper": "tsx scripts/bootstrap-admin-wrapper-test.ts",
     "test:pi:attachments": "tsx scripts/pi-attachments-test.ts",
     "test:pi:multimodal-delivery": "tsx scripts/pi-multimodal-delivery-test.ts",
     "test:pi:vision-fallback": "tsx scripts/pi-vision-fallback-stream-test.ts",
