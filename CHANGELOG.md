@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.9.10.6] - 2026-09-10
+## [2026.9.10.7] - 2026-09-10
 
 ### Added
 
@@ -37,6 +37,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Fixed the PostgreSQL backup CLI release test to model the managed database container.
 - Fixed the backup CLI release test health-check stub so it cannot wait on an external service.
 - Fixed update rollback coverage for mandatory PostgreSQL preflight and made its deadline checks deterministic.
+- Made the slow-pull deadline fixture terminate its child process consistently on Linux runners.
 - Unified the local and GitHub release safety gates so tags cannot bypass CLI update and artifact verification.
 
 ### Verification
