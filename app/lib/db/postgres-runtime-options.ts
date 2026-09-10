@@ -20,9 +20,11 @@ export function resolvePostgresRuntimeOptions(
       30_000,
       3_600_000,
     ),
+    // Match pg's default: 0 leaves acquisition/connection startup unbounded.
+    // Finite deadlines are explicit operator overrides, not a cold-start default.
     connectionTimeoutMillis: resolvePositiveInteger(
       environment.CANVAS_POSTGRES_CONNECTION_TIMEOUT_MS,
-      3_000,
+      0,
       60_000,
     ),
   };

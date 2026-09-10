@@ -5,7 +5,7 @@ import { resolvePostgresRuntimeOptions } from '../app/lib/db/postgres-runtime-op
 assert.deepEqual(resolvePostgresRuntimeOptions({}), {
   max: 10,
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 3_000,
+  connectionTimeoutMillis: 0,
 });
 
 assert.deepEqual(resolvePostgresRuntimeOptions({
@@ -25,7 +25,25 @@ assert.deepEqual(resolvePostgresRuntimeOptions({
 }), {
   max: 10,
   idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 3_000,
+  connectionTimeoutMillis: 0,
 });
+
+for (const value of [undefined, '', '0', ' 0 ', '-1', 'invalid']) {
+  assert.equal(resolvePostgresRuntimeOptions({
+    CANVAS_POSTGRES_CONNECTION_TIMEOUT_MS: value,
+  }).connectionTimeoutMillis, 0, `connection timeout ${JSON.stringify(value)} must use the pg default`);
+}
+
+for (const [value, expected] of [['3000', 3_000], ['15000', 15_000], ['60000', 60_000], ['90000', 60_000]] as const) {
+  assert.equal(resolvePostgresRuntimeOptions({
+    CANVAS_POSTGRES_CONNECTION_TIMEOUT_MS: value,
+  }).connectionTimeoutMillis, expected);
+}
+
+assert.deepEqual(resolvePostgresRuntimeOptions({
+  CANVAS_POSTGRES_POOL_MAX: '101',
+  CANVAS_POSTGRES_IDLE_TIMEOUT_MS: '3600001',
+  CANVAS_POSTGRES_CONNECTION_TIMEOUT_MS: '0',
+}), { max: 100, idleTimeoutMillis: 3_600_000, connectionTimeoutMillis: 0 });
 
 console.log('PostgreSQL runtime option checks passed.');
