@@ -1,9 +1,11 @@
 # Plan: Canvas-Tools als HTML-Widgets im Chat
 
 Stand: 10. September 2026. Basis: `main` bei `4c55fb97` nach PR #138 und #139.
-Status: in Umsetzung. Dieses Dokument ersetzt den vor dem Main-Update erstellten
-Entwurf. Arbeitspakete 1–4 sind implementiert; Codeprüfungen bestehen. Paket 5
-und die Browserabnahme sind offen.
+Status: Implementierung abgeschlossen, automatisierte Prüfungen und Produktionsbuild
+bestanden. Die Browserabnahme in Paket 5 steht aus; die gemäß AGENTS.md erforderliche
+Freigabe für Playwright wurde angefragt und liegt bisher nicht vor. Die weiteren
+Widget-Kandidaten sind in [tool-widgets-candidates.md](tool-widgets-candidates.md)
+priorisiert. Dieses Dokument ersetzt den Entwurf vor dem Main-Update.
 
 ## Ziel und erster Lieferumfang
 
@@ -185,16 +187,16 @@ und private Composio-Verbindungen umgehen keine bestehenden Regeln.
 
 ### 5. Gesamtabnahme und dokumentierten Lieferumfang abschließen
 
-- [ ] Bestehende Prüfungen ausführen: `test:mcp:apps`, `test:mcp:apps-host`,
+- [x] Bestehende Prüfungen ausführen: `test:mcp:apps`, `test:mcp:apps-host`,
   `test:mcp:message-projection`; relevante Chat-Gruppierungs- und Automationstests.
-- [ ] Gezielte Tests für Adapter-Bindung, Ereignis-Deduplizierung, Verlauf,
+- [x] Gezielte Tests für Adapter-Bindung, Ereignis-Deduplizierung, Verlauf,
   Berechtigungswechsel, Statuskonflikte und Widget-Aktionen ergänzen.
 - [ ] Browserprüfung für Erstellung, Reload, Minimalmodus, mehrere Karten,
   Hell/Dunkel, mobile Breite, Tastatur/Fokus, Scrollverhalten und Fehlerzustände.
   Laut Repository-Regel UI-Automation erst nach ausdrücklicher Nutzerfreigabe.
-- [ ] `npm run build` erfolgreich abschließen. Container nur auf ausdrücklichen
+- [x] `npm run build` erfolgreich abschließen. Container nur auf ausdrücklichen
   Wunsch bauen; für einen lokalen Stack den verwalteten Dev-Skill verwenden.
-- [ ] `docs/security/mcp-apps.md` um interne Ressourcen, Aktionen und den
+- [x] `docs/security/mcp-apps.md` um interne Ressourcen, Aktionen und den
   tatsächlichen unterstützten Umfang ergänzen; diese Checkliste aktualisieren.
 
 Vor Produktänderungen GitNexus-Impact für die betroffenen Symbole ausführen und
@@ -255,3 +257,27 @@ begrenzt erneut und bietet anschließend ein manuelles Neuladen an.
 Eine Datenbank und Composio bilden keine verteilte Transaktion. Ein unklarer Netzwerk-
 oder Commit-Ausgang kann weiterhin eine manuelle Zustandsprüfung erfordern. Die UI
 meldet dann keinen Erfolg und führt keine automatische Wiederholung aus.
+
+
+## Abschließende Code- und Build-Abnahme
+
+- `npm run build` bestanden, einschließlich Lizenzprüfungen, Next.js-
+  Produktionskompilierung, TypeScript und Seitengenerierung. Das Tracing der
+  neuen API-Route enthält das erzeugte Widget-HTML für die Produktionsauslieferung.
+  Der Build ohne Runtime-Konfiguration meldet die fehlende MCP-OAuth-Base-URL
+  sowie Node-localStorage-Hinweise; diese verhindern den Build nicht. Eine reale
+  OAuth-Verbindung wurde in diesem Worktree nicht neu eingerichtet oder getestet.
+- `test:mcp:apps`, `test:mcp:apps-host`, `test:mcp:message-projection`,
+  `chat-tool-batches-test`, `pi-message-projection-test`,
+  `pi-session-exclusive-execution-test`, `test:automation:schedule`,
+  `test:automation:integrity` und `test:automation:postgres-migration` bestanden.
+- Neue Adapter-, HTML-/Daten-, Projektions-/Gateway- und Automations-/HTTP-/
+  Transaktionstests bestanden. Die neuen Prüfungen sind gesammelt über
+  `npm run test:tool-apps` ausführbar. Die PGlite-Tests verwenden isolierte
+  Testdaten sowie gemockte Identitäts-/Providergrenzen; keine produktiven
+  Automationen, E-Mails oder externen Trigger wurden verändert.
+- TypeScript ohne Emit, gezieltes ESLint und Diff-Prüfung bestanden.
+- Kein Container gebaut oder gestartet, kein Deployment und kein Push.
+- **Noch offen:** echte Browserprüfung für Layout, Tastatur, Fokus, Scrollverhalten,
+  Theme-/Localewechsel, Karten im Minimalmodus und Interaktion mit dem vorhandenen
+  Editor. Ohne diese Prüfung ist die UI-Abnahme nicht als bestanden markiert.
