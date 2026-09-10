@@ -6,6 +6,7 @@ import { and, desc, eq, gt } from 'drizzle-orm';
 
 import { db } from '../db';
 import { piSessions, piUsageEvents } from '../db/schema';
+import { fromDatabaseTimestamp, toDatabaseTimestamp } from '../db/timestamps';
 import { DEFAULT_MANAGED_AGENT_ID } from '../agents/storage';
 
 type PersistPiUsageEventsParams = {
@@ -91,7 +92,8 @@ export function extractPiUsageEventValues(params: {
       provider: message.provider,
       model: message.model,
       sessionTitleSnapshot: params.sessionTitleSnapshot ?? null,
-      assistantTimestamp: Math.floor(new Date(message.timestamp).getTime() / 1000), // Convert Date to Unix timestamp (seconds)
+      // PostgreSQL bigint timestamps are stored as epoch milliseconds.
+      assistantTimestamp: toDatabaseTimestamp(new Date(message.timestamp)),
       stopReason: message.stopReason,
       inputTokens: message.usage.input,
       outputTokens: message.usage.output,
@@ -172,7 +174,7 @@ export async function loadLatestPiSessionInputUsage(
     inputTokens: usage.inputTokens,
     assistantTimestamp: rawTimestamp instanceof Date
       ? rawTimestamp
-      : new Date(Number(rawTimestamp) * 1_000),
+      : fromDatabaseTimestamp(Number(rawTimestamp)),
   };
 }
 

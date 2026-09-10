@@ -268,6 +268,11 @@ async function main() {
     assert.equal(extractionRows[0]?.workspaceType, 'personal');
     assert.equal(extractionRows[0]?.agentId, 'agent-alpha');
     assert.equal(extractionRows[0]?.totalTokens, 210);
+    assert.equal(
+      extractionRows[0]?.assistantTimestamp,
+      new Date('2026-03-10T10:15:00.000Z').getTime(),
+      'usage events persist their assistant timestamp in canonical epoch milliseconds',
+    );
     assert.equal(extractionRows[1]?.provider, 'ollama');
     assert.equal(extractionRows[1]?.totalCost, 0);
 

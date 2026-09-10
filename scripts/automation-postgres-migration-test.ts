@@ -112,6 +112,20 @@ async function main(): Promise<void> {
       },
     ]);
 
+    // `assistant_timestamp` is a bigint timestamp too. It previously used
+    // seconds even though the rest of the application needs millisecond
+    // boundaries and PostgreSQL's `to_timestamp` conversion expects them.
+    await postgres.exec(`
+      INSERT INTO pi_usage_events (
+        fingerprint, user_id, agent_id, session_id, provider, model, assistant_timestamp,
+        stop_reason, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+        total_tokens, input_cost, output_cost, cache_read_cost, cache_write_cost, total_cost, created_at
+      ) VALUES (
+        'legacy-pi-usage-timestamp', 'automation-owner', 'bradley', 'legacy-session', 'openai', 'gpt-test', 1700000000,
+        'stop', 1, 1, 0, 0, 2, 0, 0, 0, 0, 0, 1700000000
+      );
+    `);
+
     // The migration is deliberately repeatable: its unit predicate must not
     // scale already-normalized millisecond data on later startups.
     await runPostgresMigrations(migrationTarget);
@@ -121,6 +135,12 @@ async function main(): Promise<void> {
       WHERE id = 'legacy-invalid-job'
     `);
     assert.deepEqual(repeated.rows, [{ next_run_at: 1700003600000, created_at: 1700000000000 }]);
+    const usageTimestamp = await postgres.query<{ assistant_timestamp: number; created_at: number }>(`
+      SELECT assistant_timestamp, created_at
+      FROM pi_usage_events
+      WHERE fingerprint = 'legacy-pi-usage-timestamp'
+    `);
+    assert.deepEqual(usageTimestamp.rows, [{ assistant_timestamp: 1700000000000, created_at: 1700000000000 }]);
   } finally {
     await postgres.close();
   }
