@@ -99,7 +99,10 @@ RUN npm install -g npm@${NPM_VERSION} node-addon-api@8.9.0 node-gyp@12.4.0
 
 COPY package.json package-lock.json .npmrc* ./
 COPY patches ./patches
-RUN npm ci --legacy-peer-deps --loglevel=warn \
+# Install the complete locked graph, including build/test peers. Legacy mode
+# omits locked peers needed by the typecheck and compliance inventory. Force
+# tolerates existing upstream React peer ranges without changing the lockfile.
+RUN npm ci --force --loglevel=warn \
   && npm --prefix node_modules/sharp run build \
   && npm --prefix node_modules/next/node_modules/sharp run build \
   && find node_modules -type d -path '*/@img/sharp-*' -prune -exec rm -rf '{}' +
@@ -117,9 +120,11 @@ COPY . .
 ENV NODE_OPTIONS=--max-old-space-size=6144
 RUN npm run build
 
-# Remove devDependencies after build to reduce size
-# BUT keep tsx for running TypeScript server files at runtime
-RUN npm prune --production && npm install tsx \
+# Keep the already locked production tsx dependency; a second npm install
+# would re-resolve versions after the verified build. Do not rerun native
+# install scripts while pruning our source-built Sharp addons.
+RUN npm prune --omit=dev --force --ignore-scripts \
+  && node --import tsx -e "require('node:assert/strict').equal(require('tsx/package.json').version, require('./package-lock.json').packages['node_modules/tsx'].version)" \
   && find node_modules -type d -path '*/@img/sharp-*' -prune -exec rm -rf '{}' +
 
 FROM app-base AS runner
