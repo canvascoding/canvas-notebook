@@ -1,7 +1,7 @@
 # Pi-SDK 0.84.1 → 0.85.1: Bestandsaufnahme und Umsetzungsplan
 
 Stand: 10. September 2026. Geprüfter Canvas-Commit: `92ba7a6b5eec386bea1448a24f60488a80a36ac0`.
-Status: Planung abgeschlossen; Umsetzung und Laufzeitabnahme stehen aus.
+Status: Umsetzung läuft; reproduzierbare SDK- und Persistenz-Baseline abgeschlossen. UI- und Live-Provider-Abnahme stehen aus.
 
 ## 1. Ergebnis und Ziel
 
@@ -163,11 +163,13 @@ Jedes Todo beginnt erst nach bestandenem Abschlusskriterium des vorherigen. Fert
 
 ### T1 — Reproduzierbare SDK-Basis und echte Vertragstests
 
-- [ ] Aktuellen Branch/Commit, Arbeitsbaum und Paketauflösung protokollieren; Abhängigkeiten aus dem vorhandenen Lockfile installieren.
-- [ ] Ohne Provider-Netzwerkaufrufe die öffentlichen Pi-Imports unter der echten Server- und Test-Laufzeit laden.
-- [ ] Neuen `scripts/pi-sdk-contract-test.ts` mit echtem `Agent` und `agentLoop`, injiziertem Fake-Stream und lokalen Test-Tools anlegen; noch kein komplettes Pi-Modul mocken.
-- [ ] Bestehende Modulauflösungsfehler im betroffenen Testpfad beheben und relevante Baseline-Tests ausführen.
-- [ ] Baseline für Turn-Reihenfolge, finales Speichern, Reasoning-Übergabe und Nachrichten-Roundtrip dokumentieren.
+- [x] Aktuellen Branch/Commit, Arbeitsbaum und Paketauflösung protokollieren; Abhängigkeiten aus dem vorhandenen Lockfile installieren.
+- [x] Ohne Provider-Netzwerkaufrufe die öffentlichen Pi-Imports unter der echten Server- und Test-Laufzeit laden.
+- [x] `scripts/pi-sdk-contract-test.mts` mit echtem `Agent` und `agentLoop`, injiziertem Fake-Stream und lokalen Test-Tools anlegen; noch kein komplettes Pi-Modul mocken.
+- [x] Bestehende Modulauflösungsfehler im betroffenen Testpfad beheben und relevante Baseline-Tests ausführen.
+- [x] Baseline für Turn-Reihenfolge, finales Speichern, Reasoning-Übergabe und Nachrichten-Roundtrip dokumentieren.
+
+Baseline am 10. September: Branch `codex/pi-sdk-upgrade-plan`, Ausgangscommit `4cecf060`, sauberer Arbeitsbaum vor Umsetzung, Node 26.7.0 / npm 11.19.0, `npm ci` mit beiden Pi-Paketen 0.84.1. Zehn echte SDK-Vertragstests bestanden. Der Reproduktionsfall zeigt, dass `thinkingLevel` in einer initialen Low-Level-Config nicht als `options.reasoning` ankommt. Automation- und Session-Revisionstests verwenden jetzt eine gemeinsame isolierte PGlite-Testhilfe mit den produktiven PostgreSQL-Migrationen; beide bestanden. Zusätzlich bestanden Memory-Review-Runtime, Browser-Tool-Refresh, Queue, Continuation und Temperatur-Normalisierung sowie TypeScript und gezieltes ESLint. Keine externe Datenbank, Provider-Anfrage, Browser-Automation oder Container-Aktion ausgeführt. Die neuen Metadaten-Roundtrips folgen in T5.
 
 Fertig, wenn die Test-Infrastruktur echte SDK-Aufrufe ausführt und bestehende Integrationsfehler als reproduzierbare Fälle feststehen. Keine unbegründete Aussage „alle Tests grün“, solange ein bekannter Pfad nur gemockt ist.
 
