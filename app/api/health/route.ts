@@ -11,8 +11,17 @@ import {
 import { getCollaborationRuntimeHealth, setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 import { getDirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
+import type { DirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
+import { createCachedAsyncCheck, withHealthCheckTimeout } from '@/app/lib/health/async-check';
 
-export async function GET() {
+const getCachedDirectMcpReadiness = createCachedAsyncCheck(getDirectMcpReadiness, 30_000);
+
+function resolveHealthCheckTimeout(): number {
+  const parsed = Number.parseInt(process.env.CANVAS_HEALTH_CHECK_TIMEOUT_MS || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 30_000) : 5_000;
+}
+
+async function performHealthChecks() {
   const checks: Record<string, 'ok' | 'error'> = {
     app: 'ok',
     databaseProvider: 'ok',
@@ -24,7 +33,12 @@ export async function GET() {
   const teamFeaturesEnabled = areTeamFeaturesEnabled(deploymentMode);
   const providerGate = resolveDatabaseProviderGate({ teamFeaturesEnabled });
   const collaboration = getCollaborationRuntimeHealth();
-  const mcpReadiness = await getDirectMcpReadiness();
+  let mcpReadiness: DirectMcpReadiness;
+  try {
+    mcpReadiness = await getCachedDirectMcpReadiness();
+  } catch {
+    mcpReadiness = { status: 'failed', code: 'MCP_TRANSPORT_UNAVAILABLE' };
+  }
 
   checks.mcp = mcpReadiness.status === 'failed' ? 'error' : 'ok';
   if (mcpReadiness.status === 'failed') status = 503;
@@ -103,4 +117,21 @@ export async function GET() {
     },
     { status }
   );
+}
+
+export async function GET() {
+  const timeoutMillis = resolveHealthCheckTimeout();
+  try {
+    return await withHealthCheckTimeout('Application health check', performHealthChecks(), timeoutMillis);
+  } catch {
+    return NextResponse.json(
+      {
+        status: 'unhealthy',
+        checks: { app: 'ok', healthCheck: 'error' },
+        mcp: { status: 'failed', code: 'MCP_READINESS_TIMEOUT' },
+        timestamp: new Date().toISOString(),
+      },
+      { status: 503 },
+    );
+  }
 }

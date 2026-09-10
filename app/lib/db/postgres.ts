@@ -11,6 +11,7 @@ import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
+import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
@@ -659,8 +660,7 @@ export function createPostgresPool(): Pool {
 
   return new Pool({
     connectionString,
-    max: Number.parseInt(process.env.CANVAS_POSTGRES_POOL_MAX || '10', 10),
-    idleTimeoutMillis: Number.parseInt(process.env.CANVAS_POSTGRES_IDLE_TIMEOUT_MS || '30000', 10),
+    ...resolvePostgresRuntimeOptions(),
   });
 }
 
