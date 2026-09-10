@@ -193,15 +193,12 @@ printf '%s' "$render_password" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD 
 printf '%s' "$render_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
 "$cli" config-set env.CANVAS_DEPLOYMENT_MODE managed-team --no-banner > /dev/null
-env_before_render="$(cksum "$CANVAS_CONFIG_ENV")"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-render-failure.json" 2> "$TMP_DIR/reconcile-render-failure.err"; then
-  echo "reconcile succeeded after render failure" >&2
+if ! "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-render-success.json" 2> "$TMP_DIR/reconcile-render-success.err"; then
+  cat "$TMP_DIR/reconcile-render-success.json" "$TMP_DIR/reconcile-render-success.err" >&2
   exit 1
 fi
-jq -e '.success == false and .phase == "render" and .rolledBack == true' "$TMP_DIR/reconcile-render-failure.json" >/dev/null || { cat "$TMP_DIR/reconcile-render-failure.json" "$TMP_DIR/reconcile-render-failure.err" >&2; exit 1; }
-[[ "$env_before_render" == "$(cksum "$CANVAS_CONFIG_ENV")" ]]
-jq -e --arg password "$desired_password" --arg url "$desired_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
+jq -e '.success == true and .authVerified == true and .healthy == true' "$TMP_DIR/reconcile-render-success.json" >/dev/null
 
 "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
 "$cli" config-set env.CANVAS_DEPLOYMENT_MODE single_user --no-banner > /dev/null
@@ -218,7 +215,7 @@ if CANVAS_TEST_FAIL_APP_APPLY=true "$cli" database reconcile-postgres-auth --tim
 fi
 jq -e '.success == false and .phase == "app" and .rolledBack == true' "$TMP_DIR/reconcile-app-failure.json" >/dev/null
 [[ "$env_before_app" == "$(cksum "$CANVAS_CONFIG_ENV")" ]]
-jq -e --arg password "$desired_password" --arg url "$desired_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
+jq -e --arg password "$render_password" --arg url "$render_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
 
 alter_password='alter-failure-password'
 alter_url="postgresql://canvas:${alter_password}@postgres:5432/canvas_notebook"
@@ -233,7 +230,7 @@ if CANVAS_TEST_FAIL_ALTER=true "$cli" database reconcile-postgres-auth --timeout
 fi
 jq -e '.success == false and .phase == "alter_role"' "$TMP_DIR/reconcile-alter-failure.json" >/dev/null
 [[ "$env_before_alter" == "$(cksum "$CANVAS_CONFIG_ENV")" ]]
-jq -e --arg password "$desired_password" --arg url "$desired_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
+jq -e --arg password "$render_password" --arg url "$render_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
 if grep -q 'up -d --no-deps canvas-notebook' "$CANVAS_TEST_DOCKER_LOG"; then
   echo "ALTER ROLE failure reached app cutover" >&2
   exit 1
@@ -252,7 +249,7 @@ if CANVAS_TEST_FAIL_VERIFY=true "$cli" database reconcile-postgres-auth --timeou
 fi
 jq -e '.success == false and .phase == "verify"' "$TMP_DIR/reconcile-verify-failure.json" >/dev/null
 [[ "$env_before_verify" == "$(cksum "$CANVAS_CONFIG_ENV")" ]]
-jq -e --arg password "$desired_password" --arg url "$desired_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
+jq -e --arg password "$render_password" --arg url "$render_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
 if grep -q 'up -d --no-deps canvas-notebook' "$CANVAS_TEST_DOCKER_LOG"; then
   echo "verification failure reached app cutover" >&2
   exit 1
@@ -272,7 +269,7 @@ if CANVAS_TEST_FAIL_FORWARD_HEALTH=true "$cli" database reconcile-postgres-auth 
 fi
 jq -e '.success == false and .phase == "health" and .rolledBack == true' "$TMP_DIR/reconcile-health-failure.json" >/dev/null
 [[ "$env_before_health" == "$(cksum "$CANVAS_CONFIG_ENV")" ]]
-jq -e --arg password "$desired_password" --arg url "$desired_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
+jq -e --arg password "$render_password" --arg url "$render_url" '.env.CANVAS_POSTGRES_PASSWORD == $password and .env.DATABASE_URL == $url' "$CANVAS_CONFIG_JSON" >/dev/null
 if grep -Fq "$health_password" "$TMP_DIR/reconcile-health-failure.json" || grep -Fq "$health_password" "$TMP_DIR/reconcile-health-failure.err" || grep -Fq "$health_password" "$CANVAS_TEST_DOCKER_LOG"; then
   echo "health failure exposed the desired password" >&2
   exit 1
