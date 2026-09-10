@@ -109,7 +109,7 @@ case "${1:-}" in
     ;;
   inspect)
     if [[ "$*" == *"{{.State.Running}}"* && "${CANVAS_TEST_SLOW_INSPECT:-false}" == "true" ]]; then
-      sleep 3
+      sleep 10
     fi
     if [[ "$*" == *"{{.Image}}"* && "$*" == *"app-container"* ]]; then
       cat "$state/running-image-id"
@@ -168,7 +168,7 @@ case "${CANVAS_TEST_HEALTH_MODE:-healthy}" in
     [[ "$running" != "new-image-id" ]]
     ;;
   all-unhealthy)
-    exit 1
+    [[ ! -f "${CANVAS_TEST_STATE_DIR:?}/pulled" ]]
     ;;
 esac
 SH
@@ -191,8 +191,33 @@ export CANVAS_HEALTH_MAX_ATTEMPTS=1
 export CANVAS_UPDATE_POSTGRES_TIMEOUT=5
 export CANVAS_TEST_MUTABLE_IMAGE='ghcr.io/canvascoding/canvas-notebook:latest'
 export CANVAS_TEST_TARGET_IMAGE="ghcr.io/canvascoding/canvas-notebook:release_1@sha256:$(printf 'a%.0s' {1..64})"
+export CANVAS_TEST_POSTGRES_PASSWORD='update-test-password'
+export CANVAS_TEST_DATABASE_URL="postgresql://canvas:${CANVAS_TEST_POSTGRES_PASSWORD}@postgres:5432/canvas_notebook"
+readonly UPDATE_ROLLBACK_RESERVE_SECONDS=30
+readonly UPDATE_POSTGRES_PREFLIGHT_BUDGET_SECONDS=5
+readonly UPDATE_FORWARD_PHASE_BUDGET_SECONDS=1
 
 cli="$TMP_DIR/install/bin/canvas-notebook"
+
+assert_update_result() {
+  local output_file="$1"
+  local error_file="$2"
+  local filter="$3"
+  if tail -1 "$output_file" | jq -e "$filter" > /dev/null; then
+    return
+  fi
+  printf 'unexpected update result (%s):\n' "$filter" >&2
+  cat "$output_file" >&2
+  if [[ -s "$error_file" ]]; then
+    printf 'update stderr:\n' >&2
+    cat "$error_file" >&2
+  fi
+  if [[ -s "$CANVAS_TEST_DOCKER_LOG" ]]; then
+    printf 'docker command log:\n' >&2
+    cat "$CANVAS_TEST_DOCKER_LOG" >&2
+  fi
+  exit 1
+}
 
 mkdir -p "$TMP_DIR/nonroot-bin"
 cat > "$TMP_DIR/nonroot-bin/sudo" <<'SH'
@@ -230,6 +255,8 @@ chmod 600 "$TMP_DIR/nonroot-config.env" "$TMP_DIR/nonroot-compose.env"
 reset_runtime() {
   "$cli" config-set image "$CANVAS_TEST_MUTABLE_IMAGE" --no-banner > /dev/null
   "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
+  printf '%s' "$CANVAS_TEST_POSTGRES_PASSWORD" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD --stdin --no-banner > /dev/null
+  printf '%s' "$CANVAS_TEST_DATABASE_URL" | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
   "$cli" config-set env.CANVAS_POSTGRES_REQUIRED false --no-banner > /dev/null
   "$cli" config-set env.CANVAS_POSTGRES_VECTOR_ENABLED false --no-banner > /dev/null
   "$cli" config-set env.CANVAS_TEAM_FEATURES_ENABLED false --no-banner > /dev/null
@@ -238,7 +265,8 @@ reset_runtime() {
   "$cli" env --render --json --no-banner > /dev/null
   printf 'old-image-id\n' > "$CANVAS_TEST_STATE_DIR/running-image-id"
   printf 'old-image-id\n' > "$CANVAS_TEST_STATE_DIR/mutable-image-id"
-  rm -f "$CANVAS_TEST_STATE_DIR/pulled" "$CANVAS_TEST_STATE_DIR/role-password"
+  printf '%s\n' "$CANVAS_TEST_POSTGRES_PASSWORD" > "$CANVAS_TEST_STATE_DIR/role-password"
+  rm -f "$CANVAS_TEST_STATE_DIR/pulled"
   : > "$CANVAS_TEST_DOCKER_LOG"
 }
 
@@ -276,16 +304,16 @@ reset_runtime
 deadline_config_before="$(cksum "$CANVAS_CONFIG_JSON")"
 deadline_container_env_before="$(cksum "$CANVAS_CONFIG_ENV")"
 deadline_compose_env_before="$(cksum "$CANVAS_COMPOSE_ENV")"
-short_deadline="$(( ( $(date +%s) + 32 ) * 1000 ))"
+short_deadline="$(( ( $(date +%s) + UPDATE_ROLLBACK_RESERVE_SECONDS + UPDATE_POSTGRES_PREFLIGHT_BUDGET_SECONDS + UPDATE_FORWARD_PHASE_BUDGET_SECONDS ) * 1000 ))"
 started_at="$(date +%s)"
-if CANVAS_TEST_SLOW_PULL=true CANVAS_UPDATE_DEADLINE_EPOCH_MS="$short_deadline" CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS=30 \
+if CANVAS_TEST_SLOW_PULL=true CANVAS_UPDATE_DEADLINE_EPOCH_MS="$short_deadline" CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS="$UPDATE_ROLLBACK_RESERVE_SECONDS" \
   "$cli" update --image "$CANVAS_TEST_TARGET_IMAGE" --json --no-banner > "$TMP_DIR/deadline-pull.json" 2> "$TMP_DIR/deadline-pull.err"; then
   echo 'slow pull exceeded its forward deadline' >&2
   exit 1
 fi
 elapsed="$(( $(date +%s) - started_at ))"
 [[ "$elapsed" -lt 8 ]]
-jq -e '.success == false and .phase == "pull" and .rolledBack == false' < <(tail -1 "$TMP_DIR/deadline-pull.json") > /dev/null
+assert_update_result "$TMP_DIR/deadline-pull.json" "$TMP_DIR/deadline-pull.err" '.success == false and .phase == "pull" and .rolledBack == false'
 grep -Fxq 'old-image-id' "$CANVAS_TEST_STATE_DIR/running-image-id"
 [[ "$deadline_config_before" == "$(cksum "$CANVAS_CONFIG_JSON")" ]]
 [[ "$deadline_container_env_before" == "$(cksum "$CANVAS_CONFIG_ENV")" ]]
@@ -295,13 +323,13 @@ reset_runtime
 deadline_config_before="$(cksum "$CANVAS_CONFIG_JSON")"
 deadline_container_env_before="$(cksum "$CANVAS_CONFIG_ENV")"
 deadline_compose_env_before="$(cksum "$CANVAS_COMPOSE_ENV")"
-short_deadline="$(( ( $(date +%s) + 32 ) * 1000 ))"
-if CANVAS_TEST_SLOW_INSPECT=true CANVAS_UPDATE_DEADLINE_EPOCH_MS="$short_deadline" CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS=30 \
+short_deadline="$(( ( $(date +%s) + UPDATE_ROLLBACK_RESERVE_SECONDS + UPDATE_POSTGRES_PREFLIGHT_BUDGET_SECONDS + UPDATE_FORWARD_PHASE_BUDGET_SECONDS ) * 1000 ))"
+if CANVAS_TEST_SLOW_INSPECT=true CANVAS_UPDATE_DEADLINE_EPOCH_MS="$short_deadline" CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS="$UPDATE_ROLLBACK_RESERVE_SECONDS" \
   "$cli" update --image "$CANVAS_TEST_TARGET_IMAGE" --json --no-banner > "$TMP_DIR/deadline-apply.json" 2> "$TMP_DIR/deadline-apply.err"; then
   echo 'update applied after its forward deadline expired' >&2
   exit 1
 fi
-jq -e '.success == false and .phase == "deadline" and .rolledBack == false' < <(tail -1 "$TMP_DIR/deadline-apply.json") > /dev/null
+assert_update_result "$TMP_DIR/deadline-apply.json" "$TMP_DIR/deadline-apply.err" '.success == false and .phase == "deadline" and .rolledBack == false'
 test -f "$CANVAS_TEST_STATE_DIR/pulled"
 grep -Fxq 'old-image-id' "$CANVAS_TEST_STATE_DIR/running-image-id"
 [[ "$deadline_config_before" == "$(cksum "$CANVAS_CONFIG_JSON")" ]]
@@ -394,7 +422,7 @@ if CANVAS_TEST_HEALTH_MODE=all-unhealthy "$cli" update --image "$CANVAS_TEST_TAR
   echo 'rollback failure update unexpectedly succeeded' >&2
   exit 1
 fi
-jq -e '.success == false and .phase == "rollback_failed" and .rolledBack == false' < <(tail -1 "$TMP_DIR/rollback-failed.json") > /dev/null
+assert_update_result "$TMP_DIR/rollback-failed.json" "$TMP_DIR/rollback-failed.err" '.success == false and .phase == "rollback_failed" and .rolledBack == false'
 
 reset_runtime
 if CANVAS_TEST_FAIL_PULL=true "$cli" update --image "$CANVAS_TEST_TARGET_IMAGE" --json --no-banner > "$TMP_DIR/pull-failed.json" 2> "$TMP_DIR/pull-failed.err"; then
