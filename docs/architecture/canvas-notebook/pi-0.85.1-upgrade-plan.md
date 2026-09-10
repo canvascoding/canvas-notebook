@@ -175,10 +175,12 @@ Fertig, wenn die Test-Infrastruktur echte SDK-Aufrufe ausführt und bestehende I
 
 ### T2 — Bestehende Integrationsverträge korrigieren
 
-- [ ] Die drei Loop-Configs auf `reasoning` und `satisfies AgentLoopConfig` umstellen.
-- [ ] Automation-Mock korrigieren und Übergabe für `off`, `low`, `high`, `max` im echten Loop prüfen.
-- [ ] Gemeinsame Normalisierung unterstützter Request-Optionen für Runtime und Provider-Probe absichern; unnötige Temperaturparameter gemäß verifiziertem Modellvertrag behandeln.
-- [ ] Die bestehenden Tests für E-Mail-Scope, Modellprobe und Hintergrundläufe ergänzen.
+- [x] Die drei Loop-Configs auf `reasoning` und `satisfies AgentLoopConfig` umstellen.
+- [x] Automation-Mock korrigieren und Übergabe für `off`, `low`, `high`, `max` im echten Loop prüfen.
+- [x] Gemeinsame Normalisierung unterstützter Request-Optionen für Runtime und Provider-Probe absichern; unnötige Temperaturparameter gemäß verifiziertem Modellvertrag behandeln.
+- [x] Die bestehenden Tests für E-Mail-Scope, Modellprobe und Hintergrundläufe ergänzen.
+
+T2: Alle drei initialen Loop-Configs verwenden jetzt den typgeprüften SDK-Vertrag. Die Provider-Probe verwendet `omitUnsupportedTemperature`; ein neuer Test durchläuft die echte Verifikation und Modellprobe mit isolierter Transport-/Credential-Grenze und prüft Optionen, Scope und Abbruch. Der vorher referenzierte Test fehlte im Repository. E-Mail-Testdaten wurden auf die aktuelle Hauptagent-ID und eine isolierte Brand-Profil-Abfrage korrigiert; der Delegations-Test nutzt dieselbe PGlite-Hilfe wie T1. Keine neue pauschale GPT-6-Temperaturregel ohne bestätigten Providervertrag eingeführt.
 
 Fertig, wenn der konfigurierte Level am Stream ankommt und Probe sowie produktiver Aufruf denselben Optionsvertrag verwenden. Die `Agent.initialState`-API bleibt korrekt.
 

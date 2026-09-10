@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 
-import type { AgentContext, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { AgentContext, AgentLoopConfig, AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core';
 
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { resolveExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
@@ -333,9 +333,10 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
       timeout.unref?.();
       try {
         await assertClaimRunnable(claim, 'before_model_request');
+        const thinkingLevel = runtime.selection.selection.thinkingLevel as ThinkingLevel;
         const config = {
           model: runtime.model,
-          thinkingLevel: runtime.selection.selection.thinkingLevel as ThinkingLevel,
+          reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
           convertToLlm: (messages: AgentMessage[]) => prepareMessagesForEffectiveModel(messages, runtime.model, {
             workspaceImageRoot: executionContext.workspaceRoot,
             allowedImageFileRoots: [executionContext.workspaceRoot],
@@ -343,7 +344,7 @@ async function executeClaim(claim: MemoryReviewJobClaim): Promise<void> {
             uploadWorkspaceId: executionContext.workspaceId,
           }),
           sessionId: `memory-review:${claim.id}`,
-        };
+        } satisfies AgentLoopConfig;
         for await (const event of agentLoop(
           [promptMessage],
           context,

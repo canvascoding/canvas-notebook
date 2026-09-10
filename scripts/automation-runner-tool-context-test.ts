@@ -151,7 +151,7 @@ moduleInternals._load = (request, parent, isMain) => {
         messages: unknown[],
         context: { systemPrompt?: string; tools?: Array<{ name: string }> },
         config: {
-          thinkingLevel?: unknown;
+          reasoning?: unknown;
           prepareNextTurn?: (turnContext: {
             context: { systemPrompt?: string; messages: unknown[]; tools: Array<{ name: string }> };
           }) => Promise<{ context?: { systemPrompt?: string } } | undefined>;
@@ -161,7 +161,7 @@ moduleInternals._load = (request, parent, isMain) => {
       ) {
         agentLoopToolNames = context.tools?.map((tool) => tool.name) ?? [];
         agentLoopStreamFns.push(streamFn);
-        agentLoopThinkingLevels.push(config.thinkingLevel);
+        agentLoopThinkingLevels.push(config.reasoning);
         agentLoopSystemPrompts.push(context.systemPrompt || '');
         const turnUpdate = await config.prepareNextTurn?.({
           context: {
@@ -529,7 +529,7 @@ async function main() {
   assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image', 'email_send_draft', 'mcp', 'bash']);
   assert.notEqual(agentLoopStreamFns[0], testStreamFn, 'automation must wrap the provider stream with its explicit output cap');
-  assert.equal(agentLoopThinkingLevels[0], 'off');
+  assert.equal(agentLoopThinkingLevels[0], undefined);
   assert.match(agentLoopSystemPrompts[0] || '', /<!-- canvas-effective-tools:v1 -->/);
   assert.match(agentLoopSystemPrompts[0] || '', /`studio_generate_image`/);
   assert.doesNotMatch(agentLoopSystemPrompts[0] || '', /## Current Workspace File Tree/);

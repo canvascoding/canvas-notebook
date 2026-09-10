@@ -3,6 +3,7 @@ import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 function getText(result: unknown): string {
   const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
@@ -31,12 +32,16 @@ type DelegateTaskRequest = {
 async function main() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-pi-delegate-task-'));
   process.env.DATA = dataDir;
+  const testDatabase = await createPiTestDatabase();
 
   const moduleLoader = Module as unknown as {
     _load: (request: string, parent: unknown, isMain: boolean) => unknown;
   };
   const originalLoad = moduleLoader._load;
   moduleLoader._load = function loadWithServerOnlyMock(request, parent, isMain) {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) {
+      return testDatabase;
+    }
     if (request === 'server-only') {
       return {};
     }
@@ -57,7 +62,7 @@ async function main() {
   };
 
   try {
-    const { db } = await import('../app/lib/db');
+    const { db } = testDatabase;
     const { user } = await import('../app/lib/db/schema');
     const { createAgentProfile } = await import('../app/lib/agents/registry');
     const { createDelegateTaskTool } = await import('../app/lib/pi/delegate-task-tool');
@@ -198,6 +203,8 @@ async function main() {
     console.log('pi-delegate-task-tool-test: ok');
   } finally {
     moduleLoader._load = originalLoad;
+    await testDatabase.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
   }
 }
 
