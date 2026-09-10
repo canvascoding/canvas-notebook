@@ -8,6 +8,20 @@ import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { writeFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
+import {
+  BACKGROUND_OPTIONS,
+  OPENAI_INPUT_FIDELITY_OPTIONS,
+  OPENAI_MODERATION_OPTIONS,
+  OUTPUT_FORMAT_OPTIONS,
+  QUALITY_OPTIONS,
+  getOpenAIImageSizeValidationError,
+  normalizeOpenAIImageOutputFormat,
+  type OpenAIImageBackground,
+  type OpenAIImageInputFidelity,
+  type OpenAIImageModeration,
+  type OpenAIImageOutputFormat,
+  type OpenAIImageQuality,
+} from '@/app/lib/integrations/image-generation-constants';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 import {
@@ -45,9 +59,14 @@ export interface AspectRatioPreviewRequest {
   targetHeight: number;
   provider?: AspectRatioProvider;
   model?: string;
-  quality?: 'low' | 'medium' | 'high' | 'auto';
-  outputFormat?: 'png' | 'jpeg' | 'webp';
-  background?: 'transparent' | 'opaque' | 'auto';
+  quality?: OpenAIImageQuality;
+  outputFormat?: OpenAIImageOutputFormat;
+  background?: OpenAIImageBackground;
+  moderation?: OpenAIImageModeration;
+  outputCompression?: number;
+  inputFidelity?: OpenAIImageInputFidelity;
+  stream?: boolean;
+  partialImages?: number;
   imageSize?: string;
 }
 
@@ -142,6 +161,43 @@ function validatePreviewRequest(input: AspectRatioPreviewRequest): AspectRatioPr
 
   if (input.mode === 'ai_extend' && (!input.provider || !input.model)) {
     throw new Error('Provider and model are required for AI extend');
+  }
+
+  if (input.provider === 'openai') {
+    if (input.quality !== undefined && !QUALITY_OPTIONS.includes(input.quality)) {
+      throw new Error('Unsupported OpenAI image quality');
+    }
+    if (input.outputFormat !== undefined && !OUTPUT_FORMAT_OPTIONS.includes(input.outputFormat)) {
+      throw new Error('Unsupported OpenAI output format');
+    }
+    if (input.background !== undefined && !BACKGROUND_OPTIONS.includes(input.background)) {
+      throw new Error('Unsupported OpenAI background');
+    }
+    if (input.moderation !== undefined && !OPENAI_MODERATION_OPTIONS.includes(input.moderation)) {
+      throw new Error('Unsupported OpenAI moderation level');
+    }
+    if (input.inputFidelity !== undefined && !OPENAI_INPUT_FIDELITY_OPTIONS.includes(input.inputFidelity)) {
+      throw new Error('Unsupported OpenAI input fidelity');
+    }
+    if (
+      input.outputCompression !== undefined
+      && (!Number.isInteger(input.outputCompression) || input.outputCompression < 0 || input.outputCompression > 100)
+    ) {
+      throw new Error('OpenAI output compression must be an integer between 0 and 100');
+    }
+    if (input.imageSize) {
+      const sizeError = getOpenAIImageSizeValidationError(input.imageSize);
+      if (sizeError) throw new Error(`Invalid OpenAI image size: ${sizeError}`);
+    }
+    if (
+      input.partialImages !== undefined
+      && (!Number.isInteger(input.partialImages) || input.partialImages < 0 || input.partialImages > 3)
+    ) {
+      throw new Error('OpenAI partial image count must be an integer between 0 and 3');
+    }
+    if (input.partialImages !== undefined && !input.stream) {
+      throw new Error('OpenAI partial images require streaming mode');
+    }
   }
 
   return {
@@ -392,7 +448,10 @@ export async function createAspectRatioPreview(
     throw new Error('Freeform is only available for crop-only edits');
   }
 
-  const outputFormat = normalizeFormat(request.outputFormat);
+  const requestedOutputFormat = normalizeFormat(request.outputFormat);
+  const outputFormat = actualMode === 'ai_extend' && request.provider === 'openai'
+    ? normalizeOpenAIImageOutputFormat(request.background, requestedOutputFormat) || 'png'
+    : requestedOutputFormat;
   if (actualMode === 'crop') {
     const output = await renderCrop(sourceBytes, request.frame, request.targetWidth, request.targetHeight, outputFormat);
     return writeEditResult(
@@ -451,8 +510,14 @@ export async function createAspectRatioPreview(
     quality: request.quality,
     outputFormat,
     background: request.background,
+    moderation: request.moderation,
+    outputCompression: request.outputCompression,
+    inputFidelity: request.inputFidelity,
+    stream: request.stream,
+    partialImages: request.partialImages,
     imageSize: request.imageSize,
     contextPrompt: buildExtendContextPrompt(provider.id),
+    endUserId: scope.actorUserId,
     storageScope,
   });
 
