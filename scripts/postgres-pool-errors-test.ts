@@ -38,7 +38,7 @@ async function main() {
   const logs: unknown[][] = [];
   let failLogging = false;
   class FixturePool extends Pool {
-    constructor(options: PoolConfig) { super({ ...options, Client: ReadyClient } as PoolConfig); }
+    constructor(options: PoolConfig) { super({ ...options, Client: ReadyClient } as unknown as PoolConfig); }
   }
   const { createPostgresPool } = evaluateIsolatedModule<{ createPostgresPool: () => Pool }>(sourceFunction('app/lib/db/postgres.ts', 'createPostgresPool'), {}, {
     Pool: FixturePool, randomUUID, postgresFailureCode,

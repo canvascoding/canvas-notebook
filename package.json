@@ -181,6 +181,8 @@
     "test:knowledge:gates": "tsx --conditions react-server scripts/knowledge-feature-gates-test.ts",
     "test:db:provider": "tsx --conditions react-server scripts/team-runtime-postgres-inference-test.ts",
     "test:db:postgres-runtime-only": "tsx --conditions react-server scripts/postgres-runtime-only-test.ts",
+    "test:postgres:startup": "tsx scripts/postgres-runtime-options-test.ts && tsx scripts/startup-promise-ownership-test.ts && tsx scripts/health-async-check-test.ts && tsx scripts/health-startup-concurrency-test.ts && node scripts/startup-health-budget-test.mjs && tsx scripts/session-cleanup-startup-test.ts && tsx scripts/memory-startup-scheduling-test.ts && tsx scripts/postgres-pool-errors-test.ts && tsx scripts/session-workspace-connection-release-test.ts && tsx scripts/automation-dispatch-concurrency-test.ts && node scripts/postgres-startup-characterization.mjs",
+    "test:postgres:startup:integration": "tsx --conditions react-server scripts/postgres-startup-integration-test.ts",
     "test:db:unavailable": "tsx --conditions react-server scripts/database-unavailable-error-test.ts",
     "test:db:external-preflight": "tsx scripts/postgres-external-preflight-test.ts",
     "test:skills:core": "tsx --conditions react-server scripts/core-skills-test.ts",
