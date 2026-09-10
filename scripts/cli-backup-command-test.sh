@@ -56,6 +56,12 @@ esac
 SH
 chmod +x "$TMP_DIR/bin/docker"
 
+cat > "$TMP_DIR/bin/curl" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$TMP_DIR/bin/curl"
+
 export PATH="$TMP_DIR/bin:$PATH"
 export CANVAS_INSTALL_DIR="$TMP_DIR/install"
 export CANVAS_COMPOSE_FILE="$TMP_DIR/install/canvas-notebook-compose.yaml"
