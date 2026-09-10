@@ -1,6 +1,6 @@
 # PostgreSQL-Startup-Regression: Fix- und Testplan
 
-Stand: 10.09.2026. Review-Basis: `96b0ff0f47c67e2f3e206dc59ef98590896e0bce` / `v2026.9.10.10`. Vergleich: `v2026.9.10.9` (`d34fd045`). Status: **Analyse und ausführbare Charakterisierung, noch keine Produktimplementierung.** Keine Veröffentlichung, Production-Änderung, Container-Aktion oder Browser-Automation ausgeführt.
+Stand: 10.09.2026. Review-Basis: `96b0ff0f47c67e2f3e206dc59ef98590896e0bce` / `v2026.9.10.10`. Vergleich: `v2026.9.10.9` (`d34fd045`). Status: **T1–T4 implementiert; Regressionstests und native PostgreSQL-Matrix ausgeführt.** Aktueller Commit- und Prüfstand: [Implementierungsbericht](postgres-startup-regression-verification.md). Die Befunde und Zeilenangaben unten beschreiben die ursprüngliche `.10`-Basis. Keine Veröffentlichung, Production-Änderung, Container-Aktion oder Browser-Automation ausgeführt.
 
 ## 1. Entscheidung
 
@@ -93,7 +93,7 @@ GitNexus erfasst Promise-Ownership, Zeitabstände und dynamisch geladene Bundle-
 
 ## 6. Kleine, sequenziell abzuarbeitende Änderungspakete
 
-Jedes Paket erhält Code, seine Tests und einen eigenen Commit. Erst das aktuelle Paket fertigstellen; kein Push, Tag, Release oder Production-Eingriff. Die folgenden Änderungen sind **Vorschläge**, nicht bereits umgesetzt.
+Jedes Paket erhält Code, seine Tests und einen eigenen Commit. Erst das aktuelle Paket fertigstellen; kein Push, Tag, Release oder Production-Eingriff. Die folgenden Entwürfe wurden für T1–T4 umgesetzt; konkrete Abweichungen und Ergebnisse stehen im Implementierungsbericht. T5 bleibt ein gesonderter vollständiger Laufzeittest.
 
 ### T1 — Timeout-Verhalten von .9 wiederherstellen
 
@@ -170,7 +170,9 @@ Die notwendige Serialisierung ist Auth → Schema/JWKS, nicht ein globaler DB-Mu
 
 ## 7. Regressionstests und Abnahmekriterien
 
-### Bereits ausgeführt
+### In der ursprünglichen Analysephase ausgeführt
+
+Die folgende Tabelle ist der historische Vorher-Befund. Der inzwischen erfolgreiche vollständige Host-Build und die Diagnose der fehlenden Peer-Abhängigkeiten sind im Implementierungsbericht dokumentiert; Lizenz-Artefakte und Lockfile blieben unverändert.
 
 | Prüfung | Ergebnis |
 |---|---|
@@ -188,7 +190,7 @@ Build-Befund: Nach `npm ci --legacy-peer-deps` mit unverändertem Lockfile (Host
 
 ### Vor Implementierungsabnahme zusätzlich erforderlich
 
-Einen echten PostgreSQL-Integrationstest ergänzen, z. B. `scripts/postgres-startup-integration-test.mjs` (derzeit noch nicht vorhanden). Contract: ausschließlich explizite private Test-DB, kein Production-Fallback, eigener Testdatenbereich, deterministisch verzögerbarer TCP-Proxy, Child-Prozess-Lebenszyklus und harter Test-Watchdog mit Socket-/Client-/Prozess-Cleanup. Keine Timeouts lediglich mit Sleep und Erfolgs-Log „testen“.
+Ein nativer PostgreSQL-Integrationstest ist inzwischen als `scripts/postgres-startup-integration-test.ts` vorhanden: expliziter lokaler Testzugang, serverseitig read-only, deterministisch verzögerbarer TCP-Proxy und harter Watchdog. Er verändert keine Daten und deckt Connect-/Queue-/Idle-/OAuth-Fehler ab. Die folgende Tabelle enthält darüber hinaus weiterhin offene Vollstart-/Datenmigrationsfälle; diese sind nicht durch den Driver-Test ersetzt.
 
 | Fall | Erwartung / Vergleich |
 |---|---|
@@ -239,7 +241,7 @@ Erwartung: `result: passed`, `platform: linux`, `architecture: arm64`, sechs Fä
 
 ### B. Reproduzierbarer vollständiger Kandidatenlauf — noch auszuführen
 
-1. Kandidaten-SHA und Lockfile-SHA festhalten, sauberen **separaten Quellcheckout** auf der Maschine anlegen; keine bestehende Arbeitskopie überschreiben. Linux-eigene `node_modules` mit `npm ci --legacy-peer-deps` aus genau diesem Lockfile installieren. Keine macOS-Module und keine alte `.next` übernehmen. Node 24 und npm 11.11.0 passend zum Dockerfile verwenden; der Docker-Basisdigest ist dort gepinnt. Node 22/26 aus den Charakterisierungsläufen ist kein Ersatz für diesen Paritätslauf.
+1. Kandidaten-SHA und Lockfile-SHA festhalten, sauberen **separaten Quellcheckout** auf der Maschine anlegen; keine bestehende Arbeitskopie überschreiben. Linux-eigene `node_modules` aus genau diesem Lockfile installieren. Die Prüfung verwendet Node 24.18.0, npm 11.11.0 und `npm ci --force`, weil `--legacy-peer-deps` 42 im Lockfile enthaltene Peer-Pakete auslässt; Details und die noch offene Abweichung zum Dockerfile stehen im Implementierungsbericht. Keine macOS-Module und keine alte `.next` übernehmen. Node 22/26 aus den früheren Charakterisierungsläufen ist kein Ersatz für diesen Kandidatenlauf.
 2. Die obigen Tests und `npm run build` auf Ubuntu wiederholen; bei Lizenz-Gate-Fehler stoppen und ihn getrennt klären. Kein `--ignore-scripts`/direktes `next build` als Ersatz für die Build-Abnahme.
 3. **Setup-Voraussetzung offen:** Auf `ubuntu` lief bei der Prüfung weder Docker noch PostgreSQL/App; dort ist kein sofort startbereiter produktionsähnlicher Stack belegt. Auf dem Host existiert bereits der verwaltete `canvas-local-prod-*`-Stack. Die weitere VM `canvas-managed-e2e` besitzt eine eigene laufende Umgebung und bleibt unangetastet. Für den vollständigen Ubuntu-Lauf zuerst explizit den Testbetrieb/Containerbau freigeben und genau eine verwaltete Umgebung als Testziel festlegen bzw. auf Ubuntu vorbereiten; nicht parallel eine zweite starten.
 4. Dazu verbindlich `canvas-local-team-seat-dev` mit dessen `references/workflow.md` verwenden: beide Repository-Regeln lesen, Listener/Container prüfen, private State-Konfiguration auf den **Kandidatencheckout** vorbereiten, aktuelle Quellen bauen und Notebook mit `start-local.sh --target notebook` neu erstellen. Das Skript nutzt den in `compose.env` gespeicherten Checkout, nicht automatisch das aktuelle Verzeichnis. PostgreSQL/Control Plane und Testdaten erhalten, kein Volume-Reset. Nur die autorisierte Testumgebung umstellen, keine fremden Dienste stoppen. Plattform am tatsächlich gestarteten Image/Container als `linux/arm64` prüfen.
@@ -247,16 +249,16 @@ Erwartung: `result: passed`, `platform: linux`, `architecture: arm64`, sechs Fä
 6. Den geplanten echten PG-Integrationstest und die Versions-/Timeout-Matrix aus Abschnitt 7 sequenziell ausführen. Für jede geänderte Variante aktuellen Stand rebuild/recreate, nicht einen alten Container weiterbenutzen. Reproduzierbar speichern: Commit/Lockfile/Image-Digest, Node/pg/OAuth-Versionen, CPU-/RAM-Limit, PG-Version, Timeout/Pool-Optionen, Phasenzeiten, bereinigte Pool-/PG-Messwerte, Prozess-Exit und RestartCount.
 7. Health, Login und erforderliche Auth-/MCP-API-Flows gegen die isolierte Umgebung prüfen. UI-/Playwright-Prüfung erst nach ausdrücklicher Freigabe; für diesen Plan wurde kein Browser gestartet. Zum Abschluss nur temporäre Test-Fixtures entfernen/stoppen, Testdaten-Volumes nicht löschen.
 
-Ein erfolgreicher Offline-Fehlertest auf Ubuntu ist damit heute belegt; ein erfolgreicher aktueller ARM64-Produktionsbuild und ein vollständiger Container-Startup-Test bleiben ausdrücklich offene Abnahmepunkte.
+Der aktuelle Stand der Ubuntu-Tests und des ARM64-Builds steht im Implementierungsbericht. Ein vollständiger Container-Startup-Test bleibt ein ausdrücklich offener Abnahmepunkt.
 
 ## 9. Review- und Abschlusscheckliste
 
-- [ ] T1: Default und explizites 0; Poolgröße/Idle-Policy und frühere Leak-Korrektur unverändert.
-- [ ] T2: Auth und frühe Warmups sofort beobachtet; Fehler bleiben wirksam; MCP disabled abgedeckt.
-- [ ] T3: Health-Queue begrenzt, keine falsche Readiness; wirkliche Startup-Zeitgrenze definiert/getestet.
-- [ ] T4: Cleanup-/Memory-/Idle-Error-Tests grün, Recovery und Freigabe belegt.
+- [x] T1: Default und explizites 0; Poolgröße/Idle-Policy und frühere Leak-Korrektur unverändert.
+- [x] T2: Auth und frühe Warmups sofort beobachtet; Fehler bleiben wirksam; MCP disabled abgedeckt.
+- [x] T3: Health-Queue begrenzt, keine falsche Readiness; wirkliche Startup-Zeitgrenze definiert/getestet.
+- [x] T4: Cleanup-/Memory-/Idle-Error-Tests grün, Recovery und Freigabe belegt.
 - [ ] T5: Anzahl der realen Pools und Ursache langsamer Connects gemessen; zusätzliche Serialisierung nur bei Befund.
-- [ ] Lizenz-Baseline geklärt; `npm run lint` und vollständiges `npm run build` grün.
+- [x] Lizenz-Baseline geklärt; `npm run lint` und vollständiges `npm run build` auf dem Host grün; Docker-Installationsparität offen.
 - [ ] Ubuntu ARM64: exakter Kandidat/Lockfile, echter PG-Test, wiederholte Starts, Nachlauf und Failure-Matrix bestanden.
-- [ ] GitNexus `detect_changes` vor jedem Implementierungscommit und gegen `main`; nur erwartete Symbole/Flows.
-- [ ] Keine Veröffentlichung, kein Push, kein Tag und keine Production-Änderung ohne neuen Auftrag.
+- [x] GitNexus `detect_changes` vor jedem Implementierungscommit und gegen `main`; erwarteter Scope zusätzlich manuell geprüft.
+- [x] Keine Veröffentlichung, kein Push, kein Tag und keine Production-Änderung ohne neuen Auftrag.
