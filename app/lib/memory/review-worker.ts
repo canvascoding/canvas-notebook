@@ -46,6 +46,8 @@ const MAX_REVIEW_TRANSCRIPT_CHARS = 18_000;
 const MAX_REVIEW_RESPONSE_CHARS = 12_000;
 const MAX_TIMER_DELAY_MS = 2_147_000_000;
 const MAINTENANCE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const SCHEDULING_RETRY_BASE_MS = 1_000;
+const SCHEDULING_RETRY_MAX_MS = 30_000;
 
 class InvalidMemoryReviewResponseError extends Error {
   constructor(message: string, options?: ErrorOptions) {
@@ -59,6 +61,8 @@ type MemoryReviewWorkerRuntime = {
   running: boolean;
   pending: boolean;
   stopped: boolean;
+  scheduling: boolean;
+  schedulingFailures: number;
 };
 
 type MemoryReviewWorkerGlobal = typeof globalThis & {
@@ -440,26 +444,54 @@ function getRuntime(): MemoryReviewWorkerRuntime | null {
 async function scheduleRuntime(delayMs?: number): Promise<void> {
   const runtime = getRuntime();
   if (!runtime || runtime.stopped) return;
+  // Coalesce triggers while discovering the next due job, running a cycle,
+  // or backing off. A trigger must not create another DB query/retry timer.
+  if (runtime.scheduling || runtime.running || (runtime.timer && runtime.schedulingFailures > 0)) {
+    if (delayMs === 0) runtime.pending = true;
+    return;
+  }
+  runtime.scheduling = true;
   if (runtime.timer) clearTimeout(runtime.timer);
-  const dueAt = await nextMemoryReviewDueAt();
-  const delay = delayMs ?? Math.max(0, Math.min(MAX_TIMER_DELAY_MS, (dueAt ?? (Date.now() + MAINTENANCE_INTERVAL_MS)) - Date.now()));
-  runtime.timer = setTimeout(() => {
-    runtime.timer = null;
-    if (runtime.running) {
-      runtime.pending = true;
-      return;
-    }
-    runtime.running = true;
-    void runMemoryReviewWorkerCycle()
-      .catch((error) => console.error('[MemoryManager] Worker cycle failed.', { errorCode: memoryReviewErrorCode(error) }))
-      .finally(() => {
-        runtime.running = false;
-        const pending = runtime.pending;
-        runtime.pending = false;
-        void scheduleRuntime(pending ? 0 : undefined);
-      });
-  }, delay);
-  runtime.timer.unref?.();
+  runtime.timer = null;
+  try {
+    const dueAt = await nextMemoryReviewDueAt();
+    if (runtime.stopped || getRuntime() !== runtime) return;
+    runtime.schedulingFailures = 0;
+    const delay = runtime.pending ? 0 : delayMs ?? Math.max(0, Math.min(MAX_TIMER_DELAY_MS, (dueAt ?? (Date.now() + MAINTENANCE_INTERVAL_MS)) - Date.now()));
+    runtime.pending = false;
+    runtime.timer = setTimeout(() => {
+      runtime.timer = null;
+      if (runtime.stopped || getRuntime() !== runtime) return;
+      if (runtime.running) {
+        runtime.pending = true;
+        return;
+      }
+      runtime.running = true;
+      void runMemoryReviewWorkerCycle()
+        .catch((error) => console.error('[MemoryManager] Worker cycle failed.', { errorCode: memoryReviewErrorCode(error) }))
+        .finally(() => {
+          runtime.running = false;
+          if (runtime.stopped || getRuntime() !== runtime) return;
+          const pending = runtime.pending;
+          runtime.pending = false;
+          void scheduleRuntime(pending ? 0 : undefined);
+        });
+    }, delay);
+    runtime.timer.unref?.();
+  } catch (error) {
+    if (runtime.stopped || getRuntime() !== runtime) return;
+    runtime.schedulingFailures = Math.min(runtime.schedulingFailures + 1, 6);
+    const retryInMs = Math.min(SCHEDULING_RETRY_MAX_MS, SCHEDULING_RETRY_BASE_MS * 2 ** (runtime.schedulingFailures - 1));
+    console.error('[MemoryManager] Worker scheduling failed; retrying.', { errorCode: memoryReviewErrorCode(error), retryInMs });
+    runtime.timer = setTimeout(() => {
+      runtime.timer = null;
+      if (runtime.stopped || getRuntime() !== runtime) return;
+      void scheduleRuntime(delayMs);
+    }, retryInMs);
+    runtime.timer.unref?.();
+  } finally {
+    runtime.scheduling = false;
+  }
 }
 
 export function triggerMemoryReviewWorker(): boolean {
@@ -483,9 +515,15 @@ export function initializeMemoryReviewWorkerRuntime(): { started: boolean; trigg
   const globalRuntime = globalThis as MemoryReviewWorkerGlobal;
   const existing = globalRuntime.__canvasMemoryReviewWorkerRuntime;
   if (existing && !existing.stopped) {
-    return { started: false, trigger: () => { triggerMemoryReviewWorker(); }, stop: () => { existing.stopped = true; } };
+    return { started: false, trigger: () => { triggerMemoryReviewWorker(); }, stop: () => {
+      existing.stopped = true;
+      if (existing.timer) clearTimeout(existing.timer);
+      existing.timer = null;
+    } };
   }
-  const runtime: MemoryReviewWorkerRuntime = { timer: null, running: false, pending: false, stopped: false };
+  const runtime: MemoryReviewWorkerRuntime = {
+    timer: null, running: false, pending: false, stopped: false, scheduling: false, schedulingFailures: 0,
+  };
   globalRuntime.__canvasMemoryReviewWorkerRuntime = runtime;
   console.info('[MemoryManager] Worker runtime initialized.', {
     maxOutputTokens: MEMORY_REVIEW_OUTPUT_TOKENS,
@@ -497,6 +535,7 @@ export function initializeMemoryReviewWorkerRuntime(): { started: boolean; trigg
     stop: () => {
       runtime.stopped = true;
       if (runtime.timer) clearTimeout(runtime.timer);
+      runtime.timer = null;
       let abortedClaims = 0;
       for (const active of activeClaims().values()) {
         if (active.controller.signal.aborted) continue;
