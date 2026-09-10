@@ -16,6 +16,7 @@ import {
 import { TODO_ICON_KEYS, isTodoIconKey } from '@/app/lib/todos/icons';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { todoToolApp } from '@/app/lib/tool-apps/types';
 import { USER_TODO_SCOPE, todoScopeForWorkspace } from '@/app/lib/todos/scope';
 
 const TODO_EDITABLE_FIELDS = [
@@ -238,7 +239,7 @@ export function createHumanTodoTool(deps: HumanTodoToolDeps = {}): AgentTool {
 
         return {
           content: [{ type: 'text', text: lines.join('\n') }],
-          details: { todo },
+          details: { todo, toolApp: todoToolApp(todo.id, _toolCallId, 'create_human_todo') },
         };
       } catch (error) {
         return toolError(error, 'Failed to create human to-do.');
@@ -318,7 +319,7 @@ export function createInspectHumanTodoTool(deps: HumanTodoToolDeps = {}): AgentT
       try {
         const userId = requireToolUserId(deps, 'inspect_human_todo');
         const todo = await getScopedTodo(userId, (params as Record<string, unknown>).todoId);
-        return { content: [{ type: 'text', text: formatTodo(todo, true) }], details: { todo } };
+        return { content: [{ type: 'text', text: formatTodo(todo, true) }], details: { todo, toolApp: todoToolApp(todo.id, _toolCallId, 'inspect_human_todo') } };
       } catch (error) {
         return toolError(error, 'Failed to inspect human to-do.');
       }
@@ -382,7 +383,7 @@ export function createUpdateHumanTodoTool(deps: HumanTodoToolDeps = {}): AgentTo
         if (!updated) throw new Error('Todo not found in the active workspace.');
         return {
           content: [{ type: 'text', text: `Human to-do updated.\n${formatTodo(updated, true)}` }],
-          details: { todo: updated },
+          details: { todo: updated, toolApp: todoToolApp(updated.id, _toolCallId, 'update_human_todo') },
         };
       } catch (error) {
         return toolError(error, 'Failed to update human to-do.');

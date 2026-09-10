@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { resizeTextReadResult } from './text-read-result';
+import { AUTOMATION_APP_URI, PUBLIC_SHARE_APP_URI, readBuiltinToolAppMessages } from '@/app/lib/tool-apps/types';
 
 export type PiMessageProjectionMode = 'raw' | 'context' | 'display';
 
@@ -226,9 +227,34 @@ function compactToolResultMessage(
 ): AgentMessage {
   const record = message as unknown as Record<string, unknown>;
   const isMcp = isMcpToolResultDetails(record.details, record.toolName);
+  const builtins = readBuiltinToolAppMessages(record);
+  const builtin = builtins[0];
+  const hasBuiltinMetadata = isRecord(record.details) && ('toolApp' in record.details || 'toolApps' in record.details);
+  let builtinDetails: Record<string, unknown> | undefined;
+  if (hasBuiltinMetadata) {
+    const { toolApp: _toolApp, toolApps: _toolApps, ...rest } = record.details as Record<string, unknown>;
+    builtinDetails = compactDetailsValue(rest) as Record<string, unknown>;
+    if (mode === 'display' && builtin) {
+      if (builtin.resourceUri === PUBLIC_SHARE_APP_URI) {
+        builtinDetails.toolApps = builtins;
+        builtinDetails.publicShareAction = builtin.operation;
+        if (builtin.operation === 'revoke') builtinDetails.share = { id: builtin.entityId };
+        else builtinDetails.shares = builtins.map(app => ({ id: app.entityId }));
+      } else {
+        builtinDetails.toolApp = builtin;
+        // Preserve only the validated binding, never bypass the entity-data limits.
+        const entityKey = builtin.resourceUri === AUTOMATION_APP_URI ? 'job' : 'todo';
+        builtinDetails[entityKey] = { ...(isRecord(builtinDetails[entityKey]) ? builtinDetails[entityKey] : {}), id: builtin.entityId };
+        if (record.toolName === 'automation_manage') {
+          builtinDetails.action = 'call';
+          builtinDetails.operation = builtin.operation;
+        }
+      }
+    }
+  }
   const details = isMcp
     ? projectMcpToolResultDetails(record.details as Record<string, unknown>, mode)
-    : record.details;
+    : builtinDetails ?? record.details;
   const textLimit = getTextLimit(mode);
   const content = record.content;
   let remainingText = textLimit;

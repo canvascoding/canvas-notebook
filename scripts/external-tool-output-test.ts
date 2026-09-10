@@ -214,6 +214,45 @@ async function main() {
     assert.ok(text(mutation).includes(resourceId), 'opaque camelCase identifiers are never shortened');
     assert.match(text(mutation), /change-123/);
     assert.ok(text(mutation).includes('a'.repeat(64)));
+    const { automationToolApp, todoToolApp, publicShareToolApps, readBuiltinToolAppMessages } = await import('../app/lib/tool-apps/types');
+    const entityId = '11111111-1111-4111-8111-111111111111';
+    const shares = Array.from({ length: 10 }, (_, index) => ({ id: `11111111-1111-4111-8111-${String(index).padStart(12, '0')}`, body: large }));
+    const widgetCases = [
+      { name: 'automation_manage', details: { action: 'call', operation: 'create_automation_job', job: { id: `job-${entityId}`, body: large }, toolApp: automationToolApp(`job-${entityId}`, 'builtin', 'create_automation_job') }, count: 1 },
+      { name: 'inspect_human_todo', details: { todo: { id: entityId, body: large }, toolApp: todoToolApp(entityId, 'builtin', 'inspect_human_todo') }, count: 1 },
+      { name: 'public_share_file', details: { shares, publicShareAction: 'list', toolApps: publicShareToolApps(shares, 'builtin', 'list') }, count: 10 },
+    ];
+    for (const fixture of widgetCases) {
+      const tool = wrapToolWithExecutionContext({ name: fixture.name, label: 'Builtin fixture', description: '', parameters: direct.parameters,
+        execute: async () => ({ content: [{ type: 'text', text: large }], details: fixture.details }),
+      }, identity);
+      const result = await tool.execute('builtin', {});
+      const message = { ...result, role: 'toolResult' as const, toolName: tool.name, toolCallId: 'builtin', isError: false, timestamp: 3 };
+      const display = parsePersistedPiMessage(JSON.stringify(message), 'display');
+      assert.equal(readBuiltinToolAppMessages(display).length, fixture.count, 'all authorized widget bindings survive oversized results and reload');
+      assert.ok(JSON.stringify(result.details).length < 10_000, 'widget bindings do not retain huge entities');
+      assert.doesNotMatch(JSON.stringify(projectAgentMessageForLoadedContext(message)), /toolApps?|ui:\/\/canvas\//);
+      const archive = await readStoredToolOutput(identity, getToolOutputMetadata(result.details)!.references[0].reference);
+      assert.match(archive.content, /ExactMiddleDetail/);
+      assert.doesNotMatch(archive.content, /toolApps?|ui:\/\/canvas\//);
+    }
+    const todoCalls = Array.from({ length: 6 }, (_, index) => ({ type: 'toolCall' as const, name: 'inspect_human_todo', id: `todo-medium-${index}`, arguments: {} }));
+    const todoResults = [];
+    for (const call of todoCalls) {
+      const result = await prepareToolOutput({ identity, toolCallId: call.id, toolName: call.name, result: {
+        content: [{ type: 'text', text: 'public '.repeat(1000) }], details: { todo: { id: entityId }, toolApp: todoToolApp(entityId, call.id, 'inspect_human_todo') },
+      } });
+      assert.equal(getToolOutputMetadata(result.details)?.references.length, 0);
+      todoResults.push({ ...result, role: 'toolResult' as const, toolName: call.name, toolCallId: call.id, isError: false, timestamp: 4 });
+    }
+    const todoViews = await finalizeToolOutputBlocks([{ ...piMetadataFixture, content: todoCalls }, ...todoResults],
+      { id: 'builtin-budget-test', provider: 'fixture', contextWindow: 16000 }, identity);
+    assert.doesNotMatch(JSON.stringify(todoViews), /toolApps?|ui:\/\/canvas\//);
+    for (const message of todoResults) {
+      assert.equal(readBuiltinToolAppMessages(parsePersistedPiMessage(JSON.stringify(message), 'display')).length, 1);
+      const archive = await readStoredToolOutput(identity, getToolOutputMetadata(message.details)!.references[0].reference);
+      assert.doesNotMatch(archive.content, /toolApps?|ui:\/\/canvas\//);
+    }
     console.log('external-tool-output-test: ok (mocked providers/page; real storage and adapters)');
   } finally {
     modules._load = originalLoad;

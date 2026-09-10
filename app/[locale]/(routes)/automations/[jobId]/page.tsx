@@ -7,17 +7,19 @@ import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 
 type AutomationenDetailPageProps = {
   params: Promise<{ jobId: string }>;
+  searchParams: Promise<{ edit?: string }>;
 };
 
-export default async function AutomationenDetailPage({ params }: AutomationenDetailPageProps) {
+export default async function AutomationenDetailPage({ params, searchParams }: AutomationenDetailPageProps) {
   const t = await getTranslations('automationen');
   const { jobId } = await params;
+  const initialEdit = (await searchParams).edit === '1';
   await requirePageSession();
   const initialTimeZone = await getServerPreferredTimeZone();
 
   return (
     <SuitePageLayout title={t('title')} hintEnabled={isOnboardingHintsEnabled()}>
-      <AutomationsClient initialJobId={jobId} initialTimeZone={initialTimeZone} />
+      <AutomationsClient key={`${jobId}:${initialEdit}`} initialJobId={jobId} initialEdit={initialEdit} initialTimeZone={initialTimeZone} />
     </SuitePageLayout>
   );
 }

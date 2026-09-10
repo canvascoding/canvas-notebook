@@ -35,6 +35,7 @@ import {
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import { describeFriendlyScheduleLocalized } from '@/app/lib/automations/schedule-presentation';
 import { AutomationRunDiagnostics } from './AutomationRunDiagnostics';
 import { AutomationDisclosure } from './AutomationDisclosure';
 import { AutomationTaskFields } from './AutomationTaskFields';
@@ -81,6 +82,7 @@ type AutomationListFilter = 'all' | 'active' | 'paused' | 'running' | 'attention
 type AutomationListSort = 'statusWorkspace' | 'nextRun' | 'lastRun' | 'name';
 
 type JobDraft = {
+  revision?: number;
   id: string | null;
   workspaceId: string;
   name: string;
@@ -233,6 +235,7 @@ function composioWorkspaceHeaders(workspaceId: string, json = false): HeadersIni
 
 type AutomationsClientProps = {
   initialJobId?: string | null;
+  initialEdit?: boolean;
   initialTimeZone?: string;
 };
 
@@ -836,37 +839,6 @@ function formatDateTime(value: string | null, locale: string, emptyLabel: string
   }
 }
 
-function describeFriendlyScheduleLocalized(
-  schedule: FriendlySchedule,
-  translate: (key: string, values?: Record<string, string | number>) => string,
-  weekdayLabels: Record<AutomationWeekday, string>,
-): string {
-  let summary: string;
-  if (schedule.kind === 'once') {
-    summary = translate('scheduleSummary.once', { date: schedule.date, time: schedule.time });
-  } else if (schedule.kind === 'daily') {
-    summary = translate('scheduleSummary.daily', { time: schedule.times.join(', ') });
-  } else if (schedule.kind === 'weekly') {
-    summary = translate('scheduleSummary.weekly', {
-      days: schedule.days.map((day) => weekdayLabels[day]).join(', '),
-      time: schedule.times.join(', '),
-    });
-  } else if (schedule.kind === 'monthly') {
-    summary = translate('scheduleSummary.monthly', {
-      day: schedule.dayOfMonth,
-      time: schedule.time,
-    });
-  } else if (schedule.kind === 'webhook') {
-    summary = 'Webhook';
-  } else {
-    summary = translate('scheduleSummary.interval', {
-      every: schedule.every,
-      unit: translate(`intervalUnits.${schedule.unit}`),
-    });
-  }
-
-  return translate('scheduleSummary.withTimeZone', { schedule: summary, timeZone: schedule.timeZone });
-}
 
 function formatRunStatus(status: AutomationRunStatus, translate: (key: string) => string): string {
   return translate(`runStatus.${status}`);
@@ -940,6 +912,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   const jobTimeZone = normalizeTimeZone(job.schedule.timeZone || job.timeZone);
   const draft = defaultDraft(jobTimeZone);
   draft.id = job.id;
+  draft.revision = job.revision;
   draft.workspaceId = job.workspaceId || '';
   draft.name = job.name;
   draft.prompt = job.prompt;
@@ -980,7 +953,7 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   return draft;
 }
 
-export function AutomationsClient({ initialJobId = null, initialTimeZone }: AutomationsClientProps) {
+export function AutomationsClient({ initialJobId = null, initialEdit = false, initialTimeZone }: AutomationsClientProps) {
   const t = useTranslations('automationen');
   const locale = useLocale();
   const router = useRouter();
@@ -1055,7 +1028,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshingRuns, setIsRefreshingRuns] = useState(false);
   const [isLoadingSessionMessages, setIsLoadingSessionMessages] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
+  const [isEditing, setIsEditing] = useState(initialEdit);
   const [visibleRunCount, setVisibleRunCount] = useState(5);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [runTab, setRunTab] = useState('summary');
@@ -1766,7 +1739,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         method: draft.id ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(payload),
+        body: JSON.stringify(draft.id ? { ...payload, expectedRevision: draft.revision } : payload),
       });
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || t('errors.saveJob'));
@@ -2400,7 +2373,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: selectedJob.status === 'active' ? 'paused' : 'active' }),
+        body: JSON.stringify({ status: selectedJob.status === 'active' ? 'paused' : 'active', expectedRevision: selectedJob.revision }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.saveJob'));

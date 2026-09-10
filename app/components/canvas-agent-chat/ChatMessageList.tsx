@@ -1,5 +1,7 @@
 'use client';
 
+import { ToolAppMessages } from './ToolAppMessages';
+
 import { createRef, Fragment, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Copy, ExternalLink, GitFork, Loader2, Lock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -454,8 +456,9 @@ export function ChatMessageList({
         const rawBodyContent = contentToString(message.content);
         const hasVisibleAssistantContent = rawBodyContent.trim().length > 0;
         const suppressAssistantTitle = isAssistant && hasEarlierVisibleAssistantInRun(messages, messageIndex, hiddenToolMessageIds);
-        const batchDisclosure = toolBatch && toolVerbosity !== 'minimal' ? (
-          <ToolBatchDisclosure
+        const batchDisclosure = toolBatch ? (
+          <>
+          {toolVerbosity !== 'minimal' ? <ToolBatchDisclosure
             batch={toolBatch}
             toolOutputScope={toolOutputScope}
             expanded={expandedRunKeys.has(toolBatch.key)}
@@ -463,7 +466,9 @@ export function ChatMessageList({
             onMediaClick={onMediaClick}
             onAttachmentOpen={onAttachmentOpen}
             previewGroups={toolImagePreviewGroups}
-          />
+          /> : null}
+          <ToolAppMessages batch={toolBatch} />
+          </>
         ) : null;
 
         if (hiddenToolMessageIds.has(message.id)) {

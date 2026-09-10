@@ -6,6 +6,7 @@ import type { ToolOutputMetadata } from './tool-output-metadata';
 import { headTailToolText, clipToolText } from './tool-output-format';
 import { isPreparedToolOutput, markPreparedToolOutput } from './prepared-tool-output';
 import { TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS, TOOL_OUTPUT_LARGE_RESULT_PREVIEW_CHARACTERS, TOOL_OUTPUT_POLICY_VERSION } from './tool-output-policy';
+import { AUTOMATION_APP_URI, PUBLIC_SHARE_APP_URI, readBuiltinToolAppMessages } from '@/app/lib/tool-apps/types';
 
 export type ToolOutputPreparationContext = { identity: ToolOutputIdentity | null; toolCallId: string };
 
@@ -79,19 +80,36 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   // Built-in saved reads already have exact offset budgets; never create a read loop.
   if (input.toolName === 'read' && (result.details as { toolOutputReadWindow?: unknown } | null)?.toolOutputReadWindow) return result;
   if (input.toolName === 'read' && (result.details as { toolOutputRead?: boolean } | null)?.toolOutputRead === true) return result;
+  const builtins = readBuiltinToolAppMessages({ ...result, role: 'toolResult', toolName: input.toolName, toolCallId: input.toolCallId });
+  const builtin = builtins[0];
+  let builtinDetails: Record<string, unknown> = {};
+  let modelDetails = result.details;
+  if (builtin) {
+    const { toolApp: _toolApp, toolApps: _toolApps, ...rest } = result.details as Record<string, unknown>;
+    modelDetails = rest;
+    // Keep validated entity bindings even when the original entity exceeds the
+    // generic details limit. Widget data is fetched through its authorized API.
+    if (builtin.resourceUri === PUBLIC_SHARE_APP_URI) {
+      builtinDetails = { toolApps: builtins, publicShareAction: builtin.operation,
+        ...(builtin.operation === 'revoke' ? { share: { id: builtin.entityId } } : { shares: builtins.map(app => ({ id: app.entityId })) }) };
+    } else {
+      builtinDetails = { toolApp: builtin, [builtin.resourceUri === AUTOMATION_APP_URI ? 'job' : 'todo']: { id: builtin.entityId },
+        ...(input.toolName === 'automation_manage' ? { action: 'call', operation: builtin.operation } : {}) };
+    }
+  }
   const text = result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n');
   const limit = Math.max(256, Math.min(TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS, Math.floor(input.maxChars || TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS)));
   let serialized: string;
   let detailSize: number;
   try {
-    serialized = stringify(input.raw === undefined ? result : input.raw);
+    serialized = stringify(input.raw === undefined ? { ...result, details: modelDetails } : input.raw);
     detailSize = stringify(result.details).length;
   } catch {
     const modelText = `Original output unavailable: serialization failed.\n${headTailToolText(text, Math.min(1_500, limit - 100))}`;
     return markPreparedToolOutput({ ...result, content: [
       { type: 'text', text: modelText },
       ...result.content.filter(block => block.type !== 'text'),
-    ], details: { ...compactDetails(result.details), toolOutput: {
+    ], details: { ...compactDetails(result.details), ...builtinDetails, toolOutput: {
       version: 1, policyVersion: TOOL_OUTPUT_POLICY_VERSION, rawChars: text.length, modelChars: modelText.length, storedBytes: 0,
       references: [], storageError: 'Original output could not be serialized.',
     } } });
@@ -99,7 +117,7 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   // Images remain on their separate multimodal path, not the text budget.
   let parsedText: unknown;
   try { parsedText = JSON.parse(text); } catch { parsedText = null; }
-  const outcomeValues = input.outcomeValues ?? [input.raw, parsedText, result.details];
+  const outcomeValues = input.outcomeValues ?? [input.raw, parsedText, modelDetails];
   const outcomeFields = collectOutcomeFields(outcomeValues, 3_000);
   if (text.length <= limit && detailSize <= TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS) {
     return markPreparedToolOutput({ ...result, details: {
@@ -142,6 +160,6 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   metadata.modelChars = modelText.length;
   return markPreparedToolOutput({ ...result,
     content: [{ type: 'text', text: modelText }, ...result.content.filter(block => block.type !== 'text')],
-    details: { ...compactDetails(result.details), toolOutput: metadata },
+    details: { ...compactDetails(result.details), ...builtinDetails, toolOutput: metadata },
   });
 }

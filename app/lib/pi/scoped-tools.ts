@@ -22,8 +22,9 @@ import {
   getAutomationJob,
   listAutomationJobs,
   scheduleAutomationJobRun,
-  updateAutomationJob,
 } from '@/app/lib/automations/store';
+import { updateAutomationJobForUser } from '@/app/lib/automations/job-actions';
+import { automationToolApp, publicShareToolApps } from '@/app/lib/tool-apps/types';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import {
   type AutomationIntervalUnit,
@@ -320,7 +321,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
             limit: 100,
             baseUrl: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || null,
           });
-          return { content: [{ type: 'text', text: formatPublicShares(shares) }], details: { shares } };
+          return { content: [{ type: 'text', text: formatPublicShares(shares) }], details: { shares, publicShareAction: p.action, toolApps: publicShareToolApps(shares, _toolCallId, p.action) } };
         }
 
         if (p.action === 'revoke') {
@@ -334,7 +335,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
           });
           if (!share) throw new Error(`Public share not found: ${p.shareId}`);
           clearFileTreeCache();
-          return { content: [{ type: 'text', text: `Public share revoked:\n${formatPublicShares([share])}` }], details: { share } };
+          return { content: [{ type: 'text', text: `Public share revoked:\n${formatPublicShares([share])}` }], details: { share, publicShareAction: p.action, toolApps: publicShareToolApps([share], _toolCallId, p.action) } };
         }
 
         if (p.action === 'create') {
@@ -363,7 +364,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
               ? `Skipped:\n${result.skipped.map((item) => `- ${item.path}: ${item.reason}`).join('\n')}`
               : null,
           ].filter(Boolean).join('\n\n');
-          return { content: [{ type: 'text', text }], details: result };
+          return { content: [{ type: 'text', text }], details: { ...result, publicShareAction: p.action, toolApps: publicShareToolApps(result.shares, _toolCallId, p.action) } };
         }
 
         throw new Error('action must be list, create, or revoke.');
@@ -1330,7 +1331,7 @@ export function createUserScopedTools(
           const job = await getUserOwnedAutomationJob(scopedUserId, jobId);
           return {
             content: [{ type: 'text', text: formatAutomationJob(job, { includeFullPrompt: true }) }],
-            details: { job },
+            details: { job, toolApp: automationToolApp(job.id, toolCallId, 'inspect_automation_job') },
           };
         } catch (error: unknown) {
           const message = getErrorMessage(error);
@@ -1393,7 +1394,7 @@ export function createUserScopedTools(
           );
           return {
             content: [{ type: 'text', text: `Automation job created successfully\n\n${formatAutomationJob(job, { includeFullPrompt: true })}` }],
-            details: { job },
+            details: { job, toolApp: automationToolApp(job.id, toolCallId, 'create_automation_job') },
           };
         } catch (error: unknown) {
           const message = getErrorMessage(error);
@@ -1459,18 +1460,18 @@ export function createUserScopedTools(
             throw new Error('Automation changed since inspection. Inspect the automation again before updating.');
           }
           const preferredTimeZone = await getServerPreferredTimeZone();
-          const updatedJob = await updateAutomationJob(jobId, {
+          const updatedJob = await updateAutomationJobForUser(jobId, {
             name: normalizeOptionalString(name)?.slice(0, 120),
             prompt: normalizedPrompt,
             status: normalizeAutomationStatus(status),
             schedule: schedule ? normalizeAutomationSchedule(schedule, existingJob.timeZone || preferredTimeZone) : undefined,
-          }, { actorUserId: scopedUserId });
+          }, scopedUserId, { expectedRevision: existingJob.revision });
           if (!updatedJob) {
             throw new Error(`Automation job "${jobId}" not found.`);
           }
           return {
             content: [{ type: 'text', text: `Automation job updated successfully\n\n${formatAutomationJob(updatedJob, { includeFullPrompt: true })}` }],
-            details: { job: updatedJob },
+            details: { job: updatedJob, toolApp: automationToolApp(updatedJob.id, toolCallId, 'update_automation_job') },
           };
         } catch (error: unknown) {
           const message = getErrorMessage(error);

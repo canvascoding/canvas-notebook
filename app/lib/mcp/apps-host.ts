@@ -11,13 +11,16 @@ import { isMcpAppFrameHost, isMcpAppsEnabled, mcpAppOrigins } from '@/app/lib/mc
 import { isMcpAppResourceMimeType } from '@/app/lib/mcp/apps-metadata';
 import { readMcpAppResource } from '@/app/lib/mcp/manager';
 import type { McpAppInvocationDetails } from '@/app/lib/mcp/apps-types';
+import type { BuiltinToolAppDescriptor } from '@/app/lib/tool-apps/types';
+import { requireBuiltinToolAppAccess } from '@/app/lib/tool-apps/builtin-access';
+import { readBuiltinToolAppResource } from '@/app/lib/tool-apps/registry';
 
 type AppDescriptor = McpAppInvocationDetails['mcpApp'];
 export type McpAppChat = { userId: string; sessionId: string; agentId: string };
 type AppTicket = McpAppChat & {
   authSessionId: string;
-  app: AppDescriptor;
-  authVersion: number;
+  app: AppDescriptor | BuiltinToolAppDescriptor;
+  authVersion?: number;
   workspaceId: string;
   html: string;
   expiresAt: number;
@@ -73,6 +76,22 @@ export async function issueMcpAppTicket(input: McpAppChat & {
   if (!content || !('text' in content) || typeof content.text !== 'string' || Buffer.byteLength(content.text) > MAX_HTML_BYTES) {
     throw new McpAccessError('The app does not provide a supported, bounded HTML resource.', 422);
   }
+  return storeAppTicket({ ...input, workspaceId, html: content.text, authVersion: connection.authVersion ?? 1 });
+}
+
+export async function issueBuiltinToolAppTicket(input: McpAppChat & {
+  authSessionId: string; authSessionExpiresAt: Date | string; app: BuiltinToolAppDescriptor;
+}) {
+  if (!isMcpAppsEnabled()) throw new McpAccessError('Widgets are disabled.', 404);
+  const workspaceId = await requireMcpAppChatAccess(input);
+  const data = await requireBuiltinToolAppAccess(input, input.app);
+  const html = await readBuiltinToolAppResource(input.app);
+  if (Buffer.byteLength(html) > MAX_HTML_BYTES) throw new McpAccessError('Widget is too large.', 422);
+  return { ...storeAppTicket({ ...input, workspaceId, html }),
+    result: { content: [], structuredContent: data } };
+}
+
+function storeAppTicket(input: Omit<AppTicket, 'expiresAt'> & { authSessionExpiresAt: Date | string }) {
   const now = Date.now();
   const expiresAt = Math.min(now + TICKET_TTL_MS, new Date(input.authSessionExpiresAt).getTime());
   if (!Number.isFinite(expiresAt) || expiresAt <= now) throw new McpAccessError('Sign in again.', 401);
@@ -83,8 +102,8 @@ export async function issueMcpAppTicket(input: McpAppChat & {
   const ticket = randomBytes(32).toString('base64url');
   tickets().set(ticketHash(ticket), {
     userId: input.userId, sessionId: input.sessionId, agentId: input.agentId,
-    authSessionId: input.authSessionId, app: input.app, workspaceId,
-    authVersion: connection.authVersion ?? 1, html: content.text, expiresAt,
+    authSessionId: input.authSessionId, app: input.app, workspaceId: input.workspaceId,
+    authVersion: input.authVersion, html: input.html, expiresAt,
   });
   const { frameOrigin } = mcpAppOrigins();
   return { frameUrl: `${frameOrigin}/__preview/${ticket}/mcp-app/frame`, frameOrigin };
@@ -101,8 +120,13 @@ async function resolveMcpAppTicket(ticket: string): Promise<AppTicket | null> {
     eq(authSessions.id, record.authSessionId), eq(authSessions.userId, record.userId), gt(authSessions.expiresAt, new Date()),
   ) });
   if (!session) return null;
-  const { connection } = await assertMcpConnectionAccess(record.app.connectionId, { userId: record.userId });
-  if (connection.authVersion !== record.authVersion || await requireMcpAppChatAccess(record) !== record.workspaceId) return null;
+  if (await requireMcpAppChatAccess(record) !== record.workspaceId) return null;
+  if ('kind' in record.app) {
+    await requireBuiltinToolAppAccess(record, record.app);
+  } else {
+    const { connection } = await assertMcpConnectionAccess(record.app.connectionId, { userId: record.userId });
+    if (connection.authVersion !== record.authVersion) return null;
+  }
   return record;
 }
 

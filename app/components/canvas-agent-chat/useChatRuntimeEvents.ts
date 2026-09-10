@@ -875,13 +875,10 @@ export function useChatRuntimeEvents({
       const { toolCallId, text } = event;
       upsertToolMessage({
         toolCallId,
+        content: text,
         status: 'sent',
         type: 'tool_result',
-        piMessage: {
-          role: 'toolResult',
-          content: text ? [{ type: 'text', text }] : [],
-          timestamp: Date.now(),
-        } as AgentMessage,
+        // Legacy text events must not replace the rich tool_execution_end result.
       });
       return;
     }

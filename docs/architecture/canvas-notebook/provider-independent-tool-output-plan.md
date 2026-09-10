@@ -1,6 +1,16 @@
 # Providerunabhängige Web- und Tool-Ausgaben
 
-Stand: 2026-09-09. Planungsgrundlage: Canvas Notebook `caba97d5`, lokales Hermes-Repo `f293e7206b`. Schritte 1 bis 6 sind als Code umgesetzt. Automatisierte Abnahme und verbleibende Prüfgrenzen sind unten dokumentiert.
+Stand: 2026-09-10. Planungsgrundlage: Canvas Notebook `caba97d5`, lokales Hermes-Repo `f293e7206b`. Schritte 1 bis 6 sind als Code umgesetzt. Automatisierte Abnahme und verbleibende Prüfgrenzen sind unten dokumentiert.
+
+## Integration mit aktuellem main
+
+- Die zwischenzeitlichen Änderungen bis `247f699d` sind integriert: Pi SDK 0.85.1, aktuelle MCP-Verbindungsmetadaten und Zugriffsprüfungen, MCP Apps sowie interne Tool-Widgets. Live-Chat, Automation und Delegation verwenden weiterhin dieselben Ausgabe- und Payload-Budgets. Abbruchprüfungen vor und nach dem Workspace-Refresh verhindern einen zusätzlichen Provider-Aufruf nach Abbruch; der echte SDK-Loop ist dabei getestet.
+- MCP direkt und Proxy bewahren den bestehenden, auf 2 MiB begrenzten Widget-Payload ausschließlich für die Darstellung. Dies ist eine gezielte Ausnahme vom Verzicht auf große UI-Details. Private `_meta`-Felder und Widget-Deskriptoren gelangen weder in die Modellvorschau noch in agentenlesbare Originaldateien, auch wenn mehrere mittlere Ergebnisse erst an der Blockgrenze ausgelagert werden.
+- Interne Automation-, Todo- und Freigabekarten behalten bei großen Ergebnissen nur validierte Karten- und Objektkennungen. Die autorisierten Widget-Endpunkte laden die aktuellen Objektdaten. Zehn Freigabekarten, große Automation-/Todo-Ergebnisse, Wiederaufnahme und nachträgliche Block-Auslagerung sind zusätzlich über die gemeinsame Tool-Aufbereitung geprüft.
+- Die neu auf `main` vorhandene isolierte PostgreSQL-Testengine ermöglicht inzwischen auch die zuvor fehlenden Persistenzprüfungen. Message-Projection-/Metadata-Roundtrip, Chat-Fork und Automation-History-Kompaktion bestehen damit. Auch die vorhandene MCP-Direct-Suite besteht mit dem aktualisierten SDK. Diese Ergebnisse ersetzen die entsprechenden Einschränkungen des ursprünglichen Prüfstands unten.
+- SDK-Verträge, reale Provider-Serializer, Server-Imports, MCP direkt/Proxy/Apps, interne Tool-Widgets, externe Ausgabeadapter, Blockbudgets, Nachlesevorschau und Typecheck/Lint bestehen auf dem zusammengeführten Stand. Die Providerkommunikation verwendet Testtransporte; es werden keine Live-Provider oder Benutzerkonten angesprochen.
+- Abschließender Produktionsbuild auf dem integrierten Stand: `npm run build` erfolgreich, einschließlich Tool-Widget-Artefakten, Lizenzprüfung, TypeScript und 338 statischen Seiten. Die vorhandenen lokalen MCP-OAuth-Konfigurations- und Yjs-Importwarnungen bleiben sichtbar; hierfür wurden keine lokalen Einstellungen verändert.
+- Unverändert ausgenommen: interaktive UI-/E2E-Abnahme, Container-Builds und vollständiger PostgreSQL-Backup/Restore. Nutzerfreigabe: nur Code und automatisierte Tests.
 
 ## Umsetzungsstand
 

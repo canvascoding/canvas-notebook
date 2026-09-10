@@ -19,6 +19,7 @@ async function archiveDraft(draft: ToolOutputViewDraft, identity: ToolOutputIden
     if (!metadata || metadata.references.length || metadata.storageError) return;
     const details = { ...(message.details as Record<string, unknown>) };
     delete details.toolOutput; delete details.toolOutputView;
+    delete details.toolApp; delete details.toolApps;
     if (details.mcpApp || (details.result && message.toolName.toLowerCase().includes('mcp'))) {
       delete details.mcpApp; delete details.mcpToolInput;
       if (details.result !== undefined) details.result = stripMcpModelMetadata(details.result);

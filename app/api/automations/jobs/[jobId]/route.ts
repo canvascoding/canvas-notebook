@@ -7,11 +7,12 @@ import {
 } from '@/app/lib/automations/api';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { presentAutomationJobForViewer } from '@/app/lib/automations/presentation';
-import { deleteAutomationJob, getAutomationJob, updateAutomationJob } from '@/app/lib/automations/store';
+import { deleteAutomationJob, getAutomationJob } from '@/app/lib/automations/store';
+import { updateAutomationJobForUser } from '@/app/lib/automations/job-actions';
 import type { AutomationJobRecord } from '@/app/lib/automations/types';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { resolveBoundComposioContext } from '@/app/lib/composio/composio-context';
-import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
+import { deleteGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
@@ -67,59 +68,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const payload = await request.json();
     const { jobId } = await context.params;
-    const existing = await getAutomationJob(jobId);
-    if (!existing) {
-      return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
-    }
-    try {
-      await assertCanAccessAutomationJob(session.user.id, existing);
-    } catch {
-      return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
-    }
-    if (payload && typeof payload === 'object' && !Array.isArray(payload) && ('scope' in payload || 'workspaceId' in payload)) {
-      return NextResponse.json(
-        { success: false, error: 'Automation scope and workspace cannot be changed after creation.' },
-        { status: 400 },
-      );
-    }
-    if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
-      if (cannotManagePrivateComposioConnection(existing, session.user.id)) {
-        return NextResponse.json({
-          success: false,
-          error: 'Only the user responsible for this automation can change its private Composio trigger.',
-        }, { status: 409 });
-      }
-      const composioContext = await resolveBoundComposioContext({
-        userId: composioResponsibleUserId(existing),
-        workspaceId: existing.workspaceId,
-        profileId: existing.composioProfileId,
-        composioUserId: existing.composioUserId,
-      });
-      await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, composioContext);
-    }
-    const updated = await updateAutomationJob(jobId, payload, { actorUserId: session.user.id });
-    if (!updated) {
-      return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
-    }
-    await recordAuditEvent({
-      organizationId: updated.organizationId,
-      workspaceId: updated.workspaceId,
-      userId: session.user.id,
-      agentId: updated.agentId,
-      source: 'automations',
-      eventType: 'automation',
-      entityType: 'automation_job',
-      entityId: updated.id,
-      action: 'automation_job.update',
-      status: 'success',
-      summary: `Automation job ${updated.id} updated.`,
-      metadata: {
-        scope: updated.scope,
-        jobScope: updated.jobScope,
-        status: updated.status,
-        changedFields: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
-      },
-    });
+    const { expectedRevision, ...input } = payload && typeof payload === 'object' && !Array.isArray(payload)
+      ? payload : { expectedRevision: undefined };
+    const updated = await updateAutomationJobForUser(jobId, payload && typeof payload === 'object' && !Array.isArray(payload) ? input : payload,
+      session.user.id, { expectedRevision });
     return NextResponse.json({
       success: true,
       data: presentAutomationJobForViewer(updated, session.user.id),
