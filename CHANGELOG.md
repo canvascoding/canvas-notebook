@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.9.10.8] - 2026-09-10
+## [2026.9.10.9] - 2026-09-10
 
 ### Added
 
@@ -39,6 +39,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Fixed update rollback coverage for mandatory PostgreSQL preflight and made its deadline checks deterministic.
 - Terminated the complete image-pull process tree when an update deadline expires, including child processes on Linux hosts.
 - Unified the local and GitHub release safety gates so tags cannot bypass CLI update and artifact verification.
+- Hardened the Linux deadline test with a canonical managed-Postgres fixture and a longer simulated image-pull hang.
 
 ### Verification
 
