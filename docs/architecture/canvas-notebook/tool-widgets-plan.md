@@ -2,7 +2,7 @@
 
 Stand: 10. September 2026. Basis: `main` bei `4c55fb97` nach PR #138 und #139.
 Status: in Umsetzung. Dieses Dokument ersetzt den vor dem Main-Update erstellten
-Entwurf. Arbeitspakete 1–2 sind implementiert; Codeprüfungen bestehen. Pakete 3–5
+Entwurf. Arbeitspakete 1–3 sind implementiert; Codeprüfungen bestehen. Pakete 4–5
 und die Browserabnahme sind offen.
 
 ## Ziel und erster Lieferumfang
@@ -120,21 +120,21 @@ Sandbox- und Freigabegrenzen bleiben wirksam.
 
 ### 3. Widgets sichtbar und zuverlässig im Chat verankern
 
-- [ ] Widget-Ausgabe aus `ToolCallPill` herauslösen. `ChatMessageList` platziert sie
+- [x] Widget-Ausgabe aus `ToolCallPill` herauslösen. `ChatMessageList` platziert sie
   unabhängig von `ToolBatchDisclosure` und `hiddenToolMessageIds`.
-- [ ] Eine stabile Instanzkennung aus Chat und Tool-Aufruf verwenden. Mehrere
+- [x] Eine stabile Instanzkennung aus Chat und Tool-Aufruf verwenden. Mehrere
   Aufrufe desselben Tools erzeugen getrennte Karten; wiederholte Events erzeugen
   keine zusätzlichen Karten. Innerhalb einer Tool-Gruppe Aufrufreihenfolge erhalten.
-- [ ] Live-Updates, finales Nachrichtensynchronisieren und gespeicherten Verlauf
+- [x] Live-Updates, finales Nachrichtensynchronisieren und gespeicherten Verlauf
   durch dieselbe Normalisierung führen. Gateway-Aufrufe anhand der tatsächlichen
   `details.operation` erkennen, nicht nur am äußeren Tool-Namen.
-- [ ] Bestehende Display-/Kontext-/Persistenzprojektionen gezielt erweitern:
+- [x] Bestehende Display-/Kontext-/Persistenzprojektionen gezielt erweitern:
   registrierte Referenz und begrenzte Anzeigedaten bleiben gültig; UI-Metadaten
   gelangen nicht automatisch in den Modellkontext. Bestehende Sicherheitsfilter
   dürfen für interne Job-Daten nicht pauschal umgangen werden.
-- [ ] Nur sichtbare Widgets aktiv halten und bestehende Ticketlimits beachten.
+- [x] Nur sichtbare Widgets aktiv halten und bestehende Ticketlimits beachten.
   Resize erhält den Scrollanker; Schließen/Wechseln räumt Bridge und Anfragen auf.
-- [ ] Alte Nachrichten, unbekannte Versionen, übergroße Daten und Clients ohne
+- [x] Alte Nachrichten, unbekannte Versionen, übergroße Daten und Clients ohne
   Widget-Host behalten einen verständlichen Text-Fallback. Teilen und Export
   erweitern keine Datenberechtigungen und übernehmen keine aktiven Tickets.
 
@@ -215,3 +215,8 @@ Reconnect-Hinweise und profitieren von derselben verbesserten Chat-Platzierung.
 - Paket 2: Widget-Bundle (837 KiB), Daten-/HTML-Strukturprüfung, bestehende
   Host-Tests, TypeScript und gezieltes ESLint. Die Browserabnahme bleibt in Paket 5
   offen; die Freigabe für UI-Automation wurde angefragt.
+
+- Paket 3: gemeinsame Live-/Verlaufsprojektion, Deduplizierung und Frame-Budget;
+  interne Projektionstests, Chat-Gruppierung, MCP-Projektion, Pi-Persistenz-/
+  Kontexttests, TypeScript und gezieltes ESLint bestanden. Größenänderungen
+  verwenden das bestehende Bottom-Lock-Verhalten; inaktive Karten behalten ihre Höhe.

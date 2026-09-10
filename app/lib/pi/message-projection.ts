@@ -1,4 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { readBuiltinToolAppMessage } from '@/app/lib/tool-apps/types';
 
 export type PiMessageProjectionMode = 'raw' | 'context' | 'display';
 
@@ -225,9 +226,25 @@ function compactToolResultMessage(
 ): AgentMessage {
   const record = message as unknown as Record<string, unknown>;
   const isMcp = isMcpToolResultDetails(record.details, record.toolName);
+  const builtin = readBuiltinToolAppMessage(record);
+  const hasBuiltinMetadata = isRecord(record.details) && 'toolApp' in record.details;
+  let builtinDetails: Record<string, unknown> | undefined;
+  if (hasBuiltinMetadata) {
+    const { toolApp: _toolApp, ...rest } = record.details as Record<string, unknown>;
+    builtinDetails = compactDetailsValue(rest) as Record<string, unknown>;
+    if (mode === 'display' && builtin) {
+      builtinDetails.toolApp = builtin;
+      // Preserve only the validated binding, never bypass the normal job-data limits.
+      builtinDetails.job = { ...(isRecord(builtinDetails.job) ? builtinDetails.job : {}), id: builtin.entityId };
+      if (record.toolName === 'automations') {
+        builtinDetails.action = 'call';
+        builtinDetails.operation = builtin.operation;
+      }
+    }
+  }
   const details = isMcp
     ? projectMcpToolResultDetails(record.details as Record<string, unknown>, mode)
-    : record.details;
+    : builtinDetails ?? record.details;
   const textLimit = getTextLimit(mode);
   const content = record.content;
   let remainingText = textLimit;

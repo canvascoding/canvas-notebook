@@ -111,6 +111,7 @@ function projectMessageSegment(
 ) {
   const assignedMessageIds = new Set<string>();
   const toolMessagesByCallId = new Map<string, ChatMessage>();
+  const assignedCallIds = new Set<string>();
 
   for (let index = start; index < end; index += 1) {
     const message = messages[index];
@@ -121,7 +122,11 @@ function projectMessageSegment(
 
   for (let index = start; index < end; index += 1) {
     const message = messages[index];
-    const toolCalls = getAssistantToolCalls(message);
+    const toolCalls = getAssistantToolCalls(message).filter((call) => {
+      if (assignedCallIds.has(call.id)) return false;
+      assignedCallIds.add(call.id);
+      return true;
+    });
     if (toolCalls.length === 0) {
       continue;
     }
@@ -143,6 +148,8 @@ function projectMessageSegment(
 
   for (let index = start; index < end; index += 1) {
     const message = messages[index];
+    if (message.role === 'toolResult' && message.toolCallId
+      && toolMessagesByCallId.get(message.toolCallId)?.id !== message.id) continue;
     if (message.role === 'toolResult' && !assignedMessageIds.has(message.id)) {
       fallbackMessages.push(message);
       continue;
