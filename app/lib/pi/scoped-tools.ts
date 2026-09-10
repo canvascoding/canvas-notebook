@@ -24,7 +24,7 @@ import {
   scheduleAutomationJobRun,
 } from '@/app/lib/automations/store';
 import { updateAutomationJobForUser } from '@/app/lib/automations/job-actions';
-import { automationToolApp } from '@/app/lib/tool-apps/types';
+import { automationToolApp, publicShareToolApps } from '@/app/lib/tool-apps/types';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import {
   type AutomationIntervalUnit,
@@ -321,7 +321,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
             limit: 100,
             baseUrl: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || null,
           });
-          return { content: [{ type: 'text', text: formatPublicShares(shares) }], details: { shares } };
+          return { content: [{ type: 'text', text: formatPublicShares(shares) }], details: { shares, publicShareAction: p.action, toolApps: publicShareToolApps(shares, _toolCallId, p.action) } };
         }
 
         if (p.action === 'revoke') {
@@ -335,7 +335,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
           });
           if (!share) throw new Error(`Public share not found: ${p.shareId}`);
           clearFileTreeCache();
-          return { content: [{ type: 'text', text: `Public share revoked:\n${formatPublicShares([share])}` }], details: { share } };
+          return { content: [{ type: 'text', text: `Public share revoked:\n${formatPublicShares([share])}` }], details: { share, publicShareAction: p.action, toolApps: publicShareToolApps([share], _toolCallId, p.action) } };
         }
 
         if (p.action === 'create') {
@@ -364,7 +364,7 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
               ? `Skipped:\n${result.skipped.map((item) => `- ${item.path}: ${item.reason}`).join('\n')}`
               : null,
           ].filter(Boolean).join('\n\n');
-          return { content: [{ type: 'text', text }], details: result };
+          return { content: [{ type: 'text', text }], details: { ...result, publicShareAction: p.action, toolApps: publicShareToolApps(result.shares, _toolCallId, p.action) } };
         }
 
         throw new Error('action must be list, create, or revoke.');

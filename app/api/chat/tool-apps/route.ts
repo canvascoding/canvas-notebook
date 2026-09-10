@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { McpAccessError, mcpErrorStatus } from '@/app/lib/mcp/access';
 import { isMcpAppsEnabled, mcpAppOrigins } from '@/app/lib/mcp/apps-config';
-import { issueBuiltinToolAppTicket } from '@/app/lib/mcp/apps-host';
+import { issueBuiltinToolAppTicket, requireMcpAppChatAccess } from '@/app/lib/mcp/apps-host';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { AUTOMATION_APP_URI, readBuiltinToolAppDescriptor } from '@/app/lib/tool-apps/types';
+import { requireBuiltinToolAppAccess } from '@/app/lib/tool-apps/builtin-access';
 import { readBoundedWidgetJson } from '@/app/lib/tool-apps/request';
 import { AutomationMutationError } from '@/app/lib/automations/mutation-errors';
 
@@ -22,11 +23,14 @@ export async function POST(request: NextRequest) {
     if (!limited.ok) return limited.response;
     const body = await readBoundedWidgetJson(request, 8192);
     const app = readBuiltinToolAppDescriptor(body?.app);
-    if (!app || (body.action !== 'render' && body.action !== 'status')) throw new McpAccessError('Invalid widget action.', 400);
+    if (!app || (body.action !== 'render' && body.action !== 'status' && body.action !== 'refresh')) throw new McpAccessError('Invalid widget action.', 400);
     const chat = { userId: session.user.id, sessionId: typeof body.sessionId === 'string' ? body.sessionId : '',
       agentId: typeof body.agentId === 'string' ? body.agentId : '' };
     let data;
-    if (body.action === 'status') {
+    if (body.action === 'refresh') {
+      await requireMcpAppChatAccess(chat);
+      data = await requireBuiltinToolAppAccess(chat, app);
+    } else if (body.action === 'status') {
       if (app.resourceUri !== AUTOMATION_APP_URI || (body.status !== 'active' && body.status !== 'paused') || !Number.isSafeInteger(body.expectedRevision) || Number(body.expectedRevision) < 1
         || typeof body.expectedUpdatedAt !== 'string' || body.expectedUpdatedAt.length > 40 || !Number.isFinite(Date.parse(body.expectedUpdatedAt))) {
         throw new McpAccessError('Invalid automation status or revision.', 400);

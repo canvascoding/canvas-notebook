@@ -16,7 +16,7 @@ const fonts = await Promise.all([['Regular', 400], ['Bold', 700]].map(async ([fa
   return `@font-face{font-family:CanvasWidgetSans;font-weight:${weight};font-display:swap;src:url(data:font/ttf;base64,${data.toString('base64')}) format('truetype')}`;
 }));
 await mkdir(output, { recursive: true });
-for (const [entry, title] of [['automation-job', 'Canvas Automation'], ['human-todo', 'Canvas Todo']]) {
+for (const [entry, title] of [['automation-job', 'Canvas Automation'], ['human-todo', 'Canvas Todo'], ['public-share', 'Canvas Public Link']]) {
   const result = await build({ entryPoints: [path.join(root, `app/tool-widgets/${entry}.tsx`)],
     bundle: true, format: 'iife', platform: 'browser', write: false, minify: true,
     define: { 'process.env.NODE_ENV': '"production"', '__CANVAS_WIDGET_MESSAGES__': JSON.stringify(widgetMessages) } });

@@ -920,6 +920,20 @@ function matchesTypeFilter(row: PublicShareRow, type: PublicShareTypeFilter): bo
   return !mime.startsWith('image/') && !mime.startsWith('video/') && !mime.startsWith('audio/') && mime !== 'application/pdf' && !mime.includes('text/html');
 }
 
+/** Resolve one link within an already authorized workspace, using list visibility rules. */
+export async function getPublicFileShareForUser(params: {
+  id: string; userId: string; workspace: WorkspaceContext; baseUrl?: string | null;
+}): Promise<PublicShareDto | null> {
+  if (!params.workspace.permissions.canRead) throw new Error('Forbidden');
+  const [row] = await db.select().from(publicFileShares).where(and(
+    eq(publicFileShares.id, params.id), workspaceScopePredicate(params.workspace),
+  )).limit(1);
+  if (!row || !workspaceMatches(row, params.workspace)) return null;
+  if (row.createdByUserId !== params.userId && !canManageOtherWorkspaceShare(row, params.workspace)) throw new Error('Forbidden');
+  const current = await reconcileRow(row);
+  return toDto(current, params.baseUrl, params.workspace.displayName ?? null);
+}
+
 export async function listPublicFileShares(params: {
   userId: string;
   workspace?: WorkspaceContext | null;

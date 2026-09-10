@@ -136,7 +136,7 @@
     "test:mcp:oauth": "tsx --conditions react-server scripts/mcp-oauth-test.ts",
     "test:mcp:member-access": "tsx --conditions react-server scripts/mcp-member-access-test.ts",
     "test:mcp:apps": "tsx --conditions react-server scripts/mcp-apps-test.ts",
-    "test:tool-apps": "npm run build:tool-apps && tsx --conditions react-server scripts/tool-apps-access-test.ts && tsx scripts/tool-apps-data-test.ts && tsx --conditions react-server scripts/tool-apps-projection-test.ts && tsx --conditions react-server scripts/tool-apps-automation-test.ts && tsx --conditions react-server scripts/tool-apps-todo-test.ts",
+    "test:tool-apps": "npm run build:tool-apps && tsx --conditions react-server scripts/tool-apps-access-test.ts && tsx scripts/tool-apps-data-test.ts && tsx --conditions react-server scripts/tool-apps-projection-test.ts && tsx --conditions react-server scripts/tool-apps-automation-test.ts && tsx --conditions react-server scripts/tool-apps-todo-test.ts && tsx --conditions react-server scripts/tool-apps-public-share-test.ts",
     "test:mcp:apps-host": "tsx --conditions react-server scripts/mcp-apps-config-test.ts && tsx --conditions react-server scripts/mcp-apps-host-test.ts",
     "test:mcp:message-projection": "tsx --conditions react-server scripts/mcp-message-projection-test.ts",
     "test:mcp:api-routes": "tsx --conditions react-server scripts/mcp-api-routes-test.ts",

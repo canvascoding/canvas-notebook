@@ -2,6 +2,7 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, ExternalLink, FileText, Filter, Globe2, Loader2, Menu, RefreshCw, Search, ShieldAlert, XCircle } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
@@ -92,6 +93,7 @@ function primaryShareUrl(share: PublicShare) {
 
 export function PublicSharesClient() {
   const t = useTranslations('security.publicShares');
+  const searchParams = useSearchParams();
   const { data: session } = authClient.useSession();
   const sequence = useRef(0);
   const [loadedKey, setLoadedKey] = useState('');
@@ -99,8 +101,18 @@ export function PublicSharesClient() {
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const [shares, setShares] = useState<PublicShare[]>([]);
-  const [query, setQuery] = useState('');
-  const [status, setStatus] = useState<StatusFilter>('active');
+  const [query, setQuery] = useState(() => searchParams.get('q')?.slice(0, 4096) || '');
+  const [status, setStatus] = useState<StatusFilter>(() => searchParams.get('status') === 'all' ? 'all' : 'active');
+  const requestedQuery = searchParams.get('q');
+  const requestedStatus = searchParams.get('status');
+  useEffect(() => {
+    if (requestedQuery === null && requestedStatus === null) return;
+    const timer = setTimeout(() => {
+      setQuery(requestedQuery?.slice(0, 4096) || '');
+      setStatus(requestedStatus === 'all' ? 'all' : 'active');
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [requestedQuery, requestedStatus]);
   const [type, setType] = useState<TypeFilter>('all');
   const [source, setSource] = useState<SourceFilter>('all');
   const [loading, setLoading] = useState(true);

@@ -3,6 +3,11 @@ import type { McpAppInvocationDetails } from '@/app/lib/mcp/apps-types';
 export const AUTOMATION_APP_URI = 'ui://canvas/automation-job/v1';
 export const AUTOMATION_APP_OPERATIONS = ['create_automation_job', 'inspect_automation_job', 'update_automation_job'] as const;
 export type AutomationAppOperation = typeof AUTOMATION_APP_OPERATIONS[number];
+export const PUBLIC_SHARE_APP_URI = 'ui://canvas/public-share/v1';
+export const PUBLIC_SHARE_APP_OPERATIONS = ['create', 'list', 'revoke'] as const;
+export type PublicShareAppOperation = typeof PUBLIC_SHARE_APP_OPERATIONS[number];
+export const MAX_BUILTIN_TOOL_APPS = 10;
+
 export const TODO_APP_URI = 'ui://canvas/human-todo/v1';
 export const TODO_APP_OPERATIONS = ['create_human_todo', 'inspect_human_todo', 'update_human_todo'] as const;
 export type TodoAppOperation = typeof TODO_APP_OPERATIONS[number];
@@ -16,6 +21,7 @@ type BuiltinToolAppBinding = {
 export type BuiltinToolAppDescriptor = BuiltinToolAppBinding & (
   { resourceUri: typeof AUTOMATION_APP_URI; operation: AutomationAppOperation }
   | { resourceUri: typeof TODO_APP_URI; operation: TodoAppOperation }
+  | { resourceUri: typeof PUBLIC_SHARE_APP_URI; operation: PublicShareAppOperation }
 );
 
 export function automationToolApp(entityId: string, toolCallId: string, operation: AutomationAppOperation): BuiltinToolAppDescriptor {
@@ -24,6 +30,13 @@ export function automationToolApp(entityId: string, toolCallId: string, operatio
 
 export function todoToolApp(entityId: string, toolCallId: string, operation: TodoAppOperation): BuiltinToolAppDescriptor {
   return { kind: 'builtin', version: 1, resourceUri: TODO_APP_URI, entityId, toolCallId, operation };
+}
+
+/** One bounded, deduplicated card per returned public link. */
+export function publicShareToolApps(shares: Array<{ id: string }>, toolCallId: string, operation: PublicShareAppOperation): BuiltinToolAppDescriptor[] {
+  return [...new Set(shares.map(share => share.id))].slice(0, MAX_BUILTIN_TOOL_APPS).map(entityId => ({
+    kind: 'builtin', version: 1, resourceUri: PUBLIC_SHARE_APP_URI, entityId, toolCallId, operation,
+  }));
 }
 
 export type ToolAppInvocation = {
@@ -52,21 +65,49 @@ export function readBuiltinToolAppDescriptor(value: unknown): BuiltinToolAppDesc
     && TODO_APP_OPERATIONS.includes(value.operation as TodoAppOperation)) {
     return todoToolApp(value.entityId, value.toolCallId, value.operation as TodoAppOperation);
   }
+  if (value.resourceUri === PUBLIC_SHARE_APP_URI && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu.test(value.entityId)
+    && PUBLIC_SHARE_APP_OPERATIONS.includes(value.operation as PublicShareAppOperation)) {
+    return publicShareToolApps([{ id: value.entityId }], value.toolCallId, value.operation as PublicShareAppOperation)[0];
+  }
   return null;
 }
 
-/** Only genuine successful Canvas operations may bind an internal widget. */
-export function readBuiltinToolAppMessage(value: unknown): BuiltinToolAppDescriptor | null {
+/** Only genuine successful Canvas operations may bind internal widgets. */
+export function readBuiltinToolAppMessages(value: unknown): BuiltinToolAppDescriptor[] {
   if (!isToolAppRecord(value) || value.role !== 'toolResult' || value.isError
-    || !isToolAppRecord(value.details) || value.details.error) return null;
-  const descriptor = readBuiltinToolAppDescriptor(value.details.toolApp);
-  if (!descriptor || descriptor.toolCallId !== value.toolCallId) return null;
-  const operation = descriptor.resourceUri === AUTOMATION_APP_URI && value.toolName === 'automation_manage' && value.details.action === 'call'
-    ? value.details.operation : value.toolName;
-  const entity = value.details[descriptor.resourceUri === AUTOMATION_APP_URI ? 'job' : 'todo'];
-  if (operation !== descriptor.operation || !isToolAppRecord(entity)
-    || entity.id !== descriptor.entityId) return null;
-  return descriptor;
+    || !isToolAppRecord(value.details) || value.details.error) return [];
+  const details = value.details;
+  if (details.toolApp && details.toolApps) return [];
+  const candidates = details.toolApps === undefined ? [details.toolApp] : details.toolApps;
+  if (!Array.isArray(candidates) || candidates.length > MAX_BUILTIN_TOOL_APPS) return [];
+  const seen = new Set<string>();
+  return candidates.flatMap((candidate): BuiltinToolAppDescriptor[] => {
+    const descriptor = readBuiltinToolAppDescriptor(candidate);
+    if (!descriptor || descriptor.toolCallId !== value.toolCallId || seen.has(descriptor.entityId)) return [];
+    if (descriptor.resourceUri === PUBLIC_SHARE_APP_URI) {
+      const shares = descriptor.operation === 'revoke' ? [details.share] : details.shares;
+      if (value.toolName !== 'public_share_file' || descriptor.operation !== details.publicShareAction
+        || !Array.isArray(shares) || !shares.some(share => isToolAppRecord(share) && share.id === descriptor.entityId)) return [];
+    } else {
+      const operation = descriptor.resourceUri === AUTOMATION_APP_URI && value.toolName === 'automation_manage' && details.action === 'call'
+        ? details.operation : value.toolName;
+      const entity = details[descriptor.resourceUri === AUTOMATION_APP_URI ? 'job' : 'todo'];
+      if (operation !== descriptor.operation || !isToolAppRecord(entity) || entity.id !== descriptor.entityId) return [];
+    }
+    seen.add(descriptor.entityId);
+    return [descriptor];
+  });
+}
+
+export function readBuiltinToolAppMessage(value: unknown): BuiltinToolAppDescriptor | null {
+  return readBuiltinToolAppMessages(value)[0] ?? null;
+}
+
+export function readToolAppInvocations(message: unknown): ToolAppInvocation[] {
+  const builtins = readBuiltinToolAppMessages(message);
+  if (builtins.length) return builtins.map(descriptor => ({ kind: 'builtin', descriptor }));
+  const invocation = readToolAppInvocation(message);
+  return invocation ? [invocation] : [];
 }
 
 /** Compatibility boundary: persisted MCP messages keep their existing shape. */

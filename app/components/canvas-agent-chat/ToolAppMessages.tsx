@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import type { ToolBatch } from '@/app/lib/chat/types';
 import { getPiMessageDetails } from '@/app/lib/chat/message-content';
 import { readMcpReconnectHint } from '@/app/lib/mcp/connection-health-types';
-import { readToolAppInvocation, type ToolAppInvocation } from '@/app/lib/tool-apps/types';
+import { readToolAppInvocations, type ToolAppInvocation } from '@/app/lib/tool-apps/types';
 import { ToolAppSlotPool } from '@/app/lib/tool-apps/slot-pool';
 import { useMcpAppChatContext } from './McpAppChatContext';
 import { McpReconnectNotice } from './McpReconnectNotice';
@@ -63,11 +63,13 @@ export function ToolAppMessages({ batch }: { batch: ToolBatch }) {
   return <>{batch.calls.map((call) => {
     const message = call.message;
     if (!message) return null;
-    const invocation = readToolAppInvocation(message.piMessage);
+    const invocations = readToolAppInvocations(message.piMessage);
     const reconnect = readMcpReconnectHint(getPiMessageDetails(message.piMessage));
-    if (!invocation && !reconnect) return null;
+    if (!invocations.length && !reconnect) return null;
     return <div key={`${chat.sessionId}:${chat.agentId}:${call.toolCallId || call.id}`}>
-      {invocation ? <ToolAppSlot invocation={invocation} {...chat} /> : null}
+      {invocations.map(invocation => <ToolAppSlot
+        key={invocation.kind === 'builtin' ? `${invocation.descriptor.resourceUri}:${invocation.descriptor.entityId}` : 'mcp'}
+        invocation={invocation} {...chat} />)}
       {reconnect ? <McpReconnectNotice connection={reconnect} /> : null}
     </div>;
   })}</>;

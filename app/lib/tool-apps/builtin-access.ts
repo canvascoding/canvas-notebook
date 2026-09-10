@@ -12,7 +12,10 @@ import { getTodo } from '@/app/lib/todos/store';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { presentAutomationAppData } from './automation-data';
 import { presentTodoAppData } from './todo-data';
-import { TODO_APP_URI, readBuiltinToolAppMessage, type BuiltinToolAppDescriptor } from './types';
+import { presentPublicShareAppData } from './public-share-data';
+import { getPublicFileShareForUser } from '@/app/lib/public-sharing/public-file-shares';
+import { mcpAppOrigins } from '@/app/lib/mcp/apps-config';
+import { PUBLIC_SHARE_APP_URI, TODO_APP_URI, readBuiltinToolAppMessages, type BuiltinToolAppDescriptor } from './types';
 
 /** Re-authorize the stored operation and its entity, never the browser's snapshot. */
 export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: BuiltinToolAppDescriptor) {
@@ -28,10 +31,19 @@ export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: Builtin
   // Live results can arrive before savePiSession finishes. No synthetic binding.
   if (!rows[0]) throw new McpAccessError('The tool result is not saved yet. Reload shortly.', 425);
   let stored: BuiltinToolAppDescriptor | null = null;
-  try { stored = readBuiltinToolAppMessage(JSON.parse(rows[0].content)); } catch { /* fail closed */ }
+  try { stored = readBuiltinToolAppMessages(JSON.parse(rows[0].content)).find(candidate => candidate.entityId === app.entityId
+    && candidate.resourceUri === app.resourceUri && candidate.operation === app.operation) ?? null; } catch { /* fail closed */ }
   if (!stored || stored.entityId !== app.entityId || stored.resourceUri !== app.resourceUri
     || stored.operation !== app.operation || stored.toolCallId !== app.toolCallId) {
     throw new McpAccessError('Widget does not belong to this tool result.', 403);
+  }
+  if (stored.resourceUri === PUBLIC_SHARE_APP_URI) {
+    try {
+      const workspace = await resolveAgentSessionWorkspaceForUser({ userId: chat.userId, workspaceId: session.workspaceId });
+      const share = await getPublicFileShareForUser({ id: stored.entityId, userId: chat.userId, workspace, baseUrl: mcpAppOrigins().appOrigin });
+      if (!share) throw new Error('missing');
+      return presentPublicShareAppData(share, workspace.workspaceId);
+    } catch { throw new McpAccessError('Public share is unavailable.', 404); }
   }
   if (stored.resourceUri === TODO_APP_URI) {
     try {
