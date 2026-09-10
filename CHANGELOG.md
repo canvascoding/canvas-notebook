@@ -11,6 +11,24 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.10.11] - 2026-09-10
+
+### Changed
+
+- Restored the PostgreSQL connection timeout to an opt-in setting so startup can wait through temporary contention while explicit operator limits remain effective.
+- Sequenced authentication and warmup readiness, bounded concurrent health work, and aligned container dependencies with the verified lockfile.
+
+### Fixed
+
+- Prevented startup restart loops caused by short PostgreSQL connection deadlines during OAuth initialization.
+- Ensured startup promises, session cleanup, memory-review retries, and idle PostgreSQL pool errors are handled and recovered deterministically.
+- Corrected expired-session cleanup for both legacy epoch-second and current epoch-millisecond records.
+
+### Verification
+
+- `npm run verify:release`
+- Repeated fresh-install, PostgreSQL startup, login, MCP, and health checks on Ubuntu ARM64.
+
 ## [2026.9.10.10] - 2026-09-10
 
 ### Added
