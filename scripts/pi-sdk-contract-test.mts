@@ -19,6 +19,7 @@ import {
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
 import { Type } from 'typebox';
+import { piMetadataFixture } from './helpers/pi-message-fixture';
 
 // Exercise public ESM exports and the actual SDK, replacing only the transport.
 // No provider registration, credentials, database, or network is required.
@@ -286,4 +287,52 @@ test('abort reaches the active provider and the run settles exactly once', { tim
   assert.equal(requestSignal?.aborted, true);
   assert.equal(ended, 1);
   assert.equal(agent.state.isStreaming, false);
+});
+
+test('real tool validation removes optional nulls but preserves explicit nullable values', { timeout: 10_000 }, async () => {
+  const parameters = Type.Object({
+    optional: Type.Optional(Type.String()), nullable: Type.Union([Type.String(), Type.Null()]),
+    nested: Type.Object({ optional: Type.Optional(Type.String()) }),
+    items: Type.Array(Type.Object({ optional: Type.Optional(Type.Number()) })),
+  });
+  let received: unknown;
+  const transport = scriptedStream([
+    response([{ type: 'toolCall', id: 'null-call', name: 'inspect', namespace: 'workspace_tools', arguments: { optional: null, nullable: null, nested: { optional: null }, items: [{ optional: null }] } }], 'toolUse'),
+    response(),
+  ]);
+  const agent = new Agent({ initialState: { model, tools: [{
+    name: 'inspect', label: 'Inspect', description: 'Fixture', parameters,
+    execute: async (_id, args) => { received = args; return { content: [{ type: 'text', text: 'Done' }], details: {} }; },
+  }] }, streamFn: transport.streamFn });
+  await agent.prompt(prompt);
+  assert.deepEqual(received, { nullable: null, nested: {}, items: [{}] });
+  const replay = transport.requests[1].context.messages.find((message) => message.role === 'assistant') as AssistantMessage;
+  assert.equal(replay.content[0].type === 'toolCall' && replay.content[0].namespace, 'workspace_tools');
+});
+
+test('provider metadata survives the real agent replay and endTurn is diagnostic', { timeout: 10_000 }, async () => {
+  const final = { ...response(), endTurn: false, providerThinkingLevel: 'high' };
+  const transport = scriptedStream([final]);
+  const agent = new Agent({ initialState: { model, messages: [piMetadataFixture] }, streamFn: transport.streamFn });
+  await agent.prompt(prompt);
+  assert.deepEqual(transport.requests[0].context.messages[0], piMetadataFixture);
+  assert.equal(transport.requests.length, 1, 'endTurn=false must not itself start another request');
+  assert.deepEqual(agent.state.messages.at(-1), final);
+});
+
+test('tool hook failures settle as tool errors without abandoning the run', { timeout: 10_000 }, async () => {
+  for (const hook of ['beforeToolCall', 'afterToolCall'] as const) {
+    const transport = scriptedStream([
+      response([{ type: 'toolCall', id: 'hook-call', name: 'inspect', arguments: {} }], 'toolUse'), response(),
+    ]);
+    const agent = new Agent({ initialState: { model, tools: [{
+      name: 'inspect', label: 'Inspect', description: 'Fixture', parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: 'text', text: 'Done' }], details: {} }),
+    }] }, streamFn: transport.streamFn, [hook]: async () => { throw new Error(`fixture ${hook}`); } });
+    await agent.prompt(prompt);
+    const toolResult = agent.state.messages.find((message) => message.role === 'toolResult');
+    assert.equal(toolResult?.role === 'toolResult' && toolResult.isError, true);
+    assert.equal(agent.state.isStreaming, false);
+    assert.equal(transport.requests.length, 2);
+  }
 });

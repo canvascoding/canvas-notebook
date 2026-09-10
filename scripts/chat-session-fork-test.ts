@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { and, asc, eq } from 'drizzle-orm';
+import { createPiTestDatabase } from './helpers/pi-test-database';
+import { piMetadataFixture, piToolMetadataFixture } from './helpers/pi-message-fixture';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-chat-session-fork-'));
 process.env.DATA = dataDir;
@@ -13,7 +15,9 @@ const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
 moduleInternals._load = (request, parent, isMain) => {
+  if (testDatabase && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request))) return testDatabase;
   if (request === 'server-only') return {};
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
@@ -42,7 +46,8 @@ function persistedAssistant(text: string, timestamp: number, extra: Record<strin
 }
 
 async function main(): Promise<void> {
-  const { db } = await import('../app/lib/db');
+  testDatabase = await createPiTestDatabase();
+  const { db } = testDatabase;
   const { piMessages, piSessions, sessionChannelLinks, user } = await import('../app/lib/db/schema');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
   const {
@@ -137,13 +142,10 @@ async function main(): Promise<void> {
     { role: 'user', content: persistedMessage('user', 'Question two', now.getTime() + 3_000), timestamp: now.getTime() + 3_000 },
     {
       role: 'assistant',
-      content: persistedAssistant('I will check.', now.getTime() + 4_000, {
-        content: [{ type: 'text', text: 'I will check.' }, { type: 'toolCall', id: 'tool-1', name: 'read', arguments: {} }],
-        stopReason: 'toolUse',
-      }),
+      content: JSON.stringify({ ...piMetadataFixture, timestamp: now.getTime() + 4_000 }),
       timestamp: now.getTime() + 4_000,
     },
-    { role: 'toolResult', content: persistedMessage('toolResult', [{ type: 'text', text: 'Tool result' }], now.getTime() + 5_000), timestamp: now.getTime() + 5_000 },
+    { role: 'toolResult', content: JSON.stringify({ ...piToolMetadataFixture, timestamp: now.getTime() + 5_000 }), timestamp: now.getTime() + 5_000 },
     { role: 'assistant', content: persistedAssistant('Answer two', now.getTime() + 6_000), timestamp: now.getTime() + 6_000 },
   ].map((message, index) => ({
     piSessionDbId: source.id,
@@ -253,6 +255,9 @@ async function main(): Promise<void> {
   assert.equal(fullFork.session.summaryThroughSequence, 4);
   assert.equal(fullFork.session.summaryRevision, 2);
   assert.equal(fullFork.copiedMessageCount, 6);
+  const fullForkMessages = await db.select({ content: piMessages.content }).from(piMessages)
+    .where(eq(piMessages.piSessionDbId, fullFork.session.id)).orderBy(asc(piMessages.sequence));
+  assert.deepEqual(fullForkMessages.map((message) => message.content), messageRows.map((message) => message.content), 'fork must preserve raw metadata bytes, including the summarized prefix');
 
   const nestedFork = await forkPiSession({
     sourceSessionId: firstFork.session.sessionId,
@@ -314,8 +319,9 @@ main()
   .then(() => {
     console.log('[Chat Session Fork Test] passed');
   })
-  .finally(() => {
+  .finally(async () => {
     moduleInternals._load = originalLoad;
+    await testDatabase?.close();
     rmSync(dataDir, { recursive: true, force: true });
   })
   .catch((error) => {

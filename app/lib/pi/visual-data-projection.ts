@@ -133,15 +133,46 @@ function restoreBoundedMcpDetails(original: UnknownRecord, projected: UnknownRec
   return restored;
 }
 
+/** Restore opaque SDK replay fields only at the assistant content boundary.
+ * Never recurse into arguments/details: a tool payload can imitate these keys.
+ */
+function restoreAssistantSignatures(original: unknown, projected: unknown): void {
+  if (!isRecord(original) || !isRecord(projected) || original.role !== 'assistant') return;
+  if (!Array.isArray(original.content) || !Array.isArray(projected.content)) return;
+  for (let index = 0; index < original.content.length; index += 1) {
+    const source: unknown = original.content[index];
+    const target: unknown = projected.content[index];
+    if (!isRecord(source) || !isRecord(target) || source.type !== target.type) continue;
+    const signatureKey = source.type === 'thinking' ? 'thinkingSignature'
+      : source.type === 'text' ? 'textSignature'
+      : source.type === 'toolCall' ? 'thoughtSignature' : null;
+    if (signatureKey && typeof source[signatureKey] === 'string') {
+      target[signatureKey] = source[signatureKey];
+    }
+  }
+}
+
 /** Removes binary image payloads and server-only resolved paths before DB writes. */
 export function projectAgentMessageForPersistence(message: AgentMessage): AgentMessage {
   const original = message as unknown as UnknownRecord;
   const projected = projectVisualValue(message, 'persistence') as UnknownRecord;
+  restoreAssistantSignatures(original, projected);
   return restoreBoundedMcpDetails(original, projected) as unknown as AgentMessage;
 }
 
 /** Removes binary image payloads and server-only resolved paths before client/log transport. */
 export function projectAgentEventForExternal<T extends Record<string, unknown>>(event: T): T {
   const projected = projectVisualValue(event, 'external-event') as UnknownRecord;
+  if (event.type === 'message_start' || event.type === 'message_update' || event.type === 'message_end' || event.type === 'turn_end') {
+    restoreAssistantSignatures(event.message, projected.message);
+  }
+  if (event.type === 'agent_end' && Array.isArray(event.messages) && Array.isArray(projected.messages)) {
+    event.messages.forEach((message, index) => restoreAssistantSignatures(message, (projected.messages as unknown[])[index]));
+  }
+  if (event.type === 'message_update' && isRecord(event.assistantMessageEvent) && isRecord(projected.assistantMessageEvent)) {
+    for (const key of ['partial', 'message', 'error']) {
+      restoreAssistantSignatures(event.assistantMessageEvent[key], projected.assistantMessageEvent[key]);
+    }
+  }
   return restoreBoundedMcpDetails(event, projected) as T;
 }

@@ -208,10 +208,14 @@ Fertig, wenn kein zusätzlicher Modellaufruf nach Abschluss entsteht, neue Tool-
 
 ### T5 — Nachrichtendaten, Tools und Streaming abnehmen
 
-- [ ] Roundtrip-Vertrag mit neuen optionalen Feldern, alten Nachrichten und opaken Thinking-Signaturen prüfen.
-- [ ] Pfad-/Bildprojektion, Usage-Idempotenz, Fork und Compaction an denselben Fixtures prüfen.
-- [ ] Tool-Null-Normalisierung, MCP/Composio-Schemas, parallele Events und terminale Fehler testen.
-- [ ] Thinking-/Text-Deltas und finale Inhalte im Chat-Consumer prüfen und erforderliche Korrekturen vornehmen.
+- [x] Roundtrip-Vertrag mit neuen optionalen Feldern, alten Nachrichten und opaken Thinking-Signaturen prüfen.
+- [x] Pfad-/Bildprojektion, Usage-Idempotenz und Fork an denselben Fixtures prüfen; bestehende Compaction-Verträge ausführen.
+- [x] Tool-Null-Normalisierung und Hook-/terminale Fehler mit echtem SDK, bestehende Registry-/Gateway-/MCP-Projektionsverträge testen.
+- [x] Thinking-/Text-Deltas und finale Inhalte im Chat-Consumer prüfen und erforderliche Korrekturen vornehmen.
+
+T5: Ein Red-Green-Test reproduzierte die Beschädigung slash-haltiger `thinkingSignature`, `textSignature` und `thoughtSignature`. Die Projektion erhält nun ausschließlich diese Felder an der Assistant-Content-Grenze; verschachtelte Tool-Argumente können die Ausnahme nicht ausnutzen. Persistenz → Laden → Normalisierung, Event-JSON, Fork einschließlich zusammengefasstem Präfix und wiederholte Usage-Speicherung erhalten Metadaten und erzeugen keine doppelte Usage-Zeile. Ein ebenfalls reproduzierter bestehender Fork-SQL-Fehler (`?` statt `$2`) wurde korrigiert. Die 17 echten SDK-Tests, Metadaten-Suite, Tool-Registry, Effective-Tools, Progressive-Gateway, MCP-/Multimodal-Projektion, Vision-Fallback und Overflow-Recovery bestanden; zusätzlich Compaction-Preflight, Candidate-Normalization, Pruning, Selection, Policy und UI-Contract.
+
+Der Live-Runtime-Pfad filtert native Thinking-Events bereits vor dem Chat-Consumer. Eine sichtbare Dopplung durch `thinking_end` wurde daher nicht nachgewiesen; keine vorsorgliche UI-Änderung. Browser-Beleg bleibt T8. Der alte Sammelbefehl `test:chat:fork` referenziert die nicht vorhandene Datei `chat-session-fork-api-integration-test.ts`; Persistenz-, Route- und UI-Contract-Test wurden einzeln bestanden. Der neue Metadaten-Sammelbefehl verwendet nur vorhandene Tests. Live-MCP/Composio-Endpunkte sind damit nicht abgenommen.
 
 Fertig, wenn Replay gültig bleibt, UI-Inhalte nicht doppelt erscheinen und Usage nicht durch reine Metadatenbehandlung dupliziert wird.
 
