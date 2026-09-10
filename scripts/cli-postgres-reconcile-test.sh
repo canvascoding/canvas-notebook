@@ -224,7 +224,7 @@ printf '%s' "$alter_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banne
 env_before_alter="$(cksum "$CANVAS_CONFIG_ENV")"
 rm -f "$CANVAS_TEST_STATE_DIR/alter-failed-once"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if CANVAS_TEST_FAIL_ALTER=true "$cli" database reconcile-postgres-auth --timeout 2 --json --no-banner > "$TMP_DIR/reconcile-alter-failure.json" 2> "$TMP_DIR/reconcile-alter-failure.err"; then
+if CANVAS_TEST_FAIL_ALTER=true "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-alter-failure.json" 2> "$TMP_DIR/reconcile-alter-failure.err"; then
   echo "reconcile succeeded after ALTER ROLE failure" >&2
   exit 1
 fi
@@ -243,7 +243,7 @@ printf '%s' "$verify_url" | "$cli" config-set env.DATABASE_URL --stdin --no-bann
 env_before_verify="$(cksum "$CANVAS_CONFIG_ENV")"
 rm -f "$CANVAS_TEST_STATE_DIR/verify-failed-once"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if CANVAS_TEST_FAIL_VERIFY=true "$cli" database reconcile-postgres-auth --timeout 2 --json --no-banner > "$TMP_DIR/reconcile-verify-failure.json" 2> "$TMP_DIR/reconcile-verify-failure.err"; then
+if CANVAS_TEST_FAIL_VERIFY=true "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-verify-failure.json" 2> "$TMP_DIR/reconcile-verify-failure.err"; then
   echo "reconcile succeeded after TCP verification failure" >&2
   exit 1
 fi
@@ -263,7 +263,7 @@ env_before_health="$(cksum "$CANVAS_CONFIG_ENV")"
 rm -f "$CANVAS_TEST_STATE_DIR/curl-count"
 rm -f "$CANVAS_TEST_STATE_DIR/app-apply-count"
 : > "$CANVAS_TEST_DOCKER_LOG"
-if CANVAS_TEST_FAIL_FORWARD_HEALTH=true "$cli" database reconcile-postgres-auth --timeout 2 --json --no-banner > "$TMP_DIR/reconcile-health-failure.json" 2> "$TMP_DIR/reconcile-health-failure.err"; then
+if CANVAS_TEST_FAIL_FORWARD_HEALTH=true "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-health-failure.json" 2> "$TMP_DIR/reconcile-health-failure.err"; then
   echo "reconcile succeeded after app health failure" >&2
   exit 1
 fi
