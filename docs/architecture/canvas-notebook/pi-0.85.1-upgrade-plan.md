@@ -197,10 +197,12 @@ Fertig, wenn die neue Paketlinie reproduzierbar installiert wird und die direkte
 
 ### T4 — Turn-Lebenszyklus und Laufsteuerung abnehmen
 
-- [ ] Prepare-Hook-Tests auf „nur bei Folgeturn“ einstellen und mit dem echten Loop prüfen.
-- [ ] Browser-/Tool-Refresh, Workspace-Baum, Steering, Follow-up, Terminate, Abort und Replace abdecken.
-- [ ] `turn_end`- und `agent_end`-Persistierung, Queue-Verbrauch und Runtime-Recreation auf Doppelungen/Races prüfen.
-- [ ] Nur nachgewiesene Abhängigkeiten vom alten Timing im Produktionscode ändern.
+- [x] Prepare-Hook-Tests auf „nur bei Folgeturn“ einstellen und mit dem echten Loop prüfen.
+- [x] Browser-/Tool-Refresh, Workspace-Baum, Steering, Follow-up, Terminate, Abort und Replace abdecken.
+- [x] `turn_end`- und `agent_end`-Persistierung, Queue-Verbrauch und Runtime-Recreation auf Doppelungen/Races prüfen.
+- [x] Nur nachgewiesene Abhängigkeiten vom alten Timing im Produktionscode ändern.
+
+T4: 14 echte SDK-Vertragstests bestanden, darunter finale Persistenzbarriere, kein Prepare nach finalem/terminiertem Turn, Steering während Prepare, genau ein Follow-up und aktive Signalweitergabe beim Abort. Browser-Tool-Refresh, Queue/Replace, Continuation, Session-Exklusivität, Runtime-Session-Operationen, Automation-Timeout und die Automation-Runner-Tests bestanden. Abschluss-/Prepare-Produktionslogik musste nicht verschoben werden. Der Delivery-Test wurde ebenfalls auf die isolierte PostgreSQL-Testhilfe umgestellt. Diese Ergebnisse sind automatisierte Verträge, noch keine Browser-Abnahme.
 
 Fertig, wenn kein zusätzlicher Modellaufruf nach Abschluss entsteht, neue Tool-Schemas rechtzeitig gelten und Nachrichten zuverlässig gespeichert werden.
 

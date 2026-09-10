@@ -167,7 +167,7 @@ test('next-turn refresh updates the actual provider context after a tool', { tim
   assert.equal(transport.requests[1].context.systemPrompt, 'After tool');
   assert.deepEqual(transport.requests[1].context.tools, []);
   assert.equal(transport.requests[1].context.messages.at(-1)?.role, 'toolResult');
-  assert.ok(prepared >= 1); // 0.84.1 also prepares after final turns; hardened after upgrade.
+  assert.equal(prepared, 1);
 });
 
 test('tool termination and shouldStopAfterTurn prevent another request', { timeout: 10_000 }, async () => {
@@ -182,6 +182,7 @@ test('tool termination and shouldStopAfterTurn prevent another request', { timeo
       }] },
       streamFn: transport.streamFn,
       shouldStopAfterTurn: stopWith === 'hook' ? async () => true : undefined,
+      prepareNextTurnWithContext: async () => { assert.fail('stopped turn must not prepare'); },
     });
     await agent.prompt(prompt);
     assert.equal(transport.requests.length, 1);
@@ -203,4 +204,86 @@ test('terminal provider errors and aborts finish the run', { timeout: 10_000 }, 
     assert.equal(agent.state.isStreaming, false);
     assert.equal((agent.state.messages.at(-1) as AssistantMessage).stopReason, stopReason);
   }
+});
+
+test('final answers never prepare an unused next turn', { timeout: 10_000 }, async () => {
+  const transport = scriptedStream([response()]);
+  const agent = new Agent({
+    initialState: { model }, streamFn: transport.streamFn,
+    prepareNextTurnWithContext: async () => { assert.fail('final answer must not prepare another turn'); },
+  });
+  await agent.prompt(prompt);
+  assert.equal(transport.requests.length, 1);
+});
+
+test('steering queued during preparation reaches the very next request', { timeout: 10_000 }, async () => {
+  const preparing = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const transport = scriptedStream([
+    response([{ type: 'toolCall', id: 'steer-call', name: 'inspect', arguments: {} }], 'toolUse'),
+    response(),
+  ]);
+  const agent = new Agent({
+    initialState: { model, tools: [{
+      name: 'inspect', label: 'Inspect', description: 'Fixture', parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: 'text', text: 'Ready' }], details: {} }),
+    }] },
+    streamFn: transport.streamFn,
+    prepareNextTurnWithContext: async () => {
+      preparing.resolve();
+      await resume.promise;
+      return { thinkingLevel: 'high' };
+    },
+  });
+  const run = agent.prompt(prompt);
+  await preparing.promise;
+  const steering = { role: 'user', content: 'Use the updated instruction.', timestamp: 3 } satisfies Message;
+  try { agent.steer(steering); } finally { resume.resolve(); }
+  await run;
+  assert.equal(transport.requests.length, 2);
+  assert.deepEqual(transport.requests[1].context.messages.at(-1), steering);
+  assert.equal(transport.requests[1].options?.reasoning, 'high');
+});
+
+test('one follow-up is consumed once before final persistence', { timeout: 10_000 }, async () => {
+  const transport = scriptedStream([response(), response()]);
+  let prepared = 0;
+  let ended = 0;
+  const agent = new Agent({
+    initialState: { model }, streamFn: transport.streamFn,
+    prepareNextTurnWithContext: async () => { prepared += 1; },
+  });
+  const followUp = { role: 'user', content: 'One follow-up.', timestamp: 4 } satisfies Message;
+  agent.followUp(followUp);
+  agent.subscribe((event) => { if (event.type === 'agent_end') ended += 1; });
+  await agent.prompt(prompt);
+  assert.equal(prepared, 1);
+  assert.equal(ended, 1);
+  assert.equal(transport.requests.length, 2);
+  assert.deepEqual(transport.requests[1].context.messages.at(-1), followUp);
+  assert.equal(agent.state.messages.filter((message) => message.role === 'user' && message.timestamp === 4).length, 1);
+});
+
+test('abort reaches the active provider and the run settles exactly once', { timeout: 10_000 }, async () => {
+  const started = Promise.withResolvers<void>();
+  let ended = 0;
+  let requestSignal: AbortSignal | undefined;
+  const agent = new Agent({ initialState: { model }, streamFn: (_model, _context, options) => {
+    const stream = createAssistantMessageEventStream();
+    requestSignal = options?.signal;
+    requestSignal?.addEventListener('abort', () => {
+      stream.push({ type: 'error', reason: 'aborted', error: response([], 'aborted') });
+    }, { once: true });
+    started.resolve();
+    return stream;
+  } });
+  agent.subscribe((event) => { if (event.type === 'agent_end') ended += 1; });
+  const run = agent.prompt(prompt);
+  await started.promise;
+  agent.abort();
+  await run;
+  await agent.waitForIdle();
+  assert.equal(requestSignal?.aborted, true);
+  assert.equal(ended, 1);
+  assert.equal(agent.state.isStreaming, false);
 });
