@@ -8,6 +8,7 @@ import { createMcpHandler, Server } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
+import { installMcpAccessMocks } from './fixtures/mcp-test-access';
 
 function getText(result: unknown): string {
   const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
@@ -172,6 +173,7 @@ async function startHttpMcpServer(): Promise<{
 }
 
 async function main() {
+  const accessMocks = installMcpAccessMocks();
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-manager-'));
   process.env.CANVAS_DATA_ROOT = tempRoot;
   process.env.MCP_ALLOW_STDIO = 'true';
@@ -186,6 +188,7 @@ async function main() {
   await fs.writeFile(path.join(tempRoot, 'secrets', 'Canvas-Agents.env'), '', 'utf8');
 
   const { writeMcpConfigRaw } = await import('../app/lib/mcp/config');
+  const { MCP_SYSTEM_SCOPE } = await import('../app/lib/mcp/scope');
   const {
     cleanupIdleMcpServers,
     callMcpTool,
@@ -214,14 +217,14 @@ async function main() {
           timeoutMs: 10000,
         },
       },
-    }, null, 2));
+    }, null, 2), MCP_SYSTEM_SCOPE);
   };
 
   await writeConfig();
 
   const [toolsA, toolsB] = await Promise.all([
-    listMcpTools('fake'),
-    listMcpTools('fake'),
+    listMcpTools('fake', { scope: MCP_SYSTEM_SCOPE }),
+    listMcpTools('fake', { scope: MCP_SYSTEM_SCOPE }),
   ]);
   assert.equal(toolsA.some((tool) => tool.name === 'echo'), true);
   assert.equal(toolsB.some((tool) => tool.name === 'sum'), true);
@@ -232,7 +235,7 @@ async function main() {
   assert.equal(cache.servers.fake.tools.some((tool: { name: string }) => tool.name === 'echo'), true);
 
   await closeAllMcpServers();
-  const proxy = createMcpProxyTool();
+  const proxy = createMcpProxyTool(undefined, MCP_SYSTEM_SCOPE);
   const searchFromCache = await proxy.execute('search-cache', {
     action: 'search_tools',
     query: 'numbers',
@@ -240,13 +243,13 @@ async function main() {
   assert.match(getText(searchFromCache), /fake\.sum/);
   assert.equal(await countStarts(startFile), 2);
 
-  await listMcpTools('fake');
+  await listMcpTools('fake', { scope: MCP_SYSTEM_SCOPE });
   assert.equal(await countStarts(startFile), 4);
-  let status = await getMcpRuntimeStatus('fake');
+  let status = await getMcpRuntimeStatus('fake', MCP_SYSTEM_SCOPE);
   assert.equal(status.servers[0].connected, true);
-  const closed = await cleanupIdleMcpServers(Date.now() + 1000);
+  const closed = await cleanupIdleMcpServers(Date.now() + 1000, MCP_SYSTEM_SCOPE);
   assert.equal(closed >= 1, true);
-  status = await getMcpRuntimeStatus('fake');
+  status = await getMcpRuntimeStatus('fake', MCP_SYSTEM_SCOPE);
   assert.equal(status.servers[0].connected, false);
 
   await writeConfig({ MCP_CONFIG_REVISION: 'changed' });
@@ -271,13 +274,13 @@ async function main() {
           timeoutMs: 10000,
         },
       },
-    }, null, 2));
+    }, null, 2), MCP_SYSTEM_SCOPE);
 
-    const httpTools = await listMcpTools('plainHttp');
+    const httpTools = await listMcpTools('plainHttp', { scope: MCP_SYSTEM_SCOPE });
     assert.equal(httpTools.some((tool) => tool.name === 'http-echo'), true);
     assert.equal(httpMcp.requests.some((request) => Boolean(request.authorization)), false);
 
-    const httpStatus = await getMcpRuntimeStatus('plainHttp');
+    const httpStatus = await getMcpRuntimeStatus('plainHttp', MCP_SYSTEM_SCOPE);
     assert.equal(httpStatus.servers[0].connected, true);
   } finally {
     await closeAllMcpServers();
@@ -297,13 +300,13 @@ async function main() {
           timeoutMs: 10000,
         },
       },
-    }, null, 2));
+    }, null, 2), MCP_SYSTEM_SCOPE);
 
-    const modernTools = await listMcpTools('modernHttp');
+    const modernTools = await listMcpTools('modernHttp', { scope: MCP_SYSTEM_SCOPE });
     assert.equal(modernTools.some((tool) => tool.name === 'modern-echo'), true);
-    const modernCall = await callMcpTool('modernHttp', 'modern-echo', { message: 'hello' });
+    const modernCall = await callMcpTool('modernHttp', 'modern-echo', { message: 'hello' }, undefined, MCP_SYSTEM_SCOPE);
     assert.equal(getText(modernCall), 'modern:hello');
-    const modernStatus = await getMcpRuntimeStatus('modernHttp');
+    const modernStatus = await getMcpRuntimeStatus('modernHttp', MCP_SYSTEM_SCOPE);
     assert.equal(modernStatus.servers[0].protocolVersion, '2026-07-28');
 
     const modernMethods = modernHttpMcp.requests.map((request) => String(request.body.method || ''));
@@ -326,8 +329,10 @@ async function main() {
     await modernHttpMcp.close();
   }
 
-  const userA = { userId: 'mcp-manager-user-a' };
-  const userB = { userId: 'mcp-manager-user-b' };
+  const userA = { userId: 'mcp-manager-user-a', organizationId: 'org-a' };
+  const userB = { userId: 'mcp-manager-user-b', organizationId: 'org-a' };
+  accessMocks.memberships.set(userA.userId, { organizationId: 'org-a', role: 'admin', status: 'active' });
+  accessMocks.memberships.set(userB.userId, { organizationId: 'org-a', role: 'admin', status: 'active' });
   await fs.mkdir(path.join(tempRoot, 'users', userA.userId, 'secrets'), { recursive: true });
   await fs.mkdir(path.join(tempRoot, 'users', userB.userId, 'secrets'), { recursive: true });
   await fs.writeFile(path.join(tempRoot, 'users', userA.userId, 'secrets', 'Canvas-Integrations.env'), 'MCP_TEST_PREFIX=user-a:\n', 'utf8');
@@ -362,6 +367,7 @@ async function main() {
   assert.equal((await getMcpRuntimeStatus('shared', userA)).servers[0].connected, false);
   assert.equal((await getMcpRuntimeStatus('shared', userB)).servers[0].connected, true);
   await closeAllMcpServers();
+  accessMocks.restore();
 
   console.log('mcp-manager-test: ok');
 }

@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { AssistantMessage, AssistantMessageEventStream, Model } from '@earendil-works/pi-ai';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-automation-compaction-'));
 process.env.DATA = dataDir;
@@ -14,7 +15,9 @@ const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
 moduleInternals._load = (request, parent, isMain) => {
+  if (testDatabase && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request))) return testDatabase;
   if (request === 'server-only') return {};
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
@@ -27,7 +30,8 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 async function main(): Promise<void> {
-  const { db } = await import('../app/lib/db');
+  testDatabase = await createPiTestDatabase();
+  const { db } = testDatabase;
   const { piSessionCompactionAttempts, user } = await import('../app/lib/db/schema');
   const { prepareAutomationHistoryWithCompaction } = await import('../app/lib/automations/history-compaction');
   const { estimateTextTokens } = await import('../app/lib/pi/history-budget');
@@ -218,8 +222,9 @@ async function main(): Promise<void> {
 }
 
 main()
-  .finally(() => {
+  .finally(async () => {
     moduleInternals._load = originalLoad;
+    await testDatabase?.close();
     rmSync(dataDir, { recursive: true, force: true });
   })
   .catch((error) => {

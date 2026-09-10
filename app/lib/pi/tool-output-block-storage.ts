@@ -4,6 +4,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { getToolOutputMetadata } from './tool-output-metadata';
 import { ToolOutputBlockBudgetError, planToolOutputBlockViews, type ToolOutputBudgetModel, type ToolOutputViewDraft } from './tool-output-block-budget';
 import { storeToolOutput, type ToolOutputIdentity } from './tool-output-store';
+import { stripMcpModelMetadata } from './message-projection';
 
 // Persistence and the next-turn hook can meet at the same completed result.
 // Share that write; do not create duplicate artifacts under concurrent callbacks.
@@ -18,6 +19,10 @@ async function archiveDraft(draft: ToolOutputViewDraft, identity: ToolOutputIden
     if (!metadata || metadata.references.length || metadata.storageError) return;
     const details = { ...(message.details as Record<string, unknown>) };
     delete details.toolOutput; delete details.toolOutputView;
+    if (details.mcpApp || (details.result && message.toolName.toLowerCase().includes('mcp'))) {
+      delete details.mcpApp; delete details.mcpToolInput;
+      if (details.result !== undefined) details.result = stripMcpModelMetadata(details.result);
+    }
     const stored = identity ? await storeToolOutput({
       identity, toolCallId: message.toolCallId, format: 'json',
       content: JSON.stringify({ content: message.content, details, isError: message.isError }),

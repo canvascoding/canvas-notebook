@@ -9,6 +9,11 @@ function origin(value: string): URL {
   return parsed;
 }
 
+/** Uses the configured deployment origin only, never a request Host/forwarded header. */
+export function canvasAppOrigin(env: PreviewEnvironment = process.env): string {
+  return origin(env.BETTER_AUTH_BASE_URL || env.BASE_URL || `http://localhost:${env.PORT || '3000'}`).origin;
+}
+
 /** Uses configured deployment origins only, never a request Host/forwarded header. */
 export function htmlPreviewOrigins(env: PreviewEnvironment = process.env) {
   const app = origin(env.BETTER_AUTH_BASE_URL || env.BASE_URL || `http://localhost:${env.PORT || '3000'}`);

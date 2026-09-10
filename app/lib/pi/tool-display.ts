@@ -84,6 +84,7 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   email_list_mailboxes: { label: 'Loaded email mailboxes', labelDe: 'E-Mail-Mailboxen geladen', tone: 'emailAccounts' },
   email_search_messages: { label: 'Searched email', labelDe: 'E-Mails durchsucht', tone: 'search' },
   email_read_message: { label: 'Read email', labelDe: 'E-Mail gelesen', tone: 'emailRead' },
+  email_download_attachment: { label: 'Saved email attachment', labelDe: 'E-Mail-Anhang gespeichert', tone: 'fileCreate' },
   email_list_thread_messages: { label: 'Read email thread', labelDe: 'E-Mail-Thread gelesen', tone: 'emailRead' },
   email_list_cases: { label: 'Loaded Inbox cases', labelDe: 'Inbox-Fälle geladen', tone: 'emailAccounts' },
   email_create_or_update_case: { label: 'Updated Inbox case', labelDe: 'Inbox-Fall aktualisiert', tone: 'emailDraftUpdate' },

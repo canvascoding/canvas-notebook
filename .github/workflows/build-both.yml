@@ -68,38 +68,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify application production build
+      - name: Verify release source and CLI safety gates
         run: npm run verify:release
-
-      - name: Build portable CLI
-        run: npm run cli:build
-
-      - name: Verify operation lock and Postgres recovery
-        run: |
-          npm run test:cli:operation-lock
-          npm run test:cli:postgres-recovery
-          npm run test:cli:postgres-reconcile
-          npm run test:cli:database
-          npm run test:cli:database-provider
-          npm run test:cli:admin
-          npm run test:cli:backup
-          npm run test:install:managed-env
-          npm run test:cli:updater
-          npm run test:install:updater
-          npm run test:system-updates
-
-      - name: Verify update rollback and CLI artifact gate
-        run: |
-          npm run test:cli:update-rollback
-          npm run test:cli:update
-          npm run test:cli:portable-update
-          npm run test:cli:portable
-
-      - name: Verify deterministic release metadata and host CLI package
-        run: |
-          npm run test:release:payload
-          npm run test:release:host-cli
-          npm run test:release:updates
 
   build-amd64:
     runs-on: ubuntu-latest

@@ -314,8 +314,8 @@ export async function forkPiSession(input: ForkPiSessionInput): Promise<ForkPiSe
       }
 
       const workspaceCondition = input.workspaceType === 'personal'
-        ? '(workspace_id = ? OR workspace_id IS NULL)'
-        : 'workspace_id = ?';
+        ? '(workspace_id = $2 OR workspace_id IS NULL)'
+        : 'workspace_id = $2';
       const titleRows = await connection.all(
         `SELECT title
          FROM pi_sessions

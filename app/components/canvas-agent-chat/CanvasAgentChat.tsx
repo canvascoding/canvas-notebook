@@ -14,6 +14,7 @@ import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/c
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
 import { ChatRuntimeNotice } from '@/app/components/canvas-agent-chat/ChatRuntimeNotice';
 import { ChatStarterScreen } from '@/app/components/canvas-agent-chat/ChatStarterScreen';
+import { McpAppChatContext } from '@/app/components/canvas-agent-chat/McpAppChatContext';
 import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import { useFileStore } from '@/app/store/file-store';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -1309,6 +1310,7 @@ export default function CanvasAgentChat({
       : t('noFilesInWorkspace');
 
   return (
+    <McpAppChatContext.Provider value={sessionId ? { sessionId, agentId: activeSessionAgentId } : null}>
     <div ref={containerRef} className="relative flex h-full flex-col overflow-hidden bg-card text-card-foreground">
       <ChatHeader
         activeAgentDisplayName={activeAgentDisplayName}
@@ -1568,5 +1570,6 @@ export default function CanvasAgentChat({
         progressItems={imagePreprocessProgressItems}
       />
     </div>
+    </McpAppChatContext.Provider>
   );
 }

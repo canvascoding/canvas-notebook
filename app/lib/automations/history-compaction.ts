@@ -64,8 +64,9 @@ export async function prepareAutomationHistoryWithCompaction(
   input: PrepareAutomationHistoryInput,
 ): Promise<PreparedAutomationHistory> {
   const toolTokens = estimatePiToolSchemaTokens(input.tools);
+  const contextMessages = projectToolOutputBlocks(input.messages, input.model);
   const compose = (selectionMode: 'automatic' | 'hard_limit' | 'full' = 'automatic') => composePiHistoryForLlm({
-    messages: projectToolOutputBlocks(input.messages, input.model),
+    messages: contextMessages,
     summary: input.summary,
     systemPromptTokens: input.systemPromptBudgetTokens,
     contextWindow: input.model.contextWindow,
@@ -74,9 +75,9 @@ export async function prepareAutomationHistoryWithCompaction(
     toolTokens,
     selectionMode,
   });
-  const preflight = compose();
+  const preflight = compose('full');
   const roughInspection = inspectPiRuntimeCompactionPressure({
-    messages: input.messages,
+    messages: contextMessages,
     model: input.model,
     outputReserveTokens: input.requestOutputTokens,
     fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
@@ -84,9 +85,10 @@ export async function prepareAutomationHistoryWithCompaction(
   let shouldCompact = input.force === true
     || preflight.softThresholdExceeded
     || preflight.contextBudgetExceeded;
-  if (input.force !== true && roughInspection.pressure.cheapGatePassed) {
+  if (input.force !== true && roughInspection.pressure.cheapGatePassed
+    && !preflight.payloadBudgetExceeded && preflight.llmMessages.length > 0) {
     const exactPreflight = await preparePiFinalPayload({
-      messages: input.messages,
+      messages: preflight.llmMessages,
       model: input.model,
       effectiveInstructions: [{ role: 'system', content: input.effectiveSystemPrompt }],
       effectiveTools: input.tools,
@@ -94,7 +96,7 @@ export async function prepareAutomationHistoryWithCompaction(
       runtimeContractRevision: 'canvas-pi-automation-v1',
     }, input.imageNormalizationOptions);
     shouldCompact = inspectPiRuntimeCompactionPressure({
-      messages: input.messages,
+      messages: contextMessages,
       model: input.model,
       outputReserveTokens: input.requestOutputTokens,
       fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
@@ -199,6 +201,9 @@ export async function prepareAutomationHistoryWithCompaction(
   }
   if (result.reasonCode === 'fixed_context_too_large') {
     throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
+  }
+  if (result.reasonCode === 'retained_context_too_large') {
+    throw new Error('The required automation context, including recent messages and tool results, exceeds the model window after normalization.');
   }
   if (result.state === 'aborted' || input.signal.aborted) {
     throw new Error('Automation context compaction was aborted.');

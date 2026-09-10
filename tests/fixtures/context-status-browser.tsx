@@ -53,6 +53,9 @@ function Fixture() {
       <button onClick={() => updatePercent(63)}>New 63%</button>
       <button onClick={() => updatePercent(110)}>Trigger reached</button>
       <button onClick={() => setStatus({ ...initial, nextRequestBudgetExceeded: true })}>Overflow</button>
+      <button onClick={() => setStatus({ ...initial, phase: 'idle', nextRequestBudgetExceeded: true,
+        contextPressure: { ...initial.contextPressure!, percentOfTrigger: 174, pressureTokens: 301_020 },
+        compactionStatus: { ...IDLE_RUNTIME_COMPACTION_STATUS, state: 'failed', reasonCode: 'retained_context_too_large' } })}>Retained overflow</button>
       <button onClick={() => setStatus({ ...initial, contextPressure: undefined,
         nextRequestEstimatedTokens: undefined, contextUsagePercent: 90 })}>Legacy</button>
     </div>

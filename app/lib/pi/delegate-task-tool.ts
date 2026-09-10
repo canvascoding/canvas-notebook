@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { finalizeToolOutputBlocks } from './tool-output-block-storage';
 import { getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from './context-budget';
-import type { AgentContext, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
+import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
 
@@ -450,9 +450,10 @@ export async function runEphemeralWorker(params: {
       messages: [],
       tools: params.tools,
     };
+    const thinkingLevel = params.runtime.selection.selection.thinkingLevel as ThinkingLevel;
     const config = {
       model,
-      thinkingLevel: params.runtime.selection.selection.thinkingLevel as ThinkingLevel,
+      reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
       convertToLlm: async (messages: AgentMessage[]) => {
         const { preparePiFinalPayload } = await import('@/app/lib/pi/multimodal-preparation');
         await finalizeToolOutputBlocks(messages, model, params.executionContext);
@@ -472,10 +473,12 @@ export async function runEphemeralWorker(params: {
         return prepared.messages;
       },
       prepareNextTurn: async (turnContext: { context: AgentContext }) => {
+        throwIfDelegationAborted(params.signal);
         const nextWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
           workspaceId: params.executionContext.workspaceId,
           rootPath: params.executionContext.workspaceRoot,
         });
+        throwIfDelegationAborted(params.signal);
         effectiveSystemPrompt = replaceWorkspaceFileTreePromptBlock(params.baseSystemPrompt, nextWorkspaceFileTree.promptBlock);
         return {
           context: {
@@ -485,7 +488,7 @@ export async function runEphemeralWorker(params: {
         };
       },
       sessionId: params.sessionId,
-    };
+    } satisfies AgentLoopConfig;
 
     finalMessages = await runAgentLoop(
       [params.promptMessage],

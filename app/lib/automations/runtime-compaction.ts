@@ -79,6 +79,9 @@ export async function recoverAutomationRuntimePayload(input: {
       streamFn: input.streamFn,
       selectionMode: 'force',
     });
+    // An empty overflow projection fits any window, but has lost the request.
+    // Require complete history coverage before treating recovery as successful.
+    if (!candidate.safeToSend || candidate.composition.llmMessages.length === 0) return null;
     summary = candidate.summary;
     const exact = await preparePiFinalPayload({
       messages: candidate.composition.llmMessages,

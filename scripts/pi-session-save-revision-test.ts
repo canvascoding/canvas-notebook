@@ -3,17 +3,23 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-pi-session-revision-'));
 process.env.DATA = dataDir;
+process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
 
 const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
+  if (testDatabase && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request))) {
+    return testDatabase;
+  }
   if (request === 'server-only') return {};
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
@@ -26,7 +32,8 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 async function main(): Promise<void> {
-  const { db } = await import('../app/lib/db');
+  testDatabase = await createPiTestDatabase();
+  const { db } = testDatabase;
   const { user } = await import('../app/lib/db/schema');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
   const {
@@ -179,8 +186,9 @@ async function main(): Promise<void> {
 }
 
 main()
-  .finally(() => {
+  .finally(async () => {
     moduleInternals._load = originalLoad;
+    await testDatabase?.close();
     rmSync(dataDir, { recursive: true, force: true });
   })
   .catch((error) => {

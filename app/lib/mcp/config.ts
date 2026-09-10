@@ -1,4 +1,6 @@
 import { resolveScopedMcpDir, type McpScope } from '@/app/lib/mcp/scope';
+import { hashMcpAuthConfig, hydrateMcpConnectionIdentities, validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
+import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import {
   readMcpTextFileIfExists,
   resolveMcpStoragePath,
@@ -22,6 +24,16 @@ export interface McpConfigState {
 }
 
 export type McpServerConfig = {
+  schemaVersion?: 1;
+  connectionId?: string;
+  ownerUserId?: string;
+  organizationId?: string | null;
+  serverDefinitionId?: string;
+  displayName?: string;
+  authVersion?: number;
+  legacyOAuthName?: string;
+  legacyOAuthAmbiguous?: boolean;
+  legacyConfigHash?: string;
   enabled?: boolean;
   command?: string;
   args?: string[];
@@ -128,6 +140,10 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
     if (!isPlainObject(serverConfig)) {
       throw new McpConfigValidationError(`MCP server "${serverName}" must be an object.`);
     }
+    if (serverConfig.connectionId !== undefined) validateMcpConnectionId(serverConfig.connectionId);
+    if (serverConfig.authVersion !== undefined && (!Number.isSafeInteger(serverConfig.authVersion) || Number(serverConfig.authVersion) < 1)) {
+      throw new McpConfigValidationError('MCP authVersion must be a positive integer.');
+    }
     if ('enabled' in serverConfig && typeof serverConfig.enabled !== 'boolean') {
       throw new McpConfigValidationError(`MCP server "${serverName}" field "enabled" must be a boolean.`);
     }
@@ -177,15 +193,25 @@ export async function ensureMcpConfigExists(scope?: McpScope | null): Promise<{ 
   return { filePath, created: true };
 }
 
-export async function readMcpConfigState(scope?: McpScope | null): Promise<McpConfigState> {
+async function readMcpConfigStateUnlocked(scope?: McpScope | null): Promise<McpConfigState> {
   const { created } = await ensureMcpConfigExists(scope);
   const state = await readMcpTextFileIfExists(getMcpConfigFile(scope), scope);
-
+  let rawContent = state.content ?? formatDefaultConfig();
+  const parsed = parseAndValidateMcpConfig(rawContent);
+  const hydrated = hydrateMcpConnectionIdentities(parsed, scope);
+  if (JSON.stringify(hydrated) !== JSON.stringify(parsed)) {
+    rawContent = `${JSON.stringify(hydrated, null, 2)}\n`;
+    await writeMcpTextFileAtomic(getMcpConfigFile(scope), rawContent, scope);
+  }
   return {
     path: state.filePath,
     exists: !created,
-    rawContent: state.content ?? formatDefaultConfig(),
+    rawContent,
   };
+}
+
+export async function readMcpConfigState(scope?: McpScope | null): Promise<McpConfigState> {
+  return withMcpStorageLock('config', scope, () => readMcpConfigStateUnlocked(scope));
 }
 
 export async function readMcpConfig(scope?: McpScope | null): Promise<McpConfig> {
@@ -193,26 +219,69 @@ export async function readMcpConfig(scope?: McpScope | null): Promise<McpConfig>
   return parseAndValidateMcpConfig(state.rawContent);
 }
 
-export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | null): Promise<McpConfigState> {
-  parseAndValidateMcpConfig(rawContent);
-
-  await writeMcpTextFileAtomic(getMcpConfigFile(scope), rawContent, scope);
-
-  return readMcpConfigState(scope);
+export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | null, options: { expectedRaw?: string } = {}): Promise<McpConfigState> {
+  const incoming = parseAndValidateMcpConfig(rawContent);
+  const changed: Array<{ connection: McpServerConfig & { connectionId: string }; clearAuth: boolean; invalidatedGeneration?: number }> = [];
+  const state = await withMcpStorageLock('config', scope, async () => {
+    const previousState = await readMcpConfigStateUnlocked(scope);
+    if (options.expectedRaw !== undefined && options.expectedRaw !== previousState.rawContent) {
+      throw Object.assign(new Error('MCP connections changed. Reload and try again.'), { status: 409, code: 'MCP_CONFIG_CONFLICT' });
+    }
+    const previous = parseAndValidateMcpConfig(previousState.rawContent);
+    const hydrated = hydrateMcpConnectionIdentities(incoming, scope, previous);
+    const nextById = new Map(Object.values(hydrated.mcpServers).map((server) => [server.connectionId, server]));
+    for (const server of Object.values(previous.mcpServers)) {
+      if (!server.connectionId) continue;
+      const next = nextById.get(server.connectionId);
+      if (next && JSON.stringify(next) === JSON.stringify(server)) continue;
+      const clearAuth = (!next || hashMcpAuthConfig(next) !== hashMcpAuthConfig(server)) && Boolean(server.auth === 'oauth' || server.oauth);
+      let invalidatedGeneration: number | undefined;
+      if (clearAuth) {
+        // This lock only updates a short-lived generation record. No provider
+        // request or refresh lock may be acquired while holding the config lock.
+        const { invalidateMcpOAuthGeneration } = await import('@/app/lib/mcp/oauth-lifecycle');
+        const { resolveMcpCredentialScope } = await import('@/app/lib/mcp/credential-storage');
+        invalidatedGeneration = (await invalidateMcpOAuthGeneration(server.connectionId, resolveMcpCredentialScope({ ...server, connectionId: server.connectionId }, scope))).generation;
+      }
+      changed.push({ connection: { ...server, connectionId: server.connectionId }, clearAuth, invalidatedGeneration });
+    }
+    await writeMcpTextFileAtomic(getMcpConfigFile(scope), hydrated === incoming ? rawContent : JSON.stringify(hydrated, null, 2), scope);
+    return readMcpConfigStateUnlocked(scope);
+  });
+  for (const { connection, clearAuth, invalidatedGeneration } of changed) {
+    const { closeMcpServer } = await import('@/app/lib/mcp/manager');
+    await closeMcpServer(connection.connectionId, scope);
+    if (clearAuth) {
+      const { clearMcpOAuth } = await import('@/app/lib/mcp/oauth');
+      await clearMcpOAuth(connection.connectionId, scope, { connectionSnapshot: connection, alreadyInvalidated: true, invalidatedGeneration });
+    }
+  }
+  return state;
 }
 
 export async function setMcpServerEnabled(serverName: string, enabled: boolean, scope?: McpScope | null): Promise<McpConfigState> {
-  const state = await readMcpConfigState(scope);
-  const config = parseAndValidateMcpConfig(state.rawContent);
-  const serverConfig = config.mcpServers[serverName];
-  if (!serverConfig) {
-    throw new McpConfigValidationError(`Unknown MCP server "${serverName}".`);
-  }
+  let connectionId = serverName;
+  const updated = await withMcpStorageLock('config', scope, async () => {
+    const state = await readMcpConfigStateUnlocked(scope);
+    const config = parseAndValidateMcpConfig(state.rawContent);
+    const serverConfig = config.mcpServers[serverName];
+    if (!serverConfig) {
+      throw new McpConfigValidationError(`Unknown MCP server "${serverName}".`);
+    }
+    connectionId = serverConfig.connectionId || serverName;
 
-  config.mcpServers[serverName] = {
-    ...serverConfig,
-    enabled,
-  };
+    config.mcpServers[serverName] = {
+      ...serverConfig,
+      enabled,
+    };
 
-  return writeMcpConfigRaw(JSON.stringify(config, null, 2), scope);
+    await writeMcpTextFileAtomic(getMcpConfigFile(scope), JSON.stringify(config, null, 2), scope);
+    return readMcpConfigStateUnlocked(scope);
+  });
+  const { closeMcpServer } = await import('@/app/lib/mcp/manager');
+  await closeMcpServer(connectionId, scope);
+  const { recordMcpConnectionObservation } = await import('@/app/lib/mcp/connection-health');
+  const connection = parseAndValidateMcpConfig(updated.rawContent).mcpServers[serverName];
+  await recordMcpConnectionObservation(connection, scope, { kind: 'activation' });
+  return updated;
 }

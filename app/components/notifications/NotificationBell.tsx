@@ -13,6 +13,7 @@ import {
   ListTodo,
   Mail,
   MessageSquare,
+  PlugZap,
   Workflow,
   X,
 } from 'lucide-react';
@@ -47,6 +48,7 @@ function notificationIcon(item: NotificationItem) {
   if (item.target.kind === 'email') return Mail;
   if (item.target.kind === 'studio') return ImageIcon;
   if (item.target.kind === 'memory') return BrainCircuit;
+  if (item.target.kind === 'mcp') return PlugZap;
   return Workflow;
 }
 

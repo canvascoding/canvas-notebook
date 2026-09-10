@@ -64,6 +64,8 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   result: AgentToolResult<unknown>;
   toolName: string;
   raw?: unknown;
+  /** Optional model-safe sources for outcome fields; raw remains archival only. */
+  outcomeValues?: unknown[];
   maxChars?: number;
 }): Promise<AgentToolResult<unknown>> {
   let { result } = input;
@@ -97,7 +99,8 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   // Images remain on their separate multimodal path, not the text budget.
   let parsedText: unknown;
   try { parsedText = JSON.parse(text); } catch { parsedText = null; }
-  const outcomeFields = collectOutcomeFields([input.raw, parsedText, result.details], 3_000);
+  const outcomeValues = input.outcomeValues ?? [input.raw, parsedText, result.details];
+  const outcomeFields = collectOutcomeFields(outcomeValues, 3_000);
   if (text.length <= limit && detailSize <= TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS) {
     return markPreparedToolOutput({ ...result, details: {
       ...(result.details && typeof result.details === 'object' ? result.details : { value: result.details }),
@@ -123,7 +126,7 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   const notice = metadata.references.length
     ? `Full original JSON: ${metadata.references[0].reference}\nUse read with offset or rg to inspect omitted content.`
     : `Full output unavailable: ${metadata.storageError}`;
-  const outcome = collectOutcomeFields([input.raw, parsedText, result.details], Math.min(3_000, Math.max(0, limit - notice.length - 120)));
+  const outcome = collectOutcomeFields(outcomeValues, Math.min(3_000, Math.max(0, limit - notice.length - 120)));
   const auth = parsedText && typeof parsedText === 'object' && (parsedText as Record<string, unknown>).auth_required === true;
   // Auth consumers parse the tool text as JSON; keep that established contract.
   const render = (preview: string) => auth

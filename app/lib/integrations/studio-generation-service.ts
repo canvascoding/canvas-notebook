@@ -45,10 +45,19 @@ import { classifyMediaReference, loadMediaReference, loadMediaReferences } from 
 import { generateSound, LYRIA_CLIP_MODEL_ID, LYRIA_PRO_MODEL_ID, type SoundOutputFormat } from '@/app/lib/integrations/sound-generation-service';
 import {
   GEMINI_FLASH_IMAGE_MODEL_ID,
+  OPENAI_IMAGE_MODEL_ID,
   SEEDANCE_MAX_REFERENCE_IMAGES,
   VEO_MAX_REFERENCE_IMAGES,
+  getMaxImageCountForProvider,
+  getOpenAIImageRequestValidationError,
   normalizeGeminiImageModelId,
+  normalizeOpenAIImageModelId,
   normalizeOpenAIImageOutputFormat,
+  type OpenAIImageBackground,
+  type OpenAIImageInputFidelity,
+  type OpenAIImageModeration,
+  type OpenAIImageOutputFormat,
+  type OpenAIImageQuality,
 } from '@/app/lib/integrations/image-generation-constants';
 import { withStudioGenerationConcurrency } from '@/app/lib/integrations/studio-generation-concurrency';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
@@ -85,9 +94,14 @@ export interface StudioGenerateRequest {
   count?: number;
   provider?: string;
   model?: string;
-  quality?: 'low' | 'medium' | 'high' | 'auto';
+  quality?: OpenAIImageQuality;
   output_format?: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
-  background?: 'transparent' | 'opaque' | 'auto';
+  background?: OpenAIImageBackground;
+  moderation?: OpenAIImageModeration;
+  output_compression?: number;
+  input_fidelity?: OpenAIImageInputFidelity;
+  stream?: boolean;
+  partial_images?: number;
   source_output_id?: string;
   pi_session_id?: string;
   extra_reference_urls?: string[];
@@ -127,10 +141,10 @@ export interface StudioGenerateResult {
 const MAX_PRODUCTS = 5;
 const MAX_PERSONAS = 3;
 const MAX_STYLES = 3;
-const MAX_IMAGE_COUNT = 4;
 
 const PRESET_BLOCK_ORDER = ['lighting', 'camera', 'background', 'props', 'subject'];
-const MAX_PROMPT_LENGTH = 4000;
+const DEFAULT_MAX_PROMPT_LENGTH = 4_000;
+const OPENAI_IMAGE_MAX_PROMPT_LENGTH = 32_000;
 
 function generationVisibilityCondition(scope: StudioScope, creatorUserId?: string | null) {
   return studioVisibilityCondition(scope, {
@@ -171,8 +185,8 @@ const MIME_EXTENSION: Record<string, string> = {
   'video/quicktime': 'mov',
 };
 
-function sanitizePrompt(prompt: string): string {
-  return prompt.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT_LENGTH);
+function sanitizePrompt(prompt: string, maximumLength = DEFAULT_MAX_PROMPT_LENGTH): string {
+  return prompt.replace(/\s+/g, ' ').trim().slice(0, maximumLength);
 }
 
 function extensionFromMime(mimeType: string): string {
@@ -776,7 +790,34 @@ export async function createStudioGeneration(
   const mode = request.mode || 'image';
   const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
   const aspectRatio = request.aspect_ratio || '1:1';
-  const rawPrompt = sanitizePrompt(request.prompt);
+  if (mode === 'image' && providerId === 'openai') {
+    const validationError = getOpenAIImageRequestValidationError({
+      model: request.model,
+      count: request.count,
+      quality: request.quality,
+      outputFormat: request.output_format,
+      background: request.background,
+      moderation: request.moderation,
+      outputCompression: request.output_compression,
+      inputFidelity: request.input_fidelity,
+      imageSize: request.image_size,
+      stream: request.stream,
+      partialImages: request.partial_images,
+    });
+    if (validationError) {
+      throw new StudioServiceError(
+        `Invalid OpenAI image request: ${validationError}`,
+        validationError,
+        'INVALID_REQUEST',
+      );
+    }
+  }
+  const rawPrompt = sanitizePrompt(
+    request.prompt,
+    mode === 'image' && providerId === 'openai'
+      ? OPENAI_IMAGE_MAX_PROMPT_LENGTH
+      : DEFAULT_MAX_PROMPT_LENGTH,
+  );
   const productIds = (request.product_ids || []).slice(0, MAX_PRODUCTS);
   const personaIds = (request.persona_ids || []).slice(0, MAX_PERSONAS);
   const styleIds = (request.style_ids || []).slice(0, MAX_STYLES);
@@ -808,7 +849,7 @@ export async function createStudioGeneration(
   const now = new Date();
   let sourceGenerationId: string | null = null;
 
-  const defaultModel = providerId === 'openai' ? 'gpt-image-2' : GEMINI_FLASH_IMAGE_MODEL_ID;
+  const defaultModel = providerId === 'openai' ? OPENAI_IMAGE_MODEL_ID : GEMINI_FLASH_IMAGE_MODEL_ID;
   const videoDefaultModel = providerId === SEEDANCE_PROVIDER_ID ? SEEDANCE_MODEL_ID : 'veo-3.1-fast-generate-preview';
   const soundDefaultModel = LYRIA_CLIP_MODEL_ID;
   const requestedModel = mode === 'video'
@@ -816,8 +857,12 @@ export async function createStudioGeneration(
     : mode === 'sound'
       ? (request.model || soundDefaultModel)
       : (request.model || defaultModel);
-  const model = mode === 'image' && providerId === 'gemini'
-    ? normalizeGeminiImageModelId(requestedModel)
+  const model = mode === 'image'
+    ? providerId === 'gemini'
+      ? normalizeGeminiImageModelId(requestedModel)
+      : providerId === 'openai'
+        ? normalizeOpenAIImageModelId(requestedModel)
+        : requestedModel
     : requestedModel;
 
   if (request.source_output_id) {
@@ -896,6 +941,11 @@ export async function createStudioGeneration(
     quality: request.quality,
     outputFormat: request.output_format,
     background: request.background,
+    moderation: request.moderation,
+    outputCompression: request.output_compression,
+    inputFidelity: request.input_fidelity,
+    stream: request.stream,
+    partialImages: request.partial_images,
     imageSize: request.image_size,
     videoResolution: request.video_resolution,
     videoDuration: request.video_duration,
@@ -1238,11 +1288,19 @@ async function executeStudioGenerationProcessing(
         scope,
       );
     } else {
-      const count = Math.min(Math.max(parsedMeta.count || 1, 1), MAX_IMAGE_COUNT);
+      const count = Math.min(
+        Math.max(parsedMeta.count || 1, 1),
+        getMaxImageCountForProvider('image', providerId),
+      );
       outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
         quality: parsedMeta.quality,
         outputFormat: parsedMeta.outputFormat,
         background: parsedMeta.background,
+        moderation: parsedMeta.moderation,
+        outputCompression: parsedMeta.outputCompression,
+        inputFidelity: parsedMeta.inputFidelity,
+        stream: parsedMeta.stream,
+        partialImages: parsedMeta.partialImages,
         imageSize: parsedMeta.imageSize,
       }, contextText, storageScope, scope);
     }
@@ -1284,7 +1342,17 @@ async function generateStudioImages(
   referenceImages: ProviderReferenceImage[],
   providerId: string,
   model: string,
-  options: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto'; imageSize?: string } | undefined,
+  options: {
+    quality?: OpenAIImageQuality;
+    outputFormat?: OpenAIImageOutputFormat;
+    background?: OpenAIImageBackground;
+    moderation?: OpenAIImageModeration;
+    outputCompression?: number;
+    inputFidelity?: OpenAIImageInputFidelity;
+    stream?: boolean;
+    partialImages?: number;
+    imageSize?: string;
+  } | undefined,
   contextText: string | undefined,
   storageScope: EnvStorageScope | null | undefined,
   scope: StudioScope,
@@ -1332,6 +1400,12 @@ async function generateStudioImages(
         quality: options?.quality,
         outputFormat,
         background: options?.background,
+        moderation: options?.moderation,
+        outputCompression: options?.outputCompression,
+        inputFidelity: options?.inputFidelity,
+        stream: options?.stream,
+        partialImages: options?.partialImages,
+        endUserId: scope.actorUserId,
         contextPrompt: contextText,
         imageSize: options?.imageSize,
         storageScope,
@@ -1355,6 +1429,11 @@ async function generateStudioImages(
         quality: options?.quality,
         outputFormat,
         background: options?.background,
+        moderation: options?.moderation,
+        outputCompression: options?.outputCompression,
+        inputFidelity: options?.inputFidelity,
+        stream: options?.stream,
+        partialImages: options?.partialImages,
         imageSize: options?.imageSize,
         usage: result.usage,
       };

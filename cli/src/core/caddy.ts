@@ -3,13 +3,12 @@ import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { deriveProxyIdentityToken } from '../../../app/lib/security/proxy-identity';
-import { htmlPreviewOrigins } from '../../../app/lib/html-preview-origin';
 
 import type { CanvasCliConfig, CommandResult, CommandRunner, RuntimeContext } from './types';
 
 const MANAGED_MARKER = '# Managed by Canvas Notebook';
 const UPDATE_STATUS_PORT = 3457;
+const PROXY_IDENTITY_PURPOSE = 'canvas-notebook/proxy-client-address/v1';
 
 export interface CaddyTarget {
   baseUrl: string;
@@ -75,6 +74,41 @@ function validateHostname(value: string): string {
   return hostname;
 }
 
+/** Grants only the right to attest a proxy client address, never internal API access. */
+function deriveProxyIdentityToken(internalApiKey: string | undefined): string | null {
+  const key = internalApiKey?.trim();
+  return key && key.length >= 32
+    ? crypto.createHmac('sha256', key).update(PROXY_IDENTITY_PURPOSE).digest('hex')
+    : null;
+}
+
+function resolvePreviewOrigin(domain: string, configuredOrigin?: string): URL {
+  const app = new URL(`https://${domain}`);
+  const parseOrigin = (value: string): URL => {
+    const parsed = new URL(value);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password
+      || parsed.pathname !== '/' || parsed.search || parsed.hash || parsed.hostname.endsWith('.')) {
+      throw new Error('HTML preview requires an HTTP(S) origin without a path or credentials');
+    }
+    return parsed;
+  };
+  const local = app.hostname === 'localhost' || app.hostname.endsWith('.localhost')
+    || app.hostname === '127.0.0.1' || app.hostname === '[::1]';
+  let preview: URL;
+  if (configuredOrigin?.trim()) preview = parseOrigin(configuredOrigin.trim());
+  else if (local) preview = parseOrigin(`${app.protocol}//preview.localhost${app.port ? ':' + app.port : ''}`);
+  else {
+    if (/^[\d.]+$/u.test(app.hostname) || app.hostname.includes(':')) {
+      throw new Error('CANVAS_HTML_PREVIEW_ORIGIN is required for deployments addressed by IP');
+    }
+    preview = parseOrigin(`${app.protocol}//preview.${app.host}`);
+  }
+  if (preview.hostname === app.hostname || (app.protocol === 'https:' && preview.protocol !== 'https:')) {
+    throw new Error('HTML preview requires a different hostname and HTTPS when the app uses HTTPS');
+  }
+  return preview;
+}
+
 export function resolveCaddyTarget(config: CanvasCliConfig): CaddyTarget {
   const configuredUrl = String(config.env.BETTER_AUTH_BASE_URL || '').trim()
     || String(config.env.BASE_URL || '').trim()
@@ -98,7 +132,7 @@ export function renderCaddyfile(domain: string, hostPort: number, internalApiKey
   validateHostname(domain);
   if (!Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535) throw new Error(`Invalid Caddy upstream port: ${hostPort}`);
   const token = deriveProxyIdentityToken(internalApiKey);
-  const preview = new URL(htmlPreviewOrigins({BASE_URL:`https://${domain}`,CANVAS_HTML_PREVIEW_ORIGIN:previewOrigin}).previewOrigin);
+  const preview = resolvePreviewOrigin(domain, previewOrigin);
   validateHostname(preview.hostname);
   const proxyIdentity = token
     ? `\n\t\t\theader_up X-Canvas-Proxy-Token ${token}\n\t\t\theader_up X-Canvas-Proxy-Client-IP {remote_host}`

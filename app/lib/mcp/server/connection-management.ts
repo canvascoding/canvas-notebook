@@ -4,14 +4,27 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { openDb } from '@/app/lib/db';
 import {
+  assertUserSeatAccess,
+  SeatLimitGuardError,
+} from '@/app/lib/license/seat-limit';
+import {
   DIRECT_MCP_OAUTH_SCOPES,
+  DIRECT_MCP_RESOURCE_SCOPES,
   type DirectMcpOAuthScope,
   resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
 import { directMcpClientDisplayName } from '@/app/lib/mcp/server/client-name';
+import { readDirectMcpConnectionUsage } from '@/app/lib/mcp/server/connection-usage';
+import {
+  evaluateDirectMcpConnectionUsability,
+  type DirectMcpRefreshGrantState,
+  type DirectMcpSessionState,
+} from '@/app/lib/mcp/server/connection-usability';
+import { listDirectMcpSelectableWorkspaces } from '@/app/lib/mcp/server/workspace-access-policy';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 
 const MAX_CONNECTIONS = 50;
+const MAX_AUTHORIZATION_EVIDENCE = 500;
 const MAX_CONNECTION_REFERENCE_LENGTH = 2048;
 
 type DirectMcpConnectionRow = {
@@ -22,9 +35,44 @@ type DirectMcpConnectionRow = {
   resource_id: string | null;
   resource_disabled: unknown;
   resource_scopes: unknown;
+  client_disabled: unknown;
+  user_banned: unknown;
+  consent_updated_at: unknown;
   connected_at: unknown;
   updated_at: unknown;
   allowed_workspace_count: unknown;
+};
+
+type DirectMcpSessionRow = {
+  session_id: unknown;
+  expires_at: unknown;
+};
+
+type DirectMcpGrantRevocationRow = {
+  client_id: unknown;
+  session_id: unknown;
+  revoked_at: unknown;
+};
+
+type DirectMcpRefreshGrantRow = {
+  id: unknown;
+  client_id: unknown;
+  session_id: unknown;
+  created_at: unknown;
+  expires_at: unknown;
+  revoked: unknown;
+  resources: unknown;
+  scopes: unknown;
+};
+
+type DirectMcpWorkspaceGrantRow = {
+  client_id: unknown;
+  workspace_id: unknown;
+};
+
+type DirectMcpRevokedTokenRow = {
+  client_id: unknown;
+  token_hash: unknown;
 };
 
 type DirectMcpConnectionReference = {
@@ -42,6 +90,11 @@ export type DirectMcpConnection = {
   connectedAt: string | null;
   updatedAt: string | null;
   allowedWorkspaceCount: number;
+  authorizationStatus: 'usable' | 'expired' | 'revoked' | 'access_denied' | 'authorization_required' | 'unknown';
+  usableGrantCount: number;
+  sessionExpiresAt: string | null;
+  refreshExpiresAt: string | null;
+  lastSuccessfulRequestAt: string | null;
 };
 
 export type DisconnectDirectMcpConnectionResult =
@@ -70,6 +123,28 @@ function toSafeCount(value: unknown): number {
   }
   if (typeof value === 'string') return toSafeCount(Number(value));
   return 0;
+}
+
+function isDatabaseBoolean(value: unknown): boolean {
+  return value === true || value === 1 || value === '1';
+}
+
+function parseStringArray(value: unknown): string[] {
+  let parsed: unknown = value;
+  for (let depth = 0; depth < 2 && typeof parsed === 'string'; depth += 1) {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      parsed = [];
+    }
+  }
+  return Array.isArray(parsed)
+    ? parsed.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+    : [];
+}
+
+function directMcpGrantKey(clientId: string, sessionId: string): string {
+  return JSON.stringify([clientId, sessionId]);
 }
 
 function parseScopes(value: unknown): DirectMcpOAuthScope[] {
@@ -215,6 +290,9 @@ export async function listDirectMcpConnections(
         resource_policy.id AS resource_id,
         resource_policy.disabled AS resource_disabled,
         resource_policy.allowed_scopes AS resource_scopes,
+        oauth_client.disabled AS client_disabled,
+        local_user.banned AS user_banned,
+        oauth_consent.updated_at AS consent_updated_at,
         oauth_consent.created_at AS connected_at,
         oauth_consent.updated_at AS updated_at,
         (
@@ -226,6 +304,8 @@ export async function listDirectMcpConnections(
       FROM oauth_consent
       INNER JOIN oauth_client
         ON oauth_client.client_id = oauth_consent.client_id
+      INNER JOIN "user" local_user
+        ON local_user.id = oauth_consent.user_id
       INNER JOIN oauth_client_resource
         ON oauth_client_resource.client_id = oauth_client.client_id
       LEFT JOIN oauth_resource resource_policy
@@ -240,25 +320,206 @@ export async function listDirectMcpConnections(
       LIMIT $3
     `, [userId, directMcpResource(), MAX_CONNECTIONS]) as DirectMcpConnectionRow[];
 
-    const connections = new Map<string, DirectMcpConnection>();
+    const rowsByClient = new Map<string, DirectMcpConnectionRow>();
     for (const row of rows) {
-      if (connections.has(row.client_id)) continue;
+      if (typeof row.client_id === 'string' && row.client_id && !rowsByClient.has(row.client_id)) {
+        rowsByClient.set(row.client_id, row);
+      }
+    }
+    const clientIds = [...rowsByClient.keys()];
+    if (!clientIds.length) return [];
+
+    const clientPlaceholders = clientIds.map((_, index) => `$${index + 2}`).join(', ');
+    const [refreshGrantResult, workspaceGrantRows, usageResults] = await Promise.all([
+      database.all(`
+        SELECT id, client_id, session_id, created_at, expires_at, revoked, resources, scopes
+        FROM oauth_refresh_token
+        WHERE user_id = $1 AND client_id IN (${clientPlaceholders})
+        ORDER BY client_id ASC, created_at DESC, id DESC
+        LIMIT $${clientIds.length + 2}
+      `, [userId, ...clientIds, MAX_AUTHORIZATION_EVIDENCE + 1]) as Promise<DirectMcpRefreshGrantRow[]>,
+      database.all(`
+        SELECT client_id, workspace_id
+        FROM mcp_direct_workspace_grant
+        WHERE user_id = $1 AND client_id IN (${clientPlaceholders})
+      `, [userId, ...clientIds]) as Promise<DirectMcpWorkspaceGrantRow[]>,
+      Promise.all(clientIds.map(async (clientId) => {
+        try {
+          return [clientId, { known: true as const, usage: await readDirectMcpConnectionUsage(userId, clientId) }] as const;
+        } catch {
+          // A private history file is only supporting evidence. A read failure
+          // must not turn a connected client into an assumed active grant.
+          return [clientId, { known: false as const, usage: null }] as const;
+        }
+      })),
+    ]);
+    const refreshEvidenceTruncated = refreshGrantResult.length > MAX_AUTHORIZATION_EVIDENCE;
+    const refreshGrantRows = refreshGrantResult.slice(0, MAX_AUTHORIZATION_EVIDENCE);
+    const usageByClient = new Map<string, {
+      known: boolean;
+      usage: Awaited<ReturnType<typeof readDirectMcpConnectionUsage>> | null;
+    }>(usageResults);
+
+    const evidencePairs = new Map<string, { clientId: string; sessionId: string }>();
+    const evidenceTruncatedClients = new Set<string>();
+    const addEvidencePair = (clientId: string, sessionId: string) => {
+      const key = directMcpGrantKey(clientId, sessionId);
+      if (evidencePairs.has(key)) return;
+      if (evidencePairs.size >= MAX_AUTHORIZATION_EVIDENCE) {
+        evidenceTruncatedClients.add(clientId);
+        return;
+      }
+      evidencePairs.set(key, { clientId, sessionId });
+    };
+    for (const row of refreshGrantRows) {
+      if (typeof row.client_id === 'string' && typeof row.session_id === 'string') {
+        addEvidencePair(row.client_id, row.session_id);
+      }
+    }
+    for (const [clientId, result] of usageResults) {
+      for (const grant of result.usage?.grants ?? []) addEvidencePair(clientId, grant.sessionId);
+    }
+    const evidence = [...evidencePairs.values()];
+    const sessionIds = [...new Set(evidence.map((pair) => pair.sessionId))];
+    const [sessionRows, grantRevocationRows] = sessionIds.length === 0
+      ? [[], []] as const
+      : await Promise.all([
+        database.all(`
+          SELECT id AS session_id, expires_at
+          FROM "session"
+          WHERE user_id = $1 AND id IN (${sessionIds.map((_, index) => `$${index + 2}`).join(', ')})
+        `, [userId, ...sessionIds]) as Promise<DirectMcpSessionRow[]>,
+        database.all(`
+          WITH expected(client_id, session_id) AS (
+            VALUES ${evidence.map((_, index) => `($${index * 2 + 2}, $${index * 2 + 3})`).join(', ')}
+          )
+          SELECT revocation.client_id, revocation.session_id, revocation.revoked_at
+          FROM mcp_direct_grant_revocation revocation
+          INNER JOIN expected
+            ON expected.client_id = revocation.client_id
+           AND expected.session_id = revocation.session_id
+          WHERE revocation.user_id = $1
+        `, [userId, ...evidence.flatMap((pair) => [pair.clientId, pair.sessionId])]) as Promise<DirectMcpGrantRevocationRow[]>,
+      ]);
+    const tokenHashes = [...new Set(usageResults.flatMap(([, value]) => (
+      value.usage?.grants.map((grant) => grant.tokenHash) ?? []
+    )))];
+    const revokedTokenRows = tokenHashes.length === 0 ? [] : await database.all(`
+      SELECT client_id, token_hash
+      FROM mcp_revoked_access_token
+      WHERE user_id = $1
+        AND client_id IN (${clientPlaceholders})
+        AND token_hash IN (${tokenHashes.map((_, index) => `$${clientIds.length + index + 2}`).join(', ')})
+    `, [userId, ...clientIds, ...tokenHashes]) as DirectMcpRevokedTokenRow[];
+
+    let seatAllowed: boolean | null = true;
+    try {
+      await assertUserSeatAccess({ userId });
+    } catch (error) {
+      seatAllowed = error instanceof SeatLimitGuardError ? false : null;
+    }
+    let selectableWorkspaceIds: Set<string> | null;
+    try {
+      selectableWorkspaceIds = new Set((await listDirectMcpSelectableWorkspaces(userId))
+        .map((workspace) => workspace.workspaceId));
+    } catch {
+      selectableWorkspaceIds = null;
+    }
+
+    const sessions = sessionRows.flatMap((row): DirectMcpSessionState[] => (
+      typeof row.session_id === 'string' && row.session_id
+        ? [{ sessionId: row.session_id, expiresAt: row.expires_at, grantRevokedAt: null }]
+        : []
+    ));
+    const grantRevokedAtByClientSession = new Map<string, unknown>();
+    for (const row of grantRevocationRows) {
+      if (typeof row.client_id === 'string' && typeof row.session_id === 'string') {
+        grantRevokedAtByClientSession.set(directMcpGrantKey(row.client_id, row.session_id), row.revoked_at);
+      }
+    }
+    const refreshGrantsByClient = new Map<string, DirectMcpRefreshGrantRow[]>();
+    for (const row of refreshGrantRows) {
+      if (typeof row.client_id !== 'string') continue;
+      const grants = refreshGrantsByClient.get(row.client_id) ?? [];
+      grants.push(row);
+      refreshGrantsByClient.set(row.client_id, grants);
+    }
+    const workspaceIdsByClient = new Map<string, Set<string>>();
+    for (const row of workspaceGrantRows) {
+      if (typeof row.client_id !== 'string' || typeof row.workspace_id !== 'string') continue;
+      const workspaceIds = workspaceIdsByClient.get(row.client_id) ?? new Set<string>();
+      workspaceIds.add(row.workspace_id);
+      workspaceIdsByClient.set(row.client_id, workspaceIds);
+    }
+    const revokedTokenHashesByClient = new Map<string, Set<string>>();
+    for (const row of revokedTokenRows) {
+      if (typeof row.client_id !== 'string' || typeof row.token_hash !== 'string') continue;
+      const hashes = revokedTokenHashesByClient.get(row.client_id) ?? new Set<string>();
+      hashes.add(row.token_hash);
+      revokedTokenHashesByClient.set(row.client_id, hashes);
+    }
+
+    const connections = new Map<string, DirectMcpConnection>();
+    for (const [clientId, row] of rowsByClient) {
       const scopes = parseScopes(row.scopes);
       const resourcePolicyStatus = !row.resource_id ? 'missing'
         : [true, 1, '1'].includes(row.resource_disabled as boolean | number | string)
           ? 'disabled' : 'active';
       const resourceScopes = row.resource_scopes == null
         ? DIRECT_MCP_OAUTH_SCOPES : parseScopes(row.resource_scopes);
-      connections.set(row.client_id, {
+      const effectiveScopes = resourcePolicyStatus === 'active'
+        ? scopes.filter((scope) => resourceScopes.includes(scope)) : [];
+      const effectiveResourceScopes = effectiveScopes.filter((scope) => (
+        (DIRECT_MCP_RESOURCE_SCOPES as readonly string[]).includes(scope)
+      ));
+      const allowedWorkspaceIds = workspaceIdsByClient.get(clientId) ?? new Set<string>();
+      const usage = usageByClient.get(clientId) ?? { known: false as const, usage: null };
+      const refreshGrants = (refreshGrantsByClient.get(clientId) ?? []).flatMap((grant): DirectMcpRefreshGrantState[] => (
+        typeof grant.id === 'string' && grant.id && (typeof grant.session_id === 'string' || grant.session_id === null)
+          ? [{
+            id: grant.id,
+            sessionId: grant.session_id,
+            issuedAt: grant.created_at,
+            expiresAt: grant.expires_at,
+            revokedAt: grant.revoked,
+            resourceAllowed: parseStringArray(grant.resources).includes(directMcpResource()),
+            scopes: parseScopes(grant.scopes),
+          }]
+          : []
+      ));
+      const usability = evaluateDirectMcpConnectionUsability({
+        effectiveScopeCount: effectiveResourceScopes.length,
+        effectiveResourceScopes,
+        resourcePolicyActive: resourcePolicyStatus === 'active',
+        clientDisabled: isDatabaseBoolean(row.client_disabled),
+        userBanned: isDatabaseBoolean(row.user_banned),
+        seatAllowed,
+        workspaceStateKnown: selectableWorkspaceIds !== null,
+        usageStateKnown: usage.known,
+        grantStateKnown: !refreshEvidenceTruncated && !evidenceTruncatedClients.has(clientId),
+        allowedWorkspaceCount: allowedWorkspaceIds.size,
+        usableWorkspaceCount: selectableWorkspaceIds === null ? 0
+          : [...allowedWorkspaceIds].filter((workspaceId) => selectableWorkspaceIds.has(workspaceId)).length,
+        consentUpdatedAt: row.consent_updated_at,
+        observedGrants: usage.usage?.grants ?? [],
+        revokedTokenHashes: revokedTokenHashesByClient.get(clientId) ?? new Set(),
+        sessions: sessions.map((session) => ({
+          ...session,
+          grantRevokedAt: grantRevokedAtByClientSession.get(directMcpGrantKey(clientId, session.sessionId)) ?? null,
+        })),
+        refreshGrants,
+      });
+      connections.set(clientId, {
         connectionId: encodeConnectionReference(userId, row.consent_id),
         clientName: directMcpClientDisplayName(row.client_name),
         scopes,
-        effectiveScopes: resourcePolicyStatus === 'active'
-          ? scopes.filter((scope) => resourceScopes.includes(scope)) : [],
+        effectiveScopes,
         resourcePolicyStatus,
         connectedAt: timestampToIso(row.connected_at),
         updatedAt: timestampToIso(row.updated_at),
         allowedWorkspaceCount: toSafeCount(row.allowed_workspace_count),
+        ...usability,
+        lastSuccessfulRequestAt: usage.usage?.lastSuccessfulRequestAt ?? null,
       });
     }
     return [...connections.values()];

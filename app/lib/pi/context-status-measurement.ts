@@ -12,6 +12,7 @@ export async function measurePiContextStatus(
   // An oversized history can have an empty llmMessages projection. Do not
   // normalize that empty projection and accidentally report an empty context.
   const prepared = composition.payloadBudgetExceeded
+    || (composition.contextBudgetExceeded && composition.llmMessages.length === 0)
     ? null
     : await preparePiFinalPayload(input, options);
   const projection = createPiRuntimeContextStatusProjection({

@@ -1,6 +1,6 @@
 import { finalizeToolOutputBlocks } from '@/app/lib/pi/tool-output-block-storage';
 
-import { runAgentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
+import { runAgentLoop, type AgentContext, type AgentLoopConfig, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Api, ProviderId } from '@earendil-works/pi-ai';
 
 import {
@@ -696,9 +696,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             };
           },
         );
+        const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
         const config = {
           model,
-          thinkingLevel: executableRuntime.selection.selection.thinkingLevel as ThinkingLevel,
+          reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
           convertToLlm: async (messages: AgentMessage[]) => {
             latestProviderSourceMessages = messages.slice();
             const preparedPayload = await prepareExactAutomationPayload(messages);
@@ -728,12 +729,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             return preparedPayload.messages;
           },
           prepareNextTurn: async (turnContext: { context: AgentContext }) => {
+            assertAutomationExecutionActive(executionSignal);
             const nextWorkspaceFileTree = hasWorkspaceReadCapability
               ? await buildWorkspaceFileTreePrompt({
                   workspaceId: automationWorkspace.workspaceId,
                   rootPath: automationWorkspace.rootPath,
                 })
               : { promptBlock: '' };
+            assertAutomationExecutionActive(executionSignal);
             currentSystemPrompt = replaceWorkspaceFileTreePromptBlock(
               effectiveBaseSystemPrompt,
               nextWorkspaceFileTree.promptBlock,
@@ -746,7 +749,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             };
           },
           sessionId: piSessionId,
-        };
+        } satisfies AgentLoopConfig;
         const context: AgentContext = {
           systemPrompt,
           messages: preparedMessages.slice(0, -1),

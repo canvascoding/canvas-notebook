@@ -44,8 +44,19 @@ export function getImageSizesForModel(model: string): readonly string[] {
   return GEMINI_IMAGE_SIZES;
 }
 
+export const OPENAI_IMAGE_MODEL_ID = 'gpt-image-2.5-sunburst';
+export const OPENAI_LEGACY_IMAGE_MODEL_ALIASES: Record<string, string> = {
+  'gpt-image-2': OPENAI_IMAGE_MODEL_ID,
+  'gpt-image-2-2026-04-21': OPENAI_IMAGE_MODEL_ID,
+};
+
+export function normalizeOpenAIImageModelId(model: string): string {
+  const trimmed = model.trim();
+  return OPENAI_LEGACY_IMAGE_MODEL_ALIASES[trimmed] ?? trimmed;
+}
+
 export const OPENAI_MODELS = [
-  { id: 'gpt-image-2', optionKey: 'gptImage2' as const },
+  { id: OPENAI_IMAGE_MODEL_ID, optionKey: 'gptImage25Sunburst' as const },
 ] as const;
 
 export const VIDEO_MODELS = [
@@ -139,9 +150,158 @@ export function getVideoDurationsForModel(modelId: string): readonly StudioVideo
 export const GEMINI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
 export const OPENAI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', 'auto'] as const;
 
-export const QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
+export const QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export const OUTPUT_FORMAT_OPTIONS = ['png', 'jpeg', 'webp'] as const;
 export const BACKGROUND_OPTIONS = ['auto', 'opaque', 'transparent'] as const;
+export const OPENAI_MODERATION_OPTIONS = ['auto', 'low'] as const;
+export const OPENAI_INPUT_FIDELITY_OPTIONS = ['low', 'high'] as const;
+export const OPENAI_RECOMMENDED_IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536'] as const;
+
+export type OpenAIImageQuality = (typeof QUALITY_OPTIONS)[number];
+export type OpenAIImageOutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number];
+export type OpenAIImageBackground = (typeof BACKGROUND_OPTIONS)[number];
+export type OpenAIImageModeration = (typeof OPENAI_MODERATION_OPTIONS)[number];
+export type OpenAIImageInputFidelity = (typeof OPENAI_INPUT_FIDELITY_OPTIONS)[number];
+
+export interface OpenAIImageRequestOptions {
+  model?: unknown;
+  count?: unknown;
+  quality?: unknown;
+  outputFormat?: unknown;
+  background?: unknown;
+  moderation?: unknown;
+  outputCompression?: unknown;
+  inputFidelity?: unknown;
+  imageSize?: unknown;
+  stream?: unknown;
+  partialImages?: unknown;
+}
+
+const OPENAI_IMAGE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
+  '1:1': '1024x1024',
+  '16:9': '1536x864',
+  '9:16': '864x1536',
+  '4:3': '1344x1008',
+  '3:4': '1008x1344',
+  auto: 'auto',
+};
+
+export function getDefaultOpenAIImageSize(aspectRatio: string): string {
+  return OPENAI_IMAGE_SIZE_BY_ASPECT_RATIO[aspectRatio] ?? '1024x1024';
+}
+
+export function getOpenAIImageSizeValidationError(size: string): string | null {
+  const normalized = size.trim().toLowerCase();
+  if (normalized === 'auto') return null;
+
+  const match = /^(\d+)x(\d+)$/.exec(normalized);
+  if (!match) {
+    return 'Use auto or WIDTHxHEIGHT, for example 1536x864.';
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (width % 16 !== 0 || height % 16 !== 0) {
+    return 'Width and height must be divisible by 16.';
+  }
+  if (width > 3840 || height > 3840) {
+    return 'Neither edge may exceed 3840 pixels.';
+  }
+
+  const ratio = Math.max(width, height) / Math.min(width, height);
+  if (ratio > 3) {
+    return 'The aspect ratio must be between 1:3 and 3:1.';
+  }
+
+  const pixels = width * height;
+  if (pixels < 655_360 || pixels > 8_294_400) {
+    return 'The total pixel count must be between 655,360 and 8,294,400.';
+  }
+
+  return null;
+}
+
+export function isValidOpenAIImageSize(size: string): boolean {
+  return getOpenAIImageSizeValidationError(size) === null;
+}
+
+function includesStringOption(options: readonly string[], value: unknown): boolean {
+  return typeof value === 'string' && options.includes(value);
+}
+
+export function getOpenAIImageRequestValidationError(
+  options: OpenAIImageRequestOptions,
+): string | null {
+  if (options.model !== undefined) {
+    if (typeof options.model !== 'string') return 'Model must be a string.';
+    if (normalizeOpenAIImageModelId(options.model) !== OPENAI_IMAGE_MODEL_ID) {
+      return `Model must be ${OPENAI_IMAGE_MODEL_ID}.`;
+    }
+  }
+
+  if (
+    options.count !== undefined
+    && (typeof options.count !== 'number'
+      || !Number.isInteger(options.count)
+      || options.count < 1
+      || options.count > OPENAI_MAX_IMAGE_COUNT)
+  ) {
+    return `Image count must be an integer between 1 and ${OPENAI_MAX_IMAGE_COUNT}.`;
+  }
+  if (options.quality !== undefined && !includesStringOption(QUALITY_OPTIONS, options.quality)) {
+    return `Quality must be one of: ${QUALITY_OPTIONS.join(', ')}.`;
+  }
+  if (options.outputFormat !== undefined && !includesStringOption(OUTPUT_FORMAT_OPTIONS, options.outputFormat)) {
+    return `Output format must be one of: ${OUTPUT_FORMAT_OPTIONS.join(', ')}.`;
+  }
+  if (options.background !== undefined && !includesStringOption(BACKGROUND_OPTIONS, options.background)) {
+    return `Background must be one of: ${BACKGROUND_OPTIONS.join(', ')}.`;
+  }
+  if (options.moderation !== undefined && !includesStringOption(OPENAI_MODERATION_OPTIONS, options.moderation)) {
+    return `Moderation must be one of: ${OPENAI_MODERATION_OPTIONS.join(', ')}.`;
+  }
+  if (options.inputFidelity !== undefined && !includesStringOption(OPENAI_INPUT_FIDELITY_OPTIONS, options.inputFidelity)) {
+    return `Input fidelity must be one of: ${OPENAI_INPUT_FIDELITY_OPTIONS.join(', ')}.`;
+  }
+  if (
+    options.outputCompression !== undefined
+    && (typeof options.outputCompression !== 'number'
+      || !Number.isInteger(options.outputCompression)
+      || options.outputCompression < 0
+      || options.outputCompression > 100)
+  ) {
+    return 'Output compression must be an integer between 0 and 100.';
+  }
+  if (
+    options.outputCompression !== undefined
+    && options.outputFormat !== 'jpeg'
+    && options.outputFormat !== 'webp'
+  ) {
+    return 'Output compression requires JPEG or WebP output.';
+  }
+  if (options.imageSize !== undefined) {
+    if (typeof options.imageSize !== 'string') return 'Image size must be a string.';
+    const sizeError = getOpenAIImageSizeValidationError(options.imageSize);
+    if (sizeError) return `Invalid image size: ${sizeError}`;
+  }
+  if (options.stream !== undefined && typeof options.stream !== 'boolean') {
+    return 'Stream must be a boolean.';
+  }
+  if (
+    options.partialImages !== undefined
+    && (typeof options.partialImages !== 'number'
+      || !Number.isInteger(options.partialImages)
+      || options.partialImages < 0
+      || options.partialImages > 3)
+  ) {
+    return 'Partial image count must be an integer between 0 and 3.';
+  }
+  if (options.partialImages !== undefined && options.stream !== true) {
+    return 'Partial images require streaming mode.';
+  }
+
+  return null;
+}
 
 /** OpenAI only supports transparent backgrounds with PNG or WebP output. */
 export function normalizeOpenAIImageOutputFormat(

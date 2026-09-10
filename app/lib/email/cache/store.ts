@@ -93,6 +93,7 @@ export type EmailCachedAttachmentMetadata = {
   contentType?: string;
   size: number | null;
   inline?: boolean;
+  downloadable?: boolean;
   contentId?: string | null;
 };
 
@@ -503,6 +504,7 @@ function normalizeCachedMessageDetail(detail: EmailCachedMessageDetail): EmailCa
       ...(attachment.contentType !== undefined ? { contentType: String(attachment.contentType) } : {}),
       size: attachment.size === null ? null : Number(attachment.size),
       ...(attachment.inline !== undefined ? { inline: Boolean(attachment.inline) } : {}),
+      ...(attachment.downloadable !== undefined ? { downloadable: Boolean(attachment.downloadable) } : {}),
       ...(attachment.contentId !== undefined ? {
         contentId: attachment.contentId === null ? null : String(attachment.contentId),
       } : {}),

@@ -36,6 +36,8 @@ const PUBLIC_SHARE_PREFIX_ROUTES = [
   '/public/markdown-pdf/',
   '/public/marp-preview/',
 ];
+const MCP_APP_TICKET_ROUTE = /^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/(?:frame|document)$/u;
+
 function isWebSocketRoute(pathname: string) {
   return pathname === '/ws/chat' || /^\/[a-z]{2}(?:-[A-Z]{2})?\/ws\/chat$/u.test(pathname);
 }
@@ -142,6 +144,7 @@ export default async function middleware(request: NextRequest) {
     if (['GET','HEAD'].includes(request.method) && /^\/__preview\/[A-Za-z0-9_-]{43}\//u.test(pathname)) return NextResponse.next();
     return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
   }
+  if (['GET','HEAD'].includes(request.method) && MCP_APP_TICKET_ROUTE.test(pathname)) return NextResponse.next();
   if (pathname.startsWith('/__preview/')) return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
 
   // Canvas Notebook handles mutations through API routes. A next-action POST here

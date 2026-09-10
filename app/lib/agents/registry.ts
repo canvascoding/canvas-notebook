@@ -46,6 +46,16 @@ const PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
   'email_list_outbox_drafts',
 ];
 
+const PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS_WITH_WORKSPACE_READS = [
+  ...PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
+  'ls',
+  'read',
+  'rg',
+  'grep',
+  'glob',
+  'inspect_document_relations',
+];
+
 function isSystemManagedAgentId(agentId: string): boolean {
   return (SYSTEM_MANAGED_AGENT_IDS as readonly string[]).includes(agentId);
 }
@@ -277,6 +287,7 @@ export async function ensureEmailAgent(): Promise<AgentProfile> {
   const usesLegacyDefaultTools = [
     LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
     PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
+    PREVIOUS_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS_WITH_WORKSPACE_READS,
   ].some((defaultTools) => (
     configuredTools?.length === defaultTools.length
       && configuredTools.every((tool, index) => tool === defaultTools[index])

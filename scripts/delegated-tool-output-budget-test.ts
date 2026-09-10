@@ -12,6 +12,7 @@ async function main() {
   process.env.DATA = root; process.env.CANVAS_DATA_ROOT = root;
   const modules = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = modules._load;
+  let onRefresh: (() => void) | undefined;
   let saved: AgentMessage[] = [];
   let savedModel: unknown;
   let sent: Message[] = [];
@@ -28,7 +29,7 @@ async function main() {
       saved = structuredClone(messages); savedModel = options.toolOutputModel;
     } };
     if (request === '@/app/lib/agents/workspace-file-tree-context') return {
-      buildWorkspaceFileTreePrompt: async () => ({ promptBlock: 'workspace updated' }),
+      buildWorkspaceFileTreePrompt: async () => { onRefresh?.(); return { promptBlock: 'workspace updated' }; },
       replaceWorkspaceFileTreePromptBlock: () => 'updated system instructions',
     };
     return originalLoad(request, parent, isMain);
@@ -78,6 +79,16 @@ async function main() {
     assert.equal(tooLarge.status, 'error');
     assert.match(tooLarge.error || '', /exceeds.*budget/);
     assert.equal(sentOutputCap, undefined, 'an oversized canonical payload never reaches the stream');
+    const cancellation = new AbortController();
+    let providerCalls = 0;
+    onRefresh = () => cancellation.abort(new Error('cancelled during workspace refresh'));
+    const cancelled = await runEphemeralWorker({ ...params, signal: cancellation.signal,
+      runtime: { ...params.runtime, streamFn: async (...args) => { providerCalls += 1; return params.runtime.streamFn(...args); } },
+    });
+    assert.equal(cancelled.status, 'error');
+    assert.match(cancelled.error || '', /cancelled during workspace refresh/);
+    assert.equal(providerCalls, 1, 'cancellation during prepareNextTurn never invokes a second provider request');
+    assert.equal(saved.filter(message => message.role === 'toolResult').length, 6, 'completed output survives the cancelled preparation');
     console.log('delegated-tool-output-budget-test: ok (real worker and agent loop, mocked persistence/transport)');
   } finally { modules._load = originalLoad; await fs.rm(root, { recursive: true, force: true }); }
 }

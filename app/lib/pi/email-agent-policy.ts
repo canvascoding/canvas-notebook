@@ -14,6 +14,7 @@ export const EMAIL_AGENT_ALLOWED_TOOL_NAMES = [
   'email_list_mailboxes',
   'email_search_messages',
   'email_read_message',
+  'email_download_attachment',
   'email_list_thread_messages',
   'email_list_cases',
   'email_create_or_update_case',

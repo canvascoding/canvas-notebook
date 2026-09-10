@@ -35,7 +35,23 @@ import {
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { getImageSizesForModel } from '@/app/lib/integrations/image-generation-constants';
+import {
+  BACKGROUND_OPTIONS,
+  OPENAI_IMAGE_MODEL_ID,
+  OPENAI_INPUT_FIDELITY_OPTIONS,
+  OPENAI_MODERATION_OPTIONS,
+  OPENAI_RECOMMENDED_IMAGE_SIZES,
+  OUTPUT_FORMAT_OPTIONS,
+  QUALITY_OPTIONS,
+  getDefaultOpenAIImageSize,
+  getImageSizesForModel,
+  getOpenAIImageSizeValidationError,
+  type OpenAIImageBackground,
+  type OpenAIImageInputFidelity,
+  type OpenAIImageModeration,
+  type OpenAIImageOutputFormat,
+  type OpenAIImageQuality,
+} from '@/app/lib/integrations/image-generation-constants';
 import { toMediaUrl, toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 
 type Mode = 'crop' | 'ai_extend';
@@ -265,32 +281,48 @@ function ProviderControls({
   quality,
   outputFormat,
   background,
+  moderation,
+  outputCompression,
+  inputFidelity,
   imageSize,
   onProviderChange,
   onModelChange,
   onQualityChange,
   onOutputFormatChange,
   onBackgroundChange,
+  onModerationChange,
+  onOutputCompressionChange,
+  onInputFidelityChange,
   onImageSizeChange,
 }: {
   providers: ProviderOption[];
   provider: 'gemini' | 'openai';
   model: string;
-  quality: 'auto' | 'low' | 'medium' | 'high';
-  outputFormat: 'png' | 'jpeg' | 'webp';
-  background: 'auto' | 'transparent' | 'opaque';
+  quality: OpenAIImageQuality;
+  outputFormat: OpenAIImageOutputFormat;
+  background: OpenAIImageBackground;
+  moderation: OpenAIImageModeration;
+  outputCompression: number;
+  inputFidelity: OpenAIImageInputFidelity;
   imageSize: string;
   onProviderChange: (value: 'gemini' | 'openai') => void;
   onModelChange: (value: string) => void;
-  onQualityChange: (value: 'auto' | 'low' | 'medium' | 'high') => void;
-  onOutputFormatChange: (value: 'png' | 'jpeg' | 'webp') => void;
-  onBackgroundChange: (value: 'auto' | 'transparent' | 'opaque') => void;
+  onQualityChange: (value: OpenAIImageQuality) => void;
+  onOutputFormatChange: (value: OpenAIImageOutputFormat) => void;
+  onBackgroundChange: (value: OpenAIImageBackground) => void;
+  onModerationChange: (value: OpenAIImageModeration) => void;
+  onOutputCompressionChange: (value: number) => void;
+  onInputFidelityChange: (value: OpenAIImageInputFidelity) => void;
   onImageSizeChange: (value: string) => void;
 }) {
   const t = useTranslations('studio.aspectRatioEditor');
   const activeProvider = providers.find((item) => item.id === provider);
   const models = activeProvider?.models ?? [];
   const imageSizes = provider === 'gemini' ? getImageSizesForModel(model) : [];
+  const openAIImageSizeError = provider === 'openai' ? getOpenAIImageSizeValidationError(imageSize) : null;
+  const availableOutputFormats = background === 'transparent'
+    ? OUTPUT_FORMAT_OPTIONS.filter((format) => format !== 'jpeg')
+    : OUTPUT_FORMAT_OPTIONS;
 
   const imageSizeLabels: Record<string, string> = {
     '512': t('resolutionVeryLow'),
@@ -330,21 +362,69 @@ function ProviderControls({
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-xs text-muted-foreground">{t('quality')}</span>
             <select className="h-9 rounded-md border border-input bg-background px-2" value={quality} onChange={(event) => onQualityChange(event.target.value as typeof quality)}>
-              {['auto', 'low', 'medium', 'high'].map((item) => <option key={item} value={item}>{item}</option>)}
+              {QUALITY_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-xs text-muted-foreground">{t('format')}</span>
             <select className="h-9 rounded-md border border-input bg-background px-2" value={outputFormat} onChange={(event) => onOutputFormatChange(event.target.value as typeof outputFormat)}>
-              {['png', 'jpeg', 'webp'].map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
+              {availableOutputFormats.map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
             </select>
           </label>
-          <label className="col-span-2 flex flex-col gap-1 text-sm">
+          <label className="flex flex-col gap-1 text-sm">
             <span className="text-xs text-muted-foreground">{t('background')}</span>
-            <select className="h-9 rounded-md border border-input bg-background px-2" value={background} onChange={(event) => onBackgroundChange(event.target.value as typeof background)}>
-              {['auto', 'transparent', 'opaque'].map((item) => <option key={item} value={item}>{item}</option>)}
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2"
+              value={background}
+              onChange={(event) => {
+                const nextBackground = event.target.value as OpenAIImageBackground;
+                if (nextBackground === 'transparent' && outputFormat === 'jpeg') onOutputFormatChange('png');
+                onBackgroundChange(nextBackground);
+              }}
+            >
+              {BACKGROUND_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs text-muted-foreground">Moderation</span>
+            <select className="h-9 rounded-md border border-input bg-background px-2" value={moderation} onChange={(event) => onModerationChange(event.target.value as OpenAIImageModeration)}>
+              {OPENAI_MODERATION_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs text-muted-foreground">Reference fidelity</span>
+            <select className="h-9 rounded-md border border-input bg-background px-2" value={inputFidelity} onChange={(event) => onInputFidelityChange(event.target.value as OpenAIImageInputFidelity)}>
+              {OPENAI_INPUT_FIDELITY_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs text-muted-foreground">Resolution</span>
+            <Input
+              className={openAIImageSizeError ? 'border-destructive' : undefined}
+              value={imageSize}
+              list="aspect-ratio-openai-image-sizes"
+              onChange={(event) => onImageSizeChange(event.target.value)}
+              aria-invalid={Boolean(openAIImageSizeError)}
+              placeholder="1536x864 or auto"
+            />
+            <datalist id="aspect-ratio-openai-image-sizes">
+              {OPENAI_RECOMMENDED_IMAGE_SIZES.map((item) => <option key={item} value={item} />)}
+            </datalist>
+            {openAIImageSizeError ? <span className="text-xs text-destructive">{openAIImageSizeError}</span> : null}
+          </label>
+          {outputFormat === 'jpeg' || outputFormat === 'webp' ? (
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-xs text-muted-foreground">Compression (%)</span>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                step={1}
+                value={outputCompression}
+                onChange={(event) => onOutputCompressionChange(Math.min(100, Math.max(0, Math.round(Number(event.target.value)))))}
+              />
+            </label>
+          ) : null}
         </div>
       ) : null}
       {provider === 'gemini' && imageSizes.length > 0 ? (
@@ -472,10 +552,14 @@ export function AspectRatioEditorView() {
   const [aspectRatio, setAspectRatio] = useState<string>('1:1');
   const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [provider, setProvider] = useState<'gemini' | 'openai'>(() => initialProvider ?? 'openai');
-  const [model, setModel] = useState(() => initialModel || 'gpt-image-2');
-  const [quality, setQuality] = useState<'auto' | 'low' | 'medium' | 'high'>('auto');
-  const [outputFormat, setOutputFormat] = useState<'png' | 'jpeg' | 'webp'>('png');
-  const [background, setBackground] = useState<'auto' | 'transparent' | 'opaque'>('auto');
+  const [model, setModel] = useState(() => initialModel || OPENAI_IMAGE_MODEL_ID);
+  const [quality, setQuality] = useState<OpenAIImageQuality>('auto');
+  const [outputFormat, setOutputFormat] = useState<OpenAIImageOutputFormat>('png');
+  const [background, setBackground] = useState<OpenAIImageBackground>('auto');
+  const [moderation, setModeration] = useState<OpenAIImageModeration>('auto');
+  const [outputCompression, setOutputCompression] = useState(100);
+  const [inputFidelity, setInputFidelity] = useState<OpenAIImageInputFidelity>('high');
+  const [openAIImageSize, setOpenAIImageSize] = useState('1024x1024');
   const [geminiImageSize, setGeminiImageSize] = useState('1K');
   const [isGenerating, setIsGenerating] = useState(false);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
@@ -489,7 +573,15 @@ export function AspectRatioEditorView() {
   const activeProvider = providers.find((item) => item.id === provider);
   const providerRatios = activeProvider?.aspectRatios ?? [];
   const canUseCurrentRatioForAi = aspectRatio !== 'freeform' && providerRatios.includes(aspectRatio);
-  const canGenerate = Boolean(sourcePath && imageSize.width > 0 && (mode === 'crop' || canUseCurrentRatioForAi));
+  const hasValidProviderOptions = mode !== 'ai_extend'
+    || provider !== 'openai'
+    || getOpenAIImageSizeValidationError(openAIImageSize) === null;
+  const canGenerate = Boolean(
+    sourcePath
+    && imageSize.width > 0
+    && (mode === 'crop' || canUseCurrentRatioForAi)
+    && hasValidProviderOptions,
+  );
 
   useEffect(() => {
     setChatContext({ currentPage: '/studio/aspect-ratio' });
@@ -548,6 +640,9 @@ export function AspectRatioEditorView() {
   const applyPreset = (ratio: string) => {
     if (imageSize.width <= 0) return;
     setAspectRatio(ratio);
+    if (provider === 'openai') {
+      setOpenAIImageSize(getDefaultOpenAIImageSize(ratio));
+    }
     setFrame(fitFrameToRatio(imageSize.width, imageSize.height, ratio));
     setPreview(null);
   };
@@ -670,7 +765,16 @@ export function AspectRatioEditorView() {
           quality: mode === 'ai_extend' && provider === 'openai' ? quality : undefined,
           outputFormat,
           background: mode === 'ai_extend' && provider === 'openai' ? background : undefined,
-          imageSize: mode === 'ai_extend' && provider === 'gemini' ? geminiImageSize : undefined,
+          moderation: mode === 'ai_extend' && provider === 'openai' ? moderation : undefined,
+          outputCompression: mode === 'ai_extend' && provider === 'openai' && outputFormat !== 'png'
+            ? outputCompression
+            : undefined,
+          inputFidelity: mode === 'ai_extend' && provider === 'openai' ? inputFidelity : undefined,
+          imageSize: mode === 'ai_extend'
+            ? provider === 'openai'
+              ? openAIImageSize
+              : geminiImageSize
+            : undefined,
         }),
       });
       const payload = await response.json();
@@ -938,17 +1042,26 @@ export function AspectRatioEditorView() {
                 quality={quality}
                 outputFormat={outputFormat}
                 background={background}
-                imageSize={geminiImageSize}
+                moderation={moderation}
+                outputCompression={outputCompression}
+                inputFidelity={inputFidelity}
+                imageSize={provider === 'openai' ? openAIImageSize : geminiImageSize}
                 onProviderChange={(value) => {
                   setProvider(value);
                   const nextProvider = providers.find((item) => item.id === value);
                   setModel(nextProvider?.models[0]?.id || '');
+                  if (value === 'openai') {
+                    setOpenAIImageSize(getDefaultOpenAIImageSize(aspectRatio));
+                  }
                 }}
                 onModelChange={setModel}
                 onQualityChange={setQuality}
                 onOutputFormatChange={setOutputFormat}
                 onBackgroundChange={setBackground}
-                onImageSizeChange={setGeminiImageSize}
+                onModerationChange={setModeration}
+                onOutputCompressionChange={setOutputCompression}
+                onInputFidelityChange={setInputFidelity}
+                onImageSizeChange={provider === 'openai' ? setOpenAIImageSize : setGeminiImageSize}
               />
             ) : (
               <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-3 text-sm text-emerald-700 dark:text-emerald-300">

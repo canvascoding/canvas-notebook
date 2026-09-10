@@ -7,6 +7,7 @@ import { projectToolOutputBlocks } from '../tool-output-block-budget';
 
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { logPiCompactionDiagnostic } from './diagnostics';
 
 import {
   DEFAULT_PI_CONTEXT_BUDGET_POLICY,
@@ -237,6 +238,18 @@ export async function preparePiHermesCompactionCandidate(
   );
   const rollout = getPiCompactionRolloutDecision(input.rolloutMode);
   const projection = projectPiHermesHistory({ ...input, pruningMode: 'candidate' });
+  logPiCompactionDiagnostic('info', 'candidate_projection', {
+    sessionId: input.sessionId,
+    attemptId: input.compactionAttemptId ?? null,
+    selectionMode: input.selectionMode ?? 'automatic',
+    rawEstimatedTokens: input.messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
+    projectedEstimatedTokens: projection.inspection.roughHistoryTokens,
+    messageCount: input.messages.length,
+    minimumRequiredTokens: projection.composition.minimumRequiredTokens,
+    availableHistoryTokens: projection.composition.availableHistoryTokens,
+    contextBudgetExceeded: projection.composition.contextBudgetExceeded,
+    payloadBudgetExceeded: projection.composition.payloadBudgetExceeded,
+  });
   if (rollout.shadowEvaluationEnabled) {
     const telemetry = createPiCompactionShadowTelemetry({
       messages: input.messages,

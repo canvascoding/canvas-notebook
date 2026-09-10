@@ -20,14 +20,21 @@ async function main() {
   let evaluation: unknown = { id: 'evaluated-789', body: large };
   const page = { content: async () => `<html><title>Rendered source</title><main><p>${large}</p></main></html>`, url: () => 'https://example.test/rendered', title: async () => 'Rendered source', evaluate: async () => evaluation };
   let forwardedSignal: AbortSignal | undefined;
+  let appEnabled = false;
   modules._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
     if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
     if (request === '@/app/lib/pi/tool-output-maintenance') return { maybeCleanupToolOutputOrphans: async () => undefined };
     if (request === '@/app/lib/mcp/manager') return {
-      callMcpTool: async (_server: string, _tool: string, _args: unknown, signal?: AbortSignal) => { forwardedSignal = signal; return mcpPayload; },
+      callMcpToolWithCurrentMetadata: async (_server: string, _tool: string, _args: unknown, signal?: AbortSignal) => {
+        forwardedSignal = signal;
+        return { result: mcpPayload, connectionId: appEnabled ? '11111111-1111-4111-8111-111111111111' : null,
+          tool: { name: 'fixture', inputSchema: { type: 'object' }, ...(appEnabled ? { _meta: { ui: { resourceUri: 'ui://fixture/app.html' } } } : {}) } };
+      },
       listMcpTools: async () => [{ name: 'fixture', inputSchema: { type: 'object' } }], startMcpIdleCleanup: () => undefined,
     };
+    if (request === './access' && parent?.filename.includes('/lib/mcp/')) return { requireMcpUserAccess: async () => undefined, assertMcpConnectionAccess: async () => undefined };
+    if (request === '@/app/lib/mcp/connection-health') return { mcpReconnectDetails: async () => ({}) };
     if (request === '@/app/lib/mcp/config') return { isMcpServerEnabled: () => true, readMcpConfig: async () => ({ mcpServers: { fixture: { directTools: ['fixture'] } } }) };
     if (request === './composio-gateway') return {
       executeGatewayTool: async () => composioPayload, getGatewayToolSchemas: async () => composioPayload,
@@ -80,6 +87,50 @@ async function main() {
     assert.match(text(proxyResult), /created-123/);
     // Remove generated per-call references when comparing the deterministic views.
     assert.equal(text(directResult).replace(/tool-output:\/\/\S+/gu, '<ref>'), text(proxyResult).replace(/tool-output:\/\/\S+/gu, '<ref>'));
+    appEnabled = true;
+    mcpPayload._meta = { privateWidgetValue: large, resourceId: 'private-widget-resource', status: 'private-widget-status' };
+    const { projectAgentMessageForLoadedContext, parsePersistedPiMessage } = await import('../app/lib/pi/message-projection');
+    for (const tool of [direct, proxy]) {
+      const result = await runWithAgentExecutionContext(identity, () => tool.execute('mcp-app', tool === proxy
+        ? { action: 'call_tool', server: 'fixture', tool: 'fixture' } : {}));
+      const details = result.details as { mcpApp: { resourceUri: string }; result: unknown };
+      assert.equal(details.mcpApp.resourceUri, 'ui://fixture/app.html');
+      assert.deepEqual(details.result, mcpPayload, 'the existing capped widget payload remains usable');
+      assert.ok(text(result).length <= 12_000);
+      assert.doesNotMatch(text(result), /private-widget-resource|private-widget-status/, 'private widget identifiers are not promoted into model outcome fields');
+      assert.ok(getToolOutputMetadata(result.details)?.references.length, 'full result is still archived');
+      const archive = await readStoredToolOutput(identity, getToolOutputMetadata(result.details)!.references[0].reference);
+      assert.doesNotMatch(archive.content, /privateWidgetValue|private-widget-resource|private-widget-status/, 'agent-readable archives preserve the widget privacy boundary');
+      const message = { ...result, role: 'toolResult' as const, toolName: tool.name, toolCallId: 'mcp-app', isError: false, timestamp: 1 };
+      const display = parsePersistedPiMessage(JSON.stringify(message), 'display');
+      assert.ok(display.role === 'toolResult');
+      assert.deepEqual((display.details as { result: unknown }).result, mcpPayload);
+      const modelView = projectAgentMessageForLoadedContext(message);
+      assert.ok(!JSON.stringify(modelView).includes('privateWidgetValue'), 'widget metadata never enters model context');
+      assert.doesNotMatch(JSON.stringify(modelView), /private-widget-resource|private-widget-status/);
+      assert.ok(JSON.stringify(modelView).length < 20_000);
+    }
+    // Medium MCP results are only archived once the whole tool block is too
+    // large. That later persistence boundary must exclude widget-only data too.
+    const { piMetadataFixture } = await import('./helpers/pi-message-fixture');
+    const { finalizeToolOutputBlocks } = await import('../app/lib/pi/tool-output-block-storage');
+    mcpPayload = { content: [{ type: 'text', text: 'public '.repeat(1000) }], _meta: { resourceId: 'private-widget-resource' } };
+    const calls = Array.from({ length: 6 }, (_, index) => ({ type: 'toolCall' as const, name: direct.name, id: `mcp-medium-${index}`, arguments: {} }));
+    const mediumResults = [];
+    for (const call of calls) {
+      const result = await runWithAgentExecutionContext(identity, () => direct.execute(call.id, {}));
+      assert.equal(getToolOutputMetadata(result.details)?.references.length, 0);
+      mediumResults.push({ ...result, role: 'toolResult' as const, toolName: direct.name, toolCallId: call.id, isError: false, timestamp: 2 });
+    }
+    const bounded = await finalizeToolOutputBlocks([{ ...piMetadataFixture, content: calls }, ...mediumResults],
+      { id: 'mcp-budget-test', provider: 'fixture', contextWindow: 16000 }, identity);
+    assert.doesNotMatch(JSON.stringify(bounded), /private-widget-resource/);
+    for (const result of mediumResults) {
+      const archive = await readStoredToolOutput(identity, getToolOutputMetadata(result.details)!.references[0].reference);
+      assert.doesNotMatch(archive.content, /private-widget-resource|mcpApp|mcpToolInput/);
+      assert.equal((result.details as { result: unknown }).result, mcpPayload, 'archiving leaves the original widget display payload intact');
+    }
+    appEnabled = false;
     mcpPayload = { isError: true, content: [{ type: 'text', text: 'Permission denied' }] };
     const error = await direct.execute('mcp-error', {});
     assert.match(text(error), /returned an error.*\nPermission denied/u);

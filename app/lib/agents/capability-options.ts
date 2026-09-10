@@ -44,13 +44,14 @@ function matchesConnectionQuery(option: AgentConnectionOption, query: string): b
 }
 
 async function loadMcpConnectionOptions(userId?: string | null): Promise<AgentConnectionOption[]> {
-  const runtime = await getMcpRuntimeStatus(undefined, userId ? { userId } : undefined);
+  if (!userId) return [];
+  const runtime = await getMcpRuntimeStatus(undefined, { userId });
   return runtime.servers
-    .filter((server) => server.enabled)
+    .filter((server) => server.enabled && server.accessAllowed)
     .map((server) => ({
       id: `mcp:${server.name}`,
       kind: 'mcp' as const,
-      label: server.name,
+      label: server.displayName,
       toolCount: server.cachedToolCount || 0,
       logoUrl: `/api/integrations/mcp-icon/${encodeURIComponent(server.name)}`,
     }));

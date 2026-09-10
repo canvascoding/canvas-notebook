@@ -21,6 +21,13 @@ async function main() {
     for (const [locale, messages] of [['en', en], ['de', de]] as const) {
       const labels = messages.settings.mcpServer;
       for (const policy of ['active', 'restricted', 'disabled', 'missing'] as const) {
+        const authorizationStatus = policy === 'active'
+          ? 'usable'
+          : policy === 'restricted'
+            ? 'authorization_required'
+            : policy === 'disabled'
+              ? 'expired'
+              : 'unknown';
         globalThis.fetch = async (input) => {
           const pathname = String(input);
           let data: unknown;
@@ -29,6 +36,11 @@ async function main() {
               scopes: ['knowledge:read', 'knowledge:write'],
               effectiveScopes: policy === 'active' ? ['knowledge:read', 'knowledge:write'] : [],
               resourcePolicyStatus: policy === 'restricted' ? 'active' : policy,
+              authorizationStatus,
+              usableGrantCount: authorizationStatus === 'usable' ? 1 : 0,
+              sessionExpiresAt: '2026-09-10T12:00:00Z',
+              refreshExpiresAt: '2026-10-10T12:00:00Z',
+              lastSuccessfulRequestAt: '2026-09-09T12:00:00Z',
               connectedAt: null, updatedAt: null, allowedWorkspaceCount: 0,
             }] };
           } else if (pathname.endsWith('/workspaces')) {
@@ -52,11 +64,15 @@ async function main() {
         await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
         assert.ok(screen.getByText('ChatGPT'));
         assert.ok(screen.getByText(labels.connections.approvedPermissions));
-        assert.ok(screen.getByText(labels.connections.tokenNotVerified));
+        assert.ok(screen.getByText(labels.connections.authorizationStatus[authorizationStatus].title));
+        assert.ok(screen.getByText((content) => content.startsWith(labels.connections.lastSuccessfulRequestAt.split('{time}')[0])));
+        assert.ok(screen.getByText((content) => content.startsWith(labels.connections.sessionExpiresAt.split('{time}')[0])));
+        assert.ok(screen.getByText((content) => content.startsWith(labels.connections.refreshExpiresAt.split('{time}')[0])));
         assert.ok(screen.getByText(labels.connections.workspaceAccess.noneSelected));
         assert.equal(Boolean(screen.queryByText(labels.connections.permissionsComplete)), policy === 'active');
         assert.equal(Boolean(screen.queryByText(labels.connections.permissionsMissing.title)), policy === 'restricted');
         assert.equal(Boolean(screen.queryByText(labels.connections.resourceUnavailable)), policy === 'disabled' || policy === 'missing');
+        assert.equal(Boolean(screen.queryByText(labels.connections.copyServerAddress)), authorizationStatus === 'authorization_required' || authorizationStatus === 'expired');
         const history = document.querySelector('#mcp-server-request-history-title')!.closest('details')!;
         await act(async () => { fireEvent.click(history.querySelector('button')!); });
         for (const code of DIRECT_MCP_OAUTH_FAILURE_CODES) {
@@ -64,8 +80,36 @@ async function main() {
         }
         cleanup();
       }
+
+      for (const authorizationStatus of ['revoked', 'access_denied'] as const) {
+        globalThis.fetch = async (input) => {
+          const pathname = String(input);
+          if (pathname.endsWith('/connections')) {
+            return Response.json({ success: true, data: { connections: [{
+              connectionId: `test-${authorizationStatus}`, clientName: 'ChatGPT', scopes: [], effectiveScopes: [],
+              resourcePolicyStatus: 'active', authorizationStatus, usableGrantCount: 0,
+              sessionExpiresAt: null, refreshExpiresAt: null, lastSuccessfulRequestAt: null,
+              connectedAt: null, updatedAt: null, allowedWorkspaceCount: 1,
+            }] } });
+          }
+          if (pathname.endsWith('/workspaces')) return Response.json({ success: true, data: { workspaces: [] } });
+          if (pathname === '/api/integrations/mcp-server') {
+            return Response.json({ success: true, data: {
+              desiredEnabled: true, runtimeEnabled: true, endpoint: 'https://notebook.example.test/mcp', capabilities: [],
+            } });
+          }
+          throw new Error(`Unexpected request: ${pathname}`);
+        };
+        const screen = render(<NextIntlClientProvider locale={locale} timeZone="Europe/Berlin" messages={messages}>
+          <McpServerSettingsPanel isAdmin />
+        </NextIntlClientProvider>);
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
+        assert.ok(screen.getByText(labels.connections.authorizationStatus[authorizationStatus].title));
+        assert.equal(Boolean(screen.queryByText(labels.connections.copyServerAddress)), authorizationStatus === 'revoked');
+        cleanup();
+      }
     }
-    console.log('mcp-server-settings-ui-test: ok (en/de, consent vs policy, workspace warning, rejection reasons)');
+    console.log('mcp-server-settings-ui-test: ok (en/de, authorization usability, consent, workspace warning, rejection reasons)');
   } finally {
     cleanup();
     globalThis.fetch = originalFetch;

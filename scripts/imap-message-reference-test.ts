@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Module from 'node:module';
+import { Readable } from 'node:stream';
 
 import type { StoredEmailAccount } from '../app/lib/email/account-store';
 import type { ImapClientLike } from '../app/lib/email/imap-service';
@@ -28,6 +29,7 @@ async function main() {
     archiveImapEmailMessage,
     createImapMessageReference,
     deleteImapEmailMessagePermanently,
+    downloadImapEmailAttachment,
     getImapMailboxUidValidity,
     isImapMailboxChangedError,
     listImapEmailMessages,
@@ -87,6 +89,7 @@ async function main() {
   let flagCalls = 0;
   let moveCalls = 0;
   let deleteCalls = 0;
+  let downloadCalls = 0;
   const lockedFolders: string[] = [];
   const source = Buffer.from([
     'From: Sender <sender@example.test>',
@@ -106,6 +109,19 @@ async function main() {
       to: [{ address: 'reader@example.test' }],
     },
     internalDate: now,
+    bodyStructure: {
+      type: 'multipart/mixed',
+      childNodes: [
+        { part: '1', type: 'text/plain', size: source.length },
+        {
+          part: '2',
+          type: 'application/pdf',
+          size: 15,
+          disposition: 'attachment',
+          dispositionParameters: { filename: '../brief.pdf' },
+        },
+      ],
+    },
     source,
   };
 
@@ -134,6 +150,14 @@ async function main() {
       fetchOne: async () => {
         fetchOneCalls += 1;
         return fetchedMessage as never;
+      },
+      download: async (_range, part) => {
+        downloadCalls += 1;
+        assert.equal(part, '2');
+        return {
+          meta: { expectedSize: 15, contentType: 'application/pdf', filename: '../brief.pdf' },
+          content: Readable.from(Buffer.from('attachment-body')),
+        };
       },
       messageFlagsAdd: async () => {
         flagCalls += 1;
@@ -190,6 +214,21 @@ async function main() {
   assert.equal(read.message.uid, '41');
   assert.equal(read.message.uidValidity, '7001');
   assert.equal(lockedFolders.at(-1), 'INBOX');
+  assert.equal(read.message.hasAttachments, true);
+  assert.deepEqual(read.message.attachments, [{
+    id: 'imap-part:2',
+    filename: 'brief.pdf',
+    contentType: 'application/pdf',
+    size: 15,
+    inline: false,
+    downloadable: true,
+  }]);
+
+  const downloaded = await downloadImapEmailAttachment(account, reference, 'imap-part:2');
+  assert.equal(downloaded.attachment.filename, 'brief.pdf');
+  assert.equal(downloaded.attachment.size, 15);
+  assert.equal((await downloaded.content.toArray()).join('').toString(), 'attachment-body');
+  assert.equal(downloadCalls, 1);
 
   const marked = await setImapEmailMessageRead(account, reference, 'inbox', true);
   assert.equal(marked.messageId, reference);
@@ -210,6 +249,7 @@ async function main() {
     flagCalls,
     moveCalls,
     deleteCalls,
+    downloadCalls,
   };
   const staleOperations = [
     () => readImapEmailMessage(account, reference),
@@ -218,6 +258,7 @@ async function main() {
     () => archiveImapEmailMessage(account, reference),
     () => trashImapEmailMessage(account, reference),
     () => deleteImapEmailMessagePermanently(account, reference),
+    () => downloadImapEmailAttachment(account, reference, 'imap-part:2'),
   ];
   for (const operation of staleOperations) {
     await assert.rejects(operation, (error: unknown) => {
@@ -232,7 +273,7 @@ async function main() {
       return true;
     });
   }
-  assert.deepEqual({ fetchOneCalls, flagCalls, moveCalls, deleteCalls }, providerCallsBeforeStaleReference);
+  assert.deepEqual({ fetchOneCalls, flagCalls, moveCalls, deleteCalls, downloadCalls }, providerCallsBeforeStaleReference);
 
   const legacyRead = await readImapEmailMessage(account, '41', 'INBOX');
   assert.equal(legacyRead.message.id, '41');

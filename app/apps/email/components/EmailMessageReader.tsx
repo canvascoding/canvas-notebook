@@ -31,6 +31,7 @@ import {
 import { cn } from '@/lib/utils';
 
 import { extractEmailAddressForCompose, formatDate, formatRecipients } from './email-client-format';
+import { EmailAttachmentActions } from './EmailAttachmentActions';
 import type {
   EmailFolder,
   EmailMessageContextMenuPosition,
@@ -682,6 +683,7 @@ function EmailMessageRowActionMenuItems({
 }
 
 export function EmailMessageViewer({
+  accountId,
   actions,
   allowRemoteResourcesByDefault,
   allowedRemoteResourceSenders,
@@ -700,6 +702,7 @@ export function EmailMessageViewer({
   summaryStatus,
   unavailable = false,
 }: {
+  accountId?: string;
   actions?: EmailMessageViewerActions;
   allowRemoteResourcesByDefault: boolean;
   allowedRemoteResourceSenders: string[];
@@ -814,17 +817,13 @@ export function EmailMessageViewer({
           showRemoteImagesText={labels.showRemoteImages}
         />
         {message.attachments && message.attachments.length > 0 && (
-          <div className="mt-5 border-t border-border pt-4">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{labels.attachments}</div>
-            <div className="mt-2 flex flex-col gap-2">
-              {message.attachments.map((attachment) => (
-                <div key={attachment.filename} className="border border-border px-3 py-2 text-sm">
-                  <div className="font-medium">{attachment.filename}</div>
-                  <div className="text-xs text-muted-foreground">{attachment.contentType || labels.unknownAttachmentType}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <EmailAttachmentActions
+            accountId={accountId}
+            attachments={message.attachments}
+            folder={message.folder}
+            labels={labels}
+            messageId={message.id}
+          />
         )}
       </div>
     </article>

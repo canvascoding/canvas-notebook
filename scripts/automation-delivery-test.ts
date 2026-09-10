@@ -4,6 +4,7 @@ import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AutomationJobRecord } from '../app/lib/automations/types';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 
@@ -11,8 +12,12 @@ const moduleInternals = Module as typeof Module & { _load: LoadFn };
 const originalLoad = moduleInternals._load;
 let telegramChannelEnabled = true;
 let telegramChannelLinked = true;
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
 
 moduleInternals._load = (request, parent, isMain) => {
+  if (testDatabase && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request))) {
+    return testDatabase;
+  }
   if (request === '@earendil-works/pi-ai/compat') {
     return {
       getModels: () => [],
@@ -47,8 +52,9 @@ process.env.TELEGRAM_BOT_TOKEN = 'test-token';
 process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
 
 async function main() {
+  testDatabase = await createPiTestDatabase();
   const { eq } = await import('drizzle-orm');
-  const { db } = await import('../app/lib/db');
+  const { db } = testDatabase;
   const { channelActiveSessions, user, piSessions, sessionChannelLinks } = await import('../app/lib/db/schema');
   const { setActiveChannelSession } = await import('../app/lib/channels/active-sessions');
   const { createBinding, deleteBinding } = await import('../app/lib/channels/telegram/link-token');
@@ -460,6 +466,8 @@ main()
     console.error(error);
     process.exitCode = 1;
   })
-  .finally(() => {
+  .finally(async () => {
+    moduleInternals._load = originalLoad;
+    await testDatabase?.close();
     rmSync(dataDir, { recursive: true, force: true });
   });

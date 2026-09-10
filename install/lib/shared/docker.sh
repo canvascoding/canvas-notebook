@@ -41,6 +41,35 @@ pull_size_mb() {
   printf '%s' "${total:-0}"
 }
 
+_process_children() {
+  local parent_pid="$1"
+  if command -v pgrep >/dev/null 2>&1; then
+    pgrep -P "$parent_pid" 2>/dev/null || true
+    return
+  fi
+  ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$parent_pid" '$2 == parent { print $1 }'
+}
+
+_collect_process_tree() {
+  local root_pid="$1" child_pid
+  for child_pid in $(_process_children "$root_pid"); do
+    _collect_process_tree "$child_pid"
+  done
+  printf '%s\n' "$root_pid"
+}
+
+_terminate_process_tree() {
+  local root_pid="$1" tree_pids pid
+  tree_pids="$(_collect_process_tree "$root_pid")"
+  for pid in $tree_pids; do
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+  done
+  sleep 0.1
+  for pid in $tree_pids; do
+    kill -KILL "$pid" >/dev/null 2>&1 || true
+  done
+}
+
 pull_image_if_needed() {
   local compose_cmd="${1:-compose}"
   local image_ref="${2:-${IMAGE_REF:-${IMAGE:-}}}"
@@ -71,9 +100,7 @@ pull_image_if_needed() {
   started_at="$SECONDS"
   while kill -0 "$pull_pid" 2>/dev/null; do
     if [[ "$timeout_seconds" -gt 0 && $((SECONDS - started_at)) -ge "$timeout_seconds" ]]; then
-      kill "$pull_pid" >/dev/null 2>&1 || true
-      sleep 1
-      kill -9 "$pull_pid" >/dev/null 2>&1 || true
+      _terminate_process_tree "$pull_pid"
       wait "$pull_pid" >/dev/null 2>&1 || true
       rm -f "$pull_log"
       printf '\r  ✗ Image pull exceeded its update deadline.\n' >&2

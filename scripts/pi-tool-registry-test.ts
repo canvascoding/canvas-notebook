@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { StudioGenerateRequest } from '../app/lib/integrations/studio-generation-service';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 function getText(result: unknown): string {
   const content = (result as { content?: Array<{ type?: string; text?: string }> }).content;
@@ -61,12 +62,14 @@ async function main() {
   process.env.DATA = dataDir;
   process.env.CANVAS_DATA_ROOT = dataDir;
   process.env.INTEGRATIONS_ENV_PATH = path.join(dataDir, 'secrets', 'Canvas-Integrations.env');
+  const testDatabase = await createPiTestDatabase();
 
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
   };
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
     if (request === 'server-only') {
       return {};
     }
@@ -1251,6 +1254,8 @@ async function main() {
   console.log('pi-tool-registry-test: ok');
 
   moduleInternals._load = originalLoad;
+  await testDatabase.close();
+  await fs.rm(dataDir, { recursive: true, force: true });
 }
 
 main().catch((error) => {
