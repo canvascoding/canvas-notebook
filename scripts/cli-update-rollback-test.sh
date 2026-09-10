@@ -72,7 +72,11 @@ case "${1:-}" in
     if [[ "$args" == *" pull canvas-notebook"* ]]; then
       printf 'pull-image %s\n' "${CANVAS_IMAGE:-missing}" >> "$log"
       if [[ "${CANVAS_TEST_SLOW_PULL:-false}" == "true" ]]; then
-        sleep 10
+        sleep 10 &
+        slow_pull_pid=$!
+        trap 'kill "$slow_pull_pid" >/dev/null 2>&1 || true; exit 143' TERM INT
+        wait "$slow_pull_pid"
+        trap - TERM INT
       fi
       if [[ "${CANVAS_TEST_FAIL_PULL:-false}" == "true" ]]; then
         exit 55
