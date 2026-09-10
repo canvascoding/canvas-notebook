@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 import type { DelegateTaskRequest, DelegateTaskResult } from '../app/lib/pi/delegate-task-tool';
 
@@ -13,7 +14,9 @@ const moduleLoader = Module as unknown as {
   _load: (request: string, parent: unknown, isMain: boolean) => unknown;
 };
 const originalLoad = moduleLoader._load;
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>>;
 moduleLoader._load = function loadWithServerOnlyMock(request, parent, isMain) {
+  if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
   if (request === 'server-only') return {};
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
@@ -51,9 +54,10 @@ function completionResult(request: DelegateTaskRequest, reply: string): Delegate
 }
 
 async function main() {
+  testDatabase = await createPiTestDatabase();
   let dispatcher: import('../app/lib/pi/delegation-dispatcher').PiDelegationDispatcher | null = null;
   try {
-    const { db } = await import('../app/lib/db');
+    const { db } = testDatabase;
     const { piMessages, piSessions, user } = await import('../app/lib/db/schema');
     const { createDelegationCompletionMessage, isDelegationCompletionMessage } = await import(
       '../app/lib/pi/delegation-completion-message'
@@ -252,6 +256,7 @@ async function main() {
   } finally {
     dispatcher?.stop();
     moduleLoader._load = originalLoad;
+    await testDatabase.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }

@@ -1,11 +1,11 @@
 # Pi-SDK 0.84.1 → 0.85.1: Bestandsaufnahme und Umsetzungsplan
 
-Stand: 10. September 2026. Geprüfter Canvas-Commit: `92ba7a6b5eec386bea1448a24f60488a80a36ac0`.
-Status: Umsetzung läuft; reproduzierbare SDK- und Persistenz-Baseline abgeschlossen. UI- und Live-Provider-Abnahme stehen aus.
+Stand: 10. September 2026. Ausgangspunkt der Bestandsaufnahme: `92ba7a6b5eec386bea1448a24f60488a80a36ac0`.
+Status: Pi 0.85.1 und die nachgewiesenen Integrationskorrekturen sind implementiert. Automatisierte Ergebnisse und offene Freigabegrenzen stehen in T7 und Abschnitt 9; noch keine Releasefreigabe.
 
 ## 1. Ergebnis und Ziel
 
-Canvas verwendet bereits `@earendil-works/pi-ai` und `@earendil-works/pi-agent-core` in Version **0.84.1**. Der Scope-Wechsel von `@mariozechner` ist erledigt. Ziel ist ein geprüftes Update beider Pakete auf **0.85.1**, die am 10. September als `latest` in der npm-Registry veröffentlicht ist.
+Canvas verwendete zum Analysezeitpunkt `@earendil-works/pi-ai` und `@earendil-works/pi-agent-core` in Version **0.84.1**. Der Scope-Wechsel von `@mariozechner` war bereits erledigt. Das Update beider Pakete auf **0.85.1** (am 10. September als `latest` verifiziert) ist inzwischen implementiert.
 
 Die bestehende Architektur bleibt die Grundlage: Canvas betreibt den normalen Pi `Agent`, drei direkte `agentLoop`-Integrationen und eine eigene PostgreSQL-basierte Session-, Policy- und Compaction-Verwaltung. Der SDK-Wechsel verlangt keine Migration auf Pi `AgentHarness`, `SessionRepo` oder JSONL.
 
@@ -20,7 +20,7 @@ Die konkrete Arbeit besteht aus:
 
 Ein Treffer auf einen Pi-Import bedeutet nicht automatisch eine Codeänderung: 91 Dateien unter `app/` und `server/` referenzieren die Pakete, viele davon ausschließlich als TypeScript-Typen.
 
-## 2. Verifizierter Ist-Stand
+## 2. Verifizierter Ausgangsstand vor der Umsetzung
 
 | Bereich | Befund | Konsequenz |
 | --- | --- | --- |
@@ -155,6 +155,8 @@ Zusammen aktualisieren: `docs/compliance/third-party-license-cache.json`, `docs/
 
 Die vier `/compat`-Produktionsmodule sind `model-resolver.ts`, `provider-runtime.ts`, `provider-verification-service.ts` und `catalog-discovery.ts`. ESM-Import und CJS-/tsx-Testauflösung getrennt testen: Die veröffentlichten Exports deklarieren `import`, nicht `require`. Ein Importproblem beweist deshalb nicht, dass `/compat` entfernt wurde. `docs/security/2026-09-08-security-hardening.md` enthält einen älteren Testblocker; ihn auf einer frischen Installation reproduzieren und einordnen.
 
+Bei der Umsetzung bestätigte Pflichtkorrektur: Der reale Custom-Server in `server.js` benötigt zusätzlich die Chord-Exports und die Wildcard-Exports von Pi AI (Agent Core importiert unter anderem `pi-ai/utils/uuid`). Die bisherige exakte Alias-Map konnte diese Pfade nicht laden. Die begrenzte Wildcard-Auflösung weist ungültige Unterpfade zurück; ein Test führt den tatsächlichen Server-Bootstrap und Runtime-/Channel-Importgraphen aus, ohne HTTP zu starten.
+
 Private Dateipfadimporte in `scripts/agent-runtime-provider-coverage-test.ts` und `scripts/pi-provider-overflow-recovery-test.ts` prüfen und nach Möglichkeit über öffentliche ESM-Imports auflösen. Mocks über `Module._load` dürfen die einzigen Tests des echten Pakets nicht ersetzen. Nicht das gesamte Projekt nur wegen dieser Tests auf ESM umstellen.
 
 ## 4. Sequenzieller Arbeitsplan
@@ -215,7 +217,7 @@ Fertig, wenn kein zusätzlicher Modellaufruf nach Abschluss entsteht, neue Tool-
 
 T5: Ein Red-Green-Test reproduzierte die Beschädigung slash-haltiger `thinkingSignature`, `textSignature` und `thoughtSignature`. Die Projektion erhält nun ausschließlich diese Felder an der Assistant-Content-Grenze; verschachtelte Tool-Argumente können die Ausnahme nicht ausnutzen. Persistenz → Laden → Normalisierung, Event-JSON, Fork einschließlich zusammengefasstem Präfix und wiederholte Usage-Speicherung erhalten Metadaten und erzeugen keine doppelte Usage-Zeile. Ein ebenfalls reproduzierter bestehender Fork-SQL-Fehler (`?` statt `$2`) wurde korrigiert. Die 17 echten SDK-Tests, Metadaten-Suite, Tool-Registry, Effective-Tools, Progressive-Gateway, MCP-/Multimodal-Projektion, Vision-Fallback und Overflow-Recovery bestanden; zusätzlich Compaction-Preflight, Candidate-Normalization, Pruning, Selection, Policy und UI-Contract.
 
-Der Live-Runtime-Pfad filtert native Thinking-Events bereits vor dem Chat-Consumer. Eine sichtbare Dopplung durch `thinking_end` wurde daher nicht nachgewiesen; keine vorsorgliche UI-Änderung. Browser-Beleg bleibt T8. Der alte Sammelbefehl `test:chat:fork` referenziert die nicht vorhandene Datei `chat-session-fork-api-integration-test.ts`; Persistenz-, Route- und UI-Contract-Test wurden einzeln bestanden. Der neue Metadaten-Sammelbefehl verwendet nur vorhandene Tests. Live-MCP/Composio-Endpunkte sind damit nicht abgenommen.
+Der Live-Runtime-Pfad filtert native Thinking-Events bereits vor dem Chat-Consumer. Eine sichtbare Dopplung durch `thinking_end` wurde daher nicht nachgewiesen; keine vorsorgliche UI-Änderung. Browser-Beleg bleibt T8. Der zunächst fehlende API-Integrationstest des Sammelbefehls `test:chat:fork` wurde in T7 ergänzt; inzwischen besteht auch der vollständige Sammelbefehl. Live-MCP/Composio-Endpunkte sind damit nicht abgenommen.
 
 Fertig, wenn Replay gültig bleibt, UI-Inhalte nicht doppelt erscheinen und Usage nicht durch reine Metadatenbehandlung dupliziert wird.
 
@@ -235,11 +237,16 @@ Fertig, wenn unterstützte Modelle ausführbar sind und bestehende Credential-/P
 
 ### T7 — Build, gespeicherte Daten und vollständige Regression
 
-- [ ] Relevante Tests aus Abschnitt 5 sequenziell ausführen, neue Fehler beheben.
-- [ ] `npm run lint` und `npm run build` einschließlich Lizenzprüfung abschließen.
-- [ ] Den realen Server-Importpfad über `server/agent-runtime-loader.ts` sowie Prewarm mit echter Paketauflösung prüfen.
+- [x] SDK-, Auth-, Provider-, Metadaten-, Fork-, Usage-, Compaction-, Delegations- und Hilfsaufruf-Regressionen sequenziell ausführen; reproduzierte Fehler in diesen Pfaden beheben.
+- [x] `npm run lint` und `npm run build` einschließlich Lizenzprüfung abschließen.
+- [x] Den realen Server-Importpfad über `server/agent-runtime-loader.ts` mit echter Paketauflösung prüfen; bestehende Loader-/Prewarm-Verträge separat ausführen.
+- [x] Alte/neue synthetische Nachrichten über PostgreSQL speichern, laden, forken und kompaktieren; Rohdaten und Usage-Idempotenz prüfen.
 - [ ] Auf kopierten/anonymisierten Session-Fixtures alte Chats öffnen, fortsetzen, forken und kompaktieren; auch erneutes Laden unter dem vorherigen SDK prüfen.
 - [ ] Packaging-Smoke für die tatsächlich zu veröffentlichenden Ziele durchführen; besonders transitive Pi-Dateien, JSON-Kataloge und Chord im verteilten Artefakt prüfen.
+
+T7: Der echte Server-Import reproduzierte fehlende Chord- und Wildcard-Aliase; nach der begrenzten Korrektur bestanden der reale Runtime-/Channel-Import und die Alias-Grenzfälle. Die bereits vorhandenen Titel-, Usage-, Delegations- und Compaction-Tests verwenden nun ebenfalls die gemeinsame isolierte PostgreSQL-Testhilfe. Fehlende Compaction-Store- und Fork-API-Testdateien wurden mit ausgeführten Tests ergänzt, nicht aus den Sammelbefehlen entfernt. Der Fork-API-Test durchläuft den echten POST-Handler, Ownership-/Workspace-Prüfung und Fork-Transaktion bis zur Datenbank; Auth, Policy, Runtime-Aktivität und Audit-Senke sind isolierte Fixtures. Abgewiesene Zugriffe hinterlassen keine Session, ein Retry erzeugt keinen zweiten Fork/Audit-Eintrag, Metadaten bleiben bytegleich.
+
+Grenzen: Der vollständige `onboarding-profile-test.ts` ließ sich mit einer versuchsweise isolierten Datenbank nicht zuverlässig abschließen; dieser Versuch wurde beendet und die experimentelle Teständerung zurückgenommen. Der bestehende Sammeltest `test:agents:runtime` stoppt ohne konfigurierte `DATABASE_URL`. Beide gelten nicht als bestanden und benötigen eine separate Prüfung im verwalteten Setup. Tests mit synthetischen alten Nachrichten ersetzen weder reale anonymisierte Bestandsdaten noch einen Rollback-Lauf unter 0.84.1. Statisch kopiert der Dockerfile das vollständige `node_modules` einschließlich Chord; das ist noch kein Container-/Distributions-Smoke.
 
 Fertig, wenn alle Release-relevanten automatisierten Prüfungen erfolgreich sind und keine Datenmigration benötigt wird beziehungsweise jede tatsächlich nötige Transformation einen getesteten Rückweg hat.
 
@@ -329,4 +336,35 @@ Vor der Umsetzung stehen keine grundlegenden Architekturentscheidungen offen. Vo
 - [npm-Metadaten Pi AI](https://registry.npmjs.org/@earendil-works%2Fpi-ai) und [Pi Agent Core](https://registry.npmjs.org/@earendil-works%2Fpi-agent-core), einschließlich Versionszeitpunkt, Exports und Dependencies.
 - Modell-Metadaten zusätzlich gegen die veröffentlichten Paketdateien geprüft: [OpenAI-Katalog](https://unpkg.com/@earendil-works/pi-ai@0.85.1/dist/providers/data/openai.json), [Codex-Katalog](https://unpkg.com/@earendil-works/pi-ai@0.85.1/dist/providers/data/openai-codex.json).
 
-Die Analyse umfasst statische Codeprüfung, Versions-/API-Vergleich und einen frischen lokalen Abhängigkeitsgraphen. Sie ist keine bereits bestandene Laufzeitprüfung. Es wurden keine Pakete aktualisiert, keine Produktionsdaten verändert, keine Provideraufrufe zur Inferenz gestartet und keine Container oder Browser-Tests ausgeführt.
+Die ursprüngliche Analyse umfasste statische Codeprüfung, Versions-/API-Vergleich und einen frischen lokalen Abhängigkeitsgraphen. Die anschließende Umsetzung aktualisiert Pakete und führt die dokumentierten Tests aus. Es wurden keine Produktionsdaten verändert, keine Provideraufrufe zur Inferenz gestartet und keine Container oder Browser-Tests ausgeführt.
+
+## 9. Umsetzungsergebnis und reproduzierbare Kernprüfungen
+
+- Paketlinie: AI, Agent Core, Telemetry und Chord jeweils 0.85.1, keine doppelte Pi-Minor-Linie; direkte Pakete exakt gepinnt. Lockfile und Lizenzartefakte gemeinsam aktualisiert.
+- Produktionskorrekturen: initiales Low-Level-Reasoning, normalisierte Provider-Probes, unveränderte opaque Replay-Signaturen, PostgreSQL-Fork-Platzhalter, Request-Abbruch durch die gescopte Auth-Kette sowie Custom-Server-Auflösung für Chord/Pi-Unterpfade.
+- Eigene Canvas-Harness, PostgreSQL-Speicherung, Mandantengrenzen, Runtime-Policies und Modellfreigaben bleiben bestehen. Keine Harness-/JSONL- oder SQL-Schemamigration.
+- Der Struktur-Skill beeinflusste die Testumsetzung: gemeinsame PostgreSQL-Migrationen/Adapter sind in `scripts/helpers/pi-test-database.ts` gebündelt; die fachlichen Assertions bleiben in den jeweiligen Tests.
+
+Bestandene Kernbefehle:
+
+```sh
+npm run test:pi:sdk-contract
+npm run test:pi:metadata-contract
+npm run test:pi:auth-contract
+npm run test:pi:provider-contract
+npm run test:pi:server-import
+npm run test:pi:postgres-contract
+npm run test:chat:fork
+npm run test:pi:usage
+npm run test:pi:session-title
+npm run test:pi:compaction-v2-durability
+npm run test:pi:compaction-v2-runtime
+npm run test:pi:delegation-dispatcher
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+Zusätzlich bestanden die in T1–T6 genannten gezielten Regressionen, der separate Loader-/Prewarm-Test und die Lizenzprüfung (1.996 Komponenten, null Release-Blocker). Lint, TypeScript und der vollständige Produktionsbuild wurden nach den letzten Code-/Teständerungen erneut erfolgreich ausgeführt. Die Produktversion bleibt 2026.9.10.5; es wurde kein Release-Bump vorgenommen. Die echten SDK-Verträge umfassen 17 Tests. Offline-Provider-Tests prüfen reale Adapter-Payloads vor Dispatch, keine Live-Inferenz. Erwartete Warnungen über fehlende lokale Auth-/MCP-URLs in isolierten Importtests sind kein Nachweis eines eingerichteten Login-Systems.
+
+Offen bleiben UI/E2E mit ausdrücklicher Browser-Freigabe, vollständige Onboarding-/Runtime-Konfigurationsprüfung im verwalteten Setup, Live-Provider/OAuth, tatsächliche Distributionsartefakte und Bestandsdaten-/Rollback-Abnahme. `test:all`, PR/Push, Release und Deployment wurden nicht ausgelöst.
