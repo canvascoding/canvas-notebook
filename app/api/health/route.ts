@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { ensureAuthReady } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
 import {
   resolveDatabaseProviderGate,
@@ -12,7 +13,7 @@ import { getCollaborationRuntimeHealth, setCollaborationRuntimeHealth } from '@/
 import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 import { getDirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
 import type { DirectMcpReadiness } from '@/app/lib/mcp/server/readiness';
-import { createCachedAsyncCheck, withHealthCheckTimeout } from '@/app/lib/health/async-check';
+import { createCachedAsyncCheck, HealthCheckTimeoutError, withHealthCheckTimeout } from '@/app/lib/health/async-check';
 
 const getCachedDirectMcpReadiness = createCachedAsyncCheck(getDirectMcpReadiness, 30_000);
 
@@ -33,6 +34,13 @@ async function performHealthChecks() {
   const teamFeaturesEnabled = areTeamFeaturesEnabled(deploymentMode);
   const providerGate = resolveDatabaseProviderGate({ teamFeaturesEnabled });
   const collaboration = getCollaborationRuntimeHealth();
+  try {
+    await ensureAuthReady();
+    checks.auth = 'ok';
+  } catch {
+    checks.auth = 'error';
+    status = 503;
+  }
   let mcpReadiness: DirectMcpReadiness;
   try {
     mcpReadiness = await getCachedDirectMcpReadiness();
@@ -96,11 +104,11 @@ async function performHealthChecks() {
     checks.db = 'error';
     status = 503;
   } finally {
-    connection?.close();
+    await connection?.close();
   }
 
-  return NextResponse.json(
-    {
+  return {
+    body: {
       status: status === 200 ? 'healthy' : 'unhealthy',
       checks,
       database: toPublicDatabaseProviderStatus(providerGate),
@@ -115,20 +123,27 @@ async function performHealthChecks() {
       mcp: mcpReadiness,
       timestamp: new Date().toISOString(),
     },
-    { status }
-  );
+    status,
+  };
 }
+
+// An HTTP timeout does not cancel a query/acquisition. Keep the entire check
+// in flight until its work and cleanup finish, so repeated polls cannot queue
+// new leases. A zero TTL shares only in-flight work, not completed DB results.
+const getInFlightHealthChecks = createCachedAsyncCheck(performHealthChecks, 0);
 
 export async function GET() {
   const timeoutMillis = resolveHealthCheckTimeout();
   try {
-    return await withHealthCheckTimeout('Application health check', performHealthChecks(), timeoutMillis);
-  } catch {
+    const result = await withHealthCheckTimeout('Application health check', getInFlightHealthChecks(), timeoutMillis);
+    // Construct a fresh Response per request; never share a consumable body.
+    return NextResponse.json(result.body, { status: result.status });
+  } catch (error) {
     return NextResponse.json(
       {
         status: 'unhealthy',
         checks: { app: 'ok', healthCheck: 'error' },
-        mcp: { status: 'failed', code: 'MCP_READINESS_TIMEOUT' },
+        mcp: { status: 'failed', code: error instanceof HealthCheckTimeoutError ? 'MCP_READINESS_TIMEOUT' : 'MCP_TRANSPORT_UNAVAILABLE' },
         timestamp: new Date().toISOString(),
       },
       { status: 503 },

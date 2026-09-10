@@ -141,38 +141,23 @@ trap 'handle_signal INT' INT
 
 # ─── Step 3: Next.js ─────────────────────────────────────────────────────
 step "Next.js startup"
-# Use tsx to run server.js which loads TypeScript WebSocket server files
+# Register tsx directly so NEXT_PID is the server, not an npx/CLI parent whose
+# child could survive the readiness-timeout cleanup.
 # Output directly to stdout (not redirected) so logs appear in docker logs
-npx tsx server.js &
+node --import tsx server.js &
 NEXT_PID=$!
 
 health_url="http://127.0.0.1:${PORT:-3000}/api/health"
-attempt=0
 # Older installations can spend extra time on the first post-upgrade startup
-# while Next.js warms up after migrations/restores. Keep the in-container wait
-# aligned with the CLI/installer health timeout.
+# while Next.js warms up after migrations/restores. Retain the legacy option
+# name, but enforce its intended seconds as a wall-clock budget, including
+# HTTP requests, instead of counting attempts with unbounded curl duration.
 max_attempts="${STARTUP_HEALTH_MAX_ATTEMPTS:-180}"
 
-while [ "$attempt" -lt "$max_attempts" ]; do
-  if [ -n "$NEXT_PID" ] && ! kill -0 "$NEXT_PID" 2>/dev/null; then
-    step_fail
-    printf '\n  ERROR: Next.js exited before becoming healthy\n' >&2
-    exit 1
-  fi
-  if curl -fsS "$health_url" >/dev/null 2>&1; then
-    step_ok
-    break
-  fi
-  attempt=$((attempt + 1))
-  if [ "$_is_tty" = "true" ]; then
-    printf '\r\033[K  \342\206\222 [%d/%d] Next.js startup (%ds)...' "$_step_num" "$_step_total" "$attempt"
-  fi
-  sleep 1
-done
-
-if [ "$attempt" -ge "$max_attempts" ]; then
+if node scripts/wait-for-startup-health.mjs "$health_url" "$NEXT_PID" "$max_attempts"; then
+  step_ok
+else
   step_fail
-  printf '\n  ERROR: Next.js did not become healthy within %ds (set STARTUP_HEALTH_MAX_ATTEMPTS to override)\n' "$max_attempts" >&2
   exit 1
 fi
 
