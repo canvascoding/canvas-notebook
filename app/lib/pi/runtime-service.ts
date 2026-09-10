@@ -569,6 +569,13 @@ export async function control(
         {
           const context = await prepareMessageContext();
           await runtimeInstance.refreshWorkspaceFileTreePrompt();
+          // The active run can finish between the client deciding to queue a
+          // follow-up and this serialized control action reaching the runtime.
+          // Preserve the message by starting a normal turn when that happens.
+          if (!runtimeInstance.getStatus().canAbort) {
+            runtimeInstance.startPrompt(message, context);
+            return runtimeInstance.getStatus();
+          }
           return runtimeInstance.queueFollowUp(message, context);
         }
       case 'steer':

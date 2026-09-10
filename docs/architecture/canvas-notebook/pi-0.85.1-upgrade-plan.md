@@ -1,7 +1,7 @@
 # Pi-SDK 0.84.1 → 0.85.1: Bestandsaufnahme und Umsetzungsplan
 
 Stand: 10. September 2026. Ausgangspunkt der Bestandsaufnahme: `92ba7a6b5eec386bea1448a24f60488a80a36ac0`.
-Status: Pi 0.85.1 und die nachgewiesenen Integrationskorrekturen sind implementiert. Automatisierte Ergebnisse und offene Freigabegrenzen stehen in T7 und Abschnitt 9; noch keine Releasefreigabe.
+Status: Pi 0.85.1 und die nachgewiesenen Integrationskorrekturen sind implementiert. Der verwaltete lokale Stack und die Pi-Chat-UI sind abgenommen; offene Provider-, Integrations- und Rollback-Grenzen stehen in T8/T9 und Abschnitt 9. Noch keine Releasefreigabe.
 
 ## 1. Ergebnis und Ziel
 
@@ -246,22 +246,26 @@ Fertig, wenn unterstützte Modelle ausführbar sind und bestehende Credential-/P
 
 T7: Der echte Server-Import reproduzierte fehlende Chord- und Wildcard-Aliase; nach der begrenzten Korrektur bestanden der reale Runtime-/Channel-Import und die Alias-Grenzfälle. Die bereits vorhandenen Titel-, Usage-, Delegations- und Compaction-Tests verwenden nun ebenfalls die gemeinsame isolierte PostgreSQL-Testhilfe. Fehlende Compaction-Store- und Fork-API-Testdateien wurden mit ausgeführten Tests ergänzt, nicht aus den Sammelbefehlen entfernt. Der Fork-API-Test durchläuft den echten POST-Handler, Ownership-/Workspace-Prüfung und Fork-Transaktion bis zur Datenbank; Auth, Policy, Runtime-Aktivität und Audit-Senke sind isolierte Fixtures. Abgewiesene Zugriffe hinterlassen keine Session, ein Retry erzeugt keinen zweiten Fork/Audit-Eintrag, Metadaten bleiben bytegleich.
 
-Grenzen: Der vollständige `onboarding-profile-test.ts` ließ sich mit einer versuchsweise isolierten Datenbank nicht zuverlässig abschließen; dieser Versuch wurde beendet und die experimentelle Teständerung zurückgenommen. Der bestehende Sammeltest `test:agents:runtime` stoppt ohne konfigurierte `DATABASE_URL`. Beide gelten nicht als bestanden und benötigen eine separate Prüfung im verwalteten Setup. Tests mit synthetischen alten Nachrichten ersetzen weder reale anonymisierte Bestandsdaten noch einen Rollback-Lauf unter 0.84.1. Statisch kopiert der Dockerfile das vollständige `node_modules` einschließlich Chord; das ist noch kein Container-/Distributions-Smoke.
+Grenzen: Der vollständige `onboarding-profile-test.ts` ließ sich mit einer versuchsweise isolierten Datenbank nicht zuverlässig abschließen; dieser Versuch wurde beendet und die experimentelle Teständerung zurückgenommen. Der bestehende Sammeltest `test:agents:runtime` stoppt ohne konfigurierte `DATABASE_URL`. Beide gelten nicht als bestanden und benötigen eine separate Prüfung im verwalteten Setup. Tests mit synthetischen alten Nachrichten ersetzen weder reale anonymisierte Bestandsdaten noch einen Rollback-Lauf unter 0.84.1. Der Container-/Distributions-Smoke wurde inzwischen in T8 nachgeholt.
 
 Fertig, wenn alle Release-relevanten automatisierten Prüfungen erfolgreich sind und keine Datenmigration benötigt wird beziehungsweise jede tatsächlich nötige Transformation einen getesteten Rückweg hat.
 
 ### T8 — UI-/End-to-End-Abnahme im verwalteten lokalen Stack
 
-- [ ] Vor Verwendung von Playwright/Browserautomation die vom Repository verlangte explizite Nutzerfreigabe einholen, sofern sie bis dahin nicht erteilt ist.
-- [ ] Den verwalteten Stack aus dem Skill `canvas-local-team-seat-dev` verwenden; einen Container nur bei explizitem Auftrag bauen. Dann zuerst erfolgreicher Build, anschließend aktueller Rebuild/Recreate, keine parallele Testumgebung.
-- [ ] Login über `BOOTSTRAP_ADMIN_EMAIL` und `BOOTSTRAP_ADMIN_PASSWORD` aus der lokalen Konfiguration.
-- [ ] Chat: Streaming, Thinking, Tool-Fortschritt, Stop, Queue/Replace, Browser-Schemawechsel, Reconnect und Fortsetzen eines alten Chats.
+- [x] Vor Verwendung von Playwright/Browserautomation die vom Repository verlangte explizite Nutzerfreigabe einholen.
+- [x] Den verwalteten Stack aus dem Skill `canvas-local-team-seat-dev` verwenden; erfolgreicher Build vor aktuellem Rebuild/Recreate, keine parallele Testumgebung.
+- [x] Login über `BOOTSTRAP_ADMIN_EMAIL` und `BOOTSTRAP_ADMIN_PASSWORD` aus der lokalen Konfiguration.
+- [x] Chat: echter Ollama-Zwei-Turn-Chat, WebSocket-Authentifizierung, Streaming, Tool-Darstellung, Stop/Queue/Steer, Wiederaufnahme, Compaction und Desktop-/Mobile-Darstellung.
 - [ ] Settings: Modelltest, Katalogauswahl, unterstützte Thinking-Level und OAuth-Status/Refresh.
 - [ ] Automation und Delegation: Verlauf, Ergebnis, Timeout, Wiederholung ohne doppelte Abschlussnachricht.
 - [ ] E-Mail: Entwurf/Zusammenfassung und Workspace-Agent; Onboarding-Chat und Memory-Ergebnisstatus.
 - [ ] Mobile-API-Verträge und Darstellung bei einem bestehenden Client prüfen; ein Native-App-Release ist nur bei nachgewiesener Vertragsänderung erforderlich.
 
-Fertig, wenn die Integrationen im UI funktionieren und die Belege in der PR dokumentiert sind. Diese Planung selbst beinhaltet keine UI-Automation und keinen Containerbau.
+T8-Teilabnahme am 10. September 2026: Genau ein loopback-gebundener Skill-Stack lief mit Notebook `3100`, Control Plane `4001/4004` und PostgreSQL 18.4/pgvector 0.8.3. Nach erfolgreichem Host-Build wurde ausschließlich der Notebook-Container frisch gebaut und ersetzt. Der zunächst fehlende Produktions-Entrypoint `scripts/bootstrap-admin.js` wurde als PostgreSQL-only-Wrapper wiederhergestellt; Remote-`main` (`v2026.9.10.9`) enthielt denselben fehlenden Entrypoint und keinen entsprechenden Fix. Admin- und Zweitnutzer-Login, Development-Team-Lizenz, gemeinsamer Workspace und Ollama `kimi-k2.6:cloud` wurden durch `testenv:fixtures` verifiziert. Im Image sind Pi AI und Agent Core 0.85.1 installiert.
+
+Die Pi-Chat-Playwright-Suite bestand mit 25/25 Tests gegen den externen Stack; ausgelassen wurde nur der Test, der absichtlich die persistente Agent-`AGENTS.md` verändert. Dabei reproduzierte der echte Zwei-Turn-Chat ein Race: Ein noch als `follow_up` gesendeter zweiter Turn erreichte die Runtime erst nach Ende des ersten Runs. `runtime-service.control` startet diese Nachricht nun atomar als normalen Turn, wenn der Run zwischenzeitlich idle wurde. Der erneute echte Ollama-Test und die gesamte bereinigte Suite bestanden. Settings-OAuth, weitere Live-Provider, Automation/Delegation im UI, E-Mail/Onboarding/Memory und Native-Mobile bleiben offen.
+
+Fertig, wenn auch die noch offenen Integrationen funktionieren und die Belege in einer beauftragten PR dokumentiert sind.
 
 ### T9 — Releasevorbereitung und Rückweg
 
@@ -336,12 +340,13 @@ Vor der Umsetzung stehen keine grundlegenden Architekturentscheidungen offen. Vo
 - [npm-Metadaten Pi AI](https://registry.npmjs.org/@earendil-works%2Fpi-ai) und [Pi Agent Core](https://registry.npmjs.org/@earendil-works%2Fpi-agent-core), einschließlich Versionszeitpunkt, Exports und Dependencies.
 - Modell-Metadaten zusätzlich gegen die veröffentlichten Paketdateien geprüft: [OpenAI-Katalog](https://unpkg.com/@earendil-works/pi-ai@0.85.1/dist/providers/data/openai.json), [Codex-Katalog](https://unpkg.com/@earendil-works/pi-ai@0.85.1/dist/providers/data/openai-codex.json).
 
-Die ursprüngliche Analyse umfasste statische Codeprüfung, Versions-/API-Vergleich und einen frischen lokalen Abhängigkeitsgraphen. Die anschließende Umsetzung aktualisiert Pakete und führt die dokumentierten Tests aus. Es wurden keine Produktionsdaten verändert, keine Provideraufrufe zur Inferenz gestartet und keine Container oder Browser-Tests ausgeführt.
+Die ursprüngliche Analyse umfasste statische Codeprüfung, Versions-/API-Vergleich und einen frischen lokalen Abhängigkeitsgraphen. Die anschließende Umsetzung aktualisiert Pakete und führt die dokumentierten Tests aus. Es wurden keine Produktionsdaten verändert. Die spätere T8-Abnahme nutzte nach ausdrücklicher Freigabe den verwalteten lokalen Stack, Browserautomation und den eingerichteten Ollama-Fixture-Provider; Remote-Provider und Deployment blieben unberührt.
 
 ## 9. Umsetzungsergebnis und reproduzierbare Kernprüfungen
 
 - Paketlinie: AI, Agent Core, Telemetry und Chord jeweils 0.85.1, keine doppelte Pi-Minor-Linie; direkte Pakete exakt gepinnt. Lockfile und Lizenzartefakte gemeinsam aktualisiert.
-- Produktionskorrekturen: initiales Low-Level-Reasoning, normalisierte Provider-Probes, unveränderte opaque Replay-Signaturen, PostgreSQL-Fork-Platzhalter, Request-Abbruch durch die gescopte Auth-Kette sowie Custom-Server-Auflösung für Chord/Pi-Unterpfade.
+- Produktionskorrekturen: initiales Low-Level-Reasoning, normalisierte Provider-Probes, unveränderte opaque Replay-Signaturen, PostgreSQL-Fork-Platzhalter, Request-Abbruch durch die gescopte Auth-Kette, Custom-Server-Auflösung für Chord/Pi-Unterpfade sowie ein Idle-Fallback für verspätete Follow-up-Nachrichten.
+- Distributionskorrektur: Der weiterhin verwendete Entrypoint `scripts/bootstrap-admin.js` ist als PostgreSQL-only-Wrapper wiederhergestellt und durch CLI-Vertragstest und Containerstart belegt.
 - Eigene Canvas-Harness, PostgreSQL-Speicherung, Mandantengrenzen, Runtime-Policies und Modellfreigaben bleiben bestehen. Keine Harness-/JSONL- oder SQL-Schemamigration.
 - Der Struktur-Skill beeinflusste die Testumsetzung: gemeinsame PostgreSQL-Migrationen/Adapter sind in `scripts/helpers/pi-test-database.ts` gebündelt; die fachlichen Assertions bleiben in den jeweiligen Tests.
 
@@ -360,11 +365,14 @@ npm run test:pi:session-title
 npm run test:pi:compaction-v2-durability
 npm run test:pi:compaction-v2-runtime
 npm run test:pi:delegation-dispatcher
+npm run test:bootstrap-admin-wrapper
+npm run testenv:fixtures
 npx tsc --noEmit
 npm run lint
 npm run build
+E2E_EXTERNAL_SERVER=1 BASE_URL=http://127.0.0.1:3100 npx playwright test tests/pi-chat.spec.ts --workers=1 --grep-invert 'should save managed prompt files in settings and keep chat working'
 ```
 
 Zusätzlich bestanden die in T1–T6 genannten gezielten Regressionen, der separate Loader-/Prewarm-Test und die Lizenzprüfung (1.996 Komponenten, null Release-Blocker). Lint, TypeScript und der vollständige Produktionsbuild wurden nach den letzten Code-/Teständerungen erneut erfolgreich ausgeführt. Die Produktversion bleibt 2026.9.10.5; es wurde kein Release-Bump vorgenommen. Die echten SDK-Verträge umfassen 17 Tests. Offline-Provider-Tests prüfen reale Adapter-Payloads vor Dispatch, keine Live-Inferenz. Erwartete Warnungen über fehlende lokale Auth-/MCP-URLs in isolierten Importtests sind kein Nachweis eines eingerichteten Login-Systems.
 
-Offen bleiben UI/E2E mit ausdrücklicher Browser-Freigabe, vollständige Onboarding-/Runtime-Konfigurationsprüfung im verwalteten Setup, Live-Provider/OAuth, tatsächliche Distributionsartefakte und Bestandsdaten-/Rollback-Abnahme. `test:all`, PR/Push, Release und Deployment wurden nicht ausgelöst.
+Offen bleiben die vollständige Onboarding-/Runtime-Konfigurationsprüfung, Live-OAuth und weitere Provider, die Integrations-UI für Automation/Delegation/E-Mail/Memory, Native-Mobile sowie Bestandsdaten- und Rollback-Abnahme. `test:all`, PR/Push, Release und Deployment wurden nicht ausgelöst. Der verwaltete lokale Stack bleibt für weitere Prüfungen aktiv.
