@@ -19,6 +19,10 @@ import { StudioPicker } from './StudioPicker';
 import { AspectRatioPicker } from './AspectRatioPicker';
 import {
   PROVIDERS,
+  OPENAI_IMAGE_MODEL_ID,
+  OPENAI_INPUT_FIDELITY_OPTIONS,
+  OPENAI_MODERATION_OPTIONS,
+  OPENAI_RECOMMENDED_IMAGE_SIZES,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   BACKGROUND_OPTIONS,
@@ -32,14 +36,18 @@ import {
   getVideoResolutionsForModel,
   getVideoDurationsForModel,
   getImageSizesForModel,
+  getMaxImageCountForProvider,
+  getOpenAIImageSizeValidationError,
   normalizeOpenAIImageOutputFormat,
   GEMINI_FLASH_IMAGE_MODEL_ID,
   GEMINI_PRO_IMAGE_MODEL_ID,
+  type OpenAIImageBackground,
+  type OpenAIImageInputFidelity,
+  type OpenAIImageModeration,
+  type OpenAIImageQuality,
   type VideoResolution,
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
-
-const IMAGE_COUNTS = [1, 2, 3, 4] as const;
 
 interface SelectFieldProps {
   label: string;
@@ -80,12 +88,18 @@ interface ControlBarProps {
   onProviderChange: (value: string) => void;
   model: string;
   onModelChange: (value: string) => void;
-  quality: 'low' | 'medium' | 'high' | 'auto';
-  onQualityChange: (value: 'low' | 'medium' | 'high' | 'auto') => void;
+  quality: OpenAIImageQuality;
+  onQualityChange: (value: OpenAIImageQuality) => void;
   outputFormat: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
   onOutputFormatChange: (value: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav') => void;
-  background: 'transparent' | 'opaque' | 'auto';
-  onBackgroundChange: (value: 'transparent' | 'opaque' | 'auto') => void;
+  background: OpenAIImageBackground;
+  onBackgroundChange: (value: OpenAIImageBackground) => void;
+  moderation: OpenAIImageModeration;
+  onModerationChange: (value: OpenAIImageModeration) => void;
+  outputCompression: number;
+  onOutputCompressionChange: (value: number) => void;
+  inputFidelity: OpenAIImageInputFidelity;
+  onInputFidelityChange: (value: OpenAIImageInputFidelity) => void;
   imageSize: string;
   onImageSizeChange: (value: string) => void;
   videoResolution: VideoResolution;
@@ -142,6 +156,12 @@ export function ControlBar({
   onOutputFormatChange,
   background,
   onBackgroundChange,
+  moderation,
+  onModerationChange,
+  outputCompression,
+  onOutputCompressionChange,
+  inputFidelity,
+  onInputFidelityChange,
   imageSize,
   onImageSizeChange,
   videoResolution,
@@ -175,6 +195,13 @@ export function ControlBar({
   const availableOpenAIOutputFormats = background === 'transparent'
     ? OUTPUT_FORMAT_OPTIONS.filter((format) => format !== 'jpeg')
     : OUTPUT_FORMAT_OPTIONS;
+  const imageCounts = Array.from(
+    { length: getMaxImageCountForProvider(mode, provider) },
+    (_, index) => index + 1,
+  );
+  const openAIImageSizeError = isOpenAI && mode === 'image'
+    ? getOpenAIImageSizeValidationError(imageSize)
+    : null;
 
   const videoResolutions = isVideo ? getVideoResolutionsForModel(model) : [];
   const videoDurations = isVideo ? getVideoDurationsForModel(model) : [];
@@ -215,7 +242,7 @@ export function ControlBar({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-40">
-              {IMAGE_COUNTS.map((option) => (
+              {imageCounts.map((option) => (
                 <DropdownMenuItem key={option} onSelect={() => onCountChange(option)}>
                   {option} output{option === 1 ? '' : 's'}
                 </DropdownMenuItem>
@@ -276,7 +303,7 @@ export function ControlBar({
             size="sm"
             className="h-9 rounded-full px-3 sm:px-4"
             onClick={onGenerate}
-            disabled={isGenerating || !canGenerate}
+            disabled={isGenerating || !canGenerate || Boolean(openAIImageSizeError)}
           >
             <Sparkles className="h-4 w-4" />
             {isGenerating ? 'Generating...' : 'Generate'}
@@ -301,8 +328,8 @@ export function ControlBar({
                   {isVideo || isSound
                     ? (MODEL_LABELS[m.id] || m.id)
                     : provider === 'openai'
-                      ? m.id === 'gpt-image-2'
-                        ? 'GPT Image 2 — Best Quality'
+                      ? m.id === OPENAI_IMAGE_MODEL_ID
+                        ? 'GPT Image 2.5 Sunburst — Best Quality'
                         : m.id
                       : m.id === GEMINI_FLASH_IMAGE_MODEL_ID
                         ? 'Gemini 3.1 Flash — Best Quality & Features'
@@ -330,6 +357,57 @@ export function ControlBar({
                     </option>
                   ))}
                 </SelectField>
+
+                <label className="flex min-w-0 flex-col gap-1 text-sm">
+                  <span className="truncate text-[11px] text-muted-foreground sm:text-xs">Resolution</span>
+                  <input
+                    className={cn(
+                      'h-8 w-full min-w-0 rounded-lg border bg-background px-2 text-xs sm:h-9 sm:rounded-xl sm:text-sm',
+                      openAIImageSizeError ? 'border-destructive' : 'border-input',
+                    )}
+                    value={imageSize}
+                    list="openai-image-size-options"
+                    onChange={(event) => onImageSizeChange(event.target.value)}
+                    placeholder="1536x864 or auto"
+                    aria-invalid={Boolean(openAIImageSizeError)}
+                  />
+                  <datalist id="openai-image-size-options">
+                    {OPENAI_RECOMMENDED_IMAGE_SIZES.map((size) => <option key={size} value={size} />)}
+                  </datalist>
+                  {openAIImageSizeError ? (
+                    <span className="text-[10px] leading-tight text-destructive">{openAIImageSizeError}</span>
+                  ) : null}
+                </label>
+
+                <SelectField label="Moderation" value={moderation} onChange={(value) => onModerationChange(value as OpenAIImageModeration)}>
+                  {OPENAI_MODERATION_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option === 'auto' ? 'Auto' : 'Low'}</option>
+                  ))}
+                </SelectField>
+
+                <SelectField label="Reference Fidelity" value={inputFidelity} onChange={(value) => onInputFidelityChange(value as OpenAIImageInputFidelity)}>
+                  {OPENAI_INPUT_FIDELITY_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option.charAt(0).toUpperCase() + option.slice(1)}</option>
+                  ))}
+                </SelectField>
+
+                {(openAIOutputFormat === 'jpeg' || openAIOutputFormat === 'webp') ? (
+                  <label className="flex min-w-0 flex-col gap-1 text-sm">
+                    <span className="truncate text-[11px] text-muted-foreground sm:text-xs">Compression (%)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={1}
+                      className="h-8 w-full min-w-0 rounded-lg border border-input bg-background px-2 text-xs sm:h-9 sm:rounded-xl sm:text-sm"
+                      value={outputCompression}
+                      onChange={(event) => {
+                        const nextValue = Number(event.target.value);
+                        onOutputCompressionChange(Math.min(100, Math.max(0, Math.round(nextValue))));
+                      }}
+                    />
+                  </label>
+                ) : null}
               </>
             ) : null}
 

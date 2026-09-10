@@ -18,6 +18,9 @@ type StudioGenerateInput = Pick<
   | 'quality'
   | 'outputFormat'
   | 'background'
+  | 'moderation'
+  | 'outputCompression'
+  | 'inputFidelity'
   | 'imageSize'
   | 'fileRefs'
   | 'videoReferenceRefs'
@@ -77,7 +80,14 @@ export function buildStudioGeneratePayload(input: StudioGenerateInput): StudioGe
         ? (['png', 'jpeg', 'webp'].includes(input.outputFormat) ? input.outputFormat as 'png' | 'jpeg' | 'webp' : 'png')
         : undefined,
     background: input.provider === 'openai' ? input.background : undefined,
-    image_size: input.mode === 'image' && input.provider === 'gemini' ? input.imageSize : undefined,
+    moderation: input.provider === 'openai' ? input.moderation : undefined,
+    output_compression: input.provider === 'openai' && (input.outputFormat === 'jpeg' || input.outputFormat === 'webp')
+      ? input.outputCompression
+      : undefined,
+    input_fidelity: input.provider === 'openai' ? input.inputFidelity : undefined,
+    image_size: input.mode === 'image' && (input.provider === 'gemini' || input.provider === 'openai')
+      ? input.imageSize
+      : undefined,
     extra_reference_urls: isVeoExtend ? undefined : fileUrls,
     video_reference_urls: !isVeoExtend && input.mode === 'video' && input.provider === 'bytedance' ? videoReferenceUrls : undefined,
     audio_reference_urls: !isVeoExtend && input.mode === 'video' && input.provider === 'bytedance' ? audioReferenceUrls : undefined,
