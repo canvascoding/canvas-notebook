@@ -21,6 +21,7 @@ import {
 } from '@/app/lib/mcp/server/config';
 import { recordDirectMcpOAuthProviderError } from '@/app/lib/mcp/server/diagnostics';
 import { directMcpOAuthResourceOptions } from '@/app/lib/mcp/server/oauth-resource-config';
+import { observeStartupTask } from '@/app/lib/startup/observed-task';
 import {
   assertUserSeatAccess,
   SeatLimitGuardError,
@@ -191,6 +192,14 @@ export const auth = betterAuth({
     }
   },
 });
+
+// Better Auth eagerly seeds OAuth resources during init, before the first API
+// caller awaits $context. Own that failure in every loaded module instance.
+const waitForAuthInitialization = observeStartupTask(auth.$context);
+
+export async function ensureAuthReady(): Promise<void> {
+  await waitForAuthInitialization();
+}
 
 export const PENDING_TEAM_MEMBERSHIP_BAN_REASON = "canvas_team_membership_pending";
 

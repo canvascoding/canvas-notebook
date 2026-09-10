@@ -97,6 +97,7 @@ const { runWithRequestIdentity } = require('./app/lib/security/request-identity'
 const { handleHtmlPreviewBoundary } = require('./server/html-preview-boundary');
 const { isHtmlPreviewHost } = require('./app/lib/html-preview-origin');
 const { handleHttpRequestSafely } = require('./server/http-request-boundary');
+const { observeStartupTask } = require('./app/lib/startup/observed-task');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
 const {
@@ -741,6 +742,17 @@ async function startServer() {
   }
 
   try {
+    // Auth is required even when Direct MCP is disabled. Finish its resource
+    // seeding before the separate MCP schema/JWKS queries acquire connections.
+    const { ensureAuthReady } = require('./app/lib/auth');
+    await ensureAuthReady();
+    console.log('[Startup] Authentication initialization completed');
+  } catch (error) {
+    console.error('[Startup] CRITICAL ERROR in authentication initialization');
+    throw error;
+  }
+
+  try {
     const { assertDirectMcpStartupReady } = require('./app/lib/mcp/server/readiness');
     await assertDirectMcpStartupReady();
     console.log('[Startup] Direct MCP readiness check completed');
@@ -749,8 +761,8 @@ async function startServer() {
     throw error;
   }
 
-  let agentRuntimeWarmupPromise = null;
-  let managedCatalogWarmupPromise = null;
+  let waitForAgentRuntimeWarmup = null;
+  let waitForManagedCatalogWarmup = null;
 
   console.log('[Startup] Initializing WebSocket Server...');
   try {
@@ -794,10 +806,10 @@ async function startServer() {
       'Agent runtime loader',
     );
     const { preloadAgentRuntimeModules } = agentRuntimeLoader;
-    agentRuntimeWarmupPromise = preloadAgentRuntimeModules().then((result) => {
+    waitForAgentRuntimeWarmup = observeStartupTask(preloadAgentRuntimeModules().then((result) => {
       console.log('[Startup] Agent runtime modules preloaded', result);
       return result;
-    });
+    }));
     const managedCatalogModule = await import('./app/lib/managed/control-plane-models.ts');
     const managedCatalog = resolveImportedServerModule(
       managedCatalogModule,
@@ -805,14 +817,14 @@ async function startServer() {
       'Managed Control Plane catalog',
     );
     const { primeCanvasControlPlaneCatalog } = managedCatalog;
-    managedCatalogWarmupPromise = primeCanvasControlPlaneCatalog().then((catalog) => {
+    waitForManagedCatalogWarmup = observeStartupTask(primeCanvasControlPlaneCatalog().then((catalog) => {
       console.log('[Startup] Managed model catalog warmup finished', {
         status: catalog.status,
         errorCode: catalog.errorCode,
         modelCount: catalog.models.length,
       });
       return catalog;
-    });
+    }));
   } catch (error) {
     console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
     console.error('[Startup] Stack trace:', error.stack);
@@ -837,8 +849,8 @@ async function startServer() {
   console.log('[Startup] Preparing Next.js app...');
   await Promise.all([
     app.prepare(),
-    agentRuntimeWarmupPromise,
-    managedCatalogWarmupPromise,
+    waitForAgentRuntimeWarmup?.(),
+    waitForManagedCatalogWarmup?.(),
   ]);
   console.log('[Startup] Next.js app prepared');
 
