@@ -49,6 +49,10 @@ import {
 } from './types';
 
 const STALE_AUTOMATION_RUN_TTL_MS = 15 * 60_000;
+// Scheduler invocations are not real-time. This bounded grace covers normal
+// dispatch jitter, while any longer interruption is treated as a misfire and
+// is never replayed after recovery.
+export const SCHEDULED_RUN_MISFIRE_GRACE_MS = 90_000;
 const DEFAULT_DELIVERY_MODE: AutomationDeliveryMode = 'web';
 const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_session';
 const DEFAULT_AUTOMATION_RESULT_POLICY: AutomationResultPolicy = 'deliver_all';
@@ -166,6 +170,26 @@ async function getInFlightAutomationRunAsync(tx: AutomationStoreTransaction, job
     )
     .limit(1);
   return rows[0];
+}
+
+function isAutomationJobExecutable(job: Pick<AutomationJobRow, 'status' | 'integrityStatus' | 'deletedAt'>): boolean {
+  return job.status === 'active' && job.integrityStatus === 'valid' && !job.deletedAt;
+}
+
+function computeNextScheduledRunAt(job: AutomationJobRow, now: Date, anchor = now): Date | null {
+  if (!isAutomationJobExecutable(job) || job.triggerKind !== 'schedule') return null;
+  const schedule = JSON.parse(job.scheduleConfigJson) as FriendlySchedule;
+  const next = computeNextRunAt(schedule, {
+    from: anchor,
+    // An interval must resume from the recovery/current anchor. Reusing an old
+    // last-run timestamp would recreate every missed interval as catch-up work.
+    lastRunAt: schedule.kind === 'interval' ? null : job.lastRunAt,
+  });
+  if (!next || next.getTime() > now.getTime()) return next;
+  return computeNextRunAt(schedule, {
+    from: now,
+    lastRunAt: schedule.kind === 'interval' ? null : job.lastRunAt,
+  });
 }
 
 function buildPendingAutomationRunValues(
@@ -1236,9 +1260,10 @@ export async function updateAutomationJob(
       });
     }
   }
+  const scheduleNow = new Date();
   const nextRunAt = status === 'paused' || triggerKind !== 'schedule'
     ? null
-    : computeNextRunAt(schedule, { from: new Date(), lastRunAt: existing.lastRunAt });
+    : computeNextScheduledRunAt({ ...existing, status, triggerKind, scheduleConfigJson: JSON.stringify(schedule) }, scheduleNow);
 
   return runAutomationTransaction(async (tx) => {
     const locked = await getAutomationJobRowAsync(tx, jobId);
@@ -1249,6 +1274,7 @@ export async function updateAutomationJob(
     }
     if (options.skipUnchangedStatus && input.status === existing.status
       && Object.entries(input).every(([key, value]) => key === 'status' || value === undefined)) return current;
+    const updatedAt = new Date();
     const [updated] = await tx
       .update(automationJobs)
       .set({
@@ -1292,10 +1318,27 @@ export async function updateAutomationJob(
         lastRunStatus: input.lastRunStatus === undefined ? existing.lastRunStatus : input.lastRunStatus,
         lastEditedByUserId: options.actorUserId === undefined ? existing.lastEditedByUserId : options.actorUserId,
         revision: existing.revision + 1,
-        updatedAt: new Date(),
+        updatedAt,
       })
       .where(eq(automationJobs.id, jobId))
       .returning();
+
+    if (status === 'paused' && existing.status !== 'paused') {
+      // A pause is a queue barrier. Pending runs have not begun any external
+      // work yet, so they are terminally neutralized in the same transaction
+      // as the job state change.
+      await tx
+        .update(automationRuns)
+        .set({
+          status: 'failed',
+          errorMessage: 'Automation was paused before this queued run could start.',
+          finishedAt: updatedAt,
+        })
+        .where(and(
+          eq(automationRuns.jobId, jobId),
+          inArray(automationRuns.status, ['pending', 'retry_scheduled']),
+        ));
+    }
 
     const [trigger] = await tx.select().from(automationWebhookTriggers).where(eq(automationWebhookTriggers.jobId, jobId)).limit(1);
     const result = mapJobRow(updated, trigger ?? null);
@@ -1652,6 +1695,62 @@ export async function listExecutableAutomationRuns(now = new Date()): Promise<Au
   return mapRunRows(rows);
 }
 
+/**
+ * Marks scheduled work that outlived the scheduler grace period as terminal.
+ * Manual, webhook, and event runs deliberately remain untouched: downtime
+ * skip semantics apply only to clock-driven scheduled automation.
+ */
+export async function discardMissedScheduledAutomationRuns(now = new Date()): Promise<number> {
+  const staleBefore = new Date(now.getTime() - SCHEDULED_RUN_MISFIRE_GRACE_MS);
+  return runAutomationTransaction(async (tx) => {
+    const staleRuns = await tx
+      .select()
+      .from(automationRuns)
+      .where(and(
+        eq(automationRuns.triggerType, 'scheduled'),
+        inArray(automationRuns.status, ['pending', 'retry_scheduled']),
+        lte(automationRuns.scheduledFor, staleBefore),
+      ));
+    if (staleRuns.length === 0) return 0;
+
+    const affectedJobIds = new Set<string>();
+    let discarded = 0;
+    for (const run of staleRuns) {
+      const [updated] = await tx
+        .update(automationRuns)
+        .set({
+          status: 'failed',
+          errorMessage: 'Scheduled automation run was skipped after scheduler downtime.',
+          finishedAt: now,
+        })
+        .where(and(
+          eq(automationRuns.id, run.id),
+          inArray(automationRuns.status, ['pending', 'retry_scheduled']),
+          lte(automationRuns.scheduledFor, staleBefore),
+        ))
+        .returning({ jobId: automationRuns.jobId });
+      if (updated) {
+        discarded += 1;
+        affectedJobIds.add(updated.jobId);
+      }
+    }
+
+    for (const jobId of affectedJobIds) {
+      const job = await getAutomationJobRowAsync(tx, jobId);
+      if (!job || !isAutomationJobExecutable(job) || job.triggerKind !== 'schedule') continue;
+      if (job.nextRunAt && job.nextRunAt.getTime() > now.getTime()) continue;
+      await tx
+        .update(automationJobs)
+        .set({
+          nextRunAt: computeNextScheduledRunAt(job, now),
+          updatedAt: now,
+        })
+        .where(eq(automationJobs.id, jobId));
+    }
+    return discarded;
+  });
+}
+
 export async function markStaleAutomationRunsFailed(now = new Date()): Promise<number> {
   const staleBefore = new Date(now.getTime() - STALE_AUTOMATION_RUN_TTL_MS);
   const staleRuns = await db
@@ -1764,7 +1863,7 @@ export async function scheduleAutomationJobRun(
       if (!job) {
         throw new Error('Automation job not found.');
       }
-      if (job.status !== 'active' || job.integrityStatus !== 'valid' || job.deletedAt) {
+      if (!isAutomationJobExecutable(job)) {
         throw new Error('Automation job is not active with a valid workspace scope.');
       }
 
@@ -1791,26 +1890,64 @@ export async function scheduleAutomationJobRun(
     });
 }
 
+/**
+ * Atomically consumes an on-time scheduled tick. A delayed tick past the
+ * grace window advances directly to the next future occurrence without
+ * inserting a run, so restarts never replay downtime.
+ */
+export async function claimDueScheduledAutomationJobRun(
+  jobId: string,
+  now = new Date(),
+): Promise<AutomationRunRecord | null> {
+  return runAutomationTransaction(async (tx) => {
+    const job = await getAutomationJobRowAsync(tx, jobId);
+    if (!job || !isAutomationJobExecutable(job) || job.triggerKind !== 'schedule' || !job.nextRunAt) return null;
+    if (job.nextRunAt.getTime() > now.getTime()) return null;
+
+    const scheduledFor = job.nextRunAt;
+    const overdueBy = now.getTime() - scheduledFor.getTime();
+    const nextRunAt = computeNextScheduledRunAt(job, now, overdueBy <= SCHEDULED_RUN_MISFIRE_GRACE_MS ? scheduledFor : now);
+    if (overdueBy > SCHEDULED_RUN_MISFIRE_GRACE_MS) {
+      await tx
+        .update(automationJobs)
+        .set({ nextRunAt, updatedAt: now })
+        .where(and(eq(automationJobs.id, jobId), eq(automationJobs.nextRunAt, scheduledFor)));
+      return null;
+    }
+
+    const inFlightRun = await getInFlightAutomationRunAsync(tx, jobId);
+    if (inFlightRun) {
+      await tx
+        .update(automationJobs)
+        .set({ nextRunAt, updatedAt: now })
+        .where(eq(automationJobs.id, jobId));
+      return null;
+    }
+
+    const [inserted] = await tx
+      .insert(automationRuns)
+      .values(buildPendingAutomationRunValues(job, jobId, 'scheduled', scheduledFor, {}, now))
+      .returning();
+    await tx
+      .update(automationJobs)
+      .set({ lastRunStatus: 'pending', nextRunAt, updatedAt: now })
+      .where(eq(automationJobs.id, jobId));
+    return mapRunRow(inserted, null);
+  });
+}
+
 export async function advanceAutomationJobSchedule(jobId: string, anchor = new Date()): Promise<void> {
-  const job = await getAutomationJob(jobId);
-  if (!job) {
-    return;
-  }
-
-  const scheduleLastRunAt = job.schedule.kind === 'interval'
-    ? null
-    : job.lastRunAt ? new Date(job.lastRunAt) : null;
-  const nextRunAt = job.status === 'paused'
-    ? null
-    : computeNextRunAt(job.schedule, { from: anchor, lastRunAt: scheduleLastRunAt });
-
-  await db
-    .update(automationJobs)
-    .set({
-      nextRunAt,
-      updatedAt: new Date(),
-    })
-    .where(eq(automationJobs.id, jobId));
+  await runAutomationTransaction(async (tx) => {
+    const job = await getAutomationJobRowAsync(tx, jobId);
+    if (!job) return;
+    await tx
+      .update(automationJobs)
+      .set({
+        nextRunAt: computeNextScheduledRunAt(job, anchor),
+        updatedAt: new Date(),
+      })
+      .where(eq(automationJobs.id, jobId));
+  });
 }
 
 export async function markAutomationRunStarted(
@@ -1826,33 +1963,40 @@ export async function markAutomationRunStarted(
     expectedAttemptNumber: number;
   },
 ): Promise<AutomationRunRecord | null> {
-  const [updated] = await db
-    .update(automationRuns)
-    .set({
-      status: 'running',
-      startedAt: new Date(),
-      finishedAt: null,
-      outputDir: values.outputDir,
-      targetOutputPath: values.targetOutputPath,
-      effectiveTargetOutputPath: values.effectiveTargetOutputPath,
-      logPath: values.logPath,
-      resultPath: values.resultPath,
-      errorMessage: null,
-      piSessionId: values.piSessionId,
-      resultText: null,
-      eventsLog: JSON.stringify(values.eventsLog),
-    })
-    .where(
-      and(
-        eq(automationRuns.id, runId),
-        or(eq(automationRuns.status, 'pending'), eq(automationRuns.status, 'retry_scheduled')),
-        eq(automationRuns.attemptNumber, values.expectedAttemptNumber),
-      ),
-    )
-    .returning();
+  const updated = await runAutomationTransaction(async (tx) => {
+    const run = await getAutomationRunRowAsync(tx, runId);
+    if (!run) return null;
+    const job = await getAutomationJobRowAsync(tx, run.jobId);
+    if (!job || !isAutomationJobExecutable(job)) return null;
+    const [started] = await tx
+      .update(automationRuns)
+      .set({
+        status: 'running',
+        startedAt: new Date(),
+        finishedAt: null,
+        outputDir: values.outputDir,
+        targetOutputPath: values.targetOutputPath,
+        effectiveTargetOutputPath: values.effectiveTargetOutputPath,
+        logPath: values.logPath,
+        resultPath: values.resultPath,
+        errorMessage: null,
+        piSessionId: values.piSessionId,
+        resultText: null,
+        eventsLog: JSON.stringify(values.eventsLog),
+      })
+      .where(
+        and(
+          eq(automationRuns.id, runId),
+          or(eq(automationRuns.status, 'pending'), eq(automationRuns.status, 'retry_scheduled')),
+          eq(automationRuns.attemptNumber, values.expectedAttemptNumber),
+        ),
+      )
+      .returning();
+    return started ?? null;
+  });
 
   if (!updated) {
-    console.warn(`[Automationen] markAutomationRunStarted: run ${runId} not in pending/retry_scheduled state, skipping`);
+    console.warn(`[Automationen] markAutomationRunStarted: run ${runId} is no longer eligible to start, skipping`);
   } else {
     console.log(`[Automationen] Run ${runId} started (piSessionId=${values.piSessionId})`);
   }
@@ -1864,15 +2008,22 @@ export async function revalidateAutomationRunClaim(
   runId: string,
   expectation: Pick<AutomationRunTransitionExpectation, 'attemptNumber'>,
 ): Promise<AutomationRunRecord | null> {
-  const [updated] = await db
-    .update(automationRuns)
-    .set({ startedAt: new Date() })
-    .where(and(
-      eq(automationRuns.id, runId),
-      eq(automationRuns.status, 'running'),
-      eq(automationRuns.attemptNumber, expectation.attemptNumber),
-    ))
-    .returning();
+  const updated = await runAutomationTransaction(async (tx) => {
+    const run = await getAutomationRunRowAsync(tx, runId);
+    if (!run) return null;
+    const job = await getAutomationJobRowAsync(tx, run.jobId);
+    if (!job || !isAutomationJobExecutable(job)) return null;
+    const [claimed] = await tx
+      .update(automationRuns)
+      .set({ startedAt: new Date() })
+      .where(and(
+        eq(automationRuns.id, runId),
+        eq(automationRuns.status, 'running'),
+        eq(automationRuns.attemptNumber, expectation.attemptNumber),
+      ))
+      .returning();
+    return claimed ?? null;
+  });
 
   if (!updated) {
     console.warn(`[Automationen] Run ${runId} lost its claim while waiting for session execution`);
@@ -1903,6 +2054,26 @@ export async function markAutomationRunRetryScheduled(
       const current = await getAutomationRunRowAsync(tx, runId);
       if (!current) {
         return null;
+      }
+
+      const job = await getAutomationJobRowAsync(tx, current.jobId);
+      if (!job || !isAutomationJobExecutable(job)) {
+        const [discarded] = await tx
+          .update(automationRuns)
+          .set({
+            status: 'failed',
+            errorMessage: 'Automation became inactive before this retry could be scheduled.',
+            finishedAt: new Date(),
+          })
+          .where(and(
+            eq(automationRuns.id, runId),
+            eq(automationRuns.status, expectation.status),
+            eq(automationRuns.attemptNumber, expectation.attemptNumber),
+          ))
+          .returning();
+        if (!discarded) return null;
+        console.warn(`[Automationen] Run ${runId} was not retried because its job is no longer executable`);
+        return mapRunRow(discarded, null);
       }
 
       const [updated] = await tx

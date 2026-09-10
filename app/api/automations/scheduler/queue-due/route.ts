@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { listDueAutomationJobs, scheduleAutomationJobRun, advanceAutomationJobSchedule } from '@/app/lib/automations/store';
+import {
+  claimDueScheduledAutomationJobRun,
+  discardMissedScheduledAutomationRuns,
+  listDueAutomationJobs,
+} from '@/app/lib/automations/store';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 import { sendDueTodoReminders } from '@/app/lib/todos/reminders';
 
@@ -13,15 +17,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const now = new Date();
+    const skipped = await discardMissedScheduledAutomationRuns(now);
     const [dueJobs, todoReminders] = await Promise.all([listDueAutomationJobs(now), sendDueTodoReminders(now)]);
     const queued: string[] = [];
 
     for (const job of dueJobs) {
-      const anchor = job.nextRunAt ? new Date(job.nextRunAt) : now;
       try {
-        const run = await scheduleAutomationJobRun(job.id, 'scheduled', now);
+        const run = await claimDueScheduledAutomationJobRun(job.id, now);
         if (run) {
-          await advanceAutomationJobSchedule(job.id, anchor);
           queued.push(job.id);
         }
       } catch (error) {
@@ -33,7 +36,7 @@ export async function POST(request: NextRequest) {
       console.log(`[Scheduler API] Queued ${queued.length} due job(s)`);
     }
 
-    return NextResponse.json({ success: true, queued, todoReminders });
+    return NextResponse.json({ success: true, queued, skipped, todoReminders });
   } catch (error) {
     console.error('[Scheduler API] Error queuing due jobs:', error);
     return NextResponse.json(
