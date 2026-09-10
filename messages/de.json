@@ -1411,6 +1411,14 @@
     "toolStatusAborting": "Wird gestoppt",
     "toolStatusError": "Fehler",
     "toolStatusDone": "Fertig",
+    "toolApp": {
+      "loading": "Widget wird geladen …",
+      "unavailable": "Dieses Widget ist nicht verfügbar. Die Automation wurde möglicherweise entfernt oder dein Zugriff hat sich geändert.",
+      "reload": "Widget neu laden",
+      "disabled": "Widgets sind deaktiviert.",
+      "oversized": "Die Widget-Daten konnten nicht angezeigt werden. Der Text bleibt verfügbar.",
+      "callFailed": "Die Aktion ist fehlgeschlagen."
+    },
     "mcpApp": {
       "loading": "Interaktive MCP-App wird geladen …",
       "unavailable": "Diese interaktive MCP-App ist nicht verfügbar.",

@@ -14,6 +14,7 @@ import type { McpAppInvocationDetails } from '@/app/lib/mcp/apps-types';
 import type { BuiltinToolAppDescriptor } from '@/app/lib/tool-apps/types';
 import { requireBuiltinToolAppAccess } from '@/app/lib/tool-apps/builtin-access';
 import { readBuiltinToolAppResource } from '@/app/lib/tool-apps/registry';
+import { presentAutomationAppData } from '@/app/lib/tool-apps/automation-data';
 
 type AppDescriptor = McpAppInvocationDetails['mcpApp'];
 export type McpAppChat = { userId: string; sessionId: string; agentId: string };
@@ -84,10 +85,11 @@ export async function issueBuiltinToolAppTicket(input: McpAppChat & {
 }) {
   if (!isMcpAppsEnabled()) throw new McpAccessError('Widgets are disabled.', 404);
   const workspaceId = await requireMcpAppChatAccess(input);
-  await requireBuiltinToolAppAccess(input, input.app);
+  const job = await requireBuiltinToolAppAccess(input, input.app);
   const html = await readBuiltinToolAppResource(input.app);
   if (Buffer.byteLength(html) > MAX_HTML_BYTES) throw new McpAccessError('Widget is too large.', 422);
-  return storeAppTicket({ ...input, workspaceId, html });
+  return { ...storeAppTicket({ ...input, workspaceId, html }),
+    result: { content: [], structuredContent: presentAutomationAppData(job) } };
 }
 
 function storeAppTicket(input: Omit<AppTicket, 'expiresAt'> & { authSessionExpiresAt: Date | string }) {

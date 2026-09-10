@@ -17,7 +17,9 @@ let jobAllowed = true;
 let seatAllowed = true;
 let activeSession = true;
 let workspaceAllowed = true;
-const job: { id: string; deletedAt: null | string } = { id: app.entityId, deletedAt: null };
+const job = { id: app.entityId, deletedAt: null as null | string, name: 'Weekly report', status: 'active', revision: 1,
+  schedule: { kind: 'daily', times: ['09:00'], timeZone: 'Europe/Berlin' },
+  updatedAt: new Date().toISOString(), nextRunAt: null, triggerKind: 'schedule', integrityStatus: 'valid' };
 const queryParams: unknown[][] = [];
 const dialect = new PgDialect();
 const recordQuery = (where: Parameters<typeof dialect.sqlToQuery>[0]) => { queryParams.push(dialect.sqlToQuery(where).params); };

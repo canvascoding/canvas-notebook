@@ -1412,6 +1412,14 @@
     "toolStatusAborting": "Stopping",
     "toolStatusError": "Error",
     "toolStatusDone": "Done",
+    "toolApp": {
+      "loading": "Loading widget …",
+      "unavailable": "This widget is unavailable. The automation may have been removed or your access may have changed.",
+      "reload": "Reload widget",
+      "disabled": "Widgets are disabled.",
+      "oversized": "The widget data could not be displayed. The text remains available.",
+      "callFailed": "The action failed."
+    },
     "mcpApp": {
       "loading": "Loading interactive MCP app…",
       "unavailable": "This interactive MCP app is unavailable.",

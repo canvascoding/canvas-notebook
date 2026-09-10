@@ -23,7 +23,9 @@
   },
   "scripts": {
     "postinstall": "patch-package --error-on-fail",
+    "predev": "npm run build:tool-apps",
     "dev": "node scripts/run-dev.mjs",
+    "build:tool-apps": "node scripts/build-tool-apps.mjs",
     "electron:dev": "electron ./electron",
     "test:electron": "node --test electron/main/*.test.mjs scripts/sync-electron-version.test.mjs",
     "electron:sync-version": "node scripts/sync-electron-version.mjs",
@@ -31,7 +33,7 @@
     "electron:pack": "npm run electron:build",
     "electron:package": "npm run electron:sync-version && electron-builder --projectDir electron --publish never",
     "electron:dist": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron --publish never",
-    "prebuild": "npm run test:licenses",
+    "prebuild": "npm run build:tool-apps && npm run test:licenses",
     "build": "node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build && bash scripts/inject-cli-version.sh",
     "backup:create": "tsx --conditions react-server scripts/create-full-backup.ts",
     "start": "NODE_ENV=production ./scripts/start-services.sh",

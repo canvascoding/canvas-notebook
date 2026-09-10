@@ -2,7 +2,8 @@
 
 Stand: 10. September 2026. Basis: `main` bei `4c55fb97` nach PR #138 und #139.
 Status: in Umsetzung. Dieses Dokument ersetzt den vor dem Main-Update erstellten
-Entwurf. Arbeitspaket 1 ist implementiert und geprüft; Pakete 2–5 sind offen.
+Entwurf. Arbeitspakete 1–2 sind implementiert; Codeprüfungen bestehen. Pakete 3–5
+und die Browserabnahme sind offen.
 
 ## Ziel und erster Lieferumfang
 
@@ -96,17 +97,17 @@ ausgetauschte Job-IDs und entzogene Berechtigungen werden abgewiesen.
 
 ### 2. Bestehenden Host teilen und Canvas-Stil übertragen
 
-- [ ] Aus `McpAppWidget.tsx` einen gemeinsamen `ToolAppWidget` entwickeln; die
+- [x] Aus `McpAppWidget.tsx` einen gemeinsamen `ToolAppWidget` entwickeln; die
   MCP-Anbindung bleibt ein schlanker Adapter. Transport, Fehlerbehandlung,
   Initialisierung, Resize und Aufräumen werden nur einmal implementiert.
-- [ ] Unterstützte Fähigkeiten pro Adapter begrenzen. Externe MCP-Tool-Aufrufe
+- [x] Unterstützte Fähigkeiten pro Adapter begrenzen. Externe MCP-Tool-Aufrufe
   behalten die bestehende sichtbare Allow-/Reject-Freigabe.
-- [ ] Canvas-Tokens für Farben, Schrift, Abstände, Rahmen und Radius an das
+- [x] Canvas-Tokens für Farben, Schrift, Abstände, Rahmen und Radius an das
   iframe übergeben. Theme, Sprache und Zeitzone explizit aktualisieren.
-- [ ] Kleine wiederverwendbare Widget-Komponenten aus vorhandenen UI-Primitiven
+- [x] Kleine wiederverwendbare Widget-Komponenten aus vorhandenen UI-Primitiven
   und Formatierern aufbauen. Assets und gegebenenfalls Schriftdateien werden
   gebündelt/eingebettet, da die bestehende CSP externe Abrufe blockiert.
-- [ ] Produktionsbuild um die Auslieferung der internen Bundles ergänzen; die
+- [x] Produktionsbuild um die Auslieferung der internen Bundles ergänzen; die
   bestehenden Ticket-Routen und den globalen Abschaltschalter weiterverwenden.
 
 **Betroffen:** `McpAppWidget.tsx`, `McpAppChatContext.tsx`,
@@ -211,3 +212,6 @@ Reconnect-Hinweise und profitieren von derselben verbesserten Chat-Platzierung.
 - Paket 1: `tool-apps-access-test`, `test:mcp:apps-host`, TypeScript ohne Emit.
   Interne Ressourcen werden im folgenden Build-Paket bereitgestellt; die
   Produktion erzeugt bis zur Tool-Anbindung noch keine internen Widget-Referenzen.
+- Paket 2: Widget-Bundle (837 KiB), Daten-/HTML-Strukturprüfung, bestehende
+  Host-Tests, TypeScript und gezieltes ESLint. Die Browserabnahme bleibt in Paket 5
+  offen; die Freigabe für UI-Automation wurde angefragt.

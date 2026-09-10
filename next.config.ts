@@ -48,6 +48,9 @@ const nextConfig: NextConfig = {
     return config;
   },
   serverExternalPackages: externalPackages,
+  outputFileTracingIncludes: {
+    '/api/chat/tool-apps': ['./public/_canvas-tool-apps/*.html'],
+  },
   outputFileTracingExcludes: {
     '/*': ['./data/**/*'],
     '/api/files/download': ['./data/**/*', './next.config.ts'],
