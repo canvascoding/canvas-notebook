@@ -49,6 +49,7 @@ import {
   SEEDANCE_MAX_REFERENCE_IMAGES,
   VEO_MAX_REFERENCE_IMAGES,
   getMaxImageCountForProvider,
+  getOpenAIImageRequestValidationError,
   normalizeGeminiImageModelId,
   normalizeOpenAIImageModelId,
   normalizeOpenAIImageOutputFormat,
@@ -789,6 +790,28 @@ export async function createStudioGeneration(
   const mode = request.mode || 'image';
   const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
   const aspectRatio = request.aspect_ratio || '1:1';
+  if (mode === 'image' && providerId === 'openai') {
+    const validationError = getOpenAIImageRequestValidationError({
+      model: request.model,
+      count: request.count,
+      quality: request.quality,
+      outputFormat: request.output_format,
+      background: request.background,
+      moderation: request.moderation,
+      outputCompression: request.output_compression,
+      inputFidelity: request.input_fidelity,
+      imageSize: request.image_size,
+      stream: request.stream,
+      partialImages: request.partial_images,
+    });
+    if (validationError) {
+      throw new StudioServiceError(
+        `Invalid OpenAI image request: ${validationError}`,
+        validationError,
+        'INVALID_REQUEST',
+      );
+    }
+  }
   const rawPrompt = sanitizePrompt(
     request.prompt,
     mode === 'image' && providerId === 'openai'
