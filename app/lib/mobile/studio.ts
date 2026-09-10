@@ -48,6 +48,9 @@ import { toPreviewUrl } from '@/app/lib/utils/media-url';
 
 const MAX_LIST_LIMIT = 50;
 const MAX_REFERENCE_COUNT = 16;
+const LEGACY_MOBILE_QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high'] as const;
+const LEGACY_MOBILE_MAX_IMAGE_COUNT = 4;
+const LEGACY_MOBILE_MAX_PROMPT_LENGTH = 4_000;
 const MAX_IMAGE_REFERENCE_BYTES = 30 * 1024 * 1024;
 const MAX_VIDEO_REFERENCE_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_REFERENCE_BYTES = 15 * 1024 * 1024;
@@ -419,7 +422,7 @@ export async function getMobileStudioCatalog(input: {
       canDeleteAssets: input.canDeleteAssets,
     },
     options: {
-      qualities: [...QUALITY_OPTIONS],
+      qualities: [...LEGACY_MOBILE_QUALITY_OPTIONS],
       backgrounds: [...BACKGROUND_OPTIONS],
       moderation: [...OPENAI_MODERATION_OPTIONS],
       inputFidelity: [...OPENAI_INPUT_FIDELITY_OPTIONS],
@@ -432,6 +435,29 @@ export async function getMobileStudioCatalog(input: {
         maximumPixels: 8_294_400,
         maximumEdge: 3840,
         maximumAspectRatio: 3,
+      },
+      openAIImage: {
+        modelId: OPENAI_IMAGE_MODEL_ID,
+        maxPromptLength: 32_000,
+        maxOutputCount: getMaxImageCountForProvider('image', 'openai'),
+        maxInputImages: MAX_REFERENCE_COUNT,
+        qualities: [...QUALITY_OPTIONS],
+        backgrounds: [...BACKGROUND_OPTIONS],
+        moderation: [...OPENAI_MODERATION_OPTIONS],
+        inputFidelity: [...OPENAI_INPUT_FIDELITY_OPTIONS],
+        outputFormats: ['png', 'jpeg', 'webp'],
+        outputCompression: { minimum: 0, maximum: 100, default: 100 },
+        supportsStreaming: true,
+        maxPartialImages: 3,
+        imageSize: {
+          format: 'WIDTHxHEIGHT',
+          recommended: [...OPENAI_RECOMMENDED_IMAGE_SIZES],
+          multipleOf: 16,
+          minimumPixels: 655_360,
+          maximumPixels: 8_294_400,
+          maximumEdge: 3840,
+          maximumAspectRatio: 3,
+        },
       },
       imageOutputFormats: ['png', 'jpeg', 'webp'],
       soundOutputFormats: ['mp3', 'wav'],
@@ -547,10 +573,20 @@ type StudioGenerationValue = NonNullable<Awaited<ReturnType<typeof getStudioGene
 
 export function serializeMobileStudioGeneration(generation: StudioGenerationValue) {
   const metadata = generationMetadata(generation.metadata);
+  const fullPrompt = generation.rawPrompt || generation.prompt || '';
+  const outputCount = metadataInteger(metadata, 'count', Math.max(1, generation.outputs.length));
+  const quality = metadataString(metadata, 'quality', 20) || 'auto';
+  const legacyQuality = LEGACY_MOBILE_QUALITY_OPTIONS.includes(quality as (typeof LEGACY_MOBILE_QUALITY_OPTIONS)[number])
+    ? quality
+    : 'high';
+  const outputFormat = metadataString(metadata, 'outputFormat', 20) || (generation.mode === 'sound' ? 'mp3' : 'png');
+  const background = metadataString(metadata, 'background', 20) || 'auto';
+  const imageSize = metadataString(metadata, 'imageSize', 40);
   return {
     id: generation.id,
     mode: generation.mode,
-    prompt: generation.rawPrompt || generation.prompt || '',
+    prompt: fullPrompt.slice(0, LEGACY_MOBILE_MAX_PROMPT_LENGTH),
+    fullPrompt,
     preset: generation.studioPresetId ? {
       id: generation.studioPresetId,
       name: generation.studioPresetName || 'Preset',
@@ -561,11 +597,23 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
     status: generation.status,
     error: generationError(generation.metadata),
     settings: {
-      count: metadataInteger(metadata, 'count', Math.max(1, generation.outputs.length)),
-      quality: metadataString(metadata, 'quality', 20) || 'auto',
-      outputFormat: metadataString(metadata, 'outputFormat', 20) || (generation.mode === 'sound' ? 'mp3' : 'png'),
-      background: metadataString(metadata, 'background', 20) || 'auto',
-      imageSize: metadataString(metadata, 'imageSize', 40),
+      count: Math.min(outputCount, LEGACY_MOBILE_MAX_IMAGE_COUNT),
+      quality: legacyQuality,
+      outputFormat,
+      background,
+      imageSize,
+      openAIImage: generation.mode === 'image' && generation.provider === 'openai' ? {
+        count: outputCount,
+        quality,
+        outputFormat,
+        background,
+        imageSize,
+        moderation: metadataString(metadata, 'moderation', 20) || 'auto',
+        outputCompression: Number.isSafeInteger(metadata.outputCompression) ? Number(metadata.outputCompression) : null,
+        inputFidelity: metadataString(metadata, 'inputFidelity', 20) || 'low',
+        stream: metadataBoolean(metadata, 'stream', false),
+        partialImages: Number.isSafeInteger(metadata.partialImages) ? Number(metadata.partialImages) : null,
+      } : null,
       videoResolution: metadataString(metadata, 'videoResolution', 40),
       videoDuration: Number.isSafeInteger(metadata.videoDuration) ? Number(metadata.videoDuration) : null,
       videoGenerateAudio: metadataBoolean(metadata, 'videoGenerateAudio', true),
