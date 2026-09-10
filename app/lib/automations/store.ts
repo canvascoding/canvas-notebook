@@ -15,7 +15,7 @@ import { requireActiveWorkspaceMailboxForAutomation } from '@/app/lib/email/acco
 
 import { assertAutomationChatTarget, AutomationChatTargetError } from './chat-targets';
 import { inlineLegacyAutomationPaths } from './legacy-paths';
-import { computeNextRunAt, validateFriendlySchedule } from './schedule';
+import { computeNextFutureRunAt, computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
 import { AutomationMutationError } from './mutation-errors';
 import {
@@ -1797,12 +1797,11 @@ export async function advanceAutomationJobSchedule(jobId: string, anchor = new D
     return;
   }
 
-  const scheduleLastRunAt = job.schedule.kind === 'interval'
-    ? null
-    : job.lastRunAt ? new Date(job.lastRunAt) : null;
+  const currentTime = new Date();
+  const catchupFloor = new Date(Math.max(anchor.getTime(), currentTime.getTime()));
   const nextRunAt = job.status === 'paused'
     ? null
-    : computeNextRunAt(job.schedule, { from: anchor, lastRunAt: scheduleLastRunAt });
+    : computeNextFutureRunAt(job.schedule, catchupFloor);
 
   await db
     .update(automationJobs)

@@ -403,6 +403,16 @@ export function computeNextRunAt(
   return null;
 }
 
+/**
+ * Computes the first scheduled occurrence strictly after `from`, intentionally
+ * ignoring a stale persisted run cursor. This prevents a repaired legacy job
+ * from replaying every missed daily, weekly, or monthly occurrence.
+ */
+export function computeNextFutureRunAt(schedule: FriendlySchedule, from = new Date()): Date | null {
+  const nextRunAt = computeNextRunAt(schedule, { from, lastRunAt: null });
+  return nextRunAt && nextRunAt.getTime() > from.getTime() ? nextRunAt : null;
+}
+
 export function describeFriendlySchedule(schedule: FriendlySchedule): string {
   if (schedule.kind === 'once') {
     return `Einmalig am ${schedule.date} um ${schedule.time}`;

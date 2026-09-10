@@ -8,6 +8,10 @@ const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
 const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-membership-v1';
 const TEAM_SEAT_LEGACY_MIGRATION_METADATA = '{"source":"organization_user_permissions","billableOperationsCreated":0}';
 const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'legacy organization user permissions';
+const EPOCH_MILLISECONDS_BACKFILL_MIGRATION_KEY = 'postgres-epoch-milliseconds-v1';
+const MIN_LEGACY_EPOCH_SECONDS = 946_684_800;
+const MAX_LEGACY_EPOCH_SECONDS = 4_102_444_800;
+const MIN_EPOCH_MILLISECONDS = MIN_LEGACY_EPOCH_SECONDS * 1_000;
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
@@ -644,6 +648,71 @@ export async function runPostgresMemoryReviewerOptInBackfill(pool: PgQueryable):
       databaseProvider: 'postgres',
     });
   }
+}
+
+/**
+ * Normalizes persistent PostgreSQL timestamps to epoch milliseconds exactly once.
+ *
+ * Existing versions wrote some raw SQL timestamps as epoch seconds, while the
+ * Drizzle `pgTimestamp` mapper has always written epoch milliseconds. Only
+ * values in the plausible 2000-2100 seconds range are scaled, which leaves
+ * canonical millisecond values untouched. Invalid/corrupted scheduler cursors
+ * are re-anchored once so the scheduler can select its next future occurrence.
+ */
+export const POSTGRES_EPOCH_MILLISECONDS_BACKFILL_SQL = `
+DO $epoch_milliseconds_backfill$
+DECLARE
+  migration_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
+  timestamp_column record;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('${EPOCH_MILLISECONDS_BACKFILL_MIGRATION_KEY}'));
+
+  IF EXISTS (
+    SELECT 1 FROM canvas_data_migrations
+    WHERE migration_key = '${EPOCH_MILLISECONDS_BACKFILL_MIGRATION_KEY}'
+  ) THEN
+    RETURN;
+  END IF;
+
+  FOR timestamp_column IN
+    SELECT table_schema, table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND data_type = 'bigint'
+      AND (
+        column_name ~ '(^timestamp$|_timestamp$|_at$)'
+        OR column_name IN ('auth_time', 'ban_expires', 'dismissed_until', 'lease_until', 'revoked', 'scheduled_for')
+        OR (table_name = 'email_cache_messages' AND column_name = 'message_date')
+      )
+  LOOP
+    EXECUTE format(
+      'UPDATE %I.%I SET %I = %I * 1000 WHERE %I BETWEEN ${MIN_LEGACY_EPOCH_SECONDS} AND ${MAX_LEGACY_EPOCH_SECONDS}',
+      timestamp_column.table_schema,
+      timestamp_column.table_name,
+      timestamp_column.column_name,
+      timestamp_column.column_name,
+      timestamp_column.column_name
+    );
+  END LOOP;
+
+  UPDATE automation_jobs
+  SET next_run_at = migration_now
+  WHERE next_run_at IS NOT NULL
+    AND next_run_at < ${MIN_EPOCH_MILLISECONDS};
+
+  INSERT INTO canvas_data_migrations (migration_key, completed_at, metadata_json)
+  VALUES (
+    '${EPOCH_MILLISECONDS_BACKFILL_MIGRATION_KEY}',
+    migration_now,
+    '{"canonicalUnit":"epoch_milliseconds","legacySecondsRange":"2000-2100","automationCursorRepair":"reanchor_at_migration_time"}'
+  )
+  ON CONFLICT (migration_key) DO NOTHING;
+END
+$epoch_milliseconds_backfill$;
+`;
+
+export async function runPostgresEpochMillisecondsBackfill(pool: PgQueryable): Promise<void> {
+  await pool.query(POSTGRES_EPOCH_MILLISECONDS_BACKFILL_SQL);
 }
 
 /** Runs the PostgreSQL-only upgrades retained from the legacy migration runner. */
@@ -1501,10 +1570,11 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     }
   }
 
+  await runPostgresEpochMillisecondsBackfill(pool);
   await runPostgresTeamSeatLegacyBackfill(pool);
   await migratePostgresMainAgentId(pool);
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = Date.now();
   await pool.query(
     `
       INSERT INTO agents (agent_id, name, type, removable, created_at, updated_at)

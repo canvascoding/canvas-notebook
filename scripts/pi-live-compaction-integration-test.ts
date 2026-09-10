@@ -107,7 +107,7 @@ async function main(): Promise<void> {
   await persistPiUsageEvents({ sessionId, userId, messages: [providerUsageMessage] });
   assert.deepEqual(await loadLatestPiSessionInputUsage(sessionId, userId), {
     inputTokens: 1_420,
-    assistantTimestamp: new Date(Math.floor(providerUsageMessage.timestamp / 1_000) * 1_000),
+    assistantTimestamp: new Date(providerUsageMessage.timestamp),
   }, 'the last provider-reported input usage must survive runtime recreation');
 
   const model = {
