@@ -1,21 +1,21 @@
 # Weitere sinnvolle Tool-Widgets
 
 Stand: 10. September 2026. Bewertung des aktuellen Codes auf Basis von `main`
-und der ersten internen Automationskarte. Diese Liste ist priorisiert; die hier
-genannten weiteren Karten sind noch nicht implementiert.
+und der internen Tool-Karten. Todo- und Freigabelink-Karten sind inzwischen
+implementiert; die übrigen Kandidaten bleiben priorisiert offen.
 
 ## Empfohlene Reihenfolge
 
 | Priorität | Bestehende Tools | Karte und erste Aktionen | Nutzen und vorhandene Anbindung |
 | --- | --- | --- | --- |
-| 1 | `create_human_todo`, `inspect_human_todo`, `update_human_todo` | Titel, Status, Fälligkeit, Zuständigkeit; **Öffnen**, anschließend **Erledigen** über die bestehenden Todo-Regeln. | Häufiger Abschluss eines Chat-Auftrags. `details.todo` existiert bereits; die Todo-App und das Ereignis `todo_updated` lassen sich wiederverwenden. |
+| 1 | `create_human_todo`, `inspect_human_todo`, `update_human_todo` | Titel, Status, Fälligkeit, Zuständigkeit; **Prüfen / erledigen** öffnet den vorhandenen Detaildialog; **Neu laden**. Implementiert. | Häufiger Abschluss eines Chat-Auftrags. `details.todo` existiert bereits; die Todo-App und das Ereignis `todo_updated` lassen sich wiederverwenden. |
 | 2 | `email_create_outbox_draft`, `email_update_outbox_draft` | Betreff, Empfänger, kurzer Textauszug, Anhänge, Prüfstatus; **Entwurf prüfen/bearbeiten**. | Sehr hoher Nutzen vor dem Versand. Die Tools erzeugen bereits prüfbare Entwürfe mit `expectedVersion` und einem `mailboxUiIntent('review-draft')`. Diesen vorhandenen Navigationsweg erweitern. |
-| 3 | `public_share_file` mit `create`, `list`, `revoke` | Datei, konkrete öffentliche URL, Ablaufdatum, aktueller Status; **Link kopieren**, **Freigabe verwalten**, später **Widerrufen**. | Sichtbarer Überblick darüber, was tatsächlich veröffentlicht wurde und wann ein Link abläuft. Bestehende Freigabeverwaltung und Berechtigungen nutzen. |
+| 3 | `public_share_file` mit `create`, `list`, `revoke` | Datei, konkrete öffentliche URL, Ablaufdatum, aktueller Status; **Link kopieren**, **Freigabe verwalten**, **Neu laden**. Implementiert; Widerrufen bleibt in der Verwaltung. | Sichtbarer Überblick darüber, was tatsächlich veröffentlicht wurde und wann ein Link abläuft. Bestehende Freigabeverwaltung und Berechtigungen nutzen. |
 | 4 | `inspect_canvas_plugin`, `create_canvas_plugin_draft`, `install_canvas_plugin_from_workspace`, `update_canvas_plugin_from_workspace`, `set_canvas_plugin_enabled`; entsprechende Skill-Tools | Name, Version, Quelle, Entwurf/installiert/aktiv; **Details öffnen**, **Quelldateien öffnen**. | Hilft beim Prüfen und Installieren eigener Erweiterungen. Der aktuelle Gateway heißt `canvas_extensions`; die Karte muss die tatsächliche Operation erkennen. Installieren/Aktivieren erst über die bestehenden Verwaltungsregeln anbinden. |
 | 5 | `trigger_automation_job` | Laufstatus, Startzeit, kurze Ergebniszusammenfassung, vorhandene Ergebnisse; **Lauf öffnen**, **Ergebnis öffnen**. | Passt zur umgesetzten Automationskarte. `details.run` und die bestehenden Laufdetails sind vorhanden. Ein übersprungener Start darf keine falsche Laufkarte erzeugen. |
 | 6 | Studio-Aufträge, insbesondere Bulk-Generierung | Auftrag, Fortschritt, Fehler je Element, fertige Dateien; **Auftrag öffnen**, **Ergebnisse öffnen**. | Sinnvoll für länger laufende oder mehrteilige Aufgaben. Bestehende Bild-/Video-/Audio-Vorschauen weiterverwenden; eine zweite Mediengalerie im Widget wäre unnötig. |
 
-**Empfehlung:** Zuerst Todo-Karten, danach E-Mail-Entwürfe und Freigabelinks liefern.
+**Nächster Kandidat:** E-Mail-Entwürfe. Todo-Karten und Freigabelinks sind umgesetzt.
 Pro Kartentyp zunächst eine vollständige kleine Funktion inklusive Verlauf,
 Berechtigungen und Fehlerzuständen abschließen.
 

@@ -103,6 +103,8 @@ export function PublicSharesClient() {
   const [shares, setShares] = useState<PublicShare[]>([]);
   const [query, setQuery] = useState(() => searchParams.get('q')?.slice(0, 4096) || '');
   const [status, setStatus] = useState<StatusFilter>(() => searchParams.get('status') === 'all' ? 'all' : 'active');
+  const [type, setType] = useState<TypeFilter>('all');
+  const [source, setSource] = useState<SourceFilter>('all');
   const requestedQuery = searchParams.get('q');
   const requestedStatus = searchParams.get('status');
   useEffect(() => {
@@ -110,11 +112,11 @@ export function PublicSharesClient() {
     const timer = setTimeout(() => {
       setQuery(requestedQuery?.slice(0, 4096) || '');
       setStatus(requestedStatus === 'all' ? 'all' : 'active');
+      setType('all');
+      setSource('all');
     }, 0);
     return () => clearTimeout(timer);
   }, [requestedQuery, requestedStatus]);
-  const [type, setType] = useState<TypeFilter>('all');
-  const [source, setSource] = useState<SourceFilter>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);

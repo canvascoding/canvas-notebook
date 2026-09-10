@@ -297,3 +297,38 @@ meldet dann keinen Erfolg und führt keine automatische Wiederholung aus.
 4. Pro Typ Bindungs-, Berechtigungs-, Projektions- und Datenbegrenzungstests,
    danach MCP-/Automationsregression und Produktionsbuild. Browserprüfung bleibt
    von der noch ausstehenden ausdrücklichen Freigabe abhängig (AGENTS.md).
+
+
+### Umgesetzter Umfang der Erweiterung
+
+- [x] Todo create/inspect/update: sichere Karte im Live-Chat und gespeicherten
+  Verlauf, mit Navigation in den vorhandenen Detaildialog und manuellem Neuladen.
+- [x] Public-share create/list/revoke: bis zu zehn deduplizierte Karten pro Aufruf;
+  weitere Links bleiben im Tool-Text und in der Freigabeverwaltung verfügbar.
+- [x] Jede Karte ist an Tool-Aufruf, tatsächliche Operation, Entitäts-ID, eigenen
+  Chat und aktuellen Workspace-Zugriff gebunden. Kein Zugriff allein aus Metadaten.
+- [x] Autorisierten Freigabelink direkt vor dem Kopieren/Verwalten neu lesen;
+  abgelaufen, widerrufen, fehlende Datei und veränderte Datei liefern keine URL.
+- [x] Gemeinsame SDK-Laufzeit, Canvas-Stil, deutsche/englische Texte, feste
+  Build-Artefakte, bestehende Relay-Sandbox und maximal vier aktive Frames.
+- [x] Spezifische Todo- und Freigabetests in `npm run test:tool-apps`. Der Freigabetest
+  verwendet PGlite und temporäre echte Dateien; Identität und Runtime-Grenzen
+  sind kontrollierte Test-Doubles. Create/list/revoke sowie Render/Refresh werden
+  über die tatsächlichen Tool- und API-Funktionen geprüft.
+- [x] Abschließender `npm run build` und Regression der vorhandenen Freigabe-/MCP-Tests.
+  Alle drei HTML-Artefakte sind im API-Output-Tracing enthalten, vorhanden und
+  unter dem 2-MiB-Limit; jeder erzeugte HTML-Baum enthält genau ein Skript.
+- [ ] Browser-Abnahme: mobile Breite, Dark Mode, Localewechsel, Zwischenablage,
+  Workspacewechsel beim Verwalten, Todo-Detaildialog, Verlauf und Minimalmodus.
+
+Die Karten sind bewusst lesende Vorschauen mit gezielten Host-Aktionen. Todo-Abschluss
+und Chat-Fortsetzung sowie Freigabe-Widerruf bleiben in den vorhandenen Editoren.
+Aktualisierung erkennt externe Änderungen beim Neuladen und vor Freigabelink-Aktionen;
+der bekannte Ablaufzeitpunkt eines sichtbaren Links löst ebenfalls ein Neuladen aus.
+
+
+Bereits bestandene zusätzliche Regression: `test:mcp:apps`, `test:mcp:apps-host`,
+`test:mcp:message-projection`, `chat-tool-batches-test`, `test:public-share:workspace`
+und `test:public-share:lifecycle` (einschließlich Snapshot-/Export-/Widerrufstests).
+Beim Öffnen der Freigabeverwaltung über eine Karte werden auch vorher gesetzte
+Dateityp- und Herkunftsfilter zurückgesetzt, damit sie den Zieleintrag nicht verdecken.

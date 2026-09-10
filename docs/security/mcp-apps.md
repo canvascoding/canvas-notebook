@@ -87,10 +87,12 @@ navigation/context/open-link APIs.
 
 Internal tools now share the same `ToolAppWidget`, AppBridge, fixed relay,
 opaque-origin inner iframe, ticket store and feature switch. They use an explicit
-`builtin` descriptor in `details.toolApp`, not a fake MCP connection. Existing
+`builtin` descriptor in `details.toolApp` (or bounded `details.toolApps` for
+multiple public links), not a fake MCP connection. Existing
 `details.mcpApp` messages remain supported.
 
-The first registered resource is `ui://canvas/automation-job/v1`. Its bundled
+The registered resources are `ui://canvas/automation-job/v1`,
+`ui://canvas/human-todo/v1` and `ui://canvas/public-share/v1`. Their bundled
 HTML/JavaScript/CSS and embedded Instrument Sans fonts are built from repository
 sources by `build:tool-apps` before development/production builds. Neither tool
 arguments nor model output select an arbitrary file, URL or executable template.
@@ -100,14 +102,16 @@ The same 2 MiB resource limit and CSP apply to internal documents.
 verified-user rate limit. Request bodies are streamed with an 8 KiB limit. A
 render request is bound to an owned chat, agent and actual persisted tool result:
 
-- the same `toolCallId`, registered operation, resource version and job ID;
+- the same `toolCallId`, registered operation, resource version and entity ID;
 - a successful `create_automation_job`, `inspect_automation_job` or
-  `update_automation_job`, including calls through `automation_manage`;
-- an active user seat, current agent/workspace access and automation policy.
+  `update_automation_job`, including calls through `automation_manage`; or a
+  direct Todo create/inspect/update operation; or a `public_share_file` result
+  whose stored action and returned share IDs match each descriptor;
+- an active user seat, current agent/workspace access and the relevant entity policy.
 
 The stored reference proves which operation produced the result; it does not
-grant continuing access to the automation. The server loads and authorizes the
-current job. Ticket delivery checks the current login, chat and entity access
+grant continuing access to the entity. The server loads and authorizes its
+current state. Ticket delivery checks the current login, chat and entity access
 again. Live results not yet persisted return `425`; the host retries this
 read-only request for a bounded period, then offers manual reload.
 
@@ -145,13 +149,49 @@ Composio and PostgreSQL do not support a distributed atomic commit. An ambiguous
 provider/commit failure can require checking the real state before another
 attempt. The UI blocks blind retries and does not report an unconfirmed success.
 
+### Todo and public-link cards
+
+Todo data includes only ID, title, lifecycle status, priority, category label,
+assignee display name and due/updated timestamps. Description, completion comment,
+file links and provenance stay in the Todo editor. The server calls `getTodo` for
+current user authorization and checks the entity against the resolved chat workspace.
+User-scoped personal Todos are allowed across personal workspaces, as in the tool.
+“Review / complete” opens `/todos?todo={id}`; existing Todo completion, comment and
+follow-up controls perform those actions. Loading a card never completes a task or
+continues a chat.
+
+Public-link cards use the same ownership and workspace-management visibility as
+the existing public-share list. A single-ID domain read checks access before
+reconciling expiry, missing files, changed file identity and stale workspace roots.
+It neither counts a public visit nor changes link policy. The allowlist contains
+ID, filename/path, workspace ID, status, expiry, access count, password-presence
+flag and an active public URL. Password values and publication reasons are excluded.
+Inactive links have no URL in the widget payload.
+
+The host re-authorizes the chat, stored result and share using the read-only
+`refresh` API action before copying or managing a link. This endpoint uses the same
+Origin, body-size and verified-user request limits as rendering. Clipboard access
+runs in the host click handler; the iframe receives no clipboard capability.
+Only an active, unexpired HTTP(S) link on the configured application origin can be
+copied. At a known expiry time the mounted card reloads its current state. External
+revocation is detected on reload or before any action; cards are snapshots, not a
+continuously polled monitor.
+
+“Manage link” selects the authorized workspace and opens the existing public-share
+page with all statuses and a file-path search. Revocation and policy changes stay in
+that page. No new publication or revocation endpoint is exposed to the iframe;
+`confirmPublicExposure`, publication permissions and existing domain rules remain.
+Navigation and copying do not append a chat mutation event or start a model run.
+
 ### Chat placement and lifetime
 
 Both sources render outside collapsed technical tool logs and remain eligible
 in minimal mode. Chat plus tool-call identity distinguishes repeated calls;
 duplicate events are projected to one result, in assistant call order. The same
-normalizer reads live and persisted messages. A legacy text-only event does not
-replace richer final metadata.
+normalizer reads live and persisted messages. Public-share cards also include
+resource and entity identity in their keys, with at most ten deduplicated cards per
+tool result. Additional links remain in the tool text and sharing management.
+A legacy text-only event does not replace richer final metadata.
 
 Intersection observation limits mounting to visible cards, with at most four
 active frames per browser. Inactive placeholders retain their measured height;
@@ -161,8 +201,8 @@ approvals as closed. Ticket URLs and approvals are never persisted or exported.
 Opening history never reruns a business tool. Shared/exported text does not grant
 the owned-chat authorization needed for an interactive widget.
 
-Only the automation card is currently registered internally. Todo, email draft,
-sharing and extension cards are evaluated in the
+Automation, Todo and public-link cards are registered internally. Email drafts,
+extensions and other future cards are evaluated in the
 [candidate plan](../architecture/canvas-notebook/tool-widgets-candidates.md).
 The [implementation checklist](../architecture/canvas-notebook/tool-widgets-plan.md)
 records automated checks and any outstanding browser acceptance.
