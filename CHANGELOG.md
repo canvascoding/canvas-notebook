@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.9.10.1] - 2026-09-10
+## [2026.9.10.2] - 2026-09-10
 
 ### Added
 
@@ -32,6 +32,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 ### Fixed
 
 - Corrected same-origin MCP App proxy routing, PostgreSQL query compatibility, collaboration recovery and rename handling, and email attachment persistence.
+- Fixed the portable CLI Caddy build so Linux artifacts no longer compile application-only modules.
 
 ### Verification
 
