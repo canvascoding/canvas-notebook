@@ -72,7 +72,7 @@ case "${1:-}" in
     if [[ "$args" == *" pull canvas-notebook"* ]]; then
       printf 'pull-image %s\n' "${CANVAS_IMAGE:-missing}" >> "$log"
       if [[ "${CANVAS_TEST_SLOW_PULL:-false}" == "true" ]]; then
-        sleep 10
+        sleep 30
       fi
       if [[ "${CANVAS_TEST_FAIL_PULL:-false}" == "true" ]]; then
         exit 55
@@ -257,7 +257,7 @@ reset_runtime() {
   "$cli" config-set env.CANVAS_DATABASE_PROVIDER postgres --no-banner > /dev/null
   printf '%s' "$CANVAS_TEST_POSTGRES_PASSWORD" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD --stdin --no-banner > /dev/null
   printf '%s' "$CANVAS_TEST_DATABASE_URL" | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
-  "$cli" config-set env.CANVAS_POSTGRES_REQUIRED false --no-banner > /dev/null
+  "$cli" config-set env.CANVAS_POSTGRES_REQUIRED true --no-banner > /dev/null
   "$cli" config-set env.CANVAS_POSTGRES_VECTOR_ENABLED false --no-banner > /dev/null
   "$cli" config-set env.CANVAS_TEAM_FEATURES_ENABLED false --no-banner > /dev/null
   "$cli" config-set env.CANVAS_MANAGED_SERVICES_ENABLED false --no-banner > /dev/null
@@ -312,7 +312,13 @@ if CANVAS_TEST_SLOW_PULL=true CANVAS_UPDATE_DEADLINE_EPOCH_MS="$short_deadline" 
   exit 1
 fi
 elapsed="$(( $(date +%s) - started_at ))"
-[[ "$elapsed" -lt 8 ]]
+if [[ "$elapsed" -ge 15 ]]; then
+  printf 'slow pull was not terminated within the deadline window (elapsed=%ss)\n' "$elapsed" >&2
+  cat "$TMP_DIR/deadline-pull.json" >&2
+  cat "$TMP_DIR/deadline-pull.err" >&2
+  cat "$CANVAS_TEST_DOCKER_LOG" >&2
+  exit 1
+fi
 assert_update_result "$TMP_DIR/deadline-pull.json" "$TMP_DIR/deadline-pull.err" '.success == false and .phase == "pull" and .rolledBack == false'
 grep -Fxq 'old-image-id' "$CANVAS_TEST_STATE_DIR/running-image-id"
 [[ "$deadline_config_before" == "$(cksum "$CANVAS_CONFIG_JSON")" ]]
