@@ -2,7 +2,7 @@
 
 Stand: 10. September 2026. Basis: `main` bei `4c55fb97` nach PR #138 und #139.
 Status: in Umsetzung. Dieses Dokument ersetzt den vor dem Main-Update erstellten
-Entwurf. Arbeitspakete 1–3 sind implementiert; Codeprüfungen bestehen. Pakete 4–5
+Entwurf. Arbeitspakete 1–4 sind implementiert; Codeprüfungen bestehen. Paket 5
 und die Browserabnahme sind offen.
 
 ## Ziel und erster Lieferumfang
@@ -61,7 +61,8 @@ flowchart LR
   normalisiert beide Formate für den Host. Es gibt keine zweite persistierte Kopie
   der Widget-Daten im Frontend-Nachrichtenmodell.
 - Eine interne Referenz enthält Ressourcen-/Schema-Version, tatsächliche Operation,
-  Bezug zum Tool-Aufruf, Entitätsreferenz und einen kleinen freigegebenen Snapshot.
+  Bezug zum Tool-Aufruf, und Entitätsreferenz. Einen kleinen freigegebenen Snapshot liefert der Server
+  erst nach erneuter Autorisierung beim Laden der Karte.
   Beispielressource: `ui://canvas/automation-job/v1`.
 - Backend und Registry bestimmen zulässige Ressourcen und Aktionen. Vom Browser
   übergebene Tool-Namen, Job-IDs oder Deskriptoren begründen keine Berechtigung.
@@ -149,28 +150,28 @@ Karte. Verlaufsanzeige löst keine erneute schreibende Tool-Ausführung aus.
 
 ### 4. Automationskarte vollständig umsetzen
 
-- [ ] `create_automation_job`, `inspect_automation_job` und `update_automation_job`
+- [x] `create_automation_job`, `inspect_automation_job` und `update_automation_job`
   liefern nach Erfolg dieselbe registrierte Kartenart. Fehler und Abbrüche
   erzeugen keine falsche Erfolgskarte.
-- [ ] Name, lesbarer Zeitplan, Zeitzone, nächster Lauf und Aktiv-/Pausiert-Status
+- [x] Name, lesbarer Zeitplan, Zeitzone, nächster Lauf und Aktiv-/Pausiert-Status
   anzeigen. Agent-/Workspace-Kontext nur im zulässigen Umfang weitergeben.
-- [ ] **Öffnen** und **Bearbeiten** führen über konkrete, vom Canvas-Host erzeugte
+- [x] **Öffnen** und **Bearbeiten** führen über konkrete, vom Canvas-Host erzeugte
   Aktionen in die vorhandene Automationsansicht. Keine allgemeine Navigation für
   beliebige iframe-Anfragen freischalten.
-- [ ] **Pausieren/Fortsetzen** als klar beschriftete, vom Host gerenderte Aktion
+- [x] **Pausieren/Fortsetzen** als klar beschriftete, vom Host gerenderte Aktion
   ausführen. Der bewusste Nutzerklick löst die enge Backend-Operation aus; interne
   Widget-Skripte erhalten keinen generischen Zugriff auf alle Canvas-Tools.
-- [ ] Gemeinsame Automationsaktionen für API und Widget verwenden. Insbesondere
+- [x] Gemeinsame Automationsaktionen für API und Widget verwenden. Insbesondere
   Composio-Synchronisierung, Verantwortlichkeit, Audit und Rate Limits aus der
   bestehenden PATCH-Route erhalten; nicht direkt am Store vorbeiorchestrieren.
-- [ ] Versionsprüfung und serialisierte/gegen Wiederholung abgesicherte
+- [x] Versionsprüfung und serialisierte/gegen Wiederholung abgesicherte
   Statusänderungen einbauen. Konflikte dürfen keine veralteten Änderungen
   überschreiben; Prüfungen müssen vor externen Nebenwirkungen wirksam sein.
-- [ ] Historischen Erstellungserfolg und aktuellen Jobzustand unterscheiden.
+- [x] Historischen Erstellungserfolg und aktuellen Jobzustand unterscheiden.
   Nach Nutzeraktionen Zustand aktualisieren und ein kurzes, gespeichertes
   Aktionsereignis für den weiteren Chatkontext erzeugen. Ein Refresh startet
   keinen neuen Modelllauf.
-- [ ] Gelöschte Jobs und Rechteentzug zeigen einen passenden Zustand ohne aktive
+- [x] Gelöschte Jobs und Rechteentzug zeigen einen passenden Zustand ohne aktive
   Aktionen. Bei fehlender Verbindung einer Automation deren tatsächliche
   Integrationszuordnung verwenden; „aktiv“ bedeutet nicht „alle Verbindungen ok“.
 
@@ -220,3 +221,37 @@ Reconnect-Hinweise und profitieren von derselben verbesserten Chat-Platzierung.
   interne Projektionstests, Chat-Gruppierung, MCP-Projektion, Pi-Persistenz-/
   Kontexttests, TypeScript und gezieltes ESLint bestanden. Größenänderungen
   verwenden das bestehende Bottom-Lock-Verhalten; inaktive Karten behalten ihre Höhe.
+
+- Paket 4: echte interne Create-/Inspect-/Update-Tools und das Gateway
+  `automation_manage` geprüft. PGlite-Transaktionstests für HTTP-Aktion, parallele
+  Änderungen, stale Revision/updatedAt, private Composio-Verbindungen, falsche
+  Chat-/Job-Bindung, Rechte-/Seat-Entzug, Löschung, Providerfehler und atomare
+  Chat-Ereignisse bestanden. Bestehende exklusive Sitzungssperre, Zeitpläne,
+  Integritäts- und Migrationsprüfungen sowie Host-Regression, TypeScript und
+  gezieltes ESLint bestanden.
+
+## Details des umgesetzten Statuswechsels
+
+Der Editor, interne Update-Tools und Widgets verwenden `updateAutomationJobForUser`.
+Lesende Berechtigungs-/Verbindungsabfragen werden vor der Transaktion vorbereitet.
+Unter einer PostgreSQL-Zeilensperre wird der vorbereitete Stand erneut geprüft;
+Widget-Anfragen liefern Revision und `updatedAt`. Erst danach werden Änderung,
+optionaler Chat-Eintrag und der Composio-Statuswechsel ausgeführt. Gleichbleibende
+reine Statusanfragen erzeugen keine weitere Revision und keinen weiteren Audit-Eintrag.
+Eine alte Anfrage wird mit 409 abgewiesen und nicht automatisch wiederholt.
+
+Die Widget-Aktion verwendet `withExclusivePiSessionExecution`: Ein laufender Chat
+liefert einen verständlichen Konflikt. Ein inaktiver Runtime-Cache wird vor der
+atomaren Ergänzung des Verlaufs verworfen. Das kurze Nutzerereignis startet keinen
+Modelllauf. Nach Erfolg wird die vorhandene `message_saved`-Benachrichtigung gesendet.
+Öffnen/Bearbeiten nutzen `/automations/{jobId}` beziehungsweise `?edit=1`.
+
+Die HTML-Karte zeigt den beim Laden autorisierten aktuellen Jobstand. Ihre Überschrift
+beschreibt die historische Tool-Operation. `active` bestätigt keinen gesunden Zustand
+aller Integrationen; Quarantäne und verfügbare Statusaktionen werden separat behandelt.
+Für noch nicht gespeicherte Live-Ergebnisse versucht der Host die lesende Zuordnung
+begrenzt erneut und bietet anschließend ein manuelles Neuladen an.
+
+Eine Datenbank und Composio bilden keine verteilte Transaktion. Ein unklarer Netzwerk-
+oder Commit-Ausgang kann weiterhin eine manuelle Zustandsprüfung erfordern. Die UI
+meldet dann keinen Erfolg und führt keine automatische Wiederholung aus.

@@ -17,6 +17,7 @@ import { assertAutomationChatTarget, AutomationChatTargetError } from './chat-ta
 import { inlineLegacyAutomationPaths } from './legacy-paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
+import { AutomationMutationError } from './mutation-errors';
 import {
   assertCanAccessAutomationJob,
   assertEmailAutomationAgentCompatible,
@@ -63,7 +64,7 @@ type AutomationRunCreateOptions = {
   actorUserId?: string | null;
 };
 
-type AutomationStoreTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type AutomationStoreTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type AutomationJobRow = typeof automationJobs.$inferSelect;
 type AutomationRunRow = typeof automationRuns.$inferSelect;
 export type AutomationRunTransitionExpectation = {
@@ -144,7 +145,7 @@ function resolveStoredJobScope(job: typeof automationJobs.$inferSelect, scope = 
 }
 
 async function getAutomationJobRowAsync(tx: AutomationStoreTransaction, jobId: string): Promise<AutomationJobRow | undefined> {
-  const rows = await tx.select().from(automationJobs).where(eq(automationJobs.id, jobId)).limit(1);
+  const rows = await tx.select().from(automationJobs).where(eq(automationJobs.id, jobId)).limit(1).for('update');
   return rows[0];
 }
 
@@ -1170,13 +1171,25 @@ export async function createCustomWebhookAutomationJob(
 export async function updateAutomationJob(
   jobId: string,
   input: UpdateAutomationJobInput,
-  options: { actorUserId?: string | null } = {},
+  options: {
+    actorUserId?: string | null;
+    expectedRevision?: number;
+    expectedUpdatedAt?: string;
+    skipUnchangedStatus?: boolean;
+    authorize?: (existing: AutomationJobRecord) => Promise<void>;
+    beforeCommit?: (updated: AutomationJobRecord, existing: AutomationJobRecord, tx: AutomationStoreTransaction) => Promise<void>;
+  } = {},
 ): Promise<AutomationJobRecord | null> {
-  const existing = await db.query.automationJobs.findFirst({
-    where: eq(automationJobs.id, jobId),
-  });
+  const existing = await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, jobId) });
   if (!existing) {
     return null;
+  }
+
+  const current = await mapJobRowWithWebhookTrigger(existing);
+  await options.authorize?.(current);
+  if ((options.expectedRevision !== undefined && options.expectedRevision !== existing.revision)
+    || (options.expectedUpdatedAt !== undefined && options.expectedUpdatedAt !== current.updatedAt)) {
+    throw new AutomationMutationError('Automation changed. Reload its current state before trying again.', 409, 'AUTOMATION_REVISION_CONFLICT');
   }
 
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode ?? existing.deliverySessionMode);
@@ -1227,56 +1240,69 @@ export async function updateAutomationJob(
     ? null
     : computeNextRunAt(schedule, { from: new Date(), lastRunAt: existing.lastRunAt });
 
-  const [updated] = await db
-    .update(automationJobs)
-    .set({
-      name: input.name ? normalizeString(input.name, 'Name', 120) : existing.name,
-      prompt: inlineLegacyAutomationPaths({
-        prompt: input.prompt === undefined ? existing.prompt : normalizeString(input.prompt, 'Prompt', 32_000),
-        workspaceContextPaths: input.workspaceContextPaths === undefined
-          ? JSON.parse(existing.workspaceContextPathsJson)
-          : normalizeWorkspaceContextPaths(input.workspaceContextPaths),
-        targetOutputPath: input.targetOutputPath === undefined ? existing.targetOutputPath : normalizeTargetOutputPath(input.targetOutputPath),
-      }),
-      preferredSkill: input.preferredSkill === undefined
-        ? ensurePreferredSkill(existing.preferredSkill)
-        : ensurePreferredSkill(input.preferredSkill),
-      workspaceContextPathsJson: '[]',
-      targetOutputPath: null,
-      agentId: input.agentId === undefined ? existing.agentId : normalizeAgentId(input.agentId),
-      deliveryMode: input.deliveryMode === undefined ? existing.deliveryMode : normalizeDeliveryMode(input.deliveryMode),
-      deliveryChannelId: input.deliveryChannelId === undefined
-        ? existing.deliveryChannelId
-        : normalizeOptionalShortString(input.deliveryChannelId, 120),
-      deliverySessionMode: input.deliverySessionMode === undefined
-        ? existing.deliverySessionMode
-        : normalizeDeliverySessionMode(input.deliverySessionMode),
-      deliverySessionId: input.deliverySessionId === undefined
-        ? existing.deliverySessionId
-        : normalizeOptionalShortString(input.deliverySessionId, 500),
-      deliveryChannelSessionKey: input.deliveryChannelSessionKey === undefined
-        ? existing.deliveryChannelSessionKey
-        : normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
-      resultPolicy: input.resultPolicy === undefined
-        ? normalizeAutomationResultPolicy(existing.resultPolicy)
-        : normalizeAutomationResultPolicy(input.resultPolicy),
-      triggerKind,
-      eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
-      status,
-      scheduleKind: schedule.kind,
-      scheduleConfigJson: JSON.stringify(schedule),
-      timeZone: schedule.timeZone,
-      nextRunAt,
-      lastRunStatus: input.lastRunStatus === undefined ? existing.lastRunStatus : input.lastRunStatus,
-      lastEditedByUserId: options.actorUserId === undefined ? existing.lastEditedByUserId : options.actorUserId,
-      revision: existing.revision + 1,
-      updatedAt: new Date(),
-    })
-    .where(eq(automationJobs.id, jobId))
-    .returning();
+  return runAutomationTransaction(async (tx) => {
+    const locked = await getAutomationJobRowAsync(tx, jobId);
+    if (!locked) return null;
+    // Fence every prepared update, including legacy callers without a revision.
+    if (locked.revision !== existing.revision || locked.updatedAt.getTime() !== existing.updatedAt.getTime()) {
+      throw new AutomationMutationError('Automation changed. Reload its current state before trying again.', 409, 'AUTOMATION_REVISION_CONFLICT');
+    }
+    if (options.skipUnchangedStatus && input.status === existing.status
+      && Object.entries(input).every(([key, value]) => key === 'status' || value === undefined)) return current;
+    const [updated] = await tx
+      .update(automationJobs)
+      .set({
+        name: input.name ? normalizeString(input.name, 'Name', 120) : existing.name,
+        prompt: inlineLegacyAutomationPaths({
+          prompt: input.prompt === undefined ? existing.prompt : normalizeString(input.prompt, 'Prompt', 32_000),
+          workspaceContextPaths: input.workspaceContextPaths === undefined
+            ? JSON.parse(existing.workspaceContextPathsJson)
+            : normalizeWorkspaceContextPaths(input.workspaceContextPaths),
+          targetOutputPath: input.targetOutputPath === undefined ? existing.targetOutputPath : normalizeTargetOutputPath(input.targetOutputPath),
+        }),
+        preferredSkill: input.preferredSkill === undefined
+          ? ensurePreferredSkill(existing.preferredSkill)
+          : ensurePreferredSkill(input.preferredSkill),
+        workspaceContextPathsJson: '[]',
+        targetOutputPath: null,
+        agentId: input.agentId === undefined ? existing.agentId : normalizeAgentId(input.agentId),
+        deliveryMode: input.deliveryMode === undefined ? existing.deliveryMode : normalizeDeliveryMode(input.deliveryMode),
+        deliveryChannelId: input.deliveryChannelId === undefined
+          ? existing.deliveryChannelId
+          : normalizeOptionalShortString(input.deliveryChannelId, 120),
+        deliverySessionMode: input.deliverySessionMode === undefined
+          ? existing.deliverySessionMode
+          : normalizeDeliverySessionMode(input.deliverySessionMode),
+        deliverySessionId: input.deliverySessionId === undefined
+          ? existing.deliverySessionId
+          : normalizeOptionalShortString(input.deliverySessionId, 500),
+        deliveryChannelSessionKey: input.deliveryChannelSessionKey === undefined
+          ? existing.deliveryChannelSessionKey
+          : normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
+        resultPolicy: input.resultPolicy === undefined
+          ? normalizeAutomationResultPolicy(existing.resultPolicy)
+          : normalizeAutomationResultPolicy(input.resultPolicy),
+        triggerKind,
+        eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
+        status,
+        scheduleKind: schedule.kind,
+        scheduleConfigJson: JSON.stringify(schedule),
+        timeZone: schedule.timeZone,
+        nextRunAt,
+        lastRunStatus: input.lastRunStatus === undefined ? existing.lastRunStatus : input.lastRunStatus,
+        lastEditedByUserId: options.actorUserId === undefined ? existing.lastEditedByUserId : options.actorUserId,
+        revision: existing.revision + 1,
+        updatedAt: new Date(),
+      })
+      .where(eq(automationJobs.id, jobId))
+      .returning();
 
-  console.log(`[Automationen] Updated job ${jobId} (status=${status}, schedule=${schedule.kind})`);
-  return mapJobRowWithWebhookTrigger(updated);
+    const [trigger] = await tx.select().from(automationWebhookTriggers).where(eq(automationWebhookTriggers.jobId, jobId)).limit(1);
+    const result = mapJobRow(updated, trigger ?? null);
+    await options.beforeCommit?.(result, current, tx);
+    console.log(`[Automationen] Updated job ${jobId} (status=${status}, schedule=${schedule.kind})`);
+    return result;
+  });
 }
 
 export class AutomationWorkspaceChangeConflictError extends Error {

@@ -8,7 +8,7 @@ import {
 const app = { kind: 'builtin' as const, version: 1 as const, resourceUri: AUTOMATION_APP_URI,
   toolCallId: 'call-1', operation: 'create_automation_job' as const, entityId: 'job-11111111-1111-4111-8111-111111111111' } satisfies BuiltinToolAppDescriptor;
 const chat = { userId: 'user-1', sessionId: 'chat-1', agentId: 'agent-1' };
-const message = { role: 'toolResult', toolName: 'automations', toolCallId: 'call-1',
+const message = { role: 'toolResult', toolName: 'automation_manage', toolCallId: 'call-1',
   details: { action: 'call', operation: app.operation, toolApp: app, job: { id: app.entityId } } };
 const originalMessage = JSON.stringify(message);
 let stored: string | null = originalMessage;

@@ -89,7 +89,7 @@ export async function issueBuiltinToolAppTicket(input: McpAppChat & {
   const html = await readBuiltinToolAppResource(input.app);
   if (Buffer.byteLength(html) > MAX_HTML_BYTES) throw new McpAccessError('Widget is too large.', 422);
   return { ...storeAppTicket({ ...input, workspaceId, html }),
-    result: { content: [], structuredContent: presentAutomationAppData(job) } };
+    result: { content: [], structuredContent: presentAutomationAppData(job, input.userId) } };
 }
 
 function storeAppTicket(input: Omit<AppTicket, 'expiresAt'> & { authSessionExpiresAt: Date | string }) {

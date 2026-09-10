@@ -802,10 +802,16 @@ export async function updateGatewayTrigger(
   input: { status?: 'active' | 'paused'; triggerConfig?: Record<string, unknown>; notebookWebhookUrl?: string | null },
   context: ResolvedComposioContext,
 ) {
+  const update = await prepareGatewayTriggerUpdate(context);
+  return update(triggerId, input);
+}
+
+/** Resolve credentials before a caller holds a database transaction open. */
+export async function prepareGatewayTriggerUpdate(context: ResolvedComposioContext) {
   const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
-    return managedRequest<{ trigger: Record<string, unknown> }>(`/triggers/${encodeURIComponent(triggerId)}`, {
+    return (triggerId: string, input: { status?: 'active' | 'paused'; triggerConfig?: Record<string, unknown>; notebookWebhookUrl?: string | null }) => managedRequest<{ trigger: Record<string, unknown> }>(`/triggers/${encodeURIComponent(triggerId)}`, {
       method: 'PATCH',
       body: input,
     }, context);
@@ -813,9 +819,11 @@ export async function updateGatewayTrigger(
 
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  if (input.status === 'paused') await composio.triggers.disable(triggerId);
-  if (input.status === 'active') await composio.triggers.enable(triggerId);
-  return { trigger: { triggerId, status: input.status } };
+  return async (triggerId: string, input: { status?: 'active' | 'paused'; triggerConfig?: Record<string, unknown>; notebookWebhookUrl?: string | null }) => {
+    if (input.status === 'paused') await composio.triggers.disable(triggerId);
+    if (input.status === 'active') await composio.triggers.enable(triggerId);
+    return { trigger: { triggerId, status: input.status } };
+  };
 }
 
 export async function deleteGatewayTrigger(triggerId: string, context: ResolvedComposioContext) {

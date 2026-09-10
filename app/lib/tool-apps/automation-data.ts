@@ -12,11 +12,15 @@ export type AutomationAppData = {
   updatedAt: string;
   triggerKind: string;
   integrityStatus: string;
+  canChangeStatus: boolean;
 };
 
 /** Deliberate allowlist; never forward the job prompt, provider IDs or secrets. */
-export function presentAutomationAppData(job: AutomationJobRecord): AutomationAppData {
-  const data = readAutomationAppData(job);
+export function presentAutomationAppData(job: AutomationJobRecord, viewerUserId?: string): AutomationAppData {
+  const responsible = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+  const canChangeStatus = Boolean(viewerUserId && (!job.composioTriggerId || responsible === viewerUserId)
+    && !job.deletedAt && (job.status === 'active' || job.integrityStatus === 'valid'));
+  const data = readAutomationAppData({ ...job, canChangeStatus });
   if (!data) throw new Error('Automation widget data is unavailable.');
   return data;
 }
@@ -34,5 +38,5 @@ export function readAutomationAppData(value: unknown): AutomationAppData | null 
   if (!schedule) return null;
   return { id: value.id, name: value.name, status: value.status, revision: Number(value.revision),
     schedule, nextRunAt: value.nextRunAt as string | null, updatedAt: value.updatedAt,
-    triggerKind: value.triggerKind, integrityStatus: value.integrityStatus };
+    triggerKind: value.triggerKind, integrityStatus: value.integrityStatus, canChangeStatus: value.canChangeStatus === true };
 }

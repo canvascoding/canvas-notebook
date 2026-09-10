@@ -13,6 +13,10 @@ export type BuiltinToolAppDescriptor = {
   entityId: string;
 };
 
+export function automationToolApp(entityId: string, toolCallId: string, operation: AutomationAppOperation): BuiltinToolAppDescriptor {
+  return { kind: 'builtin', version: 1, resourceUri: AUTOMATION_APP_URI, entityId, toolCallId, operation };
+}
+
 export type ToolAppInvocation = {
   kind: 'mcp';
   descriptor: McpAppInvocationDetails['mcpApp'];
@@ -43,7 +47,7 @@ export function readBuiltinToolAppMessage(value: unknown): BuiltinToolAppDescrip
     || !isToolAppRecord(value.details) || value.details.error) return null;
   const descriptor = readBuiltinToolAppDescriptor(value.details.toolApp);
   if (!descriptor || descriptor.toolCallId !== value.toolCallId) return null;
-  const operation = value.toolName === 'automations' && value.details.action === 'call'
+  const operation = value.toolName === 'automation_manage' && value.details.action === 'call'
     ? value.details.operation : value.toolName;
   if (operation !== descriptor.operation || !isToolAppRecord(value.details.job)
     || value.details.job.id !== descriptor.entityId) return null;

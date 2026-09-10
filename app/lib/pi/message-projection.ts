@@ -236,7 +236,7 @@ function compactToolResultMessage(
       builtinDetails.toolApp = builtin;
       // Preserve only the validated binding, never bypass the normal job-data limits.
       builtinDetails.job = { ...(isRecord(builtinDetails.job) ? builtinDetails.job : {}), id: builtin.entityId };
-      if (record.toolName === 'automations') {
+      if (record.toolName === 'automation_manage') {
         builtinDetails.action = 'call';
         builtinDetails.operation = builtin.operation;
       }

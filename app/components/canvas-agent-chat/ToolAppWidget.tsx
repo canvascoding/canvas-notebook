@@ -17,7 +17,7 @@ type Approval = { tool: string; arguments: Record<string, unknown>; resolve: (re
 type Frame = { url: string; origin: string; result?: CallToolResult };
 type Props = {
   invocation: ToolAppInvocation; sessionId: string; agentId: string;
-  actions?: (data: AutomationAppData, update: (data: AutomationAppData) => void) => ReactNode;
+  actions?: (data: AutomationAppData, update: (data: AutomationAppData) => void, refresh: () => void) => ReactNode;
 };
 const failedResult = (message: string): CallToolResult => ({ content: [{ type: 'text', text: message }], isError: true });
 
@@ -34,24 +34,25 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
   const [busy, setBusy] = useState(false);
   const [height, setHeight] = useState(240);
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState<'unavailable' | 'disabled' | null>(null);
+  const [error, setError] = useState<'unavailable' | 'disabled' | 'waitingForSave' | null>(null);
   const [callFailed, setCallFailed] = useState(false);
   const [reconnect, setReconnect] = useState<McpReconnectHint | null>(null);
   const [reload, setReload] = useState(0);
   const builtin = invocation.kind === 'builtin';
   const descriptorJson = JSON.stringify(invocation.descriptor);
   const input = invocation.kind === 'mcp' ? invocation.input : undefined;
+  const operation = invocation.kind === 'builtin' ? invocation.descriptor.operation : undefined;
   const result = invocation.kind === 'mcp' ? invocation.result : frame?.result;
   const payload = useMemo(() => {
     if (builtin && result === undefined) return null;
     try {
       if (JSON.stringify({ input, result }).length > 2 * 1024 * 1024) return null;
       const parsed = CallToolResultSchema.safeParse(result);
-      const args = builtin ? {} : input;
+      const args = builtin ? { operation } : input;
       if (!parsed.success || !args || typeof args !== 'object' || Array.isArray(args)) return null;
       return { input: args as Record<string, unknown>, result: parsed.data };
     } catch { return null; }
-  }, [builtin, input, result]);
+  }, [builtin, input, operation, result]);
   const payloadUnavailable = !payload && (!builtin || Boolean(frame));
 
   useEffect(() => {
@@ -67,11 +68,13 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
         const body = await response.json();
         if (abort.signal.aborted) return;
         // Retry only the read-only, not-yet-persisted binding. Never replay an action.
-        if (builtin && response.status === 425 && attempt < 5) {
-          timer = setTimeout(() => { void load(attempt + 1); }, 200 * 2 ** attempt); return;
+        if (builtin && response.status === 425 && attempt < 8) {
+          timer = setTimeout(() => { void load(attempt + 1); }, Math.min(8000, 500 * 2 ** attempt)); return;
         }
         if (!response.ok || !body.success) {
-          setReconnect(readMcpReconnectHint(body)); setError(!builtin && response.status === 404 ? 'disabled' : 'unavailable'); return;
+          setReconnect(readMcpReconnectHint(body));
+          setError(body.code === 'TOOL_APPS_DISABLED' || (!builtin && response.status === 404) ? 'disabled'
+            : builtin && response.status === 425 ? 'waitingForSave' : 'unavailable'); return;
         }
         const url = new URL(body.data.frameUrl);
         if (url.origin !== body.data.frameOrigin || !['http:', 'https:'].includes(url.protocol)
@@ -156,19 +159,20 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
     finally { if (activeCallRef.current === abort) { activeCallRef.current = null; setBusy(false); } }
   };
   const data = builtin ? readAutomationAppData(payload?.result.structuredContent) : null;
+  const refresh = () => {
+    setFrame(null); setError(null); setReady(false); setReconnect(null); setCallFailed(false); setReload((n) => n + 1);
+  };
   return <section data-testid={builtin ? 'canvas-tool-app-widget' : 'mcp-app-widget'} className="my-2 w-full max-w-3xl overflow-hidden rounded-[var(--radius)] border bg-background">
     {payloadUnavailable || error ? <div className="space-y-2 p-3 text-xs text-muted-foreground" role="status">
       <p>{t(payloadUnavailable ? 'oversized' : error!)}</p>
-      {!payloadUnavailable ? <Button size="xs" variant="outline" onClick={() => {
-        setFrame(null); setError(null); setReady(false); setReconnect(null); setCallFailed(false); setReload((n) => n + 1);
-      }}>{t('reload')}</Button> : null}
+      {!payloadUnavailable ? <Button size="xs" variant="outline" onClick={refresh}>{t('reload')}</Button> : null}
     </div> : <>
       {!ready ? <p className="p-3 text-xs text-muted-foreground" role="status">{t('loading')}</p> : null}
       {frame ? <iframe ref={frameRef} title={builtin ? (data?.name || 'Canvas Automation') : invocation.descriptor.toolName}
         sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" style={{ height }} className="block w-full border-0" /> : null}
       {ready && data && actions ? actions(data, (next) => setFrame((current) => current ? {
         ...current, result: { content: [], structuredContent: next },
-      } : current)) : null}
+      } : current), refresh) : null}
       {approval ? <div className="space-y-2 border-t p-3 text-sm" role="group" aria-label={t('requestApproval', { tool: approval.tool })}>
         <p>{t('requestApproval', { tool: approval.tool })}</p>
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all bg-muted p-2 text-xs">{JSON.stringify(approval.arguments, null, 2)}</pre>
