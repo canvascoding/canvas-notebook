@@ -25,13 +25,13 @@ async function main(): Promise<void> {
 
     await postgres.exec(`
       INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
-      VALUES ('automation-owner', 'Automation Owner', 'automation-owner@example.test', 1, 1700000000, 1700000000);
+      VALUES ('automation-owner', 'Automation Owner', 'automation-owner@example.test', 1, 1700000000000, 1700000000000);
       INSERT INTO canvas_organization_settings (organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at)
-      VALUES ('automation-org', 'automation-owner', 'team', 1, 1700000000, 1700000000);
+      VALUES ('automation-org', 'automation-owner', 'team', 1, 1700000000000, 1700000000000);
       INSERT INTO canvas_workspaces (
         id, organization_id, type, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
       ) VALUES (
-        'automation-workspace', 'automation-org', 'organization', 'workspaces/automation-org/files', 'Automation', 'users-round', 'active', 0, 1700000000, 1700000000
+        'automation-workspace', 'automation-org', 'organization', 'workspaces/automation-org/files', 'Automation', 'users-round', 'active', 0, 1700000000000, 1700000000000
       );
       INSERT INTO automation_jobs (
         id, name, status, scope, job_scope, organization_id, workspace_id, workspace_type,
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
       ) VALUES (
         'legacy-invalid-job', 'Legacy invalid job', 'active', 'personal', 'personal:automation-owner:automation-workspace',
         'automation-org', 'automation-workspace', 'organization', 'automation-owner', 'automation-owner',
-        'Run legacy automation', 'canvas-agent', '[]', 'daily', '{"times":["09:00"]}', 'UTC', 'automation-owner', 1700000000, 1700000000
+        'Run legacy automation', 'canvas-agent', '[]', 'daily', '{"times":["09:00"]}', 'UTC', 'automation-owner', 1700000000000, 1700000000000
       );
     `);
 

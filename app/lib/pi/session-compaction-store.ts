@@ -201,7 +201,7 @@ function nullableInteger(value: unknown): number | null {
 
 function databaseDate(value: unknown): Date | null {
   const timestamp = nullableInteger(value);
-  return timestamp === null ? null : new Date(timestamp * 1000);
+  return timestamp === null ? null : new Date(timestamp);
 }
 
 function changes(result: unknown): number {
@@ -470,7 +470,7 @@ export async function startPiSessionCompactionAttemptOnConnection(
              ELSE 'summary_total_timeout'
            END,
            completed_at = $3, retry_at = COALESCE(retry_at, $4), updated_at = $5,
-           duration_ms = CASE WHEN $6 > started_at THEN ($7 - started_at) * 1000 ELSE 0 END
+           duration_ms = CASE WHEN $6 > started_at THEN $7 - started_at ELSE 0 END
        WHERE pi_session_db_id = $8 AND state = 'running'
          AND (deadline_at <= $9 OR (idle_deadline_at IS NOT NULL AND idle_deadline_at <= $10))`,
       [

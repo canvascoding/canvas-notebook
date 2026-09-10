@@ -12,9 +12,8 @@ async function verifyPostgresTimestampCleanup() {
     const expired = Number(session.expiresAt.mapToDriverValue(new Date(now - 60_000)));
     const valid = Number(session.expiresAt.mapToDriverValue(new Date(now + 3_600_000)));
     assert.equal(expired, now - 60_000, 'the real schema stores epoch milliseconds');
-    await database.query('INSERT INTO session VALUES ($1,$2),($3,$4),($5,$6),($7,$8)', [
+    await database.query('INSERT INTO session VALUES ($1,$2),($3,$4)', [
       'expired-ms', expired, 'valid-ms', valid,
-      'expired-seconds', Math.floor(expired / 1_000), 'valid-seconds', Math.floor(valid / 1_000),
     ]);
     let release!: () => void;
     const closed = new Promise<void>((resolve) => { release = resolve; });
@@ -35,7 +34,7 @@ async function verifyPostgresTimestampCleanup() {
     await closed;
     assert.deepEqual(warnings, []);
     assert.deepEqual((await database.query<{ id: string }>('SELECT id FROM session ORDER BY id')).rows.map((row) => row.id),
-      ['valid-ms', 'valid-seconds'], 'delete expired millisecond sessions without deleting valid legacy second sessions');
+      ['valid-ms'], 'delete expired canonical-millisecond sessions');
   } finally {
     await database.close();
   }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildAutomationMutationPayload } from '../app/lib/automations/client-payload';
 import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '../app/lib/automations/paths';
 import { buildAutomationPrompt } from '../app/lib/automations/prompt';
-import { computeNextRunAt, validateFriendlySchedule } from '../app/lib/automations/schedule';
+import { computeNextFutureRunAt, computeNextRunAt, validateFriendlySchedule } from '../app/lib/automations/schedule';
 import { type FriendlySchedule } from '../app/lib/automations/types';
 import { DEFAULT_USER_TIME_ZONE, formatZonedDateTimeForPrompt } from '../app/lib/time-zones';
 
@@ -85,6 +85,20 @@ const weeklyRun = assertDate(
   'Weekly schedule should produce a next run.',
 );
 assert.equal(weeklyRun.toISOString(), '2026-03-16T10:00:00.000Z');
+
+const repairedWeeklyRun = assertDate(
+  computeNextFutureRunAt(weeklySchedule, new Date('2026-03-14T08:00:00.000Z')),
+  'A repaired weekly schedule should skip stale historical occurrences.',
+);
+assert.equal(repairedWeeklyRun.toISOString(), '2026-03-16T10:00:00.000Z');
+
+const elapsedOneTimeRun = computeNextFutureRunAt({
+  kind: 'once',
+  date: '2026-03-10',
+  time: '10:00',
+  timeZone: 'UTC',
+}, new Date('2026-03-14T08:00:00.000Z'));
+assert.equal(elapsedOneTimeRun, null, 'A repaired one-time schedule must not replay after its date.');
 
 const monthlySchedule: FriendlySchedule = {
   kind: 'monthly',

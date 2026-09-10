@@ -42,7 +42,7 @@ async function main() {
   const { setUserPreferredLocale } = await import('../app/lib/user-preferences');
   const database = await openDb();
   const now = Date.now();
-  const authNow = Math.floor(now / 1_000);
+  const authNow = now;
   await database.run(
     `INSERT INTO user (id, name, email, email_verified, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
@@ -64,12 +64,12 @@ async function main() {
   await database.run(
     `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    ['auth-session', authNow + 60, 'session-token', authNow, authNow, 'push-user'],
+    ['auth-session', authNow + 60_000, 'session-token', authNow, authNow, 'push-user'],
   );
   await database.run(
     `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    ['auth-session-2', authNow + 60, 'session-token-2', authNow, authNow, 'push-user'],
+    ['auth-session-2', authNow + 60_000, 'session-token-2', authNow, authNow, 'push-user'],
   );
   const responseAt = now + 1_000;
   await database.run(

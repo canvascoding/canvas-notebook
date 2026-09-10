@@ -706,8 +706,8 @@ async function applySharePolicy(row: PublicShareRow, params: SharePolicyUpdate):
     ...(params.securityMode !== undefined ? { securityMode: params.securityMode } : {}),
     ...(params.reason !== undefined ? { reason: params.reason?.trim().slice(0, 500) || null } : {}),
   };
-  const expirySeconds = (value: Date | null) => value ? Math.floor(value.getTime() / 1000) : null;
-  const changed = (values.expiresAt !== undefined && expirySeconds(values.expiresAt) !== expirySeconds(row.expiresAt))
+  const expiryMilliseconds = (value: Date | null) => value ? value.getTime() : null;
+  const changed = (values.expiresAt !== undefined && expiryMilliseconds(values.expiresAt) !== expiryMilliseconds(row.expiresAt))
     || (values.securityMode !== undefined && values.securityMode !== row.securityMode)
     || (values.reason !== undefined && values.reason !== row.reason);
   if (!changed) {

@@ -95,8 +95,8 @@ async function main() {
     const rows = await db.select().from(mobileAppPromotionStates);
     assert.equal(rows[0]?.lastAction, 'dismissed:dialog');
     assert.equal(
-      Math.floor((rows[0]?.dismissedUntil?.getTime() ?? 0) / 1_000),
-      Math.floor((lastDismissalAt.getTime() + MOBILE_APP_PROMOTION_EXTENDED_DELAY_MS) / 1_000),
+      rows[0]?.dismissedUntil?.getTime(),
+      lastDismissalAt.getTime() + MOBILE_APP_PROMOTION_EXTENDED_DELAY_MS,
     );
 
     const concurrentShownUserId = 'mobile-promo-concurrent-shown';

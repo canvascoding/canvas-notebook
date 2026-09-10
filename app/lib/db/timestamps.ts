@@ -1,4 +1,4 @@
-/** Converts a Date to the epoch-seconds representation used by timestamp columns. */
+/** Converts a Date to the canonical epoch-milliseconds representation used by PostgreSQL timestamp columns. */
 export function toDatabaseTimestamp(value: Date): number {
-  return Math.floor(value.getTime() / 1000);
+  return value.getTime();
 }

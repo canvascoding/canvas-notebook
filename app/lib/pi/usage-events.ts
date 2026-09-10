@@ -91,7 +91,7 @@ export function extractPiUsageEventValues(params: {
       provider: message.provider,
       model: message.model,
       sessionTitleSnapshot: params.sessionTitleSnapshot ?? null,
-      assistantTimestamp: Math.floor(new Date(message.timestamp).getTime() / 1000), // Convert Date to Unix timestamp (seconds)
+      assistantTimestamp: new Date(message.timestamp).getTime(),
       stopReason: message.stopReason,
       inputTokens: message.usage.input,
       outputTokens: message.usage.output,
@@ -172,7 +172,7 @@ export async function loadLatestPiSessionInputUsage(
     inputTokens: usage.inputTokens,
     assistantTimestamp: rawTimestamp instanceof Date
       ? rawTimestamp
-      : new Date(Number(rawTimestamp) * 1_000),
+      : new Date(Number(rawTimestamp)),
   };
 }
 

@@ -119,8 +119,8 @@ function buildSessionQueryPattern(value: string): string {
   return `%${value.replace(/[\\%_]/g, '\\$&')}%`;
 }
 
-function toUnixSeconds(date: Date): number {
-  return Math.floor(date.getTime() / 1000);
+function toEpochMilliseconds(date: Date): number {
+  return date.getTime();
 }
 
 function serializeUsageFilters(filters: UsageFilters, access: UsageAccess): SerializedUsageFilters {
@@ -163,8 +163,8 @@ export function resolveUsageAccess(
 
 function buildWhere(filters: UsageFilters, access: UsageAccess, includeUserFilter = true) {
   const conditions = [
-    sql`${piUsageEvents.assistantTimestamp} >= ${toUnixSeconds(filters.from)}`,
-    sql`${piUsageEvents.assistantTimestamp} <= ${toUnixSeconds(filters.to)}`,
+    sql`${piUsageEvents.assistantTimestamp} >= ${toEpochMilliseconds(filters.from)}`,
+    sql`${piUsageEvents.assistantTimestamp} <= ${toEpochMilliseconds(filters.to)}`,
   ];
 
   if (includeUserFilter && access.effectiveUserId) {
@@ -320,7 +320,7 @@ function getGrouping(filters: UsageFilters) {
       };
     case 'day':
     default: {
-      const dayKey = sql<string>`to_char(to_timestamp(${piUsageEvents.assistantTimestamp}), 'YYYY-MM-DD')`;
+      const dayKey = sql<string>`to_char(to_timestamp(${piUsageEvents.assistantTimestamp} / 1000.0), 'YYYY-MM-DD')`;
       return {
         groupKey: dayKey,
         label: dayKey,
@@ -487,7 +487,7 @@ export async function getUsageEvents(
       provider: row.provider,
       model: row.model,
       stopReason: row.stopReason,
-      assistantTimestamp: new Date(toNumber(row.assistantTimestamp) * 1000).toISOString(),
+      assistantTimestamp: new Date(toNumber(row.assistantTimestamp)).toISOString(),
       totalTokens: toNumber(row.totalTokens),
       inputTokens: toNumber(row.inputTokens),
       outputTokens: toNumber(row.outputTokens),
@@ -543,7 +543,7 @@ export async function getUsageUsers(
       email: row.email,
       role: row.role,
       usageEventCount: toNumber(row.usageEventCount),
-      lastUsageAt: row.lastUsageAt === null ? null : new Date(toNumber(row.lastUsageAt) * 1000).toISOString(),
+      lastUsageAt: row.lastUsageAt === null ? null : new Date(toNumber(row.lastUsageAt)).toISOString(),
     })),
   };
 }

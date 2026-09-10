@@ -13,7 +13,7 @@ async function main(): Promise<void> {
     await runPostgresMigrations(migrationTarget);
     await postgres.exec(`
       INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
-      VALUES ('bradley-pg-user', 'Bradley Migration', 'bradley-pg@example.test', 1, 1700000000, 1700000000);
+      VALUES ('bradley-pg-user', 'Bradley Migration', 'bradley-pg@example.test', 1, 1700000000000, 1700000000000);
 
       UPDATE agents SET agent_id = 'canvas-agent' WHERE agent_id = 'bradley';
 
@@ -21,7 +21,7 @@ async function main(): Promise<void> {
         session_id, user_id, agent_id, provider, model, title, created_at, updated_at
       ) VALUES (
         'legacy-bradley-session', 'bradley-pg-user', 'canvas-agent',
-        'test', 'test-model', 'Legacy Bradley session', 1700000000, 1700000000
+        'test', 'test-model', 'Legacy Bradley session', 1700000000000, 1700000000000
       );
 
       INSERT INTO automation_jobs (
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
       ) VALUES (
         'legacy-bradley-job', 'Legacy Bradley automation', 'paused', 'bradley-pg-user',
         'Verify the canonical Bradley agent ID.', '', '[]', 'manual', '{}', 'UTC',
-        'bradley-pg-user', 'canvas-agent', 'web', 'new_session', 1700000000, 1700000000
+        'bradley-pg-user', 'canvas-agent', 'web', 'new_session', 1700000000000, 1700000000000
       );
     `);
 
