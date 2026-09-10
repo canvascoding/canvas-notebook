@@ -186,10 +186,12 @@ Fertig, wenn der konfigurierte Level am Stream ankommt und Probe sowie produktiv
 
 ### T3 — SDK und erzeugte Abhängigkeitsartefakte aktualisieren
 
-- [ ] Beide direkten Dependencies exakt auf `0.85.1` anheben und Lockfile aktualisieren.
-- [ ] Auflösung von Pi AI, Agent Core, Telemetry und Chord sowie ESM-Imports prüfen; ungewollte zweite Versionen erklären oder beseitigen.
-- [ ] Lizenzcache und Notices mit den bestehenden Generatoren aktualisieren; Compliance-Prüfungen ausführen.
-- [ ] TypeScript-Prüfung und T1/T2-Vertragstests auf dem neuen SDK ausführen; tatsächliche Typbrüche hier beheben.
+- [x] Beide direkten Dependencies exakt auf `0.85.1` anheben und Lockfile aktualisieren.
+- [x] Auflösung von Pi AI, Agent Core, Telemetry und Chord sowie ESM-Imports prüfen; ungewollte zweite Versionen erklären oder beseitigen.
+- [x] Lizenzcache und Notices mit den bestehenden Generatoren aktualisieren; Compliance-Prüfungen ausführen.
+- [x] TypeScript-Prüfung und T1/T2-Vertragstests auf dem neuen SDK ausführen; tatsächliche Typbrüche hier beheben.
+
+T3: Pi AI, Agent Core, Telemetry und Chord werden jeweils einmal auf 0.85.1 aufgelöst. Die Transitivänderungen enthalten die erwarteten Anthropic-/OpenAI-Upgrades, Chord und Webhook-Abhängigkeiten sowie neu aufgelöste AWS-/Smithy-Patches im Bedrock-Baum. Keine andere direkte Dependency angehoben. Öffentliche ESM-Imports, echte SDK-Verträge, Probe/Temperatur und TypeScript bestanden. Lizenzgenerator: 1.996 Komponenten, keine Release-Blocker; `test:licenses` bestanden. `/compat` bleibt der korrekte Einstieg für globale Provider-Registrierung und `streamSimple`; der Root-Export dient den expliziten Provider-APIs.
 
 Fertig, wenn die neue Paketlinie reproduzierbar installiert wird und die direkten Verträge passen. `0.85.0` wird nicht als Zwischenziel ausgerollt.
 
