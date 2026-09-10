@@ -36,11 +36,15 @@ async function main(): Promise<void> {
       INSERT INTO automation_jobs (
         id, name, status, scope, job_scope, organization_id, workspace_id, workspace_type,
         owner_user_id, responsible_user_id, prompt, preferred_skill, workspace_context_paths_json,
-        schedule_kind, schedule_config_json, time_zone, created_by_user_id, created_at, updated_at
+        schedule_kind, schedule_config_json, time_zone, next_run_at, last_run_at, created_by_user_id, created_at, updated_at
       ) VALUES (
         'legacy-invalid-job', 'Legacy invalid job', 'active', 'personal', 'personal:automation-owner:automation-workspace',
         'automation-org', 'automation-workspace', 'organization', 'automation-owner', 'automation-owner',
-        'Run legacy automation', 'canvas-agent', '[]', 'daily', '{"times":["09:00"]}', 'UTC', 'automation-owner', 1700000000, 1700000000
+        'Run legacy automation', 'canvas-agent', '[]', 'daily', '{"times":["09:00"]}', 'UTC', 1700003600, 1700000000, 'automation-owner', 1700000000, 1700000000
+      ), (
+        'current-milliseconds-job', 'Current milliseconds job', 'paused', 'personal', 'personal:automation-owner:automation-workspace',
+        'automation-org', 'automation-workspace', 'organization', 'automation-owner', 'automation-owner',
+        'Keep milliseconds intact', 'canvas-agent', '[]', 'daily', '{"times":["09:00"]}', 'UTC', 1700003600000, 1700000000000, 'automation-owner', 1700000000000, 1700000000000
       );
     `);
 
@@ -78,6 +82,45 @@ async function main(): Promise<void> {
       integrity_status: 'quarantined',
       integrity_reason: 'invalid_personal_binding',
     }]);
+
+    const timestamps = await postgres.query<{
+      id: string;
+      next_run_at: number;
+      last_run_at: number;
+      created_at: number;
+      updated_at: number;
+    }>(`
+      SELECT id, next_run_at, last_run_at, created_at, updated_at
+      FROM automation_jobs
+      WHERE id IN ('legacy-invalid-job', 'current-milliseconds-job')
+      ORDER BY id
+    `);
+    assert.deepEqual(timestamps.rows, [
+      {
+        id: 'current-milliseconds-job',
+        next_run_at: 1700003600000,
+        last_run_at: 1700000000000,
+        created_at: 1700000000000,
+        updated_at: 1700000000000,
+      },
+      {
+        id: 'legacy-invalid-job',
+        next_run_at: 1700003600000,
+        last_run_at: 1700000000000,
+        created_at: 1700000000000,
+        updated_at: 1700000000000,
+      },
+    ]);
+
+    // The migration is deliberately repeatable: its unit predicate must not
+    // scale already-normalized millisecond data on later startups.
+    await runPostgresMigrations(migrationTarget);
+    const repeated = await postgres.query<{ next_run_at: number; created_at: number }>(`
+      SELECT next_run_at, created_at
+      FROM automation_jobs
+      WHERE id = 'legacy-invalid-job'
+    `);
+    assert.deepEqual(repeated.rows, [{ next_run_at: 1700003600000, created_at: 1700000000000 }]);
   } finally {
     await postgres.close();
   }

@@ -1,6 +1,7 @@
 import { desc, sql } from "drizzle-orm";
 import { pgTable, text, bigint, bigserial, doublePrecision as real, index, uniqueIndex, primaryKey, check, customType } from "drizzle-orm/pg-core";
 import { MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
+import { normalizeDatabaseTimestamp } from './timestamps';
 
 // OAuth metadata is stored in text columns on both SQLite and PostgreSQL. A
 // plain `$type<T>()` only affects TypeScript; PostgreSQL otherwise persists
@@ -15,9 +16,10 @@ const jsonText = <T>(name: string) => customType<{
   fromDriver: (value) => JSON.parse(value),
 })(name);
 
-// Existing PostgreSQL installations store SQLite boolean and timestamp values
-// as bigint (0/1 and epoch milliseconds). Keep those physical types while
-// exposing the same runtime values to the application.
+// PostgreSQL persists booleans as 0/1 and all timestamps as epoch milliseconds
+// in bigint columns. Keep those physical types while exposing native runtime
+// values. The reader tolerates old SQLite epoch-second values until startup
+// backfill has normalized them.
 const pgBoolean = (name: string) => customType<{ data: boolean; driverData: number | string }>({
   dataType: () => 'bigint',
   toDriver: (value) => value ? 1 : 0,
@@ -26,7 +28,7 @@ const pgBoolean = (name: string) => customType<{ data: boolean; driverData: numb
 const pgTimestamp = (name: string) => customType<{ data: Date; driverData: number | string }>({
   dataType: () => 'bigint',
   toDriver: (value) => value.getTime(),
-  fromDriver: (value) => new Date(Number(value)),
+  fromDriver: (value) => new Date(normalizeDatabaseTimestamp(Number(value))),
 })(name);
 
 export const user = pgTable("user", {
