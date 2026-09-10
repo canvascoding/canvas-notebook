@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.10.10] - 2026-09-10
+
+### Added
+
+- Added durable, scoped storage and paginated previews for large tool outputs, plus secure Canvas widget cards for automations, todos, and public links.
+- Added GPT Image 2.5 Sunburst support.
+
+### Changed
+
+- Upgraded the Pi agent SDK to 0.85.1 while preserving replay, follow-up, and cancellation behavior.
+- Bounded tool, web, MCP, and Composio output handling to keep large results responsive.
+
+### Fixed
+
+- Prevented PostgreSQL pool starvation by releasing the session workspace lookup connection before nested workspace resolution.
+- Limited concurrent automation executions and added bounded, cached health probes with a database connection acquisition timeout.
+- Restored PostgreSQL bootstrap-admin reconciliation.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.10.9] - 2026-09-10
 
 ### Added
