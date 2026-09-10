@@ -221,11 +221,15 @@ Fertig, wenn Replay gültig bleibt, UI-Inhalte nicht doppelt erscheinen und Usag
 
 ### T6 — Provider, Auth und Katalogintegration abnehmen
 
-- [ ] Offline-Request-Tests für die relevanten Transportfamilien aus Abschnitt 5 durchführen.
-- [ ] Neue/entfernte Katalogmodelle, Thinking-Fähigkeiten, bestehende Policies und gepinnte Sessions prüfen.
-- [ ] OAuth-Scope, Refresh/Revocation und langsamen Auth-Abbruch testen; notwendige Signalweitergabe implementieren.
-- [ ] Für neue Modelle die Provider-Probe und Hilfsaufrufe wie Titel, Summary, Compaction und E-Mail prüfen.
-- [ ] Katalogänderungen als bewussten administrativen Schritt dokumentieren; Remote-Managed-Katalog gesondert verifizieren.
+- [x] Offline-Request-Tests für OpenAI, Anthropic, Mistral, xAI, Google und OpenRouter durchführen.
+- [x] Neue Katalogmodelle/Thinking-Fähigkeiten sowie bestehende Provider-Coverage und Settings-Verträge prüfen.
+- [x] OAuth-Scope, Revocation während Auth und langsamen Auth-Abbruch offline testen; notwendige Signalweitergabe implementieren.
+- [x] Provider-Probe und E-Mail-Optionsverträge prüfen; weitere Hilfsaufruf-Regressionsfälle in T7 ausführen.
+- [x] Katalogänderungen als bewussten administrativen Schritt dokumentieren; Remote-Managed-Katalog nicht automatisch verändern.
+
+T6: Echte SDK-Adapter erzeugen Offline-Payloads für die sechs genannten Provider; `onPayload` stoppt vor Dispatch, eine zusätzliche Fetch-Sperre bestätigt null Netzwerkversuche. Astra-Fähigkeiten werden getrennt für API-Key/Codex geprüft, ebenso xAI Responses. Provider-Coverage, OAuth-Benutzerisolation und Settings-Contracts bestanden. Ein echter Durchlauf der Canvas-Runtime-/Installation-Credential-Schichten mit isoliertem OAuth-Transport reproduzierte das verlorene Request-Signal. Es wird jetzt bis OAuth weitergegeben; abbrechbares Warten beendet auch eine noch blockierte Credential-Auflösung prompt mit `stopReason: aborted`. Ein nachträglicher Credential-Abschluss kann keinen Provider-Request mehr auslösen; Revocation-Prüfungen bleiben wirksam. Die Provider-Verifikation reicht das Signal ebenfalls weiter.
+
+Abnahmegrenze: Kein tatsächlicher Login, Token-Refresh, Remote-Katalog-Sync oder Live-Modellaufruf. Bedrock, Vertex, Copilot und Codex-SSE-Endmarker wurden nicht durch Live- oder vollständige Offline-Transporttests abgenommen. Die Paketänderung übernimmt deren Upstream-Fixes; diese Installations-/Provider-Abnahmen bleiben vor einer Veröffentlichung offen (T8/T9). Bereits freigegebene Modelle, Defaults und Session-Pins werden durch das Update nicht automatisch ersetzt.
 
 Fertig, wenn unterstützte Modelle ausführbar sind und bestehende Credential-/Policy-Grenzen auch bei Parallelität gelten. Fehlende Live-Zugänge als ungetestete Fälle dokumentieren, nicht durch erfolgreiche Mock-Tests ersetzen.
 

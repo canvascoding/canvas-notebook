@@ -277,6 +277,7 @@ export async function verifyProviderInstallation(input: {
               provider: beforeAuth.provider,
               organizationId: input.organizationId,
               userId: input.actorUserId,
+              signal: options?.signal,
             }),
             options?.signal,
           );

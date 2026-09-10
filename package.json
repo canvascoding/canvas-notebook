@@ -49,6 +49,8 @@
     "test:integration:pi": "node scripts/pi-integration-test.mjs",
     "test:pi:sdk-contract": "tsx scripts/pi-sdk-contract-test.mts",
     "test:pi:metadata-contract": "tsx scripts/pi-metadata-projection-test.ts && tsx scripts/pi-message-projection-test.ts && tsx --conditions react-server scripts/chat-session-fork-test.ts",
+    "test:pi:auth-contract": "tsx --conditions react-server scripts/pi-runtime-auth-contract-test.mts",
+    "test:pi:provider-contract": "tsx scripts/pi-provider-payload-contract-test.mts",
     "test:pi:postgres-contract": "npm run test:automation:runner && npm run test:pi:session-store-revision",
     "test:pi:attachments": "tsx scripts/pi-attachments-test.ts",
     "test:pi:multimodal-delivery": "tsx scripts/pi-multimodal-delivery-test.ts",
