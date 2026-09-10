@@ -11,6 +11,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import * as schema from '../app/lib/db/schema';
 import { MAIN_AGENT_ID } from '../app/lib/agents/main-agent';
+import { piMetadataFixture, piToolMetadataFixture } from './helpers/pi-message-fixture';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-pi-message-projection-'));
 process.env.DATA = dataDir;
@@ -25,7 +26,8 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
   if (
     request === '@/app/lib/db'
-    || (request === '../db' && parent?.filename?.endsWith('/app/lib/pi/session-store.ts'))
+    || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request)
+    || /^(?:\.\.\/)+db$/u.test(request)
   ) {
     return {
       db: database,
@@ -395,6 +397,24 @@ async function main() {
     where: eq(piSessions.sessionId, activitySessionId),
   });
   assert.equal(afterUserOnlySave?.lastMessageAt?.toISOString(), activitySession.lastMessageAt.toISOString());
+
+  const metadataMessages = [
+    { role: 'user' as const, content: 'Inspect', timestamp: 999 },
+    piMetadataFixture,
+    piToolMetadataFixture,
+  ];
+  const metadataSessionId = 'metadata-roundtrip';
+  await savePiSession(metadataSessionId, userId, 'openai', 'fixture-model', metadataMessages);
+  const metadataLoaded = await loadPiSessionWithSummary(metadataSessionId, userId, MAIN_AGENT_ID);
+  assert.deepEqual(metadataLoaded?.messages, metadataMessages);
+  assert.deepEqual(await normalizePiMessagesForLlm(metadataLoaded!.messages), metadataMessages);
+  const { buildPiUsageFingerprint, persistPiUsageEvents } = await import('../app/lib/pi/usage-events');
+  assert.equal(buildPiUsageFingerprint(metadataSessionId, metadataLoaded!.messages[1] as typeof piMetadataFixture), buildPiUsageFingerprint(metadataSessionId, piMetadataFixture));
+  await persistPiUsageEvents({ sessionId: metadataSessionId, userId, messages: metadataMessages });
+  await persistPiUsageEvents({ sessionId: metadataSessionId, userId, messages: metadataLoaded!.messages });
+  const usageRows = await db.select().from(schema.piUsageEvents).where(eq(schema.piUsageEvents.sessionId, metadataSessionId));
+  assert.equal(usageRows.length, 1, 'replay must not duplicate the original response usage');
+  console.log('Pi message persistence and metadata roundtrip tests passed');
 }
 
 main()

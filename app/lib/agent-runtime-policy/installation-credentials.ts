@@ -220,7 +220,9 @@ export async function resolveProviderInstallationRuntimeAuth(input: {
   provider: AiProviderInstallation;
   organizationId: string;
   userId: string;
+  signal?: AbortSignal;
 }): Promise<ProviderInstallationRuntimeAuth> {
+  input.signal?.throwIfAborted();
   const providerId = input.provider.providerId.toLowerCase();
   if (providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
     const apiKey = input.provider.credentialScope === 'managed'
@@ -237,7 +239,8 @@ export async function resolveProviderInstallationRuntimeAuth(input: {
     if (input.provider.credentialScope !== 'user' || !isOAuthProvider(providerId)) {
       return { configured: false, env: {} };
     }
-    const oauth = await getProviderRequestAuth(providerId as OAuthProviderId, { userId: input.userId });
+    const oauth = await getProviderRequestAuth(providerId as OAuthProviderId, { userId: input.userId }, { signal: input.signal });
+    input.signal?.throwIfAborted();
     if (!oauth) return { configured: false, env: {} };
     return {
       configured: true,

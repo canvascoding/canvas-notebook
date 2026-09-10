@@ -54,9 +54,29 @@ const esmOnlyPackageAliases = new Map();
 addEsmOnlyPackageAliases('@earendil-works/pi-ai', esmOnlyPackageAliases);
 addEsmOnlyPackageAliases('@earendil-works/pi-agent-core', esmOnlyPackageAliases);
 addEsmOnlyPackageAliases('@earendil-works/pi-telemetry', esmOnlyPackageAliases);
+addEsmOnlyPackageAliases('@earendil-works/chord', esmOnlyPackageAliases);
+
+function resolveEsmOnlyPackageAlias(request, aliases) {
+  const exact = aliases.get(request);
+  if (exact) return exact;
+  for (const [pattern, target] of aliases) {
+    const wildcard = pattern.indexOf('*');
+    if (wildcard < 0) continue;
+    const prefix = pattern.slice(0, wildcard);
+    const suffix = pattern.slice(wildcard + 1);
+    if (!request.startsWith(prefix) || !request.endsWith(suffix)) continue;
+    const subpath = request.slice(prefix.length, request.length - suffix.length);
+    // Match public package subpaths, never traversal, encoded separators, or
+    // node_modules segments that Node's native exports resolver would reject.
+    if (!/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(subpath)) continue;
+    if (subpath.split('/').some((part) => part === '.' || part === '..' || part === 'node_modules')) continue;
+    return target.replaceAll('*', subpath);
+  }
+  return null;
+}
 
 Module._resolveFilename = function resolveWithEsmPackageAliases(request, parent, isMain, options) {
-  const aliasedPath = esmOnlyPackageAliases.get(request);
+  const aliasedPath = resolveEsmOnlyPackageAlias(request, esmOnlyPackageAliases);
   if (aliasedPath) {
     return aliasedPath;
   }

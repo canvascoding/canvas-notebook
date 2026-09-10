@@ -3,11 +3,14 @@ import Module from 'node:module';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-automation-runner-tools-'));
 process.env.DATA = dataDir;
 process.env.CANVAS_DATA_ROOT = dataDir;
 process.env.QMD_ENABLED = 'false';
+process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 
@@ -95,6 +98,9 @@ class TestAutomationLoopShutdownError extends Error {
 }
 
 moduleInternals._load = (request, parent, isMain) => {
+  if (testDatabase && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request))) {
+    return testDatabase;
+  }
   if (request === 'server-only') {
     return {};
   }
@@ -145,7 +151,7 @@ moduleInternals._load = (request, parent, isMain) => {
         messages: unknown[],
         context: { systemPrompt?: string; tools?: Array<{ name: string }> },
         config: {
-          thinkingLevel?: unknown;
+          reasoning?: unknown;
           prepareNextTurn?: (turnContext: {
             context: { systemPrompt?: string; messages: unknown[]; tools: Array<{ name: string }> };
           }) => Promise<{ context?: { systemPrompt?: string } } | undefined>;
@@ -155,7 +161,7 @@ moduleInternals._load = (request, parent, isMain) => {
       ) {
         agentLoopToolNames = context.tools?.map((tool) => tool.name) ?? [];
         agentLoopStreamFns.push(streamFn);
-        agentLoopThinkingLevels.push(config.thinkingLevel);
+        agentLoopThinkingLevels.push(config.reasoning);
         agentLoopSystemPrompts.push(context.systemPrompt || '');
         const turnUpdate = await config.prepareNextTurn?.({
           context: {
@@ -466,11 +472,12 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 async function main() {
+  testDatabase = await createPiTestDatabase();
   const userId = 'automation-tool-user';
   const agentId = 'canvas-agent';
   const now = new Date();
 
-  const { db } = await import('../app/lib/db');
+  const { db } = testDatabase;
   const {
     aiRuntimeDefaults,
     automationRuns,
@@ -522,7 +529,7 @@ async function main() {
   assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image', 'email_send_draft', 'mcp', 'bash']);
   assert.notEqual(agentLoopStreamFns[0], testStreamFn, 'automation must wrap the provider stream with its explicit output cap');
-  assert.equal(agentLoopThinkingLevels[0], 'off');
+  assert.equal(agentLoopThinkingLevels[0], undefined);
   assert.match(agentLoopSystemPrompts[0] || '', /<!-- canvas-effective-tools:v1 -->/);
   assert.match(agentLoopSystemPrompts[0] || '', /`studio_generate_image`/);
   assert.doesNotMatch(agentLoopSystemPrompts[0] || '', /## Current Workspace File Tree/);
@@ -1060,8 +1067,9 @@ async function main() {
 }
 
 main()
-  .finally(() => {
+  .finally(async () => {
     moduleInternals._load = originalLoad;
+    await testDatabase?.close();
     rmSync(dataDir, { recursive: true, force: true });
   })
   .catch((error) => {

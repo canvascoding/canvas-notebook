@@ -2,15 +2,24 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import Module from 'node:module';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 async function main() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'pi-usage-'));
   process.env.DATA = tempDir;
+  const testDatabase = await createPiTestDatabase();
+  const moduleLoader = Module as unknown as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
+  const originalLoad = moduleLoader._load;
+  moduleLoader._load = function load(request, parent, isMain) {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
+    return originalLoad.call(this, request, parent, isMain);
+  };
 
-  const [{ db }, schema, usageEvents, usageReporting, usageFormat] = await Promise.all([
-    import('../app/lib/db'),
+  const { db } = testDatabase;
+  const [schema, usageEvents, usageReporting, usageFormat] = await Promise.all([
     import('../app/lib/db/schema'),
     import('../app/lib/pi/usage-events'),
     import('../app/lib/pi/usage-reporting'),
@@ -613,6 +622,8 @@ async function main() {
 
     console.log('[PI Usage Test] Passed.');
   } finally {
+    moduleLoader._load = originalLoad;
+    await testDatabase.close();
     await rm(tempDir, { recursive: true, force: true });
   }
 }

@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.9.8.1",
-  "lockfileSha256": "f0ce86f337bffe45b2708eedb0f86e76abc361438168e5acd43bc67df6cb6e4f",
+  "packageVersion": "2026.9.10.9",
+  "lockfileSha256": "e24d5555f13cbb0620a181e50fb2108f66e42cfb229d5a4b94cca993b4f04f7a",
   "summary": {
-    "totalComponents": 1993,
-    "npmComponents": 1969,
+    "totalComponents": 1996,
+    "npmComponents": 1972,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1449,
+    "runtimeComponents": 1452,
     "developmentOnlyComponents": 544,
-    "allowed": 1943,
+    "allowed": 1946,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -11110,7 +11110,7 @@
     },
     {
       "name": "@anthropic-ai/sdk",
-      "versionOrCommit": "0.91.1",
+      "versionOrCommit": "0.123.0",
       "sourceUrl": "github:anthropics/anthropic-sdk-typescript",
       "packagePathOrArtifact": "node_modules/@anthropic-ai/sdk",
       "usage": "runtime",
@@ -11410,7 +11410,7 @@
     },
     {
       "name": "@aws-sdk/core",
-      "versionOrCommit": "3.977.7",
+      "versionOrCommit": "3.978.0",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/core",
       "usage": "runtime",
@@ -11628,7 +11628,7 @@
     },
     {
       "name": "@aws-sdk/eventstream-handler-node",
-      "versionOrCommit": "3.972.32",
+      "versionOrCommit": "3.972.34",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/eventstream-handler-node",
       "usage": "runtime",
@@ -11652,7 +11652,7 @@
     },
     {
       "name": "@aws-sdk/middleware-eventstream",
-      "versionOrCommit": "3.972.27",
+      "versionOrCommit": "3.972.29",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/middleware-eventstream",
       "usage": "runtime",
@@ -11676,7 +11676,7 @@
     },
     {
       "name": "@aws-sdk/middleware-websocket",
-      "versionOrCommit": "3.972.50",
+      "versionOrCommit": "3.972.53",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/middleware-websocket",
       "usage": "runtime",
@@ -11797,7 +11797,7 @@
     },
     {
       "name": "@aws-sdk/types",
-      "versionOrCommit": "3.974.3",
+      "versionOrCommit": "3.974.5",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/types",
       "usage": "runtime",
@@ -11821,7 +11821,7 @@
     },
     {
       "name": "@aws-sdk/util-locate-window",
-      "versionOrCommit": "3.965.9",
+      "versionOrCommit": "3.965.10",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/util-locate-window",
       "usage": "runtime",
@@ -11845,7 +11845,7 @@
     },
     {
       "name": "@aws-sdk/xml-builder",
-      "versionOrCommit": "3.972.38",
+      "versionOrCommit": "3.972.40",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/xml-builder",
       "usage": "runtime",
@@ -13468,9 +13468,32 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@earendil-works/chord",
+      "versionOrCommit": "0.85.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
+      "packagePathOrArtifact": "node_modules/@earendil-works/chord",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/chord@0.85.1",
+      "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
+      "copyrightNotices": [
+        "Copyright (c) 2025 Mario Zechner"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
+    },
+    {
       "name": "@earendil-works/pi-agent-core",
-      "versionOrCommit": "0.84.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/53fa77ccd8a279eb87e92294ef3687b03ff80112",
+      "versionOrCommit": "0.85.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-agent-core",
       "usage": "runtime",
       "distributedIn": [
@@ -13481,19 +13504,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@0.84.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@0.85.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/53fa77ccd8a279eb87e92294ef3687b03ff80112/LICENSE Published source revision: 53fa77ccd8a279eb87e92294ef3687b03ff80112"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
     },
     {
       "name": "@earendil-works/pi-ai",
-      "versionOrCommit": "0.84.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/53fa77ccd8a279eb87e92294ef3687b03ff80112",
+      "versionOrCommit": "0.85.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai",
       "usage": "runtime",
       "distributedIn": [
@@ -13504,19 +13527,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@0.84.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@0.85.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/53fa77ccd8a279eb87e92294ef3687b03ff80112/LICENSE Published source revision: 53fa77ccd8a279eb87e92294ef3687b03ff80112"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
     },
     {
       "name": "@earendil-works/pi-telemetry",
-      "versionOrCommit": "0.84.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/53fa77ccd8a279eb87e92294ef3687b03ff80112",
+      "versionOrCommit": "0.85.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-telemetry",
       "usage": "runtime",
       "distributedIn": [
@@ -13527,14 +13550,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-telemetry@0.84.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-telemetry@0.85.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/53fa77ccd8a279eb87e92294ef3687b03ff80112/LICENSE Published source revision: 53fa77ccd8a279eb87e92294ef3687b03ff80112"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
     },
     {
       "name": "@eigenpal/docx-js-editor",
@@ -15649,30 +15672,6 @@
       "licenseTextSha256": "d374061c40bfb6f99c5033290caefda97a9b3e7e477e5ee02f487143ef2177e8",
       "copyrightNotices": [
         "Copyright (c) 2023 Yokozuna59"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@mistralai/mistralai",
-      "versionOrCommit": "2.2.6",
-      "sourceUrl": "https://github.com/mistralai/client-ts",
-      "packagePathOrArtifact": "node_modules/@mistralai/mistralai",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@mistralai/mistralai/LICENSE",
-      "licenseTextSha256": "ad4b50ffd183d0ec8b3e56fedae59575f13cee1cee74c466b16fad4bed032bed",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2024 Mistral AI",
-        "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -21328,7 +21327,7 @@
     },
     {
       "name": "@smithy/core",
-      "versionOrCommit": "3.32.0",
+      "versionOrCommit": "3.33.3",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/core",
       "usage": "runtime",
@@ -21376,7 +21375,7 @@
     },
     {
       "name": "@smithy/fetch-http-handler",
-      "versionOrCommit": "5.7.0",
+      "versionOrCommit": "5.8.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/fetch-http-handler",
       "usage": "runtime",
@@ -21520,7 +21519,7 @@
     },
     {
       "name": "@smithy/types",
-      "versionOrCommit": "4.17.0",
+      "versionOrCommit": "4.18.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/types",
       "usage": "runtime",
@@ -21586,6 +21585,28 @@
         "(c) You must retain, in the Source form of any Derivative Works",
         "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
         "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@stablelib/base64",
+      "versionOrCommit": "1.0.1",
+      "sourceUrl": "https://github.com/StableLib/stablelib",
+      "packagePathOrArtifact": "node_modules/@stablelib/base64",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@stablelib/base64/LICENSE",
+      "licenseTextSha256": "1605b77bebe018db1fc27bd22fbcdeed1335c617937a124299a8b042b42b0fb6",
+      "copyrightNotices": [
+        "Copyright (C) 2016 Dmitry Chestnykh"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -30068,6 +30089,26 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "fast-sha256",
+      "versionOrCommit": "1.3.0",
+      "sourceUrl": "https://github.com/dchest/fast-sha256-js",
+      "packagePathOrArtifact": "node_modules/fast-sha256",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "Unlicense",
+      "verifiedLicense": "Unlicense",
+      "licenseTextRef": "node_modules/fast-sha256/LICENSE",
+      "licenseTextSha256": "88d9b4eb60579c191ec391ca04c16130572d7eedc4a86daa58bf28c6e14c9bcd",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "fast-uri",
       "versionOrCommit": "3.1.6",
       "sourceUrl": "https://github.com/fastify/fast-uri",
@@ -36383,7 +36424,7 @@
     },
     {
       "name": "openai",
-      "versionOrCommit": "6.26.0",
+      "versionOrCommit": "6.40.0",
       "sourceUrl": "github:openai/openai-node",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/openai",
       "usage": "runtime",
@@ -40669,6 +40710,30 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
+    },
+    {
+      "name": "standardwebhooks",
+      "versionOrCommit": "1.1.1",
+      "sourceUrl": "https://github.com/standard-webhooks/standard-webhooks/tree/b4d2c14fc5b4ccff3ff271e3b087dff812254c59",
+      "packagePathOrArtifact": "node_modules/standardwebhooks",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/standardwebhooks@1.1.1",
+      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/b4d2c14fc5b4ccff3ff271e3b087dff812254c59/LICENSE Published source revision: b4d2c14fc5b4ccff3ff271e3b087dff812254c59"
     },
     {
       "name": "statuses",

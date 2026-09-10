@@ -10,6 +10,7 @@ import {
   updateProviderVerificationStore,
 } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { resolveProviderInstallationRuntimeAuth } from '@/app/lib/agent-runtime-policy/installation-credentials';
+import { omitUnsupportedTemperature } from '@/app/lib/agent-runtime-policy/request-options';
 import {
   AiRuntimeExecutionError,
   resolveProviderInstallationModel,
@@ -276,6 +277,7 @@ export async function verifyProviderInstallation(input: {
               provider: beforeAuth.provider,
               organizationId: input.organizationId,
               userId: input.actorUserId,
+              signal: options?.signal,
             }),
             options?.signal,
           );
@@ -295,7 +297,7 @@ export async function verifyProviderInstallation(input: {
             ? { ...ready.model, baseUrl: auth.baseUrl }
             : ready.model;
           return completeSimple(authenticatedModel, context, {
-            ...options,
+            ...omitUnsupportedTemperature(authenticatedModel, options),
             ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
             ...((auth.headers || options?.headers)
               ? { headers: { ...auth.headers, ...options?.headers } }

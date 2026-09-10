@@ -3,6 +3,7 @@ import { mkdtempSync, promises as fs, rmSync } from 'node:fs';
 import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { MAIN_AGENT_ID } from '../app/lib/agents/main-agent';
 
 type RuntimeSelection = {
   providerInstallationId: string;
@@ -337,6 +338,13 @@ moduleInternals._load = (request, parent, isMain) => {
     return { resolveExecutableAgentRuntime };
   }
 
+  if (matchesModule(request, 'app/lib/workspaces/brand-profile-service')) {
+    return { resolveWorkspaceBrandProfile: async (requestedWorkspaceId: string) => {
+      assert.equal(requestedWorkspaceId, workspaceId);
+      return { profile: { enabled: false } };
+    } };
+  }
+
   if (matchesModule(request, 'app/lib/pi/session-workspace-context')) {
     return { resolveAgentSessionWorkspaceForUser };
   }
@@ -462,7 +470,7 @@ async function testPinnedRuntimeAcrossAgentTurns() {
   assert.equal(runtimeResolutionCalls[1].userId, userId);
   assert.equal(runtimeResolutionCalls[1].workspaceId, workspaceId);
   assert.equal(runtimeResolutionCalls[1].workspaceType, 'team');
-  assert.equal(runtimeResolutionCalls[1].agentId, 'canvas-agent');
+  assert.equal(runtimeResolutionCalls[1].agentId, MAIN_AGENT_ID);
 
   assert.equal(providerCalls.length, 2);
   for (const call of providerCalls) {

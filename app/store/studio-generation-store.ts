@@ -3,15 +3,25 @@ import type { StudioGenerationMode } from '@/app/apps/studio/types/generation';
 import type { StudioPreset } from '@/app/apps/studio/types/presets';
 import {
   BACKGROUND_OPTIONS,
+  OPENAI_INPUT_FIDELITY_OPTIONS,
+  OPENAI_MODERATION_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   QUALITY_OPTIONS,
   getAspectRatiosForProvider,
+  getDefaultOpenAIImageSize,
   getDefaultModelForProvider,
   getImageSizesForModel,
+  getMaxImageCountForProvider,
   getModelsForProvider,
   getProvidersForMode,
   getVideoDurationsForModel,
   getVideoResolutionsForModel,
+  isValidOpenAIImageSize,
+  normalizeOpenAIImageModelId,
+  type OpenAIImageBackground,
+  type OpenAIImageInputFidelity,
+  type OpenAIImageModeration,
+  type OpenAIImageQuality,
   type VideoResolution,
   type StudioVideoDuration,
 } from '@/app/lib/integrations/image-generation-constants';
@@ -44,14 +54,23 @@ export interface StudioGenerationState {
   model: string;
   setModel: (model: string) => void;
 
-  quality: 'low' | 'medium' | 'high' | 'auto';
-  setQuality: (quality: 'low' | 'medium' | 'high' | 'auto') => void;
+  quality: OpenAIImageQuality;
+  setQuality: (quality: OpenAIImageQuality) => void;
 
   outputFormat: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
   setOutputFormat: (format: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav') => void;
 
-  background: 'transparent' | 'opaque' | 'auto';
-  setBackground: (bg: 'transparent' | 'opaque' | 'auto') => void;
+  background: OpenAIImageBackground;
+  setBackground: (bg: OpenAIImageBackground) => void;
+
+  moderation: OpenAIImageModeration;
+  setModeration: (moderation: OpenAIImageModeration) => void;
+
+  outputCompression: number;
+  setOutputCompression: (compression: number) => void;
+
+  inputFidelity: OpenAIImageInputFidelity;
+  setInputFidelity: (fidelity: OpenAIImageInputFidelity) => void;
 
   imageSize: string;
   setImageSize: (size: string) => void;
@@ -138,6 +157,9 @@ type PersistedStudioGenerationOptions = Pick<
   | 'quality'
   | 'outputFormat'
   | 'background'
+  | 'moderation'
+  | 'outputCompression'
+  | 'inputFidelity'
   | 'imageSize'
   | 'showMoreOptions'
   | 'videoResolution'
@@ -211,8 +233,11 @@ function readStoredGenerationOptions(): StoredStudioGenerationOptions {
     const provider = options.provider ?? getDefaultProviderForMode(mode);
 
     const models = getModelsForProvider(mode, provider);
-    if (typeof parsed.model === 'string' && models.some((model) => model.id === parsed.model)) {
-      options.model = parsed.model;
+    const parsedModel = typeof parsed.model === 'string' && provider === 'openai'
+      ? normalizeOpenAIImageModelId(parsed.model)
+      : parsed.model;
+    if (typeof parsedModel === 'string' && models.some((model) => model.id === parsedModel)) {
+      options.model = parsedModel;
     }
     const model = options.model ?? getDefaultModelForProvider(mode, provider);
 
@@ -221,7 +246,13 @@ function readStoredGenerationOptions(): StoredStudioGenerationOptions {
       options.aspectRatio = parsed.aspectRatio;
     }
 
-    if (typeof parsed.count === 'number' && Number.isInteger(parsed.count) && parsed.count >= 1 && parsed.count <= 4) {
+    const maximumCount = getMaxImageCountForProvider(mode, provider);
+    if (
+      typeof parsed.count === 'number'
+      && Number.isInteger(parsed.count)
+      && parsed.count >= 1
+      && parsed.count <= maximumCount
+    ) {
       options.count = parsed.count;
     }
 
@@ -243,9 +274,32 @@ function readStoredGenerationOptions(): StoredStudioGenerationOptions {
       options.background = parsed.background;
     }
 
-    const imageSizes = getImageSizesForModel(model);
-    if (typeof parsed.imageSize === 'string' && imageSizes.includes(parsed.imageSize)) {
-      options.imageSize = parsed.imageSize;
+    if (hasOption(OPENAI_MODERATION_OPTIONS, parsed.moderation)) {
+      options.moderation = parsed.moderation;
+    }
+    if (
+      typeof parsed.outputCompression === 'number'
+      && Number.isInteger(parsed.outputCompression)
+      && parsed.outputCompression >= 0
+      && parsed.outputCompression <= 100
+    ) {
+      options.outputCompression = parsed.outputCompression;
+    }
+    if (hasOption(OPENAI_INPUT_FIDELITY_OPTIONS, parsed.inputFidelity)) {
+      options.inputFidelity = parsed.inputFidelity;
+    }
+
+    if (typeof parsed.imageSize === 'string') {
+      if (mode === 'image' && provider === 'openai') {
+        if (isValidOpenAIImageSize(parsed.imageSize)) {
+          options.imageSize = parsed.imageSize.trim().toLowerCase();
+        }
+      } else {
+        const imageSizes = getImageSizesForModel(model);
+        if (imageSizes.includes(parsed.imageSize)) {
+          options.imageSize = parsed.imageSize;
+        }
+      }
     }
 
     if (typeof parsed.showMoreOptions === 'boolean') {
@@ -295,6 +349,9 @@ function writeStoredGenerationOptions(state: PersistedStudioGenerationOptions | 
       quality: state.quality,
       outputFormat: state.outputFormat,
       background: state.background,
+      moderation: state.moderation,
+      outputCompression: state.outputCompression,
+      inputFidelity: state.inputFidelity,
       imageSize: state.imageSize,
       showMoreOptions: state.showMoreOptions,
       videoResolution: state.videoResolution,
@@ -325,6 +382,11 @@ export function createStudioGenerationStore() {
   const initialModel = storedOptions.model ?? getDefaultModelForProvider(initialMode, initialProvider);
   const initialAspectRatio = storedOptions.aspectRatio ?? (initialMode === 'video' ? '16:9' : '1:1');
   const initialOutputFormat = storedOptions.outputFormat ?? (initialMode === 'sound' ? 'mp3' : 'png');
+  const initialImageSize = storedOptions.imageSize ?? (
+    initialMode === 'image' && initialProvider === 'openai'
+      ? getDefaultOpenAIImageSize(initialAspectRatio)
+      : '1K'
+  );
 
   return {
   mode: initialMode,
@@ -355,7 +417,16 @@ export function createStudioGenerationStore() {
   background: storedOptions.background ?? 'auto',
   setBackground: (background) => set((state) => persistGenerationOptionPatch(state, { background })),
 
-  imageSize: storedOptions.imageSize ?? '1K',
+  moderation: storedOptions.moderation ?? 'auto',
+  setModeration: (moderation) => set((state) => persistGenerationOptionPatch(state, { moderation })),
+
+  outputCompression: storedOptions.outputCompression ?? 100,
+  setOutputCompression: (outputCompression) => set((state) => persistGenerationOptionPatch(state, { outputCompression })),
+
+  inputFidelity: storedOptions.inputFidelity ?? 'low',
+  setInputFidelity: (inputFidelity) => set((state) => persistGenerationOptionPatch(state, { inputFidelity })),
+
+  imageSize: initialImageSize,
   setImageSize: (imageSize) => set((state) => persistGenerationOptionPatch(state, { imageSize })),
 
   showMoreOptions: storedOptions.showMoreOptions ?? readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY),

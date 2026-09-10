@@ -2,11 +2,18 @@ import type { StudioGeneratePayload } from '../types/generation';
 import type { StudioGenerationMode } from '../types/generation';
 import type { StudioPreset } from '../types/presets';
 import type { ReferenceTag, StudioGenerationState } from '@/app/store/studio-generation-store';
-import type { StudioVideoDuration, VideoResolution } from '@/app/lib/integrations/image-generation-constants';
+import type {
+  OpenAIImageBackground,
+  OpenAIImageInputFidelity,
+  OpenAIImageModeration,
+  OpenAIImageQuality,
+  StudioVideoDuration,
+  VideoResolution,
+} from '@/app/lib/integrations/image-generation-constants';
 
 const STUDIO_GENERATE_HANDOFF_STORAGE_KEY = 'canvas.studio.pendingGenerateRequest';
 const STUDIO_GENERATE_HANDOFF_MAX_AGE_MS = 5 * 60 * 1000;
-const STUDIO_GENERATE_HANDOFF_VERSION = 1;
+const STUDIO_GENERATE_HANDOFF_VERSION = 2;
 
 export interface StudioGenerateHandoffDraft {
   mode: StudioGenerationMode;
@@ -14,9 +21,12 @@ export interface StudioGenerateHandoffDraft {
   count: number;
   provider: string;
   model: string;
-  quality: 'low' | 'medium' | 'high' | 'auto';
+  quality: OpenAIImageQuality;
   outputFormat: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
-  background: 'transparent' | 'opaque' | 'auto';
+  background: OpenAIImageBackground;
+  moderation: OpenAIImageModeration;
+  outputCompression: number;
+  inputFidelity: OpenAIImageInputFidelity;
   imageSize: string;
   showMoreOptions: boolean;
   videoResolution: VideoResolution;
@@ -55,6 +65,9 @@ type StudioGenerateHandoffState = Pick<
   | 'quality'
   | 'outputFormat'
   | 'background'
+  | 'moderation'
+  | 'outputCompression'
+  | 'inputFidelity'
   | 'imageSize'
   | 'showMoreOptions'
   | 'videoResolution'
@@ -86,6 +99,9 @@ export function createStudioGenerateHandoffDraft(state: StudioGenerateHandoffSta
     quality: state.quality,
     outputFormat: state.outputFormat,
     background: state.background,
+    moderation: state.moderation,
+    outputCompression: state.outputCompression,
+    inputFidelity: state.inputFidelity,
     imageSize: state.imageSize,
     showMoreOptions: state.showMoreOptions,
     videoResolution: state.videoResolution,

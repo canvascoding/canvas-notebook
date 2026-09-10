@@ -1,4 +1,10 @@
 import type { StudioPreset } from './presets';
+import type {
+  OpenAIImageBackground,
+  OpenAIImageInputFidelity,
+  OpenAIImageModeration,
+  OpenAIImageQuality,
+} from '@/app/lib/integrations/image-generation-constants';
 
 export type StudioGenerationMode = 'image' | 'video' | 'sound';
 export type StudioGenerationStatus = 'pending' | 'generating' | 'completed' | 'failed';
@@ -66,9 +72,14 @@ export interface StudioGeneratePayload {
   count?: number;
   provider?: string;
   model?: string;
-  quality?: 'low' | 'medium' | 'high' | 'auto';
+  quality?: OpenAIImageQuality;
   output_format?: 'png' | 'jpeg' | 'webp' | 'mp3' | 'wav';
-  background?: 'transparent' | 'opaque' | 'auto';
+  background?: OpenAIImageBackground;
+  moderation?: OpenAIImageModeration;
+  output_compression?: number;
+  input_fidelity?: OpenAIImageInputFidelity;
+  stream?: boolean;
+  partial_images?: number;
   source_output_id?: string;
   extra_reference_urls?: string[];
   video_reference_urls?: string[];

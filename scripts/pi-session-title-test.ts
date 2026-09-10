@@ -4,12 +4,14 @@ import Module from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { and, eq } from 'drizzle-orm';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { AssistantMessage, AssistantMessageEventStream, Model } from '@earendil-works/pi-ai';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-session-title-'));
 process.env.DATA = dataDir;
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>> | undefined;
 
 const now = new Date('2026-07-14T12:00:00.000Z');
 const model = {
@@ -51,16 +53,18 @@ function message(text: string): AgentMessage[] {
 }
 
 async function main() {
+  testDatabase = await createPiTestDatabase();
   const moduleLoader = Module as unknown as {
     _load: (request: string, parent: unknown, isMain: boolean) => unknown;
   };
   const originalLoad = moduleLoader._load;
   moduleLoader._load = function loadWithServerOnlyMock(request, parent, isMain) {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
     if (request === 'server-only') return {};
     return originalLoad.call(this, request, parent, isMain);
   };
 
-  const { db } = await import('../app/lib/db');
+  const { db } = testDatabase;
   const { piSessions, sessionChannelLinks, user } = await import('../app/lib/db/schema');
   const { generatePendingPiSessionTitle } = await import('../app/lib/pi/session-title-generator');
 
@@ -197,7 +201,8 @@ async function main() {
 
 main()
   .then(() => console.log('pi-session-title-test: ok'))
-  .finally(() => {
+  .finally(async () => {
+    await testDatabase?.close();
     rmSync(dataDir, { recursive: true, force: true });
   })
   .catch((error) => {

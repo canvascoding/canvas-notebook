@@ -1365,7 +1365,7 @@ contentKind: document
     await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0);
   });
 
-  test('should switch runtime badge to working immediately on send and back to ready when final message lands', async ({ page }) => {
+  test('should switch the composer to stop immediately on send and back to send when the final message lands', async ({ page }) => {
     const sessionId = 'sess-runtime-badge';
     await setupMockWebSocket(page, {
       sessionId,
@@ -1393,18 +1393,17 @@ contentKind: document
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
-    const runtimeBadge = page.getByTestId('chat-runtime-busy-badge');
-
-    await expect(runtimeBadge).toContainText(/ready/i);
+    const sendButton = page.getByTestId('chat-send');
+    await expect(sendButton).toHaveAttribute('data-action', 'send');
 
     await input.fill('Reply with exactly OK.');
-    await page.getByTestId('chat-send').click();
+    await sendButton.click();
 
-    await expect(runtimeBadge).toContainText(/working/i, { timeout: 1000 });
+    await expect(sendButton).toHaveAttribute('data-action', 'stop', { timeout: 1000 });
     const assistantMessage = page.getByTestId('chat-message-assistant').first();
     await expect(assistantMessage).toContainText(/\S/, { timeout: 30000 });
     await expect(assistantMessage.getByTestId('chat-assistant-streaming-indicator')).toHaveCount(0, { timeout: 30000 });
-    await expect(runtimeBadge).toContainText(/ready/i, { timeout: 5000 });
+    await expect(sendButton).toHaveAttribute('data-action', 'send', { timeout: 5000 });
   });
 
   test('should keep the current scroll position when streaming continues after the user scrolls up', async ({ page }) => {
@@ -1998,7 +1997,7 @@ contentKind: document
     await expect(page.getByTestId('chat-context-details')).toContainText('Earlier messages are available as a summary.');
     await expect(page.getByTestId('chat-compact')).toBeDisabled();
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('chat-runtime-notice')).toContainText('Context is almost full (96% used).');
+    await expect(page.getByTestId('chat-runtime-notice')).toContainText('Context is at 96% of the automatic compaction trigger.');
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Summarize afterwards', { timeout: 15000 });
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Stop and inspect README');
 
@@ -2155,7 +2154,7 @@ contentKind: document
     await page.getByRole('button', { name: /Open latest session Stopped runtime session/i }).click();
 
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Continue after stop', { timeout: 15000 });
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('1 queued');
+    await expect(page.getByTestId('chat-queue-item')).toHaveCount(1);
     expect(documentRequests).toHaveLength(documentRequestCountBeforeSessionOpen);
     expect(new URL(page.url()).searchParams.has('session')).toBe(false);
 
@@ -2257,7 +2256,7 @@ contentKind: document
     });
 
     await page.goto('/notebook?chat=open');
-    const mobileChat = page.getByRole('tabpanel', { name: 'AI Chat' });
+    const mobileChat = page.getByTestId('notebook-mobile-chat');
     await expect(mobileChat).toBeVisible();
     const documentRequestCountBeforeSessionOpen = documentRequests.length;
 
@@ -2449,6 +2448,19 @@ contentKind: document
 
     await mockEffectiveAgentRuntime(page);
 
+    await page.route('**/api/user-preferences', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            lastActiveAgentId: 'canvas-agent',
+          },
+        }),
+      });
+    });
+
     await page.route(/\/api\/sessions(\?.*)?$/, async (route) => {
       const request = route.request();
       if (request.method() === 'GET') {
@@ -2478,7 +2490,7 @@ contentKind: document
     await expect(page.getByTestId('chat-runtime-banner')).toHaveCount(0);
     await expect(page.getByTestId('chat-runtime-busy-badge')).toHaveCount(0);
     await expect(page.getByTestId('chat-agent-id')).toBeVisible();
-    await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Canvas Agent/);
+    await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /^Select agent: .+/);
     await expect(page.getByTestId('chat-header-menu-trigger')).toBeVisible();
     await expect(page.getByTestId('chat-mobile-details-toggle')).toHaveCount(0);
 

@@ -54,6 +54,7 @@ import {
 } from '@/app/lib/pi/model-resolver';
 import { ollamaOpenAiBaseUrl } from '@/app/lib/agent-runtime-policy/ollama-url';
 import { createVisionFallbackStreamFn } from '@/app/lib/pi/vision-fallback-stream';
+import { runWithAbortSignal } from '@/app/lib/concurrency/run-with-abort-signal';
 
 export class AiRuntimeExecutionError extends Error {
   readonly status = 409;
@@ -135,7 +136,9 @@ function applyOllamaEndpoint(
 async function runtimeAuth(input: {
   provider: AiProviderInstallation;
   context: AiEffectiveRuntimeResolution['context'];
+  signal?: AbortSignal;
 }): Promise<ProviderInstallationRuntimeAuth> {
+  input.signal?.throwIfAborted();
   if (
     input.provider.credentialScope === 'user'
     && !runtimePrincipalCanUseUserCredentials(input.context)
@@ -154,8 +157,10 @@ async function runtimeAuth(input: {
       provider: input.provider,
       organizationId: input.context.organizationId,
       userId: credentialUserId,
+      signal: input.signal,
     });
   } catch {
+    input.signal?.throwIfAborted();
     throw new AiRuntimeExecutionError(
       'CREDENTIAL_LOOKUP_FAILED',
       'Credentials for the selected provider installation could not be read.',
@@ -170,8 +175,9 @@ async function runtimeAuth(input: {
   return auth;
 }
 
-function runtimeErrorStream(model: Model<Api>, error: unknown): AssistantMessageEventStream {
-  const message = error instanceof AiRuntimeExecutionError
+function runtimeErrorStream(model: Model<Api>, error: unknown, signal?: AbortSignal): AssistantMessageEventStream {
+  const stopReason = signal?.aborted ? 'aborted' : 'error';
+  const message = signal?.aborted ? 'The provider request was aborted.' : error instanceof AiRuntimeExecutionError
     ? error.message
     : 'The selected AI runtime could not start the provider request.';
   const output: AssistantMessage = {
@@ -188,12 +194,12 @@ function runtimeErrorStream(model: Model<Api>, error: unknown): AssistantMessage
       totalTokens: 0,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     },
-    stopReason: 'error',
+    stopReason,
     errorMessage: message,
     timestamp: Date.now(),
   };
   const stream = createAssistantMessageEventStream();
-  queueMicrotask(() => stream.push({ type: 'error', reason: 'error', error: output }));
+  queueMicrotask(() => stream.push({ type: 'error', reason: stopReason, error: output }));
   return stream;
 }
 
@@ -542,7 +548,8 @@ async function materializeResolution(
     return latestProvider;
   };
 
-  const resolveRequestAuth = async (): Promise<ProviderInstallationRuntimeAuth> => {
+  const resolveRequestAuth = async (signal?: AbortSignal): Promise<ProviderInstallationRuntimeAuth> => {
+    signal?.throwIfAborted();
     // Resolve the effective selection first so concurrent session changes are
     // rejected before touching provider credentials.
     const latestResolution = await resolveEffectiveAgentRuntime(context);
@@ -572,7 +579,9 @@ async function materializeResolution(
     const auth = await runtimeAuth({
       provider: latestProvider,
       context: latestResolution.context,
+      signal,
     });
+    signal?.throwIfAborted();
 
     // Credential/OAuth lookup can perform filesystem, database, or network
     // work. Revalidate catalog, workspace policy, and the selected managed
@@ -580,6 +589,7 @@ async function materializeResolution(
     await assertRuntimeExecutionState(requestRevisions, {
       validateManagedCatalog: true,
     });
+    signal?.throwIfAborted();
     return auth;
   };
 
@@ -591,7 +601,8 @@ async function materializeResolution(
           'The active runtime model changed before the provider request started. Try again.',
         );
       }
-      const auth = await resolveRequestAuth();
+      const auth = await runWithAbortSignal(options?.signal, () => resolveRequestAuth(options?.signal));
+      options?.signal?.throwIfAborted();
       const authenticatedModel = auth.baseUrl
         ? { ...requestedModel, baseUrl: auth.baseUrl }
         : requestedModel;
@@ -605,7 +616,7 @@ async function materializeResolution(
       });
     } catch (error) {
       recreationRequired ||= isRuntimeRecreationRequiredError(error);
-      return runtimeErrorStream(requestedModel, error);
+      return runtimeErrorStream(requestedModel, error, options?.signal);
     }
   };
 

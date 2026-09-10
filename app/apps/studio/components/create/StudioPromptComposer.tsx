@@ -5,8 +5,10 @@ import { useMemo } from 'react';
 import type { StudioGenerationState, ReferenceTag } from '@/app/store/studio-generation-store';
 import {
   getAspectRatiosForProvider,
+  getDefaultOpenAIImageSize,
   getDefaultModelForProvider,
   getImageSizesForModel,
+  getMaxImageCountForProvider,
   getVideoDurationsForModel,
   getVideoResolutionsForModel,
   type StudioVideoDuration,
@@ -279,19 +281,37 @@ export function StudioPromptComposer({
         selectedPreset={state.presetRef}
         onPresetChange={state.setPresetRef}
         aspectRatio={state.aspectRatio}
-        onAspectRatioChange={state.setAspectRatio}
+        onAspectRatioChange={(nextAspectRatio) => {
+          state.setAspectRatio(nextAspectRatio);
+          if (state.mode === 'image' && state.provider === 'openai') {
+            state.setImageSize(getDefaultOpenAIImageSize(nextAspectRatio));
+          }
+        }}
         count={state.count}
         onCountChange={state.setCount}
         provider={state.provider}
         onProviderChange={(nextProvider) => {
+          const nextModel = getDefaultModelForProvider(state.mode, nextProvider);
           state.setProvider(nextProvider);
-          state.setModel(getDefaultModelForProvider(state.mode, nextProvider));
+          state.setModel(nextModel);
+          state.setCount(Math.min(state.count, getMaxImageCountForProvider(state.mode, nextProvider)));
           const validRatios = getAspectRatiosForProvider(state.mode, nextProvider);
+          const nextAspectRatio = validRatios.includes(state.aspectRatio as never)
+            ? state.aspectRatio
+            : state.mode === 'video'
+              ? '16:9'
+              : '1:1';
           if (!validRatios.includes(state.aspectRatio as never)) {
-            state.setAspectRatio(state.mode === 'video' ? '16:9' : '1:1');
+            state.setAspectRatio(nextAspectRatio);
+          }
+          if (state.mode === 'image') {
+            if (nextProvider === 'openai') {
+              state.setImageSize(getDefaultOpenAIImageSize(nextAspectRatio));
+            } else {
+              state.setImageSize(getImageSizesForModel(nextModel)[0] || '1K');
+            }
           }
           if (state.mode === 'video') {
-            const nextModel = getDefaultModelForProvider(state.mode, nextProvider);
             const validRes = getVideoResolutionsForModel(nextModel);
             state.setVideoResolution(validRes.includes(state.videoResolution) ? state.videoResolution : validRes[0] as VideoResolution);
             const validDur = getVideoDurationsForModel(nextModel);
@@ -305,9 +325,13 @@ export function StudioPromptComposer({
         model={state.model}
         onModelChange={(nextModel) => {
           state.setModel(nextModel);
-          const validSizes = getImageSizesForModel(nextModel);
-          if (validSizes.length > 0 && !validSizes.includes(state.imageSize)) {
-            state.setImageSize(validSizes[0]);
+          if (state.mode === 'image' && state.provider === 'openai') {
+            state.setImageSize(getDefaultOpenAIImageSize(state.aspectRatio));
+          } else {
+            const validSizes = getImageSizesForModel(nextModel);
+            if (validSizes.length > 0 && !validSizes.includes(state.imageSize)) {
+              state.setImageSize(validSizes[0]);
+            }
           }
           if (state.mode === 'video') {
             const validRes = getVideoResolutionsForModel(nextModel);
@@ -329,6 +353,12 @@ export function StudioPromptComposer({
         onOutputFormatChange={state.setOutputFormat}
         background={state.background}
         onBackgroundChange={state.setBackground}
+        moderation={state.moderation}
+        onModerationChange={state.setModeration}
+        outputCompression={state.outputCompression}
+        onOutputCompressionChange={state.setOutputCompression}
+        inputFidelity={state.inputFidelity}
+        onInputFidelityChange={state.setInputFidelity}
         imageSize={state.imageSize}
         onImageSizeChange={state.setImageSize}
         videoResolution={state.videoResolution}

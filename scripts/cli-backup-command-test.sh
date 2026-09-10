@@ -21,8 +21,18 @@ case "${1:-}" in
   compose)
     shift
     printf 'compose %s\n' "$*" >> "${CANVAS_TEST_DOCKER_LOG:?}"
-    if [[ "$*" == *"ps -q canvas-notebook"* ]]; then
+    if [[ "$*" == *"ps -q postgres"* ]]; then
+      printf 'fake-postgres-container-id\n'
+    elif [[ "$*" == *"ps -q canvas-notebook"* ]]; then
       printf 'fake-container-id\n'
+    fi
+    exit 0
+    ;;
+  inspect)
+    shift
+    printf 'inspect %s\n' "$*" >> "${CANVAS_TEST_DOCKER_LOG:?}"
+    if [[ "$*" == *"{{.State.Status}}"* ]]; then
+      printf 'running\n'
     fi
     exit 0
     ;;
@@ -45,6 +55,12 @@ case "${1:-}" in
 esac
 SH
 chmod +x "$TMP_DIR/bin/docker"
+
+cat > "$TMP_DIR/bin/curl" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+chmod +x "$TMP_DIR/bin/curl"
 
 export PATH="$TMP_DIR/bin:$PATH"
 export CANVAS_INSTALL_DIR="$TMP_DIR/install"

@@ -1,5 +1,5 @@
 
-import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
+import { agentLoop, type AgentContext, type AgentLoopConfig, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Api, ProviderId } from '@earendil-works/pi-ai';
 
 import {
@@ -692,9 +692,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             };
           },
         );
+        const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
         const config = {
           model,
-          thinkingLevel: executableRuntime.selection.selection.thinkingLevel as ThinkingLevel,
+          reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
           convertToLlm: async (messages: AgentMessage[]) => {
             latestProviderSourceMessages = messages.slice();
             const preparedPayload = await prepareExactAutomationPayload(messages);
@@ -742,7 +743,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             };
           },
           sessionId: piSessionId,
-        };
+        } satisfies AgentLoopConfig;
         const context: AgentContext = {
           systemPrompt,
           messages: preparedMessages.slice(0, -1),

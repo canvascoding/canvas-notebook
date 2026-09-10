@@ -11,6 +11,40 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.10.9] - 2026-09-10
+
+### Added
+
+- Added secure personal Direct MCP connections, connection health, scoped approvals, and zero-configuration MCP App widgets in chat.
+- Added authenticated inbound-email attachment downloads and workspace-aware save flows.
+- Added file-scoped Markdown guest collaboration, recoverable Office document versions, and durable rich-document editing lifecycle support.
+
+### Changed
+
+- Made PostgreSQL the sole runtime database path across application services, installer configuration, backups, migrations, and agent runtime state.
+- Improved agent scratch-workspace isolation, headless Office tooling, and protected PDF and HTML preview handling.
+- Improved context compaction, email caching, workspace widgets, and collaborative editor reliability.
+
+### Security
+
+- Hardened MCP OAuth credentials, network boundaries, public request handling, file locking, and sandboxed agent Bash execution.
+
+### Fixed
+
+- Corrected same-origin MCP App proxy routing, PostgreSQL query compatibility, collaboration recovery and rename handling, and email attachment persistence.
+- Fixed the portable CLI Caddy build so Linux artifacts no longer compile application-only modules.
+- Fixed the PostgreSQL reconciliation release check for valid managed-team deployments.
+- Fixed the PostgreSQL backup CLI release test to model the managed database container.
+- Fixed the backup CLI release test health-check stub so it cannot wait on an external service.
+- Fixed update rollback coverage for mandatory PostgreSQL preflight and made its deadline checks deterministic.
+- Terminated the complete image-pull process tree when an update deadline expires, including child processes on Linux hosts.
+- Unified the local and GitHub release safety gates so tags cannot bypass CLI update and artifact verification.
+- Hardened the Linux deadline test with a canonical managed-Postgres fixture and a longer simulated image-pull hang.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.8.1] - 2026-09-08
 
 ### Added
