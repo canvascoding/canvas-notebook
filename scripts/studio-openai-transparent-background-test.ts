@@ -7,6 +7,7 @@ import {
   OPENAI_MODELS,
   QUALITY_OPTIONS,
   getMaxImageCountForProvider,
+  getOpenAIImageRequestValidationError,
   getOpenAIImageSizeValidationError,
   normalizeOpenAIImageModelId,
   normalizeOpenAIImageOutputFormat,
@@ -32,6 +33,27 @@ assert.match(getOpenAIImageSizeValidationError('1537x864') || '', /divisible by 
 assert.match(getOpenAIImageSizeValidationError('4096x1024') || '', /3840/);
 assert.match(getOpenAIImageSizeValidationError('3840x1024') || '', /1:3/);
 assert.match(getOpenAIImageSizeValidationError('512x512') || '', /655,360/);
+
+assert.equal(getOpenAIImageRequestValidationError({
+  model: OPENAI_IMAGE_MODEL_ID,
+  count: 10,
+  quality: 'max',
+  outputFormat: 'webp',
+  background: 'transparent',
+  moderation: 'low',
+  outputCompression: 80,
+  inputFidelity: 'high',
+  imageSize: '1536x864',
+  stream: true,
+  partialImages: 3,
+}), null);
+assert.match(getOpenAIImageRequestValidationError({ quality: 'ultra' }) || '', /Quality/);
+assert.match(getOpenAIImageRequestValidationError({ outputCompression: 101, outputFormat: 'jpeg' }) || '', /0 and 100/);
+assert.match(getOpenAIImageRequestValidationError({ outputCompression: 80, outputFormat: 'png' }) || '', /JPEG or WebP/);
+assert.match(getOpenAIImageRequestValidationError({ imageSize: '1537x864' }) || '', /divisible by 16/);
+assert.match(getOpenAIImageRequestValidationError({ stream: false, partialImages: 1 }) || '', /streaming/);
+assert.match(getOpenAIImageRequestValidationError({ count: 11 }) || '', /between 1 and 10/);
+assert.match(getOpenAIImageRequestValidationError({ model: 'gpt-image-2.5-unknown' }) || '', /Model/);
 
 const studioToolSource = readFileSync(path.join(process.cwd(), 'app/lib/pi/studio-tools.ts'), 'utf8');
 assert.match(studioToolSource, /For a transparent background, use png \(recommended\) or webp; jpeg does not support transparency\./);
@@ -59,6 +81,11 @@ for (const apiParameter of [
 ]) {
   assert.match(providerSource, new RegExp(apiParameter), `Provider must pass ${apiParameter}`);
 }
+
+const generationServiceSource = readFileSync(path.join(process.cwd(), 'app/lib/integrations/studio-generation-service.ts'), 'utf8');
+const validationPosition = generationServiceSource.indexOf('getOpenAIImageRequestValidationError({');
+const persistencePosition = generationServiceSource.indexOf('const requestMetadata = JSON.stringify({');
+assert.ok(validationPosition >= 0 && validationPosition < persistencePosition, 'OpenAI options must be validated before persistence');
 
 class MemoryStorage {
   private values = new Map<string, string>();
