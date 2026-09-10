@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { getTableConfig } from 'drizzle-orm/pg-core';
 import { Pool, types } from 'pg';
+import { randomUUID } from 'node:crypto';
 
 import * as schema from './schema';
 const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
@@ -12,6 +13,7 @@ import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migrati
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
+import { postgresFailureCode } from './postgres-diagnostics';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
@@ -658,10 +660,24 @@ export function createPostgresPool(): Pool {
 
   configurePgTypeParsers();
 
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     ...resolvePostgresRuntimeOptions(),
   });
+  const poolId = randomUUID();
+  // pg removes a failed idle client itself. Do not release it a second time,
+  // or turn this background error into a fatal unhandled EventEmitter error.
+  pool.on('error', (error) => {
+    try {
+      console.error('[Database] PostgreSQL idle client failed.', {
+        errorCode: postgresFailureCode(error), poolId, pid: process.pid,
+        totalCount: pool.totalCount, idleCount: pool.idleCount, waitingCount: pool.waitingCount,
+      });
+    } catch {
+      // Diagnostics must not crash the application if a logger also fails.
+    }
+  });
+  return pool;
 }
 
 export function createPostgresDrizzle(pool: Pool) {

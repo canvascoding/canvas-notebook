@@ -98,6 +98,7 @@ const { handleHtmlPreviewBoundary } = require('./server/html-preview-boundary');
 const { isHtmlPreviewHost } = require('./app/lib/html-preview-origin');
 const { handleHttpRequestSafely } = require('./server/http-request-boundary');
 const { observeStartupTask } = require('./app/lib/startup/observed-task');
+const { postgresFailureCode } = require('./app/lib/db/postgres-diagnostics');
 // Terminal service now runs as separate process via Unix Socket
 // See server/terminal-service.ts
 const {
@@ -871,6 +872,8 @@ async function startServer() {
 }
 
 startServer().catch((error) => {
-    console.error('Failed to start server', error);
+    // Phase-specific logs above identify the failing gate. A wrapped DB error
+    // here may contain SQL parameters or credentials; emit only a safe code.
+    console.error('Failed to start server', { errorCode: postgresFailureCode(error) });
     process.exit(1);
 });
