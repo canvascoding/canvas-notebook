@@ -1,6 +1,6 @@
 # PostgreSQL-Startup-Regression: Fix- und Testplan
 
-Stand: 10.09.2026. Review-Basis: `96b0ff0f47c67e2f3e206dc59ef98590896e0bce` / `v2026.9.10.10`. Vergleich: `v2026.9.10.9` (`d34fd045`). Status: **T1–T4 implementiert; Regressionstests und native PostgreSQL-Matrix ausgeführt.** Aktueller Commit- und Prüfstand: [Implementierungsbericht](postgres-startup-regression-verification.md). Die Befunde und Zeilenangaben unten beschreiben die ursprüngliche `.10`-Basis. Keine Veröffentlichung, Production-Änderung, Container-Aktion oder Browser-Automation ausgeführt.
+Stand: 10.09.2026. Review-Basis: `96b0ff0f47c67e2f3e206dc59ef98590896e0bce` / `v2026.9.10.10`. Vergleich: `v2026.9.10.9` (`d34fd045`). Status: **T1–T4 implementiert; Regressionstests und native PostgreSQL-Matrix ausgeführt.** Quell-/Driver-Prüfstand: [Implementierungsbericht](postgres-startup-regression-verification.md). Die anschließend ausdrücklich autorisierte Docker-, Neuinstallations- und Browserprüfung steht im [Container-Prüfbericht](postgres-startup-container-verification.md). Die Befunde und Zeilenangaben unten beschreiben die ursprüngliche `.10`-Basis. Keine Veröffentlichung oder Production-Änderung.
 
 ## 1. Entscheidung
 
@@ -93,7 +93,7 @@ GitNexus erfasst Promise-Ownership, Zeitabstände und dynamisch geladene Bundle-
 
 ## 6. Kleine, sequenziell abzuarbeitende Änderungspakete
 
-Jedes Paket erhält Code, seine Tests und einen eigenen Commit. Erst das aktuelle Paket fertigstellen; kein Push, Tag, Release oder Production-Eingriff. Die folgenden Entwürfe wurden für T1–T4 umgesetzt; konkrete Abweichungen und Ergebnisse stehen im Implementierungsbericht. T5 bleibt ein gesonderter vollständiger Laufzeittest.
+Jedes Paket erhält Code, seine Tests und einen eigenen Commit. Erst das aktuelle Paket fertigstellen; kein Push, Tag, Release oder Production-Eingriff. Die folgenden Entwürfe wurden für T1–T4 umgesetzt; konkrete Abweichungen und Ergebnisse stehen im Implementierungsbericht. Die gesonderte T5-Laufzeitprüfung und ihre ausdrücklich verbleibenden Grenzen stehen im Container-Prüfbericht.
 
 ### T1 — Timeout-Verhalten von .9 wiederherstellen
 

@@ -2,6 +2,8 @@
 
 Stand: 10.09.2026. Produkt-/Testkandidat: `09baebb9b867fb9031fd5c3345ad09ec6d7491fd`, Branch `codex/postgres-startup-regression-plan`. Basis: `.10` / `96b0ff0f`. [Ursprünglicher Plan](postgres-startup-regression-plan.md), [Pool-Inventar](postgres-startup-pool-consumers.md).
 
+**Historischer Quell-/Driver-Prüfstand vor der Containerfreigabe.** Die danach autorisierte Docker-Paritätskorrektur, der zusätzliche Session-Zeitstempel-Fix sowie tatsächliche Container-, Neuinstallations- und Browserprüfungen des Kandidaten `37b7751f` sind im [nachfolgenden Prüfbericht](postgres-startup-container-verification.md) dokumentiert. Die unten damals offenen Betriebsschritte sind nicht der aktuelle Abschlussstatus.
+
 ## Ergebnis und Umfang
 
 Der Timeout-Default ist wieder `0`. Positive Betreiber-Overrides bleiben wirksam, einschließlich `15000`; Poolgröße 10, Idle-Timeout 30 Sekunden, Session-Workspace-Leak-Fix und Dispatch-Limiter bleiben unverändert. Keine globale Pool-Singleton- oder Mutex-Umstellung.
@@ -70,7 +72,7 @@ Unveränderter SHA-256 von `package-lock.json` auf Host und Ubuntu:
 
 `npm ci --legacy-peer-deps` ließ 42 im Lockfile vorhandene Peer-Pakete aus, unter anderem `@testing-library/dom` und Webpack-Abhängigkeiten. Das verursachte den ursprünglichen Lizenzinventarfehler und fehlende UI-Test-Exports im Typecheck. `npm ci --force` mit gepinnter Toolchain installierte diese Pakete aus demselben Lockfile trotz bestehender veralteter React-Peer-Bereiche. Anschließend: 1996 Lizenzkomponenten, 0 Blocker, `gate=approved`; keine Lizenzfreigabe, Paketversion oder Lockfile-Änderung.
 
-**Offene Build-Parität:** Das Dockerfile verwendet weiterhin `npm ci --legacy-peer-deps`. Der grüne Quellbuild mit vollständiger Peer-Installation beweist deshalb noch keinen grünen unveränderten Docker-Build. Vor Container-/Release-Abnahme Peer-Metadaten bzw. Installationsmodus separat entscheiden und im echten Image prüfen; kein ungeprüftes `--force` in das Dockerfile übernommen. npm meldet außerdem acht bestehende Audit-Befunde (2 moderate/5 high/1 critical), nicht Gegenstand dieser Regression; kein pauschales Audit-Fix ausgeführt.
+**Damals offene Build-Parität:** Das Dockerfile verwendete zu diesem Prüfstand weiterhin `npm ci --legacy-peer-deps`. Der grüne Quellbuild mit vollständiger Peer-Installation bewies deshalb noch keinen grünen unveränderten Docker-Build. Vor Container-/Release-Abnahme waren Peer-Metadaten bzw. Installationsmodus separat zu entscheiden und im echten Image zu prüfen; zu diesem Zeitpunkt war kein `--force` in das Dockerfile übernommen. Die inzwischen geprüfte Entscheidung steht im Folgeprüfbericht. npm meldete außerdem acht bestehende Audit-Befunde (2 moderate/5 high/1 critical), nicht Gegenstand dieser Regression; kein pauschales Audit-Fix ausgeführt.
 
 ## Ubuntu-Reproduktion ohne neuen Stack
 
@@ -103,11 +105,11 @@ NODE
 
 Der Test akzeptiert nur explizit `CANVAS_TEST_POSTGRES_URL` mit lokalem Ziel, niemals einen `DATABASE_URL`-Fallback. Ohne `--slow` dauert die künstliche Handshake-Verzögerung 200 ms statt 4/16 Sekunden. Alle erzeugten Pools und Proxy-Sockets werden geschlossen; ein 120-Sekunden-Watchdog begrenzt den Prozess. Nur die neue Quell-/Dependency-/Build-Kopie bleibt zur Wiederholung auf Ubuntu erhalten.
 
-## Noch offene Abnahme, nicht stillschweigend durchgeführt
+## Damals offene Abnahme vor gesonderter Freigabe
 
-- Genau einen autorisierten verwalteten Notebook-Testcontainer aus dem Kandidaten neu bauen/erstellen; zuvor Docker-Installationsparität klären. Kein Container wurde für diesen Auftrag gebaut, ersetzt oder neu gestartet.
+- Genau einen autorisierten verwalteten Notebook-Testcontainer aus dem Kandidaten neu bauen/erstellen; zuvor Docker-Installationsparität klären. Zu diesem Quell-/Driver-Prüfstand war noch kein Container für diesen Auftrag gebaut, ersetzt oder neu gestartet.
 - Vollständige Versions-/Override-Matrix mit frischer und vorhandener migrierter Test-DB, MCP an/aus, echten OAuth-/Login-Flows; zehn wiederholte Starts, ein kalter Start, anschließend 20 Minuten Nachlauf inklusive Session-Cleanup.
 - Tatsächliche Runtime-Pool-Anzahl, Startup-Phasen, Backend-Wartezustände, Ressourcenlimits und RestartCount messen. Weitere Wartungs-Serialisierung nur bei nachgewiesenem Bedarf; künstliche Proxy-Verzögerung nicht als Produktionsdiagnose ausgeben.
 - UI-/Playwright-Prüfung benötigt gemäß Repository-Regeln eine ausdrückliche Freigabe; kein Browser benutzt. Keine Änderung am Produktions-Override `15000`, kein Push, Tag, Release oder Deploy.
 
-Implementierung und Quell-/Driver-Tests sind damit reviewbar; die vollständige Betriebsabnahme bleibt von diesen expliziten Folgeschritten getrennt.
+Implementierung und Quell-/Driver-Tests waren damit reviewbar. Die späteren Betriebsprüfungen bleiben mit ihren tatsächlichen Ergebnissen und Grenzen im Folgeprüfbericht getrennt nachvollziehbar.
