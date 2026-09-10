@@ -1,8 +1,8 @@
 # Plan: Canvas-Tools als HTML-Widgets im Chat
 
 Stand: 10. September 2026. Basis: `main` bei `4c55fb97` nach PR #138 und #139.
-Status: geplant. Dieses Dokument ersetzt den vor dem Main-Update erstellten
-Entwurf für die Umsetzung. Es enthält noch keine implementierten Arbeitspakete.
+Status: in Umsetzung. Dieses Dokument ersetzt den vor dem Main-Update erstellten
+Entwurf. Arbeitspaket 1 ist implementiert und geprüft; Pakete 2–5 sind offen.
 
 ## Ziel und erster Lieferumfang
 
@@ -74,16 +74,16 @@ bevor das nächste beginnt. Vorgeschlagene neue Dateinamen sind noch keine Datei
 
 ### 1. Gemeinsamen Vertrag und internen Backend-Adapter ergänzen
 
-- [ ] Unter `app/lib/tool-apps/` Typen, Registry und Normalisierung ergänzen.
-- [ ] Vorhandene MCP-Deskriptoren über einen Kompatibilitätsadapter übernehmen.
-- [ ] Die Ticket-/Ressourcenmechanik aus `apps-host.ts` gemeinsam nutzen; je nach
+- [x] Unter `app/lib/tool-apps/` Typen, Registry und Normalisierung ergänzen.
+- [x] Vorhandene MCP-Deskriptoren über einen Kompatibilitätsadapter übernehmen.
+- [x] Die Ticket-/Ressourcenmechanik aus `apps-host.ts` gemeinsam nutzen; je nach
   Quelle die zuständige Autorisierung aufrufen. Interne Widgets verwenden normale
   Chat-/Agent-/Workspace- und Automationsrechte, keine MCP-Adminberechtigung.
-- [ ] Interne Render-/Aktionsanfragen an eine serverseitig verifizierte Nachricht
+- [x] Interne Render-/Aktionsanfragen an eine serverseitig verifizierte Nachricht
   samt `toolCallId` binden. Die daraus abgeleitete Automation muss mit der
   angefragten Entität übereinstimmen. Bei noch nicht gespeicherten Live-Ergebnissen
   entweder die autoritative Runtime-Zuordnung prüfen oder die Speicherung abwarten.
-- [ ] Die Render-Auslieferung prüft Sitzung und aktuelle Rechte erneut. Eine
+- [x] Die Render-Auslieferung prüft Sitzung und aktuelle Rechte erneut. Eine
   nicht registrierte Ressource oder Operation wird abgewiesen.
 
 **Betroffen:** `app/lib/mcp/apps-types.ts`, `apps-host.ts`,
@@ -205,3 +205,9 @@ Vor der Umsetzung muss die Impact-Grundlage aktuell sein.
 folgen weitere Widgets über die Registry, beginnend mit Todo-Karten und
 Artefaktansichten. Externe MCP-Widgets behalten ihre bisherigen Fähigkeiten und
 Reconnect-Hinweise und profitieren von derselben verbesserten Chat-Platzierung.
+
+## Durchgeführte Prüfungen
+
+- Paket 1: `tool-apps-access-test`, `test:mcp:apps-host`, TypeScript ohne Emit.
+  Interne Ressourcen werden im folgenden Build-Paket bereitgestellt; die
+  Produktion erzeugt bis zur Tool-Anbindung noch keine internen Widget-Referenzen.
