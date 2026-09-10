@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.9.10.4] - 2026-09-10
+## [2026.9.10.5] - 2026-09-10
 
 ### Added
 
@@ -35,6 +35,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Fixed the portable CLI Caddy build so Linux artifacts no longer compile application-only modules.
 - Fixed the PostgreSQL reconciliation release check for valid managed-team deployments.
 - Fixed the PostgreSQL backup CLI release test to model the managed database container.
+- Fixed the backup CLI release test health-check stub so it cannot wait on an external service.
 
 ### Verification
 
