@@ -487,19 +487,27 @@ function scheduleExpiredSessionCleanup() {
     const cleanupQuery = isPostgres
       ? "DELETE FROM session WHERE expires_at < floor(extract(epoch from now()))::bigint"
       : "DELETE FROM session WHERE expires_at < unixepoch()";
+    let cleanupInFlight = false;
     async function purgeExpiredSessions() {
+      if (cleanupInFlight) return;
+      cleanupInFlight = true;
       try {
         const dbConn = await openDb();
-        const result = dbConn.run(cleanupQuery);
-        if (result.changes > 0) {
-          console.log(`[Session Cleanup] Deleted ${result.changes} expired session(s)`);
+        try {
+          const result = await dbConn.run(cleanupQuery);
+          if (result.changes > 0) {
+            console.log(`[Session Cleanup] Deleted ${result.changes} expired session(s)`);
+          }
+          if (!isPostgres) {
+            await dbConn.run("PRAGMA optimize");
+          }
+        } finally {
+          await dbConn.close();
         }
-        if (!isPostgres) {
-          dbConn.run("PRAGMA optimize");
-        }
-        dbConn.close();
-      } catch (err) {
-        console.warn('[Session Cleanup] Failed:', err.message);
+      } catch {
+        console.warn('[Session Cleanup] Failed; the next scheduled run will retry.');
+      } finally {
+        cleanupInFlight = false;
       }
     }
     purgeExpiredSessions();
