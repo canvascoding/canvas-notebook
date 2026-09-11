@@ -1,0 +1,158 @@
+# Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
+
+Stand: 2026-09-11. Geprüfte Codebasis: `03f32ec0`. Status: konkreter Umsetzungsvorschlag; die folgenden Änderungen sind noch nicht implementiert.
+
+Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
+
+## 1. Produktentscheidung
+
+Nutzer öffnen ein Dokument und bearbeiten es. Speichern ist eine Aufgabe des Systems. Im normalen Editor erscheinen weder Speicherzeilen noch Speicher-Icons, Checkpoint-Bezeichnungen, technische Zustände oder Erfolgsmeldungen nach Änderungen. Das gilt für Kontonutzer und Gäste mit entsprechenden Schreibrechten.
+
+Sichtbar bleiben Menschen und Agenten, die am Dokument arbeiten, sowie prüfbare Agentenvorschläge. Technische Speicherinformationen gehören in eine bewusst geöffnete Entwicklerdiagnose. Ein tatsächlicher Fehler, der eine Entscheidung des Nutzers erfordert, wird verständlich und ohne ständig wechselnde Editorhöhe angezeigt. Solange automatische Wiederverbindung und lokale Sicherung funktionieren, muss der Nutzer nichts bestätigen.
+
+Agenten lesen und ändern denselben aktuellen Dokumentzustand wie die Nutzer. Das bestehende Edit-Tool bleibt der Einstieg. Es verwendet den autorisierten Collaboration-Zugang und strukturierte Operationen. Der Agent muss weder Tasten simulieren noch eine Markdown-Datei überschreiben.
+
+**Vorgeschlagene Freigaberegel:** Agentenänderungen werden standardmäßig als Vorschläge vorbereitet. Ein Nutzer kann direkte Bearbeitung für einen klar abgegrenzten Auftrag ausdrücklich erlauben. Diese Regel ist eine Produktentscheidung dieses Plans und noch nicht das aktuelle Verhalten. Beide Modi verwenden beim tatsächlichen Anwenden denselben Weg ins Live-Dokument.
+
+## 2. Was vorhanden ist und was geändert werden muss
+
+| Heute vorhanden | Konsequenz für die Umsetzung |
+| --- | --- |
+| `editAgentFile` und `applyAgentFilePatch` erkennen kollaborative Dateien und verwenden `prepareCollaborationTextEdit` | Bestehende Tools weiterentwickeln; keinen zweiten Agenteneditor bauen |
+| `readCurrentCollaborationDocument` liest den laufenden Raum oder den gespeicherten Yjs-Zustand | Live-Lesen ist bereits vorbereitet; Dateipflicht und Markdown-Abhängigkeit an den Rändern beseitigen |
+| `runCollaborationDirectConnection` schreibt unter Agentenidentität in den gemeinsamen Raum | Den bestehenden autorisierten Zugang beibehalten und als verbindlichen Schreibweg nutzen |
+| Blockidentitäten, relative Textanker, Ziel-Hashes, Operation-IDs, Review und Revert | Vorhandene Sicherungen erweitern, nicht durch Ganzdokument-Ersetzungen ersetzen |
+| Agentenabschluss und Tool-Ergebnis hängen an `checkpointed_file` | Erfolgreiche Anwendung plus bestätigte Yjs-Sicherung muss unabhängig vom Markdown-Export abschließen können |
+| `executePreparedCollaborationTextEdit` setzt `explicitUserRequest: true` | Direktberechtigung künftig aus vertrauenswürdigem Auftragskontext ableiten; ein Tool-Aufruf allein ist keine pauschale Freigabe |
+| Yjs wird vor dem Markdown-Checkpoint gespeichert; dessen Fehler setzt das gesamte Dokument auf `degraded` | Dauerhaftigkeit, Export und Freigabestatus getrennt modellieren |
+| Metadaten-Refresh setzt auch im Live-Modus `idle → updating → idle`; `FileEditor` fügt dafür eine Zeile ein | Metadaten dürfen keine sichtbare Dokumentaktualisierung auslösen |
+| Agenten-UI pollt und meldet Markdown-Checkpoint-Erfolg per Toast | Vorschläge/Anwendung als Produktzustände anzeigen; technische Checkpoint-Toasts entfernen |
+
+Quellen: [Agenten-Dateitools](../app/lib/pi/agent-file-operations.ts), [Vorbereitung](../app/lib/collaboration/agent-file-edits.ts), [Operationen](../app/lib/collaboration/agent-operations.ts), [Dokumentzugang](../app/lib/collaboration/document-access.ts), [Server](../server/collaboration-server.ts), [Dateistore](../app/store/file-store.ts), [Editor](../app/components/editor/FileEditor.tsx).
+
+## 3. Zielablauf
+
+```mermaid
+flowchart TD
+    U["Nutzer bearbeitet das Dokument"] --> D["Gemeinsames Yjs-Dokument"]
+    A["Agent liest den aktuellen Stand"] --> E["Edit-Tool erstellt gezielte Änderungen"]
+    E --> P{"Freigabe für diesen Auftrag?"}
+    P -->|"Vorschlagsmodus"| R["Vorschlag am betroffenen Abschnitt"]
+    R -->|"Annehmen"| V["Aktuelles Ziel und Berechtigung prüfen"]
+    R -->|"Ablehnen"| X["Vorschlag schließen"]
+    P -->|"Direktbearbeitung erlaubt"| V
+    V -->|"Passt noch"| D
+    V -->|"Inhalt inzwischen verändert"| N["Aktualisierten Vorschlag prüfen"]
+    D --> C["Änderungen für alle live sichtbar"]
+    D --> S["Yjs automatisch dauerhaft sichern"]
+    S --> M["Markdown im Hintergrund nachführen"]
+```
+
+Vorschläge werden dauerhaft separat vom angenommenen Dokumentinhalt geführt und als Markierungen/Vorschau eingeblendet. Ein abgelehnter Vorschlag hat daher keine Änderungen am Dokument rückgängig zu machen. Präsenz ist nur eine Anzeige und keine Berechtigungsquelle.
+
+## 4. Verbindliche Regeln
+
+### Dokument und Persistenz
+
+- Pro Dokument-ID und Generation gibt es genau einen zuständigen schreibenden Collaboration-Raum. Ein Prozess ohne Raumzugang verwendet den zuständigen Server; er erzeugt keine konkurrierende schreibende Kopie aus einer möglicherweise älteren Datenbankfassung.
+- Nach der erstmaligen Aufnahme eines Dokuments ist Yjs die maßgebliche Inhaltsquelle. Eine geschlossene Editoransicht ändert daran nichts. Der Raum kann bei Bedarf aus dem gesicherten Zustand geöffnet werden.
+- Binäre Yjs-Sicherung und Markdown-Projektion sind getrennte Aufgaben. Bestehende Schema-, Identitäts-, Berechtigungs- und Lifecycle-Prüfungen bleiben vor Mutationen erhalten. Markdown-Roundtrip-Prüfungen gehören zur Projektion und dürfen nicht pauschal deaktiviert werden.
+- Die lokale Warteschlange überlebt Ansichtswechsel und wird beim Wiederverbinden automatisch übertragen. Ein Ansichtswechsel beendet nicht die noch benötigte Sicherung. Browser-Neustart, IndexedDB-Abschluss und Fehler bei lokaler Sicherung werden ausdrücklich geprüft.
+- Serverbestätigungen belegen den tatsächlich gesicherten Zustand einschließlich Löschungen. Ein State-Vector allein reicht dafür nicht; den vorhandenen `stateProof` und Operationsnachweise beibehalten bzw. erweitern.
+- Agenten erhalten nach bestätigter Yjs-Sicherung ein erfolgreiches Ergebnis. Ein noch ausstehender Markdown-Export ist kein Anlass, dieselbe Änderung erneut auszuführen. Bei unklarem Ausgang erhalten sie eine abfragbare Operation-ID statt eines mehrdeutigen allgemeinen Fehlers.
+
+### Gezielte Agentenoperationen
+
+Der strukturierte Read-Zugang liefert Dokumentreferenz, Generation, aktuelle Blockreferenzen und die für die Aufgabe benötigten Inhalte. Darauf basierend unterstützt das Edit-Tool schrittweise Text ersetzen, Blöcke einfügen/löschen/verschieben und gemeinsame Formatierungs-/Tabellenoperationen. Namen und genaue JSON-Felder werden bei der Tool-Schema-Änderung festgelegt; dies sind noch keine vorhandenen Tool-Parameter.
+
+- Texte werden mit stabilen Blockreferenzen und relativen Yjs-Ankern adressiert. Verschieben ändert die Position eines Blocks, nicht dessen aktuellen Inhalt oder Identität.
+- Vorbedingungen prüfen die betroffenen Inhalte und strukturellen Beziehungen. Eine Änderung in einem unabhängigen Absatz darf einen sonst passenden Vorschlag nicht allein wegen eines anderen Ganzdokument-Hashes unbrauchbar machen.
+- Das bisherige `oldText/newText` bleibt als Adapter unterstützt. Mehrdeutige Treffer oder nicht sicher auflösbare Strukturänderungen führen zu einer gezielten Rückmeldung/einem aktualisierten Vorschlag. Kein ungeprüfter Rückfall auf Dateischreiben oder Ersetzen des ganzen Dokuments.
+- Gemeinsame fachliche Regeln verwenden die vorhandenen Block- und Editoroperationen. UI-spezifische Auswahl/Fokus und agentenspezifische Autorisierung/Review bleiben getrennte Verantwortlichkeiten.
+- Eine logische Änderung wird als zusammenhängende Transaktion mit Autor, Auftrag und stabiler Operation-ID angewendet. Wiederholte Zustellung derselben Operation darf nicht erneut ändern. Derselbe Schlüssel mit anderem Inhalt wird abgewiesen.
+- UI-Undo betrifft die eigenen Änderungen. Die Rücknahme einer Agentenänderung verwendet deren gezielte Gegenoperation und prüft später geänderte Ziele. Sie stellt keine alte Gesamtfassung wieder her. Bestehende dauerhafte Revert-Daten nicht durch einen nur im Arbeitsspeicher gehaltenen Undo-Stack ersetzen.
+
+### Freigabe bei gleichzeitiger Bearbeitung
+
+Ein Vorschlag speichert Zielreferenzen, Ausgangsinhalt/Vorbedingungen, vorgeschlagene Operationen, Autor/Auftrag und eine Vorschlagsversion. Die Vorschau zeigt den konkreten aktuellen Vergleich am Ziel. Ein kurzlebiger Diff ist keine Erlaubnis, später eine beliebige neu berechnete Änderung anzuwenden.
+
+Beim Annehmen werden Berechtigung, Dokumentgeneration, Vorschlagsversion und betroffene Ziele unmittelbar vor der synchronen Yjs-Transaktion erneut geprüft. Zwischen letzter Prüfung und Mutation darf im zuständigen Raum kein asynchroner Zwischenschritt die Vorbedingungen veralten lassen. Eine Annahme gilt nur für den gezeigten Vorschlag.
+
+| Zwischenzeitliche Änderung | Verhalten |
+| --- | --- |
+| Jemand bearbeitet einen unabhängigen Absatz | Vorschlag bleibt anwendbar, sofern seine fachlichen Vorbedingungen weiterhin stimmen |
+| Derselbe Block wurde verschoben; betroffener Text ist unverändert | Textvorschlag folgt der Blockidentität; Strukturvorschläge prüfen zusätzlich Eltern/Zielposition |
+| Jemand ändert den betroffenen Text | Aktuellen Vergleich anzeigen und neue Freigabe verlangen; nichts still überschreiben |
+| Betroffener Block wurde gelöscht oder mit einem anderen vereinigt | Vorschlag wird ungültig bzw. muss neu zugeordnet werden; Block nicht automatisch wiederherstellen |
+| Vorschlag wird abgelehnt | Nur Vorschlagszustand ändern |
+| Annahme wird doppelt geklickt oder nach Netzfehler wiederholt | Dieselbe bestätigte Operation zurückgeben |
+| Ein Offline-Client liefert später eine überlappende Änderung | Update erhalten und bestehenden Mechanismus für nachträgliche fachliche Konflikte nutzen; Yjs-Konvergenz beweist keine inhaltliche Übereinstimmung |
+
+Im ersten Ausbauschritt werden Änderungen pro logisch zusammengehöriger Gruppe angenommen oder abgelehnt. Selektives Annehmen einzelner Gruppen folgt nur dort, wo ihre Unabhängigkeit belegt ist. Kein stilles teilweises Anwenden eines als Einheit freigegebenen Vorschlags. Die vorhandenen Rechte auf Annahme/Rücknahme werden nicht pauschal auf alle Gäste erweitert.
+
+## 5. Markdown und Dateizugriffe
+
+Die `.md`-Datei bleibt für Dateizugriff, Freigaben und Exporte erhalten. Sie ist eine nachgeführte Darstellung. Edit-Tool und Live-Read warten dafür nicht auf einen Dateischreibvorgang.
+
+Startwert für die Hintergrundprojektion: nach zwei Sekunden Bearbeitungsruhe, spätestens nach zehn Sekunden seit dem ältesten unprojizierten Stand wird ein Versuch angestoßen. Das sind konfigurierbare Planwerte, keine garantierten Exportlaufzeiten. Pro Dokument wird der neueste benötigte Stand zusammengefasst; ältere Jobs werden verworfen. Zuerst den bestehenden binären Speichertakt beibehalten und messen. Ein neues Update-Journal nur einführen, wenn Last-/Wiederherstellungstests es begründen.
+
+Die Projektion erhält einen dauerhaft nachvollziehbaren Rückstand bzw. wiederherstellbaren Auftrag. Nach Prozessneustart werden noch nicht projizierte gesicherte Zustände erneut eingeplant. Wiederholungen ändern das Live-Dokument nicht. Ein Projektionsfehler bleibt in der Entwicklerdiagnose sichtbar, löst begrenzte Wiederholungen aus und sperrt keine ansonsten gültige und sicher gespeicherte Live-Bearbeitung.
+
+Explizite Exporte/Freigaben verwenden einen konsistenten aktuellen Yjs-Snapshot oder warten auf dessen bestätigte Projektion. Dateibasierte Agenten-Lesewege werden auf den Live-Read umgestellt. Unvermeidbare externe Dateileser erhalten eine explizite Frischeprüfung. Externe Dateischreiber und Importer laufen durch die vorhandene Revisions-/Collaboration-Prüfung; sie dürfen das maßgebliche Dokument nicht über einen verspäteten Dateiinhalt ersetzen. Nicht kollaborationsfähige Dateiformate behalten ihren jeweiligen Speicherweg.
+
+Operationserfolg, Yjs-Dauerhaftigkeit und Exportfortschritt werden als getrennte Dimensionen modelliert. Übergangskompatibilität für bestehende API-/Mobile-/Gast-Clients ausdrücklich testen. Rücknahme und Wiederherstellung müssen bereits nach Yjs-Sicherung möglich sein; sie dürfen nicht an `checkpointed_file` hängen bleiben.
+
+## 6. Lifecycle und Fehleranzeige
+
+- Dokumentidentität besteht aus Workspace, Dokument-ID und Generation; der Pfad ist ein veränderlicher Standort. Rename/Move übernimmt nur bestätigte Standortänderungen. Alte Aufträge dürfen weder am alten Pfad schreiben noch eine neue Datei am wiederverwendeten Pfad treffen.
+- Löschen archiviert das Dokument und widerruft zugehörige Schreibaufträge. Wiederherstellen oder Migration beginnt eine ausdrücklich bestätigte Generation. Alte Vorschläge werden dabei nicht automatisch freigegeben.
+- Serverraum, Yjs-Dokument, lokale Sicherung und History leben unabhängig von der gerade montierten Rich-/Read-/Source-Ansicht. Geschlossene Views dürfen keine verspäteten Änderungen zurückschreiben.
+- Direkter Agentenzugriff prüft vor jeder Mutation die aktuellen Rechte aus dem vertrauenswürdigen Auftragskontext. Ein Agenten-Payload kann keine Direktfreigabe erteilen.
+- Normalfall: keine Speicheranzeige. Automatisch behebbarer Exportfehler: Entwicklerdiagnose. Tatsächlich gefährdete lokale/serverseitige Sicherung oder entzogene Rechte: verständlicher Ausnahmehinweis mit passender Handlung. Keine falsche Erfolgsaussage und keine pauschale Entsperrung aller bisherigen `degraded`-Fälle.
+- Sentry `CANVAS-NOTEBOOK-3W` separat beheben: PDF öffnen/schließen und anschließend im Markdown auswählen. Der zugeordnete PDF.js-Auswahl-Handler benötigt eine reproduzierte Abbruch-/Render-Lifecycle-Korrektur und eine Prüfung auf noch vorhandene Textlayer. Keine globale Unterdrückung von `getComputedStyle`-Fehlern.
+
+## 7. Umsetzung in abschließbaren Schritten
+
+Die Schritte werden nacheinander umgesetzt. Jeder Schritt endet mit den zugehörigen Nachweisen und einem eigenen Commit. Die finale integrierte Abnahme bleibt zusätzlich erforderlich.
+
+| Schritt | Konkrete Arbeit / wichtigste Stellen | Fertig, wenn |
+| --- | --- | --- |
+| 1. Bestehende Löschfehler schließen | Nachgewiesene Leerzeichen-/Listen-/Umbruchfälle als gezielte Regressionen übernehmen; Markdown-Codecs und Validatorzuständigkeiten prüfen | Unterstützte Inhalte nach Löschen, Verschieben und binärem Neuladen unverändert bleiben; kein pauschales Abschalten der Roundtrip-Prüfung |
+| 2. Dauerhafte Sicherung von Dateiausgabe trennen | `server/collaboration-server.ts`, `persistence.ts`, `checkpoint.ts`, `client-state.ts`; rückstandsbasierte, wiederanlaufbare Projektion | Ein erzwungener Markdown-Exportfehler Live-Änderungen und Yjs-Wiederherstellung nicht blockiert; echte Persistenzfehler weiterhin korrekt behandelt werden |
+| 3. Agententools konsequent auf das Dokument ausrichten | `agent-file-operations.ts`, `agent-file-edits.ts`, `document-access.ts`, `direct-connection.ts`, `agent-operations.ts`; strukturierter Read/Edit, dauerhaft bestätigter Operationserfolg | Ein Agent ein auch ungeöffnetes Dokument am aktuellen Stand bearbeiten kann; Wiederholung, verzögerter Export und laufende Nutzereingaben weder Doppeländerungen noch alte Inhalte erzeugen |
+| 4. Freigabe und gezielte Rücknahme abschließen | Vorschlagsversionen/-gruppen, vertrauenswürdige Moduswahl, aktuelle Zielprüfung, dauerhaft nachvollziehbare Annahme; vorhandene API-Routen erweitern | Annahme exakt den geprüften Vorschlag anwendet; überlappende Änderungen neue Prüfung verlangen; Ablehnen/Undo/Revert fremde Arbeit erhalten |
+| 5. Oberfläche auf Bearbeitung und Vorschläge reduzieren | `FileEditor.tsx`, `MarkdownDocumentModes.tsx`, `CollaborationAgentOperations.tsx`, `file-store.ts`, Gastansicht, Übersetzungen und Produktdokumentation | Im Normalfall keine Speicherzeile, kein Speicherindikator, kein Checkpoint-Toast erscheint; Vorschläge nachvollziehbar sind; Editorposition bei Statuswechseln stabil bleibt |
+| 6. Lifecycle und PDF-Wechsel absichern | Raum-/View-Cleanup, Rename/Delete/Migration, ausstehende Aufträge, `PdfViewer.tsx` und gezielter PDF.js-Fix | Veraltete Callbacks keine Mutation auslösen; gelöschte Inhalte nicht zurückkehren; PDF → Markdown auf iPhone ohne den Sentry-Fehler funktioniert |
+| 7. Integriert prüfen und gestuft ausrollen | Bestehende Tests erweitern, Build, reale Mehrteilnehmer-/Browser-/Netz-/Neustarttests, kompatibler Rollout | Die folgende Abnahmematrix erfüllt ist und die neue Betriebsart keine alten Clientzustände falsch als erfolgreich oder fehlgeschlagen ausgibt |
+
+Wichtige Implementierungsdetails in Schritt 3/4: Die bestehende Zustandsmaschine und `waitForDurableState` hängen heute am Dateicheckpoint. Tool-Ergebnis, Revert-Verfügbarkeit, Recovery und UI müssen gemeinsam auf den neuen Abschluss umgestellt werden. Operationsbeleg und zugehörige Yjs-Sicherung müssen nach Absturz eindeutig zuordenbar sein; unsichere Wiederholungen werden anhand des Belegs aufgelöst, nicht blind erneut ausgeführt.
+
+## 8. Abnahmematrix
+
+| Szenario | Erwartetes Ergebnis |
+| --- | --- |
+| Zwei Nutzer und ein Agent bearbeiten verschiedene Absätze | Alle Änderungen erhalten, alle Repliken stimmen überein |
+| Agentenvorschlag; Nutzer verschiebt dessen unveränderten Block | Vorschlag bleibt am richtigen Block und lässt sich korrekt annehmen |
+| Agentenvorschlag; Nutzer ändert/löscht dessen Ziel | Kein Überschreiben oder Wiederherstellen; aktualisierte Prüfung erforderlich |
+| Annahme doppelt, Tool-Retry oder Absturz zwischen Anwenden und Antwort | Genau einmal angewendet; derselbe Ausgang abrufbar |
+| Nutzer tippt nach Agentenänderung; Agentenänderung wird zurückgenommen | Fremde spätere Arbeit bleibt erhalten oder es wird ein gezielter Konflikt angezeigt |
+| Markdown-Export fällt aus oder läuft lange | Live-Bearbeitung und binäre Sicherung funktionieren; Dateiausgabe holt nach |
+| Verbindung weg, lokale Änderung, Ansichtswechsel, Wiederverbindung/Browserneustart | Gesicherte lokale Änderungen werden geladen und übertragen; keine manuelle Speicheraufgabe |
+| Serverneustart nach bestätigter Yjs-Sicherung vor Markdown-Ausgabe | Bestätigte Änderung und Operationsbeleg wiederherstellbar; Projektion wird nachgeholt |
+| Datei/Ordner umbenennen oder löschen während Agentenvorschlag und Exportjob | Keine Datei am alten/falschen Pfad; alte Generation kann nicht mehr schreiben |
+| Entzogene Rechte, Gast-Lesezugriff oder abgelaufener Auftrag | Keine Mutation durch veraltete UI/Agentenaufrufe |
+| Löschen/Backspace, Tabellen, Listen, Drag, Undo/Redo, Touch und IME | Erwartete Inhalte und Blockidentitäten in beiden noch unterstützten Repräsentationen |
+| Viele Statuswechsel auf schmalem Bildschirm | Keine durch Statusanzeige veränderte Editorhöhe, kein Fokus-/Scrollsprung |
+| PDF öffnen, schließen, Markdown-Text markieren | Keine zurückgebliebenen Auswahl-Handlerfehler |
+
+Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusätzlich iPhone/WebKit und Wiederholungen auf Chromium. Für UI-/E2E-Ausführung gelten die bestehenden ausdrücklichen Freigaben und Repository-Regeln. Dieser Planungsschritt startet keinen Browser und baut keinen Container. Lokales Setup nur über den verwalteten Canvas-Stack; keine parallelen Testcontainer. Vor einer Produktionsbereitstellung erforderliche Tests und `npm run build`, bei Deployment die vollständigen Repository-Checks.
+
+Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
+
+## 9. Grundlagen und Grenze der Zusage
+
+Die Fehleranalyse vom 11.09.2026 hat einen konkreten Löschfall in beiden Yjs-Repräsentationen reproduziert: Nach Entfernen von `One` aus `- **One** two` bleibt im Editor ` two`, beim Markdown-Einlesen dagegen `two`. Die binäre Yjs-Kopie bleibt korrekt. Ein isolierter Store-Test belegt außerdem `idle → updating → idle` bei unverändertem Live-Inhalt. Diese Befunde sind noch keine Abnahme des vorgeschlagenen Umbaus.
+
+Yjs löst technische Zusammenführung; Zielreferenzen, fachliche Vorbedingungen, Berechtigungen und Freigabe ergänzen diese Grundlage. Später eintreffende Offline-Änderungen lassen sich bei einer früheren Freigabe nicht vorhersehen. Deshalb ist die vorhandene Behandlung später fachlicher Konflikte Teil des Plans.
+
+Offizielle Grundlagen: [binäre Dokumentupdates](https://docs.yjs.dev/api/document-updates), [relative Positionen](https://docs.yjs.dev/api/relative-positions), [selektives Undo nach Transaktionsursprung](https://docs.yjs.dev/api/undo-manager). Ein nur flüchtiger UndoManager ersetzt keine dauerhafte Vorschlags-/Revert-Historie.
