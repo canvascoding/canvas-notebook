@@ -5,16 +5,19 @@ import { randomUUID } from 'node:crypto';
 
 import * as schema from './schema';
 import { toDatabaseTimestamp } from './timestamps';
-const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
-const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-membership-v1';
-const TEAM_SEAT_LEGACY_MIGRATION_METADATA = '{"source":"organization_user_permissions","billableOperationsCreated":0}';
-const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'legacy organization user permissions';
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
+
+const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
+const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
+const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-membership-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_METADATA = '{"source":"organization_user_permissions","billableOperationsCreated":0}';
+const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'legacy organization user permissions';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
@@ -192,18 +195,33 @@ function createColumnAddSql(table: PostgresSchemaTable, column: SchemaColumn): s
   return `ALTER TABLE ${quotePostgresIdentifier(tableName)} ADD COLUMN IF NOT EXISTS ${renderColumnDefinition(column, false)}`;
 }
 
+function shouldNormalizeLegacyEpochSeconds(): boolean {
+  return process.env[LEGACY_EPOCH_TIMESTAMP_UNIT_ENV]?.trim().toLowerCase() === 'seconds';
+}
+
 /**
- * Normalizes legacy SQLite epoch-second timestamps in all timestamp-shaped
- * PostgreSQL bigint columns. The advisory transaction lock serializes startup
- * callers; the range predicate makes repeat runs and concurrent retries safe.
+ * Converts a database explicitly declared as legacy epoch-seconds. Numeric
+ * timestamp values alone cannot distinguish modern seconds from millisecond
+ * dates near 1970, so the backfill is opt-in and records completion atomically.
  */
 async function normalizePostgresEpochTimestampColumns(pool: PgQueryable): Promise<void> {
+  if (!shouldNormalizeLegacyEpochSeconds()) return;
+
   await pool.query(`
     DO $epoch_milliseconds_backfill$
     DECLARE
       candidate record;
+      migration_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
     BEGIN
-      PERFORM pg_advisory_xact_lock(hashtext('canvas_epoch_milliseconds_backfill_v1'));
+      PERFORM pg_advisory_xact_lock(hashtext('${LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY}'));
+
+      IF EXISTS (
+        SELECT 1
+        FROM canvas_data_migrations
+        WHERE migration_key = '${LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY}'
+      ) THEN
+        RETURN;
+      END IF;
 
       FOR candidate IN
         SELECT table_schema, table_name, column_name
@@ -218,7 +236,7 @@ async function normalizePostgresEpochTimestampColumns(pool: PgQueryable): Promis
           )
       LOOP
         EXECUTE format(
-          'UPDATE %I.%I SET %I = %I * 1000 WHERE %I BETWEEN 1000000000 AND 9999999999',
+          'UPDATE %I.%I SET %I = %I * 1000 WHERE %I BETWEEN -9999999999 AND 9999999999',
           candidate.table_schema,
           candidate.table_name,
           candidate.column_name,
@@ -226,6 +244,14 @@ async function normalizePostgresEpochTimestampColumns(pool: PgQueryable): Promis
           candidate.column_name
         );
       END LOOP;
+
+      INSERT INTO canvas_data_migrations (migration_key, completed_at, metadata_json)
+      VALUES (
+        '${LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY}',
+        migration_now,
+        '{"sourceUnit":"seconds","targetUnit":"milliseconds"}'
+      )
+      ON CONFLICT (migration_key) DO NOTHING;
     END
     $epoch_milliseconds_backfill$;
   `);
