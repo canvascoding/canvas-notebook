@@ -10,8 +10,10 @@ test('a normal chat agent edits the live document after its owner grants permiss
     'Requires the managed stack and explicit use of its configured agent runtime.');
   test.setTimeout(360_000);
   const base = process.env.BASE_URL!;
-  const owner = await browser.newContext();
-  const collaborator = await browser.newContext();
+  const { baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor } = info.project.use;
+  const contextOptions = { baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor };
+  const owner = await browser.newContext(contextOptions);
+  const collaborator = await browser.newContext(contextOptions);
   const page = await owner.newPage();
   const peer = await collaborator.newPage();
   const errors: string[] = [];
@@ -106,7 +108,11 @@ test('a normal chat agent edits the live document after its owner grants permiss
     await peer.keyboard.insertText(' edited concurrently by another user');
     await expect(editor.locator('p').first()).toHaveText('Agent direct', { timeout: 120_000 });
     await expect(peerEditor.locator('p').first()).toHaveText('Agent direct');
-    await expect(editor.locator('p').last()).toHaveText('Human paragraph edited concurrently by another user');
+    await expect.poll(() => editor.locator('p').last().evaluate((element) => {
+      const content = element.cloneNode(true) as HTMLElement;
+      content.querySelectorAll('.collaboration-carets__label').forEach(label => label.remove());
+      return content.textContent;
+    })).toBe('Human paragraph edited concurrently by another user');
     await expect.poll(async () => (await operations()).filter(operation => !previousIds.has(operation.operationId))
       .map(operation => operation.operationStatus), { timeout: 30_000 }).toEqual([expect.stringMatching(/^(persisted_yjs|checkpointed_file)$/u)]);
     await expect.poll(() => events.filter(event => event.type === 'agent_event' && event.event?.type === 'message_saved').length,
