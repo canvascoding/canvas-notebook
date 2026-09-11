@@ -1,4 +1,5 @@
 import { attrsEqual, Extension, type JSONContent, type MarkdownRendererHelpers, type MarkdownToken } from '@tiptap/core';
+import { EXPLICIT_TABLE_HARD_BREAK } from './hard-break-markers';
 
 const markTags: Record<string, string> = { bold: 'strong', italic: 'em', strike: 's', underline: 'u', canvasHighlight: 'mark', code: 'code' };
 const tagMarks: Record<string, string> = { strong: 'bold', em: 'italic', s: 'strike', u: 'underline', mark: 'canvasHighlight', code: 'code' };
@@ -49,10 +50,28 @@ function literalInlineHtml(text: string): string {
   return text.replace(/[\s&<>\\`*_\[\]~+]/gu, (character) => `&#${character.codePointAt(0)};`);
 }
 
-/** Keep marked edge whitespace inside Markdown delimiters, without changing editor content. */
-export function renderInlineWithMarkedWhitespace(content: JSONContent[], helpers: Pick<MarkdownRendererHelpers, 'renderChildren'>): string {
+/** Preserve inline whitespace that Markdown would trim or move outside marks. */
+export function renderInlineWithMarkedWhitespace(
+  content: JSONContent[],
+  helpers: Pick<MarkdownRendererHelpers, 'renderChildren'>,
+  options: { inlineOnly?: boolean; softBreaksAsEntities?: boolean } = {},
+): string {
+  const startsLine = (index: number) => index === 0 || content[index - 1]?.type === 'hardBreak';
+  const endsLine = (index: number) => index === content.length - 1 || content[index + 1]?.type === 'hardBreak';
+  const explicitBreak = (node: JSONContent, index: number) => node.type === 'hardBreak'
+    && (options.inlineOnly || startsLine(index) || endsLine(index) || Boolean(node.marks?.length));
+  const unsafeSoftBreak = options.inlineOnly || options.softBreaksAsEntities
+    ? /\r?\n/gu : /(?:[ \t]{2,}\r?\n|(?:\r?\n){2,})/gu;
+  const explicitCode = (node: JSONContent) => node.type === 'text'
+    && node.marks?.some((mark) => mark.type === 'code') && /^\s|\s$|[\r\n]/u.test(node.text ?? '');
   if (!content.some((node, index) => {
-    if (node.type !== 'text' || !node.marks?.length || node.marks.some((mark) => mark.type === 'code')) return false;
+    if (explicitBreak(node, index) || explicitCode(node)) return true;
+    if (node.type !== 'text' || node.marks?.some((mark) => mark.type === 'code')) return false;
+    unsafeSoftBreak.lastIndex = 0;
+    if (unsafeSoftBreak.test(node.text ?? '')) return true;
+    if ((startsLine(index) && /^\s/u.test(node.text ?? ''))
+      || (endsLine(index) && /\s$/u.test(node.text ?? ''))) return true;
+    if (!node.marks?.length) return false;
     const boundary = (neighbor: JSONContent | undefined) => node.marks!.some((mark) => neighbor?.type !== 'text'
       || !neighbor.marks?.some((other) => other.type === mark.type && attrsEqual(other.attrs, mark.attrs)));
     return (/^\s/u.test(node.text ?? '') && boundary(content[index - 1]))
@@ -65,7 +84,8 @@ export function renderInlineWithMarkedWhitespace(content: JSONContent[], helpers
   // mark renderer. Protect just those characters during inline serialization;
   // HTML mark wrappers avoid emphasis delimiter ambiguity next to words or
   // overlapping marks. Numeric entities preserve their exact whitespace.
-  // Code spans keep literal entities, so they must never use this conversion.
+  // Safe code spans keep their backticks. Whitespace-sensitive code uses the
+  // portable HTML-code parser, which decodes these entities as marked text.
   const source = JSON.stringify(content);
   let prefix = '\uE000CanvasSpace';
   while (source.includes(prefix)) prefix += 'X';
@@ -73,8 +93,31 @@ export function renderInlineWithMarkedWhitespace(content: JSONContent[], helpers
   // Protect adjacent marked whitespace too: replacing a run with HTML creates
   // new delimiter boundaries for its neighbors. Already-safe inline sequences
   // take the unchanged fast path above (e.g. ==important **context**==).
-  const protectedContent = content.map((node) => {
-    if (node.type !== 'text' || !node.marks?.length || node.marks.some((mark) => mark.type === 'code')) return node;
+  const protectWhitespace = (space: string) => {
+    const token = `${prefix}${replacements.length}\uE001`;
+    replacements.push(Array.from(space, (character) => `&#${character.codePointAt(0)};`).join(''));
+    return token;
+  };
+  const protectedContent = content.map((node, index) => {
+    if (explicitCode(node)) {
+      const token = `${prefix}${replacements.length}\uE001`;
+      replacements.push(renderMarkedInlineHtml(literalInlineHtml(node.text ?? ''), node.marks ?? [], helpers));
+      return { type: 'text', text: token };
+    }
+    if (explicitBreak(node, index)) {
+      const token = `${prefix}${replacements.length}\uE001`;
+      replacements.push(renderMarkedInlineHtml(EXPLICIT_TABLE_HARD_BREAK, node.marks ?? [], helpers));
+      return { type: 'text', text: token };
+    }
+    if (node.type !== 'text' || node.marks?.some((mark) => mark.type === 'code')) return node;
+    if (!node.marks?.length) {
+      // Deleting a word can expose a space or soft newline at a block/line
+      // boundary. Keep that authored text distinct from Markdown indentation.
+      let text = (node.text ?? '').replace(unsafeSoftBreak, protectWhitespace);
+      if (startsLine(index)) text = text.replace(/^\s+/u, protectWhitespace);
+      if (endsLine(index)) text = text.replace(/\s+$/u, protectWhitespace);
+      return { ...node, text };
+    }
     const htmlMarks = node.marks.filter((mark) => markTags[mark.type]);
     if (htmlMarks.length && /^\s|\s$/u.test(node.text ?? '')) {
       const token = `${prefix}${replacements.length}\uE001`;
@@ -82,11 +125,8 @@ export function renderInlineWithMarkedWhitespace(content: JSONContent[], helpers
         literalInlineHtml(node.text ?? '')));
       return { ...node, text: token, marks: node.marks.filter((mark) => !markTags[mark.type]) };
     }
-    return { ...node, text: (node.text ?? '').replace(/^\s+|\s+$/gu, (space) => {
-      const token = `${prefix}${replacements.length}\uE001`;
-      replacements.push(Array.from(space, (character) => `&#${character.codePointAt(0)};`).join(''));
-      return token;
-    }) };
+    return { ...node, text: (node.text ?? '').replace(/^\s+|\s+$/gu, protectWhitespace)
+      .replace(unsafeSoftBreak, protectWhitespace) };
   });
   return helpers.renderChildren(protectedContent).replace(new RegExp(`${prefix}(\\d+)\uE001`, 'gu'),
     (_token, index: string) => replacements[Number(index)]);

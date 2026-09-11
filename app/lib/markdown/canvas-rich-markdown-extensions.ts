@@ -312,7 +312,7 @@ export const CanvasCallout = Node.create({
   renderMarkdown(node, helpers) {
     const titleNode = node.content?.find((child) => child.type === 'canvasCalloutTitle');
     const bodyNodes = node.content?.filter((child) => child.type !== 'canvasCalloutTitle') ?? [];
-    const title = titleNode ? renderInlineWithMarkedWhitespace(titleNode.content ?? [], helpers) : 'Note';
+    const title = titleNode ? renderInlineWithMarkedWhitespace(titleNode.content ?? [], helpers, { inlineOnly: true }) : 'Note';
     const type = safeText(node.attrs?.calloutType, 'note').toLowerCase();
     const fold = node.attrs?.fold === '+' || node.attrs?.fold === '-' ? node.attrs.fold : '';
     const header = `> [!${type}]${fold}${title ? ` ${title}` : ''}`;

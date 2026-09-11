@@ -1,6 +1,6 @@
 # Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
 
-Stand: 2026-09-11. Geprüfte Codebasis: `03f32ec0`. Status: konkreter Umsetzungsvorschlag; die folgenden Änderungen sind noch nicht implementiert.
+Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritt 1 abgeschlossen, Schritte 2–7 offen.
 
 Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
 
@@ -150,6 +150,14 @@ Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusä
 Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
 
 ## 9. Grundlagen und Grenze der Zusage
+
+### Umsetzungsnachweis Schritt 1
+
+Die Markdown-Serialisierung bewahrt jetzt durch Löschung freigelegte Rand-Leerzeichen, markierte Leerzeichen einschließlich Inline-Code, mehrdeutige harte/weiche Umbrüche sowie wörtliche Listen-/Überschriften-/Tabellenzeichen. Die Roundtrip-Prüfung bleibt unverändert streng; der Codec korrigiert keine Nutzerinhalte. Gemeinsame Inline-Logik wird auch in Tabellen und Callout-Titeln verwendet.
+
+Nachweise im isolierten Worktree: `npm run test:editor:core` einschließlich 48 tatsächlicher Editor-/Yjs-Löschtests und 29 ergänzender Syntaxprüfungen bestanden; beide Yjs-Repräsentationen, zweiter gebundener Editor, binäre Wiederherstellung und gezielte gleichzeitige Änderung abgedeckt. Bestehende Block-Binding-/Anker-, Roundtrip-, 224 Markierungs-/Leerzeichen- und 32 Tabellenumbruchprüfungen bestanden. Alle 220 zuvor aufgezeichneten fehlerhaften Dokumentzustände bestehen nun den Codec-Strukturvergleich. Geänderte Dateien bestehen ESLint und `git diff --check`.
+
+Diese Nachweise sind gezielte lokale Regressionstests. Browser-/Netz-/Neustartabnahme und Build bleiben Bestandteil der abschließenden integrierten Prüfung. Ein bereits vor Löschung ungültiger Listenfall mit Tabulator vor weichem Umbruch (`A\t\nB`) bleibt als separater Codec-Randfall erfasst.
 
 Die Fehleranalyse vom 11.09.2026 hat einen konkreten Löschfall in beiden Yjs-Repräsentationen reproduziert: Nach Entfernen von `One` aus `- **One** two` bleibt im Editor ` two`, beim Markdown-Einlesen dagegen `two`. Die binäre Yjs-Kopie bleibt korrekt. Ein isolierter Store-Test belegt außerdem `idle → updating → idle` bei unverändertem Live-Inhalt. Diese Befunde sind noch keine Abnahme des vorgeschlagenen Umbaus.
 

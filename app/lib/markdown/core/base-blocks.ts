@@ -4,6 +4,7 @@ import Heading from '@tiptap/extension-heading';
 import CodeBlock from '@tiptap/extension-code-block';
 import HorizontalRule from '@tiptap/extension-horizontal-rule';
 import { renderInlineWithMarkedWhitespace } from './inline-mark-whitespace';
+import { escapeParagraphBlockSyntax } from './paragraph-syntax';
 
 const EMPTY_PARAGRAPH_MARKDOWN = '&nbsp;';
 
@@ -40,8 +41,6 @@ export const CanvasBlockquote = Blockquote.extend({
       children.length ? children : [helpers.createNode('paragraph')]);
   },
 });
-const THEMATIC_BREAK_PARAGRAPH_PATTERN = /^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/u;
-
 // Rich Markdown tokenizers need to run before generic block tokenizers, which
 // gives their nodes a high schema priority. Keep paragraph above those block
 // nodes so ProseMirror fills empty containers (especially table cells) with an
@@ -62,10 +61,7 @@ export const CanvasParagraph = Paragraph.extend({
       return previousNodeIsEmptyParagraph ? EMPTY_PARAGRAPH_MARKDOWN : '';
     }
 
-    const rendered = renderInlineWithMarkedWhitespace(content, helpers);
-    return THEMATIC_BREAK_PARAGRAPH_PATTERN.test(rendered)
-      ? `\\${rendered}`
-      : rendered;
+    return escapeParagraphBlockSyntax(renderInlineWithMarkedWhitespace(content, helpers));
   },
 });
 
@@ -73,6 +69,10 @@ export const CanvasParagraph = Paragraph.extend({
 // Empty Yjs nodes omit content; preserve the authored heading marker.
 export const CanvasHeading = Heading.extend({
   renderMarkdown(node, helpers) {
-    return '#'.repeat(Number(node.attrs?.level) || 1) + ' ' + renderInlineWithMarkedWhitespace(node.content ?? [], helpers);
+    const content = renderInlineWithMarkedWhitespace(node.content ?? [], helpers, { inlineOnly: true });
+    // A deletion can leave a literal final "#". Otherwise ATX treats that text
+    // as optional closing syntax and drops it when the heading is read again.
+    const literalContent = content.replace(/(^|[\t ])(#+)([\t ]*)$/u, '$1\\$2$3');
+    return '#'.repeat(Number(node.attrs?.level) || 1) + ' ' + literalContent;
   },
 });
