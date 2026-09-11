@@ -2,10 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { randomUUID } from 'node:crypto';
 
-async function login(page: Page) {
+async function login(page: Page, peer = false) {
   expect((await page.request.post('/api/auth/sign-in/email', {
     headers: { Origin: process.env.BASE_URL || 'http://localhost:3000' },
-    data: { email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD },
+    data: { email: peer ? process.env.TEST_SECONDARY_EMAIL : process.env.TEST_LOGIN_EMAIL,
+      password: peer ? process.env.TEST_SECONDARY_PASSWORD : process.env.TEST_LOGIN_PASSWORD },
   })).ok()).toBe(true);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
@@ -18,6 +19,11 @@ async function upload(page: Page, headers: Record<string, string>, path: string,
   expect((await page.request.post('/api/files/upload', { headers, multipart: { path, files: {
     name, mimeType: 'text/markdown', buffer: Buffer.from(content),
   } } })).ok()).toBe(true);
+}
+
+async function editMode(page: Page) {
+  await page.getByRole('group', { name: 'Document view' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
 }
 
 async function tree(page: Page): Promise<JSONContent> {
@@ -34,13 +40,18 @@ test.describe('Block and document identity through browser lifecycles', () => {
       const headers = await login(page);
       const peerContext = await browser.newContext({ baseURL: process.env.BASE_URL, viewport: { width: 1280, height: 720 } });
       const peer = await peerContext.newPage();
-      // Independent transports; distinct human identities are covered by the interactive acceptance run.
-      await login(peer);
+      expect(await login(peer, true)).toEqual(headers);
+      const identities = await Promise.all([page, peer].map(async target =>
+        (await (await target.request.get('/api/auth/get-session')).json()).user.id as string));
+      expect(identities[0]).toBeTruthy();
+      expect(identities[1]).toBeTruthy();
+      expect(identities[1]).not.toBe(identities[0]);
       const filePath = `editor-drag-revocation-${randomUUID()}.md`;
       await upload(page, headers, '.', filePath, 'A stays.\n\nB source.\n\nC target.\n\nD stays.');
       try {
         await page.goto(`/notebook?path=${filePath}`, { waitUntil: 'domcontentloaded' });
         await peer.goto(`/notebook?path=${filePath}`, { waitUntil: 'domcontentloaded' });
+        await editMode(page); await editMode(peer);
         await expect(page.getByText('B source.', { exact: true })).toBeVisible({ timeout: 30_000 });
         await expect(peer.getByText('B source.', { exact: true })).toBeVisible({ timeout: 30_000 });
         const before = await tree(page);
@@ -69,6 +80,7 @@ test.describe('Block and document identity through browser lifecycles', () => {
         })).json()).data?.content, { timeout: 20_000 }).not.toContain(deleted === 'source' ? 'B source.' : 'C target.');
         await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
         await page.reload({ waitUntil: 'domcontentloaded' });
+        await editMode(page);
         await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
         await expect.poll(() => tree(page)).toEqual(afterDelete);
       } finally {
@@ -90,6 +102,7 @@ test.describe('Block and document identity through browser lifecycles', () => {
       await page.goto(`/notebook?path=${oldFolder}/a.md`, { waitUntil: 'domcontentloaded' });
       await expect(page.getByText('Original A.', { exact: true })).toBeVisible({ timeout: 30_000 });
       await page.goto(`/notebook?path=${oldFolder}/b.md`, { waitUntil: 'domcontentloaded' });
+      await editMode(page);
       await expect(page.getByText('Original B.', { exact: true })).toBeVisible({ timeout: 30_000 });
       const before = await tree(page);
       expect((await page.request.post('/api/files/rename', { headers, data: {
@@ -100,6 +113,7 @@ test.describe('Block and document identity through browser lifecycles', () => {
       expect((await page.request.post('/api/files/create', { headers, data: { path: oldFolder, type: 'directory' } })).ok()).toBe(true);
       await upload(page, headers, oldFolder, 'b.md', 'Replacement at the old path.');
       await page.reload({ waitUntil: 'domcontentloaded' });
+      await editMode(page);
       await expect(page.getByText('Original B.', { exact: true })).toBeVisible();
       expect(await tree(page)).toEqual(before);
       await expect(page.getByRole('tab', { name: 'a.md', exact: true })).toBeVisible();
