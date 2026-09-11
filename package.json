@@ -459,6 +459,7 @@
     "test:notebook:mutations": "tsx scripts/notebook-path-mutations-test.ts && tsx --conditions react-server scripts/notebook-agent-path-mutations-test.ts",
     "test:collaboration:live": "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
     "test:collaboration:durability": "tsx scripts/collaboration-state-proof-test.ts && tsx scripts/collaboration-client-durability-test.tsx && tsx --conditions react-server scripts/collaboration-checkpoint-proof-test.ts",
+    "test:collaboration:projection": "tsx scripts/collaboration-projection-scheduler-test.ts && tsx scripts/collaboration-projection-runtime-test.ts && tsx --conditions react-server scripts/collaboration-projection-repository-test.ts && tsx --conditions react-server scripts/collaboration-projection-fence-test.ts && tsx scripts/collaboration-projection-client-test.tsx && tsx --conditions react-server scripts/collaboration-projection-request-test.ts",
     "test:server:http-lifecycle": "node scripts/http-request-lifecycle-test.cjs",
     "test:collaboration:access": "tsx --conditions react-server scripts/collaboration-access-revocation-test.ts",
     "test:file-guests": "tsx --conditions=react-server scripts/file-guest-update-test.ts && tsx --conditions=react-server scripts/file-guest-access-test.ts",

@@ -863,6 +863,22 @@ export const collaborationDocuments = pgTable("collaboration_documents", {
   providerCheck: check("collaboration_documents_provider_check", sql`${table.provider} IN ('yjs', 'excalidraw')`),
 }));
 
+// Attempts are marked before file I/O; checkpoint receipts are committed with
+// the checkpoint and finalized after derived metadata. Binary sequence gaps and
+// these markers form a restart-safe outbox without a job for every keystroke.
+export const collaborationFileProjections = pgTable("collaboration_file_projections", {
+  documentId: text("document_id").primaryKey(),
+  lifecycleGeneration: bigint("lifecycle_generation", { mode: "number" }).notNull(),
+  projectedSequence: bigint("projected_sequence", { mode: "number" }).notNull(),
+  revisionId: text("revision_id"),
+  canonicalHash: text("canonical_hash"),
+  serializedHash: text("serialized_hash"),
+  finalized: pgBoolean("finalized").notNull().default(false),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  pendingIdx: index("idx_collaboration_file_projections_pending").on(table.finalized, table.updatedAt),
+}));
+
 export const collaborationEvents = pgTable("collaboration_events", {
   id: text("id").primaryKey(),
   documentId: text("document_id").notNull(),

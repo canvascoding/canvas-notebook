@@ -38,6 +38,7 @@ async function main() {
     constructor(readonly options: ProviderOptions) { providers.push(this); }
     setAwarenessField() {}
     sendStateless() {}
+    disconnect() {}
     destroy() {}
   }
   class FakePersistence {
@@ -99,7 +100,7 @@ async function main() {
     });
     await until(() => current?.session?.documentId === session.documentId && !!current.provider);
     await act(async () => { provider().options.onStatus({ status: 'connected' }); provider().options.onSynced(); });
-    await send({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable, message: `Validation paused ${owner}` });
+    await send({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.schemaInvalid, message: `Validation paused ${owner}` });
   };
   const button = () => [...document.querySelectorAll('button')].find((element) => element.textContent === messages.notebook.editorModes.retry);
   const click = () => act(async () => { assert(button()); button()!.click(); });
@@ -193,7 +194,7 @@ async function main() {
     await act(async () => { provider().options.onStatus({ status: 'connected' }); provider().options.onSynced(); });
     assert.equal(get().doc, beforeRename); assert.equal(get().clientState.failure, null,
       'a validated same-document rename adopts its new session and removes the old location failure');
-    await send({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable, message: 'Validation paused again' });
+    await send({ type: 'degraded', code: COLLABORATION_CHECKPOINT_ERROR_CODES.schemaInvalid, message: 'Validation paused again' });
     await click();
     await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 11) });
     await respond({ error: 'Write access was revoked' }, 403);
@@ -209,9 +210,9 @@ async function main() {
       get().doc.getText('content').insert(0, 'received while denied ');
       provider().options.onSynced();
     });
-    assert.equal(get().connection, 'live'); assert.equal(get().durability, 'degraded');
-    assert.equal(get().clientState.failure?.kind, 'unknown');
-    assert(button(), 'successful reauthentication allows validating the current state again');
+    assert.equal(get().connection, 'denied'); assert.equal(get().durability, 'degraded');
+    assert.equal(get().clientState.failure?.kind, 'authentication');
+    assert.equal(button(), undefined, 'a callback from the denied provider cannot grant renewed access');
     await act(async () => provider().options.onAuthenticationFailed({ reason: 'Write permission revoked' }));
     assert.equal(get().clientState.failure?.kind, 'authentication');
     assert.equal(button(), undefined, 'a denied connection cannot retry a checkpoint');

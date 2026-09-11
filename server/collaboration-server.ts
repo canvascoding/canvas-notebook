@@ -6,18 +6,14 @@ import { WebSocketServer } from 'ws';
 
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES } from '@/app/lib/collaboration/failure';
-import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
+import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
+import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
 import { auth } from '@/app/lib/auth';
 import { fileGuestService } from '@/app/lib/file-guests/service';
 import { fileGuestCookieName } from '@/app/lib/file-guests/types';
-import { recordFileGuestVersion } from '@/app/lib/file-guests/versions';
 import { assertFileGuestUpdateAllowed } from '@/app/lib/file-guests/update-policy';
 import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
 import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, revalidateCollaborationAccess } from '@/app/lib/collaboration/connection-access';
-import {
-  CollaborationCheckpointSupersededError,
-  materializeCollaborationCheckpoint,
-} from '@/app/lib/collaboration/checkpoint';
 import {
   AgentDirectConnectionAuthorizationError,
   installCollaborationDirectConnection,
@@ -183,6 +179,27 @@ function rejectCollaborationUpdate(connection: Connection<CollaborationContext>,
 }
 
 export function createCollaborationServer(server: http.Server): WebSocketServer {
+  const projections = createCollaborationProjectionRuntime({
+    onProjected(result) {
+      const room = hocuspocus.documents.get(result.state.documentId);
+      room?.broadcastStateless(JSON.stringify({
+        ...durabilitySnapshotPayload(result.state),
+        // Older clients must not infer that a newer binary state was exported.
+        type: result.state.checkpointSequence >= result.state.documentSequence ? 'checkpointed' : 'durability_snapshot',
+        sequence: result.state.checkpointSequence,
+        revisionId: result.revisionId,
+      }));
+    },
+    onFailure({ state, code, blocksEditing }) {
+      const room = hocuspocus.documents.get(state.documentId);
+      room?.broadcastStateless(JSON.stringify({
+        ...durabilitySnapshotPayload(state),
+        type: blocksEditing ? 'degraded' : 'projection_failed', code,
+        ...(blocksEditing ? { message: 'The document structure could not be validated.' } : {}),
+      }));
+    },
+  });
+  server.once('close', () => projections.dispose());
   const accessMonitor = createCollaborationAccessMonitor<Connection<CollaborationContext>>({
     validate: async (connection) => {
       const access = await revalidateCollaborationAccess(connection.context.claims);
@@ -406,6 +423,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
     },
     async onStoreDocument({ document, documentName, lastContext }) {
+      const startedAt = performance.now();
       let state: Awaited<ReturnType<typeof persistCollaborationYDoc>>;
       try {
         state = await persistCollaborationYDoc(
@@ -431,6 +449,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           documentName,
           lastContext.claims.lifecycleGeneration,
         ).catch(() => undefined);
+        logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: documentName,
+          workspaceId: lastContext.workspace.workspaceId, generation: lastContext.claims.lifecycleGeneration,
+          durationMs: Math.round(performance.now() - startedAt), code: COLLABORATION_FAILURE_CODES.persistenceFailed });
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',
           code: COLLABORATION_FAILURE_CODES.persistenceFailed,
@@ -439,38 +460,11 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         throw error;
       }
       document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
-      try {
-        await recordFileGuestVersion(state);
-        const result = await materializeCollaborationCheckpoint({
-          state,
-          workspace: lastContext.workspace,
-          actorUserId: lastContext.actorType === 'agent' ? lastContext.initiatedByUserId : lastContext.user.id,
-          actorType: lastContext.actorType,
-          sourceSessionId: lastContext.operationId || lastContext.claims.sessionId,
-        });
-        document.broadcastStateless(JSON.stringify({
-          ...durabilitySnapshotPayload(result.state),
-          type: 'checkpointed',
-          sequence: result.state.documentSequence,
-          revisionId: result.revisionId,
-        }));
-      } catch (error) {
-        if (error instanceof CollaborationCheckpointSupersededError) {
-          const currentState = await loadCollaborationState(documentName);
-          document.broadcastStateless(JSON.stringify({
-            ...(currentState ? durabilitySnapshotPayload(currentState) : {}),
-            type: 'checkpoint_superseded',
-            sequence: error.sequence,
-          }));
-          return;
-        }
-        await markCollaborationDegraded(documentName, state.lifecycleGeneration);
-        document.broadcastStateless(JSON.stringify({
-          type: 'degraded',
-          code: error instanceof CollaborationCheckpointValidationError ? error.code : COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
-          message: error instanceof Error ? error.message : 'Checkpoint failed.',
-        }));
-      }
+      logCollaborationDiagnostic('debug', { event: 'yjs_persisted', documentId: state.documentId,
+        workspaceId: state.workspaceId, generation: state.lifecycleGeneration,
+        documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
+        durationMs: Math.round(performance.now() - startedAt) });
+      projections.enqueue(state);
     },
   });
   collaborationInstance = hocuspocus;

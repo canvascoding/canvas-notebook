@@ -5,7 +5,10 @@ import { COLLABORATION_SCHEMA_VERSION, COLLABORATION_CLIENT_CAPABILITIES, type C
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import { collaborationUpdateStateProof, isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
-import { materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
+import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
+import { collaborationCheckpointValidationFailure, COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
+import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
+import { FileGuestCheckpointRequestError } from './checkpoint-error';
 import { fileGuestService, FileGuestError } from './service';
 
 export async function fileGuestCollaborationSession(id: string, token: string): Promise<CollaborationSessionResponse> {
@@ -30,7 +33,9 @@ export async function fileGuestCollaborationSession(id: string, token: string): 
 
 export async function fileGuestCheckpoint(id: string, token: string, ticket: string, stateVector: string, stateProof: unknown) {
   const found = await fileGuestService.access(id, { token });
-  const claims = verifyCollaborationTicket(ticket);
+  let claims: ReturnType<typeof verifyCollaborationTicket>;
+  try { claims = verifyCollaborationTicket(ticket); }
+  catch { throw new FileGuestError('Der Zugang ist abgelaufen. Bitte neu anmelden.', 401); }
   if (claims.guestInvitationId !== id || claims.guestPolicyRevision !== found.invitation.policyRevision
     || claims.sessionId !== found.guestSession.id || claims.userId !== found.user.id || claims.permission !== 'write'
     || found.invitation.permission !== 'write' || claims.documentId !== found.state.documentId
@@ -42,7 +47,21 @@ export async function fileGuestCheckpoint(id: string, token: string, ticket: str
   if (!stateVector || stateVector.length > 64 * 1024 || Buffer.from(found.state.stateVector).toString('base64') !== stateVector
     || collaborationUpdateStateProof(found.state.yjsState, Y) !== stateProof) throw new FileGuestError('Änderungen werden noch synchronisiert. Bitte erneut versuchen.', 409);
   const result = await materializeCollaborationCheckpoint({ state: found.state, workspace: found.workspace,
-    actorUserId: found.user.id, actorType: 'user', sourceSessionId: found.guestSession.id });
+    actorUserId: found.user.id, actorType: 'user', sourceSessionId: found.guestSession.id }).catch((error: unknown) => {
+    const validation = collaborationCheckpointValidationFailure(error);
+    const superseded = error instanceof CollaborationCheckpointSupersededError;
+    const code = validation?.code ?? (superseded ? COLLABORATION_CHECKPOINT_ERROR_CODES.superseded : COLLABORATION_CHECKPOINT_ERROR_CODES.failed);
+    logCollaborationDiagnostic('warn', { event: 'projection_failed', documentId: found.state.documentId,
+      workspaceId: found.state.workspaceId, generation: found.state.lifecycleGeneration,
+      documentSequence: found.state.documentSequence, checkpointSequence: found.state.checkpointSequence, code });
+    throw new FileGuestCheckpointRequestError(validation?.status ?? (superseded ? 409 : 500), {
+      success: false, code, error: validation?.message ?? 'Die Dateiausgabe konnte noch nicht abgeschlossen werden.',
+      documentId: found.state.documentId, lifecycleGeneration: found.state.lifecycleGeneration,
+      documentSequence: found.state.documentSequence, checkpointSequence: found.state.checkpointSequence,
+      stateVector: Buffer.from(found.state.stateVector).toString('base64'),
+      stateProof: collaborationUpdateStateProof(found.state.yjsState, Y),
+    });
+  });
   return { success: true, documentId: result.state.documentId, lifecycleGeneration: result.state.lifecycleGeneration,
     documentSequence: result.state.documentSequence, checkpointSequence: result.state.checkpointSequence,
     sequence: result.state.documentSequence, revisionId: result.revisionId, stateVector: Buffer.from(result.state.stateVector).toString('base64'),

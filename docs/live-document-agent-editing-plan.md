@@ -1,6 +1,6 @@
 # Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
 
-Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritt 1 abgeschlossen, Schritte 2–7 offen.
+Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–2 abgeschlossen, Schritte 3–7 offen.
 
 Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
 
@@ -150,6 +150,14 @@ Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusä
 Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
 
 ## 9. Grundlagen und Grenze der Zusage
+
+### Umsetzungsnachweis Schritt 2
+
+Der Collaboration-Server bestätigt die binäre Yjs-Sicherung unabhängig von der Dateiausgabe. Die Hintergrundprojektion bündelt Änderungen nach zwei Sekunden Ruhe bzw. spätestens zehn Sekunden Wartezeit, begrenzt parallele Ausgaben und wiederholt Fehler mit Warteabständen. Ein Datenbank-Scan findet nach Neustart sowohl Sequenzrückstände als auch unvollständig abgeschlossene Dateiausgaben. Ein dauerhafter Projektionsbeleg wird vor Datei-I/O angelegt und erst nach Dateimetadaten und Freigabe-Synchronisierung abgeschlossen.
+
+Dateiausgabe und Lifecycle-Mutationen teilen eine Workspace-Sperre; die Yjs-Zeile bleibt während Datei-I/O frei. Die kurze Datenbankbestätigung beschreibt exakt die ausgegebene Sequenz, auch wenn inzwischen neue Yjs-Änderungen gespeichert wurden. Unklare Transaktionsabbrüche verwerfen die PostgreSQL-Verbindung und lassen den dauerhaften Wiederherstellungsauftrag erhalten. Roundtrip-/Dateifehler bleiben von echten Persistenz-, Schema-, Identitäts- und Rechtefehlern getrennt. Konto-/Gastantworten bestätigen weiterhin nur autorisierte, durch Löschungen abgesicherte Zustände.
+
+Nachweise: `test:collaboration:projection`, `test:collaboration:durability`, `test:collaboration:failures`, `test:collaboration:checkpoint-errors` sowie Hardening bestanden. Neue Tests prüfen Scheduler, tatsächliche Server-Callbacks, Clientzustände, Konto-/Gastendpunkte, private Diagnosefelder, Projektionsabbruch und Verbindungsverwerfen. PGlite mit echten Migrationen prüft dauerhafte Belege, SQL-Rollback, Generationen, Workspace-Zuordnung und Wiederanlauf. `file-agent-operation-integration-test.ts` besteht zusätzlich in einer eigenen temporären Datenbank auf dem verwalteten PostgreSQL-18-Server; insbesondere kann ein zweiter Yjs-Commit vor Freigabe des absichtlich pausierten Datei-I/O abschließen. Diese Testdatenbank wurde anschließend entfernt. TypeScript, ESLint und Diff-Prüfung bestanden; abschließende Browser-/Neustartabnahme bleibt Schritt 7.
 
 ### Umsetzungsnachweis Schritt 1
 

@@ -3,7 +3,8 @@ import 'server-only';
 import crypto from 'node:crypto';
 import type * as YTypes from 'yjs';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import {
   archivePersistedCollaborationStatePathScopes,
   lockFileCollaborationPaths,
@@ -365,11 +366,18 @@ export type CompensatableCheckpointMaterialization<T> = {
   rollback: () => Promise<void>;
 };
 
+/** No file compensation is safe until an unresolved DB transaction is gone. */
+class CheckpointTransactionRollbackError extends AggregateError {
+  constructor(errors: unknown[], readonly connectionDiscarded: boolean) {
+    super(errors, 'Collaboration checkpoint transaction rollback failed; projection recovery is deferred.');
+    this.name = 'CheckpointTransactionRollbackError';
+  }
+}
+
 /**
  * Couples an external checkpoint projection with its database confirmation.
- * The compensation runs before the surrounding transaction releases its row
- * lock, so a failed confirmation cannot leave the workspace file ahead of the
- * authoritative checkpoint metadata.
+ * The caller keeps the workspace lifecycle fence throughout, and releases any
+ * database row lock before rejecting confirmation and running compensation.
  */
 export async function confirmCheckpointMaterialization<T, R>(input: {
   materialize: () => Promise<CompensatableCheckpointMaterialization<T>>;
@@ -379,6 +387,7 @@ export async function confirmCheckpointMaterialization<T, R>(input: {
   try {
     return await input.confirm(materialized);
   } catch (confirmationError) {
+    if (confirmationError instanceof CheckpointTransactionRollbackError) throw confirmationError;
     try {
       await materialized.rollback();
     } catch (rollbackError) {
@@ -415,27 +424,31 @@ export function checkpointCommitRecoveryDecision(input: {
 
 async function recoverIndeterminateCheckpointCommit<T>(input: {
   documentId: string;
+  expectedState: PersistedCollaborationState;
   sequence: number;
   canonicalHash: string;
   serializedHash: string;
   materialized: CompensatableCheckpointMaterialization<T>;
 }): Promise<{ decision: CheckpointCommitRecoveryDecision; state: PersistedCollaborationState | null }> {
   const recoveryDatabase = await openDb();
-  let recoveryTransactionOpen = false;
   try {
-    await recoveryDatabase.run('BEGIN');
-    recoveryTransactionOpen = true;
+    // Autocommit waits for the discarded connection's transaction to finish,
+    // then releases this short row lock before any compensating file I/O.
     const row = await recoveryDatabase.get(
       'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
       [input.documentId],
     ) as StateRow | undefined;
     if (!row) {
-      await input.materialized.rollback();
-      await recoveryDatabase.run('COMMIT');
-      recoveryTransactionOpen = false;
-      return { decision: 'rollback', state: null };
+      // The identity no longer exists; the old path may have been reused.
+      return { decision: 'superseded', state: null };
     }
     const state = mapState(row);
+    if (state.workspaceId !== input.expectedState.workspaceId || state.path !== input.expectedState.path
+      || state.status !== 'active' || state.lifecycleGeneration !== input.expectedState.lifecycleGeneration
+      || state.schemaVersion !== input.expectedState.schemaVersion || state.representation !== input.expectedState.representation) {
+      // Never compensate through a path that now belongs to another lifecycle.
+      return { decision: 'superseded', state };
+    }
     const decision = checkpointCommitRecoveryDecision({
       expectedSequence: input.sequence,
       expectedCanonicalHash: input.canonicalHash,
@@ -448,28 +461,21 @@ async function recoverIndeterminateCheckpointCommit<T>(input: {
       await input.materialized.rollback();
     } else if (decision === 'degraded') {
       await recoveryDatabase.run(
-        'UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = $1',
-        [input.documentId],
+        'UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = $1 AND lifecycle_generation = $2',
+        [input.documentId, input.expectedState.lifecycleGeneration],
       );
     }
-    await recoveryDatabase.run('COMMIT');
-    recoveryTransactionOpen = false;
     return { decision, state };
-  } catch (error) {
-    if (recoveryTransactionOpen) {
-      try { await recoveryDatabase.run('ROLLBACK'); } catch {}
-    }
-    throw error;
   } finally {
     await recoveryDatabase.close();
   }
 }
 
 /**
- * Holds the collaboration state row lock across file materialization and
- * checkpoint confirmation. A concurrent Yjs persist or lifecycle update must
- * therefore happen entirely before this fence (and fail the identity check)
- * or after the checkpoint metadata and workspace projection agree.
+ * Serializes file projection with path/lifecycle mutations, but never holds a
+ * Yjs row lock during file I/O. Newer Yjs snapshots may persist while an older
+ * verified snapshot is projected; the confirmed sequence describes that file,
+ * not any changes that arrived meanwhile.
  */
 export async function withCollaborationCheckpointFence<T>(input: {
   documentId: string;
@@ -483,125 +489,164 @@ export async function withCollaborationCheckpointFence<T>(input: {
   materialize: (
     state: PersistedCollaborationState,
   ) => Promise<CompensatableCheckpointMaterialization<T>>;
+  /** Persist a restart-safe projection receipt in the checkpoint transaction. */
+  confirmProjection?: (transaction: SqlConnection, state: PersistedCollaborationState, result: T) => Promise<void>;
 }): Promise<{ result: T; state: PersistedCollaborationState } | null> {
-  const database = await openDb();
-  let databaseClosed = false;
-  let transactionOpen = false;
-  try {
-    await database.run('BEGIN');
-    transactionOpen = true;
-    const lockedRow = await database.get(
-      `
-        SELECT * FROM collaboration_yjs_states
-        WHERE document_id = $1
-          AND workspace_id = $2
-          AND path = $3
-          AND representation = $4
-          AND status = 'active'
-          AND lifecycle_generation = $5
-          AND schema_version = $6
-          AND document_sequence = $7
-          AND checkpoint_sequence <= $8
-        FOR UPDATE
-      `,
-      [
-        input.documentId,
-        input.workspaceId,
-        input.path,
-        input.representation,
-        input.lifecycleGeneration,
-        input.schemaVersion,
-        input.sequence,
-        input.sequence,
-      ],
-    ) as StateRow | undefined;
-    if (!lockedRow) {
-      await database.run('ROLLBACK');
-      transactionOpen = false;
-      return null;
-    }
-    const lockedState = mapState(lockedRow);
-    if (!Buffer.from(lockedState.stateVector).equals(Buffer.from(input.stateVector))) {
-      await database.run('ROLLBACK');
-      transactionOpen = false;
-      return null;
-    }
-
-    const materialized = await input.materialize(lockedState);
-    const expectedCanonicalHash = sha256Text(materialized.canonicalContent);
-    const expectedSerializedHash = sha256Text(materialized.serializedContent);
-    const checkpointedRow = await confirmCheckpointMaterialization({
-      materialize: async () => materialized,
-      confirm: async () => {
-        const row = await database.get(
-          `
-            UPDATE collaboration_yjs_states
-            SET checkpointed_at = $1, checkpoint_sequence = $2, canonical_hash = $3, serialized_hash = $4, degraded = 0
-            WHERE document_id = $5
-              AND document_sequence = $6
-              AND checkpoint_sequence <= $7
-            RETURNING *
-          `,
-          [
-            Date.now(),
-            input.sequence,
-            expectedCanonicalHash,
-            expectedSerializedHash,
-            input.documentId,
-            input.sequence,
-            input.sequence,
-          ],
-        ) as StateRow | undefined;
-        if (!row) {
-          throw new Error('Collaboration checkpoint row changed while its write fence was held.');
-        }
-        return row;
-      },
-    });
-    try {
-      await database.run('COMMIT');
-      transactionOpen = false;
-      return { result: materialized.result, state: mapState(checkpointedRow) };
-    } catch (commitError) {
-      try { await database.run('ROLLBACK'); } catch {}
-      transactionOpen = false;
-      await database.close();
+  return withWorkspaceMutationLock(input.workspaceId, async () => {
+    const database = await openDb();
+    let databaseClosed = false;
+    let transactionOpen = false;
+    const closeDatabase = async (error?: Error) => {
       databaseClosed = true;
-      let recovery: Awaited<ReturnType<typeof recoverIndeterminateCheckpointCommit<T>>>;
+      transactionOpen = false;
+      await database.close(error);
+    };
+    const rollbackTransaction = async (operationError: unknown) => {
       try {
-        recovery = await recoverIndeterminateCheckpointCommit({
-          documentId: input.documentId,
-          sequence: input.sequence,
-          canonicalHash: expectedCanonicalHash,
-          serializedHash: expectedSerializedHash,
-          materialized,
-        });
-      } catch (recoveryError) {
-        throw new AggregateError(
-          [commitError, recoveryError],
-          'Collaboration checkpoint commit failed and its durable outcome could not be recovered.',
-        );
+        await database.run('ROLLBACK');
+        transactionOpen = false;
+      } catch (rollbackError) {
+        const errors = [operationError, rollbackError];
+        let connectionDiscarded = false;
+        try {
+          await closeDatabase(new Error('Discarding unresolved collaboration checkpoint transaction.', { cause: rollbackError }));
+          connectionDiscarded = true;
+        } catch (discardError) { errors.push(discardError); }
+        throw new CheckpointTransactionRollbackError(errors, connectionDiscarded);
       }
-      if (recovery.decision === 'committed') {
+    };
+    try {
+      const lockedRow = await database.get(
+        `
+          SELECT * FROM collaboration_yjs_states
+          WHERE document_id = $1
+            AND workspace_id = $2
+            AND path = $3
+            AND representation = $4
+            AND status = 'active'
+            AND lifecycle_generation = $5
+            AND schema_version = $6
+            AND document_sequence = $7
+            AND checkpoint_sequence <= $8
+        `,
+        [
+          input.documentId,
+          input.workspaceId,
+          input.path,
+          input.representation,
+          input.lifecycleGeneration,
+          input.schemaVersion,
+          input.sequence,
+          input.sequence,
+        ],
+      ) as StateRow | undefined;
+      if (!lockedRow) {
+        return null;
+      }
+      const lockedState = mapState(lockedRow);
+      if (!Buffer.from(lockedState.stateVector).equals(Buffer.from(input.stateVector))) {
+        return null;
+      }
+
+      const materialized = await input.materialize(lockedState);
+      const expectedCanonicalHash = sha256Text(materialized.canonicalContent);
+      const expectedSerializedHash = sha256Text(materialized.serializedContent);
+      const checkpointedRow = await confirmCheckpointMaterialization({
+        materialize: async () => materialized,
+        confirm: async () => {
+          try {
+            transactionOpen = true;
+            await database.run('BEGIN');
+            const row = await database.get(
+              `
+                UPDATE collaboration_yjs_states
+                SET checkpointed_at = $1, checkpoint_sequence = $2, canonical_hash = $3, serialized_hash = $4,
+                    degraded = CASE WHEN document_sequence = $6 THEN 0 ELSE degraded END
+                WHERE document_id = $5
+                  AND document_sequence >= $6
+                  AND checkpoint_sequence <= $7
+                  AND workspace_id = $8 AND path = $9 AND representation = $10
+                  AND status = 'active' AND lifecycle_generation = $11 AND schema_version = $12
+                RETURNING *
+              `,
+              [
+                Date.now(),
+                input.sequence,
+                expectedCanonicalHash,
+                expectedSerializedHash,
+                input.documentId,
+                input.sequence,
+                input.sequence,
+                input.workspaceId,
+                input.path,
+                input.representation,
+                input.lifecycleGeneration,
+                input.schemaVersion,
+              ],
+            ) as StateRow | undefined;
+            if (!row) {
+              throw new Error('Collaboration checkpoint identity changed before confirmation.');
+            }
+            await input.confirmProjection?.(database, mapState(row), materialized.result);
+            return row;
+          } catch (error) {
+            // Release any short CAS row lock before compensating through file I/O.
+            if (transactionOpen) {
+              await rollbackTransaction(error);
+            }
+            throw error;
+          }
+        },
+      });
+      try {
+        await database.run('COMMIT');
+        transactionOpen = false;
         return { result: materialized.result, state: mapState(checkpointedRow) };
+      } catch (commitError) {
+        let cleanupError: CheckpointTransactionRollbackError | undefined;
+        try { await rollbackTransaction(commitError); }
+        catch (error) {
+          if (!(error instanceof CheckpointTransactionRollbackError) || !error.connectionDiscarded) throw error;
+          cleanupError = error;
+        }
+        if (!databaseClosed) await closeDatabase();
+        let recovery: Awaited<ReturnType<typeof recoverIndeterminateCheckpointCommit<T>>>;
+        try {
+          recovery = await recoverIndeterminateCheckpointCommit({
+            documentId: input.documentId,
+            expectedState: lockedState,
+            sequence: input.sequence,
+            canonicalHash: expectedCanonicalHash,
+            serializedHash: expectedSerializedHash,
+            materialized,
+          });
+        } catch (recoveryError) {
+          throw new AggregateError(
+            [cleanupError ?? commitError, recoveryError],
+            'Collaboration checkpoint commit failed and its durable outcome could not be recovered.',
+          );
+        }
+        if (recovery.decision === 'committed') {
+          return { result: materialized.result, state: recovery.state! };
+        }
+        if (recovery.decision === 'superseded') return null;
+        if (recovery.decision === 'degraded') {
+          throw new AggregateError(
+            [commitError],
+            'Collaboration checkpoint commit outcome conflicts with its persisted hashes.',
+          );
+        }
+        throw commitError;
       }
-      if (recovery.decision === 'superseded') return null;
-      if (recovery.decision === 'degraded') {
-        throw new AggregateError(
-          [commitError],
-          'Collaboration checkpoint commit outcome conflicts with its persisted hashes.',
-        );
+    } catch (error) {
+      if (transactionOpen) {
+        await rollbackTransaction(error);
       }
-      throw commitError;
+      throw error;
+    } finally {
+      if (!databaseClosed) await closeDatabase();
     }
-  } catch (error) {
-    if (transactionOpen) {
-      try { await database.run('ROLLBACK'); } catch {}
-    }
-    throw error;
-  } finally {
-    if (!databaseClosed) await database.close();
-  }
+  });
 }
 
 export async function markCollaborationDegraded(
@@ -775,13 +820,22 @@ async function compactCollaborationStateWhileLocked(input: {
   }
 }
 
+/** Room admission is locked first; file lifecycle work then shares the workspace fence. */
+async function withCollaborationStateWorkspaceLock<T>(documentId: string, operation: () => Promise<T>): Promise<T> {
+  const state = await loadCollaborationStateIncludingArchived(documentId);
+  if (!state) {
+    throw new CollaborationRepresentationMigrationError('Collaboration state is unavailable before lifecycle mutation.', 'lifecycle_stale');
+  }
+  return withWorkspaceMutationLock(state.workspaceId, operation);
+}
+
 export async function compactCollaborationState(input: {
   documentId: string;
   expectedLifecycleGeneration: number;
 }): Promise<PersistedCollaborationState> {
   return withCollaborationRoomLifecycleLock(
     input.documentId,
-    () => compactCollaborationStateWhileLocked(input),
+    () => withCollaborationStateWorkspaceLock(input.documentId, () => compactCollaborationStateWhileLocked(input)),
   );
 }
 
@@ -1013,7 +1067,7 @@ export async function changeCollaborationRepresentation(input: {
 }): Promise<PersistedCollaborationState> {
   const result = await withCollaborationRoomLifecycleLock(
     input.documentId,
-    () => changeCollaborationRepresentationWhileLocked(input),
+    () => withCollaborationStateWorkspaceLock(input.documentId, () => changeCollaborationRepresentationWhileLocked(input)),
   );
   return result.state;
 }
@@ -1031,12 +1085,12 @@ export async function changeCollaborationRepresentationWithSafeMarkdownNormaliza
 }> {
   return withCollaborationRoomLifecycleLock(
     input.documentId,
-    () => changeCollaborationRepresentationWhileLocked({
+    () => withCollaborationStateWorkspaceLock(input.documentId, () => changeCollaborationRepresentationWhileLocked({
       ...input,
       representation: input.representation ?? 'tiptap_xml',
       normalizeSafeMarkdown: true,
       checkpoint: input.checkpoint,
-    }),
+    })),
   );
 }
 
@@ -1045,10 +1099,10 @@ export async function movePersistedCollaborationPath(input: {
   oldPath: string;
   newPath: string;
 }): Promise<void> {
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceMutationLock(input.workspaceId, () => withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, [input.oldPath, input.newPath]);
     await movePersistedCollaborationStatePathScope(transaction, input);
-  });
+  }));
 }
 
 export async function archivePersistedCollaborationPaths(input: {
@@ -1056,21 +1110,21 @@ export async function archivePersistedCollaborationPaths(input: {
   paths: string[];
 }): Promise<void> {
   if (input.paths.length === 0) return;
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceMutationLock(input.workspaceId, () => withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, input.paths);
     await archivePersistedCollaborationStatePathScopes(transaction, {
       ...input,
       nowMs: Date.now(),
     });
-  });
+  }));
 }
 
 export async function reactivatePersistedCollaborationPath(input: {
   workspaceId: string;
   path: string;
 }): Promise<void> {
-  await withFileCollaborationTransaction(async (transaction) => {
+  await withWorkspaceMutationLock(input.workspaceId, () => withFileCollaborationTransaction(async (transaction) => {
     await lockFileCollaborationPaths(transaction, input.workspaceId, [input.path]);
     await reactivatePersistedCollaborationStatePathScope(transaction, input);
-  });
+  }));
 }

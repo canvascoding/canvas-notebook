@@ -2,6 +2,7 @@ import 'server-only';
 import { isRichTextCollaborationRepresentation } from '@/app/lib/collaboration/types';
 
 import { createHash, randomUUID } from 'node:crypto';
+import type { Doc } from 'yjs';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { fileGuestInvitations, fileGuestVersions } from '@/app/lib/db/schema';
@@ -27,8 +28,18 @@ export async function recordFileGuestVersion(state: PersistedCollaborationState,
   const [latest] = await db.select().from(fileGuestVersions).where(eq(fileGuestVersions.documentId, state.documentId))
     .orderBy(desc(fileGuestVersions.createdAt), desc(fileGuestVersions.id)).limit(1);
   if (!force && latest && Date.now() - latest.createdAt.getTime() < 60_000) return;
-  const content = await readCurrentCollaborationDocument({ documentId: state.documentId, workspaceId: state.workspaceId,
-    read: (doc) => state.representation === 'plain_text' ? doc.getText('content').toString() : richMarkdownFromYDoc(doc) });
+  const readContent = (doc: Doc) => state.representation === 'plain_text' ? doc.getText('content').toString() : richMarkdownFromYDoc(doc);
+  let content: string;
+  if (force) {
+    // Explicit restore backups still include not-yet-persisted live edits.
+    content = await readCurrentCollaborationDocument({ documentId: state.documentId, workspaceId: state.workspaceId, read: readContent });
+  } else {
+    // A delayed background export must not label a newer live document with
+    // this older snapshot's generation and sequence.
+    const snapshot = new Y.Doc();
+    try { Y.applyUpdate(snapshot, state.yjsState); content = readContent(snapshot); }
+    finally { snapshot.destroy(); }
+  }
   if (Buffer.byteLength(content) > 5 * 1024 * 1024) throw new FileGuestVersionError('Versionsstand überschreitet 5 MiB.', 413);
   const contentHash = createHash('sha256').update(content).digest('hex');
   if (latest?.contentHash === contentHash) return;

@@ -11,7 +11,7 @@ import { createDocumentAwarenessLease } from './document-awareness';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
-import { COLLABORATION_FAILURE_CODES } from './failure';
+import { COLLABORATION_FAILURE_CODES, isCollaborationProjectionErrorCode } from './failure';
 import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
 import {
   createInitialTextCollaborationClientState,
@@ -286,7 +286,7 @@ function adoptEntryLocation(entry: RegistryEntry, path: string, session: Collabo
   entry.pendingAuthoritativeSnapshot = durabilitySnapshot(session) ?? undefined;
   const locationRecovered = entry.clientState.failure?.kind === 'lifecycle';
   entry.clientState = { ...entry.clientState, remoteSynced: false, ready: false,
-    checkpointStateVector: null, checkpointStateProof: null,
+    checkpointStateVector: null, checkpointStateProof: null, persistedStateProof: null,
     connection: session.permission === 'read' ? 'read_only' : 'reconnecting',
     error: locationRecovered ? null : entry.clientState.error,
     failure: locationRecovered ? null : entry.clientState.failure,
@@ -374,13 +374,15 @@ function createEntry(
           || !entry.session
           || snapshot.documentId !== entry.session.documentId
           || snapshot.lifecycleGeneration !== entry.session.lifecycleGeneration
-        ) return;
+          || snapshot.documentSequence < (entry.clientState.documentSequence ?? -1)
+        ) return false;
         const previous = entry.pendingAuthoritativeSnapshot;
         if (previous && (snapshot.documentSequence < previous.documentSequence
           || (snapshot.documentSequence === previous.documentSequence
-            && snapshot.checkpointSequence < previous.checkpointSequence))) return;
+            && (snapshot.checkpointSequence < previous.checkpointSequence
+              || snapshot.stateProof !== previous.stateProof)))) return false;
         entry.pendingAuthoritativeSnapshot = snapshot;
-        if (!entry.clientState.remoteSynced) return;
+        if (!entry.clientState.remoteSynced) return true;
         const matchesCurrentDocument = collaborationStateProof(entry.doc, Y) === snapshot.stateProof;
         transition(entry, {
           type: 'authoritative_snapshot',
@@ -398,6 +400,7 @@ function createEntry(
             sequence: snapshot.checkpointSequence,
           }));
         }
+        return true;
       };
       entry.doc.on('update', () => {
         // Invalidate immediately, before the provider batches/sends the change.
@@ -472,7 +475,29 @@ function createEntry(
                 return;
               }
               if (message.type === 'degraded') {
+                if ((message.documentId !== undefined && message.documentId !== session.documentId)
+                  || (message.lifecycleGeneration !== undefined && message.lifecycleGeneration !== session.lifecycleGeneration)
+                  || (message.documentSequence !== undefined && (!Number.isSafeInteger(message.documentSequence)
+                    || message.documentSequence < (entry.clientState.documentSequence ?? -1)))) return;
+                if (isCollaborationProjectionErrorCode(message.code) && message.stateProof !== undefined) {
+                  const snapshot = durabilitySnapshot(message);
+                  if (snapshot && reconcileAuthoritativeSnapshot(snapshot)) {
+                    transition(entry, { type: 'projection_failed', sequence: snapshot.documentSequence, code: message.code });
+                  }
+                  return;
+                }
                 transition(entry, { type: 'degraded', message: message.message || 'Checkpoint failed.', code: message.code });
+                return;
+              }
+              if (message.type === 'projection_failed') {
+                const snapshot = durabilitySnapshot(message);
+                if (!snapshot || !reconcileAuthoritativeSnapshot(snapshot)) return;
+                if (message.code !== undefined && !isCollaborationProjectionErrorCode(message.code)) {
+                  if (message.code === COLLABORATION_FAILURE_CODES.authenticationFailed) denyAccess('Collaboration authentication failed.');
+                  else transition(entry, { type: 'degraded', message: 'The shared document could not be validated.', code: message.code });
+                } else {
+                  transition(entry, { type: 'projection_failed', sequence: snapshot.documentSequence, code: message.code });
+                }
                 return;
               }
               if (message.type === 'durability_snapshot') {
@@ -521,6 +546,7 @@ function createEntry(
         if (entry.lifecycle.signal.aborted) return Promise.reject(new Error('Collaboration document was closed.'));
         if (entry.checkpointPromise) return entry.checkpointPromise;
         const scope = entry.requests;
+        let requestedStateProof: string | null = null;
         const promise = (async () => {
           transition(entry, { type: 'checkpoint_requested' });
           await waitForEntryState(
@@ -538,6 +564,7 @@ function createEntry(
           const stateVector = bytesToBase64(Y.encodeStateVector(entry.doc));
           const stateProof = collaborationStateProof(entry.doc, Y);
           if (!stateProof) throw new Error('Collaboration is waiting for missing Yjs updates.');
+          requestedStateProof = stateProof;
           let lastError = 'Checkpoint is waiting for the latest Yjs persistence.';
           let lastErrorCode: string | null = null;
           for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -554,6 +581,10 @@ function createEntry(
             };
             assertRequestActive(entry, scope);
             const snapshot = durabilitySnapshot(payload);
+            if (!response.ok && isCollaborationProjectionErrorCode(payload.code)
+              && snapshot && reconcileAuthoritativeSnapshot(snapshot)) {
+              transition(entry, { type: 'projection_failed', sequence: snapshot.documentSequence, code: payload.code });
+            }
             if (
               response.ok
               && snapshot
@@ -578,6 +609,7 @@ function createEntry(
           const requestCode = error instanceof CollaborationCheckpointRequestError ? error.code : undefined;
           const authenticationFailed = requestCode === COLLABORATION_FAILURE_CODES.authenticationFailed;
           const generationChanged = requestCode === COLLABORATION_FAILURE_CODES.generationChanged;
+          const projectionFailed = isCollaborationProjectionErrorCode(requestCode);
           // Another checkpoint may have confirmed the exact current document
           // while this HTTP request was pending. Its later failure is obsolete.
           if (!authenticationFailed && !generationChanged && scope === entry.requests && !scope.signal.aborted
@@ -585,7 +617,11 @@ function createEntry(
           const message = error instanceof Error ? error.message : 'Checkpoint failed.';
           if (scope === entry.requests && !scope.signal.aborted) {
             if (authenticationFailed) denyAccess(message);
-            else transition(entry, { type: generationChanged || (requestCode && isCollaborationCheckpointValidationErrorCode(requestCode))
+            else if (projectionFailed) {
+              if (requestedStateProof && requestedStateProof === collaborationStateProof(entry.doc, Y)) {
+                transition(entry, { type: 'checkpoint_failed', message, code: requestCode });
+              }
+            } else transition(entry, { type: generationChanged || (requestCode && isCollaborationCheckpointValidationErrorCode(requestCode))
               ? 'degraded' : 'checkpoint_failed', message, code: requestCode });
           }
           throw error;

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import { collaborationUpdateStateProof, isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES } from '@/app/lib/collaboration/failure';
+import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
 import {
@@ -75,9 +76,15 @@ export async function POST(request: NextRequest) {
   } = {
     workspaceId: workspaceResult.workspace.workspaceId,
   };
+  let attemptedState: PersistedCollaborationState | null = null;
 
   try {
-    const claims = verifyCollaborationTicket(body.token);
+    let claims: ReturnType<typeof verifyCollaborationTicket>;
+    try { claims = verifyCollaborationTicket(body.token); }
+    catch {
+      return NextResponse.json({ success: false, code: COLLABORATION_FAILURE_CODES.authenticationFailed,
+        error: 'Collaboration authorization expired. Reload to sign in again.' }, { status: 401 });
+    }
     checkpointContext = {
       workspaceId: claims.workspaceId,
       documentId: claims.documentId,
@@ -117,6 +124,7 @@ export async function POST(request: NextRequest) {
         alreadyCheckpointed: true,
       }));
     }
+    attemptedState = state;
     const result = await materializeCollaborationCheckpoint({
       state,
       workspace: workspaceResult.workspace,
@@ -145,12 +153,13 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const validationFailure = collaborationCheckpointValidationFailure(error);
     if (validationFailure) {
-      console.error('[Collaboration] Rich checkpoint validation rejected.', {
-        ...checkpointContext,
-        errorCode: validationFailure.code,
-        validationCode: validationFailure.validationCode,
+      logCollaborationDiagnostic('warn', {
+        event: 'projection_failed', workspaceId: checkpointContext.workspaceId, documentId: checkpointContext.documentId,
+        generation: attemptedState?.lifecycleGeneration, documentSequence: attemptedState?.documentSequence,
+        checkpointSequence: attemptedState?.checkpointSequence, code: validationFailure.code,
       });
       return NextResponse.json({
+        ...(attemptedState ? checkpointResponse(attemptedState, { revisionId: null }) : {}),
         success: false,
         code: validationFailure.code,
         error: validationFailure.message,
@@ -163,12 +172,13 @@ export async function POST(request: NextRequest) {
         error: 'The collaboration checkpoint was superseded by newer changes.',
       }, { status: 409 });
     }
-    console.error('[Collaboration] Checkpoint failed.', {
-      ...checkpointContext,
-      errorName: error instanceof Error ? error.name : typeof error,
-      errorMessage: error instanceof Error ? error.message : undefined,
+    logCollaborationDiagnostic('warn', {
+      event: 'projection_failed', workspaceId: checkpointContext.workspaceId, documentId: checkpointContext.documentId,
+      generation: attemptedState?.lifecycleGeneration, documentSequence: attemptedState?.documentSequence,
+      checkpointSequence: attemptedState?.checkpointSequence, code: COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
     });
     return NextResponse.json({
+      ...(attemptedState ? checkpointResponse(attemptedState, { revisionId: null }) : {}),
       success: false,
       code: COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
       error: 'The collaboration checkpoint could not be created.',

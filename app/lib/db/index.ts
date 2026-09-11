@@ -15,7 +15,8 @@ export type SqlConnection = {
   get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   run: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;
-  close: () => void | Promise<void>;
+  /** A supplied error discards the connection instead of returning it to the pool. */
+  close: (error?: Error) => void | Promise<void>;
 };
 
 function createPostgresDatabase() {
@@ -161,7 +162,7 @@ async function openPostgresDb(): Promise<SqlConnection> {
       const result = await query(sql, params);
       return result.rows;
     },
-    close: () => client.release(),
+    close: (error?: Error) => client.release(error),
   };
 }
 

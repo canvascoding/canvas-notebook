@@ -1,5 +1,5 @@
 import { isCollaborationStateProof } from './state-proof';
-import { collaborationFailure, COLLABORATION_FAILURE_CODES, type CollaborationFailure } from './failure';
+import { collaborationFailure, COLLABORATION_FAILURE_CODES, isCollaborationProjectionErrorCode, type CollaborationFailure } from './failure';
 import type {
   CollaborationPermission,
   TextCollaborationConnectionState,
@@ -17,6 +17,8 @@ export type TextCollaborationClientState = {
   checkpointSequence: number | null;
   checkpointStateVector: string | null;
   checkpointStateProof: string | null;
+  persistedStateProof: string | null;
+  projectionError: { code: string | null; sequence: number } | null;
   error: string | null;
   failure: CollaborationFailure | null;
 };
@@ -39,6 +41,7 @@ export type TextCollaborationClientEvent =
   | { type: 'checkpointed'; sequence: number; stateVector: string; stateProof: string; matchesCurrentDocument: boolean }
   | { type: 'checkpoint_superseded'; sequence: number }
   | { type: 'checkpoint_failed'; message: string; code?: string }
+  | { type: 'projection_failed'; sequence: number; code?: string }
   | { type: 'degraded'; message: string; code?: string }
   | { type: 'authentication_failed'; message: string };
 
@@ -66,6 +69,8 @@ export function createInitialTextCollaborationClientState(input: {
     checkpointSequence,
     checkpointStateVector: null,
     checkpointStateProof: null,
+    persistedStateProof: null,
+    projectionError: null,
     error: null,
     failure: null,
   };
@@ -76,6 +81,18 @@ function withReadiness(state: TextCollaborationClientState): TextCollaborationCl
     ...state,
     ready: state.indexedDbHydrated && state.remoteSynced,
   };
+}
+
+function hasPersistedCurrentDocument(state: TextCollaborationClientState): boolean {
+  return state.ready && state.unsyncedChanges === 0 && isCollaborationStateProof(state.persistedStateProof);
+}
+
+function recordProjectionFailure(state: TextCollaborationClientState, sequence: number, code?: string): TextCollaborationClientState {
+  if (!Number.isSafeInteger(sequence) || sequence < 0
+    || sequence < (state.documentSequence ?? -1)
+    || sequence < (state.projectionError?.sequence ?? -1)
+    || sequence <= (state.checkpointSequence ?? -1)) return state;
+  return { ...state, projectionError: { code: typeof code === 'string' ? code : null, sequence } };
 }
 
 export function reduceTextCollaborationClientState(
@@ -115,6 +132,7 @@ export function reduceTextCollaborationClientState(
         ...state,
         checkpointStateVector: null,
         checkpointStateProof: null,
+        persistedStateProof: null,
         durability: state.durability === 'degraded' || state.connection === 'denied' ? 'degraded'
           : state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
       };
@@ -123,6 +141,7 @@ export function reduceTextCollaborationClientState(
       return {
         ...state,
         unsyncedChanges: count,
+        persistedStateProof: count > 0 ? null : state.persistedStateProof,
         durability: state.durability === 'degraded' ? 'degraded' : count > 0
           ? 'local_pending'
           : state.durability === 'local_pending' ? 'server_received' : state.durability,
@@ -130,7 +149,10 @@ export function reduceTextCollaborationClientState(
     }
     case 'authoritative_snapshot': {
       if (
-        event.documentSequence < 0
+        !Number.isSafeInteger(event.documentSequence)
+        || !Number.isSafeInteger(event.checkpointSequence)
+        || !isCollaborationStateProof(event.stateProof)
+        || event.documentSequence < 0
         || event.checkpointSequence < 0
         || event.checkpointSequence > event.documentSequence
         || event.documentSequence < (state.documentSequence ?? -1)
@@ -142,8 +164,11 @@ export function reduceTextCollaborationClientState(
       const checkpointCoversDocument = checkpointSequence >= documentSequence;
       const exactPersistedDocument = state.ready && event.matchesCurrentDocument
         && isCollaborationStateProof(event.stateProof) && state.unsyncedChanges === 0;
-      const stillDegraded = state.durability === 'degraded' && (state.failure?.kind === 'lifecycle'
-        || !(exactPersistedDocument && checkpointCoversDocument));
+      const binaryRecoveryAllowed = state.failure?.code === COLLABORATION_FAILURE_CODES.persistenceFailed
+        || isCollaborationProjectionErrorCode(state.failure?.code);
+      const stillDegraded = state.connection === 'denied' || (state.durability === 'degraded'
+        && (state.failure?.kind === 'lifecycle'
+          || !(exactPersistedDocument && (checkpointCoversDocument || binaryRecoveryAllowed))));
       return {
         ...state,
         documentSequence,
@@ -152,6 +177,9 @@ export function reduceTextCollaborationClientState(
           ? event.stateVector
           : null,
         checkpointStateProof: exactPersistedDocument && checkpointCoversDocument ? event.stateProof : null,
+        persistedStateProof: exactPersistedDocument ? event.stateProof : null,
+        projectionError: state.projectionError && checkpointSequence >= state.projectionError.sequence
+          ? null : state.projectionError,
         durability: stillDegraded ? 'degraded' : state.unsyncedChanges > 0
           ? 'local_pending'
           : exactPersistedDocument
@@ -165,7 +193,8 @@ export function reduceTextCollaborationClientState(
       if (state.durability === 'degraded') return state;
       return {
         ...state,
-        durability: state.unsyncedChanges > 0 ? 'local_pending' : 'checkpoint_pending',
+        durability: hasPersistedCurrentDocument(state) ? state.durability
+          : state.unsyncedChanges > 0 ? 'local_pending' : 'checkpoint_pending',
         error: null,
         failure: null,
       };
@@ -188,6 +217,12 @@ export function reduceTextCollaborationClientState(
         durability: state.unsyncedChanges > 0 ? 'local_pending' : 'checkpoint_pending',
       };
     case 'checkpoint_failed':
+      if (isCollaborationProjectionErrorCode(event.code)) {
+        // An explicit export can fail while the exact current Yjs state remains
+        // durable. Without a binary acknowledgement, do not invent a sequence.
+        return hasPersistedCurrentDocument(state) && state.documentSequence !== null
+          ? recordProjectionFailure(state, state.documentSequence, event.code) : state;
+      }
       return {
         ...state,
         // A failed retry cannot validate a state that was already rejected.
@@ -197,7 +232,13 @@ export function reduceTextCollaborationClientState(
         // Retain the reason the editor is blocked when only its retry fails.
         failure: state.durability === 'degraded' ? state.failure : collaborationFailure(event.code),
       };
+    case 'projection_failed':
+      return recordProjectionFailure(state, event.sequence, event.code);
     case 'degraded':
+      if (isCollaborationProjectionErrorCode(event.code) && hasPersistedCurrentDocument(state)
+        && state.documentSequence !== null) {
+        return recordProjectionFailure(state, state.documentSequence, event.code);
+      }
       return {
         ...state,
         durability: 'degraded',

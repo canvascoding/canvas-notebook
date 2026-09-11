@@ -3,6 +3,7 @@ import 'server-only';
 import { NextRequest, NextResponse } from 'next/server';
 import { FileGuestError } from './service';
 import { FileGuestVersionError } from './versions';
+import { FileGuestCheckpointRequestError } from './checkpoint-error';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { fileGuestCookieName } from './types';
@@ -16,6 +17,7 @@ export const fileGuestJson = (body: unknown, status = 200) => NextResponse.json(
 export const guestRequestToken = (request: NextRequest, id: string) => request.cookies.get(fileGuestCookieName(id))?.value || '';
 
 export function fileGuestErrorResponse(error: unknown) {
+  if (error instanceof FileGuestCheckpointRequestError) return fileGuestJson(error.payload, error.status);
   if (error instanceof FileGuestError || error instanceof FileGuestVersionError) return fileGuestJson({ success: false, error: error.message }, error.status);
   if (error instanceof SyntaxError) return fileGuestJson({ success: false, error: 'Ungültiges JSON.' }, 400);
   const status = error instanceof LicenseEntitlementError ? error.statusCode : error && typeof error === 'object' && 'status' in error ? Number(error.status) : 500;

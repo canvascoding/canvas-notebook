@@ -53,7 +53,7 @@ import {
   CollaborationSessionError,
   createCollaborationSessionGrant,
 } from '../app/lib/collaboration/session-service';
-import { openDb } from '../app/lib/db';
+import { closeDatabaseConnections, openDb } from '../app/lib/db';
 import { composeCanvasMarkdownDocument } from '../app/lib/markdown/obsidian-metadata';
 import { analyzeMarkdownRichMode } from '../app/lib/markdown/rich-markdown-codec';
 import {
@@ -336,15 +336,16 @@ try {
     checkpointRacePersisted.lifecycleGeneration,
     checkpointRaceNextDoc,
   );
-  assert.equal(
-    await Promise.race([
-      concurrentPersist.then(() => true),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 50)),
-    ]),
-    false,
-    'a newer Yjs persist must wait while the checkpoint file/CAS fence holds the document row',
-  );
-  releaseCheckpointMaterialization();
+  try {
+    assert.equal(
+      await Promise.race([
+        concurrentPersist.then(() => true),
+        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
+      ]),
+      true,
+      'a newer Yjs state persists while the older Markdown projection is still waiting on file I/O',
+    );
+  } finally { releaseCheckpointMaterialization(); }
   const checkpointRaceConfirmed = await fencedCheckpoint;
   assert(checkpointRaceConfirmed);
   assert.equal(
@@ -632,7 +633,7 @@ try {
   // Degraded persistence blocks new authoritative writes and returns review.
   let database = await openDb();
   try {
-    await database.run('UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = ?', [documentId]);
+    await database.run('UPDATE collaboration_yjs_states SET degraded = 1 WHERE document_id = $1', [documentId]);
   } finally {
     await database.close();
   }
@@ -652,7 +653,7 @@ try {
   assert.equal(degradedOperation.conflicts[0]?.code, 'persistence_degraded');
   database = await openDb();
   try {
-    await database.run('UPDATE collaboration_yjs_states SET degraded = 0 WHERE document_id = ?', [documentId]);
+    await database.run('UPDATE collaboration_yjs_states SET degraded = 0 WHERE document_id = $1', [documentId]);
   } finally {
     await database.close();
   }
@@ -745,15 +746,15 @@ try {
   database = await openDb();
   try {
     await database.run(
-      "UPDATE collaboration_agent_operations SET status = 'applying', result_json = NULL, resulting_state_vector_hash = NULL WHERE operation_id = ?",
+      "UPDATE collaboration_agent_operations SET status = 'applying', result_json = NULL, resulting_state_vector_hash = NULL WHERE operation_id = $1",
       [restartReview.operationId],
     );
     await database.run(
-      "UPDATE collaboration_agent_operations SET status = 'preparing', result_json = NULL, expires_at = ? WHERE operation_id = ?",
+      "UPDATE collaboration_agent_operations SET status = 'preparing', result_json = NULL, expires_at = $1 WHERE operation_id = $2",
       [Date.now() - 1, expiringReview.operationId],
     );
     await database.run(
-      "UPDATE collaboration_agent_operations SET status = 'applied_to_ydoc' WHERE operation_id = ?",
+      "UPDATE collaboration_agent_operations SET status = 'applied_to_ydoc' WHERE operation_id = $1",
       [seenAgentEdit.operationId],
     );
   } finally {
@@ -777,7 +778,7 @@ try {
   try {
     const durability = await database.get(
       `SELECT applied_at, persisted_at, checkpointed_at, applied_document_sequence
-       FROM collaboration_agent_operations WHERE operation_id = ?`,
+       FROM collaboration_agent_operations WHERE operation_id = $1`,
       [direct.operationId],
     ) as { applied_at: number; persisted_at: number; checkpointed_at: number; applied_document_sequence: number };
     assert(durability.applied_at > 0);
@@ -927,7 +928,7 @@ try {
     const operationRow = await operationDatabase.get(
       `SELECT document_path, document_representation, document_lifecycle_generation,
               base_state_vector, base_document_sequence, checkpoint_revision_id
-       FROM collaboration_agent_operations WHERE operation_id = ?`,
+       FROM collaboration_agent_operations WHERE operation_id = $1`,
       [directToolDetails.collaboration.operationId],
     ) as {
       document_path: string;
@@ -1565,7 +1566,7 @@ try {
   database = await openDb();
   try {
     const backup = await database.get(
-      'SELECT COUNT(*) AS count FROM collaboration_yjs_state_backups WHERE document_id = ?',
+      'SELECT COUNT(*) AS count FROM collaboration_yjs_state_backups WHERE document_id = $1',
       [compactionDocumentId],
     ) as { count?: number | string };
     assert.equal(Number(backup.count), 2);
@@ -1736,7 +1737,7 @@ try {
   database = await openDb();
   try {
     await database.run(
-      'UPDATE collaboration_yjs_states SET lifecycle_generation = lifecycle_generation + 1 WHERE document_id = ?',
+      'UPDATE collaboration_yjs_states SET lifecycle_generation = lifecycle_generation + 1 WHERE document_id = $1',
       [documentId],
     );
   } finally {
@@ -1760,10 +1761,10 @@ try {
   const database = await openDb();
   try {
     await database.run(
-      'DELETE FROM collaboration_agent_saga_documents WHERE saga_id IN (SELECT saga_id FROM collaboration_agent_sagas WHERE workspace_id = ?)',
+      'DELETE FROM collaboration_agent_saga_documents WHERE saga_id IN (SELECT saga_id FROM collaboration_agent_sagas WHERE workspace_id = $1)',
       [workspaceId],
     );
-    await database.run('DELETE FROM collaboration_agent_sagas WHERE workspace_id = ?', [workspaceId]);
+    await database.run('DELETE FROM collaboration_agent_sagas WHERE workspace_id = $1', [workspaceId]);
     for (const cleanupDocumentId of [
       documentId,
       richDocumentId,
@@ -1779,9 +1780,9 @@ try {
       ...(safeNormalizationMigrationDocumentId ? [safeNormalizationMigrationDocumentId] : []),
       ...(concurrentAutoMigrationDocumentId ? [concurrentAutoMigrationDocumentId] : []),
     ]) {
-      await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);
-      await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = ?', [cleanupDocumentId]);
-      await database.run('DELETE FROM collaboration_yjs_states WHERE document_id = ?', [cleanupDocumentId]);
+      await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = $1', [cleanupDocumentId]);
+      await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = $1', [cleanupDocumentId]);
+      await database.run('DELETE FROM collaboration_yjs_states WHERE document_id = $1', [cleanupDocumentId]);
     }
   } finally {
     await database.close();
@@ -1794,4 +1795,4 @@ console.log('file-agent-operation-integration-test: ok');
 void main().catch((error) => {
   console.error(error);
   process.exitCode = 1;
-});
+}).finally(() => closeDatabaseConnections());

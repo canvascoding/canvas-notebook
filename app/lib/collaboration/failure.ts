@@ -12,6 +12,12 @@ export type CollaborationFailure = {
   code: string | null;
 };
 
+/** These failures concern the derived file, never the saved binary document. */
+export function isCollaborationProjectionErrorCode(code: unknown): code is string {
+  return code === COLLABORATION_CHECKPOINT_ERROR_CODES.roundtripUnstable
+    || code === COLLABORATION_CHECKPOINT_ERROR_CODES.failed;
+}
+
 /** Unknown/legacy messages never authorize a structure correction. */
 export function collaborationFailure(code: unknown): CollaborationFailure {
   if (typeof code !== 'string') return { kind: 'unknown', code: null };
