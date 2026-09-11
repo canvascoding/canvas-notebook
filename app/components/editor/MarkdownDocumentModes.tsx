@@ -6,6 +6,7 @@ import { Download, Code2, Eye, Pencil, Maximize2, Minimize2, MoveHorizontal } fr
 import { collaborationDiagnosticsEnabled, collaborationEditorIssue, subscribeCollaborationDiagnostics } from '@/app/lib/collaboration/editor-presentation';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import * as Y from 'yjs';
+import { getSchema } from '@tiptap/core';
 import { Button } from '@/components/ui/button';
 import type { CollaborationDocument } from '@/app/lib/collaboration/client';
 import { workspaceHeaders } from '@/app/lib/files/client';
@@ -13,7 +14,9 @@ import { recordExportedCollaborationRecovery } from '@/app/lib/collaboration/loc
 import { useMarkdownRecoveryCopy } from '@/app/lib/collaboration/markdown-recovery-client';
 import { findBlockTreeHistory } from '@/app/lib/collaboration/block-tree-history';
 import { BLOCK_TREE_KEY } from '@/app/lib/collaboration/block-tree';
-import { createRichMarkdownManager, restoreRichMarkdownFinalLineEnding } from '@/app/lib/markdown/rich-markdown-codec';
+import { createRichMarkdownManager, restoreRichMarkdownFinalLineEnding, richMarkdownCodecExtensions } from '@/app/lib/markdown/rich-markdown-codec';
+import { equivalentRichDocument } from '@/app/lib/markdown/core/equivalence';
+import { composeCanvasMarkdownDocument, splitCanvasMarkdownForRichEditor } from '@/app/lib/markdown/obsidian-metadata';
 import { readRichDocumentJson } from '@/app/lib/collaboration/rich-document';
 import { COLLABORATION_CLIENT_CAPABILITIES, isRichTextCollaborationRepresentation, supportsBlockTreeCollaboration } from '@/app/lib/collaboration/types';
 
@@ -21,8 +24,9 @@ export type MarkdownDocumentMode = 'read' | 'rich' | 'source';
 
 /** Observe the authoritative document even when its editor is not mounted. */
 function createLiveMarkdownStore(doc: Y.Doc | undefined, representation: string | undefined, fallback: string) {
-  let cached: { content: string; available: boolean } | undefined;
+  let cached: { content: string; available: boolean; isLossless: () => boolean } | undefined;
   const manager = isRichTextCollaborationRepresentation(representation) ? createRichMarkdownManager() : null;
+  const unavailable = () => ({ content: '', available: false, isLossless: () => false });
   return {
     subscribe(listener: () => void) {
       const update = () => { cached = undefined; listener(); };
@@ -35,17 +39,32 @@ function createLiveMarkdownStore(doc: Y.Doc | undefined, representation: string 
       // arrives. Reading it as legacy XML would create a competing body root
       // and make the subsequently received block tree unrenderable.
       if (doc && representation === 'tiptap_blocks' && !doc.share.has(BLOCK_TREE_KEY)) {
-        return (cached = { content: '', available: false });
+        return (cached = unavailable());
       }
       try {
+        const richJson = doc && manager ? readRichDocumentJson(doc) : null;
         const content = !doc ? fallback : representation === 'plain_text'
           ? doc.getText('content').toString()
           : doc.getText('frontmatter').toString() + restoreRichMarkdownFinalLineEnding(
             doc.getText('bodyFinalLineEnding').toString(),
-            manager!.serialize(readRichDocumentJson(doc)),
+            manager!.serialize(richJson!),
           );
-        cached = { content, available: true };
-      } catch { cached = { content: '', available: false }; }
+        let lossless: boolean | undefined;
+        cached = { content, available: true, isLossless: () => {
+          if (!richJson || !manager) return true;
+          if (lossless !== undefined) return lossless;
+          // Validate the derived view on demand, never inside the native input
+          // transaction. Cache the answer for this exact serialized snapshot.
+          try {
+            const parts = splitCanvasMarkdownForRichEditor(content);
+            const parsed = getSchema(richMarkdownCodecExtensions()).nodeFromJSON(manager.parse(parts.body));
+            parsed.check();
+            const roundtrip = composeCanvasMarkdownDocument(parts.prefix,
+              restoreRichMarkdownFinalLineEnding(parts.body, manager.serialize(parsed.toJSON())));
+            return (lossless = roundtrip === content && equivalentRichDocument(richJson, parsed.toJSON()));
+          } catch { return (lossless = false); }
+        } };
+      } catch { cached = unavailable(); }
       return cached;
     },
   };
@@ -156,8 +175,9 @@ function download(content: BlobPart, name: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-export function MarkdownSaveState({ collaboration, content, available, filePath, onReload }: {
-  collaboration: CollaborationDocument | null; content: string; available: boolean; filePath?: string; onReload?: () => void;
+export function MarkdownSaveState({ collaboration, content, available, isSourceLossless, filePath, onReload }: {
+  collaboration: CollaborationDocument | null; content: string; available: boolean; isSourceLossless?: () => boolean;
+  filePath?: string; onReload?: () => void;
 }) {
   const t = useTranslations('notebook');
   const recovery = useMarkdownRecoveryCopy(collaboration, filePath);
@@ -203,10 +223,10 @@ export function MarkdownSaveState({ collaboration, content, available, filePath,
   if (!collaboration) return null;
   const { connection, durability, clientState, session } = collaboration;
   const hydrated = clientState.indexedDbHydrated;
-  const canExportMarkdown = hydrated && available;
   const error = collaboration.error || retryError || recovery.error;
   const blocked = durability === 'degraded' || connection === 'denied';
   if (!issue && !retryError && !recovery.error && !diagnostics) return null;
+  const canExportMarkdown = hydrated && available && (isSourceLossless?.() ?? true);
   const diagnostic = JSON.stringify({ documentId: session?.documentId, generation: session?.lifecycleGeneration,
     connection, durability, documentSequence: clientState.documentSequence,
     checkpointSequence: clientState.checkpointSequence, unsyncedChanges: clientState.unsyncedChanges,

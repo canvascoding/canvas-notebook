@@ -5854,6 +5854,8 @@ export function MarkdownEditor({
     : preparingRichMode ? 'rich'
       : mode === 'source' || (collaborationEnabled ? authoritativeRepresentation === 'plain_text' : sourceModeRequired) ? 'source' : 'rich';
   const richSourceReadOnly = collaborationEnabled && isRichTextCollaborationRepresentation(authoritativeRepresentation);
+  const projectionAvailable = liveMarkdown.available
+    && ((effectiveMode === 'rich' && !preparingRichMode) || liveMarkdown.isLossless());
   const setLocalFocused = local.setFocused;
   useLayoutEffect(() => { setLocalFocused(false); }, [effectiveMode, filePath, setLocalFocused]);
 
@@ -5913,7 +5915,7 @@ export function MarkdownEditor({
     return (
       <div className="relative flex h-full min-h-0 flex-col bg-background">
         <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue}
-          available={liveMarkdown.available} filePath={filePath} onReload={collaborationSession.retry} />
+          available={projectionAvailable} isSourceLossless={liveMarkdown.isLossless} filePath={filePath} onReload={collaborationSession.retry} />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <p className="text-sm text-muted-foreground" role="status">
             {t(collaborationSession.error ? 'editorModes.failure.startup' : 'editorModes.opening')}
@@ -5941,16 +5943,16 @@ export function MarkdownEditor({
       ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
         collaboration={collaborationDocument} filePath={filePath} autoStart={mode === 'rich'}
         onStart={() => setMode('rich')} onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
-    <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={liveMarkdown.available} filePath={filePath} onReload={collaborationSession.retry} />
+    <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={projectionAvailable} isSourceLossless={liveMarkdown.isLossless} filePath={filePath} onReload={collaborationSession.retry} />
     <div className="markdown-editor-content min-h-0 flex-1 overflow-hidden">{children}</div>
   </div>;
 
-  const canRenderDocument = canRenderCollaborationDocument(collaborationDocument, liveMarkdown.available);
-  if (!canRenderDocument || (!liveMarkdown.available && effectiveMode === 'source')) {
+  const canRenderDocument = canRenderCollaborationDocument(collaborationDocument, projectionAvailable);
+  if (!canRenderDocument || (!projectionAvailable && effectiveMode === 'source')) {
     return wrap(<p className="p-5 text-sm">{t(canRenderDocument ? 'editorModes.sourceUnavailable' : 'editorModes.unavailable')}</p>);
   }
 
-  if (liveMarkdown.available && (effectiveMode === 'read' || preparingRichMode)) {
+  if (projectionAvailable && (effectiveMode === 'read' || preparingRichMode)) {
     return wrap(
       <div className="markdown-read-viewport h-full min-h-0 overflow-auto bg-background">
         {showNotebookMetadata && !parsedDocument.error ? (

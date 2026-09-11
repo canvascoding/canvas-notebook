@@ -31,6 +31,8 @@ async function main() {
   let reloads = 0;
   let requests = 0;
   let available = true;
+  let lossless = true;
+  let exportChecks = 0;
   const baseSession: NonNullable<CollaborationDocument['session']> = {
     success: true, documentId: 'document', documentName: 'document', provider: 'yjs', representation: 'plain_text',
     lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3, permission: 'write', documentSequence: 2, checkpointSequence: 1,
@@ -55,7 +57,8 @@ async function main() {
       error: state.error, status: textCollaborationLegacyStatus(state), setComposition() {},
       requestCheckpoint: async () => { requests++; } };
     await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <MarkdownSaveState collaboration={current} available={available} content="text" filePath="private-name.md" onReload={() => { reloads++; }} />
+      <MarkdownSaveState collaboration={current} available={available} content="text" filePath="private-name.md" onReload={() => { reloads++; }}
+        isSourceLossless={() => { exportChecks++; return lossless; }} />
     </NextIntlClientProvider>));
   };
   const button = (name: string) => [...document.querySelectorAll('button')].find((item) => item.textContent === name);
@@ -78,6 +81,7 @@ async function main() {
     await render(); assert.equal(document.getElementById('root')!.childElementCount, 0);
     assert.equal(requests, 0, 'status rendering never requests a Markdown checkpoint');
     assert.equal(warnings.length, 0, 'routine work has no per-edit log spam');
+    assert.equal(exportChecks, 0, 'ordinary input never checks Markdown export validity');
 
     state = { ...baseline, durability: 'degraded', failure: { kind: 'storage', code: 'COLLABORATION_YJS_PERSISTENCE_FAILED' }, error: 'secret-stack-and-private-filename' };
     await render();
@@ -89,6 +93,13 @@ async function main() {
     assert.equal(document.querySelector('pre'), null, 'developer details are absent without opt-in');
     await render(); assert.equal(warnings.length, 1, 'one diagnostic for the same ongoing failure');
     assert(!JSON.stringify(warnings).includes('secret-stack')); assert(!JSON.stringify(warnings).includes('private-token'));
+    assert(button(messages.notebook.editorModes.backup));
+    lossless = false;
+    await render();
+    assert(!button(messages.notebook.editorModes.backup), 'serializable but lossy Markdown is not offered as a backup');
+    assert(!button(messages.notebook.editorModes.recoverCopy));
+    assert(button(messages.notebook.editorModes.snapshot), 'the complete native backup stays available');
+    lossless = true;
 
     available = false;
     await render();

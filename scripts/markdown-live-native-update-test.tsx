@@ -28,7 +28,7 @@ async function main() {
   const originalLoad = internals._load;
   internals._load = (request, parent, isMain) => request === 'server-only' ? {} : originalLoad(request, parent, isMain);
   const codec = await import('../app/lib/markdown/rich-markdown-codec');
-  const { createRichMarkdownYDoc, convertRichMarkdownYDoc } = await import('../app/lib/collaboration/markdown-state');
+  const { createRichMarkdownYDoc, convertRichMarkdownYDoc, replaceRichMarkdownInYDoc, validateRichMarkdownYDoc } = await import('../app/lib/collaboration/markdown-state');
   const { readRichDocumentJson } = await import('../app/lib/collaboration/rich-document');
   const legacy = createRichMarkdownYDoc('Original paragraph');
   const doc = convertRichMarkdownYDoc(legacy, 'tiptap_blocks'); legacy.destroy();
@@ -49,13 +49,14 @@ async function main() {
     setComposition() {}, requestCheckpoint: async () => { throw new Error('Native edits never require a checkpoint.'); },
   };
   let failProjection = false;
+  let projectionParses = 0;
   const workspace = { activeWorkspaceId: null };
   const files = { currentFile: null, currentFileWorkspaceId: null, treeGeneration: 0 };
   internals._load = (request, parent, isMain) => {
     if (request === 'server-only') return {};
     if (request === '@/app/lib/markdown/rich-markdown-codec') return { ...codec, createRichMarkdownManager: () => {
       const manager = codec.createRichMarkdownManager();
-      return { ...manager, serialize: (json: JSONContent) => {
+      return { ...manager, parse: (markdown: string) => { projectionParses++; return manager.parse(markdown); }, serialize: (json: JSONContent) => {
         if (failProjection) throw new Error('Projected Markdown unavailable');
         return manager.serialize(json);
       } };
@@ -64,9 +65,9 @@ async function main() {
       useCollaborationDocument: () => collaboration,
       useTextCollaborationSession: () => ({ session, error: null, loading: false, retry() {} }),
     };
-    if (request === './CodeEditorClient') return { CodeEditor: () => null };
+    if (request === './CodeEditorClient') return { CodeEditor: () => <div data-testid="source-editor" /> };
     if (request === '@/components/ui/mermaid-diagram') return { MermaidDiagram: () => null };
-    if (request === '@/app/components/shared/MarkdownRenderer') return { MarkdownRenderer: () => null };
+    if (request === '@/app/components/shared/MarkdownRenderer') return { MarkdownRenderer: () => <div data-testid="markdown-preview" /> };
     if (request === '@/app/components/shared/WorkspaceDocumentPreviewDialog') return { WorkspaceDocumentPreviewDialog: () => null };
     if (request === '@/app/store/workspace-store') return { useWorkspaceStore: Object.assign(
       (selector: (value: typeof workspace) => unknown) => selector(workspace), { getState: () => workspace }) };
@@ -113,6 +114,47 @@ async function main() {
     assert.equal(instance.state.doc.textContent, 'New Again Original paragraph');
     assert.deepEqual(readRichDocumentJson(peer), readRichDocumentJson(doc));
     manager.serialize = serialize; failProjection = false;
+
+    await act(async () => replaceRichMarkdownInYDoc(doc, '| First | Second |\n| --- | --- |\n| Seed | Neighbor |'));
+    const tableEditor = editor();
+    let cellStart = -1;
+    tableEditor.state.doc.descendants((node, position) => { if (node.isText && node.text === 'Seed') cellStart = position; });
+    assert(cellStart > 0);
+    const parsesBeforeInput = projectionParses;
+    await act(async () => {
+      tableEditor.commands.setTextSelection({ from: cellStart, to: cellStart + 4 });
+      tableEditor.commands.insertContent({ type: 'text', text: 'odd\\|pipe' });
+      tableEditor.commands.setTextSelection({ from: cellStart, to: cellStart + 9 });
+      tableEditor.commands.toggleCode();
+    });
+    assert.equal(projectionParses, parsesBeforeInput, 'ordinary live input never runs the derived Markdown parse check');
+    assert.equal(validateRichMarkdownYDoc(doc).code, 'roundtrip_unstable', 'real codec reproduces lossy table code');
+    const nativeBeforeModes = readRichDocumentJson(doc);
+    const binaryBeforeModes = Y.encodeStateAsUpdate(doc);
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
+    assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'lossy Markdown is never shown as source');
+    assert(document.body.textContent?.includes(messages.notebook.editorModes.sourceUnavailable));
+    const parsesAfterSource = projectionParses;
+    assert(parsesAfterSource > parsesBeforeInput, 'opening source validates its serialized snapshot');
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
+    assert.equal(projectionParses, parsesAfterSource, 're-render reuses the validation of the same snapshot');
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="read" />)));
+    assert.equal(document.querySelector('[data-testid="markdown-preview"]'), null);
+    assert.equal(editor().isEditable, false, 'Read renders the native document instead of a lossy Markdown preview');
+    assert.deepEqual(editor().getJSON(), nativeBeforeModes);
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="rich" />)));
+    assert.equal(editor().isEditable, true);
+    assert.deepEqual(editor().getJSON(), nativeBeforeModes);
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), binaryBeforeModes, 'Source/Read/Edit never rewrite the live document');
+    assert.equal(document.querySelector('[data-testid="markdown-save-state"]'), null);
+    await act(async () => {
+      editor().commands.setTextSelection({ from: cellStart, to: cellStart + 9 });
+      editor().commands.unsetCode();
+    });
+    assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+    await act(async () => root.render(wrap(<MarkdownEditor value="Original paragraph" filePath="live.md" collaborationEnabled mode="source" />)));
+    assert(document.querySelector('[data-testid="source-editor"]'), 'Source becomes available automatically after native correction');
+    assert.deepEqual(readRichDocumentJson(peer), readRichDocumentJson(doc));
 
     await act(async () => root.render(wrap(<RichMarkdownEditor value="Local paragraph" filePath="local.md" readOnly={false}
       isMobileKeyboardActive={false} onSourceMode={() => {}} onChange={(value) => changes.push(value)} />)));
