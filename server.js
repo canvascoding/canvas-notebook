@@ -632,6 +632,7 @@ let shutdownInProgress = false;
 let flushCollaborationDocuments = async () => {};
 let flushExcalidrawCollaborationDocuments = async () => {};
 let closeChatWebSocketServer = async () => {};
+let closeLiveEventsServer = async () => {};
 
 function exitCodeForSignal(signal) {
   if (signal === 'SIGINT') return 130;
@@ -657,6 +658,7 @@ async function shutdownServer(signal) {
       flushCollaborationDocuments(),
       flushExcalidrawCollaborationDocuments(),
       closeChatWebSocketServer(),
+      closeLiveEventsServer(),
     ]);
   } catch (error) {
     console.error('[Startup] Error while flushing collaboration documents:', error);
@@ -804,8 +806,12 @@ async function startServer() {
     const excalidrawCollaborationModule = require('./server/excalidraw-collaboration/server.ts');
     excalidrawCollaborationModule.createExcalidrawCollaborationServer(server);
     flushExcalidrawCollaborationDocuments = excalidrawCollaborationModule.flushExcalidrawCollaborationDocuments;
+    const liveEventsModule = require('./server/live-events-server.ts');
+    const liveEventsServer = liveEventsModule.createLiveEventsServer(server);
+    closeLiveEventsServer = liveEventsServer.close;
     isCanvasWebSocketRequest = (requestUrl) => (
-      websocketServer.isChatWebSocketRequest(requestUrl)
+      liveEventsModule.isLiveEventsWebSocketRequest(requestUrl)
+      || websocketServer.isChatWebSocketRequest(requestUrl)
       || browserViewServer.isBrowserViewWebSocketRequest(requestUrl)
       || collaborationModule.isCollaborationWebSocketRequest(requestUrl)
       || excalidrawCollaborationModule.isExcalidrawCollaborationWebSocketRequest(requestUrl)

@@ -16,6 +16,8 @@ function setup(path: string) {
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { resolve, promise }; }
 class Source extends EventTarget {
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
+  onopen: (() => void) | null = null;
   static latest: Source;
   constructor() { super(); Source.latest = this; }
   onerror: (() => void) | null = null;
@@ -105,8 +107,7 @@ async function main() {
   assert.equal(useEditorStore.getState().draft, 'recover');
 
   setup('image.png');
-  globalThis.EventSource = Source as unknown as typeof EventSource;
-  const client = new FileWatcherClient(); client.acquire();
+  const client = new FileWatcherClient(() => new Source()); client.acquire();
   globalThis.fetch = (async () => payload('')) as typeof fetch;
   Source.latest.change('image.png');
   await new Promise((resolve) => setTimeout(resolve, 10));

@@ -9,7 +9,12 @@ const SSE_HEADERS = {
   'X-Accel-Buffering': 'no',
 };
 
-const activeConnections = new Map<string, { userId: string; workspaceId: string }>();
+// Next route bundles and the in-process live-event WebSocket bridge must share
+// the same ownership registry, including the existing HTTP syncDirs endpoint.
+const watcherRuntime = globalThis as typeof globalThis & {
+  __canvasFileWatcherConnections?: Map<string, { userId: string; workspaceId: string }>;
+};
+const activeConnections = watcherRuntime.__canvasFileWatcherConnections ??= new Map<string, { userId: string; workspaceId: string }>();
 
 export async function GET(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
@@ -22,6 +27,7 @@ export async function GET(request: NextRequest) {
 
   const stream = new ReadableStream({
     start(controller) {
+      let closed = false;
       const watcher = getFileWatcher();
 
       const connectedEvent: FileEvent = {
@@ -44,6 +50,7 @@ export async function GET(request: NextRequest) {
         workspaceId: workspace.workspaceId,
         workspace,
         send: (event: FileEvent) => {
+          if (closed) return;
           try {
             watcher.touchClient(clientId);
             controller.enqueue(
@@ -51,32 +58,38 @@ export async function GET(request: NextRequest) {
                 `event: filechange\ndata: ${JSON.stringify(event)}\n\n`
               )
             );
-          } catch (error) {
-            console.warn(`[FileWatcher SSE] Failed to send to ${clientId}:`, error);
-            unsubscribe();
+          } catch {
+            console.warn('[FileWatcher SSE]', { code: 'STREAM_SEND_FAILED' });
+            cleanup?.();
           }
         },
       });
 
       const heartbeatInterval = setInterval(() => {
+        if (closed) return;
         try {
           watcher.touchClient(clientId);
           controller.enqueue(
             new TextEncoder().encode(`event: heartbeat\ndata: ${Date.now()}\n\n`)
           );
         } catch {
-          clearInterval(heartbeatInterval);
-          unsubscribe();
+          console.warn('[FileWatcher SSE]', { code: 'STREAM_HEARTBEAT_FAILED' });
+          cleanup?.();
         }
       }, 30000);
 
       cleanup = () => {
+        if (closed) return;
+        closed = true;
+        request.signal.removeEventListener('abort', cleanup!);
         clearInterval(heartbeatInterval);
         unsubscribe();
         activeConnections.delete(clientId);
+        try { controller.close(); } catch { /* Already canceled by the reader. */ }
       };
 
       request.signal.addEventListener('abort', cleanup, { once: true });
+      if (request.signal.aborted) cleanup();
     },
 
     cancel() {

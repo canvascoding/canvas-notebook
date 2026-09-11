@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Module from 'node:module';
 import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
@@ -17,14 +18,9 @@ async function main() {
     Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
   }
   Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
-  const { useFileStore } = await import('../app/store/file-store');
-  const { useWorkspaceStore } = await import('../app/store/workspace-store');
-  const { useEditorStore } = await import('../app/store/editor-store');
-  const { getFileWatcherClient } = await import('../app/lib/file-watcher/client');
-  const { useCollaborationDocumentLocation } = await import('../app/lib/collaboration/document-location-client');
-  const { useTextCollaborationSession } = await import('../app/lib/collaboration/client');
   class FakeEventSource extends EventTarget {
     static instances: FakeEventSource[] = [];
+    onmessage: ((event: MessageEvent<string>) => void) | null = null;
     onopen: (() => void) | null = null;
     onerror: (() => void) | null = null;
     constructor(..._args: unknown[]) { super(); FakeEventSource.instances.push(this); }
@@ -32,14 +28,33 @@ async function main() {
     emit(type: string, data: unknown) { this.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) })); }
   }
   const originalFetch = globalThis.fetch;
-  const originalEventSource = globalThis.EventSource;
-  globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
+  const internal = Module as typeof Module & { _load: (name: string, ...args: unknown[]) => unknown };
+  const originalLoad = internal._load;
+  internal._load = (name, ...args) => {
+    if (name === '@/app/lib/live-events/client' || name.endsWith('/app/lib/live-events/client')) {
+      return { LiveEventSource: FakeEventSource };
+    }
+    return originalLoad(name, ...args);
+  };
+  const { useFileStore } = await import('../app/store/file-store');
+  const { useWorkspaceStore } = await import('../app/store/workspace-store');
+  const { useEditorStore } = await import('../app/store/editor-store');
+  const { getFileWatcherClient } = await import('../app/lib/file-watcher/client');
+  const { useCollaborationDocumentLocation } = await import('../app/lib/collaboration/document-location-client');
+  const { useTextCollaborationSession } = await import('../app/lib/collaboration/client');
   const requests: { gate: ReturnType<typeof deferred<Response>>; signal: AbortSignal; url: URL }[] = [];
   let sessionDocumentId = 'reused-path-document';
   let sessionAttempts = 0;
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), 'https://canvas.test');
     if (url.pathname === '/api/files/watch') return Response.json({ success: true });
+    if (url.pathname === '/api/files/read') {
+      const current = useFileStore.getState().currentFile;
+      const isCurrent = url.searchParams.get('path') === current?.path;
+      return Response.json({ success: true, data: { content: isCurrent ? current.content : '',
+        collaboration: isCurrent ? current.collaboration : undefined,
+        stats: { size: 7, modified: 1, permissions: '100644' } } });
+    }
     if (url.pathname === '/api/files/collaboration/session') {
       sessionAttempts++;
       return Response.json({ success: true, documentId: sessionDocumentId, documentName: sessionDocumentId,
@@ -183,7 +198,7 @@ async function main() {
     getFileWatcherClient().disconnect();
     for (const request of requests) request.gate.resolve(Response.json({ success: false }, { status: 404 }));
     globalThis.fetch = originalFetch;
-    globalThis.EventSource = originalEventSource;
+    internal._load = originalLoad;
     useFileStore.getState().resetWorkspaceView(null);
     useEditorStore.getState().clear();
     dom.window.close();

@@ -6,6 +6,7 @@ import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-referenc
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { isSameOrDescendantPath } from '@/app/lib/files/path-utils';
+import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
 import { filesystemFileVersion } from './file-version';
 import type { WorkspaceFileEvent, WorkspaceFileEventType, WorkspacePathRenameMutation } from '@/app/lib/files/file-events';
 
@@ -121,6 +122,9 @@ export class FileWatcherService {
       return;
     }
 
+    // Closing or replacing a client while validation is pending invalidates
+    // this attempt; it must not restore a subscription after cleanup.
+    if (this.clients.get(clientId) !== client) return;
     const subscription = this.getSubscriptionForClient(client, normalizedDir);
     if (subscription.clients.has(clientId)) return;
     subscription.clients.add(clientId);
@@ -253,6 +257,8 @@ export class FileWatcherService {
   private async startWatchingDir(workspace: WorkspaceContext, relativeDir: string): Promise<void> {
     const key = subscriptionKey(workspace.workspaceId, relativeDir);
     if (this.watchers.has(key)) return;
+    const subscription = this.subscriptions.get(key);
+    if (!subscription?.clients.size) return;
 
     const fullPath = this.toFullPath(relativeDir, workspace);
     try {
@@ -262,6 +268,9 @@ export class FileWatcherService {
       return;
     }
 
+    // The directory may have lost its final client, been subscribed again, or
+    // already acquired a watcher while stat was pending.
+    if (this.subscriptions.get(key) !== subscription || !subscription.clients.size || this.watchers.has(key)) return;
     try {
       const watcher = fsWatch(fullPath, { recursive: false }, (eventType: 'rename' | 'change', filename: string | null) => {
         if (!filename) return;
@@ -269,6 +278,9 @@ export class FileWatcherService {
         const relativeFilePath = relativeDir === '.'
           ? filename.toString()
           : path.posix.join(relativeDir, filename.toString());
+        // Atomic writes publish the final filename separately. The staging
+        // file's rename/unlink must never become a document deletion event.
+        if (isInternalWorkspaceStagingPath(relativeFilePath)) return;
         const fullFilePath = path.join(fullPath, filename.toString());
 
         const managedRename = this.findManagedRename(workspace.workspaceId, relativeFilePath);
@@ -451,11 +463,10 @@ export class FileWatcherService {
   }
 }
 
-let fileWatcherInstance: FileWatcherService | null = null;
+const watcherRuntime = globalThis as typeof globalThis & { __canvasFileWatcherService?: FileWatcherService };
 
 export function getFileWatcher(): FileWatcherService {
-  if (!fileWatcherInstance) fileWatcherInstance = new FileWatcherService();
-  return fileWatcherInstance;
+  return watcherRuntime.__canvasFileWatcherService ??= new FileWatcherService();
 }
 
 export function withWorkspacePathRenameEvent<T>(
@@ -468,8 +479,8 @@ export function withWorkspacePathRenameEvent<T>(
 
 export function publishWorkspaceFileMutation(mutation: WorkspaceFileMutation): void {
   const relativePath = normalizeRelativePath(mutation.relativePath);
-  if (fileWatcherInstance) {
-    fileWatcherInstance.publishMutation({ ...mutation, relativePath });
+  if (watcherRuntime.__canvasFileWatcherService) {
+    watcherRuntime.__canvasFileWatcherService.publishMutation({ ...mutation, relativePath });
     return;
   }
 

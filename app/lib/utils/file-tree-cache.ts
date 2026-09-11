@@ -1,7 +1,12 @@
 import type { FileNode } from '@/app/lib/files/types';
 import { LruCache } from './lru-cache';
 
-export const fileTreeCache = new LruCache<FileNode[]>(50, 5 * 60 * 1000);
+// The custom server's watcher and Next route bundles must invalidate the same cache.
+const fileTreeCacheKey = Symbol.for('canvas.file-tree-cache.v1');
+const cacheRuntime = globalThis as typeof globalThis & {
+  [fileTreeCacheKey]?: LruCache<FileNode[]>;
+};
+export const fileTreeCache = cacheRuntime[fileTreeCacheKey] ??= new LruCache<FileNode[]>(50, 5 * 60 * 1000);
 
 export function buildFileTreeCacheKey(dirPath: string, depth: number, workspaceId = 'legacy', includeStats = true) {
   return `${workspaceId}\0${dirPath}:${depth}:${includeStats ? 'stats' : 'fast'}`;

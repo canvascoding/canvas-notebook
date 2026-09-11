@@ -19,6 +19,10 @@ import {
 } from './workspace-document-preview';
 
 const LINK_INDEX_CACHE_TTL_MS = 30_000;
+// Background saves can invalidate every open tab. Leave room within the
+// per-user endpoint budget for multiple tabs and explicit navigation.
+const LINK_INDEX_MIN_REQUEST_INTERVAL_MS = 10_000;
+const LINK_INDEX_INVALIDATION_BATCH_MS = 250;
 
 type LinkIndexResponse = {
   error?: string;
@@ -28,7 +32,11 @@ type LinkIndexResponse = {
 
 type LinkIndexCacheEntry = {
   expiresAt: number;
+  generation: number;
+  nextRequestAt: number;
+  requestGeneration: number | null;
   promise?: Promise<WorkspaceLinkIndex>;
+  followupPromise?: Promise<WorkspaceLinkIndex>;
   value?: WorkspaceLinkIndex;
 };
 
@@ -62,6 +70,35 @@ export type WorkspaceDocumentReferenceLookup = {
 const linkIndexCache = new Map<string, LinkIndexCacheEntry>();
 const markdownEmbedCache = new Map<string, MarkdownEmbedCacheEntry>();
 const invalidationListeners = new Set<(event: WorkspaceLinkIndexInvalidation) => void>();
+const pendingInvalidations = new Set<string | null>();
+let invalidationTimer: ReturnType<typeof setTimeout> | null = null;
+
+function linkIndexEntry(workspaceId: string): LinkIndexCacheEntry {
+  let entry = linkIndexCache.get(workspaceId);
+  if (!entry) {
+    entry = { expiresAt: 0, generation: 0, nextRequestAt: 0, requestGeneration: null };
+    linkIndexCache.set(workspaceId, entry);
+  }
+  return entry;
+}
+
+function scheduleInvalidation(workspaceId: string | null): void {
+  pendingInvalidations.add(workspaceId);
+  if (invalidationTimer) return;
+  invalidationTimer = setTimeout(() => {
+    invalidationTimer = null;
+    const workspaces = [...pendingInvalidations];
+    pendingInvalidations.clear();
+    if (workspaces.includes(null)) notifyInvalidation(null);
+    else for (const id of workspaces) notifyInvalidation(id);
+  }, LINK_INDEX_INVALIDATION_BATCH_MS);
+}
+
+function invalidateLinkIndexEntry(entry: LinkIndexCacheEntry): void {
+  entry.generation++;
+  entry.expiresAt = 0;
+  // Keep the promise: invalidation cannot create a second in-flight fetch.
+}
 
 function normalizeWorkspaceId(workspaceId: string): string {
   const normalized = workspaceId.trim();
@@ -83,15 +120,15 @@ export function subscribeWorkspaceLinkIndexInvalidation(
 export function invalidateWorkspaceLinkIndexCache(workspaceId?: string | null): void {
   const normalizedWorkspaceId = workspaceId?.trim() || null;
   if (normalizedWorkspaceId) {
-    linkIndexCache.delete(normalizedWorkspaceId);
+    invalidateLinkIndexEntry(linkIndexEntry(normalizedWorkspaceId));
     for (const key of markdownEmbedCache.keys()) {
       if (key.startsWith(`${normalizedWorkspaceId}\0`)) markdownEmbedCache.delete(key);
     }
   } else {
-    linkIndexCache.clear();
+    for (const entry of linkIndexCache.values()) invalidateLinkIndexEntry(entry);
     markdownEmbedCache.clear();
   }
-  notifyInvalidation(normalizedWorkspaceId);
+  scheduleInvalidation(normalizedWorkspaceId);
 }
 
 export async function loadWorkspaceMarkdownEmbed(
@@ -139,19 +176,41 @@ export async function loadWorkspaceLinkIndex(
 ): Promise<WorkspaceLinkIndex> {
   const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
   const now = Date.now();
-  const cached = linkIndexCache.get(normalizedWorkspaceId);
-  if (!options.force && cached && cached.expiresAt > now) {
-    if (cached.promise) return cached.promise;
-    if (cached.value) return cached.value;
+  const entry = linkIndexEntry(normalizedWorkspaceId);
+  if (entry.promise) {
+    if (entry.requestGeneration === null || entry.requestGeneration === entry.generation) return entry.promise;
+    // A reader arriving after invalidation needs a request begun after its
+    // read. Queue exactly one successor, without delaying existing readers
+    // until the workspace becomes quiet or opening concurrent fetches.
+    entry.followupPromise ??= entry.promise.catch(() => undefined).then(() => {
+      entry.followupPromise = undefined;
+      return loadWorkspaceLinkIndex(normalizedWorkspaceId);
+    });
+    return entry.followupPromise;
   }
+  if (!options.force && entry.expiresAt > now && entry.value) return entry.value;
+  if (options.force) entry.expiresAt = 0;
 
   const url = withWorkspaceQuery('/api/markdown/link-index', normalizedWorkspaceId);
-  const promise = fetch(url, {
-    cache: 'no-store',
-    credentials: 'include',
-    headers: workspaceHeaders(normalizedWorkspaceId),
-  }).then(async (response) => {
+  const promise = (async () => {
+    const delay = entry.nextRequestAt - Date.now();
+    if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
+    const generation = entry.generation;
+    entry.requestGeneration = generation;
+    entry.nextRequestAt = Date.now() + LINK_INDEX_MIN_REQUEST_INTERVAL_MS;
+    const response = await fetch(url, {
+      cache: 'no-store',
+      credentials: 'include',
+      headers: workspaceHeaders(normalizedWorkspaceId),
+    });
     if (!response.ok) {
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After');
+        const seconds = retryAfter === null ? NaN : Number(retryAfter);
+        const retryAt = Number.isFinite(seconds)
+          ? Date.now() + Math.max(0, seconds) * 1000 : Date.parse(retryAfter ?? '');
+        if (Number.isFinite(retryAt)) entry.nextRequestAt = Math.max(entry.nextRequestAt, retryAt);
+      }
       throw new Error(await readApiError(response, 'Failed to load workspace link index'));
     }
     const payload = await readApiJson<LinkIndexResponse>(response, 'Failed to load workspace link index');
@@ -162,21 +221,21 @@ export async function loadWorkspaceLinkIndex(
       ...payload.index,
       omittedDocuments: payload.index.omittedDocuments ?? [],
     };
-    linkIndexCache.set(normalizedWorkspaceId, {
-      expiresAt: Date.now() + LINK_INDEX_CACHE_TTL_MS,
-      value: index,
-    });
+    entry.value = index;
+    entry.expiresAt = generation === entry.generation ? Date.now() + LINK_INDEX_CACHE_TTL_MS : 0;
+    // Deliver this completed snapshot without waiting for a quiet workspace.
+    // If it was invalidated in flight, it remains stale and subscribers get
+    // one coalesced follow-up. A later load must fetch, never reuse it as fresh.
+    if (generation !== entry.generation) scheduleInvalidation(normalizedWorkspaceId);
     return index;
-  }).catch((error) => {
-    const current = linkIndexCache.get(normalizedWorkspaceId);
-    if (current?.promise === promise) linkIndexCache.delete(normalizedWorkspaceId);
-    throw error;
+  })().finally(() => {
+    if (entry.promise === promise) {
+      entry.promise = undefined;
+      entry.requestGeneration = null;
+    }
   });
 
-  linkIndexCache.set(normalizedWorkspaceId, {
-    expiresAt: now + LINK_INDEX_CACHE_TTL_MS,
-    promise,
-  });
+  entry.promise = promise;
   return promise;
 }
 

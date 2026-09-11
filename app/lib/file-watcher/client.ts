@@ -1,3 +1,4 @@
+import { LiveEventSource, type LiveEventSourceLike, type LiveEventSourceFactory } from '@/app/lib/live-events/client';
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { uploadVersionGuard } from '@/app/lib/files/upload-tree-batch';
 import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
@@ -18,6 +19,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceFileEvent } from '@/app/lib/files/file-events';
 import { getParentDirectory, isSameOrDescendantPath } from '@/app/lib/files/path-utils';
 import { readWorkspaceFile } from '@/app/lib/files/client';
+import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
 
 type FileEvent = WorkspaceFileEvent;
 
@@ -53,7 +55,7 @@ function getWatchedDirs(): string[] {
 }
 
 export class FileWatcherClient extends EventTarget {
-  private eventSource: EventSource | null = null;
+  private eventSource: LiveEventSourceLike | null = null;
   private clientId: string | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 10;
@@ -79,7 +81,7 @@ export class FileWatcherClient extends EventTarget {
   static readonly DISCONNECT_GRACE_MS = 3000;
   static readonly SYNC_DEBOUNCE_MS = 200;
 
-  constructor() {
+  constructor(private readonly createSource: LiveEventSourceFactory = url => new LiveEventSource(url)) {
     super();
   }
 
@@ -176,9 +178,7 @@ export class FileWatcherClient extends EventTarget {
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     this.connectionWorkspaceId = workspaceId;
 
-    const eventSource = new EventSource(watcherUrl(workspaceId), {
-      withCredentials: true,
-    });
+    const eventSource = this.createSource(watcherUrl(workspaceId));
 
     this.eventSource = eventSource;
     const generation = ++this.connectionGeneration;
@@ -190,10 +190,10 @@ export class FileWatcherClient extends EventTarget {
       this.reconnectAttempts = 0;
     };
 
-    eventSource.addEventListener('connected', (message: MessageEvent) => {
+    eventSource.addEventListener('connected', (message: Event) => {
       if (!isCurrent()) return;
       try {
-        const data = JSON.parse(message.data);
+        const data = JSON.parse((message as MessageEvent<string>).data);
         if (data.clientId && (!this.connectionWorkspaceId || !data.workspaceId || data.workspaceId === this.connectionWorkspaceId)) {
           this.clientId = data.clientId;
           this.connectionWorkspaceId = typeof data.workspaceId === 'string' ? data.workspaceId : this.connectionWorkspaceId;
@@ -206,10 +206,10 @@ export class FileWatcherClient extends EventTarget {
       } catch {}
     });
 
-    eventSource.addEventListener('filechange', (message: MessageEvent) => {
+    eventSource.addEventListener('filechange', (message: Event) => {
       if (!isCurrent()) return;
       try {
-        const event: FileEvent = JSON.parse(message.data);
+        const event: FileEvent = JSON.parse((message as MessageEvent<string>).data);
         this.handleFileChange(event);
       } catch (error) {
         console.warn('[FileWatcherClient] Failed to parse event:', error);
@@ -299,6 +299,8 @@ export class FileWatcherClient extends EventTarget {
   }
 
   private handleFileChange(event: FileEvent): void {
+    // Also ignore events delivered by an older server during a rolling update.
+    if (isInternalWorkspaceStagingPath(event.relativePath)) return;
     const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     if (activeWorkspaceId && event.workspaceId && event.workspaceId !== activeWorkspaceId) return;
     for (const path of event.mutation ? [event.mutation.oldPath, event.mutation.newPath] : [event.relativePath]) {

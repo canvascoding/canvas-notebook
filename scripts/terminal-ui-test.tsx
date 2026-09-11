@@ -10,16 +10,38 @@ async function main() {
     Object.defineProperty(globalThis, name, { configurable: true, value: (dom.window as unknown as Record<string, unknown>)[name] });
   }
   Object.defineProperty(globalThis, 'ResizeObserver', { configurable: true, value: class { observe() {} unobserve() {} disconnect() {} } });
-  const sources: FakeEventSource[] = [];
-  class FakeEventSource {
+  const sources: FakeSocket[] = [];
+  class FakeSocket {
+    onopen: (() => void) | null = null;
     onmessage: ((event: { data: string }) => void) | null = null;
+    onclose: (() => void) | null = null;
     onerror: (() => void) | null = null;
+    readyState = 0;
     closed = false;
-    constructor() { sources.push(this); }
-    close() { this.closed = true; }
-    emit(enabled: boolean) { this.onmessage?.({ data: JSON.stringify({ terminalEnabled: enabled, terminalUpdatedAt: null }) }); }
+    private subscriptionId: string | null = null;
+    subscriptions = 0;
+    constructor() {
+      sources.push(this);
+      queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
+    }
+    send(data: string) {
+      const message = JSON.parse(data) as { type: string; id: string };
+      if (message.type === 'subscribe') {
+        this.subscriptionId = message.id; this.subscriptions++;
+        queueMicrotask(() => this.deliver({ type: 'open', id: message.id }));
+      }
+    }
+    close() { this.closed = true; this.readyState = 3; this.onclose?.(); }
+    deliver(message: unknown) { this.onmessage?.({ data: JSON.stringify(message) }); }
+    emit(enabled: boolean) {
+      this.deliver({ type: 'event', id: this.subscriptionId,
+        event: { data: JSON.stringify({ terminalEnabled: enabled, terminalUpdatedAt: null }) } });
+    }
+    refresh() { this.deliver({ type: 'refresh', id: this.subscriptionId }); }
+    fail() { this.deliver({ type: 'error', id: this.subscriptionId, status: 403 }); }
   }
-  Object.defineProperty(globalThis, 'EventSource', { configurable: true, value: FakeEventSource });
+  const originalWebSocket = globalThis.WebSocket;
+  Object.defineProperty(globalThis, 'WebSocket', { configurable: true, value: FakeSocket });
   let userId: string | null = 'admin';
   const internal = Module as typeof Module & { _load: (name: string, ...args: unknown[]) => unknown };
   const originalLoad = internal._load;
@@ -72,6 +94,7 @@ async function main() {
     fireEvent.click(ui.getByRole('button', { name: messages.home.sections.moreTools }));
     assert.equal(ui.container.querySelector('a[href="/terminal"]'), null);
     useTerminalStore.getState().createSession();
+    await act(async () => { await Promise.resolve(); });
     await act(async () => sources.at(-1)!.emit(false));
     assert.equal(useTerminalStore.getState().sessions.length, 0, 'disabled state clears saved sessions');
     assert.equal(ui.getByTestId('policy').textContent, 'true:false');
@@ -83,6 +106,16 @@ async function main() {
     assert.equal(ui.container.querySelector('a[href="/terminal"]'), null, 'remote disabling removes the link without navigation');
     assert.equal(ui.getByRole('switch').getAttribute('aria-checked'), 'false');
     await act(async () => sources.at(-1)!.emit(true));
+    const refreshing = sources.at(-1)!;
+    const subscriptionsBeforeRefresh = refreshing.subscriptions;
+    useTerminalStore.getState().createSession();
+    const sessionCount = useTerminalStore.getState().sessions.length;
+    await act(async () => { refreshing.refresh(); await new Promise((resolve) => setTimeout(resolve, 5)); });
+    assert.equal(refreshing.subscriptions, subscriptionsBeforeRefresh + 1, 'quiet authorization refresh reopens only its subscription');
+    assert.equal(ui.getByTestId('policy').textContent, 'true:true', 'quiet authorization refresh must not temporarily disable the terminal');
+    assert.equal(useTerminalStore.getState().sessions.length, sessionCount, 'quiet refresh retains existing terminal sessions');
+    await act(async () => refreshing.emit(true));
+    assert.equal(ui.getByTestId('policy').textContent, 'true:true');
     const beforeRevocation = sources.at(-1)!;
     await act(async () => { fireEvent.click(ui.getByRole('button', { name: 'Revoke session' })); });
     assert(beforeRevocation.closed, 'revocation revalidates the authoritative policy');
@@ -97,7 +130,7 @@ async function main() {
     await act(async () => previousSource.emit(true));
     assert.equal(ui.getByTestId('policy').textContent, 'false:false', 'late events from an old session are ignored');
     await act(async () => sources.at(-1)!.emit(true));
-    await act(async () => sources.at(-1)!.onerror?.());
+    await act(async () => sources.at(-1)!.fail());
     assert.equal(ui.container.querySelector('a[href="/terminal"]'), null, 'unknown availability fails closed');
     for (const locale of ['de', 'en']) {
       assert(!getTutorials(locale).some(tutorial => tutorial.id === 'terminal-basics'));
@@ -109,6 +142,7 @@ async function main() {
   } finally {
     internal._load = originalLoad;
     globalThis.fetch = originalFetch;
+    globalThis.WebSocket = originalWebSocket;
     dom.window.close();
   }
 }

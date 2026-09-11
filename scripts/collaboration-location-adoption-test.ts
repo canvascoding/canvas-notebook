@@ -6,6 +6,7 @@ import { FileWatcherClient } from '../app/lib/file-watcher/client';
 import { registerDocumentTransitionGuard } from '../app/lib/files/document-transition';
 
 class FakeEventSource extends EventTarget {
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
   static instances: FakeEventSource[] = [];
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -18,9 +19,8 @@ class FakeEventSource extends EventTarget {
 
 async function main() {
   const originalFetch = globalThis.fetch;
-  const originalEventSource = globalThis.EventSource;
   const calls: string[] = [];
-  const watcher = new FileWatcherClient();
+  const watcher = new FileWatcherClient(() => new FakeEventSource());
   globalThis.fetch = async (input) => {
     const url = new URL(String(input), 'https://canvas.test'); calls.push(url.pathname);
     if (url.pathname === '/api/files/rename' || url.pathname === '/api/files/watch') return Response.json({ success: true });
@@ -71,7 +71,6 @@ async function main() {
     await useFileStore.getState().loadFile(adopted.path);
     assert.equal(state.adoptCurrentCollaborationLocation(currentScope, 'stale.txt'), false, 'reopening the same path revokes pending adoption');
 
-    globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
     watcher.acquire();
     const oldSource = FakeEventSource.instances.at(-1)!;
     let connections = 0; let changes = 0;
@@ -98,7 +97,6 @@ async function main() {
   } finally {
     watcher.disconnect();
     globalThis.fetch = originalFetch;
-    globalThis.EventSource = originalEventSource;
     useEditorStore.getState().clear();
     useFileStore.getState().resetWorkspaceView(null);
     useWorkspaceStore.setState({ activeWorkspaceId: null });

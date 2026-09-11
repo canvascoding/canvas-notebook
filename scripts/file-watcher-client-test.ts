@@ -14,18 +14,17 @@ class FakeMessageEvent extends Event {
 }
 
 class FakeEventSource extends EventTarget {
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
   static instances: FakeEventSource[] = [];
 
   onopen: ((event: Event) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
   closed = false;
   readonly url: string;
-  readonly withCredentials?: boolean;
 
-  constructor(url: string, init?: EventSourceInit) {
+  constructor(url: string) {
     super();
     this.url = url;
-    this.withCredentials = init?.withCredentials;
     FakeEventSource.instances.push(this);
     queueMicrotask(() => this.onopen?.(new Event('open')));
   }
@@ -97,7 +96,7 @@ function testLocalWriteTracker() {
 
 async function main() {
   const originalFetch = globalThis.fetch;
-  const OriginalEventSource = globalThis.EventSource;
+  const factoryUrls: string[] = [];
   const fetchCalls: Array<{ url: string; body: { clientId?: string; dirs?: string[] } | null }> = [];
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -107,7 +106,6 @@ async function main() {
     });
     return Response.json({ success: true });
   }) as typeof fetch;
-  globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
   useWorkspaceStore.setState({ activeWorkspaceId: null });
 
   let refreshVisibleCalls = 0;
@@ -128,13 +126,13 @@ async function main() {
   try {
     testLocalWriteTracker();
 
-    const client = new FileWatcherClient();
+    const client = new FileWatcherClient((url) => { factoryUrls.push(url); return new FakeEventSource(url); });
     client.acquire();
 
     const source = FakeEventSource.instances[0];
-    assert.ok(source, 'EventSource should be created on acquire');
+    assert.ok(source, 'The transport factory should create a source on acquire');
     assert.equal(source.url, '/api/files/watch');
-    assert.equal(source.withCredentials, true);
+    assert.deepEqual(factoryUrls, ['/api/files/watch']);
 
     source.emit('connected', { clientId: 'client-1' });
     await delay(FileWatcherClient.SYNC_DEBOUNCE_MS + 25);
@@ -203,7 +201,6 @@ async function main() {
     assert.equal(source.closed, true);
   } finally {
     globalThis.fetch = originalFetch;
-    globalThis.EventSource = OriginalEventSource;
   }
 
   console.log('file-watcher-client-test: ok');

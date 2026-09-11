@@ -11,8 +11,20 @@ interface FileReferenceCacheEntry {
   entries: FileReferenceEntry[];
 }
 
-const cacheEntries = new Map<string, FileReferenceCacheEntry>();
-const pendingBuilds = new Map<string, Promise<FileReferenceEntry[]>>();
+interface FileReferenceCacheState {
+  cacheEntries: Map<string, FileReferenceCacheEntry>;
+  pendingBuilds: Map<string, Promise<FileReferenceEntry[]>>;
+}
+
+// Share both completed and pending reads across the custom server and Next bundles.
+const fileReferenceCacheKey = Symbol.for('canvas.file-reference-cache.v1');
+const cacheRuntime = globalThis as typeof globalThis & {
+  [fileReferenceCacheKey]?: FileReferenceCacheState;
+};
+const { cacheEntries, pendingBuilds } = cacheRuntime[fileReferenceCacheKey] ??= {
+  cacheEntries: new Map<string, FileReferenceCacheEntry>(),
+  pendingBuilds: new Map<string, Promise<FileReferenceEntry[]>>(),
+};
 
 function getWorkspaceCacheKey(options?: WorkspaceFileOperationOptions): string {
   return options?.workspace?.workspaceId ?? 'legacy';
@@ -92,21 +104,27 @@ export async function getCachedFileReferenceEntries(
     return pendingBuild;
   }
 
-  const nextBuild = collectFilesRecursive(
+  const nextBuild: Promise<FileReferenceEntry[]> = collectFilesRecursive(
     '.',
     options,
     new AsyncSemaphore(FILE_REFERENCE_DIRECTORY_CONCURRENCY),
     true,
   )
     .then((entries) => {
-      cacheEntries.set(cacheKey, {
-        entries,
-        expiresAt: Date.now() + FILE_REFERENCE_CACHE_TTL_MS,
-      });
+      // Invalidation detaches this promise. Its existing readers may finish, but
+      // it must neither repopulate the cache nor replace a newer build's result.
+      if (pendingBuilds.get(cacheKey) === nextBuild) {
+        cacheEntries.set(cacheKey, {
+          entries,
+          expiresAt: Date.now() + FILE_REFERENCE_CACHE_TTL_MS,
+        });
+      }
       return entries;
     })
     .finally(() => {
-      pendingBuilds.delete(cacheKey);
+      if (pendingBuilds.get(cacheKey) === nextBuild) {
+        pendingBuilds.delete(cacheKey);
+      }
     });
 
   pendingBuilds.set(cacheKey, nextBuild);

@@ -22,6 +22,7 @@
     "unrs-resolver@1.12.2": true
   },
   "scripts": {
+    "test:live-events": "tsx --conditions react-server scripts/live-events-bridge-test.ts && tsx scripts/live-events-client-test.ts",
     "postinstall": "patch-package --error-on-fail",
     "predev": "npm run build:tool-apps",
     "dev": "node scripts/run-dev.mjs",
@@ -47,6 +48,7 @@
     "test:home": "tsx --conditions react-server scripts/file-quick-access-test.ts && tsx scripts/file-visit-open-flow-test.ts && tsx scripts/home-notifications-test.ts && tsx scripts/notification-source-resilience-test.ts && tsx --conditions react-server scripts/home-workspace-widget-cache-test.ts && tsx --conditions react-server scripts/home-workspace-widgets-test.ts && tsx scripts/home-workspace-widgets-hook-test.tsx && tsx scripts/home-start-component-test.tsx",
     "test:home:api": "node scripts/home-quick-access-api-test.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
+    "test:files:background-events": "tsx --conditions react-server scripts/file-watcher-staging-test.ts && tsx scripts/file-watcher-staging-client-test.ts && tsx scripts/workspace-link-index-invalidation-test.ts && tsx --conditions react-server scripts/file-view-cache-cross-bundle-test.ts && tsx --conditions react-server scripts/file-watcher-async-lifecycle-test.ts",
     "test:integration": "node scripts/integration-test.mjs",
     "test:integration:pi": "node scripts/pi-integration-test.mjs",
     "test:pi:sdk-contract": "tsx scripts/pi-sdk-contract-test.mts",

@@ -7,6 +7,7 @@ import { findNodeInTree } from '../app/lib/files/tree-utils';
 import type { WorkspacePathRenameMutation } from '../app/lib/files/file-events';
 
 class Source extends EventTarget {
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
   static latest: Source;
   onopen: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -32,10 +33,9 @@ function deferred<T>() {
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 10));
 
 async function main() {
-  globalThis.EventSource = Source as unknown as typeof EventSource;
   for (const eventFirst of [true, false]) {
     setup();
-    const client = new FileWatcherClient();
+    const client = new FileWatcherClient(() => new Source());
     client.acquire();
     const response = deferred<Response>();
     const mutation: WorkspacePathRenameMutation = { type: 'rename', operationId: crypto.randomUUID(), workspaceId: 'ws-a', oldPath: 'docs/a.txt', newPath: 'docs/b.txt' };
@@ -60,7 +60,7 @@ async function main() {
 
   setup();
   useEditorStore.getState().updateDraft('keep me');
-  const client = new FileWatcherClient();
+  const client = new FileWatcherClient(() => new Source());
   client.acquire();
   globalThis.fetch = (async () => new Response('', { status: 404 })) as typeof fetch;
   Source.latest.emit({ type: 'unlinkDir', workspaceId: 'ws-a', path: 'docs', relativePath: 'docs', dir: '.', timestamp: Date.now() });
@@ -72,7 +72,7 @@ async function main() {
   client.disconnect();
 
   setup();
-  const replacement = new FileWatcherClient();
+  const replacement = new FileWatcherClient(() => new Source());
   replacement.acquire();
   globalThis.fetch = (async () => Response.json({ success: true, data: { content: '', stats: { size: 4, modified: 2, permissions: '100644' } } })) as typeof fetch;
   Source.latest.emit({ type: 'unlink', workspaceId: 'ws-a', path: 'docs/a.txt', relativePath: 'docs/a.txt', dir: 'docs', timestamp: Date.now() });
@@ -81,7 +81,7 @@ async function main() {
   replacement.disconnect();
 
   setup();
-  const delayed = new FileWatcherClient();
+  const delayed = new FileWatcherClient(() => new Source());
   delayed.acquire();
   const missing = deferred<Response>();
   let missingReads = 0;

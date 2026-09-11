@@ -25,6 +25,7 @@ import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { assertOfficePublicationAllowed } from '@/app/lib/office/publication-context';
 import { filesystemFileVersion } from './file-version';
+import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
 
 export type { FileNode } from '@/app/lib/files/types';
 
@@ -157,7 +158,7 @@ export async function listDirectory(
     if (entry.isDirectory()) {
       return !IGNORED_WORKSPACE_DIRS.has(entry.name);
     }
-    return !HIDDEN_WORKSPACE_METADATA_FILES.has(entry.name);
+    return !HIDDEN_WORKSPACE_METADATA_FILES.has(entry.name) && !isInternalWorkspaceStagingPath(entry.name);
   });
   const toNode = (entry: import('fs').Dirent): FileNode => ({
     name: entry.name,

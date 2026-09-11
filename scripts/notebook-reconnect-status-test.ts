@@ -7,6 +7,7 @@ import { validateFileReference, invalidateFileReferenceValidationCache } from '.
 import { previewMayDependOn, previewDependencyDirectories } from '../app/lib/files/preview-dependencies';
 
 class Source extends EventTarget {
+  onmessage: ((event: MessageEvent<string>) => void) | null = null;
   static instances: Source[] = [];
   onerror: (() => void) | null = null;
   onopen: (() => void) | null = null;
@@ -24,7 +25,6 @@ function setup(workspaceId: string) {
   useEditorStore.getState().setActiveFile('docs/a.ts', 'base');
 }
 async function main() {
-  globalThis.EventSource = Source as unknown as typeof EventSource;
   const calls: Array<{ path: string; workspaceId: string | null; body?: string }> = [];
   let serverContent = 'base';
   globalThis.fetch = (async (input, init) => {
@@ -34,7 +34,7 @@ async function main() {
       ? [{ path: 'docs', name: 'docs', type: 'directory' }] : [{ path: 'docs/a.ts', name: 'a.ts', type: 'file', size: serverContent.length }] });
     return Response.json({ success: true, data: { content: serverContent, stats: { size: serverContent.length, modified: 1, permissions: '100644' } } });
   }) as typeof fetch;
-  setup('a'); const client = new FileWatcherClient(); client.acquire();
+  setup('a'); const client = new FileWatcherClient(url => new Source(url)); client.acquire();
   const first = Source.instances.at(-1)!;
   first.emit('connected', { clientId: 'first', workspaceId: 'a' }); await delay();
   assert.ok(calls.some((call) => call.path === '/api/files/tree.'));

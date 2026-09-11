@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import { LiveEventSource } from '@/app/lib/live-events/client';
 import { authClient } from '@/app/lib/auth-client';
 import type { TerminalAvailability } from '@/app/lib/terminal-policy';
 import { useTerminalStore } from '@/app/store/terminal-store';
@@ -39,7 +40,7 @@ export function TerminalAvailabilityProvider({ children }: { children: ReactNode
   useEffect(() => {
     if (!userId) return;
     let disposed = false;
-    const source = new EventSource('/api/terminal/availability?stream=1');
+    const source = new LiveEventSource('/api/terminal/availability?stream=1');
     source.onmessage = event => {
       if (disposed) return;
       try {
