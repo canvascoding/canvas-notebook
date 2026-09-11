@@ -5,6 +5,7 @@ import type * as YTypes from 'yjs';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { isAgentDatabaseCapacityError } from './agent-database-capacity';
 import {
   applyExactTextEdits,
   type ExactTextEdit,
@@ -1941,6 +1942,9 @@ export async function applyPersistedAgentTextOperation(input: {
           logCollaborationDiagnostic('warn', { event: 'agent_audit_failed', operationId: created.row.operation_id,
             documentId: input.documentId, workspaceId: input.workspace.workspaceId, code: 'AGENT_GRANT_LOCK_RELEASE_UNCONFIRMED' });
           return appliedResult;
+        }
+        if (isAgentDatabaseCapacityError(error)) {
+          return placeAgentOperationInReview(database, created.row, 'backpressure_review_required');
         }
         if (!(error instanceof AgentDirectEditGrantUnavailableError)) throw error;
         return placeAgentOperationInReview(database, created.row, 'authorization_revoked');

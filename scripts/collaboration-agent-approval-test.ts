@@ -334,3 +334,19 @@ test('lost grant COMMIT response preserves a completed operation receipt', async
     assert.equal(stored.durability, 'persisted_yjs');
   } finally { h.close(); }
 });
+
+test('capacity exhaustion before direct apply leaves a durable reviewable proposal', async () => {
+  const h = harness();
+  try {
+    h.setGrant({ id: 'grant-original', expiresAt: Date.now() + 60_000 });
+    h.beforeGrantLock(() => { throw Object.assign(new Error('Grant queue is full'), { code: 'agent_database_busy' }); });
+    const before = Y.encodeStateAsUpdate(h.doc);
+    const result = await h.deliver();
+    assert.equal(result.operationStatus, 'needs_review');
+    assert.equal(h.row.status, 'needs_review');
+    assert.equal(h.row.error_code, 'backpressure_review_required');
+    assert.equal(result.operationId, h.row.operation_id);
+    assert.equal(h.directCalls(), 0);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc), before);
+  } finally { h.close(); }
+});
