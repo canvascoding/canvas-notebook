@@ -28,7 +28,7 @@ export function createRichEditorCollaborationExtensions(options: {
   if (options.awareness) {
     extensions.push(options.representation === 'tiptap_blocks'
       ? createBlockTreeCaretExtension({ document: options.document, awareness: options.awareness,
-          user: options.user, render: options.renderCaret })
+          user: options.user, render: options.renderCaret, selectionRender: options.selectionRender })
       : CollaborationCaret.configure({ provider: { awareness: options.awareness }, user: options.user,
           ...(options.renderCaret ? { render: options.renderCaret } : {}),
           ...(options.selectionRender ? { selectionRender: options.selectionRender } : {}) }));

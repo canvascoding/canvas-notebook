@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom';
 import { Editor, getSchema } from '@tiptap/core';
 import { initProseMirrorDoc } from '@tiptap/y-tiptap';
 import { CellSelection } from '@tiptap/pm/tables';
-import { NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { AllSelection, NodeSelection, Plugin, PluginKey, TextSelection } from '@tiptap/pm/state';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 
@@ -440,13 +440,14 @@ function createDocument(markdown = 'AAA\n\nBBB\n\nCCC') {
   return doc;
 }
 
-function createEditor(doc: Y.Doc, errors: Error[], awareness?: Awareness) {
+function createEditor(doc: Y.Doc, errors: Error[], awareness?: Awareness,
+  selectionRender?: (user: Record<string, unknown>) => Record<string, string>) {
   return new Editor({
     extensions: [
       ...richMarkdownCodecExtensions().map((extension) => extension.name === 'starterKit' ? extension.configure({ undoRedo: false })
         : extension.name === 'uniqueID' ? CanvasUniqueID.configure({ types: 'all', filterTransaction: (transaction: import('@tiptap/pm/state').Transaction) => !isRemoteRichEditorTransaction(transaction) }) : extension),
       ...createRichEditorCollaborationExtensions({ document: doc, representation: 'tiptap_blocks', awareness: awareness ?? null,
-        user: { name: 'Peer', color: '#123456' }, onError: (error) => errors.push(error) }),
+        user: { name: 'Peer', color: '#123456' }, selectionRender, onError: (error) => errors.push(error) }),
     ],
   });
 }
@@ -604,6 +605,98 @@ test('loading and selecting a table never generates a local paragraph from defer
     assert.deepEqual(Y.encodeStateAsUpdate(doc), before, 'selection is not a content edit');
     assert.deepEqual(errors, []);
   } finally { editor.destroy(); doc.destroy(); }
+});
+
+test('caret publishing survives repeated plugin view recreation without another edit', async () => {
+  const left = createDocument(); const right = new Y.Doc();
+  Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const aPresence = new Awareness(left); const bPresence = new Awareness(right);
+  const errors: Error[] = [];
+  const a = createEditor(left, errors, aPresence); const b = createEditor(right, errors, bPresence);
+  document.body.append(a.view.dom, b.view.dom);
+  const nativeBefore = Y.encodeStateAsUpdate(left);
+  const current = () => aPresence.getLocalState()?.canvasBlockSelection as { owner: string; selection: unknown } | null;
+  const relay = () => applyAwarenessUpdate(bPresence, encodeAwarenessUpdate(aPresence, [left.clientID]), 'peer');
+  try {
+    await Promise.resolve(); a.view.focus();
+    a.commands.setTextSelection(position(a, 'BBB') + 1);
+    await Promise.resolve(); await Promise.resolve();
+    assert(current()); relay();
+    assert.equal(b.view.dom.querySelectorAll('.collaboration-carets__caret').length, 1);
+    let previousOwner = current()!.owner;
+    for (let index = 0; index < 3; index++) {
+      const menu = new PluginKey(`caret-menu-${index}`);
+      // Bubble menus register and unregister real ProseMirror plugins in this way.
+      a.registerPlugin(new Plugin({ key: menu }));
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+      assert(current(), 'a recreated view republishes an already focused caret');
+      assert.notEqual(current()!.owner, previousOwner, 'each mounted view owns only its own cursor lifecycle');
+      previousOwner = current()!.owner; relay();
+      assert.equal(b.view.dom.querySelectorAll('.collaboration-carets__caret').length, 1);
+      a.unregisterPlugin(menu);
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+      assert(current(), 'removing a menu also keeps the current caret');
+      assert.notEqual(current()!.owner, previousOwner); previousOwner = current()!.owner;
+      relay(); assert.equal(b.view.dom.querySelectorAll('.collaboration-carets__caret').length, 1);
+    }
+    // A queued callback from a removed view must not publish over its replacement.
+    a.view.dom.dispatchEvent(new dom.window.FocusEvent('focus'));
+    const transientMenu = new PluginKey('transient-caret-menu');
+    a.registerPlugin(new Plugin({ key: transientMenu }));
+    a.unregisterPlugin(transientMenu);
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    assert(current());
+    assert.notEqual(current()!.owner, previousOwner);
+    a.commands.setTextSelection(position(a, 'CCC') + 2);
+    relay(); assert.equal(b.view.dom.querySelectorAll('.collaboration-carets__caret').length, 1);
+    assert.deepEqual(Y.encodeStateAsUpdate(left), nativeBefore, 'cursor lifecycles never mutate document bytes');
+    const replacement = { ...current()!, owner: 'newer-view-owner' };
+    aPresence.setLocalStateField('canvasBlockSelection', replacement);
+    a.destroy();
+    assert.deepEqual(current(), replacement, 'an older view cannot clear a newer owner');
+    assert.deepEqual(errors, []);
+  } finally { if (!a.isDestroyed) a.destroy(); b.destroy(); aPresence.destroy(); bPresence.destroy(); left.destroy(); right.destroy(); }
+});
+
+test('block collaboration preserves configured selection attributes for text, nodes, cells and select all', async () => {
+  const left = createDocument('AAA\n\n![image](https://example.com/image.png)\n\n| A | B |\n| --- | --- |\n| one | two |');
+  const right = new Y.Doc(); Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
+  const aPresence = new Awareness(left); const bPresence = new Awareness(right);
+  const errors: Error[] = [];
+  const a = createEditor(left, errors, aPresence);
+  const b = createEditor(right, errors, bPresence, (user) => ({
+    nodeName: 'span', class: 'collaboration-carets__selection',
+    'data-collaboration-user': String(user.name), style: `--collaboration-user-color: ${user.color};`,
+  }));
+  document.body.append(a.view.dom, b.view.dom);
+  try {
+    await Promise.resolve(); a.view.focus();
+    let imagePosition = -1; const cells: number[] = [];
+    a.state.doc.descendants((node, pos) => {
+      if (node.type.name === 'image') imagePosition = pos;
+      if (node.type.name === 'tableCell') cells.push(pos);
+    });
+    assert(imagePosition >= 0); assert(cells.length >= 2);
+    const selections = [TextSelection.create(a.state.doc, 1, 3), NodeSelection.create(a.state.doc, imagePosition),
+      CellSelection.create(a.state.doc, cells[0], cells[1]), new AllSelection(a.state.doc)];
+    for (const selection of selections) {
+      a.view.dispatch(a.state.tr.setSelection(selection));
+      await Promise.resolve();
+      applyAwarenessUpdate(bPresence, encodeAwarenessUpdate(aPresence, [left.clientID]), 'peer');
+      const highlights = [...b.view.dom.querySelectorAll<HTMLElement>('.collaboration-carets__selection')];
+      assert(highlights.length > 0);
+      if (selection instanceof AllSelection) assert.equal(highlights.length, a.state.doc.childCount);
+      for (const element of highlights) {
+        assert.equal(element.dataset.collaborationUser, 'Peer');
+        assert.equal(element.style.getPropertyValue('--collaboration-user-color'), '#123456');
+        if (selection instanceof CellSelection) {
+          assert.equal(element.tagName, 'TD');
+          assert.equal(element.parentElement?.tagName, 'TR');
+        }
+      }
+      assert.deepEqual(errors, []);
+    }
+  } finally { a.destroy(); b.destroy(); aPresence.destroy(); bPresence.destroy(); left.destroy(); right.destroy(); }
 });
 
 test('local and remote cell highlights follow a moved column through the live binding', async () => {
