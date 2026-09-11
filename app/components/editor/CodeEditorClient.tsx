@@ -1,24 +1,20 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { useEffect, useState, type ComponentType } from 'react';
+import { useSyncExternalStore } from 'react';
 
-import type { CodeEditorProps } from './CodeEditor';
+import { CodeEditor as MountedCodeEditor, type CodeEditorProps } from './CodeEditor';
+
+const subscribeToHydration = () => () => {};
+const clientHydrationSnapshot = () => true;
+const serverHydrationSnapshot = () => false;
 
 export function CodeEditor(props: CodeEditorProps) {
-  const [Editor, setEditor] = useState<ComponentType<CodeEditorProps> | null>(null);
+  const mounted = useSyncExternalStore(subscribeToHydration, clientHydrationSnapshot, serverHydrationSnapshot);
 
-  useEffect(() => {
-    let active = true;
-    void import('./CodeEditor').then((module) => {
-      if (active) setEditor(() => module.CodeEditor);
-    });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  if (Editor) return <Editor {...props} />;
+  // The module ships with this view so a first Source switch also works offline.
+  // Its DOM-dependent editor still mounts only after hydration.
+  if (mounted) return <MountedCodeEditor {...props} />;
   return (
     <div
       className="flex h-full min-h-24 items-center justify-center bg-background"
