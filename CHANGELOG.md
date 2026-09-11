@@ -11,6 +11,24 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.11.1] - 2026-09-11
+
+### Changed
+
+- Standardized PostgreSQL bigint timestamps on epoch milliseconds and added an explicit, auditable opt-in path for trusted legacy epoch-second data.
+- Made active scheduled automations resume at their next future calendar occurrence after downtime instead of replaying missed executions.
+
+### Fixed
+
+- Prevented paused, deleted, or quarantined automations from executing pending or retry-scheduled queue entries.
+- Revalidated scheduled runs immediately before dispatch and preserved separate behavior for manual, webhook, and event-triggered runs.
+- Corrected PI usage timestamp persistence, filtering, grouping, and reporting across PostgreSQL paths.
+- Preserved at-most-once todo reminder delivery under overlapping scheduler invocations.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.10.11] - 2026-09-10
 
 ### Changed
