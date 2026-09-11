@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, gt, isNull, lte, or } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { session, user } from '@/app/lib/db/schema';
-import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { readPostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -43,7 +43,8 @@ export async function resolveCollaborationSessionAccess(claims: CollaborationTic
 }
 
 export async function assertCollaborationDocumentAccess(claims: CollaborationTicketClaims, workspace: WorkspaceContext) {
-  const metadata = await getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
+  // Fresh identity reads must not queue live messages behind Markdown output.
+  const metadata = await readFileCollaborationState({ workspace, path: claims.path });
   const state = await loadCollaborationState(claims.documentId);
   if (!metadata.document || metadata.document.id !== claims.documentId || !state
     || state.workspaceId !== claims.workspaceId || state.path !== claims.path

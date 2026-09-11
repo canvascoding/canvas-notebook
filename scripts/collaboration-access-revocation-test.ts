@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -8,6 +8,7 @@ import { eq } from 'drizzle-orm';
 import { createCollaborationAccessMonitor } from '../app/lib/collaboration/access-monitor';
 import { createInitialTextCollaborationClientState, reduceTextCollaborationClientState } from '../app/lib/collaboration/client-state';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
+import { whileWorkspaceOutputBlocked } from './collaboration-output-lock-test-helper';
 
 async function main() {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-collaboration-access-'));
@@ -42,6 +43,7 @@ async function main() {
     const { readPostgresWorkspaceForActor } = await import('../app/lib/workspaces/postgres-runtime');
     const workspace = await readPostgresWorkspaceForActor({ userId: 'member', role: 'member' }, 'workspace');
     assert.ok(workspace?.permissions.canWrite);
+    await mkdir(path.join(tempRoot, 'workspace'), { recursive: true });
     const { getFileCollaborationState } = await import('../app/lib/files/collaboration-policy');
     const metadata = await getFileCollaborationState({ workspace, path: 'notes.md', ensureDocument: true });
     assert.ok(metadata.document);
@@ -55,6 +57,13 @@ async function main() {
     };
     assert.ok((await revalidateCollaborationAccess(claims)).workspace.permissions.canWrite, 'An expired join ticket does not end an otherwise valid ongoing session');
     const readClaims = { ...claims, permission: 'read' as const };
+    await whileWorkspaceOutputBlocked(workspace.workspaceId, async () => {
+      await revalidateCollaborationAccess(claims);
+      await db.update(organizationUserPermissions).set({ canWriteTeamWorkspace: false }).where(eq(organizationUserPermissions.userId, 'member'));
+      await assert.rejects(revalidateCollaborationAccess(claims), /write access was revoked/);
+      await revalidateCollaborationAccess(readClaims);
+      await db.update(organizationUserPermissions).set({ canWriteTeamWorkspace: true }).where(eq(organizationUserPermissions.userId, 'member'));
+    });
     await db.update(organizationUserPermissions).set({ canWriteTeamWorkspace: false }).where(eq(organizationUserPermissions.userId, 'member'));
     await assert.rejects(revalidateCollaborationAccess(claims), /write access was revoked/);
     await revalidateCollaborationAccess(readClaims);

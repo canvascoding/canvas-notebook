@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { eq } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
 import { fileGuestCookieName } from '../app/lib/file-guests/types';
+import { whileWorkspaceOutputBlocked } from './collaboration-output-lock-test-helper';
 
 async function main() {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'canvas-file-guests-'));
@@ -94,7 +95,10 @@ async function main() {
     const { revalidateCollaborationAccess } = await import('../app/lib/collaboration/connection-access');
     const ticket = await fileGuestCollaborationSession(alice.id, credential.token);
     const claims = verifyCollaborationTicket(ticket.token);
-    await revalidateCollaborationAccess(claims);
+    await whileWorkspaceOutputBlocked(workspace.workspaceId, async () => {
+      await revalidateCollaborationAccess(claims);
+      await assert.rejects(revalidateCollaborationAccess({ ...claims, lifecycleGeneration: claims.lifecycleGeneration + 1 }));
+    });
     await assert.rejects(revalidateCollaborationAccess({ ...claims, path: 'private.md' }));
     await assert.rejects(revalidateCollaborationAccess({ ...claims, workspaceId: 'elsewhere' }));
     await assert.rejects(revalidateCollaborationAccess({ ...claims, documentId: 'elsewhere' }));
@@ -118,7 +122,9 @@ async function main() {
     assert.equal((await POST(new NextRequest(`http://localhost/api/guest/files/${alice.id}/challenge`, { method: 'POST', headers: { origin: 'https://evil.example', 'content-type': 'application/json' }, body: '{}' }), { params: Promise.resolve({ id: alice.id, action: 'challenge' }) })).status, 403);
     const changes = await Promise.allSettled(Array.from({ length: 8 }, () => guests.manage(workspace, alice.id, { policyRevision: 1, permission: 'read' })));
     assert.equal(changes.filter((result) => result.status === 'fulfilled').length, 1);
-    await assert.rejects(revalidateCollaborationAccess(claims), /revoked/);
+    await whileWorkspaceOutputBlocked(workspace.workspaceId, async () => {
+      await assert.rejects(revalidateCollaborationAccess(claims), /revoked/);
+    });
     const reader = verifyCollaborationTicket((await fileGuestCollaborationSession(alice.id, credential.token)).token);
     assert.equal(reader.permission, 'read');
     await revalidateCollaborationAccess(reader);

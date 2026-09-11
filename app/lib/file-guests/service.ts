@@ -12,7 +12,7 @@ import { COLLABORATION_CLIENT_CAPABILITIES } from '@/app/lib/collaboration/types
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 import { readCurrentCollaborationDocument } from '@/app/lib/collaboration/document-access';
 import { richMarkdownFromYDoc } from '@/app/lib/collaboration/markdown-state';
-import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { getFileCollaborationState, readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 import { resolveExistingWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import { readPostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
@@ -78,7 +78,7 @@ async function readInviterWorkspace(row: Invitation) {
 }
 
 async function invitationDocument(row: Invitation, workspace: WorkspaceContext) {
-  const metadata = await getFileCollaborationState({ workspace, path: row.path, ensureDocument: false });
+  const metadata = await readFileCollaborationState({ workspace, path: row.path });
   const state = await loadCollaborationState(row.documentId);
   if (!state || metadata.document?.id !== row.documentId || state.workspaceId !== row.workspaceId || state.path !== row.path
     || metadata.document.status !== 'active' || metadata.document.provider !== 'yjs') {
