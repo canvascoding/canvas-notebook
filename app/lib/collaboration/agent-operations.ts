@@ -22,6 +22,7 @@ import { readCurrentCollaborationDocument } from './document-access';
 import { resolveAgentDirectEditGrant, withAgentDirectEditGrant, AgentDirectEditGrantUnavailableError,
   type AgentDirectEditGrantScope } from './agent-direct-edit-grants';
 import { AgentBlockEditError, applyAgentBlockEdit, previewAgentBlockEdit, type PreparedAgentBlockEdit } from './agent-block-edits';
+import type { AgentProposalPreviewMetadata } from './agent-proposal-preview';
 import { validateAgentBlockDocument } from './agent-block-structure';
 import {
   createRichMarkdownYDoc,
@@ -161,7 +162,7 @@ export interface AgentOperationView extends PersistedAgentApplyResult {
   expiresAt: number | null;
   /** Exact server-issued proposal revision displayed by the approving user. */
   proposalVersion?: string | null;
-  reviewTargets?: Array<{
+  reviewTargets?: Array<AgentProposalPreviewMetadata & {
     targetId: string;
     groupId: string;
     proposedReplacement: string;
@@ -1961,16 +1962,17 @@ function reviewTargetsInDocument(row: AgentOperationRow, doc: YTypes.Doc, userId
   materializeCollaborationTypes(doc);
   const scopes = richDocumentFormat(doc) === 'tiptap_blocks' ? blockTreeTextScopes(doc) : undefined;
   const currentMarkdown = targets.some(isRichMarkdownPatchTarget) ? richMarkdownFromYDoc(doc) : null;
-  const review = targets.flatMap((target) => {
+  const review = targets.flatMap<NonNullable<AgentOperationView['reviewTargets']>[number]>((target) => {
     if (target.kind === 'block_edit') {
       try {
         if (!target.blockEdit) throw new Error('Missing block edit.');
-        const preview = previewAgentBlockEdit(doc, target.blockEdit);
+        const preview = previewAgentBlockEdit(doc, target.blockEdit, { includeLocations: true });
         return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: preview.afterText,
-          currentText: preview.beforeText, currentTargetHash: preview.footprintHash }];
+          currentText: preview.beforeText, currentTargetHash: preview.footprintHash,
+          previewFormat: 'blocks' as const, blockLocations: preview.locations }];
       } catch {
         return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: target.replacement,
-          currentText: null, currentTargetHash: null }];
+          currentText: null, currentTargetHash: null, previewFormat: 'blocks' as const }];
       }
     }
     if (isRichMarkdownPatchTarget(target)) {
@@ -1982,10 +1984,10 @@ function reviewTargetsInDocument(row: AgentOperationRow, doc: YTypes.Doc, userId
           : hash(currentMarkdown) === target.baseTargetHash ? target.replacement : null;
         return [{ targetId: target.targetId, groupId: target.groupId,
           proposedReplacement: proposed ?? target.replacement, currentText: currentMarkdown,
-          currentTargetHash: proposed === null ? null : hash(currentMarkdown) }];
+          currentTargetHash: proposed === null ? null : hash(currentMarkdown), previewFormat: 'markdown' as const }];
       } catch {
         return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: target.replacement,
-          currentText: null, currentTargetHash: null }];
+          currentText: null, currentTargetHash: null, previewFormat: 'markdown' as const }];
       }
     }
     const start = decodePosition(target.startAnchor);
@@ -2007,6 +2009,7 @@ function reviewTargetsInDocument(row: AgentOperationRow, doc: YTypes.Doc, userId
       proposedReplacement: target.replacement,
       currentText,
       currentTargetHash: currentText === null ? null : hash(currentText),
+      previewFormat: 'text' as const,
     }];
   });
   const textTargets = targets.filter((target) => !target.kind || target.kind === 'text_replace');

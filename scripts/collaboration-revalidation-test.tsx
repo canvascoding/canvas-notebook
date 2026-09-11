@@ -24,7 +24,7 @@ type ProviderOptions = {
 };
 
 async function main() {
-  const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://canvas.test' });
+  const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://canvas.test?collaborationDebug=1' });
   for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'MutationObserver'] as const) {
     Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
   }
@@ -159,6 +159,16 @@ async function main() {
     assert(!document.body.textContent!.includes('Failure before peer repair'), 'a peer checkpoint also clears the obsolete retry alert');
     await act(async () => get().doc.getText('content').insert(0, 'new '));
     assert(!document.body.textContent!.includes('Failure before peer repair'), 'new editing must not resurrect a repaired error');
+
+    await send({ type: 'degraded', code: COLLABORATION_FAILURE_CODES.persistenceFailed, message: 'Binary persistence interrupted' });
+    await click(); await respond({ error: 'Retry before binary recovery' }, 503);
+    assert(document.body.textContent!.includes(messages.notebook.editorModes.retryFailed));
+    await send({ type: 'durability_snapshot', ...checkpoint(get().doc, 505), checkpointSequence: 504 });
+    assert.equal(get().durability, 'persisted_yjs');
+    assert.equal(button(), undefined, 'confirmed binary recovery removes the retry action without waiting for Markdown');
+    assert(!document.body.textContent!.includes(messages.notebook.editorModes.retryFailed));
+    await act(async () => get().doc.getText('content').insert(0, 'after binary recovery '));
+    assert(!document.body.textContent!.includes(messages.notebook.editorModes.retryFailed), 'a recovered retry error does not return on the next edit');
 
     await send({ type: 'degraded', message: 'Paused again' }); await click();
     const oldRequest = requests.at(-1)!;

@@ -1,3 +1,5 @@
+import type { AgentProposalPreviewMetadata } from './agent-proposal-preview';
+
 export type CollaborationAgentOperationStatus =
   | 'preparing'
   | 'ready'
@@ -28,7 +30,7 @@ export type CollaborationAgentOperation = {
   proposalVersion?: string | null;
   appliedTargetIds: string[];
   conflicts: Array<{ targetId: string; groupId: string; code: string }>;
-  reviewTargets?: Array<{
+  reviewTargets?: Array<AgentProposalPreviewMetadata & {
     targetId: string;
     groupId: string;
     proposedReplacement: string;

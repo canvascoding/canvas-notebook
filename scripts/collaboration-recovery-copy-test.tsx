@@ -26,7 +26,7 @@ function deferred<T>() {
 }
 
 async function main() {
-  const dom = new JSDOM('<div id="root"></div>', { url: 'https://canvas.test' });
+  const dom = new JSDOM('<div id="root"></div>', { url: 'https://canvas.test?collaborationDebug=1' });
   for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLButtonElement', 'MutationObserver'] as const) {
     Object.defineProperty(globalThis, key, { configurable: true, value: dom.window[key] });
   }

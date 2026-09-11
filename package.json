@@ -514,7 +514,9 @@
     "test:security:html-preview": "tsx scripts/html-preview-assets-test.ts && tsx scripts/html-preview-origin-test.ts && tsx scripts/html-preview-boundary-test.ts && tsx scripts/html-preview-proxy-test.ts",
     "test:security:workspaces": "tsx --conditions react-server scripts/security-workspace-scope-test.ts",
     "test:security:dependencies": "tsx scripts/security-dependencies-test.ts",
-    "test:mcp:network": "tsx scripts/mcp-network-test.ts && tsx scripts/mcp-network-dns-test.ts"
+    "test:mcp:network": "tsx scripts/mcp-network-test.ts && tsx scripts/mcp-network-dns-test.ts",
+    "test:editor:presentation": "tsx scripts/collaboration-editor-presentation-test.tsx && tsx scripts/guest-editor-status-test.tsx && tsx scripts/notebook-live-metadata-refresh-test.ts && tsx scripts/code-editor-collaboration-lifecycle-test.ts && npm run test:editor:revalidation && npm run test:editor:recovery-copy && npm run test:editor:startup-recovery && tsx scripts/markdown-live-native-update-test.tsx && tsx scripts/collaborative-source-lifecycle-test.tsx",
+    "test:collaboration:agent-preview": "tsx --conditions react-server scripts/collaboration-agent-proposal-context-test.ts && tsx scripts/collaboration-agent-proposal-preview-client-test.tsx"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

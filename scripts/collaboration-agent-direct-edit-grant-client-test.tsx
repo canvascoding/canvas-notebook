@@ -18,7 +18,7 @@ const operation = (extra: Partial<client.CollaborationAgentOperation> = {}): cli
   operationId: 'operation/one', operationStatus: 'needs_review', status: 'needs_review', durability: 'needs_review',
   actorId: 'agent', actionsAllowed: true, initiatedByCurrentUser: true,
   proposalVersion: `v1.${'a'.repeat(64)}`, appliedTargetIds: [], conflicts: [], targetAnchors: [],
-  reviewTargets: [{ targetId: 'target', groupId: 'group', currentText: 'Current', proposedReplacement: 'Proposal' }], ...extra,
+  reviewTargets: [{ targetId: 'target', groupId: 'group', currentText: 'Current', proposedReplacement: 'Proposal', previewFormat: 'text' }], ...extra,
 });
 const grant = (extra: Partial<Grant> = {}): Grant => ({ id: 'grant', expiresAt: Date.now() + 1_800_000, active: true, revokedAt: null, ...extra });
 

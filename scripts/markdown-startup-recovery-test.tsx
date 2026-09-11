@@ -50,6 +50,7 @@ async function main() {
     }
     setAwarenessField(name: string, value: unknown) { this.awareness.setLocalStateField(name, value); }
     sendStateless() {}
+    disconnect() {}
     destroy() { this.awareness.destroy(); }
   }
   class FakePersistence {
@@ -163,14 +164,14 @@ async function main() {
     assert.deepEqual(new Uint8Array(await downloads[0].blob.arrayBuffer()), Y.encodeStateAsUpdate(get().doc));
     assert.equal(await downloads[1].blob.text(), 'Local draft');
 
-    await fixture(null); assert(text().includes(labels.loadingLocal)); assert.equal(button(labels.snapshot), undefined);
+    await fixture(null); assert(text().includes(labels.opening)); assert.equal(button(labels.snapshot), undefined);
     const oldHydration = hydration();
     await fixture(null); const nextDoc = get().doc;
     await act(async () => oldHydration.finish());
     assert.equal(get().doc, nextDoc); assert.equal(get().clientState.indexedDbHydrated, false);
     await act(async () => hydration().finish());
     await until(() => !!get().provider);
-    assert(text().includes(labels.waitingForSync)); noEditor();
+    assert(text().includes(labels.opening)); assert.equal(document.querySelector('[data-testid="markdown-save-state"]'), null); noEditor();
     const provider = providers.at(-1)!;
     await act(async () => provider.options.onStatus({ status: 'disconnected' }));
     assert(text().includes(labels.recoveryLocalOnly)); assert(button(labels.snapshot)); noEditor();

@@ -3,6 +3,7 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
 import { Download, Code2, Eye, Pencil, Maximize2, Minimize2, MoveHorizontal } from 'lucide-react';
+import { collaborationDiagnosticsEnabled, collaborationEditorIssue, subscribeCollaborationDiagnostics } from '@/app/lib/collaboration/editor-presentation';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
 import * as Y from 'yjs';
 import { Button } from '@/components/ui/button';
@@ -155,18 +156,29 @@ function download(content: BlobPart, name: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-export function MarkdownSaveState({ collaboration, content, available, filePath }: {
-  collaboration: CollaborationDocument | null; content: string; available: boolean; filePath?: string;
+export function MarkdownSaveState({ collaboration, content, available, filePath, onReload }: {
+  collaboration: CollaborationDocument | null; content: string; available: boolean; filePath?: string; onReload?: () => void;
 }) {
   const t = useTranslations('notebook');
   const recovery = useMarkdownRecoveryCopy(collaboration, filePath);
+  const diagnostics = useSyncExternalStore(subscribeCollaborationDiagnostics, collaborationDiagnosticsEnabled, () => false);
+  const issue = collaborationEditorIssue(collaboration, available);
+  const diagnosticScope = `${collaboration?.session?.documentId}:${collaboration?.session?.lifecycleGeneration}:${issue ?? ''}:${collaboration?.clientState.failure?.code ?? ''}`;
+  const loggedIssue = useRef<string | null>(null);
+  useEffect(() => {
+    if (!issue) { loggedIssue.current = null; return; }
+    if (loggedIssue.current === diagnosticScope) return;
+    loggedIssue.current = diagnosticScope;
+    console.warn('[collaboration-editor]', { event: 'editor_attention', documentId: collaboration?.session?.documentId,
+      generation: collaboration?.session?.lifecycleGeneration, kind: issue, code: collaboration?.clientState.failure?.code ?? null });
+  }, [diagnosticScope, issue, collaboration?.session?.documentId, collaboration?.session?.lifecycleGeneration, collaboration?.clientState.failure?.code]);
   const failureKind = collaboration?.clientState.failure?.kind;
   const canRetry = collaboration?.connection === 'live' && collaboration.ready && recovery.canCreate
     && failureKind !== 'lifecycle' && failureKind !== 'authentication' && failureKind !== 'startup';
   const retryScope = useMemo(() => ({ document: recovery.actionScope, canRetry }), [recovery.actionScope, canRetry]);
   const activeRetry = useRef<{ scope: typeof retryScope; running: boolean } | null>(null);
   const [retryState, setRetryState] = useState<{ scope: typeof retryScope; busy: boolean; error: string | null } | null>(null);
-  const checkpointRecovered = collaboration?.durability === 'checkpointed_file';
+  const checkpointRecovered = collaboration?.durability === 'checkpointed_file' || collaboration?.durability === 'persisted_yjs';
   if (retryState && retryState.scope !== retryScope) setRetryState(null);
   else if (checkpointRecovered && retryState?.error) setRetryState({ ...retryState, error: null });
   useLayoutEffect(() => {
@@ -194,27 +206,21 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
   const canExportMarkdown = hydrated && available;
   const error = collaboration.error || retryError || recovery.error;
   const blocked = durability === 'degraded' || connection === 'denied';
-  const connectionKey = connection === 'live' ? 'connected' : connection === 'read_only' ? 'readOnly'
-    : connection === 'offline' ? 'offline' : connection === 'denied' ? 'denied' : 'connecting';
-  const durabilityKey = durability === 'checkpointed_file' ? 'checkpointedFile'
-    : durability === 'persisted_yjs' ? 'persistedYjs' : durability === 'local_pending' ? 'localPending'
-      : durability === 'checkpoint_pending' ? 'checkpointPending' : 'serverReceived';
+  if (!issue && !retryError && !recovery.error && !diagnostics) return null;
   const diagnostic = JSON.stringify({ documentId: session?.documentId, generation: session?.lifecycleGeneration,
     connection, durability, documentSequence: clientState.documentSequence,
     checkpointSequence: clientState.checkpointSequence, unsyncedChanges: clientState.unsyncedChanges,
     indexedDbHydrated: hydrated, remoteSynced: clientState.remoteSynced,
-    failure: clientState.failure, error }, null, 2);
-  return <div className="shrink-0 border-b px-3 py-2 text-xs" data-testid="markdown-save-state">
-    <div role="status" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground">
-      <span>{connectionKey === 'connected' ? t('editorModes.connected') : t(`collaboration.${connectionKey}`)}</span><span aria-hidden="true">·</span>
-      <span>{blocked ? t('editorModes.saveBlocked') : !collaboration.ready
-        ? t(hydrated ? 'editorModes.waitingForSync' : 'editorModes.loadingLocal') : t(`collaboration.${durabilityKey}`)}</span>
-    </div>
-    {(error || blocked || (collaboration.ready && !available) || (hydrated && connection === 'offline')) && <div className="mt-2 space-y-2">
-      {clientState.failure && <p role="alert">{t(`editorModes.failure.${clientState.failure.kind}`)}</p>}
-      <p role="alert">{t(!hydrated ? 'editorModes.recoveryNotLoaded'
-        : !collaboration.ready ? 'editorModes.recoveryLocalOnly' : 'editorModes.recovery')}</p>
+    failure: clientState.failure, projectionError: clientState.projectionError, error,
+    retryError, recoveryError: recovery.error }, null, 2);
+  return <aside className="absolute right-3 top-14 z-30 max-h-[calc(100%-4rem)] w-[min(28rem,calc(100%-1.5rem))] overflow-auto rounded-lg border bg-background p-3 text-xs shadow-lg" data-testid="markdown-save-state" aria-label={t(diagnostics ? 'editorModes.diagnostics' : 'editorModes.attention')}>
+    {(issue || retryError || recovery.error) && <div className="space-y-2">
+      <p role="alert" className="text-sm font-medium">{t(issue === 'unavailable' ? 'editorModes.unavailable' : `editorModes.failure.${issue ?? 'unknown'}`)}</p>
+      {!hydrated ? <p>{t('editorModes.recoveryNotLoaded')}</p>
+        : !collaboration.ready ? <p>{t('editorModes.recoveryLocalOnly')}</p>
+          : issue === 'validation' || issue === 'unavailable' ? <p>{t('editorModes.recovery')}</p> : null}
       <div className="flex flex-wrap gap-2">
+        {onReload && (issue === 'authentication' || issue === 'lifecycle' || issue === 'startup') && <Button variant="outline" size="sm" onClick={onReload}>{t('editorModes.reopen')}</Button>}
         {canCorrectStructure && <Button variant="outline" size="sm" disabled={retrying || recovery.busy} onClick={() => {
           if (!recovery.isCurrent() || activeCorrection.current !== correctionScope
             || activeRetry.current?.scope !== retryScope || activeRetry.current.running || recovery.busy) return;
@@ -249,12 +255,12 @@ export function MarkdownSaveState({ collaboration, content, available, filePath 
           }
         }}>{t('editorModes.retry')}</Button>}
       </div>
-      {retryError && <p role="alert">{retryError}</p>}
-      {recovery.error && <p role="alert">{recovery.error}</p>}
+      {retryError && <p role="alert">{t('editorModes.retryFailed')}</p>}
+      {recovery.error && <p role="alert">{t('editorModes.recoveryFailed')}</p>}
       {recovery.copyPath && <p role="status">{t('editorModes.recoveryCopyChanged', { path: recovery.copyPath })}</p>}
-      <details><summary className="cursor-pointer">{t('editorModes.diagnostics')}</summary>
-        <pre className="mt-2 select-text overflow-auto whitespace-pre-wrap rounded border p-2">{diagnostic}</pre>
-      </details>
     </div>}
-  </div>;
+    {diagnostics && <details className="mt-2" open><summary className="cursor-pointer">{t('editorModes.diagnostics')}</summary>
+      <pre className="mt-2 select-text overflow-auto whitespace-pre-wrap rounded border p-2">{diagnostic}</pre>
+    </details>}
+  </aside>;
 }

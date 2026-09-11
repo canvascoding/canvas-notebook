@@ -15,6 +15,7 @@ import { richMarkdownCodecExtensions } from '../markdown/rich-markdown-codec';
 import { hashAgentBlockJson, readAgentBlockStructure, validateAgentBlockDocument, type AgentBlockStructure } from './agent-block-structure';
 import { BlockTreeConflict, CollaborationBlockTree } from './block-tree';
 import type { BlockPlacementOperation } from './block-tree-placement';
+import type { AgentPreviewBlockLocation, AgentPreviewLocationReference } from './agent-proposal-preview';
 
 export type AgentTableAction = 'addRowBefore' | 'addRowAfter' | 'deleteRow' | 'addColumnBefore' | 'addColumnAfter'
   | 'deleteColumn' | 'deleteTable' | 'alignLeft' | 'alignCenter' | 'alignRight' | 'alignNone'
@@ -600,12 +601,39 @@ function candidateFor(doc: Y.Doc, prepared: PreparedAgentBlockEdit): Y.Doc {
   } catch (error) { candidate.destroy(); throw error; }
 }
 
+function blockPreviewLocations(doc: Y.Doc, affectedIds: string[]): AgentPreviewBlockLocation[] {
+  const entries = structure(doc);
+  const positions = new Map<string, number[]>();
+  const childCounts = new Map<string | null, number>();
+  for (const entry of entries.values()) {
+    const index = (childCounts.get(entry.parentId) ?? 0) + 1;
+    childCounts.set(entry.parentId, index);
+    positions.set(entry.id, [...(entry.parentId ? positions.get(entry.parentId) ?? [] : []), index]);
+  }
+  const reference = (id: string | null): AgentPreviewLocationReference | null => {
+    const entry = id ? entries.get(id) : null;
+    return entry ? { type: entry.type, text: entry.text.slice(0, 160), truncated: entry.text.length > 160,
+      position: positions.get(entry.id) ?? [] } : null;
+  };
+  return affectedIds.flatMap((id) => {
+    const entry = entries.get(id);
+    return entry ? [{ id, position: positions.get(id) ?? [], parent: reference(entry.parentId), following: reference(entry.beforeId) }] : [];
+  });
+}
+
 /** Preview current affected content; bind approval only to the checked plan. */
-export function previewAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEdit): { beforeText: string; afterText: string; footprintHash: string } {
+export function previewAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEdit, options?: { includeLocations?: boolean }): {
+  beforeText: string; afterText: string; footprintHash: string;
+  locations?: { before: AgentPreviewBlockLocation[]; after: AgentPreviewBlockLocation[] };
+} {
   return checked(() => {
     const candidate = candidateFor(doc, prepared);
     try {
-      return { beforeText: localPreview(doc, prepared.affectedBlockIds), afterText: localPreview(candidate, prepared.affectedBlockIds),
+      const beforeText = localPreview(doc, prepared.affectedBlockIds);
+      const afterText = localPreview(candidate, prepared.affectedBlockIds);
+      return { beforeText, afterText,
+        ...(options?.includeLocations ? { locations: { before: blockPreviewLocations(doc, prepared.affectedBlockIds),
+          after: blockPreviewLocations(candidate, prepared.affectedBlockIds) } } : {}),
         // candidateFor has checked these guards against the current document.
         // Context text displayed for a move is deliberately not an approval guard.
         footprintHash: hashAgentBlockJson({ version: prepared.version, kind: prepared.kind,

@@ -30,6 +30,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import { CollaborationAgentDirectEditGrant } from './CollaborationAgentDirectEditGrant';
+import { CollaborationAgentProposalPreview } from './CollaborationAgentProposalPreview';
+import { canDisplayAgentReviewTarget, type AgentReviewTarget } from '@/app/lib/collaboration/agent-proposal-display';
 
 const REVIEW_STATUSES = new Set<OperationStatus>(['needs_review', 'partially_applied', 'semantic_conflict']);
 const ACTIVE_STATUSES = new Set<OperationStatus>([
@@ -68,8 +70,6 @@ export function CollaborationAgentOperations({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const actionKeys = useRef(new Map<string, string>());
-  const previousStatuses = useRef(new Map<string, OperationStatus>());
-  const hasLoaded = useRef(false);
   const loadSequence = useRef(0);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -81,27 +81,9 @@ export function CollaborationAgentOperations({
     });
     if (nextOperations === null || sequence !== loadSequence.current) return;
 
-    if (hasLoaded.current) {
-      for (const operation of nextOperations) {
-        const previousStatus = previousStatuses.current.get(operation.operationId);
-        if (
-          previousStatus
-          && previousStatus !== 'checkpointed_file'
-          && operation.operationStatus === 'checkpointed_file'
-          && operation.initiatedByCurrentUser !== false
-        ) {
-          toast.success(t('agentCheckpointedToast'));
-        }
-      }
-    }
-
-    hasLoaded.current = true;
-    previousStatuses.current = new Map(
-      nextOperations.map((operation) => [operation.operationId, operation.operationStatus]),
-    );
     setOperations(nextOperations);
     onOperationsChange?.(nextOperations);
-  }, [documentId, onOperationsChange, t]);
+  }, [documentId, onOperationsChange]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -320,8 +302,16 @@ interface OperationCardProps {
 }
 
 function ReviewOperationCard({ operation, busyAction, onAction, showDirectEditGrant, t }: OperationCardProps) {
+  const [previewReadiness, setPreviewReadiness] = useState(new Map<string, { target: AgentReviewTarget; ready: boolean }>());
+  const previewReady = useCallback((target: AgentReviewTarget, ready: boolean) => setPreviewReadiness((current) => {
+    const prior = current.get(target.targetId);
+    return prior?.target === target && prior.ready === ready ? current
+      : new Map(current).set(target.targetId, { target, ready });
+  }), []);
   const isBusy = busyAction?.startsWith(`${operation.operationId}:`) || false;
-  const canAccept = canAcceptCollaborationAgentOperation(operation);
+  const canAccept = canAcceptCollaborationAgentOperation(operation)
+    && Boolean(operation.reviewTargets?.length) && operation.reviewTargets!.every((target) => canDisplayAgentReviewTarget(target)
+      && (target.previewFormat !== 'blocks' || (previewReadiness.get(target.targetId)?.target === target && previewReadiness.get(target.targetId)?.ready)));
   const canReject = operation.actionsAllowed
     && (operation.operationStatus === 'needs_review' || operation.operationStatus === 'semantic_conflict');
 
@@ -332,26 +322,8 @@ function ReviewOperationCard({ operation, busyAction, onAction, showDirectEditGr
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{operationAttribution(operation, t)}</p>
       </div>
       <div className="space-y-2 p-3">
-        {operation.reviewTargets?.map((target) => (
-          <div key={target.targetId} className="overflow-hidden rounded-md border">
-            <div className="border-b bg-muted/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {target.groupId}
-            </div>
-            <div className="grid sm:grid-cols-2">
-              <div className="border-b p-2 sm:border-b-0 sm:border-r">
-                <p className="mb-1 text-[10px] font-medium text-muted-foreground">{t('agentCurrentVersion')}</p>
-                <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
-                  {target.currentText ?? t('agentTargetUnavailable')}
-                </pre>
-              </div>
-              <div className="bg-violet-500/[0.06] p-2">
-                <p className="mb-1 text-[10px] font-medium text-violet-700 dark:text-violet-300">{t('agentProposedVersion')}</p>
-                <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
-                  {target.proposedReplacement}
-                </pre>
-              </div>
-            </div>
-          </div>
+        {operation.reviewTargets?.map((target, index) => (
+          <CollaborationAgentProposalPreview key={target.targetId} target={target} index={index} t={t} onReady={previewReady} />
         ))}
         {!operation.actionsAllowed ? (
           <p className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">

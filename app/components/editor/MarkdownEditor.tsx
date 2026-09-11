@@ -114,6 +114,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import { canRenderCollaborationDocument } from '@/app/lib/collaboration/editor-presentation';
 import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkdown, type MarkdownDocumentMode } from './MarkdownDocumentModes';
 import { MarkdownTableMenu } from './MarkdownTableMenu';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
@@ -5074,6 +5075,9 @@ export function RichMarkdownEditor({
     } : {},
     onUpdate: ({ editor: updateEditor }) => {
       if (localDocument) { latestValueRef.current = localDocument.getSnapshot().markdown; return; }
+      // The collaboration binding commits native changes to Yjs. Its observers
+      // derive previews independently; Markdown export must not interrupt input.
+      if (collaborationEnabled || collaboration) return;
       if (effectiveReadOnly || applyingExternalValueRef.current) return;
 
       const markdownEditor = asMarkdownEditor(updateEditor);
@@ -5733,6 +5737,7 @@ function SourceMarkdownEditor({
       <div className="markdown-source-viewport min-h-0 flex-1 overflow-hidden">
         <CodeEditor
           localMarkdownDocument={localDocument}
+          collaborationIssuesManagedExternally
           value={value}
           onChange={(nextValue) => {
             if (!readOnly) onChange?.(nextValue);
@@ -5803,6 +5808,9 @@ export function MarkdownEditor({
   });
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const collaborationDocument = externalCollaboration?.document ?? internalCollaborationDocument;
+  const effectiveReadOnly = readOnly || (collaborationEnabled && (!collaborationDocument?.ready
+    || collaborationDocument.session?.permission !== 'write' || collaborationDocument.connection === 'denied'
+    || collaborationDocument.durability === 'degraded'));
   const liveMarkdown = useLiveMarkdown(collaborationDocument, value);
   const displayedValue = local.snapshot?.markdown ?? liveMarkdown.content;
   const parsedDocument = useMemo(() => frontmatter === 'metadata'
@@ -5903,29 +5911,29 @@ export function MarkdownEditor({
 
   if (collaborationEnabled && (!collaborationSession.session || !collaborationDocument?.ready)) {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="relative flex h-full min-h-0 flex-col bg-background">
         <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue}
-          available={liveMarkdown.available} filePath={filePath} />
-        {!collaborationDocument && <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          available={liveMarkdown.available} filePath={filePath} onReload={collaborationSession.retry} />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <p className="text-sm text-muted-foreground" role="status">
-            {collaborationSession.error || t('collaboration.connecting')}
+            {t(collaborationSession.error ? 'editorModes.failure.startup' : 'editorModes.opening')}
           </p>
           {collaborationSession.error ? (
             <Button size="sm" variant="outline" onClick={collaborationSession.retry}>
               {t('externalChangeReload')}
             </Button>
           ) : null}
-        </div>}
+        </div>
       </div>
     );
   }
 
-  const modeBar = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={readOnly} wide={wide} onWideChange={setWide} onChange={(next) => {
+  const modeBar = <MarkdownModeBar documentControls={layout === 'document'} actions={modeBarActions} mode={effectiveMode} readOnly={effectiveReadOnly} wide={wide} onWideChange={setWide} onChange={(next) => {
     if (next === 'rich') switchToRichMode();
     else if (next === 'source') switchToSourceMode();
     else setMode('read');
   }} />;
-  const wrap = (children: React.ReactNode) => <div className="flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}
+  const wrap = (children: React.ReactNode) => <div className="relative flex h-full min-h-0 flex-col bg-background" data-document-width={layout === 'field' || wide ? 'wide' : 'page'} data-editor-layout={layout} data-field-inline={layout === 'field' && !expanded} data-editor-mode={effectiveMode}
     onFocusCapture={() => setLocalFocused(true)}
     onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLocalFocused(false); }}>
     {modeBar}
@@ -5933,13 +5941,16 @@ export function MarkdownEditor({
       ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
         collaboration={collaborationDocument} filePath={filePath} autoStart={mode === 'rich'}
         onStart={() => setMode('rich')} onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
-    <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={liveMarkdown.available} filePath={filePath} />
+    <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={liveMarkdown.available} filePath={filePath} onReload={collaborationSession.retry} />
     <div className="markdown-editor-content min-h-0 flex-1 overflow-hidden">{children}</div>
   </div>;
 
-  if (!liveMarkdown.available) return wrap(<p className="p-5 text-sm">{t('editorModes.unavailable')}</p>);
+  const canRenderDocument = canRenderCollaborationDocument(collaborationDocument, liveMarkdown.available);
+  if (!canRenderDocument || (!liveMarkdown.available && effectiveMode === 'source')) {
+    return wrap(<p className="p-5 text-sm">{t(canRenderDocument ? 'editorModes.sourceUnavailable' : 'editorModes.unavailable')}</p>);
+  }
 
-  if (effectiveMode === 'read' || preparingRichMode) {
+  if (liveMarkdown.available && (effectiveMode === 'read' || preparingRichMode)) {
     return wrap(
       <div className="markdown-read-viewport h-full min-h-0 overflow-auto bg-background">
         {showNotebookMetadata && !parsedDocument.error ? (
@@ -5971,7 +5982,7 @@ export function MarkdownEditor({
         richModeAvailable={!sourceModeRequired && !collaborationEnabled}
         value={displayedValue}
         onChange={onChange}
-        readOnly={readOnly || richSourceReadOnly || migrationInProgress}
+        readOnly={effectiveReadOnly || richSourceReadOnly || migrationInProgress}
         filePath={filePath}
         isMobileKeyboardActive={layout === 'document' && isMobileKeyboardActive}
         onRichMode={switchToRichMode}
@@ -5994,7 +6005,7 @@ export function MarkdownEditor({
       value={localDocument ? displayedValue : value}
       localDocument={localDocument}
       onChange={onChange}
-      readOnly={readOnly}
+      readOnly={effectiveReadOnly || effectiveMode === 'read'}
       filePath={filePath}
       externalValueSync={externalValueSync}
       isMobileKeyboardActive={layout === 'document' && isMobileKeyboardActive}

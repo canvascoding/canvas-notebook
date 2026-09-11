@@ -38,7 +38,8 @@ async function main() {
 
     const collaboration: FileCollaborationState = { path: 'live.md', crdtCapable: true, sceneCapable: false,
       strategy: 'crdt_text', lockRequired: false, requiresRevisionCheck: false, latestRevision: revision, activeLock: null, document: null };
-    useFileStore.setState({ currentFile: { ...file, path: 'live.md', content: 'live document', collaboration }, currentFileWorkspaceId: workspace.workspaceId });
+    useFileStore.setState({ currentFile: { ...file, path: 'live.md', content: 'live document', collaboration },
+      currentFileWorkspaceId: workspace.workspaceId, documentSyncStatus: 'idle' });
     useEditorStore.getState().setActiveFile('live.md', 'live document');
     await useFileStore.getState().refreshCurrentFileContent('live.md');
     assert.equal(useFileStore.getState().documentSyncStatus, 'idle', 'metadata refresh must not claim the live document content was updated');

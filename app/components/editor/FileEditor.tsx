@@ -155,14 +155,6 @@ function isTextInputTarget(target: EventTarget | null) {
   return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable;
 }
 
-function formatTimestamp(timestamp: number | null) {
-  if (!timestamp) return null;
-  return new Date(timestamp).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 function isFileRevisionConflictMessage(message: string) {
   return message.toLowerCase().includes('file revision conflict');
 }
@@ -741,8 +733,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [documentIdentity]);
 
   const displaySaveError = isCrdtCollaboration
-    ? activeCollaborationDocument?.error ?? (collaborationLocationIssue ? t(`collaboration.location.${collaborationLocationIssue}`) : null)
-    : saveError ?? null;
+    ? (collaborationLocationIssue ? t(`collaboration.location.${collaborationLocationIssue}`) : null)
+    : saveError ?? (documentSyncStatus === 'error' ? t('documentUpdateFailed') : null);
   const breadcrumbs = currentFile ? currentFile.path.split('/').filter(Boolean) : [];
   const currentFileNode = useMemo<FileNode | null>(() => {
     if (!currentFile) return null;
@@ -1341,8 +1333,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           </div>
         </div>
       </TooltipProvider>
-      <FileSyncStatus />
-      {documentSyncStatus === 'updating' || documentSyncStatus === 'updated' || documentSyncStatus === 'error' ? <div role="status" title={formatTimestamp(lastSavedAt) ?? undefined} className="shrink-0 border-b px-3 py-1 text-xs text-muted-foreground">{t(documentSyncStatus === 'updating' ? 'documentUpdating' : documentSyncStatus === 'updated' ? 'documentUpdated' : 'documentUpdateFailed')}</div> : null}
+      {!isCrdtCollaboration && <FileSyncStatus />}
       {currentFile.unavailable ? (
         <div role="status" data-testid="unavailable-document-recovery" className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2 text-xs">
           <AlertCircle className="h-4 w-4 shrink-0" />

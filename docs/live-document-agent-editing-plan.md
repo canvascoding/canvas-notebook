@@ -1,6 +1,6 @@
 # Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
 
-Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–4 abgeschlossen; Schritte 5–7 offen.
+Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–5 abgeschlossen; Schritte 6–7 offen.
 
 Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
 
@@ -150,6 +150,20 @@ Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusä
 Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
 
 ## 9. Grundlagen und Grenze der Zusage
+
+### Umsetzungsnachweis Schritt 5: ruhige Oberfläche und verständliche Vorschläge
+
+Konto-, Gast- und Quelltextansichten zeigen beim normalen Bearbeiten keine Speicherzeile, Speicherindikatoren oder Checkpoint-Toasts mehr. Metadaten-Refreshes eines Live-Dokuments verändern weder seinen Inhalt noch seinen Synchronisationsstatus; identische Metadaten verursachen kein Store-Update. Eine neue Dokument-ID am selben Dateipfad übernimmt nicht die alte Editoridentität. Gastansicht und Kontoeditor verwenden dieselben Rich-Text-Werkzeuge; die bisherigen Grenzen für private Workspace-Funktionen bleiben erhalten. Der Kontoeditor berücksichtigt jetzt auch bei der Modusauswahl die tatsächlichen aktuellen Schreibrechte.
+
+Echte Fehler werden in einem gemeinsamen, außerhalb des Dokumentlayouts positionierten Panel angezeigt. Hydrierte Dokumente behalten ihren vollständigen Yjs-Download auch dann, wenn Markdown nicht verfügbar ist oder der Zugriff entzogen wurde. Wiederherstellungskopie, gezieltes eigenes Undo und erneute Prüfung behalten ihre bisherigen Berechtigungs- und Lebensdauerprüfungen. Ein bestätigter binärer Stand entfernt auch eine zuvor fehlgeschlagene Retry-Anzeige, ohne auf die Dateiausgabe zu warten. Fehlende Erstverbindung mit vorhandenem lokalem Stand bleibt als Öffnungsproblem samt Download erkennbar; normale Offline-Bearbeitung erzeugt keine laufenden Meldungen.
+
+Die Entwicklerdiagnose wird ausdrücklich mit `?collaborationDebug=1` aktiviert (bei bestehenden Queryparametern `&collaborationDebug=1`). Sie zeigt Verbindungs-, Sicherungs-, Projektions- und Fehlerdetails, keine Zugangstokens. Das gemeinsame Fehlerpanel protokolliert eine anhaltende Störung nur einmal mit Dokument-ID, Generation, Art und Fehlercode; Dokumenttext, Dateipfad und rohe Exception fehlen im Log. Routineeingaben erzeugen keine zusätzlichen Diagnosemeldungen.
+
+Die Agentenvorschau unterscheidet explizit Text, Markdown und strukturierte Blöcke. Sie stellt betroffene Inhalte, Formatierungen, Tabellen und Orte von Verschiebungen verständlich gegenüber. Aktuelle und vorgeschlagene Ortsreferenzen stammen aus denselben geprüften Dokumentzuständen wie die Vorschau. Die Anzeige verwendet das gemeinsame Editorschema, bereinigt HTML und verhindert Requests durch Bilder oder Links. Annahme bleibt gesperrt, wenn eine Vorschau unvollständig oder noch nicht erfolgreich dargestellt ist. Technische Ziel-/Gruppen-IDs und JSON werden nicht als Dokumentvergleich ausgegeben.
+
+Ein zusätzlicher reproduzierter Fehler im nativen Eingabehandler ist geschlossen: Live-Eingaben rufen keinen Markdown-Serializer mehr synchron auf. Der vorhandene Dokumentbeobachter liefert weiterhin die abgeleitete Textansicht. Eine gescheiterte Textprojektion entfernt keinen ansonsten nutzbaren nativen Rich-Editor; außerhalb kollaborativer Dokumente bleibt `onChange` unverändert.
+
+Nachweise: Die neuen Presentation-/Gast-/Metadatenprüfungen und bestehende tatsächliche React-/CodeMirror-/Tiptap-Prüfungen unter JSDOM bestehen. Sie prüfen mehr als 100 normale Statuswechsel ohne zusätzliche Layout-Elemente, binäre Wiederherstellung trotz fehlender Markdown-Ausgabe, Zugriffsverlust, Erstöffnung, stale Hydration, Scopewechsel, Undo und gleiche Gastwerkzeuge. Der native Regressionstest erzwingt beide Markdown-Serializerfehler und belegt weitere Eingaben mit unveränderter Editor-/Blockidentität sowie identischem Yjs-Peer. Neue Vorschauprüfungen (3 Kontext-, 6 Renderer-Fälle), die erweiterte Approval-Suite, TypeScript, ESLint und Diff-Prüfung bestehen. Browser-, Netzwerk- und Neustartabnahme bleiben Bestandteil von Schritt 7; diese lokalen Komponentenprüfungen ersetzen sie nicht.
 
 ### Umsetzungsnachweis Schritt 4: genaue Freigabe und begrenzte Direktbearbeitung
 

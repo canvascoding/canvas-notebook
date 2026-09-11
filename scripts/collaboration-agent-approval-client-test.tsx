@@ -15,7 +15,7 @@ const version = (character: string) => `v1.${character.repeat(64)}`;
 const operation = (proposalVersion: string | null = version('a')): client.CollaborationAgentOperation => ({
   operationId: 'operation/one', operationStatus: 'needs_review', status: 'needs_review', durability: 'needs_review',
   actorId: 'agent', actionsAllowed: true, proposalVersion, appliedTargetIds: [], conflicts: [], targetAnchors: [],
-  reviewTargets: [{ targetId: 'target', groupId: 'group', currentText: 'Current content', proposedReplacement: `Proposal ${proposalVersion}` }],
+  reviewTargets: [{ targetId: 'target', groupId: 'group', currentText: 'Current content', proposedReplacement: `Proposal ${proposalVersion}`, previewFormat: 'text' }],
 });
 const accepted = () => ({ operationStatus: 'persisted_yjs', status: 'applied_to_ydoc', durability: 'persisted_yjs', conflicts: [] });
 
@@ -184,4 +184,22 @@ test('a stale pre-action polling response cannot replace the refreshed proposal'
     h.controls.post = async () => Response.json({ success: true, operation: accepted() });
     await h.click(); assert.equal(h.posts.at(-1)?.body.proposalVersion, version('b'));
   } finally { await h.close(); }
+});
+
+test('ordinary durability and checkpoint progress never emits a toast', async () => {
+  const h = await harness();
+  try {
+    for (const status of ['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file'] as const) {
+      h.controls.operations = [{ ...operation(), operationStatus: status }];
+      await h.poll();
+    }
+    assert.deepEqual(h.toasts, []);
+  } finally { await h.close(); }
+});
+
+test('an incomplete preview cannot be accepted even with a valid server token', async () => {
+  const h = await harness({ ...operation(), reviewTargets: [{ targetId: 'internal-target', groupId: 'internal-group',
+    currentText: '[{"id":"internal-block"}]', proposedReplacement: 'Unknown representation' }] });
+  try { assert.equal(h.button(), undefined); assert.equal(h.posts.length, 0); }
+  finally { await h.close(); }
 });

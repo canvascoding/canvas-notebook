@@ -240,6 +240,19 @@ function areFileStatsEqual(left?: FileStats, right?: FileStats) {
   );
 }
 
+/** File API metadata is JSON; preserve references when only serialization order changed. */
+function areFileMetadataEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object'
+    || Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = Object.keys(leftRecord);
+  return keys.length === Object.keys(rightRecord).length && keys.every((key) => (
+    Object.hasOwn(rightRecord, key) && areFileMetadataEqual(leftRecord[key], rightRecord[key])
+  ));
+}
+
 function updateFileRevision(
   revisions: Record<string, string>,
   filePath: string,
@@ -858,7 +871,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     );
 
     try {
-      set({ documentSyncStatus: 'updating' });
+      if (!collaborative) set({ documentSyncStatus: 'updating' });
       const data = await readWorkspaceFile(path, {
         metaOnly,
         noCache: true,
@@ -871,6 +884,33 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const currentFile = get().currentFile;
       if (currentFile?.path !== path) {
         return null;
+      }
+
+      if (collaborative) {
+        const currentDocumentId = currentFile.collaboration?.document?.id;
+        const nextDocumentId = data.collaboration?.document?.id;
+        if (currentDocumentId && nextDocumentId && nextDocumentId !== currentDocumentId) {
+          // A metadata read cannot transfer the mounted editor to a replacement document.
+          set({ currentFile: { ...currentFile, unavailable: 'replaced' } });
+          return null;
+        }
+        const revision = data.revision ?? data.collaboration?.latestRevision ?? currentFile.revision ?? null;
+        const collaboration = data.collaboration ?? currentFile.collaboration ?? null;
+        const refreshedFile: CurrentFile = {
+          ...currentFile,
+          stats: areFileStatsEqual(currentFile.stats, data.stats) ? currentFile.stats : data.stats,
+          revision: areFileMetadataEqual(currentFile.revision ?? null, revision) ? currentFile.revision : revision,
+          collaboration: areFileMetadataEqual(currentFile.collaboration ?? null, collaboration) ? currentFile.collaboration : collaboration,
+        };
+        const metadataChanged = currentFile.stats !== refreshedFile.stats || currentFile.revision !== refreshedFile.revision
+          || currentFile.collaboration !== refreshedFile.collaboration;
+        const nextFileRevisions = updateFileRevision(get().fileRevisions, path, data.stats);
+        if (metadataChanged || nextFileRevisions !== get().fileRevisions) {
+          set({ ...(metadataChanged ? { currentFile: refreshedFile } : {}),
+            fileError: null, fileErrorPath: null, missingFilePath: null, fileRevisions: nextFileRevisions });
+        }
+        // Yjs/scene state owns content and pending changes. A checkpoint only refreshes file metadata.
+        return metadataChanged ? refreshedFile : currentFile;
       }
 
       const refreshedFile: CurrentFile = {
@@ -921,14 +961,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (!isCurrent()) return null;
       if (error instanceof Response && error.status === 404 && get().currentFile?.path === path) {
         get().applyPathsDeleted([path], workspaceId);
-        set({ documentSyncStatus: 'idle' });
+        if (!collaborative) set({ documentSyncStatus: 'idle' });
         return null;
       }
-      set({ documentSyncStatus: 'error' });
+      if (!collaborative) set({ documentSyncStatus: 'error' });
       console.warn('[FileStore] Failed to refresh current file content:', error);
       return null;
     } finally {
-      if (fileRefreshRequestId === requestId && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+      if (!collaborative && fileRefreshRequestId === requestId && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
         && get().documentSyncStatus === 'updating') set({ documentSyncStatus: get().pendingExternalFile ? 'conflict' : 'idle' });
     }
   },

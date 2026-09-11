@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { LocalMarkdownCodeMirror } from './LocalMarkdownCodeMirror';
+import { MarkdownSaveState } from './MarkdownDocumentModes';
 import type { LocalMarkdownDocument } from '@/app/lib/editor/local-markdown-document';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
@@ -73,6 +74,8 @@ export interface CodeEditorProps {
   onCollaborationChange?: (document: CollaborationDocument | null) => void;
   agentTargets?: CollaborationAgentTargetAnchor[];
   localMarkdownDocument?: LocalMarkdownDocument | null;
+  /** Markdown's enclosing document view owns its shared recovery and diagnostics panel. */
+  collaborationIssuesManagedExternally?: boolean;
 }
 
 class AgentTargetWidget extends WidgetType {
@@ -369,6 +372,7 @@ export function CodeEditor({
   onCollaborationChange,
   agentTargets = [],
   localMarkdownDocument,
+  collaborationIssuesManagedExternally = false,
 }: CodeEditorProps) {
   const t = useTranslations('notebook');
   const { currentFile } = useFileStore();
@@ -538,15 +542,21 @@ export function CodeEditor({
     editorView.dispatch({ effects: setAgentTargetRanges.of(ranges) });
   }, [agentTargets, collaboration, editorView]);
 
+  const collaborationPanel = shouldCollaborate && !collaborationIssuesManagedExternally
+    ? <MarkdownSaveState collaboration={collaboration} content={collaborationText?.toString() ?? value}
+      available filePath={languagePath} onReload={sessionResolution.retry} /> : null;
+
   if (shouldCollaborate && !collaboration?.ready) {
+    const sessionFailed = !collaborationIssuesManagedExternally && !collaboration && sessionResolution.error;
     return (
-      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
-        <p className="text-sm text-muted-foreground" role="status">
-          {sessionResolution.error || collaboration?.error || t('collaboration.connecting')}
+      <div className="relative flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+        <p className="text-sm text-muted-foreground" role={sessionFailed ? 'alert' : 'status'}>
+          {sessionFailed ? t('editorModes.failure.startup') : t('collaboration.connecting')}
         </p>
-        {sessionResolution.error && <button type="button" className="rounded border px-3 py-1.5 text-sm" onClick={sessionResolution.retry}>
+        {sessionFailed && <button type="button" className="rounded border px-3 py-1.5 text-sm" onClick={sessionResolution.retry}>
           {t('externalChangeReload')}
         </button>}
+        {collaborationPanel}
       </div>
     );
   }
@@ -584,21 +594,7 @@ export function CodeEditor({
           if (!open) setDocumentPreview(null);
         }}
       />
-      {shouldCollaborate && (
-        <div className="pointer-events-none absolute right-3 top-2 z-10 rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
-          {collaboration?.status === 'degraded'
-            ? collaboration.error || t('collaboration.degraded')
-            : collaboration?.status === 'saved' || collaboration?.status === 'live'
-              ? t('collaboration.live')
-              : collaboration?.status === 'persisting'
-                ? t('collaboration.persisting')
-                : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
-                  ? t('collaboration.offline')
-              : collaboration?.status === 'read_only'
-                ? t('collaboration.readOnly')
-                : collaboration?.status || t('collaboration.connecting')}
-        </div>
-      )}
+      {collaborationPanel}
       <style jsx global>{`
         .codemirror-wrapper {
           height: 100%;
