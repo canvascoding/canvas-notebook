@@ -47,6 +47,18 @@ const berlinDailyRun = assertDate(
 );
 assert.equal(berlinDailyRun.toISOString(), '2026-06-18T13:30:00.000Z');
 
+const berlinDstSpringRun = assertDate(
+  computeNextRunAt({ ...berlinDailySchedule, times: ['02:30'] }, { from: new Date('2026-03-29T00:45:00.000Z') }),
+  'A skipped local DST wall-clock time must resume at a later future occurrence.',
+);
+assert.equal(berlinDstSpringRun.toISOString(), '2026-03-30T00:30:00.000Z');
+
+const berlinDstFallRun = assertDate(
+  computeNextRunAt({ ...berlinDailySchedule, times: ['02:30'] }, { from: new Date('2026-10-25T00:45:00.000Z') }),
+  'An ambiguous local DST wall-clock time must still resolve strictly in the future.',
+);
+assert.equal(berlinDstFallRun.toISOString(), '2026-10-25T01:30:00.000Z');
+
 const berlinWeeklySchedule: FriendlySchedule = {
   kind: 'weekly',
   days: ['thu'],

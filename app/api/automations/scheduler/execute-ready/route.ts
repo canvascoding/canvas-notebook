@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dispatchAutomationRunExecution } from '@/app/lib/automations/dispatch';
-import { listExecutableAutomationRuns, markStaleAutomationRunsFailed } from '@/app/lib/automations/store';
+import {
+  discardMissedScheduledAutomationRuns,
+  listExecutableAutomationRuns,
+  markStaleAutomationRunsFailed,
+} from '@/app/lib/automations/store';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
 export const dynamic = 'force-dynamic';
@@ -13,6 +17,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const now = new Date();
+    const skipped = await discardMissedScheduledAutomationRuns(now);
+    if (skipped > 0) {
+      console.warn(`[Scheduler API] Skipped ${skipped} missed scheduled run(s) before dispatch`);
+    }
     // Clean up any stale runs that may have been left behind by crashes
     const markedStale = await markStaleAutomationRunsFailed(now);
     if (markedStale > 0) {
@@ -39,7 +47,7 @@ export async function POST(request: NextRequest) {
       console.log(`[Scheduler API] Executed ${executed.length} ready run(s)`);
     }
 
-    return NextResponse.json({ success: true, executed });
+    return NextResponse.json({ success: true, executed, skipped });
   } catch (error) {
     console.error('[Scheduler API] Error executing ready runs:', error);
     return NextResponse.json(

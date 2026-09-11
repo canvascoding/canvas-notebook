@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
-import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
+import { fromDatabaseTimestamp, toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import type { PiSessionSummaryState } from './history-budget';
@@ -201,7 +201,7 @@ function nullableInteger(value: unknown): number | null {
 
 function databaseDate(value: unknown): Date | null {
   const timestamp = nullableInteger(value);
-  return timestamp === null ? null : new Date(timestamp * 1000);
+  return timestamp === null ? null : fromDatabaseTimestamp(timestamp);
 }
 
 function changes(result: unknown): number {

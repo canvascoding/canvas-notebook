@@ -4,16 +4,20 @@ import { Pool, types } from 'pg';
 import { randomUUID } from 'node:crypto';
 
 import * as schema from './schema';
-const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
-const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-membership-v1';
-const TEAM_SEAT_LEGACY_MIGRATION_METADATA = '{"source":"organization_user_permissions","billableOperationsCreated":0}';
-const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'legacy organization user permissions';
+import { toDatabaseTimestamp } from './timestamps';
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
+
+const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
+const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
+const MEMORY_REVIEWER_OPT_IN_MIGRATION_KEY = 'memory-reviewer-opt-in-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-membership-v1';
+const TEAM_SEAT_LEGACY_MIGRATION_METADATA = '{"source":"organization_user_permissions","billableOperationsCreated":0}';
+const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'legacy organization user permissions';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
@@ -189,6 +193,68 @@ export function createTableSql(table: PostgresSchemaTable): string {
 function createColumnAddSql(table: PostgresSchemaTable, column: SchemaColumn): string {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
   return `ALTER TABLE ${quotePostgresIdentifier(tableName)} ADD COLUMN IF NOT EXISTS ${renderColumnDefinition(column, false)}`;
+}
+
+function shouldNormalizeLegacyEpochSeconds(): boolean {
+  return process.env[LEGACY_EPOCH_TIMESTAMP_UNIT_ENV]?.trim().toLowerCase() === 'seconds';
+}
+
+/**
+ * Converts a database explicitly declared as legacy epoch-seconds. Numeric
+ * timestamp values alone cannot distinguish modern seconds from millisecond
+ * dates near 1970, so the backfill is opt-in and records completion atomically.
+ */
+async function normalizePostgresEpochTimestampColumns(pool: PgQueryable): Promise<void> {
+  if (!shouldNormalizeLegacyEpochSeconds()) return;
+
+  await pool.query(`
+    DO $epoch_milliseconds_backfill$
+    DECLARE
+      candidate record;
+      migration_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
+    BEGIN
+      PERFORM pg_advisory_xact_lock(hashtext('${LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY}'));
+
+      IF EXISTS (
+        SELECT 1
+        FROM canvas_data_migrations
+        WHERE migration_key = '${LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY}'
+      ) THEN
+        RETURN;
+      END IF;
+
+      FOR candidate IN
+        SELECT table_schema, table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND data_type = 'bigint'
+          AND (
+            column_name LIKE '%\\_at' ESCAPE '\\'
+            OR column_name LIKE '%timestamp%'
+            OR column_name LIKE '%expires%'
+            OR column_name IN ('dismissed_until', 'revoked', 'used')
+          )
+      LOOP
+        EXECUTE format(
+          'UPDATE %I.%I SET %I = %I * 1000 WHERE %I BETWEEN -9999999999 AND 9999999999',
+          candidate.table_schema,
+          candidate.table_name,
+          candidate.column_name,
+          candidate.column_name,
+          candidate.column_name
+        );
+      END LOOP;
+
+      INSERT INTO canvas_data_migrations (migration_key, completed_at, metadata_json)
+      VALUES (
+        '${LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY}',
+        migration_now,
+        '{"sourceUnit":"seconds","targetUnit":"milliseconds"}'
+      )
+      ON CONFLICT (migration_key) DO NOTHING;
+    END
+    $epoch_milliseconds_backfill$;
+  `);
 }
 
 const POSTGRES_OAUTH_JSON_ARRAY_COLUMNS = [
@@ -931,6 +997,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     await pool.query(createTableSql(table));
   }
   await migratePostgresOauthArrayLiterals(pool);
+  await normalizePostgresEpochTimestampColumns(pool);
 
   await pool.query('ALTER TABLE studio_generations ADD COLUMN IF NOT EXISTS idempotency_key text');
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_generations_idempotency ON studio_generations (user_id, workspace_id, idempotency_key)');
@@ -1504,7 +1571,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await runPostgresTeamSeatLegacyBackfill(pool);
   await migratePostgresMainAgentId(pool);
 
-  const now = Math.floor(Date.now() / 1000);
+  const now = toDatabaseTimestamp(new Date());
   await pool.query(
     `
       INSERT INTO agents (agent_id, name, type, removable, created_at, updated_at)

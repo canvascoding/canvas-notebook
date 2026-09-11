@@ -119,7 +119,10 @@ function findNextMatchingDate(
     if (matcher(getZonedDateParts(cursor, timeZone))) {
       return new Date(cursor.getTime());
     }
-    cursor.setMinutes(cursor.getMinutes() + 1);
+    // Advance on the UTC timeline rather than in the host machine's local
+    // calendar. Local setters skip the repeated hour during a DST fallback,
+    // which can otherwise omit a valid future scheduled occurrence.
+    cursor.setTime(cursor.getTime() + 60_000);
   }
 
   return null;
