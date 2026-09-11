@@ -3,6 +3,9 @@ import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
+import { Value } from 'typebox/value';
+import type { AgentEditFileInput } from '@/app/lib/pi/agent-file-operations';
+import { agentEditFileParameters } from '@/app/lib/pi/agent-file-tool-schemas';
 import { AgentShellSandboxError } from '@/app/lib/pi/agent-shell-sandbox';
 import { ensureAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import {
@@ -15,7 +18,7 @@ import {
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { readTextWindow } from '@/app/lib/pi/text-read-window';
 import { formatTextReadResult } from '@/app/lib/pi/text-read-result';
-import { TOOL_OUTPUT_READ_DEFAULT_CHARACTERS, TOOL_OUTPUT_READ_MAX_CHARACTERS } from '@/app/lib/pi/tool-output-policy';
+import { TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS, TOOL_OUTPUT_READ_DEFAULT_CHARACTERS, TOOL_OUTPUT_READ_MAX_CHARACTERS } from '@/app/lib/pi/tool-output-policy';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/lib/pi/studio-tools';
@@ -77,6 +80,55 @@ import {
   asAgentFileToolSuccess,
 } from '@/app/lib/pi/agent-file-tool-results';
 
+function formatAgentStructureReadResult(
+  snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>>,
+  maxChars: number,
+) {
+  if (!snapshot.structure) throw new Error('Structured reads require an active block collaboration document.');
+  const { offset, totalBlocks } = snapshot.structure;
+  const metadata = {
+    document: { documentId: snapshot.documentId, lifecycleGeneration: snapshot.lifecycleGeneration, schemaVersion: snapshot.schemaVersion },
+    representation: snapshot.representation,
+    structure: { blocks: [] as typeof snapshot.structure.blocks, offset, nextOffset: snapshot.structure.nextOffset, totalBlocks },
+  };
+  const serialize = (blocks: typeof snapshot.structure.blocks) => JSON.stringify({ ...metadata,
+    structure: { ...metadata.structure, blocks, nextOffset: offset + blocks.length < totalBlocks ? offset + blocks.length : null } });
+  let text = serialize([]);
+  if (!snapshot.structure.blocks.length && text.length > maxChars) {
+    throw new Error(`Structure metadata requires maxChars of at least ${text.length}. Increase maxChars and retry.`);
+  }
+  for (const block of snapshot.structure.blocks) {
+    const next = [...metadata.structure.blocks, block];
+    const complete = serialize(next);
+    if (complete.length <= maxChars) {
+      metadata.structure.blocks.push(block);
+      text = complete;
+      continue;
+    }
+    if (metadata.structure.blocks.length) break;
+    const shortened = { ...block, text: '', textTruncated: true };
+    const minimum = serialize([shortened]);
+    if (minimum.length > maxChars) {
+      throw new Error(`The first block's IDs, hashes and attributes require maxChars of at least ${minimum.length}. Increase maxChars and retry.`);
+    }
+    let low = 0;
+    let high = block.text.length;
+    while (low < high) {
+      const middle = Math.ceil((low + high) / 2);
+      const candidate = { ...shortened, text: readTextWindow(block.text, 0, middle).text };
+      if (serialize([candidate]).length <= maxChars) low = middle;
+      else high = middle - 1;
+    }
+    shortened.text = readTextWindow(block.text, 0, low).text;
+    metadata.structure.blocks.push(shortened);
+    text = serialize(metadata.structure.blocks);
+    break;
+  }
+  metadata.structure.nextOffset = offset + metadata.structure.blocks.length < totalBlocks
+    ? offset + metadata.structure.blocks.length : null;
+  return { text, metadata };
+}
+
 export const piTools: AgentTool[] = [
   createMcpProxyTool(),
   createWebSearchTool(),
@@ -135,11 +187,14 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. For active Markdown/text or Excalidraw live-collaboration documents, returns the current authoritative collaboration state instead of a potentially older file checkpoint. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads the content of a file. For active Markdown/text or Excalidraw live-collaboration documents, returns the current authoritative collaboration state instead of a potentially older file checkpoint. Set includeStructure for a block collaboration document to read bounded JSON metadata with document identity, stable block IDs, hierarchy, attributes, text and local hashes required by structured edit_file operations. This mode returns structure metadata instead of Markdown; continue with structure.nextOffset. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path, workspace-relative path, or tool-output:// reference returned by a tool.' }),
       offset: Type.Optional(Type.Number({ minimum: 0, description: 'For text, zero-based UTF-16 character offset. Continue with nextOffset returned by the previous read; SHA-256 always covers the complete text.' })),
       maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}. Stored tool outputs use ${TOOL_OUTPUT_READ_DEFAULT_CHARACTERS}/${TOOL_OUTPUT_READ_MAX_CHARACTERS}, reserving space for pagination metadata.` })),
+      includeStructure: Type.Optional(Type.Boolean({ description: 'Return JSON structure metadata for a live block document instead of Markdown. Required before structured edits; cannot be combined with text offset.' })),
+      structureOffset: Type.Optional(Type.Integer({ minimum: 0, description: 'Zero-based block offset for includeStructure. Continue with structure.nextOffset from the previous read.' })),
+      structureLimit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100, description: 'Maximum blocks for includeStructure. Default 25, maximum 100. maxChars and the tool output budget may reduce the page further; block text is at most 2000 characters and may be shortened with textTruncated.' })),
       maxPdfTextPages: Type.Optional(Type.Number({ description: `For PDFs, maximum pages to parse for text when pdfTextPages is not provided. Default ${DEFAULT_PDF_TEXT_PAGE_LIMIT}, max ${MAX_PDF_TEXT_PAGE_LIMIT}.` })),
       pdfTextPages: Type.Optional(Type.Array(Type.Number(), { description: 'For PDFs, specific 1-based page numbers to parse for text. Use for large PDFs or targeted rereads.' })),
       includePdfImages: Type.Optional(Type.Boolean({ description: `For PDFs, include rendered page screenshots as image content for vision-capable models. Defaults to auto for PDFs up to ${PDF_AUTO_IMAGE_MAX_PAGES} pages and ${PDF_AUTO_IMAGE_MAX_BYTES} bytes.` })),
@@ -151,6 +206,9 @@ export const piTools: AgentTool[] = [
         path: filePath,
         offset,
         maxChars,
+        includeStructure,
+        structureOffset,
+        structureLimit,
         maxPdfTextPages,
         pdfTextPages,
         includePdfImages,
@@ -160,6 +218,9 @@ export const piTools: AgentTool[] = [
         path: string;
         offset?: number;
         maxChars?: number;
+        includeStructure?: boolean;
+        structureOffset?: number;
+        structureLimit?: number;
         maxPdfTextPages?: number;
         pdfTextPages?: number[];
         includePdfImages?: boolean;
@@ -167,6 +228,10 @@ export const piTools: AgentTool[] = [
         maxPdfImages?: number;
       };
       try {
+        if (includeStructure && offset !== undefined) throw new Error('includeStructure cannot be combined with text offset. Use structureOffset instead.');
+        if (!includeStructure && (structureOffset !== undefined || structureLimit !== undefined)) {
+          throw new Error('structureOffset and structureLimit require includeStructure: true.');
+        }
         const resolvedPath = await resolveReadToolPath(filePath);
         const fullPath = resolvedPath.fullPath;
         await assertAgentPathAllowed(fullPath);
@@ -188,7 +253,25 @@ export const piTools: AgentTool[] = [
         const collaborativeScene = !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
           ? await readAgentCollaborativeExcalidrawFile(fullPath) : null;
         const collaborative = !isStoredOutput && !collaborativeScene && /\.(?:md|markdown|txt)$/iu.test(fullPath)
-          ? await readAgentCollaborativeTextFile(fullPath) : null;
+          ? await readAgentCollaborativeTextFile(fullPath, undefined, { includeStructure, structureOffset, structureLimit }) : null;
+        if (includeStructure) {
+          if (!collaborative) throw new Error('Structured reads require an active block collaboration document.');
+          const details = {
+            filePath, type: 'collaboration_structure', sha256: collaborative.sha256,
+            collaboration: { documentId: collaborative.documentId, lifecycleGeneration: collaborative.lifecycleGeneration,
+              schemaVersion: collaborative.schemaVersion, representation: collaborative.representation,
+              documentSequence: collaborative.documentSequence, checkpointSequence: collaborative.checkpointSequence,
+              stateVector: collaborative.stateVector, source: 'live_yjs' },
+          };
+          // Keep both JSON content and details below the existing generic output
+          // threshold, which would otherwise replace this page with an excerpt.
+          const structureBudget = Math.min(readTextLimit, TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS - JSON.stringify(details).length);
+          const formatted = formatAgentStructureReadResult(collaborative, structureBudget);
+          return {
+            content: [{ type: 'text', text: formatted.text }],
+            details: { ...details, ...formatted.metadata },
+          };
+        }
         const liveContent = collaborativeScene?.content ?? collaborative?.content;
         const buffer = liveContent === undefined
           ? await fsPromises.readFile(fullPath) : Buffer.from(liveContent, 'utf8');
@@ -341,32 +424,16 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing text file by one exact oldText -> newText replacement. For a global replacement, set replaceAll to true; otherwise oldText must occur exactly once unless expectedOccurrences is set. For several already-known replacements use one apply_patch instead. Active live-collaboration documents use the current Yjs state: stable paragraph edits apply live, while structural or ambiguous Markdown edits create a persisted review with Accept/Reject actions in the editor. Existing shared workspace files require expectedSha256 from a current read. A successful sequential follow-up may use afterSha256; on any uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
-    parameters: Type.Object({
-      path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
-      oldText: Type.String({ description: 'Exact text to replace. Must occur exactly once by default, match expectedOccurrences, or use replaceAll.' }),
-      newText: Type.String({ description: 'Replacement text.' }),
-      expectedOccurrences: Type.Optional(Type.Number({ description: 'Exact number of expected oldText matches. Defaults to 1.' })),
-      replaceAll: Type.Optional(Type.Boolean({ description: 'Replace every matching non-overlapping occurrence. Cannot be combined with expectedOccurrences.' })),
-      expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before editing.' })),
-    }),
+    description: 'Safely edits an existing file with either an exact oldText -> newText replacement or 1–32 structured operations. Read with includeStructure first for a live block document, then copy document and use stable IDs/local hashes to move, delete, insert, format or edit tables. For a text replacement inside one stable block, include blockId and document with oldText/newText. These operations act on the live Yjs document and allow unrelated user changes; expectedSha256 is optional as an extra whole-document guard. Ordinary exact edits of shared files require expectedSha256. For global text replacements set replaceAll, or specify expectedOccurrences; for several known ordinary replacements use apply_patch. Stable paragraph and supported block operations apply live, while structural or ambiguous Markdown replacements can create a persisted review with Accept/Reject actions in the editor. Results report applied or review required; never assume a review was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    parameters: agentEditFileParameters,
     execute: async (toolCallId, params) => {
-      const { path: filePath, oldText, newText, expectedOccurrences, replaceAll, expectedSha256 } = params as {
-        path: string;
-        oldText: string;
-        newText: string;
-        expectedOccurrences?: number;
-        replaceAll?: boolean;
-        expectedSha256?: string;
-      };
+      const { path: filePath } = params as { path: string };
       try {
+        if (!Value.Check(agentEditFileParameters, params)) {
+          throw new Error('Supply either an exact oldText/newText edit or 1–32 structured operations with document from a current structure read. Include document when targeting blockId, and only the supported operation fields.');
+        }
         const result = await editAgentFile({
-          path: filePath,
-          oldText,
-          newText,
-          expectedOccurrences,
-          replaceAll,
-          expectedSha256,
+          ...(params as AgentEditFileInput),
           idempotencyKey: toolCallId,
         });
         return {

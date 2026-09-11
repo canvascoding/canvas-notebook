@@ -392,8 +392,22 @@ function createEntry(
           stateProof: snapshot.stateProof,
           matchesCurrentDocument,
         });
-        if (matchesCurrentDocument && snapshot.checkpointSequence > 0) {
+        const confirmed = entry.clientState;
+        if (confirmed.ready && confirmed.unsyncedChanges === 0
+          && confirmed.persistedStateProof === snapshot.stateProof
+          && confirmed.documentSequence === snapshot.documentSequence
+          && (confirmed.durability === 'persisted_yjs' || confirmed.durability === 'checkpointed_file')
+          && (confirmed.connection === 'live' || confirmed.connection === 'read_only')) {
+          // This only reports which persisted Yjs state this peer has observed.
+          // The proof includes deletes; a matching state vector alone is insufficient.
           entry.provider?.sendStateless(JSON.stringify({
+            type: 'durability_ack',
+            documentId: snapshot.documentId,
+            lifecycleGeneration: snapshot.lifecycleGeneration,
+            sequence: snapshot.documentSequence,
+          }));
+          // Retain the projection acknowledgement for older servers.
+          if (snapshot.checkpointSequence > 0) entry.provider?.sendStateless(JSON.stringify({
             type: 'checkpoint_ack',
             documentId: snapshot.documentId,
             lifecycleGeneration: snapshot.lifecycleGeneration,

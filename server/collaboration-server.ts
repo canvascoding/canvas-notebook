@@ -392,17 +392,34 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       } catch {
         return;
       }
+      const context = connection.context;
       if (
-        acknowledgement.type !== 'checkpoint_ack'
+        !acknowledgement || typeof acknowledgement !== 'object'
+        || (acknowledgement.type !== 'checkpoint_ack' && acknowledgement.type !== 'durability_ack')
         || acknowledgement.documentId !== documentName
-        || acknowledgement.lifecycleGeneration !== connection.context.claims.lifecycleGeneration
+        || acknowledgement.documentId !== context.claims.documentId
+        || acknowledgement.lifecycleGeneration !== context.claims.lifecycleGeneration
         || !Number.isSafeInteger(acknowledgement.sequence)
         || Number(acknowledgement.sequence) < 0
+        || Number(acknowledgement.sequence) <= (context.observedDocumentSequence ?? -1)
       ) return;
       const state = await loadCollaborationState(documentName);
-      if (!state || Number(acknowledgement.sequence) > state.checkpointSequence) return;
-      connection.context.observedDocumentSequence = Math.max(
-        connection.context.observedDocumentSequence || 0,
+      if (!state || connection.context !== context || state.status !== 'active'
+        || state.documentId !== acknowledgement.documentId
+        || state.documentId !== context.claims.documentId
+        || state.workspaceId !== context.claims.workspaceId
+        || state.organizationId !== context.claims.organizationId
+        || state.path !== context.claims.path
+        || state.representation !== context.claims.representation
+        || state.lifecycleGeneration !== acknowledgement.lifecycleGeneration
+        || state.lifecycleGeneration !== context.claims.lifecycleGeneration
+        || context.claims.provider !== 'yjs'
+        || Number(acknowledgement.sequence) > (acknowledgement.type === 'durability_ack'
+          ? state.documentSequence : state.checkpointSequence)) return;
+      // Informational only: an acknowledgement never persists an update or grants
+      // write access. It scopes late semantic-conflict detection to what this peer saw.
+      context.observedDocumentSequence = Math.max(
+        context.observedDocumentSequence ?? 0,
         Number(acknowledgement.sequence),
       );
     },

@@ -19,6 +19,8 @@ import {
 import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { logCollaborationDiagnostic } from './diagnostics';
+import { AgentBlockEditError, applyAgentBlockEdit, previewAgentBlockEdit, type PreparedAgentBlockEdit } from './agent-block-edits';
+import { validateAgentBlockDocument } from './agent-block-structure';
 import {
   createRichMarkdownYDoc,
   replaceRichMarkdownInYDoc,
@@ -67,7 +69,7 @@ export type AgentOperationStatus =
   | 'reverted';
 
 export interface AgentTextTarget {
-  kind?: 'text_replace' | 'rich_markdown_patch';
+  kind?: 'text_replace' | 'rich_markdown_patch' | 'block_edit';
   targetId: string;
   groupId: string;
   startAnchor: string;
@@ -77,6 +79,7 @@ export interface AgentTextTarget {
   replacement: string;
   replacementAttributes?: Record<string, unknown>;
   patchEdits?: ExactTextEdit[];
+  blockEdit?: PreparedAgentBlockEdit;
   boundaryPolicy: AgentBoundaryPolicy;
 }
 
@@ -130,6 +133,8 @@ export interface PersistedAgentApplyResult extends AgentApplyResult {
   durability: 'pending' | 'applied_to_ydoc' | 'persisted_yjs' | 'checkpointed_file' | 'needs_review';
   operationStatus: AgentOperationStatus;
   casVersion: number;
+  /** Internal file-tool replay hint; never persisted as the operation result. */
+  fileEditRequestReused?: true;
 }
 
 export interface AgentOperationView extends PersistedAgentApplyResult {
@@ -402,6 +407,7 @@ export function createRichAgentTextTargets(input: {
   replacement: string;
   expectedOccurrences?: number;
   groupId?: string;
+  blockId?: string;
 }): AgentTextTarget[] {
   if (!input.search) throw new Error('Rich collaboration agent targets require non-empty source text.');
   materializeCollaborationTypes(input.doc);
@@ -411,8 +417,11 @@ export function createRichAgentTextTargets(input: {
   }
   const textTypes: YTypes.Text[] = [];
   if (richDocumentFormat(input.doc) === 'tiptap_blocks') {
-    textTypes.push(...blockTreeTextScopes(input.doc).keys());
+    for (const [text, blockId] of blockTreeTextScopes(input.doc)) {
+      if (input.blockId === undefined || input.blockId === blockId) textTypes.push(text);
+    }
   } else {
+    if (input.blockId !== undefined) throw new Error('Block-scoped text edits require a block collaboration document.');
     const frontmatter = input.doc.share.get('frontmatter');
     if (frontmatter instanceof Y.Text) textTypes.push(frontmatter as YTypes.Text);
     const body = input.doc.share.get('body');
@@ -723,8 +732,8 @@ export function applyAgentTextTargets(input: {
   const groupCount = new Set(input.targets.map((target) => target.groupId)).size;
   if (input.targets.length === 0 || input.targets.length > MAX_AGENT_TARGETS) throw new Error(`Agent operation requires 1-${MAX_AGENT_TARGETS} targets.`);
   if (groupCount > MAX_AGENT_GROUPS) throw new Error(`Agent operation supports at most ${MAX_AGENT_GROUPS} groups.`);
-  if (input.targets.some(isRichMarkdownPatchTarget)) {
-    throw new Error('Structural Markdown review patches must use the rich collaboration review path.');
+  if (input.targets.some((target) => target.kind && target.kind !== 'text_replace')) {
+    throw new Error('Structural edits must use the structured collaboration application path.');
   }
   const independentGroups = Boolean(input.independentGroups);
   const clone = new Y.Doc({ gc: true });
@@ -788,6 +797,61 @@ export function applyAgentTextTargets(input: {
     stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
     reverseTargets,
   };
+}
+
+/** Structured groups share the operation lifecycle, but never enter the text-anchor writer. */
+export function applyAgentBlockTargets(input: {
+  doc: YTypes.Doc;
+  targets: AgentTextTarget[];
+  validateClone?: (doc: YTypes.Doc) => AgentApplyConflict['code'] | null;
+  origin: { actorType: 'agent'; actorId: string; initiatedByUserId: string; operationId: string };
+}): AgentApplyExecutionResult {
+  const conflict = (code: AgentApplyConflict['code']): AgentApplyExecutionResult => ({
+    status: 'needs_review', appliedTargetIds: [], reverseTargets: [],
+    conflicts: input.targets.map((target) => ({ targetId: target.targetId, groupId: target.groupId, code })),
+    stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
+  });
+  const target = input.targets.length === 1 ? input.targets[0] : undefined;
+  if (!target || target.kind !== 'block_edit' || !target.blockEdit || target.boundaryPolicy !== 'exclude_external'
+    || richDocumentFormat(input.doc) !== 'tiptap_blocks') return conflict('schema_invalid');
+  if (Buffer.byteLength(JSON.stringify(target), 'utf8') > MAX_AGENT_PAYLOAD_BYTES) return conflict('limit_exceeded');
+  if (activeCompositionRanges(input.doc).length > 0) return conflict('ime_composition');
+  const clone = new Y.Doc({ gc: true });
+  let reverse: PreparedAgentBlockEdit | null;
+  try {
+    Y.applyUpdate(clone, Y.encodeStateAsUpdate(input.doc));
+    const candidate = applyAgentBlockEdit(clone, target.blockEdit, input.origin);
+    // The reverse receipt must be persistable before touching the shared room.
+    if (candidate.reverse && Buffer.byteLength(JSON.stringify(candidate.reverse), 'utf8')
+      + Buffer.byteLength(candidate.reverse.afterText, 'utf8') + 2048 > MAX_AGENT_PAYLOAD_BYTES) return conflict('limit_exceeded');
+    const invalid = input.validateClone?.(clone);
+    if (invalid) return conflict(invalid);
+    // No await is permitted from this final local preflight through mutation.
+    reverse = applyAgentBlockEdit(input.doc, target.blockEdit, input.origin).reverse;
+  } catch (error) {
+    if (error instanceof AgentBlockEditError) return conflict(error.code);
+    throw error;
+  } finally { clone.destroy(); }
+  return {
+    status: 'applied_to_ydoc', appliedTargetIds: [target.targetId], conflicts: [],
+    stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
+    reverseTargets: reverse ? [{ kind: 'block_edit', targetId: `revert:${target.targetId}`, groupId: target.groupId,
+      startAnchor: '', endAnchor: '', baseTargetHash: hash(JSON.stringify(reverse)),
+      replacement: reverse.afterText, blockEdit: reverse, boundaryPolicy: 'exclude_external' }] : [],
+  };
+}
+
+async function assertStoredBlockRevert(database: SqlConnection, row: AgentOperationRow, targets: AgentTextTarget[], workspace: WorkspaceContext) {
+  if (!targets.some((target) => target.kind === 'block_edit' && target.blockEdit?.kind === 'reverse')) return;
+  const original = row.supersedes_operation_id ? await readOperation(database, row.supersedes_operation_id) : null;
+  const recorded = original ? openPayload<AgentTextTarget[]>(original.reverse_payload) : null;
+  if (row.operation_type !== 'revert' || !original || !recorded || !canManageOperation(original, workspace, row.initiated_by_user_id)
+    || original.document_id !== row.document_id || original.actor_id !== row.actor_id
+    || Number(original.document_lifecycle_generation) !== Number(row.document_lifecycle_generation)
+    || Number(original.schema_version) !== Number(row.schema_version)
+    || targets.some((target) => !recorded.some((entry) => entry.targetId === target.targetId && JSON.stringify(entry) === JSON.stringify(target)))) {
+    throw new Error('Structured reverts must exactly match the authorized original operation receipt.');
+  }
 }
 
 const applyQueues = new Map<string, Promise<void>>();
@@ -957,6 +1021,32 @@ function operationPayloadHash(input: {
   }));
 }
 
+async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Parameters<typeof createOrLoadOperation>[0]): Promise<void> {
+  const receipt = row.file_edit_request_json ? JSON.parse(row.file_edit_request_json) as AgentFileEditRequestReceipt : null;
+  if (!receipt || !input.fileEditRequest || receipt.fingerprint !== input.fileEditRequest.fingerprint
+    || ![receipt.fingerprint, receipt.beforeSha256, receipt.proposedSha256]
+      .every((value) => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value))
+    || row.document_id !== input.documentId || row.workspace_id !== input.workspace.workspaceId
+    || row.organization_id !== (input.workspace.organizationId ?? null)
+    || row.initiated_by_user_id !== input.initiatedByUserId || row.actor_id !== input.actorId
+    || (row.actor_session_id ?? null) !== (input.actorSessionId || null)
+    || row.document_path !== input.documentPath || row.document_representation !== input.documentRepresentation
+    || Number(row.document_lifecycle_generation) !== input.documentLifecycleGeneration
+    || Number(row.schema_version) !== input.documentSchemaVersion
+    || Number(row.run_generation) !== input.runGeneration || row.operation_type !== input.operationType
+    || row.atomicity !== (input.independentGroups ? 'independent' : 'all_or_nothing')
+    || (row.supersedes_operation_id ?? null) !== (input.supersedesOperationId || null)
+    || (row.expected_canonical_hash ?? null) !== (input.expectedCanonicalHash || null)) {
+    throw new Error('Idempotency key was already used with a different or unverifiable agent file request.');
+  }
+  const state = await loadCollaborationState(row.document_id);
+  if (!state || state.status !== 'active' || state.workspaceId !== row.workspace_id || state.organizationId !== row.organization_id
+    || state.path !== row.document_path || state.representation !== row.document_representation
+    || state.lifecycleGeneration !== Number(row.document_lifecycle_generation) || state.schemaVersion !== Number(row.schema_version)) {
+    throw new AgentFileEditOperationScopeError(parseResult(row));
+  }
+}
+
 async function createOrLoadOperation(input: {
   database: SqlConnection;
   documentId: string;
@@ -1012,7 +1102,12 @@ async function createOrLoadOperation(input: {
     [input.documentId, input.initiatedByUserId, input.idempotencyKey],
   ) as AgentOperationRow | undefined;
   if (existing) {
-    if (existing.payload_hash !== payloadHash || (existing.file_edit_request_json ?? null) !== fileEditRequestJson) {
+    if (input.fileEditRequest) {
+      // Parallel first deliveries can prepare different anchors, block IDs and
+      // snapshots. The trusted original request, rather than those derived bytes,
+      // identifies their single already-recorded operation.
+      await assertMatchingAgentFileRequest(existing, input);
+    } else if (existing.payload_hash !== payloadHash || (existing.file_edit_request_json ?? null) !== fileEditRequestJson) {
       throw new Error('Idempotency key was already used with a different agent payload.');
     }
     return { row: existing, created: false };
@@ -1025,7 +1120,10 @@ async function createOrLoadOperation(input: {
        ORDER BY created_at ASC LIMIT 1`,
       [input.documentId, input.initiatedByUserId, input.correlationId, payloadHash, input.operationType],
     ) as AgentOperationRow | undefined;
-    if (chainDuplicate) return { row: chainDuplicate, created: false };
+    if (chainDuplicate) {
+      if (input.fileEditRequest) await assertMatchingAgentFileRequest(chainDuplicate, input);
+      return { row: chainDuplicate, created: false };
+    }
   }
   const state = await loadCollaborationState(input.documentId);
   if (
@@ -1188,6 +1286,15 @@ function validateOperationClone(
   expectedCanonicalHash: string | null,
   doc: YTypes.Doc,
 ): AgentApplyConflict['code'] | null {
+  if (representation === 'tiptap_blocks') {
+    const invalid = validateAgentBlockDocument(doc);
+    if (invalid) return invalid;
+    // An explicit canonical-output contract still requires that exact output.
+    // Ordinary live edits do not depend on Markdown's roundtrip/export health.
+    if (!expectedCanonicalHash) return null;
+    try { return hash(richMarkdownFromYDoc(doc)) === expectedCanonicalHash ? null : 'target_scope_invalid'; }
+    catch { return 'target_scope_invalid'; }
+  }
   if (representation === 'plain_text') {
     const content = textValue(doc.getText('content'));
     if (Buffer.byteLength(content, 'utf8') > MAX_COLLABORATIVE_TEXT_BYTES || hasUnpairedSurrogate(content)) {
@@ -1277,6 +1384,7 @@ async function applyStoredOperation(input: {
   const alreadyApplied = new Set(priorResult.appliedTargetIds);
   const targets = allTargets.filter((target) => !alreadyApplied.has(target.targetId));
   if (targets.length === 0) return priorResult;
+  await assertStoredBlockRevert(input.database, row, targets, input.workspace);
   row = await transitionOperation({
     database: input.database,
     row,
@@ -1365,7 +1473,10 @@ async function applyStoredOperation(input: {
         operationId: row.operation_id,
       };
       const structuralPatch = targets.some(isRichMarkdownPatchTarget);
-      const result = structuralPatch
+      const result = targets.some((target) => target.kind === 'block_edit')
+        ? applyAgentBlockTargets({ doc, targets, origin,
+            validateClone: (clone) => validateOperationClone(state.representation, row.expected_canonical_hash, clone) })
+        : structuralPatch
         ? isRichTextCollaborationRepresentation(state.representation) && targets.every(isRichMarkdownPatchTarget)
           ? applyRichMarkdownPatchTargets({ doc, targets, origin })
           : {
@@ -1391,6 +1502,9 @@ async function applyStoredOperation(input: {
             origin,
           });
       if (result.appliedTargetIds.length > 0) resultingSnapshot = captureAgentStateSnapshot(doc, Y);
+      if (result.conflicts.length > 0) logCollaborationDiagnostic('info', { event: 'agent_target_conflict',
+        operationId: row.operation_id, documentId: row.document_id, workspaceId: row.workspace_id,
+        generation: state.lifecycleGeneration, code: result.conflicts[0].code });
       if (result.reverseTargets.length > 0) {
         registerAgentChangeWindow(row.document_id, row.operation_id, result.reverseTargets);
       }
@@ -1622,7 +1736,10 @@ export async function applyPersistedAgentTextOperation(input: {
         baseDocumentSequence: input.baseDocumentSequence,
         fileEditRequest: input.fileEditRequest,
       });
-      if (!created.created) return parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace));
+      if (!created.created) return {
+        ...parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace)),
+        ...(input.fileEditRequest ? { fileEditRequestReused: true as const } : {}),
+      };
       if (mustReview) {
         const state = await loadCollaborationState(input.documentId);
         const reviewResult = publicResult(created.row, {
@@ -1708,6 +1825,17 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
       ? richMarkdownFromYDoc(doc)
       : null;
     return targets.flatMap((target) => {
+      if (target.kind === 'block_edit') {
+        try {
+          if (!target.blockEdit) throw new Error('Missing block edit.');
+          const preview = previewAgentBlockEdit(doc, target.blockEdit);
+          return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: preview.afterText,
+            currentText: preview.beforeText, currentTargetHash: preview.footprintHash }];
+        } catch {
+          return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: target.replacement,
+            currentText: null, currentTargetHash: null }];
+        }
+      }
       if (isRichMarkdownPatchTarget(target)) {
         if (target.patchEdits?.length) {
           return target.patchEdits.map((edit, index) => {
@@ -2087,7 +2215,18 @@ export async function detectLateAgentSemanticConflicts(input: {
       continue;
     }
     const structuralTargets = window.targets.filter(isRichMarkdownPatchTarget);
-    if (structuralTargets.length > 0) {
+    const blockTargets = window.targets.filter((target) => target.kind === 'block_edit');
+    if (blockTargets.length > 0) {
+      window.conflicts = blockTargets.flatMap((target): AgentApplyConflict[] => {
+        try {
+          if (!target.blockEdit) throw new Error('Missing block receipt.');
+          previewAgentBlockEdit(input.doc, target.blockEdit);
+          return [];
+        } catch {
+          return [{ targetId: target.targetId, groupId: target.groupId, code: 'target_changed' }];
+        }
+      });
+    } else if (structuralTargets.length > 0) {
       let currentMarkdown: string | null = null;
       try {
         currentMarkdown = richMarkdownFromYDoc(input.doc);

@@ -4,6 +4,7 @@ import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap
 import * as Y from 'yjs';
 
 import {
+  isBlockPlacementOperation,
   projectBlockPlacements,
   type BlockPlacementOperation,
   type BlockPlacementProjection,
@@ -216,6 +217,76 @@ export class CollaborationBlockTree {
     this.doc.transact(() => { this.recordOperation(operation); }, origin);
   }
 
+  /** Remove only the recorded placements, retaining content and retry receipts. */
+  revertPlacementOperations(expectedOperations: BlockPlacementOperation[], origin: unknown): void {
+    const fingerprint = (operation: BlockPlacementOperation) => JSON.stringify(
+      Object.entries(operation).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0),
+    );
+    const expectedIds = new Set<string>();
+    const active: BlockPlacementOperation[] = [];
+    for (const expected of expectedOperations) {
+      if (!isBlockPlacementOperation(expected) || expectedIds.has(expected.id)) throw new BlockTreeConflict('identity_invalid');
+      expectedIds.add(expected.id);
+      const receipt = this.receipts.get(expected.id);
+      const current = this.operations.get(expected.id);
+      if (!receipt || !isBlockPlacementOperation(receipt) || fingerprint(receipt) !== fingerprint(expected)
+        || (current !== undefined && (!isBlockPlacementOperation(current) || fingerprint(current) !== fingerprint(expected)))) {
+        throw new BlockTreeConflict('target_changed');
+      }
+      if (current !== undefined) active.push(current);
+    }
+    // Missing operations with matching receipts were already undone. Their
+    // receipts must survive, including across a binary save and process restart.
+    if (active.length === 0) return;
+    if (this.doc.store.pendingStructs || this.doc.store.pendingDs) throw new BlockTreeConflict('target_changed');
+
+    const scratch = new Y.Doc();
+    try {
+      Y.applyUpdate(scratch, Y.encodeStateAsUpdate(this.doc));
+      const candidate = new CollaborationBlockTree(scratch, this.schema);
+      const before = candidate.project();
+      candidate.read(this.schema, before);
+      scratch.transact(() => { for (const operation of active) candidate.operations.delete(operation.id); });
+      const after = candidate.project();
+      candidate.read(this.schema, after);
+
+      const affected = new Set(active.flatMap((operation) => operation.kind === 'delete' ? operation.blockIds : [operation.blockId]));
+      // Moving a container also moves its descendants. A later operation can
+      // depend on one of those IDs without naming the container itself.
+      const collect = (id: string, projection: BlockPlacementProjection) => {
+        for (const child of projection.children.get(id) ?? []) {
+          affected.add(child);
+          collect(child, projection);
+        }
+      };
+      for (const operation of active) if (operation.kind === 'move') {
+        collect(operation.blockId, before);
+        collect(operation.blockId, after);
+      }
+      const firstClock = Math.min(...active.map((operation) => operation.clock));
+      for (const operation of candidate.operations.values()) {
+        if (operation.kind === 'delete') {
+          // A different deletion remains authoritative regardless of its clock.
+          if (operation.blockIds.some((id) => affected.has(id))) throw new BlockTreeConflict('target_changed');
+        } else if (operation.clock >= firstClock && [operation.blockId, operation.parentId, operation.beforeId]
+          .some((id) => id !== null && affected.has(id))) {
+          throw new BlockTreeConflict('target_changed');
+        }
+      }
+      const foreignConflicts = (projection: BlockPlacementProjection) => JSON.stringify(projection.conflicts
+        .filter((conflict) => !conflict.operationId || !expectedIds.has(conflict.operationId))
+        .map((conflict) => JSON.stringify(conflict)).sort());
+      if (foreignConflicts(before) !== foreignConflicts(after)) throw new BlockTreeConflict('target_changed');
+    } catch (error) {
+      if (error instanceof BlockTreeConflict) throw error;
+      throw new BlockTreeConflict('structure_invalid');
+    } finally { scratch.destroy(); }
+
+    // Yjs transactions cannot roll back. Everything that can reject the whole
+    // group ran on scratch; this final synchronous transaction only removes ops.
+    this.doc.transact(() => { for (const operation of active) this.operations.delete(operation.id); }, origin);
+  }
+
   updateInlineContent(blockId: string, next: ProseMirrorNode, origin: unknown): void {
     const projection = this.project();
     if (projection.deleted.has(blockId) || !projection.parents.has(blockId) || next.attrs.id !== blockId) {
@@ -307,7 +378,24 @@ export class CollaborationBlockTree {
       }
       let moveIndex = 0;
       let current = this.project();
+      const place = (blockId: string, parentId: string | null, beforeId: string | null) => {
+        const id = `${prefix}:move:${moveIndex++}`;
+        this.recordOperation({ ...operationStamp(id), kind: 'move', blockId, parentId, beforeId });
+        current = this.project();
+      };
       for (const [parentId, children] of targetChildren) {
+        const placedNew = new Set<string>();
+        // A new record can initially tie an existing sibling's numeric order.
+        // Place inserts first so that tie-breaking cannot invent moves of
+        // unchanged siblings. Reparented anchors may not have arrived yet;
+        // those inserts still use the complete reconciliation pass below.
+        for (let index = children.length - 1; index >= 0; index -= 1) {
+          const blockId = children[index];
+          const beforeId = children[index + 1] ?? null;
+          if (before.has(blockId) || (beforeId !== null && current.parents.get(beforeId) !== parentId)) continue;
+          place(blockId, parentId, beforeId);
+          placedNew.add(blockId);
+        }
         let indexedProjection: typeof current | null = null;
         let successors = new Map<string, string | null>();
         for (let index = children.length - 1; index >= 0; index -= 1) {
@@ -323,11 +411,9 @@ export class CollaborationBlockTree {
           // New blocks need an explicit placement even when their initial
           // numeric position happens to match. Concurrent insertions can share
           // that position; only the transaction keeps a whole column aligned.
-          if (before.has(blockId) && current.parents.get(blockId) === parentId
+          if ((before.has(blockId) || placedNew.has(blockId)) && current.parents.get(blockId) === parentId
             && successors.get(blockId) === beforeId) continue;
-          const id = `${prefix}:move:${moveIndex++}`;
-          this.recordOperation({ ...operationStamp(id), kind: 'move', blockId, parentId, beforeId });
-          current = this.project();
+          place(blockId, parentId, beforeId);
         }
       }
     }, origin);

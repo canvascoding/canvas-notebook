@@ -1,5 +1,6 @@
 import { ExactTextPatchError } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
+import { AgentBlockEditError } from '@/app/lib/collaboration/agent-block-edits';
 import { AgentFileOperationOutcomeUnavailableError, type AgentFileChangeResult } from './agent-file-operations';
 
 export type AgentFileToolOperation = 'write' | 'edit_file' | 'apply_patch';
@@ -65,6 +66,16 @@ export function asAgentFileToolError(
   fallbackPath?: string,
 ): AgentFileToolError {
   const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof AgentBlockEditError) {
+    return {
+      contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked', category: 'safety_conflict',
+      code: `COLLABORATION_BLOCK_${error.code.toUpperCase()}`, path: fallbackPath || null, message,
+      editIndex: null, expectedOccurrences: null, actualOccurrences: null, matchMode: null, oldTextPreview: null,
+      occurrenceLines: [], expectedSha256: null, currentSha256: null,
+      recommendedAction: error.code === 'target_changed' ? 'read_then_retry' : 'inspect_error',
+      safeToAutoRetry: false, error: message,
+    };
+  }
   if (error instanceof AgentFileOperationOutcomeUnavailableError) {
     return {
       contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked', category: 'technical_error',

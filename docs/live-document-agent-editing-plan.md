@@ -1,6 +1,6 @@
 # Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
 
-Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–2 abgeschlossen; Schritt 3 in Arbeit (Live-Dateizugriff, dauerhafter Agentenabschluss und Retry abgeschlossen; strukturierte Blocktools noch offen); Schritte 4–7 offen.
+Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–3 abgeschlossen; Schritte 4–7 offen.
 
 Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
 
@@ -150,6 +150,20 @@ Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusä
 Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
 
 ## 9. Grundlagen und Grenze der Zusage
+
+### Umsetzungsnachweis Schritt 3, Teil B: strukturierte Agentenoperationen
+
+`read(includeStructure: true)` liefert eine begrenzte, paginierte JSON-Struktur samt Dokument-ID, Generation, Schema und stabilen Blockreferenzen. Text und Prüfsummen werden aus dem aktuellen Yjs-Dokument gelesen. Die Ausgabe bleibt innerhalb des tatsächlichen Tool-Budgets vollständig parsebar; IDs und Hashes werden nicht abgeschnitten. Der normale Text-Read bleibt kompatibel.
+
+`edit_file` unterstützt zusätzlich gezieltes Verschieben, Löschen, Einfügen, Blockattribute, Inlineformatierungen und gemeinsame Tabellenaktionen. Ein optionaler `blockId` grenzt den bisherigen Textadapter auf genau diesen Block ein. Strukturierte Eingaben benötigen die Dokumentreferenz und lokale Vorbedingungen; sie nehmen keine vorbereiteten Yjs-Updates oder internen Rücknahmebelege entgegen. Der Server bereitet einen inkrementellen Patch mit festen IDs vor, validiert ihn auf einer aktuellen Kopie und integriert ihn synchron als eine Transaktion. Die bestehenden Editor-/Blocktree-Regeln bleiben maßgeblich. Ein gültiger Live-Blockzustand kann trotz eines Markdown-Roundtrip-Fehlers bearbeitet werden; der Exportvalidator bleibt streng.
+
+Rücknahmen verwenden den gespeicherten Originalbeleg. Eigene Placement-Operationen werden gezielt zurückgenommen; Änderungen an Attributen und Inlineinhalt werden nur gegen ihre konkreten Nachbedingungen rückgängig gemacht. Neu eingefügte Blöcke werden tombstoned, ihre Records und Retry-Belege bleiben erhalten. Spätere fremde Arbeit bleibt erhalten oder führt zu einem gezielten Konflikt. Die Vorschau umfasst betroffene Blöcke, ihr Prüfwert nur relevante Bedingungen. Die genaue Freigabe dieser Vorschau wird in Schritt 4 ergänzt.
+
+Parallele erste Zustellungen mit demselben Tool-Schlüssel verwenden den ursprünglichen serverseitigen Anfragebeleg, auch wenn ihre Vorbereitungen unterschiedliche neue Block-IDs erzeugt haben. Actor, Session, Workspace, Dokumentidentität und Ausführungsumfang müssen übereinstimmen. Die Antwort verwendet gespeicherte Originalhashes und den aktuellen Live-Stand; sie erzeugt keine zweite Änderung und keinen zweiten Audit. Ein unbestätigter Ausgang bleibt mit Operations-ID abfragbar.
+
+Ein zusätzlicher `durability_ack` meldet, welchen exakt gesicherten Yjs-Stand ein Client beobachtet hat. Dadurch werden absichtliche Nutzereingaben nach einer bestätigten Agentenänderung nicht allein wegen ausstehender Markdown-Ausgabe als Offline-Konflikt behandelt. Der Server begrenzt die Meldung auf gesicherte Sequenzen und prüft Identität/Generation; der Ack sichert selbst nichts und erteilt keine Schreibrechte. Der bisherige `checkpoint_ack` bleibt kompatibel. Gezielte Konflikte werden mit IDs und Fehlercode protokolliert, ohne Dokumenttext.
+
+Gezielte Modul-, Tool-/SDK-/Ausgabepipeline- und Replay-Prüfungen sowie reale PostgreSQL-Tests belegen bereits Move mit gleichzeitiger Texteingabe, binäres Neuladen, selektive Rücknahme, Blockidentität bei gleichen Texten, Formatierung, Tabellenänderung, atomaren Zielkonflikt und exakt einmalige parallele Zustellung. Die eigene Testdatenbank wird nach jedem Lauf entfernt. Das unabhängige Review hat zwei Fehler reproduziert und nach Korrektur geschlossen: Alte Forward-Patches dürfen den Konfliktstatus bestehender fremder Placements nicht verändern; kombinierte Löschaufträge prüfen den ursprünglichen Inhalt aller tatsächlich gelöschten bestehenden Blöcke. Beide ursprünglichen Repros lassen die Live-Bytes bei einem Konflikt unverändert. `test:collaboration:agent-structure` (13 Struktur-, 12 Placement-Revert-, 41 Blockoperations-, 5 Admission-, 15 Tool-/SDK- und 29 Replay-Tests), `test:collaboration:agent-durability` einschließlich 31 Ack-Prüfungen, bestehende Block-/Tool-/Agenten-Prüfungen, TypeScript, ESLint und Diff-Prüfung bestanden. Neue und bestehende reale PostgreSQL-Agentintegration bestanden; eigene Testdatenbanken entfernt. Browserabnahme und Build bleiben Schritt 7.
 
 ### Umsetzungsnachweis Schritt 3, Teil A
 

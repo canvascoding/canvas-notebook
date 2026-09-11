@@ -387,6 +387,10 @@ try {
       documentId: checkpointRaceDocumentId, workspace, initiatedByUserId: userId,
       actorId: 'agent-b', actorDisplayName: 'Agent B', idempotencyKey: `binary-delete-${suffix}`,
       runGeneration: 1, explicitUserRequest: true,
+      // File-tool receipts always carry the exact document reference used by
+      // the preparation. A bare low-level target does not prove this scope.
+      documentPath: deletionBase.path, documentRepresentation: deletionBase.representation,
+      documentLifecycleGeneration: deletionBase.lifecycleGeneration, documentSchemaVersion: deletionBase.schemaVersion,
       targets: [targetFor(deletionBase, 'Checkpoint', '')],
       fileEditRequest: { fingerprint: createHash('sha256').update('delete Checkpoint').digest('hex'),
         beforeSha256: createHash('sha256').update(deletionDoc.getText('content').toString()).digest('hex'),

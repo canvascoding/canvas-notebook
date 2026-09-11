@@ -29,10 +29,15 @@ import { AgentFileEditOperationScopeError, findAgentFileEditOperation, type Pers
 import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationTextEdit,
+  prepareCollaborationBlockEdit,
   readCurrentCollaborationTextSnapshot,
   type CollaborationTextSnapshot,
   type PreparedCollaborationTextEdit,
+  type CollaborationAgentDocumentReference,
+  type CollaborationStructureReadOptions,
 } from '@/app/lib/collaboration/agent-file-edits';
+import { hashAgentBlockJson } from '@/app/lib/collaboration/agent-block-structure';
+import type { AgentBlockEditRequest } from '@/app/lib/collaboration/agent-block-edits';
 import { applyExactTextEdits } from '@/app/lib/files/exact-text-patch';
 import {
   validateTextFileContent,
@@ -673,6 +678,7 @@ function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
 export async function readAgentCollaborativeTextFile(
   fullPath: string,
   initialBuffer?: Buffer,
+  options: CollaborationStructureReadOptions = {},
 ): Promise<CollaborationTextSnapshot | null> {
   await assertAgentPathAllowed(fullPath);
   const collaboration = await collaborativeAgentFileContext(fullPath, initialBuffer);
@@ -680,6 +686,7 @@ export async function readAgentCollaborativeTextFile(
   return readCurrentCollaborationTextSnapshot({
     documentId: collaboration.documentId,
     workspace: collaboration.workspace,
+    ...options,
   });
 }
 
@@ -1687,6 +1694,20 @@ async function reusedCollaborativeFileEdit(input: {
   };
 }
 
+async function prepareOrReuseCollaborativeFileEdit(input: {
+  retry: Parameters<typeof reusedCollaborativeFileEdit>[0];
+  prepare: () => Promise<PreparedCollaborationTextEdit>;
+}): Promise<{ prepared: PreparedCollaborationTextEdit } | { reused: AgentFileChangeResult }> {
+  try { return { prepared: await input.prepare() }; }
+  catch (error) {
+    // Another first delivery may have removed oldText after our initial lookup.
+    // Re-read its receipt; never attempt a second edit to reconstruct the result.
+    const reused = await reusedCollaborativeFileEdit(input.retry);
+    if (reused) return { reused };
+    throw error;
+  }
+}
+
 async function applyPreparedCollaborativeFileEdit(input: {
   inputPath: string;
   fullPath: string;
@@ -1703,14 +1724,28 @@ async function applyPreparedCollaborativeFileEdit(input: {
       `Refusing to edit ${input.inputPath}: validation failed. ${validation.checks.map((check) => check.message).join(' ')}`,
     );
   }
-  const operation = await executePreparedCollaborationTextEdit({
-    prepared: input.prepared,
-    workspace: input.workspace,
-    identity: collaborationAgentIdentity(input.executionContext),
-    idempotencyKey: input.idempotencyKey,
-    fileEditRequest: { fingerprint: input.fingerprint, beforeSha256: input.prepared.sha256,
-      proposedSha256: input.prepared.proposedSha256 },
-  });
+  let operation: PersistedAgentApplyResult;
+  try {
+    operation = await executePreparedCollaborationTextEdit({
+      prepared: input.prepared,
+      workspace: input.workspace,
+      identity: collaborationAgentIdentity(input.executionContext),
+      idempotencyKey: input.idempotencyKey,
+      fileEditRequest: { fingerprint: input.fingerprint, beforeSha256: input.prepared.sha256,
+        proposedSha256: input.prepared.proposedSha256 },
+    });
+  } catch (error) {
+    if (error instanceof AgentFileEditOperationScopeError) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, error.operation);
+    throw error;
+  }
+  if (operation.fileEditRequestReused) {
+    const reused = await reusedCollaborativeFileEdit({ inputPath: input.inputPath, fullPath: input.fullPath,
+      collaboration: { documentId: input.prepared.documentId, relativePath: input.prepared.path,
+        workspace: input.workspace, executionContext: input.executionContext },
+      idempotencyKey: input.idempotencyKey, fingerprint: input.fingerprint });
+    if (!reused) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
+    return reused;
+  }
   const persisted = operation.durability === 'persisted_yjs' || operation.durability === 'checkpointed_file';
   let current: CollaborationTextSnapshot = input.prepared;
   const reviewRequired = operation.operationStatus === 'needs_review'
@@ -1760,20 +1795,51 @@ async function applyPreparedCollaborativeFileEdit(input: {
   return result;
 }
 
-export async function editAgentFile(params: {
+export type AgentEditFileInput = {
   path: string;
-  oldText: string;
-  newText: string;
   expectedOccurrences?: number;
   replaceAll?: boolean;
   expectedSha256?: string;
   idempotencyKey?: string;
-}): Promise<AgentFileChangeResult> {
+} & ({
+  operations: AgentBlockEditRequest[];
+  document: CollaborationAgentDocumentReference;
+  oldText?: never;
+  newText?: never;
+  blockId?: never;
+} | {
+  oldText: string;
+  newText: string;
+  operations?: never;
+  blockId?: string;
+  document?: CollaborationAgentDocumentReference;
+});
+
+export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFileChangeResult> {
+  const structured = params.operations !== undefined || params.blockId !== undefined;
+  if (!structured && params.document !== undefined) {
+    throw new Error('A document reference requires structured operations or a blockId text edit.');
+  }
+  if (params.operations !== undefined) {
+    if (!Array.isArray(params.operations) || params.operations.length < 1 || params.operations.length > 32
+      || params.oldText !== undefined || params.newText !== undefined || params.blockId !== undefined
+      || params.expectedOccurrences !== undefined || params.replaceAll !== undefined) {
+      throw new Error('Supply either 1–32 structured operations or an exact text edit.');
+    }
+  } else if (typeof params.oldText !== 'string' || typeof params.newText !== 'string') {
+    throw new Error('An exact text edit requires oldText and newText.');
+  }
+  if (structured && (!params.document || typeof params.document.documentId !== 'string' || !params.document.documentId
+    || !Number.isSafeInteger(params.document.lifecycleGeneration) || params.document.lifecycleGeneration < 1
+    || !Number.isSafeInteger(params.document.schemaVersion) || params.document.schemaVersion < 1
+    || (params.blockId !== undefined && (typeof params.blockId !== 'string' || !params.blockId)))) {
+    throw new Error('Structured editing requires the documentId, lifecycleGeneration and schemaVersion from a current structure read.');
+  }
   const fullPath = resolveAgentPath(params.path);
   await assertAgentWritablePathAllowed(fullPath);
   await assertExistingAgentFile(fullPath, params.path);
   const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
-  assertAgentSharedWorkspaceRevision({
+  if (!structured) assertAgentSharedWorkspaceRevision({
     operation: 'edit_file',
     path: params.path,
     beforeExisted: true,
@@ -1781,21 +1847,55 @@ export async function editAgentFile(params: {
   });
 
   const collaboration = await collaborativeAgentFileContext(fullPath);
+  if (structured) {
+    if (!collaboration || collaboration.documentId !== params.document!.documentId) {
+      throw new Error('The structured document reference does not match this path. Read its current structure again.');
+    }
+    const fingerprint = hashAgentBlockJson({ version: 2, operation: 'edit_file', path: collaboration.relativePath,
+      document: params.document, expectedSha256, operations: params.operations,
+      textEdit: params.blockId ? { blockId: params.blockId, oldText: params.oldText, newText: params.newText,
+        expectedOccurrences: params.expectedOccurrences ?? null, replaceAll: params.replaceAll === true } : undefined });
+    const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
+      idempotencyKey: params.idempotencyKey, fingerprint });
+    if (reused) return reused;
+    const preparation = await prepareOrReuseCollaborativeFileEdit({
+      retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
+      prepare: () => prepareCollaborationBlockEdit({ document: params.document!, workspace: collaboration.workspace,
+        path: collaboration.relativePath, operations: params.operations,
+        textEdit: params.blockId ? { blockId: params.blockId, oldText: params.oldText!, newText: params.newText!,
+          expectedOccurrences: params.expectedOccurrences, replaceAll: params.replaceAll } : undefined,
+        expectedSha256, groupId: 'edit_file' }),
+    });
+    if ('reused' in preparation) return preparation.reused;
+    const { prepared } = preparation;
+    return applyPreparedCollaborativeFileEdit({ inputPath: params.path, fullPath, prepared,
+      workspace: collaboration.workspace, executionContext: collaboration.executionContext,
+      idempotencyKey: params.idempotencyKey || `edit-file:${randomUUID()}`,
+      auditOperation: 'collaboration_edit_file', fingerprint });
+  }
+  // The structured branch above cannot fall back to writing a file projection.
+  const oldText = params.oldText!;
+  const newText = params.newText!;
   if (collaboration) {
-    const edits = [{ oldText: params.oldText, newText: params.newText,
+    const edits = [{ oldText, newText,
       expectedOccurrences: params.expectedOccurrences, replaceAll: params.replaceAll }];
     const fingerprint = collaborativeFileRequestFingerprint({ operation: 'edit_file', path: collaboration.relativePath, expectedSha256, edits });
     const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
       idempotencyKey: params.idempotencyKey, fingerprint });
     if (reused) return reused;
-    const prepared = await prepareCollaborationTextEdit({
-      documentId: collaboration.documentId,
-      workspace: collaboration.workspace,
-      path: collaboration.relativePath,
-      edits,
-      expectedSha256,
-      groupId: 'edit_file',
+    const preparation = await prepareOrReuseCollaborativeFileEdit({
+      retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
+      prepare: () => prepareCollaborationTextEdit({
+        documentId: collaboration.documentId,
+        workspace: collaboration.workspace,
+        path: collaboration.relativePath,
+        edits,
+        expectedSha256,
+        groupId: 'edit_file',
+      }),
     });
+    if ('reused' in preparation) return preparation.reused;
+    const { prepared } = preparation;
     return applyPreparedCollaborativeFileEdit({
       inputPath: params.path,
       fullPath,
@@ -1815,7 +1915,7 @@ export async function editAgentFile(params: {
   if (expectedSha256 && beforeSha256 !== expectedSha256) {
     throwAgentFileRevisionConflict({ operation: 'edit_file', path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
-  const nextContent = applyExactTextEdits(beforeContent, [params], params.path);
+  const nextContent = applyExactTextEdits(beforeContent, [{ ...params, oldText, newText }], params.path);
   return commitTextChange({
     inputPath: params.path,
     fullPath,
@@ -1890,14 +1990,20 @@ export async function applyAgentFilePatch(params: {
       const reused = await reusedCollaborativeFileEdit({ inputPath: file.path, fullPath, collaboration,
         idempotencyKey: params.idempotencyKeyPrefix ? idempotencyKey : undefined, fingerprint });
       if (reused) { prepared.push({ kind: 'recorded', result: reused }); continue; }
-      const collaborationPrepared = await prepareCollaborationTextEdit({
-        documentId: collaboration.documentId,
-        workspace: collaboration.workspace,
-        path: collaboration.relativePath,
-        edits: file.edits,
-        expectedSha256,
-        groupId: `apply_patch:${fileIndex}`,
+      const preparation = await prepareOrReuseCollaborativeFileEdit({
+        retry: { inputPath: file.path, fullPath, collaboration,
+          idempotencyKey: params.idempotencyKeyPrefix ? idempotencyKey : undefined, fingerprint },
+        prepare: () => prepareCollaborationTextEdit({
+          documentId: collaboration.documentId,
+          workspace: collaboration.workspace,
+          path: collaboration.relativePath,
+          edits: file.edits,
+          expectedSha256,
+          groupId: `apply_patch:${fileIndex}`,
+        }),
       });
+      if ('reused' in preparation) { prepared.push({ kind: 'recorded', result: preparation.reused }); continue; }
+      const collaborationPrepared = preparation.prepared;
       const validation = validateAgentFileContent(file.path, collaborationPrepared.proposedContent);
       if (!validation.ok) {
         throw new Error(`Refusing to patch ${file.path}: validation failed. ${validation.checks.map((check) => check.message).join(' ')}`);
