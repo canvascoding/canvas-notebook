@@ -19,18 +19,54 @@ async function mockWidgets(page: Page, workspaceId: string, options: {
   brokenStudioImage?: boolean;
   failEmail?: boolean;
   longAutomationResult?: boolean;
+  staleEmailFollowUp?: boolean;
 } = {}) {
   const widgetRequests: string[] = [];
-  await page.route('**/api/home/workspace-widgets?*', route => {
+  let releaseEmailFollowUp: () => void = () => undefined;
+  const emailFollowUpGate = new Promise<void>((resolve) => {
+    releaseEmailFollowUp = resolve;
+  });
+  await page.route('**/api/home/workspace-widgets?*', async route => {
     widgetRequests.push(route.request().url());
-    expect(new URL(route.request().url()).searchParams.get('workspaceId')).toBe(workspaceId);
+    const requestUrl = new URL(route.request().url());
+    expect(requestUrl.searchParams.get('workspaceId')).toBe(workspaceId);
+    const isEmailFollowUp = requestUrl.searchParams.get('widgets') === 'emails';
+    if (options.staleEmailFollowUp && isEmailFollowUp) await emailFollowUpGate;
     const cachedAt = '2026-09-08T12:00:00.000Z';
     const ready = <T,>(data: T) => ({ status: 'ready' as const, data, cachedAt, stale: false });
+    const initialEmails = [
+      { id: 'mail-sales', accountId: 'sales', accountLabel: 'sales@example.com', folder: 'INBOX', from: 'Mara', subject: 'Launch-Freigabe', date: '2026-09-07T12:00:00Z' },
+      { id: 'mail-primary', accountId: 'primary', accountLabel: 'team@example.com', folder: 'INBOX', from: 'Jonas', subject: 'Wochenplanung', date: '2026-09-07T11:00:00Z' },
+    ];
+    const refreshedEmails = [
+      { id: 'mail-refreshed', accountId: 'sales', accountLabel: 'sales@example.com', folder: 'INBOX', from: 'Mara', subject: 'Aktualisierte Freigabe', date: '2026-09-08T12:00:00Z' },
+      ...initialEmails,
+    ];
+    const staleEmails = {
+      status: 'ready' as const,
+      data: initialEmails,
+      cachedAt,
+      stale: true,
+      cache: {
+        enabled: true,
+        state: 'stale' as const,
+        source: 'cache' as const,
+        fetchedAt: cachedAt,
+        staleAt: cachedAt,
+        expiresAt: '2026-09-15T12:00:00.000Z',
+        refreshQueued: true,
+        refreshToken: 'home-email-widget-test-token',
+        partial: false,
+        accountCount: 1,
+        successfulAccountCount: 1,
+      },
+    };
     return route.fulfill({ json: { success: true, data: {
-      emails: options.failEmail ? { status: 'error', errorCode: 'source_unavailable' } : ready([
-        { id: 'mail-sales', accountId: 'sales', accountLabel: 'sales@example.com', folder: 'INBOX', from: 'Mara', subject: 'Launch-Freigabe', date: '2026-09-07T12:00:00Z' },
-        { id: 'mail-primary', accountId: 'primary', accountLabel: 'team@example.com', folder: 'INBOX', from: 'Jonas', subject: 'Wochenplanung', date: '2026-09-07T11:00:00Z' },
-      ]),
+      emails: options.failEmail
+        ? { status: 'error', errorCode: 'source_unavailable' }
+        : options.staleEmailFollowUp && !isEmailFollowUp
+          ? staleEmails
+          : ready(options.staleEmailFollowUp ? refreshedEmails : initialEmails),
       todos: ready([{ id: 'todo-critical', title: 'Launch prüfen', priority: 'high', dueAt: '2026-09-08T10:00:00Z', readState: 'unread' }]),
       automation: ready({ id: 'job-latest', name: 'Kampagnen-Report', status: 'active', lastRunAt: '2026-09-07T12:00:00Z', lastRunStatus: 'success', nextRunAt: '2026-09-08T12:00:00Z', resultText: options.longAutomationResult
         ? '**Aktuelle Woche:** KW 36\n- **Wöchentliche Follower-Zahlen** fehlen vollständig für Instagram, LinkedIn, X und mehrere weitere Kanäle mit einem absichtlich sehrlangenwortohnetrennzeichen'.repeat(4)
@@ -38,37 +74,38 @@ async function mockWidgets(page: Page, workspaceId: string, options: {
       studio: ready({ id: 'generation-latest', prompt: 'Editoriales Produktbild für den Launch', createdAt: '2026-09-07T12:00:00Z', status: 'completed', output: { id: 'output', mediaUrl: options.brokenStudioImage ? '/images/missing-widget-preview.png' : '/images/examples/aura_serum_produktfoto.png', mimeType: 'image/png' } }),
     } } });
   });
-  return widgetRequests;
+  return { releaseEmailFollowUp, widgetRequests };
 }
 
-test('workspace widgets fill page two and progressively reveal quick selections', async ({ page }, info) => {
+test('workspace widgets fill page two with stable, directly actionable previews', async ({ page }, info) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const workspace = await prepare(page);
-  const requests = await mockWidgets(page, workspace.id);
+  const { widgetRequests } = await mockWidgets(page, workspace.id);
   await page.goto('/de');
-  expect(requests).toHaveLength(0);
+  expect(widgetRequests).toHaveLength(0);
 
   await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
   const workspacePage = page.locator('#home-workspace');
   const cards = workspacePage.locator('article[data-testid^="workspace-widget-"]');
   await expect(cards).toHaveCount(4);
-  await expect(page.getByTestId('workspace-widget-email-summary').getByText('2 ungelesene Nachrichten')).toBeVisible();
-  await expect(page.getByTestId('workspace-widget-todos-summary').getByText('Launch prüfen')).toBeVisible();
-  await expect(page.getByTestId('workspace-widget-automation-summary').getByText('Kampagnen-Report')).toBeVisible();
-  await expect(page.getByTestId('workspace-widget-studio-summary').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
-  await expect.poll(() => page.getByTestId('workspace-widget-studio-summary').locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-  expect(requests).toHaveLength(1);
+  await expect(page.getByTestId('workspace-widget-email-preview').getByText('2 ungelesene Nachrichten')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-todos-preview').getByText('Launch prüfen')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-automation-preview').getByText('Kampagnen-Report')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-studio-preview').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
+  await expect.poll(() => page.getByTestId('workspace-widget-studio-preview').locator('img').evaluate(image => (image as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  expect(widgetRequests).toHaveLength(1);
 
   const emailCard = page.getByTestId('workspace-widget-email');
-  const emailQuickSelection = page.getByTestId('workspace-widget-email-quick-selection');
-  await expect(emailQuickSelection.getByText('Launch-Freigabe')).toBeHidden();
+  const emailPreview = page.getByTestId('workspace-widget-email-preview');
+  await expect(emailPreview.getByText('Launch-Freigabe')).toBeVisible();
+  const boxBeforeHover = await emailCard.boundingBox();
   await emailCard.hover();
-  await expect(emailQuickSelection.getByText('Launch-Freigabe')).toBeVisible();
+  await expect(emailPreview.getByText('Launch-Freigabe')).toBeVisible();
+  expect(await emailCard.boundingBox()).toEqual(boxBeforeHover);
   await expect(emailCard.getByRole('link', { name: /Launch-Freigabe/ })).toHaveAttribute('href', /accountId=sales.*messageId=mail-sales/);
 
   const todoCard = page.getByTestId('workspace-widget-todos');
   await todoCard.getByRole('link', { name: 'To-dos öffnen', exact: true }).focus();
-  await expect(todoCard.getByText('Schnellauswahl')).toBeVisible();
   await expect(todoCard.getByRole('link', { name: /Launch prüfen/ })).toHaveAttribute('href', new RegExp(`todo=todo-critical.*workspaceId=${workspace.id}`));
 
   const firstBox = await cards.nth(0).boundingBox();
@@ -87,7 +124,7 @@ test('touch layout keeps quick selections visible in one column', async ({ page 
   await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
   const cards = page.locator('#home-workspace article[data-testid^="workspace-widget-"]');
   await expect(cards).toHaveCount(4);
-  await expect(page.getByTestId('workspace-widget-email-quick-selection').getByText('Schnellauswahl')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-email-preview').getByText('Schnellauswahl')).toBeVisible();
   const [firstBox, secondBox] = await cards.evaluateAll(elements => elements.slice(0, 2).map(element => {
     const box = element.getBoundingClientRect();
     return { y: box.y, height: box.height };
@@ -104,9 +141,29 @@ test('one unavailable source does not block the other workspace widgets', async 
   await page.goto('/de');
   await page.getByRole('navigation', { name: 'Startseitenansichten' }).getByRole('button', { name: 'Workspace', exact: true }).click();
   await expect(page.getByTestId('workspace-widget-email').getByText('Gerade nicht verfügbar')).toBeVisible();
-  await expect(page.getByTestId('workspace-widget-todos-summary').getByText('Launch prüfen')).toBeVisible();
-  await expect(page.getByTestId('workspace-widget-automation-summary').getByText('Kampagnen-Report')).toBeVisible();
-  await expect(page.getByTestId('workspace-widget-studio-summary').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-todos-preview').getByText('Launch prüfen')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-automation-preview').getByText('Kampagnen-Report')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-studio-preview').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
+});
+
+test('email preview keeps its active click targets stable during a delayed refresh', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const workspace = await prepare(page);
+  const { releaseEmailFollowUp, widgetRequests } = await mockWidgets(page, workspace.id, { staleEmailFollowUp: true });
+  await page.goto('/de');
+  await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
+
+  const emailCard = page.getByTestId('workspace-widget-email');
+  await expect(emailCard.getByText('Launch-Freigabe')).toBeVisible();
+  await emailCard.hover();
+  await expect.poll(() => widgetRequests.length).toBe(2);
+  releaseEmailFollowUp();
+  await page.waitForTimeout(100);
+  await expect(emailCard.getByText('Launch-Freigabe')).toBeVisible();
+  await expect(emailCard.getByText('Aktualisierte Freigabe')).toBeHidden();
+
+  await page.mouse.move(0, 0);
+  await expect(emailCard.getByText('Aktualisierte Freigabe')).toBeVisible();
 });
 
 test('workspace widgets keep their hierarchy in dark mode', async ({ page }, info) => {
@@ -119,7 +176,7 @@ test('workspace widgets keep their hierarchy in dark mode', async ({ page }, inf
   await page.getByRole('navigation', { name: 'Startseitenansichten' }).getByRole('button', { name: 'Workspace', exact: true }).click();
   const studioCard = page.getByTestId('workspace-widget-studio');
   await studioCard.hover();
-  await expect(page.getByTestId('workspace-widget-studio-quick-selection').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
+  await expect(page.getByTestId('workspace-widget-studio-preview').getByText('Editoriales Produktbild für den Launch')).toBeVisible();
   await expect(page.locator('html')).toHaveClass(/dark/);
   await page.screenshot({ path: info.outputPath('workspace-widgets-dark.png'), animations: 'disabled' });
 });
@@ -138,12 +195,12 @@ test('long automation output stays inside its card and renders as plain preview 
   const readGeometry = () => card.evaluate(element => {
     const cardBox = element.getBoundingClientRect();
     const footerBox = element.querySelector(':scope > a:last-child')?.getBoundingClientRect();
-    const detailsBox = element.querySelector('[data-testid$="-quick-selection"]')?.getBoundingClientRect();
-    return { cardBottom: cardBox.bottom, detailsBottom: detailsBox?.bottom, footerBottom: footerBox?.bottom, footerTop: footerBox?.top };
+    const previewBox = element.querySelector('[data-testid$="-preview"]')?.getBoundingClientRect();
+    return { cardBottom: cardBox.bottom, previewBottom: previewBox?.bottom, footerBottom: footerBox?.bottom, footerTop: footerBox?.top };
   });
   await expect.poll(async () => {
     const geometry = await readGeometry();
-    return (geometry.detailsBottom ?? 0) <= (geometry.footerTop ?? 0) + 1;
+    return (geometry.previewBottom ?? 0) <= (geometry.footerTop ?? 0) + 1;
   }).toBe(true);
   const geometry = await readGeometry();
   expect(geometry.footerBottom).toBeLessThanOrEqual(geometry.cardBottom + 1);
@@ -156,7 +213,7 @@ test('broken studio previews fall back without breaking the card', async ({ page
   await mockWidgets(page, workspace.id, { brokenStudioImage: true });
   await page.goto('/de');
   await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
-  const summary = page.getByTestId('workspace-widget-studio-summary');
-  await expect(summary.locator('img')).toHaveCount(0);
-  await expect(summary.getByText('Editoriales Produktbild für den Launch')).toBeVisible();
+  const preview = page.getByTestId('workspace-widget-studio-preview');
+  await expect(preview.locator('img')).toHaveCount(0);
+  await expect(preview.getByText('Editoriales Produktbild für den Launch')).toBeVisible();
 });
