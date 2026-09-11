@@ -151,6 +151,14 @@ Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsr
 
 ## 9. Grundlagen und Grenze der Zusage
 
+### Prüfstand Schritt 7: Build bestanden, Browserabnahme ausstehend
+
+`npm run build` einschließlich Tool-App-Build und Lizenzprüfung besteht mit den fertigen Produktänderungen. Der Lizenzcache und die beiden daraus erzeugten Manifeste wurden über die vorhandenen Generatorskripte an den exakten PDF.js-Pin angepasst; Paketbestand und Lizenzbewertung bleiben gleich. Die zusätzlich reproduzierte volle Agentenwarteschlange hinterlässt nun einen dauerhaft prüfbaren Vorschlag, bevor überhaupt eine Live-Mutation beginnt. Die erweiterte Approval-Suite bestätigt diesen Fall und den unveränderten Schutz bereits angewendeter Operationsbelege.
+
+Neun bestehende Browser-Testdateien sind an die neue Produktlogik angepasst und statisch geprüft. Vorbereitet sind unter anderem Delete/Move mit zwei Clients und stabilen Block-IDs, keine ein- und ausgeblendete Speicherzeile oder verschobene Editoroberkante, binäre Dauerhaftigkeit unabhängig vom Markdown-Fortschritt, exakte Vorschlagsannahme, überholte Annahme mit HTTP 409, stiller Projektionsfehler und verständliche Wiederherstellung bei tatsächlichem Zugriffsverlust. Diese Browserfälle wurden noch nicht ausgeführt; Selektoren, Timing, echtes Layout und iPhone-Verhalten sind daher noch nicht abgenommen.
+
+Der verwaltete lokale Stack wurde geprüft: genau ein Stack, PostgreSQL 18.4/pgvector 0.8.3 und alle vorhandenen Dienste gesund. Sein laufender Notebook-Container enthält noch den älteren Build. Für die abschließende Prüfung muss er aus diesem Worktree neu gebaut und anschließend mit beiden vorgesehenen Nutzern, Agentenvorschlägen, Offline/Wiederverbindung, Dokumentwechsel und Neustart geprüft werden. Die explizite Freigabe für Browserautomatisierung und diesen Container-Neubau ist angefragt und steht aus. Bis diese Abnahme abgeschlossen ist, bleibt Schritt 7 offen; es erfolgte kein Push oder Rollout.
+
 ### Umsetzungsnachweis Schritt 6: Dokumentwechsel, Generationen und PDF
 
 Der normale Ansichtswechsel wartet auf exakt bestätigtes Yjs oder einen vollständig abgeschlossenen lokalen IndexedDB-Snapshot. Er fordert keinen Markdown-Checkpoint mehr an. Auch der Browser-Schließschutz liest den aktuellen binären Nachweis einschließlich Löschungen; ein veralteter React-Zustand genügt nicht. Direkt vor dem Abschluss eines Übergangs bzw. der Freigabe eines Dokuments werden Standort, Berechtigung und der gesicherte Inhalt erneut geprüft.

@@ -65,7 +65,11 @@ test(`mobile ${block} moves retain the menu anchor and remain editable after und
       await page.keyboard.press('Backspace');
       await expect(editor.locator('pre')).toHaveText('Bravo\nDelt');
     }
-    await expect(page.getByTestId('markdown-save-state')).toContainText('File checkpoint current');
+    await expect.poll(async () => (await (await page.request.get('/api/files/read', {
+      headers, params: { path: filePath },
+    })).json()).data?.content?.trim(), { timeout: 20_000 }).toBe(block === 'code'
+      ? 'Alpha\n\nCharlie\n\n```text\nBravo\nDelt\n```' : 'Alpha\n\nCharlie\n\nBravo');
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
   } finally {
     await page.close();
     await page.request.delete('/api/files/delete', { headers, data: { path: filePath } });

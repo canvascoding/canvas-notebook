@@ -160,17 +160,45 @@ test('reading observes live source without rewriting it and migration waits for 
     await page.getByRole('button', { name: 'Source', exact: true }).click();
     await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'false');
     await expect(page.locator('.cm-content')).toContainText('Live addition');
-    await expect(page.getByTestId('markdown-save-state')).toContainText('File checkpoint current');
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     await page.screenshot({ path: info.outputPath('live-source-modes.png') });
-    await page.route('**/api/files/collaboration/checkpoint', (route) => route.fulfill({ status: 422,
-      contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_ROUNDTRIP_UNSTABLE', error: 'Rich collaboration checkpoint validation failed (roundtrip_unstable).' }),
+    const checkpointRoute = '**/api/files/collaboration/checkpoint';
+    await page.route(checkpointRoute, (route) => route.fulfill({ status: 422,
+      contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_ROUNDTRIP_UNSTABLE',
+        error: 'Rich collaboration checkpoint validation failed (roundtrip_unstable).' }),
+    }));
+    const projectionFailure = page.waitForResponse((response) => response.url().endsWith('/api/files/collaboration/checkpoint')
+      && response.request().method() === 'POST');
+    await page.keyboard.press('ControlOrMeta+s');
+    expect((await projectionFailure).status()).toBe(422);
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Read', exact: true }).click();
+    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true');
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    await expect(page.locator('.cm-content')).toContainText('Live addition');
+    await page.unroute(checkpointRoute);
+    // A real access failure requires action; an export-only error no longer
+    // interrupts a healthy Yjs document. Keep this recovery case actionable.
+    const sourceBounds = await page.locator('.cm-content').boundingBox();
+    await page.route(checkpointRoute, (route) => route.fulfill({ status: 403,
+      contentType: 'application/json', body: JSON.stringify({ success: false, code: 'COLLABORATION_AUTHENTICATION_FAILED', error: 'Test access expired.' }),
     }));
     await page.keyboard.press('ControlOrMeta+s');
-    await expect(page.getByTestId('markdown-save-state')).toContainText('The file could not be saved safely');
-    await expect(page.getByRole('button', { name: 'Retry file saving' })).toHaveCount(0);
+    const recovery = page.getByTestId('markdown-save-state');
+    await expect(recovery.getByRole('alert')).toContainText('Your access to this document cannot currently be confirmed');
+    await expect(recovery).toHaveCSS('position', 'absolute');
+    expect((await page.locator('.cm-content').boundingBox())?.y).toBe(sourceBounds?.y);
+    await expect(recovery).not.toContainText('COLLABORATION_AUTHENTICATION_FAILED');
+    await expect(recovery.getByRole('button', { name: 'Open again', exact: true })).toBeVisible();
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Download Markdown', exact: true }).click();
+    await recovery.getByRole('button', { name: 'Download text copy', exact: true }).click();
     expect((await download).suggestedFilename()).toBe(path);
+    const fullBackup = page.waitForEvent('download');
+    await recovery.getByRole('button', { name: 'Back up complete document', exact: true }).click();
+    expect((await fullBackup).suggestedFilename()).toBe('canvas-recovery.yjs');
     await page.getByRole('button', { name: 'Read', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('Live addition', { exact: true })).toBeVisible();

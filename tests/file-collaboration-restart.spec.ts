@@ -65,9 +65,8 @@ async function openEditor(page: Page, filePath: string): Promise<Locator> {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
   const editor = page.locator('.tiptap-editor-shell .ProseMirror');
   await expect(editor).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('status').filter({
-    hasText: /Live collaboration|Live-Bearbeitung aktiv/i,
-  })).toBeVisible({ timeout: 30_000 });
+  await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+  await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
   return editor;
 }
 

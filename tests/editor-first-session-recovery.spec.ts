@@ -37,7 +37,10 @@ test('a known tab reopens after the first collaboration session was interrupted'
     await editor.click();
     await page.keyboard.press('End');
     await page.keyboard.insertText(' Reopened.');
-    await expect(page.getByTestId('markdown-save-state')).toContainText('File checkpoint current');
+    await expect.poll(async () => (await (await page.request.get('/api/files/read', {
+      headers, params: { path: filePath },
+    })).json()).data?.content?.trim(), { timeout: 20_000 }).toBe('First session remains recoverable. Reopened.');
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     const initialized = await page.request.get('/api/files/collaboration/location', {
       headers, params: { workspaceId: workspace.id, documentId },
     });

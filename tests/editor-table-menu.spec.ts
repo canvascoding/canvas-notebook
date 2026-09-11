@@ -46,7 +46,7 @@ test('table menu moves rows and columns and checkpoints aligned inserted rows', 
     await expect(editor.locator('tr')).toHaveCount(4);
     const read = async () => (await (await page.request.get(`/api/files/read?path=${path}`, { headers })).json()).data?.content as string;
     await expect.poll(read, { timeout: 20_000 }).toContain(':-----:');
-    await expect(page.getByRole('status').filter({ hasText: 'File checkpoint current' })).toBeVisible();
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     await page.screenshot({ path: info.outputPath('table-context-menu.png') });
     await page.reload();
     await expect(editor.locator('tr')).toHaveCount(4, { timeout: 30_000 });
@@ -59,7 +59,7 @@ test('table menu moves rows and columns and checkpoints aligned inserted rows', 
     await page.getByRole('menuitem', { name: 'Delete row', exact: true }).click();
     await expect(editor.locator('tr').first().locator('th')).toHaveCount(2);
     await expect.poll(read).not.toContain('| B');
-    await expect(page.getByRole('status').filter({ hasText: 'File checkpoint current' })).toBeVisible();
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
   } finally {
     await page.close();
     await page.request.delete('/api/files/delete', { headers, data: { path } });

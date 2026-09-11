@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { writeFile as writeTestFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import type { JSONContent } from '@tiptap/core';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
@@ -34,6 +35,12 @@ type WorkspaceSummary = {
 type AgentToolResult = {
   content?: Array<{ type: string; text?: string }>;
   details?: Record<string, unknown>;
+};
+
+type LayoutSample = { viewportTop: number; editorTop: number; savePanelVisible: boolean };
+type ObservedEditor = HTMLElement & {
+  editor: { getJSON(): JSONContent };
+  layoutProbe?: { observer: MutationObserver; samples: LayoutSample[] };
 };
 
 const execFileAsync = promisify(execFile);
@@ -89,7 +96,8 @@ async function useWorkspace(context: BrowserContext, workspaceId: string): Promi
 async function openCollaborativeMarkdown(page: Page, filePath: string): Promise<void> {
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('status').filter({ hasText: /Live collaboration|Live-Bearbeitung aktiv/i })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+  await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
   await expect(page.getByLabel(/Live text-ready|Live-Text vorbereitet/i)).toHaveCount(0);
 }
 
@@ -144,6 +152,99 @@ async function runAgentTool(input: {
 test.describe('Markdown live collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the explicit Postgres team E2E profile.');
   test.setTimeout(120_000);
+
+  test('deletes and moves blocks across peers without save rows or layout shifts', async ({ browser }) => {
+    const filePath = `collaboration-quiet-blocks-${randomUUID()}.md`;
+    const ownerContext = await browser.newContext();
+    const peerContext = await browser.newContext();
+    const owner = await ownerContext.newPage();
+    const peer = await peerContext.newPage();
+    const errors = logBrowserDiagnostics(owner, 'quiet-owner');
+    const peerErrors = logBrowserDiagnostics(peer, 'quiet-peer');
+    let workspaceId: string | null = null;
+    try {
+      await login(owner, ADMIN_EMAIL, ADMIN_PASSWORD);
+      await login(peer, ADMIN_EMAIL, ADMIN_PASSWORD);
+      workspaceId = await organizationWorkspace(owner.request);
+      await useWorkspace(ownerContext, workspaceId);
+      await useWorkspace(peerContext, workspaceId);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      const uploaded = await owner.request.post('/api/files/upload', { headers, multipart: { path: '.', files: {
+        name: filePath, mimeType: 'text/markdown', buffer: Buffer.from('Alpha\n\nRemove block\n\nCharlie\n\nDelta'),
+      } } });
+      expect(uploaded.ok(), await uploaded.text()).toBe(true);
+      await Promise.all([openCollaborativeMarkdown(owner, filePath), openCollaborativeMarkdown(peer, filePath)]);
+      const editor = owner.locator('.tiptap-editor-shell .ProseMirror');
+      const peerEditor = peer.locator('.tiptap-editor-shell .ProseMirror');
+      const tree = (target: Locator) => target.evaluate((element) => (element as ObservedEditor).editor.getJSON());
+      await expect.poll(() => collaborativeEditorText(peerEditor)).toBe('AlphaRemove blockCharlieDelta');
+      const initial = (await tree(editor)).content!;
+      const ids = initial.map((block) => block.attrs?.id);
+      expect(ids.every((id) => typeof id === 'string' && id.length > 0)).toBe(true);
+      await editor.getByText('Alpha', { exact: true }).click();
+      await owner.keyboard.press('End');
+      await editor.evaluate((element) => {
+        const target = element as ObservedEditor;
+        const viewport = element.closest('[data-testid="markdown-scroll-container"]')!;
+        const samples: LayoutSample[] = [];
+        const sample = () => samples.push({ viewportTop: viewport.getBoundingClientRect().top,
+          editorTop: element.getBoundingClientRect().top,
+          savePanelVisible: Boolean(document.querySelector('[data-testid="markdown-save-state"]')) });
+        const observer = new MutationObserver(sample);
+        observer.observe(document.body, { attributes: true, childList: true, subtree: true, characterData: true });
+        sample(); target.layoutProbe = { observer, samples };
+      });
+      await owner.keyboard.insertText(' updated');
+      await expect.poll(() => collaborativeEditorText(peerEditor)).toContain('Alpha updated');
+      await peerEditor.getByText('Charlie', { exact: true }).click();
+      await peer.keyboard.press('End');
+      await peer.keyboard.insertText(' remotely');
+      await expect.poll(() => collaborativeEditorText(editor)).toContain('Charlie remotely');
+
+      await editor.getByText('Remove block', { exact: true }).click();
+      await owner.keyboard.press('Home');
+      await owner.keyboard.press('Shift+End');
+      await expect.poll(() => owner.evaluate(() => getSelection()?.toString())).toBe('Remove block');
+      await owner.keyboard.press('Backspace');
+      await owner.keyboard.press('Backspace');
+      await expect.poll(async () => (await tree(editor)).content!.map((block) => block.attrs?.id)).toEqual([ids[0], ids[2], ids[3]]);
+      await editor.getByText('Delta', { exact: true }).click();
+      await owner.keyboard.press('Alt+Shift+ArrowUp');
+      await expect.poll(async () => (await tree(editor)).content!.map((block) => block.attrs?.id)).toEqual([ids[0], ids[3], ids[2]]);
+      const moved = await tree(editor);
+      await expect.poll(() => tree(peerEditor)).toEqual(moved);
+      await expect.poll(() => collaborativeEditorText(peerEditor)).toBe('Alpha updatedDeltaCharlie remotely');
+      await expect.poll(async () => {
+        const response = await owner.request.get('/api/files/read', { headers, params: { path: filePath } });
+        return (await response.json()).data?.content?.trim();
+      }, { timeout: 20_000 }).toBe('Alpha updated\n\nDelta\n\nCharlie remotely');
+      const samples = await editor.evaluate((element) => {
+        const probe = (element as ObservedEditor).layoutProbe!;
+        probe.observer.disconnect(); return probe.samples;
+      });
+      expect(samples.length).toBeGreaterThan(1);
+      expect(samples.every((sample) => !sample.savePanelVisible)).toBe(true);
+      expect(Math.max(...samples.map((sample) => Math.abs(sample.viewportTop - samples[0].viewportTop)))).toBeLessThanOrEqual(1);
+      expect(Math.max(...samples.map((sample) => Math.abs(sample.editorTop - samples[0].editorTop)))).toBeLessThanOrEqual(1);
+      await owner.reload({ waitUntil: 'domcontentloaded' });
+      await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
+      await expect.poll(() => tree(editor)).toEqual(moved);
+      await expect(owner.getByTestId('markdown-save-state')).toHaveCount(0);
+      await owner.goto(`/notebook?path=${encodeURIComponent(filePath)}&collaborationDebug=1`, { waitUntil: 'domcontentloaded' });
+      const diagnostics = owner.getByTestId('markdown-save-state');
+      await expect(diagnostics).toHaveAttribute('aria-label', /Developer diagnostics|Entwicklerdiagnose/i);
+      await expect(diagnostics).toHaveCSS('position', 'absolute');
+      await expect(diagnostics.getByRole('alert')).toHaveCount(0);
+      await expect.poll(() => tree(editor)).toEqual(moved);
+      expect([...errors, ...peerErrors]).toEqual([]);
+    } finally {
+      await peerContext.close();
+      if (workspaceId) await owner.request.delete('/api/files/delete', {
+        headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: filePath },
+      }).catch(() => undefined);
+      await ownerContext.close();
+    }
+  });
 
   test('converges across clients, exposes presence, reconnects, and checkpoints the file', async ({ browser }, testInfo) => {
     const suffix = `${Date.now()}-${randomUUID()}`;
@@ -269,8 +370,8 @@ test.describe('Markdown live collaboration', () => {
 
       const viewportFit = await adminPage.evaluate(() => {
         const editorViewport = document.querySelector('[data-testid="markdown-scroll-container"]');
-        const status = editorViewport?.querySelector('[role="status"]');
-        const requiredRegions = [editorViewport, status].map((element) => element?.getBoundingClientRect());
+        const modeBar = document.querySelector('.markdown-mode-bar');
+        const requiredRegions = [editorViewport, modeBar].map((element) => element?.getBoundingClientRect());
         return {
           horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
           viewport: { width: window.innerWidth, height: window.innerHeight },
@@ -320,9 +421,8 @@ test.describe('Markdown live collaboration', () => {
         () => collaborativeEditorText(memberPage.locator('.tiptap-editor-shell .ProseMirror')),
         { timeout: 30_000 },
       ).toBe('Alice writes live and Bob replies');
-      await expect(
-        memberPage.getByRole('status').filter({ hasText: /Live collaboration|Live-Bearbeitung aktiv/i }),
-      ).toBeVisible({ timeout: 30_000 });
+      await expect(memberPage.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true');
+      await expect(memberPage.getByTestId('markdown-save-state')).toHaveCount(0);
 
       await expect.poll(async () => {
         const response = await adminPage.request.get(`/api/files/read?path=${encodeURIComponent(filePath)}`, {
@@ -446,6 +546,11 @@ test.describe('Markdown live collaboration', () => {
       expect(editDetails.collaboration?.operationStatus).toBe('needs_review');
       expect(readResult.content?.[0]?.text).toContain(initialContent);
       expect(editResult.content?.[0]?.text).toContain('Review ready');
+      const operationUrl = `/api/files/collaboration/operations/${editDetails.collaboration!.operationId}`;
+      const initialReview = await page.request.get(operationUrl, { headers: { [WORKSPACE_ID_HEADER]: workspaceId } });
+      expect(initialReview.ok()).toBe(true);
+      const initialProposalVersion = (await initialReview.json()).operation.proposalVersion as string;
+      expect(initialProposalVersion).toMatch(/^v1\.[a-f0-9]{64}$/u);
 
       const agentActivityButton = page.getByRole('button', { name: /Agent changes|Agentenänderungen/i });
       await expect(agentActivityButton).toBeVisible({ timeout: 20_000 });
@@ -462,6 +567,8 @@ test.describe('Markdown live collaboration', () => {
       await page.keyboard.press('End');
       await page.keyboard.type(' edited by user');
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
+      const independentEditReview = await page.request.get(operationUrl, { headers: { [WORKSPACE_ID_HEADER]: workspaceId } });
+      expect((await independentEditReview.json()).operation.proposalVersion).toBe(initialProposalVersion);
       await agentActivityButton.click();
 
       const acceptResponse = page.waitForResponse((response) => (
@@ -470,13 +577,15 @@ test.describe('Markdown live collaboration', () => {
       ));
       await reviewRegion.getByRole('button', { name: /Accept|Annehmen/i }).click();
       const acceptedOperationResponse = await acceptResponse;
+      expect(acceptedOperationResponse.request().postDataJSON()).toMatchObject({ proposalVersion: initialProposalVersion });
       expect(acceptedOperationResponse.ok(), await acceptedOperationResponse.text()).toBeTruthy();
       const acceptedOperationPayload = await acceptedOperationResponse.json();
       expect(acceptedOperationPayload).toMatchObject({
         success: true,
         operation: {
-          operationStatus: 'checkpointed_file',
-          durability: 'checkpointed_file',
+          operationStatus: expect.stringMatching(/^(persisted_yjs|checkpointed_file)$/u),
+          durability: expect.stringMatching(/^(persisted_yjs|checkpointed_file)$/u),
+          conflicts: [],
         },
       });
       await expect.poll(() => collaborativeEditorText(editor), { timeout: 20_000 }).not.toContain('Remove this paragraph');
@@ -507,7 +616,7 @@ test.describe('Markdown live collaboration', () => {
         context: agentContext,
       });
       const patchDetails = patchResult.details as {
-        results?: Array<{ collaboration?: { reviewRequired?: boolean; operationStatus?: string } }>;
+        results?: Array<{ collaboration?: { operationId?: string; reviewRequired?: boolean; operationStatus?: string } }>;
       };
       expect(patchDetails.results?.[0]?.collaboration?.reviewRequired).toBe(true);
       expect(patchDetails.results?.[0]?.collaboration?.operationStatus).toBe('needs_review');
@@ -517,6 +626,30 @@ test.describe('Markdown live collaboration', () => {
       const screenshotPath = testInfo.outputPath('agent-review.png');
       await page.screenshot({ path: screenshotPath, type: 'png' });
       await testInfo.attach('agent review UI', { path: screenshotPath, contentType: 'image/png' });
+
+      const patchUrl = `/api/files/collaboration/operations/${patchDetails.results![0].collaboration!.operationId}`;
+      const patchReview = await page.request.get(patchUrl, { headers: { [WORKSPACE_ID_HEADER]: workspaceId } });
+      expect(patchReview.ok()).toBe(true);
+      const staleProposalVersion = (await patchReview.json()).operation.proposalVersion as string;
+      expect(staleProposalVersion).toMatch(/^v1\.[a-f0-9]{64}$/u);
+      await editor.locator('p').filter({ hasText: /^Final paragraph$/u }).click();
+      await page.keyboard.press('End');
+      await page.keyboard.insertText(' updated after preview');
+      const contentAfterHumanEdit = await collaborativeEditorText(editor);
+      await expect.poll(async () => {
+        const changedReview = await page.request.get(patchUrl, { headers: { [WORKSPACE_ID_HEADER]: workspaceId! } });
+        expect(changedReview.ok()).toBe(true);
+        return (await changedReview.json()).operation.proposalVersion;
+      }, { timeout: 20_000 }).toBeNull();
+      const staleAcceptance = await page.request.post(`${patchUrl}/accept`, {
+        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
+        data: { idempotencyKey: `stale-accept-${suffix}`, proposalVersion: staleProposalVersion },
+      });
+      expect(staleAcceptance.status()).toBe(409);
+      expect(await staleAcceptance.json()).toMatchObject({ code: 'AGENT_PROPOSAL_CHANGED' });
+      expect(await collaborativeEditorText(editor)).toBe(contentAfterHumanEdit);
+      await agentActivityButton.click();
+      await expect(reviewRegion.getByRole('button', { name: /Accept|Annehmen/i })).toHaveCount(0, { timeout: 20_000 });
 
       await reviewRegion.getByRole('button', { name: /Reject|Ablehnen/i }).click();
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
@@ -542,8 +675,8 @@ test.describe('Markdown live collaboration', () => {
             path: filePath,
             expectedSha256: sourceOnlySha256,
             edits: [{
-              oldText: 'Keep this paragraph edited by user\n\nFinal paragraph',
-              newText: 'Keep this paragraph edited by user\n\nFinal paragraph\n\n%% agent-generated note %%',
+              oldText: 'Keep this paragraph edited by user\n\nFinal paragraph updated after preview',
+              newText: 'Keep this paragraph edited by user\n\nFinal paragraph updated after preview\n\n%% agent-generated note %%',
             }],
           }],
         },

@@ -58,7 +58,7 @@ test('image size and alignment checkpoint, undo, reload and render in Read mode'
     await expect.poll(read).toContain('width="240"');
     await page.keyboard.press('ControlOrMeta+Shift+z');
     await expect.poll(read).toContain('width="304"');
-    await expect(page.getByRole('status').filter({ hasText: 'File checkpoint current' })).toBeVisible();
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     await page.reload();
     await expect(image).toHaveCSS('width', '304px', { timeout: 30_000 });
     await image.click();

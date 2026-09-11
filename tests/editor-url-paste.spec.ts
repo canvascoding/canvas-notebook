@@ -53,7 +53,7 @@ test('URL paste offers link, explicit preview and supported document embed witho
     await expect.poll(read, { timeout: 20_000 }).toContain('![Link preview: example.test]');
     await expect(editor.locator('a[href="https://example.test/link"]')).toHaveText('First');
     expect(await read()).toContain('Second slot\n\n[https://example.test/preview]');
-    await expect(page.getByRole('status').filter({ hasText: 'File checkpoint current' })).toBeVisible();
+    await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
     await editor.getByText('Embed slot', { exact: true }).click();
     await page.keyboard.press('ControlOrMeta+ArrowRight');
     await page.keyboard.press('Enter');

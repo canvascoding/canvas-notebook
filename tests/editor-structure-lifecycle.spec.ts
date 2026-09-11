@@ -64,7 +64,10 @@ test.describe('Block and document identity through browser lifecycles', () => {
         await page.mouse.up();
         await expect.poll(() => tree(page)).toEqual(afterDelete);
         await expect.poll(() => tree(peer)).toEqual(afterDelete);
-        await expect(page.getByTestId('markdown-save-state')).toContainText('File checkpoint current');
+        await expect.poll(async () => (await (await page.request.get('/api/files/read', {
+          headers, params: { path: filePath },
+        })).json()).data?.content, { timeout: 20_000 }).not.toContain(deleted === 'source' ? 'B source.' : 'C target.');
+        await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
         await page.reload({ waitUntil: 'domcontentloaded' });
         await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
         await expect.poll(() => tree(page)).toEqual(afterDelete);
