@@ -47,7 +47,7 @@ import {
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
-import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -531,10 +531,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       async () => {
         const state = await loadCollaborationState(input.documentId);
         const collaboration = input.requiresFileCheckpointIdentity
-          ? await getFileCollaborationState({
+          ? await readFileCollaborationState({
               workspace,
               path: input.documentPath,
-              ensureDocument: false,
             })
           : null;
         if (

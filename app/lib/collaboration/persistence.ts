@@ -666,6 +666,7 @@ export async function markCollaborationDegraded(
 }
 
 const TERMINAL_AGENT_OPERATION_STATUSES = [
+  'persisted_yjs',
   'checkpointed_file',
   'cancelled',
   'expired',
@@ -932,7 +933,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
     await database.run('BEGIN');
     const applying = await database.get(
       `SELECT COUNT(*) AS count FROM collaboration_agent_operations
-       WHERE document_id = $1 AND status IN ('applying', 'applied_to_ydoc', 'persisted_yjs')`,
+       WHERE document_id = $1 AND status IN ('applying', 'applied_to_ydoc')`,
       [state.documentId],
     ) as { count?: number | string } | undefined;
     if (Number(applying?.count || 0) > 0) {

@@ -323,7 +323,8 @@ export async function applyPersistedAgentTextSaga(input: {
         triggerDepth: 1,
         expectedCanonicalHash: document.expectedCanonicalHash,
       });
-      const fullyApplied = result.operationStatus === 'checkpointed_file';
+      const fullyApplied = ['persisted_yjs', 'checkpointed_file'].includes(result.operationStatus)
+        && ['persisted_yjs', 'checkpointed_file'].includes(result.durability);
       const mutated = result.appliedTargetIds.length > 0;
       appliedAny ||= mutated;
       await updateSagaDocument({
@@ -393,8 +394,8 @@ export async function compensateAgentTextSaga(input: {
         idempotencyKey: `saga-compensate:${saga.sagaId}:${document.documentId}:${input.idempotencyKey}`,
         requestedMode: 'direct_apply',
       });
-      const compensated = result.durability === 'checkpointed_file'
-        && ['checkpointed_file', 'reverted'].includes(result.operationStatus);
+      const compensated = ['persisted_yjs', 'checkpointed_file'].includes(result.durability)
+        && ['persisted_yjs', 'checkpointed_file', 'reverted'].includes(result.operationStatus);
       await updateSagaDocument({
         sagaId: saga.sagaId,
         documentId: document.documentId,

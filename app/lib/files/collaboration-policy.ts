@@ -10,6 +10,7 @@ import {
   ensureActiveFileLineage as ensurePostgresActiveFileLineage,
   ensureCollaborationDocument as ensurePostgresCollaborationDocument,
   expireFileLocksForPath as expirePostgresFileLocksForPath,
+  getActiveFileLineage as getPostgresActiveFileLineage,
   getActiveCollaborationDocument as getPostgresCollaborationDocument,
   getActiveFileLock as getPostgresActiveFileLock,
   getFileLockById as getPostgresFileLockById,
@@ -24,6 +25,7 @@ import {
   updateCollaborationDocumentCheckpoint as updatePostgresCollaborationDocumentCheckpoint,
   updateFileLockStatus as updatePostgresFileLockStatus,
   withFileCollaborationTransaction,
+  withFileCollaborationReadSnapshot,
   type FileCollaborationTransaction,
 } from '@/app/lib/files/collaboration-repository';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
@@ -300,6 +302,37 @@ export async function getFileCollaborationState(params: {
         : undefined,
       lineageId: lineage?.id,
       ensureDocument: params.ensureDocument,
+    });
+  });
+}
+
+/**
+ * Reads existing identity and revision metadata without delaying live editing
+ * behind a file projection. This snapshot grants no mutation authority: the
+ * eventual live apply or file write must recheck its current identity/fences.
+ */
+export async function readFileCollaborationState(params: {
+  workspace: WorkspaceContext;
+  path: string;
+  nowMs?: number;
+}): Promise<FileCollaborationState> {
+  const normalizedPath = normalizeWorkspacePath(params.path);
+  if (!params.workspace.workspaceId.trim() || !params.workspace.permissions.canRead
+    || (params.workspace.status !== undefined && params.workspace.status !== 'active')) {
+    throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
+  }
+  // Filesystem checks run before the read transaction and never create paths.
+  await assertWorkspacePathHasNoAliases(params.workspace, normalizedPath, { readOnly: true });
+  return withFileCollaborationReadSnapshot(async (transaction) => {
+    const lineage = await getPostgresActiveFileLineage(transaction, params.workspace.workspaceId, normalizedPath);
+    return buildPostgresState({
+      transaction,
+      workspace: params.workspace,
+      path: normalizedPath,
+      nowMs: params.nowMs ?? Date.now(),
+      lineageId: lineage?.id,
+      latestRevision: lineage ? await getPostgresLatestFileRevisionForLineage(transaction, lineage.id) : undefined,
+      ensureDocument: false,
     });
   });
 }

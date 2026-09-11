@@ -100,7 +100,7 @@ export async function archivePersistedCollaborationStatePathScopes(
           AND (path = $3 OR left(path, char_length($3) + 1) = $3 || '/')
       )
         AND status NOT IN (
-          'checkpointed_file', 'cancelled', 'expired', 'superseded',
+          'persisted_yjs', 'checkpointed_file', 'cancelled', 'expired', 'superseded',
           'failed', 'rejected', 'reverted'
         )
     `, [params.nowMs, params.workspaceId, filePath]);

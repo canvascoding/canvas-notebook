@@ -14,7 +14,6 @@ const VISIBLE_OPERATION_STATUSES = new Set<CollaborationAgentOperation['operatio
   'ready',
   'applying',
   'applied_to_ydoc',
-  'persisted_yjs',
   'partially_applied',
   'needs_review',
   'semantic_conflict',

@@ -17,6 +17,7 @@ import {
   createRichAgentTextTargets,
   createRichMarkdownReviewTarget,
   type AgentTextTarget,
+  type AgentFileEditRequestReceipt,
   type PersistedAgentApplyResult,
 } from './agent-operations';
 import { readCurrentCollaborationDocument } from './document-access';
@@ -280,6 +281,7 @@ export async function executePreparedCollaborationTextEdit(input: {
   workspace: WorkspaceContext;
   identity: CollaborationAgentIdentity;
   idempotencyKey?: string;
+  fileEditRequest?: AgentFileEditRequestReceipt;
 }): Promise<PersistedAgentApplyResult> {
   return applyPersistedAgentTextOperation({
     documentId: input.prepared.documentId,
@@ -299,5 +301,6 @@ export async function executePreparedCollaborationTextEdit(input: {
     documentSchemaVersion: input.prepared.schemaVersion,
     baseStateVector: input.prepared.stateVector,
     baseDocumentSequence: input.prepared.documentSequence,
+    fileEditRequest: input.fileEditRequest,
   });
 }

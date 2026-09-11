@@ -45,6 +45,27 @@ export async function withFileCollaborationTransaction<T>(
   }
 }
 
+/** Consistent metadata only: callers perform all filesystem work before entry. */
+export async function withFileCollaborationReadSnapshot<T>(
+  callback: (transaction: FileCollaborationTransaction) => Promise<T>,
+  openConnection: () => Promise<SqlConnection> = openRuntimeDatabaseConnection,
+): Promise<T> {
+  const connection = await openConnection();
+  let discardError: Error | undefined;
+  try {
+    await connection.run('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const result = await callback(connection);
+    await connection.run('COMMIT');
+    return result;
+  } catch (error) {
+    try { await connection.run('ROLLBACK'); }
+    catch (rollbackError) {
+      discardError = new Error('Discarding unresolved file metadata read transaction.', { cause: rollbackError });
+    }
+    throw error;
+  } finally { await connection.close(discardError); }
+}
+
 export async function lockFileCollaborationPaths(
   transaction: FileCollaborationTransaction,
   workspaceId: string,

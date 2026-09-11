@@ -19,6 +19,7 @@ import {
   createRichAgentTextTargets,
   detectLateAgentSemanticConflicts,
   getAgentOperation,
+  findAgentFileEditOperation,
   listAgentOperations,
   recoverCollaborationAgentOperations,
   rejectAgentOperation,
@@ -59,6 +60,7 @@ import { analyzeMarkdownRichMode } from '../app/lib/markdown/rich-markdown-codec
 import {
   ensureFileRevisionForCurrentContent,
   getFileCollaborationState,
+  readFileCollaborationState,
 } from '../app/lib/files/collaboration-policy';
 import { runWithAgentExecutionContext, type AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 import { piTools } from '../app/lib/pi/core-tools';
@@ -188,6 +190,7 @@ async function persistUserMutation(
 }
 
 async function main(): Promise<void> {
+await fs.mkdir(workspace.rootPath, { recursive: true });
 await ensureCollaborationState({
   documentId,
   workspaceId,
@@ -198,6 +201,9 @@ await ensureCollaborationState({
 });
 
 const activeDocuments = new Map<string, Y.Doc>();
+const deferredAgentPersistence = new Set<string>();
+const deferredAgentProjection = new Set<string>();
+let beforeAgentApply: (() => Promise<void>) | null = null;
 const directConnectionInputs: Array<{ operationId: string; actorSessionId?: string }> = [];
 const uninstallDocumentReader = installCollaborationDocumentReader(async (targetDocumentId, targetWorkspaceId, read) => {
   const state = await loadCollaborationState(targetDocumentId);
@@ -227,13 +233,16 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
   const doc = activeDocument || new Y.Doc({ gc: true });
   try {
     if (!activeDocument) Y.applyUpdate(doc, state.yjsState);
+    if (beforeAgentApply) await beforeAgentApply();
     const result = apply(doc);
     if (onApplied) await onApplied(result);
+    if (deferredAgentPersistence.has(input.documentId)) return result;
     const persisted = await persistCollaborationYDoc(
       input.documentId,
       state.lifecycleGeneration,
       doc,
     );
+    if (deferredAgentProjection.has(input.documentId)) return result;
     const canonical = state.representation === 'plain_text'
       ? doc.getText('content').toString()
       : richMarkdownFromYDoc(doc);
@@ -345,6 +354,10 @@ try {
       true,
       'a newer Yjs state persists while the older Markdown projection is still waiting on file I/O',
     );
+    assert.equal(await Promise.race([
+      readFileCollaborationState({ workspace, path: checkpointRacePersisted.path }).then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 2_000)),
+    ]), true, 'a live identity read does not wait for the projection workspace fence');
   } finally { releaseCheckpointMaterialization(); }
   const checkpointRaceConfirmed = await fencedCheckpoint;
   assert(checkpointRaceConfirmed);
@@ -359,6 +372,111 @@ try {
   );
   checkpointRaceDoc.destroy();
   checkpointRaceNextDoc.destroy();
+
+  // A pure deletion does not advance Yjs's vector. Only the saved snapshot's
+  // DeleteSet can acknowledge it, independently of the Markdown projection.
+  const deletionBase = await loadCollaborationState(checkpointRaceDocumentId);
+  assert(deletionBase);
+  const deletionDoc = new Y.Doc();
+  Y.applyUpdate(deletionDoc, deletionBase.yjsState);
+  activeDocuments.set(checkpointRaceDocumentId, deletionDoc);
+  deferredAgentPersistence.add(checkpointRaceDocumentId);
+  deferredAgentProjection.add(checkpointRaceDocumentId);
+  try {
+    const deletionInput = {
+      documentId: checkpointRaceDocumentId, workspace, initiatedByUserId: userId,
+      actorId: 'agent-b', actorDisplayName: 'Agent B', idempotencyKey: `binary-delete-${suffix}`,
+      runGeneration: 1, explicitUserRequest: true,
+      targets: [targetFor(deletionBase, 'Checkpoint', '')],
+      fileEditRequest: { fingerprint: createHash('sha256').update('delete Checkpoint').digest('hex'),
+        beforeSha256: createHash('sha256').update(deletionDoc.getText('content').toString()).digest('hex'),
+        proposedSha256: createHash('sha256').update(deletionDoc.getText('content').toString().replace('Checkpoint', '')).digest('hex') },
+    };
+    const uncertain = await applyPersistedAgentTextOperation(deletionInput);
+    assert.equal(uncertain.durability, 'applied_to_ydoc', 'an unchanged vector never falsely acknowledges a deletion');
+    assert.equal(uncertain.operationStatus, 'partially_applied');
+    assert.deepEqual(Y.encodeStateVector(deletionDoc), deletionBase.stateVector);
+    assert.equal((await loadCollaborationState(checkpointRaceDocumentId))?.documentSequence, deletionBase.documentSequence);
+    const currentText = deletionDoc.getText('content');
+    currentText.insert(currentText.length, ' human suffix');
+    const deletionPersisted = await persistCollaborationYDoc(checkpointRaceDocumentId, deletionBase.lifecycleGeneration, deletionDoc);
+    assert(deletionPersisted.checkpointSequence < deletionPersisted.documentSequence);
+    const resolved = await getAgentOperation({ operationId: uncertain.operationId, workspace, userId });
+    assert.equal(resolved?.durability, 'persisted_yjs');
+    assert.equal(resolved?.operationStatus, 'persisted_yjs');
+    assert.deepEqual(resolved?.conflicts, []);
+    const repeated = await applyPersistedAgentTextOperation(deletionInput);
+    assert.equal(repeated.operationId, uncertain.operationId);
+    assert.equal(repeated.operationStatus, 'persisted_yjs');
+    const retryLookup = { documentId: checkpointRaceDocumentId, workspace, userId, actorId: 'agent-b',
+      idempotencyKey: deletionInput.idempotencyKey, fingerprint: deletionInput.fileEditRequest.fingerprint };
+    const receipt = await findAgentFileEditOperation(retryLookup);
+    assert.equal(receipt?.operation.operationId, uncertain.operationId);
+    assert.deepEqual(receipt?.request, deletionInput.fileEditRequest);
+    await assert.rejects(findAgentFileEditOperation({ ...retryLookup, fingerprint: 'a'.repeat(64) }), /different or unverifiable/u);
+    await assert.rejects(findAgentFileEditOperation({ ...retryLookup, actorId: 'other-agent' }), /different agent execution/u);
+    await assert.rejects(findAgentFileEditOperation({ ...retryLookup, actorSessionId: 'other-session' }), /different agent execution/u);
+    assert.equal(currentText.toString(), ' sequence N persisted plus sequence N+1 human suffix');
+
+    // Crash after durable bytes but before the terminal operation update.
+    const recoveryDatabase = await openDb();
+    try {
+      await recoveryDatabase.run("UPDATE collaboration_agent_operations SET status='applied_to_ydoc' WHERE operation_id=$1", [uncertain.operationId]);
+    } finally { await recoveryDatabase.close(); }
+    await recoverCollaborationAgentOperations();
+    assert.equal((await getAgentOperation({ operationId: uncertain.operationId, workspace, userId }))?.operationStatus, 'persisted_yjs');
+
+    // Revert is available after binary persistence and preserves later text.
+    deferredAgentPersistence.delete(checkpointRaceDocumentId);
+    const reversed = await revertAgentOperation({ operationId: uncertain.operationId, workspace, userId, idempotencyKey: `binary-revert-${suffix}` });
+    assert.equal(reversed.operationStatus, 'reverted');
+    assert.equal(reversed.durability, 'persisted_yjs');
+    assert.equal(currentText.toString(), 'Checkpoint sequence N persisted plus sequence N+1 human suffix');
+
+    const partialBase = await loadCollaborationState(checkpointRaceDocumentId);
+    assert(partialBase);
+    const firstGroup = targetFor(partialBase, 'sequence N', 'sequence X', 'first-group');
+    const conflictedGroup = targetFor(partialBase, 'human suffix', 'agent suffix', 'second-group');
+    currentText.delete(currentText.length - 'human suffix'.length, 'human suffix'.length);
+    currentText.insert(currentText.length, 'human conflict');
+    await persistCollaborationYDoc(checkpointRaceDocumentId, deletionBase.lifecycleGeneration, deletionDoc);
+    deferredAgentPersistence.add(checkpointRaceDocumentId);
+    const partial = await applyPersistedAgentTextOperation({
+      documentId: checkpointRaceDocumentId, workspace, initiatedByUserId: userId,
+      actorId: 'agent-b', actorDisplayName: 'Agent B', idempotencyKey: `partial-delay-${suffix}`,
+      runGeneration: 1, explicitUserRequest: true, independentGroups: true, targets: [firstGroup, conflictedGroup],
+    });
+    assert(partial.conflicts.some((conflict) => conflict.code === 'target_changed'));
+    await persistCollaborationYDoc(checkpointRaceDocumentId, deletionBase.lifecycleGeneration, deletionDoc);
+    const resolvedPartial = await getAgentOperation({ operationId: partial.operationId, workspace, userId });
+    assert.equal(resolvedPartial?.operationStatus, 'partially_applied');
+    assert.equal(resolvedPartial?.durability, 'persisted_yjs');
+    assert(resolvedPartial?.conflicts.some((conflict) => conflict.code === 'target_changed'), 'late durability must not erase the un-applied group conflict');
+    assert.equal(resolvedPartial?.appliedTargetIds.length, 1);
+
+    // The old partial receipt must not certify an in-flight second attempt.
+    beforeAgentApply = async () => {
+      const applying = await getAgentOperation({ operationId: partial.operationId, workspace, userId });
+      assert.equal(applying?.operationStatus, 'applying');
+      assert.equal(applying?.durability, 'applied_to_ydoc');
+      throw new Error('Simulated interrupted second apply before its new receipt');
+    };
+    try {
+      const interrupted = await acceptAgentOperation({ operationId: partial.operationId, workspace, userId, idempotencyKey: `partial-retry-${suffix}` });
+      assert.equal(interrupted.durability, 'applied_to_ydoc');
+      assert(interrupted.conflicts.some((conflict) => conflict.code === 'target_changed'));
+    } finally { beforeAgentApply = null; }
+    await recoverCollaborationAgentOperations();
+    const recoveredPartial = await getAgentOperation({ operationId: partial.operationId, workspace, userId });
+    assert.equal(recoveredPartial?.operationStatus, 'needs_review');
+    assert.equal(recoveredPartial?.durability, 'applied_to_ydoc');
+
+  } finally {
+    deferredAgentPersistence.delete(checkpointRaceDocumentId);
+    deferredAgentProjection.delete(checkpointRaceDocumentId);
+    activeDocuments.delete(checkpointRaceDocumentId);
+    deletionDoc.destroy();
+  }
 
   let state = await loadCollaborationState(documentId);
   const betaTarget = targetFor(state, 'Beta', 'Beta by agent');
@@ -771,7 +889,7 @@ try {
   );
   assert.equal(
     (await getAgentOperation({ operationId: seenAgentEdit.operationId, workspace, userId }))?.operationStatus,
-    'checkpointed_file',
+    'persisted_yjs',
   );
 
   database = await openDb();
@@ -923,6 +1041,15 @@ try {
   assert.equal(directToolDetails.collaboration?.operationStatus, 'checkpointed_file');
   assert.equal(directToolDetails.collaboration?.durability, 'checkpointed_file');
   assert(directToolDetails.collaboration?.operationId);
+  const directToolRetry = await runPiTool('edit_file', `tool-direct-${suffix}`, {
+    path: toolPath, expectedSha256: liveHash, oldText: 'Live paragraph edited by user', newText: 'Live paragraph updated by agent',
+  });
+  assert.equal((directToolRetry.details as typeof directToolDetails).collaboration?.operationId, directToolDetails.collaboration.operationId);
+  assert.equal((directToolRetry.details as typeof directToolDetails).collaboration?.durability, 'checkpointed_file');
+  const changedToolRetry = await runPiTool('edit_file', `tool-direct-${suffix}`, {
+    path: toolPath, expectedSha256: liveHash, oldText: 'Live paragraph edited by user', newText: 'Unexpected replacement',
+  });
+  assert.match(String((changedToolRetry.details as { error?: string }).error), /different or unverifiable/u);
   const operationDatabase = await openDb();
   try {
     const operationRow = await operationDatabase.get(

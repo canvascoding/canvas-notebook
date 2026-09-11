@@ -1,6 +1,6 @@
 import { ExactTextPatchError } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
-import type { AgentFileChangeResult } from './agent-file-operations';
+import { AgentFileOperationOutcomeUnavailableError, type AgentFileChangeResult } from './agent-file-operations';
 
 export type AgentFileToolOperation = 'write' | 'edit_file' | 'apply_patch';
 
@@ -34,6 +34,7 @@ export type AgentFileToolError = {
   recommendedAction: 'read_then_retry' | 'inspect_error';
   safeToAutoRetry: false;
   error: string;
+  collaboration?: { operationId: string; operationStatus: string; durability: string };
 };
 
 export function asAgentFileToolSuccess(
@@ -64,6 +65,15 @@ export function asAgentFileToolError(
   fallbackPath?: string,
 ): AgentFileToolError {
   const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof AgentFileOperationOutcomeUnavailableError) {
+    return {
+      contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked', category: 'technical_error',
+      code: error.code, path: error.path, message, editIndex: null, expectedOccurrences: null, actualOccurrences: null,
+      matchMode: null, oldTextPreview: null, occurrenceLines: [], expectedSha256: null, currentSha256: null,
+      recommendedAction: 'inspect_error', safeToAutoRetry: false, error: message,
+      collaboration: { operationId: error.operationId, operationStatus: error.operationStatus, durability: error.durability },
+    };
+  }
   if (error instanceof WorkspaceFileRevisionError) {
     return {
       contractVersion: 1,

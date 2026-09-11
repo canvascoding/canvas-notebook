@@ -15,13 +15,17 @@ import {
   assertFileCollaborationWriteAllowed,
   ensureFileRevisionForCurrentContent,
   getFileCollaborationState,
+  readFileCollaborationState,
   initializeCopiedFileCollaborationPaths,
   moveFileCollaborationPath,
 } from '@/app/lib/files/collaboration-policy';
 import {
+  CollaborationDocumentStateError,
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
+import { loadCollaborationStateIncludingArchived } from '@/app/lib/collaboration/persistence';
+import { AgentFileEditOperationScopeError, findAgentFileEditOperation, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
 import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationTextEdit,
@@ -104,6 +108,22 @@ export type AgentFileChangeResult = {
     proposedSha256: string;
   };
 };
+
+/** An existing operation must be inspected instead of silently applying a new edit. */
+export class AgentFileOperationOutcomeUnavailableError extends Error {
+  readonly code = 'COLLABORATION_OPERATION_OUTCOME_UNAVAILABLE';
+  readonly operationId: string;
+  readonly operationStatus: string;
+  readonly durability: string;
+
+  constructor(readonly path: string, operation: Pick<PersistedAgentApplyResult, 'operationId' | 'operationStatus' | 'durability'>) {
+    super(`Live operation ${operation.operationId} is already recorded (${operation.operationStatus}, ${operation.durability}), but its current document outcome could not be confirmed. Inspect this operation before attempting another edit.`);
+    this.name = 'AgentFileOperationOutcomeUnavailableError';
+    this.operationId = operation.operationId;
+    this.operationStatus = operation.operationStatus;
+    this.durability = operation.durability;
+  }
+}
 
 export type AgentPathType = 'file' | 'directory' | 'other' | 'missing' | 'mixed';
 
@@ -554,7 +574,7 @@ function workspaceRelativeAgentPathIfWithin(workspace: WorkspaceContext, fullPat
     : null;
 }
 
-async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Buffer): Promise<{
+async function collaborativeAgentFileContext(fullPath: string, initialBuffer?: Buffer): Promise<{
   workspace: WorkspaceContext;
   executionContext: AgentExecutionContext;
   relativePath: string;
@@ -564,14 +584,34 @@ async function collaborativeAgentFileContext(fullPath: string, initialBuffer: Bu
   const executionContext = getAgentExecutionContext();
   if (!workspace || !executionContext || !isPathWithin(fullPath, workspace.rootPath)) return null;
   const relativePath = workspaceRelativeAgentPath(workspace, fullPath);
-  const initialContent = initialBuffer.toString('utf8');
-  const eligibility = await getFileCollaborationState({ workspace, path: relativePath });
+  const eligibility = await readFileCollaborationState({ workspace, path: relativePath });
   if (!eligibility.crdtCapable) return null;
+  await assertExistingAgentFile(fullPath, relativePath);
+  const document = eligibility.document;
+  if (document) {
+    const existing = await loadCollaborationStateIncludingArchived(document.id);
+    if (existing) {
+      if (existing.status !== 'active') {
+        throw new CollaborationDocumentStateError('The collaboration document lifecycle is archived or stale.', 'COLLABORATION_LIFECYCLE_STALE');
+      }
+      if (document.status !== 'active' || document.provider !== 'yjs'
+        || document.workspaceId !== workspace.workspaceId || document.path !== relativePath
+        || existing.workspaceId !== workspace.workspaceId || existing.path !== relativePath
+        || existing.organizationId !== (workspace.organizationId ?? null)) {
+        throw new CollaborationDocumentStateError('The persisted collaboration state does not match the active workspace file.', 'COLLABORATION_DOCUMENT_MISMATCH');
+      }
+      // The file is only a projection once Yjs exists. Reading its bytes or
+      // registering a revision here would make live tools depend on export.
+      return { workspace, executionContext, relativePath, documentId: document.id };
+    }
+  }
+  const sourceBuffer = initialBuffer ?? await fs.readFile(fullPath);
+  const initialContent = sourceBuffer.toString('utf8');
   await ensureFileRevisionForCurrentContent({
     workspace,
     path: relativePath,
-    contentHash: sha256Buffer(initialBuffer),
-    sizeBytes: initialBuffer.length,
+    contentHash: sha256Buffer(sourceBuffer),
+    sizeBytes: sourceBuffer.length,
     actorUserId: executionContext.userId,
     actorType: 'agent',
     sourceSessionId: executionContext.sessionId,
@@ -634,8 +674,8 @@ export async function readAgentCollaborativeTextFile(
   fullPath: string,
   initialBuffer?: Buffer,
 ): Promise<CollaborationTextSnapshot | null> {
-  const sourceBuffer = initialBuffer ?? await fs.readFile(fullPath);
-  const collaboration = await collaborativeAgentFileContext(fullPath, sourceBuffer);
+  await assertAgentPathAllowed(fullPath);
+  const collaboration = await collaborativeAgentFileContext(fullPath, initialBuffer);
   if (!collaboration) return null;
   return readCurrentCollaborationTextSnapshot({
     documentId: collaboration.documentId,
@@ -1108,6 +1148,14 @@ async function createSnapshotFromBuffer(params: {
   return metadata;
 }
 
+async function assertExistingAgentFile(fullPath: string, inputPath: string): Promise<void> {
+  const stats = await fs.stat(fullPath).catch((error: unknown) => {
+    if (isEnoent(error)) throw new Error(`File does not exist: ${inputPath}`);
+    throw error;
+  });
+  if (!stats.isFile()) throw new Error(`Path is not a file: ${inputPath}`);
+}
+
 async function readExistingFile(fullPath: string): Promise<{ existed: boolean; buffer: Buffer | null }> {
   try {
     return { existed: true, buffer: await fs.readFile(fullPath) };
@@ -1576,6 +1624,69 @@ export async function writeAgentBinaryFile(params: {
   });
 }
 
+function collaborativeFileRequestFingerprint(input: {
+  operation: 'edit_file' | 'apply_patch';
+  path: string;
+  expectedSha256: string | null;
+  edits: AgentPatchFileInput['edits'];
+}): string {
+  return sha256Text(JSON.stringify({
+    version: 1,
+    operation: input.operation,
+    path: input.path,
+    expectedSha256: input.expectedSha256,
+    edits: input.edits.map((edit) => ({ oldText: edit.oldText, newText: edit.newText,
+      expectedOccurrences: edit.expectedOccurrences ?? (edit.replaceAll ? null : 1), replaceAll: edit.replaceAll === true })),
+  }));
+}
+
+async function reusedCollaborativeFileEdit(input: {
+  inputPath: string;
+  fullPath: string;
+  collaboration: NonNullable<Awaited<ReturnType<typeof collaborativeAgentFileContext>>>;
+  idempotencyKey: string | undefined;
+  fingerprint: string;
+}): Promise<AgentFileChangeResult | null> {
+  if (!input.idempotencyKey) return null;
+  const { documentId, workspace, executionContext, relativePath } = input.collaboration;
+  let found: Awaited<ReturnType<typeof findAgentFileEditOperation>>;
+  try {
+    found = await findAgentFileEditOperation({ documentId, workspace, userId: executionContext.userId,
+      actorId: executionContext.agentId || DEFAULT_MANAGED_AGENT_ID, actorSessionId: executionContext.sessionId,
+      idempotencyKey: input.idempotencyKey, fingerprint: input.fingerprint });
+  } catch (error) {
+    if (error instanceof AgentFileEditOperationScopeError) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, error.operation);
+    throw error;
+  }
+  if (!found) return null;
+  const { operation, request } = found;
+  const persisted = operation.durability === 'persisted_yjs' || operation.durability === 'checkpointed_file';
+  const reviewRequired = operation.operationStatus === 'needs_review' || operation.operationStatus === 'partially_applied'
+    || operation.operationStatus === 'semantic_conflict';
+  if (!persisted && !reviewRequired) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
+  let current: CollaborationTextSnapshot;
+  try {
+    current = await readCurrentCollaborationTextSnapshot({ documentId, workspace });
+    if (current.documentId !== documentId || current.path !== relativePath || current.path !== found.identity.path
+      || current.representation !== found.identity.representation || current.lifecycleGeneration !== found.identity.lifecycleGeneration
+      || current.schemaVersion !== found.identity.schemaVersion) {
+      throw new Error('The document moved after the recorded operation was read.');
+    }
+  } catch {
+    throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
+  }
+  return {
+    path: input.inputPath, resolvedPath: input.fullPath,
+    changed: persisted && operation.appliedTargetIds.length > 0 && request.beforeSha256 !== request.proposedSha256,
+    snapshot: null, beforeSha256: request.beforeSha256, afterSha256: current.sha256,
+    size: Buffer.byteLength(current.content, 'utf8'),
+    diff: 'Existing collaboration operation returned. This retry did not prepare or apply another edit.',
+    validation: validateAgentFileContent(input.inputPath, current.content),
+    collaboration: { operationId: operation.operationId, operationStatus: operation.operationStatus,
+      durability: operation.durability, reviewRequired, proposedSha256: request.proposedSha256 },
+  };
+}
+
 async function applyPreparedCollaborativeFileEdit(input: {
   inputPath: string;
   fullPath: string;
@@ -1584,6 +1695,7 @@ async function applyPreparedCollaborativeFileEdit(input: {
   executionContext: AgentExecutionContext;
   idempotencyKey?: string;
   auditOperation: string;
+  fingerprint: string;
 }): Promise<AgentFileChangeResult> {
   const validation = validateAgentFileContent(input.inputPath, input.prepared.proposedContent);
   if (!validation.ok) {
@@ -1596,17 +1708,30 @@ async function applyPreparedCollaborativeFileEdit(input: {
     workspace: input.workspace,
     identity: collaborationAgentIdentity(input.executionContext),
     idempotencyKey: input.idempotencyKey,
+    fileEditRequest: { fingerprint: input.fingerprint, beforeSha256: input.prepared.sha256,
+      proposedSha256: input.prepared.proposedSha256 },
   });
-  const checkpointed = operation.durability === 'checkpointed_file';
-  const current = checkpointed
-    ? await readCurrentCollaborationTextSnapshot({
+  const persisted = operation.durability === 'persisted_yjs' || operation.durability === 'checkpointed_file';
+  let current: CollaborationTextSnapshot = input.prepared;
+  const reviewRequired = operation.operationStatus === 'needs_review'
+    || operation.operationStatus === 'partially_applied' || operation.operationStatus === 'semantic_conflict';
+  if (!persisted && !reviewRequired) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
+  if (persisted) {
+    try {
+      const snapshot = await readCurrentCollaborationTextSnapshot({
         documentId: input.prepared.documentId,
         workspace: input.workspace,
-      })
-    : input.prepared;
-  const reviewRequired = operation.operationStatus === 'needs_review'
-    || operation.operationStatus === 'partially_applied'
-    || operation.operationStatus === 'semantic_conflict';
+      });
+      if (snapshot.documentId !== input.prepared.documentId || snapshot.path !== input.prepared.path
+        || snapshot.lifecycleGeneration !== input.prepared.lifecycleGeneration || snapshot.representation !== input.prepared.representation
+        || snapshot.schemaVersion !== input.prepared.schemaVersion) {
+        throw new Error('The collaborative document changed identity after the operation completed.');
+      }
+      current = snapshot;
+    } catch {
+      throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
+    }
+  }
   const changed = input.prepared.content !== current.content;
   const result: AgentFileChangeResult = {
     path: input.inputPath,
@@ -1645,34 +1770,29 @@ export async function editAgentFile(params: {
   idempotencyKey?: string;
 }): Promise<AgentFileChangeResult> {
   const fullPath = resolveAgentPath(params.path);
-  await assertAgentPathAllowed(fullPath);
-  const before = await readExistingFile(fullPath);
-  if (!before.existed || !before.buffer) {
-    throw new Error(`File does not exist: ${params.path}`);
-  }
-
-  const beforeSha256 = sha256Buffer(before.buffer);
+  await assertAgentWritablePathAllowed(fullPath);
+  await assertExistingAgentFile(fullPath, params.path);
   const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
   assertAgentSharedWorkspaceRevision({
     operation: 'edit_file',
     path: params.path,
-    beforeExisted: before.existed,
+    beforeExisted: true,
     expectedSha256,
   });
 
-  const beforeContent = before.buffer.toString('utf8');
-  const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer);
+  const collaboration = await collaborativeAgentFileContext(fullPath);
   if (collaboration) {
+    const edits = [{ oldText: params.oldText, newText: params.newText,
+      expectedOccurrences: params.expectedOccurrences, replaceAll: params.replaceAll }];
+    const fingerprint = collaborativeFileRequestFingerprint({ operation: 'edit_file', path: collaboration.relativePath, expectedSha256, edits });
+    const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
+      idempotencyKey: params.idempotencyKey, fingerprint });
+    if (reused) return reused;
     const prepared = await prepareCollaborationTextEdit({
       documentId: collaboration.documentId,
       workspace: collaboration.workspace,
       path: collaboration.relativePath,
-      edits: [{
-        oldText: params.oldText,
-        newText: params.newText,
-        expectedOccurrences: params.expectedOccurrences,
-        replaceAll: params.replaceAll,
-      }],
+      edits,
       expectedSha256,
       groupId: 'edit_file',
     });
@@ -1684,9 +1804,14 @@ export async function editAgentFile(params: {
       executionContext: collaboration.executionContext,
       idempotencyKey: params.idempotencyKey || `edit-file:${randomUUID()}`,
       auditOperation: 'collaboration_edit_file',
+      fingerprint,
     });
   }
 
+  const before = await readExistingFile(fullPath);
+  if (!before.existed || !before.buffer) throw new Error(`File does not exist: ${params.path}`);
+  const beforeSha256 = sha256Buffer(before.buffer);
+  const beforeContent = before.buffer.toString('utf8');
   if (expectedSha256 && beforeSha256 !== expectedSha256) {
     throwAgentFileRevisionConflict({ operation: 'edit_file', path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
@@ -1720,6 +1845,10 @@ export async function applyAgentFilePatch(params: {
         nextContent: string;
       }
     | {
+        kind: 'recorded';
+        result: AgentFileChangeResult;
+      }
+    | {
         kind: 'collaboration';
         inputPath: string;
         fullPath: string;
@@ -1727,6 +1856,7 @@ export async function applyAgentFilePatch(params: {
         workspace: WorkspaceContext;
         executionContext: AgentExecutionContext;
         idempotencyKey: string;
+        fingerprint: string;
       }
   > = [];
 
@@ -1736,29 +1866,30 @@ export async function applyAgentFilePatch(params: {
     }
 
     const fullPath = resolveAgentPath(file.path);
-    await assertAgentPathAllowed(fullPath);
+    await assertAgentWritablePathAllowed(fullPath);
     const resolved = path.resolve(fullPath);
     if (seen.has(resolved)) {
       throw new Error(`Duplicate file in patch: ${file.path}`);
     }
     seen.add(resolved);
 
-    const before = await readExistingFile(fullPath);
-    if (!before.existed || !before.buffer) {
-      throw new Error(`File does not exist: ${file.path}`);
-    }
-
-    const beforeSha256 = sha256Buffer(before.buffer);
+    await assertExistingAgentFile(fullPath, file.path);
     const expectedSha256 = normalizeAgentExpectedSha256(file.expectedSha256);
     assertAgentSharedWorkspaceRevision({
       operation: 'patch',
       path: file.path,
-      beforeExisted: before.existed,
+      beforeExisted: true,
       expectedSha256,
     });
 
-    const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer);
+    const collaboration = await collaborativeAgentFileContext(fullPath);
     if (collaboration) {
+      const fingerprint = collaborativeFileRequestFingerprint({ operation: 'apply_patch', path: collaboration.relativePath,
+        expectedSha256, edits: file.edits });
+      const idempotencyKey = `${params.idempotencyKeyPrefix || `apply-patch:${randomUUID()}`}:${fileIndex}`;
+      const reused = await reusedCollaborativeFileEdit({ inputPath: file.path, fullPath, collaboration,
+        idempotencyKey: params.idempotencyKeyPrefix ? idempotencyKey : undefined, fingerprint });
+      if (reused) { prepared.push({ kind: 'recorded', result: reused }); continue; }
       const collaborationPrepared = await prepareCollaborationTextEdit({
         documentId: collaboration.documentId,
         workspace: collaboration.workspace,
@@ -1778,11 +1909,15 @@ export async function applyAgentFilePatch(params: {
         prepared: collaborationPrepared,
         workspace: collaboration.workspace,
         executionContext: collaboration.executionContext,
-        idempotencyKey: `${params.idempotencyKeyPrefix || `apply-patch:${randomUUID()}`}:${fileIndex}`,
+        idempotencyKey,
+        fingerprint,
       });
       continue;
     }
 
+    const before = await readExistingFile(fullPath);
+    if (!before.existed || !before.buffer) throw new Error(`File does not exist: ${file.path}`);
+    const beforeSha256 = sha256Buffer(before.buffer);
     if (expectedSha256 && beforeSha256 !== expectedSha256) {
       throwAgentFileRevisionConflict({ operation: 'apply_patch', path: file.path, expectedSha256, currentSha256: beforeSha256 });
     }
@@ -1803,7 +1938,9 @@ export async function applyAgentFilePatch(params: {
 
   const results: AgentFileChangeResult[] = [];
   for (const file of prepared) {
-    if (file.kind === 'collaboration') {
+    if (file.kind === 'recorded') {
+      results.push(file.result);
+    } else if (file.kind === 'collaboration') {
       results.push(await applyPreparedCollaborativeFileEdit({
         inputPath: file.inputPath,
         fullPath: file.fullPath,
@@ -1812,6 +1949,7 @@ export async function applyAgentFilePatch(params: {
         executionContext: file.executionContext,
         idempotencyKey: file.idempotencyKey,
         auditOperation: 'collaboration_apply_patch',
+        fingerprint: file.fingerprint,
       }));
     } else {
       // Preflight is intentionally separate from commit for multi-file patches.

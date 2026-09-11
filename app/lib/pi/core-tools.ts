@@ -185,9 +185,15 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: stats.size, type: 'pdf', error: 'pdf_too_large' },
           };
         }
-        const buffer = await fsPromises.readFile(fullPath);
+        const collaborativeScene = !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
+          ? await readAgentCollaborativeExcalidrawFile(fullPath) : null;
+        const collaborative = !isStoredOutput && !collaborativeScene && /\.(?:md|markdown|txt)$/iu.test(fullPath)
+          ? await readAgentCollaborativeTextFile(fullPath) : null;
+        const liveContent = collaborativeScene?.content ?? collaborative?.content;
+        const buffer = liveContent === undefined
+          ? await fsPromises.readFile(fullPath) : Buffer.from(liveContent, 'utf8');
         const sha256 = sha256Buffer(buffer);
-        const image = await imageContentForBuffer(fullPath, buffer);
+        const image = liveContent === undefined ? await imageContentForBuffer(fullPath, buffer) : null;
         if (image) {
           return {
             content: [
@@ -215,7 +221,7 @@ export const piTools: AgentTool[] = [
             },
           };
         }
-        if (isPdfBuffer(filePath, buffer)) {
+        if (liveContent === undefined && isPdfBuffer(filePath, buffer)) {
           if (offset !== undefined) throw new Error('offset applies to text files; use pdfTextPages for PDFs.');
           const pdfResult = await extractPdfTextForRead(filePath, buffer, {
             maxChars: readTextLimit,
@@ -237,16 +243,12 @@ export const piTools: AgentTool[] = [
             },
           };
         }
-        if (bufferLooksBinary(buffer)) {
+        if (liveContent === undefined && bufferLooksBinary(buffer)) {
           return {
             content: [{ type: 'text', text: 'Error: Unsupported binary file. The read tool can return text files, images, and PDFs with extractable text.' }],
             details: { filePath, size: buffer.length, type: 'binary' },
           };
         }
-        const collaborativeScene = isStoredOutput ? null : await readAgentCollaborativeExcalidrawFile(fullPath);
-        const collaborative = isStoredOutput || collaborativeScene
-          ? null
-          : await readAgentCollaborativeTextFile(fullPath, buffer);
         const text = collaborativeScene?.content ?? collaborative?.content ?? buffer.toString('utf8');
         const textSha256 = collaborativeScene
           ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))

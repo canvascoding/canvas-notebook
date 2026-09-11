@@ -10,13 +10,15 @@ import {
   resolveExactTextEditMatchCount,
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
-import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   AgentDirectConnectionAuthorizationError,
   runCollaborationDirectConnection,
 } from './direct-connection';
-import { loadCollaborationState } from './persistence';
+import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
+import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
+import { logCollaborationDiagnostic } from './diagnostics';
 import {
   createRichMarkdownYDoc,
   replaceRichMarkdownInYDoc,
@@ -117,6 +119,12 @@ export interface AgentApplyResult {
 
 type AgentApplyExecutionResult = AgentApplyResult & { reverseTargets: AgentTextTarget[] };
 
+export type AgentFileEditRequestReceipt = {
+  fingerprint: string;
+  beforeSha256: string;
+  proposedSha256: string;
+};
+
 export interface PersistedAgentApplyResult extends AgentApplyResult {
   operationId: string;
   durability: 'pending' | 'applied_to_ydoc' | 'persisted_yjs' | 'checkpointed_file' | 'needs_review';
@@ -188,6 +196,8 @@ type AgentOperationRow = {
   base_state_vector: Buffer | Uint8Array;
   base_document_sequence: number;
   resulting_state_vector_hash: string | null;
+  resulting_state_snapshot: Buffer | Uint8Array | null;
+  file_edit_request_json: string | null;
   checkpoint_revision_id: string | null;
   result_json: string | null;
   cas_version: number;
@@ -208,6 +218,14 @@ type AgentOperationRow = {
 };
 
 class AgentOperationCancelledError extends Error {}
+
+/** A historical receipt is available, but cannot describe this document lifecycle. */
+export class AgentFileEditOperationScopeError extends Error {
+  constructor(readonly operation: PersistedAgentApplyResult) {
+    super('The previous agent operation belongs to a changed document lifecycle; inspect its operation ID.');
+    this.name = 'AgentFileEditOperationScopeError';
+  }
+}
 
 function hash(value: string | Uint8Array): string {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -843,7 +861,8 @@ function parseResult(row: AgentOperationRow): PersistedAgentApplyResult {
       conflicts: parsed.conflicts || [],
       stateVector: parsed.stateVector || Buffer.from(row.base_state_vector).toString('base64'),
       operationId: row.operation_id,
-      durability: parsed.durability || (row.status === 'checkpointed_file' || row.status === 'partially_applied' || row.status === 'reverted' ? 'checkpointed_file' : row.status === 'needs_review' ? 'needs_review' : 'pending'),
+      durability: parsed.durability || (row.status === 'checkpointed_file' ? 'checkpointed_file'
+        : row.status === 'persisted_yjs' ? 'persisted_yjs' : row.status === 'needs_review' ? 'needs_review' : 'pending'),
       operationStatus: row.status,
       casVersion: Number(row.cas_version),
     };
@@ -854,7 +873,8 @@ function parseResult(row: AgentOperationRow): PersistedAgentApplyResult {
     conflicts: [],
     stateVector: Buffer.from(row.base_state_vector).toString('base64'),
     operationId: row.operation_id,
-    durability: row.status === 'needs_review' ? 'needs_review' : 'pending',
+    durability: row.status === 'checkpointed_file' ? 'checkpointed_file'
+      : row.status === 'persisted_yjs' ? 'persisted_yjs' : row.status === 'needs_review' ? 'needs_review' : 'pending',
     operationStatus: row.status,
     casVersion: Number(row.cas_version),
   };
@@ -962,6 +982,7 @@ async function createOrLoadOperation(input: {
   documentSchemaVersion?: number;
   baseStateVector?: string;
   baseDocumentSequence?: number;
+  fileEditRequest?: AgentFileEditRequestReceipt;
 }): Promise<{ row: AgentOperationRow; created: boolean }> {
   const triggerDepth = input.triggerDepth || 0;
   if (!Number.isInteger(triggerDepth) || triggerDepth < 0 || triggerDepth > MAX_AGENT_TRIGGER_DEPTH) {
@@ -977,13 +998,23 @@ async function createOrLoadOperation(input: {
       throw new Error('Collaboration agent base state vector is invalid.');
     }
   }
+  if (input.fileEditRequest && ![input.fileEditRequest.fingerprint, input.fileEditRequest.beforeSha256,
+    input.fileEditRequest.proposedSha256].every((value) => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value))) {
+    throw new Error('Agent file edit request receipt is invalid.');
+  }
+  const fileEditRequestJson = input.fileEditRequest ? JSON.stringify({
+    fingerprint: input.fileEditRequest.fingerprint, beforeSha256: input.fileEditRequest.beforeSha256,
+    proposedSha256: input.fileEditRequest.proposedSha256,
+  }) : null;
   const payloadHash = operationPayloadHash(input);
   const existing = await input.database.get(
     'SELECT * FROM collaboration_agent_operations WHERE document_id = $1 AND initiated_by_user_id = $2 AND idempotency_key = $3 LIMIT 1',
     [input.documentId, input.initiatedByUserId, input.idempotencyKey],
   ) as AgentOperationRow | undefined;
   if (existing) {
-    if (existing.payload_hash !== payloadHash) throw new Error('Idempotency key was already used with a different agent payload.');
+    if (existing.payload_hash !== payloadHash || (existing.file_edit_request_json ?? null) !== fileEditRequestJson) {
+      throw new Error('Idempotency key was already used with a different agent payload.');
+    }
     return { row: existing, created: false };
   }
   if (input.correlationId && triggerDepth > 0) {
@@ -1016,8 +1047,8 @@ async function createOrLoadOperation(input: {
       supersedes_operation_id, idempotency_key, run_generation, payload_hash, operation_type,
       requested_mode, atomicity, operation_payload, status, base_state_vector,
       base_document_sequence, result_json, cas_version, expires_at, correlation_id,
-      causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'preparing', $21, $22, NULL, 0, $23, $24, $25, $26, $27, $28, $29)`,
+      causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at, file_edit_request_json
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'preparing', $21, $22, NULL, 0, $23, $24, $25, $26, $27, $28, $29, $30)`,
     [
       operationId,
       input.documentId,
@@ -1048,6 +1079,7 @@ async function createOrLoadOperation(input: {
       input.expectedCanonicalHash || null,
       now,
       now,
+      fileEditRequestJson,
     ],
   );
   const row = await readOperation(input.database, operationId);
@@ -1065,65 +1097,90 @@ function publicResult(row: AgentOperationRow, result: AgentApplyResult, durabili
   };
 }
 
-async function waitForDurableState(input: {
-  documentId: string;
-  expectedStateVector: string;
-  workspace: WorkspaceContext;
-  documentPath: string | null;
-}) {
+function stateConfirmsAgentOperation(row: AgentOperationRow, state: PersistedCollaborationState | null): state is PersistedCollaborationState {
+  return Boolean(state && !state.degraded && state.status === 'active'
+    && state.documentId === row.document_id && state.workspaceId === row.workspace_id
+    && state.organizationId === row.organization_id
+    && state.lifecycleGeneration === Number(row.document_lifecycle_generation)
+    && state.schemaVersion === Number(row.schema_version)
+    && (row.document_path === null || state.path === row.document_path)
+    && (row.document_representation === null || state.representation === row.document_representation)
+    && row.resulting_state_snapshot
+    && persistedUpdateIncludesAgentSnapshot(state.yjsState, row.resulting_state_snapshot, Y));
+}
+
+/** Optional compatibility detail. File projection never gates binary success. */
+async function confirmedAgentFileRevision(row: AgentOperationRow, state: PersistedCollaborationState, workspace: WorkspaceContext) {
+  if (state.checkpointSequence < state.documentSequence) return { checkpointed: false, revisionId: null };
+  if (!row.document_path) return { checkpointed: true, revisionId: null };
+  try {
+    const projection = await readFileCollaborationState({ workspace, path: row.document_path });
+    const document = projection.document;
+    if (document?.id === row.document_id && document.stateVersion === state.checkpointSequence
+      && document.snapshotRevisionId && projection.latestRevision?.id === document.snapshotRevisionId) {
+      return { checkpointed: true, revisionId: document.snapshotRevisionId };
+    }
+  } catch { /* The already confirmed live document does not depend on file reads. */ }
+  return { checkpointed: false, revisionId: null };
+}
+
+async function waitForDurableState(input: { row: AgentOperationRow; workspace: WorkspaceContext }) {
   const deadline = Date.now() + PERSISTENCE_CONFIRMATION_TIMEOUT_MS;
-  let diagnostics: Record<string, unknown> = { stateAvailable: false };
   do {
-    const state = await loadCollaborationState(input.documentId);
-    diagnostics = state
-      ? {
-          stateAvailable: true,
-          degraded: state.degraded,
-          stateVectorIncludesExpected: stateVectorIncludes(state.stateVector, input.expectedStateVector),
-          documentSequence: state.documentSequence,
-          checkpointSequence: state.checkpointSequence,
-          projectionRequired: Boolean(input.documentPath),
-        }
-      : { stateAvailable: false };
-    if (
-      state
-      && !state.degraded
-      && stateVectorIncludes(state.stateVector, input.expectedStateVector)
-      && state.checkpointSequence >= state.documentSequence
-    ) {
-      let checkpointRevisionId: string | null = null;
-      if (input.documentPath) {
-        const projection = await getFileCollaborationState({
-          workspace: input.workspace,
-          path: input.documentPath,
-          ensureDocument: false,
-        });
-        if (
-          !projection.document
-          || projection.document.id !== input.documentId
-          || projection.document.stateVersion !== state.checkpointSequence
-          || !projection.document.snapshotRevisionId
-          || projection.latestRevision?.id !== projection.document.snapshotRevisionId
-        ) {
-          diagnostics = {
-            ...diagnostics,
-            projectionDocumentId: projection.document?.id || null,
-            projectionStateVersion: projection.document?.stateVersion ?? null,
-            projectionSnapshotRevisionId: projection.document?.snapshotRevisionId || null,
-            projectionLatestRevisionId: projection.latestRevision?.id || null,
-          };
-          await new Promise((resolve) => setTimeout(resolve, 25));
-          continue;
-        }
-        checkpointRevisionId = projection.document.snapshotRevisionId;
-      }
-      return { state, checkpointRevisionId };
+    const state = await loadCollaborationState(input.row.document_id);
+    if (stateConfirmsAgentOperation(input.row, state)) {
+      return { state, ...await confirmedAgentFileRevision(input.row, state, input.workspace) };
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
   } while (Date.now() < deadline);
-  throw new Error(
-    `Agent update was not confirmed as a persisted Yjs state and file checkpoint in time (${JSON.stringify(diagnostics)}).`,
-  );
+  throw new Error('Agent update has no confirmed durable Yjs receipt yet; query its operation ID before retrying.');
+}
+
+async function confirmDurableAgentOperation(input: {
+  database: SqlConnection;
+  row: AgentOperationRow;
+  state: PersistedCollaborationState;
+  checkpointed?: boolean;
+  revisionId?: string | null;
+}): Promise<AgentOperationRow> {
+  const { row, state } = input;
+  const previous = parseResult(row);
+  const conflicts = previous.conflicts.filter((conflict) => !['persistence_degraded', 'restart_uncertain'].includes(conflict.code));
+  const semanticConflict = previous.status === 'semantic_conflict';
+  const durability = input.checkpointed ? 'checkpointed_file' : 'persisted_yjs';
+  const status: AgentOperationStatus = semanticConflict ? 'semantic_conflict'
+    : conflicts.length > 0 ? 'partially_applied'
+      : row.operation_type === 'revert' ? 'reverted' : durability;
+  const result: PersistedAgentApplyResult = {
+    ...previous, conflicts, durability, operationStatus: status,
+    status: semanticConflict ? 'semantic_conflict' : conflicts.length > 0 ? 'partially_applied' : 'applied_to_ydoc',
+  };
+  setAgentChangeWindowSequence(row.document_id, row.operation_id, state.documentSequence);
+  const confirmed = await transitionOperation({ database: input.database, row, expectedStatuses: [row.status], status,
+    fields: {
+      result_json: JSON.stringify(result),
+      persisted_at: Math.max(state.persistedAt, Number(row.applied_at || 0)),
+      applied_document_sequence: state.documentSequence,
+      checkpoint_revision_id: input.revisionId ?? null,
+      checkpointed_at: input.checkpointed ? Math.max(state.checkpointedAt || 0, state.persistedAt, Number(row.applied_at || 0)) : null,
+      error_code: semanticConflict ? 'collaboration_semantic_conflict' : conflicts.length > 0 ? 'partial_review_required' : null,
+    },
+  });
+  logCollaborationDiagnostic('debug', { event: 'agent_durable', operationId: row.operation_id,
+    documentId: row.document_id, workspaceId: row.workspace_id, generation: state.lifecycleGeneration,
+    documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence });
+  return confirmed;
+}
+
+/** A delayed binary commit is resolved by status lookup, never by replay. */
+async function reconcileAgentOperationDurability(database: SqlConnection, row: AgentOperationRow, workspace?: WorkspaceContext): Promise<AgentOperationRow> {
+  if (!row.resulting_state_snapshot || !row.result_json
+    || !(row.status === 'applied_to_ydoc' || (row.status === 'partially_applied' && row.error_code === 'persistence_degraded'))) return row;
+  const state = await loadCollaborationState(row.document_id);
+  if (!stateConfirmsAgentOperation(row, state)) return row;
+  const projection = workspace ? await confirmedAgentFileRevision(row, state, workspace) : { checkpointed: false, revisionId: null };
+  try { return await confirmDurableAgentOperation({ database, row, state, ...projection }); }
+  catch { return await readOperation(database, row.operation_id) || row; }
 }
 
 function validateOperationClone(
@@ -1225,7 +1282,10 @@ async function applyStoredOperation(input: {
     row,
     expectedStatuses: ['preparing', 'ready', 'needs_review', 'partially_applied'],
     status: 'applying',
-    fields: { error_code: null },
+    // A prior partial apply cannot certify this new attempt after a crash.
+    fields: { error_code: null, resulting_state_snapshot: null, resulting_state_vector_hash: null,
+      result_json: JSON.stringify({ ...priorResult, operationStatus: 'applying',
+        durability: priorResult.appliedTargetIds.length > 0 ? 'applied_to_ydoc' : 'pending' }) },
   });
 
   const initiator = await input.database.get(
@@ -1249,6 +1309,7 @@ async function applyStoredOperation(input: {
   });
 
   let execution: AgentApplyExecutionResult;
+  let resultingSnapshot: Uint8Array | null = null;
   const appliedExecution = { value: null as AgentApplyExecutionResult | null };
   const combinedFor = (result: AgentApplyExecutionResult) => {
     const changeWindow = recentAgentChangeWindows.get(row.document_id)?.get(row.operation_id);
@@ -1329,6 +1390,7 @@ async function applyStoredOperation(input: {
             ),
             origin,
           });
+      if (result.appliedTargetIds.length > 0) resultingSnapshot = captureAgentStateSnapshot(doc, Y);
       if (result.reverseTargets.length > 0) {
         registerAgentChangeWindow(row.document_id, row.operation_id, result.reverseTargets);
       }
@@ -1347,9 +1409,12 @@ async function applyStoredOperation(input: {
           result_json: JSON.stringify(appliedResult),
           reverse_payload: sealPayload(combined.combinedReverse),
           resulting_state_vector_hash: stateVectorHash(result.stateVector),
+          resulting_state_snapshot: resultingSnapshot ? Buffer.from(resultingSnapshot) : null,
           applied_at: Date.now(),
         },
       });
+      logCollaborationDiagnostic('debug', { event: 'agent_applied', operationId: row.operation_id,
+        documentId: row.document_id, workspaceId: row.workspace_id, generation: state.lifecycleGeneration });
     });
   } catch (error) {
     const fresh = await readOperation(input.database, row.operation_id) || row;
@@ -1378,13 +1443,16 @@ async function applyStoredOperation(input: {
     const combinedApplied = appliedExecution.value
       ? combinedFor(appliedExecution.value).combinedApplied
       : priorResult.appliedTargetIds;
-    const conflictCode = error instanceof AgentDirectConnectionAuthorizationError
+    const conflictCode: AgentApplyConflict['code'] = error instanceof AgentDirectConnectionAuthorizationError
       ? 'authorization_revoked'
       : 'persistence_degraded';
     const degradedResult = publicResult(fresh, {
       status: combinedApplied.length > 0 ? 'partially_applied' : 'needs_review',
       appliedTargetIds: combinedApplied,
-      conflicts: targets.map((target) => ({ targetId: target.targetId, groupId: target.groupId, code: conflictCode })),
+      conflicts: [
+        ...(appliedExecution.value ? combinedFor(appliedExecution.value).baseResult.conflicts : parseResult(fresh).conflicts),
+        ...targets.map((target) => ({ targetId: target.targetId, groupId: target.groupId, code: conflictCode })),
+      ],
       stateVector: appliedExecution.value?.stateVector || Buffer.from(state.stateVector).toString('base64'),
     }, combinedApplied.length > 0 ? 'applied_to_ydoc' : 'needs_review');
     const degraded = await transitionOperation({
@@ -1405,7 +1473,7 @@ async function applyStoredOperation(input: {
     });
   }
 
-  const { immediateSemanticConflicts, combinedApplied, baseResult } = combinedFor(execution);
+  const { combinedApplied, baseResult } = combinedFor(execution);
   if (execution.appliedTargetIds.length === 0) {
     const reviewStatus = combinedApplied.length > 0 ? 'partially_applied' : 'needs_review';
     const reviewResult = publicResult(row, {
@@ -1424,13 +1492,11 @@ async function applyStoredOperation(input: {
 
   let durable: Awaited<ReturnType<typeof waitForDurableState>>;
   try {
-    durable = await waitForDurableState({
-      documentId: row.document_id,
-      expectedStateVector: execution.stateVector,
-      workspace: input.workspace,
-      documentPath: row.document_path,
-    });
+    durable = await waitForDurableState({ row, workspace: input.workspace });
   } catch {
+    logCollaborationDiagnostic('warn', { event: 'agent_durability_unconfirmed', operationId: row.operation_id,
+      documentId: row.document_id, workspaceId: row.workspace_id, generation: state.lifecycleGeneration,
+      code: 'AGENT_DURABILITY_UNCONFIRMED' });
     const persistenceConflicts = allTargets.map((target) => ({
       targetId: target.targetId,
       groupId: target.groupId,
@@ -1439,7 +1505,7 @@ async function applyStoredOperation(input: {
     const degradedResult = publicResult(row, {
       ...baseResult,
       status: 'partially_applied',
-      conflicts: persistenceConflicts,
+      conflicts: [...baseResult.conflicts, ...persistenceConflicts],
     }, 'applied_to_ydoc');
     row = await transitionOperation({
       database: input.database,
@@ -1453,80 +1519,40 @@ async function applyStoredOperation(input: {
     });
     return { ...degradedResult, operationStatus: row.status, casVersion: Number(row.cas_version) };
   }
-  const durableState = durable.state;
-  const persistedResult = publicResult(row, baseResult, 'persisted_yjs');
-  setAgentChangeWindowSequence(row.document_id, row.operation_id, durableState.documentSequence);
-  const operationPersistedAt = Math.max(durableState.persistedAt, Number(row.applied_at || 0));
-  row = await transitionOperation({
-    database: input.database,
-    row,
-    expectedStatuses: ['applied_to_ydoc'],
-    status: 'persisted_yjs',
-    fields: {
-      result_json: JSON.stringify(persistedResult),
-      persisted_at: operationPersistedAt,
-      applied_document_sequence: durableState.documentSequence,
-      checkpoint_revision_id: durable.checkpointRevisionId,
-    },
-  });
-  const terminalStatus: AgentOperationStatus = immediateSemanticConflicts.length > 0
-    ? 'semantic_conflict'
-    : execution.conflicts.length > 0
-      ? 'partially_applied'
-      : row.operation_type === 'revert'
-        ? 'reverted'
-        : 'checkpointed_file';
-  const checkpointedResult = publicResult(row, {
-    ...baseResult,
-    status: immediateSemanticConflicts.length > 0
-      ? 'semantic_conflict'
-      : execution.conflicts.length > 0
-        ? 'partially_applied'
-        : 'applied_to_ydoc',
-  }, 'checkpointed_file');
-  const operationCheckpointedAt = Math.max(
-    durableState.checkpointedAt || Date.now(),
-    Number(row.persisted_at || operationPersistedAt),
-  );
-  row = await transitionOperation({
-    database: input.database,
-    row,
-    expectedStatuses: ['persisted_yjs'],
-    status: terminalStatus,
-    fields: {
-      result_json: JSON.stringify(checkpointedResult),
-      checkpointed_at: operationCheckpointedAt,
-      error_code: immediateSemanticConflicts.length > 0
-        ? 'collaboration_semantic_conflict'
-        : execution.conflicts.length > 0
-          ? 'partial_review_required'
-          : null,
-    },
-  });
+  // Re-read so a late semantic conflict is retained when durability completes.
+  row = await readOperation(input.database, row.operation_id) || row;
+  row = await confirmDurableAgentOperation({ database: input.database, row, ...durable });
+  const durableResult = parseResult(row);
 
-  await recordAuditEvent({
-    organizationId: input.workspace.organizationId,
-    workspaceId: input.workspace.workspaceId,
-    userId: row.initiated_by_user_id,
-    source: 'agent',
-    eventType: 'agent_action',
-    entityType: 'collaboration_document',
-    entityId: row.document_id,
-    action: row.operation_type === 'revert' ? 'collaboration.agent.revert' : 'collaboration.agent.apply',
-    status: execution.conflicts.length > 0 ? 'completed' : 'success',
-    summary: `Agent ${row.operation_type} applied ${execution.appliedTargetIds.length} collaboration target(s).`,
-    metadata: {
-      operationId: row.operation_id,
-      actorType: 'agent',
-      actorId: row.actor_id,
-      initiatedByUserId: row.initiated_by_user_id,
-      resultStatus: checkpointedResult.status,
-      correlationId: row.correlation_id,
-      causationId: row.causation_id,
-      triggerDepth: Number(row.trigger_depth),
-    },
-  });
-  return { ...checkpointedResult, operationStatus: row.status, casVersion: Number(row.cas_version) };
+  try {
+    await recordAuditEvent({
+      organizationId: input.workspace.organizationId,
+      workspaceId: input.workspace.workspaceId,
+      userId: row.initiated_by_user_id,
+      source: 'agent',
+      eventType: 'agent_action',
+      entityType: 'collaboration_document',
+      entityId: row.document_id,
+      action: row.operation_type === 'revert' ? 'collaboration.agent.revert' : 'collaboration.agent.apply',
+      status: execution.conflicts.length > 0 ? 'completed' : 'success',
+      summary: `Agent ${row.operation_type} applied ${execution.appliedTargetIds.length} collaboration target(s).`,
+      metadata: {
+        operationId: row.operation_id,
+        actorType: 'agent',
+        actorId: row.actor_id,
+        initiatedByUserId: row.initiated_by_user_id,
+        resultStatus: durableResult.status,
+        correlationId: row.correlation_id,
+        causationId: row.causation_id,
+        triggerDepth: Number(row.trigger_depth),
+      },
+    });
+  } catch {
+    logCollaborationDiagnostic('warn', { event: 'agent_audit_failed', operationId: row.operation_id,
+      documentId: row.document_id, workspaceId: row.workspace_id, code: 'AGENT_AUDIT_FAILED' });
+  }
+
+  return durableResult;
 }
 
 export async function applyPersistedAgentTextOperation(input: {
@@ -1555,6 +1581,7 @@ export async function applyPersistedAgentTextOperation(input: {
   documentSchemaVersion?: number;
   baseStateVector?: string;
   baseDocumentSequence?: number;
+  fileEditRequest?: AgentFileEditRequestReceipt;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   return serialized(input.documentId, async (queue) => {
@@ -1593,8 +1620,9 @@ export async function applyPersistedAgentTextOperation(input: {
         documentSchemaVersion: input.documentSchemaVersion,
         baseStateVector: input.baseStateVector,
         baseDocumentSequence: input.baseDocumentSequence,
+        fileEditRequest: input.fileEditRequest,
       });
-      if (!created.created) return parseResult(created.row);
+      if (!created.created) return parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace));
       if (mustReview) {
         const state = await loadCollaborationState(input.documentId);
         const reviewResult = publicResult(created.row, {
@@ -1772,8 +1800,9 @@ export async function getAgentOperation(input: {
 }): Promise<AgentOperationView | null> {
   const database = await openDb();
   try {
-    const row = await readOperation(database, input.operationId);
+    let row = await readOperation(database, input.operationId);
     if (!row || !canViewOperation(row, input.workspace)) return null;
+    row = await reconcileAgentOperationDurability(database, row, input.workspace);
     return toOperationView(
       row,
       await reviewTargets(row),
@@ -1783,6 +1812,48 @@ export async function getAgentOperation(input: {
   } finally {
     await database.close();
   }
+}
+
+/** Resolve a delivery retry before its oldText is matched against changed content. */
+export async function findAgentFileEditOperation(input: {
+  documentId: string;
+  workspace: WorkspaceContext;
+  userId: string;
+  actorId: string;
+  actorSessionId?: string;
+  idempotencyKey: string;
+  fingerprint: string;
+}): Promise<{ operation: AgentOperationView; request: AgentFileEditRequestReceipt;
+  identity: { path: string; representation: TextCollaborationRepresentation; lifecycleGeneration: number; schemaVersion: number };
+} | null> {
+  if (!input.workspace.permissions.canRead || !input.workspace.permissions.canWrite) {
+    throw new Error('Current workspace read and write permission is required.');
+  }
+  const database = await openDb();
+  try {
+    let row = await database.get(`SELECT * FROM collaboration_agent_operations
+      WHERE document_id=$1 AND workspace_id=$2 AND initiated_by_user_id=$3 AND idempotency_key=$4`,
+    [input.documentId, input.workspace.workspaceId, input.userId, input.idempotencyKey]) as AgentOperationRow | undefined;
+    if (!row) return null;
+    if (row.actor_id !== input.actorId || (row.actor_session_id ?? null) !== (input.actorSessionId ?? null)) {
+      throw new Error('Idempotency key belongs to a different agent execution context.');
+    }
+    const request = row.file_edit_request_json ? JSON.parse(row.file_edit_request_json) as AgentFileEditRequestReceipt : null;
+    if (!request || request.fingerprint !== input.fingerprint) {
+      throw new Error('Idempotency key was already used with a different or unverifiable file edit request.');
+    }
+    const state = await loadCollaborationState(row.document_id);
+    if (!state || state.status !== 'active' || state.workspaceId !== row.workspace_id || state.organizationId !== row.organization_id
+      || state.lifecycleGeneration !== Number(row.document_lifecycle_generation) || state.schemaVersion !== Number(row.schema_version)
+      || (row.document_path !== null && row.document_path !== state.path)
+      || (row.document_representation !== null && row.document_representation !== state.representation)) {
+      throw new AgentFileEditOperationScopeError(parseResult(row));
+    }
+    row = await reconcileAgentOperationDurability(database, row, input.workspace);
+    return { operation: toOperationView(row, await reviewTargets(row), input.userId, canManageOperation(row, input.workspace, input.userId)), request,
+      identity: { path: row.document_path ?? state.path, representation: row.document_representation ?? state.representation,
+        lifecycleGeneration: Number(row.document_lifecycle_generation), schemaVersion: Number(row.schema_version) } };
+  } finally { await database.close(); }
 }
 
 export async function listAgentOperations(input: {
@@ -1807,12 +1878,10 @@ export async function listAgentOperations(input: {
         input.pendingOnly ? 1 : 0,
       ],
     ) as AgentOperationRow[];
-    return Promise.all(rows.map(async (row) => toOperationView(
-      row,
-      await reviewTargets(row),
-      input.userId,
-      canManageOperation(row, input.workspace, input.userId),
-    )));
+    return Promise.all(rows.map(async (stored) => {
+      const row = await reconcileAgentOperationDurability(database, stored, input.workspace);
+      return toOperationView(row, await reviewTargets(row), input.userId, canManageOperation(row, input.workspace, input.userId));
+    }));
   } finally {
     await database.close();
   }
@@ -2074,7 +2143,8 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
   try {
     const rows = await database.all(
       `SELECT * FROM collaboration_agent_operations
-       WHERE status IN ('preparing', 'ready', 'applying', 'cancel_requested', 'applied_to_ydoc', 'persisted_yjs')`,
+       WHERE status IN ('preparing', 'ready', 'applying', 'cancel_requested', 'applied_to_ydoc')
+         OR (status = 'partially_applied' AND error_code = 'persistence_degraded')`,
     ) as AgentOperationRow[];
     for (const row of rows) {
       if (row.status === 'cancel_requested') {
@@ -2088,38 +2158,24 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
         continue;
       }
       const state = await loadCollaborationState(row.document_id);
-      if (
-        row.resulting_state_vector_hash
-        && state
-        && (
-          stateVectorHash(state.stateVector) === row.resulting_state_vector_hash
-          || stateVectorIncludes(state.stateVector, parseResult(row).stateVector)
-        )
-      ) {
-        const status: AgentOperationStatus = state.checkpointSequence >= state.documentSequence ? 'checkpointed_file' : 'persisted_yjs';
-        await transitionOperation({
-          database,
-          row,
-          expectedStatuses: [row.status],
-          status,
-          fields: {
-            persisted_at: Math.max(state.persistedAt, Number(row.applied_at || 0)),
-            checkpointed_at: status === 'checkpointed_file'
-              ? Math.max(state.checkpointedAt || 0, state.persistedAt, Number(row.applied_at || 0))
-              : null,
-            applied_document_sequence: state.documentSequence,
-            error_code: null,
-          },
-        }).catch(() => undefined);
+      if (row.result_json && stateConfirmsAgentOperation(row, state)) {
+        await confirmDurableAgentOperation({ database, row, state }).catch(() => undefined);
         continue;
       }
+      // A legacy vector cannot certify a deletion. Uncertain applies remain
+      // reviewable with their existing operation ID; recovery never replays.
       const expired = row.expires_at !== null && Number(row.expires_at) <= now;
+      const uncertainResult = parseResult(row);
       await transitionOperation({
         database,
         row,
         expectedStatuses: [row.status],
         status: expired ? 'expired' : 'needs_review',
-        fields: { error_code: row.status === 'applying' ? 'restart_uncertain' : expired ? 'operation_expired' : 'restart_review_required' },
+        fields: {
+          result_json: JSON.stringify({ ...uncertainResult, operationStatus: expired ? 'expired' : 'needs_review',
+            status: 'needs_review', durability: uncertainResult.appliedTargetIds.length > 0 ? 'applied_to_ydoc' : 'pending' }),
+          error_code: ['applying', 'applied_to_ydoc', 'partially_applied'].includes(row.status) ? 'restart_uncertain' : expired ? 'operation_expired' : 'restart_review_required',
+        },
       }).catch(() => undefined);
     }
 

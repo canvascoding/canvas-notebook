@@ -33,11 +33,10 @@ const ACTIVE_STATUSES = new Set<OperationStatus>([
   'ready',
   'applying',
   'applied_to_ydoc',
-  'persisted_yjs',
   'cancel_requested',
 ]);
 const CANCELLABLE_STATUSES = new Set<OperationStatus>(['preparing', 'ready', 'applying', 'cancel_requested']);
-const REVERTIBLE_STATUSES = new Set<OperationStatus>(['checkpointed_file', 'partially_applied', 'semantic_conflict']);
+const REVERTIBLE_STATUSES = new Set<OperationStatus>(['persisted_yjs', 'checkpointed_file', 'partially_applied', 'semantic_conflict']);
 
 function operationAttribution(
   operation: AgentOperation,

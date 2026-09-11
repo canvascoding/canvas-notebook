@@ -1,6 +1,6 @@
 # Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
 
-Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–2 abgeschlossen, Schritte 3–7 offen.
+Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–2 abgeschlossen; Schritt 3 in Arbeit (Live-Dateizugriff, dauerhafter Agentenabschluss und Retry abgeschlossen; strukturierte Blocktools noch offen); Schritte 4–7 offen.
 
 Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
 
@@ -150,6 +150,16 @@ Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusä
 Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
 
 ## 9. Grundlagen und Grenze der Zusage
+
+### Umsetzungsnachweis Schritt 3, Teil A
+
+Agentenoperationen können mit `persisted_yjs` erfolgreich abschließen. Ein nur vom Server geschriebener Yjs-Snapshot-Beleg erfasst Clocks und DeleteSet ohne Dokumenttext. Bestätigung und Wiederherstellung prüfen seine Inklusion in den gespeicherten Binärzustand sowie Dokument-ID, Workspace, Organisation, Pfad, Generation, Schema und Repräsentation. Neuere unabhängige Änderungen sind erlaubt; ein unveränderter StateVector genügt bei einer Löschung nicht. Alte Operationen ohne neuen Beleg werden nach einem unklaren Absturz nicht allein anhand ihres Vektors bestätigt. Ein noch nicht bestätigter neuer Teilversuch übernimmt weder Beleg noch Gesamtdurability seines Vorgängers; fachliche Teilkonflikte bleiben nach späterer Sicherung erhalten.
+
+Bestehende Live-Dokumente werden durch die Read/Edit/Patch-Werkzeuge aus Yjs gelesen. Ihr Markdown-Inhalt und eine neue Dateirevision sind dafür nicht mehr erforderlich. Ein read-only Metadaten-Snapshot prüft die bestehende Identität, ohne an der Workspace-Sperre einer Dateiausgabe zu warten. Schreibrechte, Alias-/Pfadprüfung und Dateiexistenz bleiben erhalten; die erste Aufnahme eines Dokuments verwendet weiterhin die Datei. Ein Auftrag mit gleichem Tool-Schlüssel und gleicher Prüfsumme findet seinen vorhandenen Beleg vor einer erneuten Textsuche. Ein veränderter Auftrag unter demselben Schlüssel wird abgewiesen. Ein nachträglich nicht mehr lesbares oder gewechseltes Dokument liefert die Operations-ID mit `safeToAutoRetry: false`, keinen erfundenen aktuellen Hash.
+
+Sagas, Compensation, Compaction-/Migrations-/Archivregeln und die minimale Activity-/Revert-Darstellung behandeln bestätigtes Yjs als abgeschlossene Anwendung. Speichertexte/Toasts und die Freigaberegel werden erst in den folgenden Schritten vollständig geändert. Diagnoseeinträge enthalten Operations-/Dokument-IDs und technische Sequenzen, keine Texte oder Tokens.
+
+Nachweise: `test:collaboration:agent-durability` (11 Snapshot-, 11 Terminalstatus- und 33 Tool-Tests sowie read-only SQL-/Aliasprüfungen), bestehende Agenten-/Tool-/Fehlertests, TypeScript, ESLint und Diff-Prüfung bestanden. Reale PostgreSQL-Integration bestätigt reine Löschung ohne Dateiausgabe, absichtlich verspätete Sicherung, unabhängige Nutzeränderung, identischen Tool-Retry, Payload-/Actor-/Session-Ablehnung, gezielte Rücknahme, Restart-Recovery und teilweise angewendete Aufträge. Ein Metadaten-Read endet während absichtlich blockierter Dateiausgabe. Die eigene Testdatenbank wurde entfernt. Strukturierte Blockoperationen, genaue Vorschlagsfreigabe und die finale Browserabnahme bleiben offen.
 
 ### Umsetzungsnachweis Schritt 2
 

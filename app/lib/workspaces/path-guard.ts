@@ -68,13 +68,20 @@ export class WorkspacePathAliasError extends Error {
 }
 
 /**
- * Caller holds the workspace mutation lock. The configured root may itself be
- * a symlink; application paths beneath it must retain one filesystem identity.
+ * Mutating callers hold the workspace mutation lock. A read-only check is a
+ * point-in-time observation and never creates the root; a later mutation must
+ * check again under its fence. The configured root may itself be a symlink.
  * Missing suffixes are allowed for new documents and destination directories.
  */
-export async function assertWorkspacePathHasNoAliases(workspace: WorkspaceContext, userPath: string): Promise<void> {
+export async function assertWorkspacePathHasNoAliases(
+  workspace: WorkspaceContext,
+  userPath: string,
+  options: { readOnly?: boolean } = {},
+): Promise<void> {
   const { segments } = normalizeRelativeWorkspacePath(userPath);
-  let parent = await ensureWorkspaceRoot(workspace);
+  let parent = options.readOnly
+    ? await fs.realpath(resolveWorkspacePath(workspace, '.').absolutePath)
+    : await ensureWorkspaceRoot(workspace);
   for (const segment of segments) {
     const candidate = path.join(parent, segment);
     let stat: Awaited<ReturnType<typeof fs.lstat>>;
