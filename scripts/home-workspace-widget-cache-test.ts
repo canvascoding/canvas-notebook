@@ -54,6 +54,8 @@ async function main() {
   assert.doesNotMatch(routeSource, /widget:\s*'emails'/u, 'email must bypass the process-local Home cache');
   assert.match(routeSource, /loadHomeWidgetEmails\(access\.session\.user\.id/u);
   assert.match(routeSource, /services: \{ listAccounts: listEmailAccounts, listMessages: listEmailMessages \}/u);
+  assert.match(routeSource, /http:\/\/127\.0\.0\.1:\$\{process\.env\.PORT \|\| '3000'\}/u, 'widget API requests must use the container-local server port');
+  assert.doesNotMatch(routeSource, /new URL\(value, request\.nextUrl\.origin\)/u, 'widget API requests must not use the externally mapped browser port');
   assert.match(routeSource, /parseHomeWidgetSelection\(request\.nextUrl\.searchParams\.get\('widgets'\), HOME_WIDGET_NAMES\)/u);
   assert.match(routeSource, /selected\.has\('emails'\)/u);
   for (const widget of ['todos', 'automation', 'studio']) {

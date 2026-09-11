@@ -18,13 +18,20 @@ const TTL = {
   studio: 30_000,
 } as const;
 
+function internalAppOrigin(): string {
+  // This route runs inside the Node container. The request origin can contain
+  // the host-mapped browser port (for example, 3100), which is not available
+  // from inside the container. Match the custom server's internal PORT instead.
+  return `http://127.0.0.1:${process.env.PORT || '3000'}`;
+}
+
 function requestFetcher(request: NextRequest) {
   return (input: RequestInfo | URL, init?: RequestInit) => {
     const value = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
     const headers = new Headers(init?.headers);
     const cookie = request.headers.get('cookie');
     if (cookie) headers.set('cookie', cookie);
-    return fetch(new URL(value, request.nextUrl.origin), { ...init, headers });
+    return fetch(new URL(value, internalAppOrigin()), { ...init, headers });
   };
 }
 
