@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { requireAgentAccess } from '@/app/lib/agents/access';
@@ -349,6 +349,7 @@ export async function resolveAgentExecutionContextForStoredSession(input: {
       eq(piSessions.sessionId, input.sessionId),
       eq(piSessions.userId, input.userId),
       eq(piSessions.agentId, input.agentId),
+      isNull(piSessions.archivedAt),
     ),
   });
   if (!session) {

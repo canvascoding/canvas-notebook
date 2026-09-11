@@ -12,7 +12,7 @@ import { workspaceHeaders } from '@/app/lib/files/client';
 import { fileGuestApi } from '@/app/lib/file-guests/types';
 import { CollaborationCheckpointRequestError, isCollaborationCheckpointValidationErrorCode } from './checkpoint-errors';
 import { COLLABORATION_FAILURE_CODES, isCollaborationProjectionErrorCode } from './failure';
-import { prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
+import { hasExportedCollaborationRecovery, prepareRecoverableCollaborationTransition, preserveLocalCollaborationRecovery } from './local-recovery';
 import {
   createInitialTextCollaborationClientState,
   reduceTextCollaborationClientState,
@@ -60,6 +60,7 @@ type RegistryEntry = {
   clientState: TextCollaborationClientState;
   listeners: Set<() => void>;
   cleanupTimer?: ReturnType<typeof setTimeout>;
+  cleanupPromise?: Promise<void>;
   startPromise: Promise<void>;
   startProvider?: () => void;
   checkpointPromise?: Promise<void>;
@@ -106,20 +107,54 @@ export async function preserveCollaborationDocumentRecovery(document: Collaborat
   return snapshot;
 }
 
+function hasCurrentPersistedSnapshot(entry: RegistryEntry): boolean {
+  return (entry.clientState.durability === 'persisted_yjs' || entry.clientState.durability === 'checkpointed_file')
+    && entry.clientState.unsyncedChanges === 0
+    && isCollaborationStateProof(entry.clientState.persistedStateProof)
+    && entry.clientState.persistedStateProof === collaborationStateProof(entry.doc, Y);
+}
+
+/** Read the live registry, not a potentially stale React view snapshot. */
+export function hasCurrentPersistedCollaborationDocument(document: CollaborationDocument | null | undefined): boolean {
+  if (!document?.session) return false;
+  const entry = registry.get(document.registryKey);
+  return Boolean(entry && !entry.lifecycle.signal.aborted && entry.doc === document.doc
+    && entry.session?.documentId === document.session.documentId
+    && entry.session.lifecycleGeneration === document.session.lifecycleGeneration
+    && entry.session.representation === document.session.representation
+    && entry.session.permission === document.session.permission && hasCurrentPersistedSnapshot(entry));
+}
+
 export async function prepareCollaborationDocumentTransition(document: CollaborationDocument): Promise<void> {
   const entry = registry.get(document.registryKey);
   if (!entry || entry.doc !== document.doc) throw new Error('Collaboration is still connecting.');
+  const scope = entry.requests;
+  const assertCurrent = () => {
+    assertRequestActive(entry, scope);
+    if (!document.session || entry.session?.documentId !== document.session.documentId
+      || entry.session.lifecycleGeneration !== document.session.lifecycleGeneration
+      || entry.session.representation !== document.session.representation
+      || entry.session.permission !== document.session.permission) {
+      throw new Error('Collaboration document changed. Please retry.');
+    }
+  };
+  assertCurrent();
+  const backup: { snapshot?: Uint8Array } = {};
   await prepareRecoverableCollaborationTransition({
     doc: document.doc,
-    connection: entry.clientState.connection,
-    durability: entry.clientState.durability,
-    requestCheckpoint: entry.requestCheckpoint,
-    isCheckpointCurrent: () => entry.clientState.durability === 'checkpointed_file',
+    isPersistedCurrent: () => hasCurrentPersistedSnapshot(entry),
     preserveLocalSnapshot: async () => {
       if (!entry.persistence) throw new Error('Local collaboration storage is unavailable.');
-      await preserveLocalCollaborationRecovery(entry.persistence, document.doc);
+      backup.snapshot = await preserveLocalCollaborationRecovery(entry.persistence, document.doc);
     },
   });
+  assertCurrent();
+  if (hasCurrentPersistedSnapshot(entry) || hasExportedCollaborationRecovery(entry.doc)) return;
+  const current = Y.encodeStateAsUpdate(entry.doc);
+  if (!backup.snapshot || backup.snapshot.length !== current.length
+    || !backup.snapshot.every((byte, index) => byte === current[index])) {
+    throw new Error('The document changed while its local backup was being saved.');
+  }
 }
 
 function assertEntryActive(entry: RegistryEntry): void {
@@ -129,13 +164,42 @@ function assertEntryActive(entry: RegistryEntry): void {
 }
 
 function disposeEntry(entry: RegistryEntry): void {
-  if (entry.lifecycle.signal.aborted) return;
-  entry.lifecycle.abort();
-  entry.requests.abort();
-  entry.provider?.destroy();
-  void Promise.resolve(entry.persistence?.destroy()).catch(() => undefined);
-  entry.doc?.destroy();
-  if (registry.get(entry.key) === entry) registry.delete(entry.key);
+  if (entry.lifecycle.signal.aborted || entry.refs !== 0 || entry.cleanupPromise) return;
+  const cleanup = (async () => {
+    let localSnapshot: Uint8Array | null = null;
+    const state = Y.encodeStateAsUpdate(entry.doc);
+    const empty = state.length === 2 && state[0] === 0 && state[1] === 0;
+    if (!empty && !hasCurrentPersistedSnapshot(entry) && !hasExportedCollaborationRecovery(entry.doc)) {
+      // IndexedDB's destroy() closes its connection; it does not acknowledge an
+      // outstanding write. Keep the document alive until a full snapshot commits.
+      if (!entry.persistence?.synced) await entry.startPromise;
+      if (entry.refs !== 0 || entry.lifecycle.signal.aborted) return;
+      if (!entry.persistence) throw new Error('Local collaboration storage is unavailable.');
+      localSnapshot = await preserveLocalCollaborationRecovery(entry.persistence, entry.doc);
+    }
+    // A view may have reacquired this exact document while storage was pending.
+    if (entry.refs !== 0 || entry.lifecycle.signal.aborted) return;
+    if (localSnapshot && !hasCurrentPersistedSnapshot(entry)) {
+      const current = Y.encodeStateAsUpdate(entry.doc);
+      if (localSnapshot.length !== current.length || !localSnapshot.every((byte, index) => byte === current[index])) {
+        throw new Error('The local collaboration backup was superseded.');
+      }
+    }
+    entry.lifecycle.abort();
+    entry.requests.abort();
+    entry.provider?.destroy();
+    void Promise.resolve(entry.persistence?.destroy()).catch(() => undefined);
+    entry.doc.destroy();
+    if (registry.get(entry.key) === entry) registry.delete(entry.key);
+  })().catch(() => {
+    // A failed local commit must not discard the last surviving copy. Reopening
+    // the document reuses this registry entry; its next close retries the backup.
+    console.warn('[collaboration-client]', { event: 'document_retained', documentId: entry.session?.documentId,
+      generation: entry.session?.lifecycleGeneration, code: 'LOCAL_SNAPSHOT_UNCONFIRMED' });
+  }).finally(() => {
+    if (entry.cleanupPromise === cleanup) entry.cleanupPromise = undefined;
+  });
+  entry.cleanupPromise = cleanup;
 }
 
 function emit(entry: RegistryEntry): void {
@@ -271,11 +335,13 @@ async function refreshEntrySession(entry: RegistryEntry, scope: AbortController)
 
 /** A validated session may move the open document, never replace its Yjs state. */
 function adoptEntryLocation(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): void {
-  if (entry.path === path) return;
   const previous = entry.session;
   requireTextSession(session, previous?.representation as TextCollaborationRepresentation | undefined);
   if (!previous || session.documentId !== previous.documentId || session.lifecycleGeneration !== previous.lifecycleGeneration
     || session.documentName !== previous.documentName) throw new Error('Collaboration document identity changed.');
+  // Reusing the same open path must still observe a server permission downgrade.
+  // An old view snapshot can never restore write access after a denial.
+  if (entry.path === path && !(previous.permission === 'write' && session.permission === 'read')) return;
   entry.requests.abort();
   entry.requests = new AbortController();
   entry.checkpointPromise = undefined;
@@ -676,6 +742,28 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
   };
 }
 
+function takeRetainedEntry(key: string, workspaceId: string, session: CollaborationSessionResponse): RegistryEntry | undefined {
+  const entry = [...registry.values()].find((candidate) => {
+    const previous = candidate.session;
+    return candidate.refs === 0 && !candidate.lifecycle.signal.aborted && !candidate.doc.isDestroyed
+      && candidate.key.split('\0')[0] === workspaceId && previous
+      && previous.user.id === session.user.id
+      && (previous.guestAccess?.invitationId ?? null) === (session.guestAccess?.invitationId ?? null)
+      && (previous.guestAccess?.workspaceId ?? null) === (session.guestAccess?.workspaceId ?? null)
+      && previous.documentId === session.documentId && previous.documentName === session.documentName
+      && previous.lifecycleGeneration === session.lifecycleGeneration
+      && previous.schemaVersion === session.schemaVersion && previous.richTextSchemaVersion === session.richTextSchemaVersion
+      && previous.representation === session.representation;
+  });
+  if (!entry) return undefined;
+  // Only an ownerless lifetime may move to a new open-request key. In-flight
+  // cleanup checks refs again; old view handles no longer resolve this entry.
+  registry.delete(entry.key);
+  entry.key = key;
+  registry.set(key, entry);
+  return entry;
+}
+
 export function useCollaborationDocument(input: {
   enabled: boolean;
   workspaceId: string | null;
@@ -701,7 +789,8 @@ export function useCollaborationDocument(input: {
     if (!key || !input.path || !input.workspaceId) {
       return;
     }
-    let entry = registry.get(key);
+    let entry = registry.get(key) ?? (input.session
+      ? takeRetainedEntry(key, input.workspaceId, input.session) : undefined);
     if (!entry) {
       entry = createEntry(key, input.path, input.representation, input.workspaceId, input.session);
       registry.set(key, entry);

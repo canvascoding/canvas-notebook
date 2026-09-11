@@ -22,7 +22,7 @@ import {
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
-import { prepareCollaborationDocumentTransition, useTextCollaborationSession, useCollaborationDocument } from '@/app/lib/collaboration/client';
+import { hasCurrentPersistedCollaborationDocument, prepareCollaborationDocumentTransition, useTextCollaborationSession, useCollaborationDocument } from '@/app/lib/collaboration/client';
 import { useCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-client';
 import {
   CollaborationCheckpointRequestError,
@@ -904,7 +904,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     return registerDocumentTransitionGuard(currentFileWorkspaceId, currentFilePath, {
       localChangeVersion: () => officeEditorRef.current?.changeVersion(),
       hasPendingChanges: () => useEditorStore.getState().isDirty || Boolean(officeEditorRef.current?.hasChanges()) || Boolean(
-        isCrdtCollaboration && activeCollaborationDocument?.durability !== 'checkpointed_file',
+        isCrdtCollaboration && !hasCurrentPersistedCollaborationDocument(activeCollaborationDocument),
       ),
       prepare: async () => {
         if (activeExternalTextChangePath === currentFilePath) {

@@ -104,6 +104,7 @@ async function main() {
   const lastContext = { claims: { ...state, sessionId: 'session' }, workspace: {}, user: { id: 'user' }, actorType: 'user' };
   const storeInput = { documentName: 'doc', lastContext,
     document: { broadcastStateless: (payload: string) => emitted.push(JSON.parse(payload)) } };
+  await hooks.onLoadDocument({ documentName: 'doc', document: storeInput.document });
   documents.set('doc', storeInput.document);
   const lastFailure = () => collaborationFailure(emitted.at(-1)?.code);
   const store = async () => {

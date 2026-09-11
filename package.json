@@ -516,6 +516,8 @@
     "test:security:dependencies": "tsx scripts/security-dependencies-test.ts",
     "test:mcp:network": "tsx scripts/mcp-network-test.ts && tsx scripts/mcp-network-dns-test.ts",
     "test:editor:presentation": "tsx scripts/collaboration-editor-presentation-test.tsx && tsx scripts/guest-editor-status-test.tsx && tsx scripts/notebook-live-metadata-refresh-test.ts && tsx scripts/code-editor-collaboration-lifecycle-test.ts && npm run test:editor:revalidation && npm run test:editor:recovery-copy && npm run test:editor:startup-recovery && tsx scripts/markdown-live-native-update-test.tsx && tsx scripts/collaborative-source-lifecycle-test.tsx",
+    "test:collaboration:lifecycle": "tsx scripts/collaboration-document-lifecycle-test.tsx && tsx scripts/collaboration-client-rename-test.tsx && tsx scripts/collaboration-local-recovery-test.ts && tsx --conditions react-server scripts/collaboration-server-lifecycle-test.ts && tsx --conditions react-server scripts/collaboration-room-generation-test.ts && tsx scripts/pdf-viewer-lifecycle-test.tsx",
+    "test:collaboration:agent-capacity": "tsx scripts/collaboration-agent-database-capacity-test.ts && tsx --conditions react-server scripts/collaboration-agent-operation-pool-test.ts",
     "test:collaboration:agent-preview": "tsx --conditions react-server scripts/collaboration-agent-proposal-context-test.ts && tsx scripts/collaboration-agent-proposal-preview-client-test.tsx"
   },
   "dependencies": {
@@ -634,7 +636,7 @@
     "opensrc": "^0.7.3",
     "parse5": "8.0.1",
     "pdf-parse": "^2.4.5",
-    "pdfjs-dist": "^6.1.200",
+    "pdfjs-dist": "6.2.108",
     "pg": "^8.22.0",
     "pptxgenjs": "^4.0.1",
     "pptxviewjs": "^1.1.9",

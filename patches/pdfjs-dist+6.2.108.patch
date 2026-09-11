@@ -1,0 +1,46 @@
+diff --git a/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs b/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs
+--- a/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs
++++ b/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs
+@@ -11261,6 +11261,10 @@
+     });
+     var isFirefoxOrModernChromium, prevRange;
+     document.addEventListener("selectionchange", () => {
++      const firstTextLayer = this.#textLayers.values().next().value;
++      if (!firstTextLayer) {
++        return;
++      }
+       const selection = document.getSelection();
+       if (selection.rangeCount === 0) {
+         this.#textLayers.forEach(reset);
+@@ -11283,7 +11287,7 @@
+         }
+       }
+       if (isFirefoxOrModernChromium === undefined) {
+-        isFirefoxOrModernChromium = getComputedStyle(this.#textLayers.values().next().value).getPropertyValue("-moz-user-select") === "none";
++        isFirefoxOrModernChromium = getComputedStyle(firstTextLayer).getPropertyValue("-moz-user-select") === "none";
+         if (!isFirefoxOrModernChromium) {
+           const chromiumVersion = navigator.userAgentData ? navigator.userAgentData.brands.find(({
+             brand
+diff --git a/node_modules/pdfjs-dist/web/pdf_viewer.mjs b/node_modules/pdfjs-dist/web/pdf_viewer.mjs
+--- a/node_modules/pdfjs-dist/web/pdf_viewer.mjs
++++ b/node_modules/pdfjs-dist/web/pdf_viewer.mjs
+@@ -6178,6 +6178,10 @@
+     });
+     var isFirefoxOrModernChromium, prevRange;
+     document.addEventListener("selectionchange", () => {
++      const firstTextLayer = this.#textLayers.values().next().value;
++      if (!firstTextLayer) {
++        return;
++      }
+       const selection = document.getSelection();
+       if (selection.rangeCount === 0) {
+         this.#textLayers.forEach(reset);
+@@ -6200,7 +6204,7 @@
+         }
+       }
+       if (isFirefoxOrModernChromium === undefined) {
+-        isFirefoxOrModernChromium = getComputedStyle(this.#textLayers.values().next().value).getPropertyValue("-moz-user-select") === "none";
++        isFirefoxOrModernChromium = getComputedStyle(firstTextLayer).getPropertyValue("-moz-user-select") === "none";
+         if (!isFirefoxOrModernChromium) {
+           const chromiumVersion = navigator.userAgentData ? navigator.userAgentData.brands.find(({
+             brand

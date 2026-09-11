@@ -11,18 +11,15 @@ async function main() {
   doc.getText('content').insert(0, 'First\nMiddle\nLast');
   let saved = 0;
   const input = {
-    doc, connection: 'live', durability: 'degraded',
-    requestCheckpoint: async () => { throw new Error('Invalid checkpoint'); },
+    doc, isPersistedCurrent: () => false,
     preserveLocalSnapshot: async () => { saved += 1; },
   };
   await prepareRecoverableCollaborationTransition(input);
   assert.equal(saved, 1, 'a degraded checkpoint does not prevent a durable local exit');
-  await prepareRecoverableCollaborationTransition({ ...input, connection: 'offline' });
-  await prepareRecoverableCollaborationTransition({ ...input, durability: 'local_pending' });
-  assert.equal(saved, 3, 'offline and transient checkpoint failures preserve the current edit');
-  await prepareRecoverableCollaborationTransition({ ...input, durability: 'local_pending',
-    requestCheckpoint: async () => {}, isCheckpointCurrent: () => false });
-  assert.equal(saved, 4, 'a superseded successful checkpoint still requires a current local snapshot');
+  await prepareRecoverableCollaborationTransition({ ...input, isPersistedCurrent: () => true });
+  assert.equal(saved, 1, 'an exact binary confirmation needs no Markdown checkpoint or extra local backup');
+  await prepareRecoverableCollaborationTransition(input);
+  assert.equal(saved, 2, 'a changed document requires a current local snapshot');
   const failedStorage = { ...input, preserveLocalSnapshot: async () => { throw new Error('Quota exceeded'); } };
   await assert.rejects(prepareRecoverableCollaborationTransition(failedStorage), /Quota exceeded/);
   recordExportedCollaborationRecovery(doc, Y.encodeStateAsUpdate(doc));

@@ -1,3 +1,4 @@
+import { committedCollaborationTestDatabase } from './collaboration-client-test-storage';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -42,6 +43,8 @@ async function main() {
     destroy() {}
   }
   class FakePersistence {
+    synced = true;
+    db = committedCollaborationTestDatabase();
     whenSynced = Promise.resolve();
     constructor(_name: string, doc: Y.Doc) { Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed)); }
     destroy() {}

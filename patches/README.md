@@ -3,6 +3,18 @@
 `npm run postinstall` applies the versioned patches with `--error-on-fail`.
 Apply them to an isolated dependency installation when working in a worktree.
 
+## PDF.js 6.2.108
+
+`pdfjs-dist+6.2.108.patch` makes both distributed viewer modules ignore a
+selection callback after their last text layer has been removed. PDF.js otherwise
+passes `undefined` to `getComputedStyle` when a queued callback runs after closing
+the PDF and selecting text in another editor. The guard is local to PDF.js's
+selection handler; normal selection and unrelated browser errors are preserved.
+
+The dependency is pinned to the patch version. Recheck the guard when upgrading
+PDF.js. `scripts/pdf-viewer-lifecycle-test.tsx` exercises the installed handler
+and the application's delayed render/cancel/unmount boundaries without a browser.
+
 ## Yjs 13.6.31
 
 `yjs+13.6.31.patch` adds a `node` export condition ahead of the existing

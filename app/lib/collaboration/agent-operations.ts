@@ -52,6 +52,35 @@ const MAX_PENDING_AGENT_APPLIES_PER_DOCUMENT = 16;
 const AGENT_QUEUE_REVIEW_AFTER_MS = 1_000;
 const USER_REVERT_AUTHORITY = Symbol('trusted-user-selective-revert');
 
+/** Only independent operation-store statements may borrow a client per query. */
+function assertAgentOperationQuery(sql: string): void {
+  const code = sql.replace(/'(?:[^']|'')*'/gu, "''").replace(/"user"/gu, 'user').trim();
+  const calls = [...code.matchAll(/\b([a-z_][a-z_0-9]*)\s*\(/giu)].map((match) => match[1].toUpperCase());
+  if (!/^(?:SELECT\b|INSERT\s+INTO\b|UPDATE\b|DELETE\s+FROM\b)/iu.test(code)
+    || /;|--|\/\*|\*\/|"|\$(?!\d+\b)/u.test(code)
+    || /\b(?:FOR\s+(?:UPDATE|SHARE|NO\s+KEY\s+UPDATE|KEY\s+SHARE)|CURRENT_USER|SESSION_USER|CURRENT_ROLE|CURRENT_SCHEMA)\b/iu.test(code)
+    || (/^SELECT\b/iu.test(code) && /\bINTO\b/iu.test(code))
+    || calls.some((name) => !['COALESCE', 'IN', 'VALUES', 'AND', 'OR', 'NOT', 'COLLABORATION_AGENT_OPERATIONS'].includes(name))) {
+    throw new Error('Agent operation queries must be standalone statements without transaction or session state.');
+  }
+}
+
+/** CAS statements commit separately; no pool client survives a room/grant/durability wait. */
+function createAgentOperationDatabase(): SqlConnection {
+  const execute = async <T>(method: 'get' | 'run' | 'all', sql: string, params?: unknown[]): Promise<T> => {
+    assertAgentOperationQuery(sql);
+    const connection = await openDb();
+    try { return await connection[method](sql, params) as T; }
+    finally { await connection.close(); }
+  };
+  return {
+    get: (sql, params) => execute('get', sql, params),
+    run: (sql, params) => execute('run', sql, params),
+    all: (sql, params) => execute<unknown[]>('all', sql, params),
+    close() { /* Each statement has already released its own client. */ },
+  };
+}
+
 export type AgentBoundaryPolicy = 'exclude_external';
 export type AgentOperationStatus =
   | 'preparing'
@@ -1856,7 +1885,7 @@ export async function applyPersistedAgentTextOperation(input: {
     }
   }
   return serialized(input.documentId, async (queue) => {
-    const database = await openDb();
+    const database = createAgentOperationDatabase();
     try {
       const requestedMode = input.requestedMode ?? 'direct_apply';
       const backpressureReview = queue.waitMs >= AGENT_QUEUE_REVIEW_AFTER_MS || queue.depth > 4;
@@ -2114,7 +2143,7 @@ export async function getAgentOperation(input: {
   workspace: WorkspaceContext;
   userId: string;
 }): Promise<AgentOperationView | null> {
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   try {
     let row = await readOperation(database, input.operationId);
     if (!row || !canViewOperation(row, input.workspace)) return null;
@@ -2145,7 +2174,7 @@ export async function findAgentFileEditOperation(input: {
   if (!input.workspace.permissions.canRead || !input.workspace.permissions.canWrite) {
     throw new Error('Current workspace read and write permission is required.');
   }
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   try {
     let row = await database.get(`SELECT * FROM collaboration_agent_operations
       WHERE document_id=$1 AND workspace_id=$2 AND initiated_by_user_id=$3 AND idempotency_key=$4`,
@@ -2179,7 +2208,7 @@ export async function listAgentOperations(input: {
   pendingOnly?: boolean;
 }): Promise<AgentOperationView[]> {
   if (!input.workspace.permissions.canRead) return [];
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   try {
     const rows = await database.all(
       `SELECT operation.*, COALESCE(initiator.name, initiator.email, initiator.id) AS initiated_by_display_name
@@ -2245,7 +2274,7 @@ export async function acceptAgentOperation(input: {
   proposalVersion: string;
   actorDisplayName?: string;
 }): Promise<PersistedAgentApplyResult> {
-  const lookup = await openDb();
+  const lookup = createAgentOperationDatabase();
   let documentId: string;
   try {
     const row = await authorizedActionRow(lookup, input);
@@ -2254,7 +2283,7 @@ export async function acceptAgentOperation(input: {
     await lookup.close();
   }
   return serialized(documentId!, async () => {
-    const database = await openDb();
+    const database = createAgentOperationDatabase();
     try {
       const row = await authorizedActionRow(database, input);
       if (typeof input.proposalVersion !== 'string' || !/^v1\.[a-f0-9]{64}$/.test(input.proposalVersion)) {
@@ -2284,7 +2313,7 @@ export async function rejectAgentOperation(input: {
   userId: string;
   idempotencyKey: string;
 }): Promise<PersistedAgentApplyResult> {
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   try {
     let row = await authorizedActionRow(database, input);
     if (actionWasHandled(row, 'reject', input.idempotencyKey)) return parseResult(row);
@@ -2312,7 +2341,7 @@ export async function revertAgentOperation(input: {
   idempotencyKey: string;
   requestedMode?: 'direct_apply' | 'review';
 }): Promise<PersistedAgentApplyResult> {
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   let row: AgentOperationRow;
   try {
     row = await authorizedActionRow(database, input);
@@ -2349,7 +2378,7 @@ export async function cancelAgentOperation(input: {
   idempotencyKey: string;
 }): Promise<PersistedAgentApplyResult> {
   cancelRequests.add(input.operationId);
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   let row: AgentOperationRow;
   try {
     row = await authorizedActionRow(database, input);
@@ -2439,7 +2468,7 @@ export async function detectLateAgentSemanticConflicts(input: {
   if (memoryWindows.size === 0) recentAgentChangeWindows.delete(input.documentId);
   if (conflictedOperationIds.length === 0) return;
 
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   try {
     for (const operationId of conflictedOperationIds) {
       const window = memoryWindows.get(operationId);
@@ -2472,7 +2501,7 @@ export async function detectLateAgentSemanticConflicts(input: {
 
 /** Safe restart recovery never replays an uncertain authoritative apply. */
 export async function recoverCollaborationAgentOperations(now = Date.now()): Promise<void> {
-  const database = await openDb();
+  const database = createAgentOperationDatabase();
   try {
     const rows = await database.all(
       `SELECT * FROM collaboration_agent_operations

@@ -5,6 +5,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { resolveAgentExecutionContextForStoredSession } from '@/app/lib/pi/session-workspace-context';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { logCollaborationDiagnostic, type CollaborationDiagnostic } from './diagnostics';
+import { isAgentDatabaseCapacityError, withAgentDatabaseCapacity } from './agent-database-capacity';
 
 export const AGENT_DIRECT_EDIT_GRANT_TTL_MS = 30 * 60 * 1_000;
 
@@ -53,6 +54,15 @@ type OperationGrantInput = {
 function diagnose(data: CollaborationDiagnostic): void {
   try { logCollaborationDiagnostic(data.event === 'agent_direct_edit_grant_denied' ? 'warn' : 'info', data); } catch {
     // Observability must not turn an already committed permission change into a failed action.
+  }
+}
+
+async function withGrantDatabaseCapacity<T>(operation: () => Promise<T>): Promise<T> {
+  try { return await withAgentDatabaseCapacity(operation); } catch (error) {
+    if (isAgentDatabaseCapacityError(error)) {
+      diagnose({ event: 'agent_database_busy', code: error.code });
+    }
+    throw error;
   }
 }
 
@@ -124,37 +134,41 @@ async function ownedOperationScope(db: SqlConnection, input: OperationGrantInput
 }
 
 async function transaction<T>(action: (db: SqlConnection) => Promise<T>): Promise<T> {
-  const db = await openDb();
-  let discard: Error | undefined;
-  try {
-    await db.run('BEGIN');
-    const result = await action(db);
-    await db.run('COMMIT');
-    return result;
-  } catch (error) {
-    try { await db.run('ROLLBACK'); } catch (rollbackError) {
-      discard = rollbackError instanceof Error ? rollbackError : new Error('Grant rollback failed.');
+  return withGrantDatabaseCapacity(async () => {
+    const db = await openDb();
+    let discard: Error | undefined;
+    try {
+      await db.run('BEGIN');
+      const result = await action(db);
+      await db.run('COMMIT');
+      return result;
+    } catch (error) {
+      try { await db.run('ROLLBACK'); } catch (rollbackError) {
+        discard = rollbackError instanceof Error ? rollbackError : new Error('Grant rollback failed.');
+      }
+      throw error;
+    } finally {
+      await db.close(discard);
     }
-    throw error;
-  } finally {
-    await db.close(discard);
-  }
+  });
 }
 
 /** Read before queueing, then bind the returned id to that operation. This alone never authorizes apply. */
 export async function resolveAgentDirectEditGrant(scope: AgentDirectEditGrantScope): Promise<AgentDirectEditGrant | null> {
   if (!validScope(scope)) return null;
-  const db = await openDb();
-  try {
-    const row = await db.get(`SELECT * FROM collaboration_agent_direct_edit_grants
-      WHERE ${SCOPE_PREDICATE} AND revoked_at IS NULL`, scopeValues(scope)) as GrantRow | undefined;
-    if (!row || Number(row.expires_at) <= Date.now()) return null;
-    const sessionId = await currentSessionId(db, scope);
-    return sessionId !== null && sessionId === String(row.pi_session_db_id) && state(row, true).active
-      ? { id: row.grant_id, expiresAt: Number(row.expires_at) } : null;
-  } finally {
-    await db.close();
-  }
+  return withGrantDatabaseCapacity(async () => {
+    const db = await openDb();
+    try {
+      const row = await db.get(`SELECT * FROM collaboration_agent_direct_edit_grants
+        WHERE ${SCOPE_PREDICATE} AND revoked_at IS NULL`, scopeValues(scope)) as GrantRow | undefined;
+      if (!row || Number(row.expires_at) <= Date.now()) return null;
+      const sessionId = await currentSessionId(db, scope);
+      return sessionId !== null && sessionId === String(row.pi_session_db_id) && state(row, true).active
+        ? { id: row.grant_id, expiresAt: Number(row.expires_at) } : null;
+    } finally {
+      await db.close();
+    }
+  });
 }
 
 /**
@@ -192,17 +206,19 @@ export async function withAgentDirectEditGrant<T>(
 export async function getAgentDirectEditGrantForOperation(input: OperationGrantInput): Promise<{
   grant: AgentDirectEditGrantState | null; canGrant: boolean;
 }> {
-  const db = await openDb();
-  try {
-    const scope = await ownedOperationScope(db, input);
-    const sessionId = await currentSessionId(db, scope);
-    const row = await db.get(`SELECT * FROM collaboration_agent_direct_edit_grants
-      WHERE ${SCOPE_PREDICATE} ORDER BY CASE WHEN revoked_at IS NULL THEN 0 ELSE 1 END, created_at DESC, grant_id DESC LIMIT 1`, scopeValues(scope)) as GrantRow | undefined;
-    const canGrant = sessionId !== null && input.workspace.permissions.canWrite && input.workspace.permissions.canRunAgent;
-    return { canGrant, grant: row ? state(row, canGrant && sessionId === String(row.pi_session_db_id)) : null };
-  } finally {
-    await db.close();
-  }
+  return withGrantDatabaseCapacity(async () => {
+    const db = await openDb();
+    try {
+      const scope = await ownedOperationScope(db, input);
+      const sessionId = await currentSessionId(db, scope);
+      const row = await db.get(`SELECT * FROM collaboration_agent_direct_edit_grants
+        WHERE ${SCOPE_PREDICATE} ORDER BY CASE WHEN revoked_at IS NULL THEN 0 ELSE 1 END, created_at DESC, grant_id DESC LIMIT 1`, scopeValues(scope)) as GrantRow | undefined;
+      const canGrant = sessionId !== null && input.workspace.permissions.canWrite && input.workspace.permissions.canRunAgent;
+      return { canGrant, grant: row ? state(row, canGrant && sessionId === String(row.pi_session_db_id)) : null };
+    } finally {
+      await db.close();
+    }
+  });
 }
 
 /** An explicit user action changes a server-derived scope; it never approves the source proposal. */

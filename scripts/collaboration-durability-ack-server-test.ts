@@ -38,7 +38,7 @@ async function main() {
   const conflictInputs: Array<{ observedDocumentSequence: number | null; doc: Y.Doc }> = [];
   let hooks!: Record<string, (input: Record<string, unknown>) => Promise<void>>;
   class FakeHocuspocus {
-    documents = new Map();
+    documents = new Map([['doc', doc]]);
     constructor(options: typeof hooks) { hooks = options; }
   }
   const filename = path.resolve('server/collaboration-server.ts');
@@ -85,6 +85,7 @@ async function main() {
   }, { exports: server }, server);
   const httpServer = new EventEmitter();
   const wss = server.createCollaborationServer(httpServer as unknown as http.Server);
+  await hooks.onLoadDocument({ documentName: 'doc', document: doc });
   const ack = (sequence = 5, type = 'durability_ack') => ({
     type, documentId: claims.documentId, lifecycleGeneration: claims.lifecycleGeneration, sequence,
   });

@@ -1,3 +1,4 @@
+import { committedCollaborationTestDatabase } from './collaboration-client-test-storage';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -50,6 +51,8 @@ async function main() {
   const persistences: FakePersistence[] = [];
   let nextHydration: Promise<void> | undefined;
   class FakePersistence {
+    synced = true;
+    db = committedCollaborationTestDatabase();
     destroyed = false;
     whenSynced: Promise<void>;
     constructor(_name: string, doc: Y.Doc) {

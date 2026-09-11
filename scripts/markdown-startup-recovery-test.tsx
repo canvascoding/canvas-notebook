@@ -1,3 +1,4 @@
+import { committedCollaborationTestDatabase } from './collaboration-client-test-storage';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import Module, { createRequire } from 'node:module';
@@ -54,11 +55,13 @@ async function main() {
     destroy() { this.awareness.destroy(); }
   }
   class FakePersistence {
+    synced = false;
+    db = committedCollaborationTestDatabase();
     whenSynced: Promise<void>;
     constructor(_name: string, doc: Y.Doc) {
       if (failure === 'storage') throw new Error('Local storage construction failed');
       this.whenSynced = new Promise<void>((resolve, reject) => {
-        hydrations.push({ doc, finish: () => { Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed)); resolve(); },
+        hydrations.push({ doc, finish: () => { Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed)); this.synced = true; resolve(); },
           reject: () => reject(new Error('Local hydration failed')) });
       });
     }

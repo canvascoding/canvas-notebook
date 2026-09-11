@@ -33,7 +33,12 @@ export async function preserveLocalCollaborationRecovery(persistence: IndexeddbP
         clearTimeout(timeout);
         reject(transaction.error ?? new Error('Local collaboration backup failed.'));
       };
-      transaction.objectStore('updates').add(snapshot);
+      try { transaction.objectStore('updates').add(snapshot); }
+      catch (error) {
+        clearTimeout(timeout);
+        try { transaction.abort(); } catch { /* The transaction may already have aborted. */ }
+        reject(error);
+      }
     });
     if (doc.isDestroyed) throw new Error('Collaboration document was closed.');
     if (equalBytes(snapshot, encodeStateAsUpdate(doc))) return snapshot;
@@ -43,19 +48,10 @@ export async function preserveLocalCollaborationRecovery(persistence: IndexeddbP
 
 export async function prepareRecoverableCollaborationTransition(input: {
   doc: Doc;
-  connection: string;
-  durability: string;
-  requestCheckpoint: () => Promise<void>;
-  isCheckpointCurrent?: () => boolean;
+  isPersistedCurrent: () => boolean;
   preserveLocalSnapshot: () => Promise<void>;
 }): Promise<void> {
-  if (input.durability === 'checkpointed_file') return;
-  if (input.connection === 'live' && input.durability !== 'degraded') {
-    try {
-      await input.requestCheckpoint();
-      if (!input.isCheckpointCurrent || input.isCheckpointCurrent()) return;
-    } catch { /* Preserve the current edit locally below. */ }
-  }
-  if (hasExportedCollaborationRecovery(input.doc)) return;
+  // A view lifetime is independent of the asynchronous Markdown projection.
+  if (input.isPersistedCurrent() || hasExportedCollaborationRecovery(input.doc)) return;
   await input.preserveLocalSnapshot();
 }

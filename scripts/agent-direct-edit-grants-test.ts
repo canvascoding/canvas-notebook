@@ -468,3 +468,17 @@ test('API rejects a new grant after rights loss but permits revocation', async (
   assert.equal(response.status, 200);
   assert.equal((await response.json()).grant.active, false);
 });
+
+
+test('grant API reports bounded capacity exhaustion as retryable without exposing internals', async (t) => {
+  const h = await routeHarness(t);
+  h.service.getAgentDirectEditGrantForOperation = async () => {
+    // A shared admission queue can throw an Error created by another Next.js bundle.
+    throw Object.assign(new Error('private pool details'), { code: 'agent_database_busy' });
+  };
+  const response = await h.get();
+  assert.equal(response.status, 503);
+  assert.equal(response.headers.get('Retry-After'), '5');
+  assert.equal(response.headers.get('Cache-Control'), 'no-store');
+  assert.deepEqual(await response.json(), { success: false, code: 'agent_database_busy', error: 'Agent editing is busy. Please try again.' });
+});

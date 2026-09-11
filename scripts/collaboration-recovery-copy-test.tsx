@@ -1,3 +1,4 @@
+import { committedCollaborationTestDatabase } from './collaboration-client-test-storage';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import Module, { createRequire } from 'node:module';
@@ -36,6 +37,8 @@ async function main() {
 
   // The registry, recovery transaction, Yjs codec, component and stores are real.
   // Only transport and the IndexedDB transaction boundary are controlled here.
+  let finishing = false;
+  const cleanupDatabase = committedCollaborationTestDatabase();
   const backups: { snapshot: Uint8Array; commit: () => void; abort: () => void }[] = [];
   const committed: Uint8Array[] = [];
   let seed = new Y.Doc();
@@ -44,6 +47,7 @@ async function main() {
     synced = true;
     whenSynced = Promise.resolve();
     db = { transaction: (store: string, mode: string) => {
+      if (finishing) return cleanupDatabase.transaction(store, mode as IDBTransactionMode);
       assert.equal(store, 'updates'); assert.equal(mode, 'readwrite');
       const transaction = { error: new Error('Quota exceeded'), oncomplete: () => {}, onerror: () => {}, onabort: () => {},
         abort() { transaction.onabort(); },
@@ -253,6 +257,8 @@ async function main() {
     await assert.rejects(client.preserveCollaborationDocumentRecovery({ ...handle, session: { ...handle.session!, documentId: 'wrong' } }), /changed/u);
     console.log('Recovery copies require committed full snapshots, preserve deletion sets and block IDs, and fence stale UI/navigation/registry lifetimes.');
   } finally {
+    finishing = true;
+    for (const backup of backups) backup.commit();
     await act(async () => root.unmount());
     internals._load = originalLoad; globalThis.fetch = originalFetch;
     // Allow the real registry's final reference cleanup to release Yjs awareness timers.

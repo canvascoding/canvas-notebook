@@ -3,6 +3,7 @@ import type net from 'node:net';
 
 import { Hocuspocus, type Connection, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { WebSocketServer } from 'ws';
+import type { Doc as YDoc } from 'yjs';
 
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES } from '@/app/lib/collaboration/failure';
@@ -17,6 +18,7 @@ import { assertCollaborationDocumentAccess, resolveCollaborationSessionAccess, r
 import {
   AgentDirectConnectionAuthorizationError,
   installCollaborationDirectConnection,
+  type AgentDirectConnectionInput,
 } from '@/app/lib/collaboration/direct-connection';
 import {
   resolveAgentExecutionContextForStoredSession,
@@ -48,6 +50,7 @@ import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runti
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -178,11 +181,84 @@ function rejectCollaborationUpdate(connection: Connection<CollaborationContext>,
   throw new Error(message);
 }
 
+async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInput): Promise<WorkspaceContext> {
+  if ((input.actorType ?? 'agent') === 'agent') {
+    if (!input.actorSessionId) {
+      throw new AgentDirectConnectionAuthorizationError('Agent collaboration operations require their originating session.');
+    }
+    let executionContext: Awaited<ReturnType<typeof resolveAgentExecutionContextForStoredSession>>;
+    try {
+      executionContext = await resolveAgentExecutionContextForStoredSession({
+        sessionId: input.actorSessionId,
+        userId: input.initiatedByUserId,
+        agentId: input.actorId,
+        permissions: ['canRead', 'canRunAgent', 'canWrite'],
+      });
+    } catch {
+      throw new AgentDirectConnectionAuthorizationError('The agent session no longer has write access to this collaboration workspace.');
+    }
+    const workspace = workspaceFromAgentExecutionContext(executionContext);
+    if (workspace.workspaceId !== input.workspace.workspaceId) {
+      throw new AgentDirectConnectionAuthorizationError('The agent session no longer has access to this collaboration workspace.');
+    }
+    return workspace;
+  }
+  if (input.actorSessionId) {
+    const access = await resolveCollaborationSessionAccess({
+      schemaVersion: input.documentSchemaVersion, issuedAt: Date.now(), expiresAt: Date.now() + 60_000,
+      userId: input.initiatedByUserId, sessionId: input.actorSessionId, workspaceId: input.workspace.workspaceId,
+      organizationId: input.workspace.organizationId ?? null, documentId: input.documentId, path: input.documentPath,
+      provider: 'yjs', representation: input.documentRepresentation, permission: 'write',
+      lifecycleGeneration: input.documentLifecycleGeneration,
+    });
+    return access.workspace;
+  }
+  return input.workspace;
+}
+
+async function assertDirectConnectionDocument(input: AgentDirectConnectionInput, workspace: WorkspaceContext) {
+  const state = await loadCollaborationState(input.documentId);
+  const collaboration = input.requiresFileCheckpointIdentity
+    ? await readFileCollaborationState({ workspace, path: input.documentPath })
+    : null;
+  if (!state || state.status !== 'active'
+    || state.workspaceId !== workspace.workspaceId
+    || state.path !== input.documentPath
+    || state.representation !== input.documentRepresentation
+    || state.lifecycleGeneration !== input.documentLifecycleGeneration
+    || state.schemaVersion !== input.documentSchemaVersion
+    || (input.requiresFileCheckpointIdentity && (!collaboration?.document
+      || collaboration.document.id !== input.documentId
+      || collaboration.document.status !== 'active'
+      || collaboration.document.provider !== 'yjs'))) {
+    throw new AgentDirectConnectionAuthorizationError('Collaboration document identity, lifecycle, or representation is unavailable or stale.');
+  }
+  return state;
+}
+
 export function createCollaborationServer(server: http.Server): WebSocketServer {
+  type RoomIdentity = Pick<CollaborationTicketClaims,
+    'documentId' | 'workspaceId' | 'lifecycleGeneration' | 'representation' | 'schemaVersion'>;
+  // Hocuspocus caches by document ID, while restore/migration reuse that ID
+  // with a new generation. The room keeps the identity of the bytes it loaded.
+  const roomIdentities = new WeakMap<YDoc, RoomIdentity>();
+  const matchesRoomIdentity = (document: YDoc, expected: RoomIdentity) => {
+    const identity = roomIdentities.get(document);
+    return identity?.documentId === expected.documentId && identity.workspaceId === expected.workspaceId
+      && identity.lifecycleGeneration === expected.lifecycleGeneration
+      && identity.representation === expected.representation && identity.schemaVersion === expected.schemaVersion;
+  };
+  const assertRoomIdentity = (document: YDoc, expected: RoomIdentity) => {
+    if (!matchesRoomIdentity(document, expected)) {
+      hocuspocus.closeConnections(expected.documentId);
+      throw new AgentDirectConnectionAuthorizationError('The live collaboration room belongs to an earlier document generation. Reload the document.');
+    }
+  };
   const projections = createCollaborationProjectionRuntime({
     onProjected(result) {
       const room = hocuspocus.documents.get(result.state.documentId);
-      room?.broadcastStateless(JSON.stringify({
+      if (!room || !matchesRoomIdentity(room, result.state)) return;
+      room.broadcastStateless(JSON.stringify({
         ...durabilitySnapshotPayload(result.state),
         // Older clients must not infer that a newer binary state was exported.
         type: result.state.checkpointSequence >= result.state.documentSequence ? 'checkpointed' : 'durability_snapshot',
@@ -192,7 +268,8 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     },
     onFailure({ state, code, blocksEditing }) {
       const room = hocuspocus.documents.get(state.documentId);
-      room?.broadcastStateless(JSON.stringify({
+      if (!room || !matchesRoomIdentity(room, state)) return;
+      room.broadcastStateless(JSON.stringify({
         ...durabilitySnapshotPayload(state),
         type: blocksEditing ? 'degraded' : 'projection_failed', code,
         ...(blocksEditing ? { message: 'The document structure could not be validated.' } : {}),
@@ -269,6 +346,8 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         claims.documentId,
         async () => {
           await assertCollaborationDocumentAccess(claims, workspace);
+          const room = hocuspocus.documents.get(claims.documentId);
+          if (room) assertRoomIdentity(room, claims);
           return reserveCollaborationRoomAdmission(claims.documentId);
         },
       );
@@ -307,6 +386,8 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         || state.path !== context.claims.path
         || state.lifecycleGeneration !== context.claims.lifecycleGeneration
         || state.representation !== context.claims.representation
+        || state.schemaVersion !== context.claims.schemaVersion
+        || !matchesRoomIdentity(connection.document, context.claims)
       ) {
         connection.sendStateless(JSON.stringify({
           type: 'degraded',
@@ -318,16 +399,29 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       }
       connection.sendStateless(JSON.stringify(durabilitySnapshotPayload(state)));
     },
-    async onLoadDocument({ documentName }) {
+    async onLoadDocument({ documentName, document }) {
       const state = await loadCollaborationState(documentName);
       if (!state) throw new Error('Collaboration document was not initialized.');
+      roomIdentities.set(document, { documentId: state.documentId, workspaceId: state.workspaceId,
+        lifecycleGeneration: state.lifecycleGeneration, representation: state.representation, schemaVersion: state.schemaVersion });
       return state.yjsState;
+    },
+    async beforeUnloadDocument({ documentName, document }) {
+      if (hocuspocus.documents.get(documentName) !== document) {
+        logCollaborationDiagnostic('debug', { event: 'room_generation_rejected', documentId: documentName,
+          generation: roomIdentities.get(document)?.lifecycleGeneration, code: 'COLLABORATION_ROOM_REPLACED' });
+        // Hocuspocus catches a rejected beforeUnloadDocument hook and returns
+        // without deleting the map entry. No rejection escapes its timer callback.
+        // The private diagnostic above carries the reason, not a public error.
+        throw new Error();
+      }
     },
     async beforeHandleMessage({ update, connection }) {
       if (update.byteLength > MAX_UPDATE_BYTES) rejectCollaborationUpdate(connection, 'Diese Änderung überschreitet die Nachrichtengröße von 1 MiB. Lade eine lokale Kopie herunter und öffne die Datei erneut.');
       await accessMonitor.check(connection);
     },
     async beforeSync({ context, connection, document, type, payload }) {
+      assertRoomIdentity(document, context.claims);
       if (context.claims.guestInvitationId && context.claims.permission === 'write' && (type === 1 || type === 2)) {
         if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
         try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
@@ -440,6 +534,13 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       replaceDocumentPresence(context.claims.workspaceId, context.claims.documentId, []);
     },
     async onStoreDocument({ document, documentName, lastContext }) {
+      if (!matchesRoomIdentity(document, lastContext.claims)) {
+        logCollaborationDiagnostic('info', { event: 'room_generation_rejected', documentId: documentName,
+          workspaceId: lastContext.claims.workspaceId, generation: roomIdentities.get(document)?.lifecycleGeneration,
+          code: COLLABORATION_FAILURE_CODES.generationChanged });
+        hocuspocus.closeConnections(documentName);
+        return;
+      }
       const startedAt = performance.now();
       let state: Awaited<ReturnType<typeof persistCollaborationYDoc>>;
       try {
@@ -497,7 +598,10 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       throw new Error('Collaboration document is unavailable or stale.');
     }
     const activeDocument = hocuspocus.documents.get(documentId);
-    if (activeDocument) return read(activeDocument);
+    if (activeDocument) {
+      assertRoomIdentity(activeDocument, state);
+      return read(activeDocument);
+    }
 
     const doc = new Y.Doc({ gc: true });
     try {
@@ -513,62 +617,11 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   setCollaborationRuntimeHealth({ websocketReady: true, persistenceReady: true });
   installCollaborationDirectConnection(async (input, apply, onApplied) => {
     const actorType = input.actorType ?? 'agent';
-    let workspace = input.workspace;
-    if (actorType === 'agent') {
-      if (!input.actorSessionId) {
-        throw new AgentDirectConnectionAuthorizationError('Agent collaboration operations require their originating session.');
-      }
-      let executionContext: Awaited<ReturnType<typeof resolveAgentExecutionContextForStoredSession>>;
-      try {
-        executionContext = await resolveAgentExecutionContextForStoredSession({
-          sessionId: input.actorSessionId,
-          userId: input.initiatedByUserId,
-          agentId: input.actorId,
-          permissions: ['canRead', 'canRunAgent', 'canWrite'],
-        });
-      } catch {
-        throw new AgentDirectConnectionAuthorizationError('The agent session no longer has write access to this collaboration workspace.');
-      }
-      workspace = workspaceFromAgentExecutionContext(executionContext);
-      if (workspace.workspaceId !== input.workspace.workspaceId) {
-        throw new AgentDirectConnectionAuthorizationError('The agent session no longer has access to this collaboration workspace.');
-      }
-    } else if (input.actorSessionId) {
-      const access = await resolveCollaborationSessionAccess({
-        schemaVersion: input.documentSchemaVersion, issuedAt: Date.now(), expiresAt: Date.now() + 60_000,
-        userId: input.initiatedByUserId, sessionId: input.actorSessionId, workspaceId: workspace.workspaceId,
-        organizationId: workspace.organizationId ?? null, documentId: input.documentId, path: input.documentPath,
-        provider: 'yjs', representation: input.documentRepresentation, permission: 'write',
-        lifecycleGeneration: input.documentLifecycleGeneration,
-      });
-      workspace = access.workspace;
-    }
+    let workspace = await resolveDirectConnectionWorkspace(input);
     const { state, releaseRoomAdmission } = await withCollaborationRoomLifecycleLock(
       input.documentId,
       async () => {
-        const state = await loadCollaborationState(input.documentId);
-        const collaboration = input.requiresFileCheckpointIdentity
-          ? await readFileCollaborationState({
-              workspace,
-              path: input.documentPath,
-            })
-          : null;
-        if (
-          !state
-          || state.workspaceId !== workspace.workspaceId
-          || state.path !== input.documentPath
-          || state.representation !== input.documentRepresentation
-          || state.lifecycleGeneration !== input.documentLifecycleGeneration
-          || state.schemaVersion !== input.documentSchemaVersion
-          || (input.requiresFileCheckpointIdentity && (
-            !collaboration?.document
-            || collaboration.document.id !== input.documentId
-            || collaboration.document.status !== 'active'
-            || collaboration.document.provider !== 'yjs'
-          ))
-        ) {
-          throw new Error('Collaboration document identity, lifecycle, or representation is unavailable or stale.');
-        }
+        const state = await assertDirectConnectionDocument(input, workspace);
         return {
           state,
           releaseRoomAdmission: reserveCollaborationRoomAdmission(input.documentId),
@@ -613,9 +666,20 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     );
     let result: unknown;
     try {
-      await connection.transact((document) => { result = apply(document); });
-      if (onApplied) await onApplied(result as never);
-      await connection.disconnect({ unloadImmediately: true });
+      await withWorkspaceMutationLock(workspace.workspaceId, async () => {
+        // Opening a room and waiting for the workspace fence can both yield.
+        // Revalidate inside that fence; a rename/delete/restore must either
+        // precede this check or wait until this edit has persisted on disconnect.
+        await assertDirectConnectionDocument(input, workspace);
+        workspace = await resolveDirectConnectionWorkspace(input);
+        context.workspace = workspace;
+        await connection.transact((document) => {
+          assertRoomIdentity(document, context.claims);
+          result = apply(document);
+        });
+        if (onApplied) await onApplied(result as never);
+        await connection.disconnect({ unloadImmediately: true });
+      });
     } catch (error) {
       await connection.disconnect({ unloadImmediately: true }).catch(() => undefined);
       throw error;

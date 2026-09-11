@@ -1,3 +1,4 @@
+import { committedCollaborationTestDatabase } from './collaboration-client-test-storage';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -140,6 +141,8 @@ test('real client callbacks keep projection errors separate through delete proof
     destroy() { this.destroyed = true; }
   }
   class FakePersistence {
+    synced = true;
+    db = committedCollaborationTestDatabase();
     whenSynced = Promise.resolve();
     constructor(_name: string, doc: Y.Doc) { Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed)); }
     destroy() {}

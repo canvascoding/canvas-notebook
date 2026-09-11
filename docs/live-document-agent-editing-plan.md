@@ -1,6 +1,6 @@
 # Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
 
-Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–5 abgeschlossen; Schritte 6–7 offen.
+Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–6 implementiert und gezielt geprüft; integrierte Abnahme in Schritt 7 offen.
 
 Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
 
@@ -150,6 +150,20 @@ Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusä
 Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
 
 ## 9. Grundlagen und Grenze der Zusage
+
+### Umsetzungsnachweis Schritt 6: Dokumentwechsel, Generationen und PDF
+
+Der normale Ansichtswechsel wartet auf exakt bestätigtes Yjs oder einen vollständig abgeschlossenen lokalen IndexedDB-Snapshot. Er fordert keinen Markdown-Checkpoint mehr an. Auch der Browser-Schließschutz liest den aktuellen binären Nachweis einschließlich Löschungen; ein veralteter React-Zustand genügt nicht. Direkt vor dem Abschluss eines Übergangs bzw. der Freigabe eines Dokuments werden Standort, Berechtigung und der gesicherte Inhalt erneut geprüft.
+
+Ein fehlgeschlagener oder durch spätere Änderungen überholter lokaler Commit behält Dokument und Verbindung im Arbeitsspeicher. Beim Wiederöffnen mit neuer Ansichtskennung wird diese Kopie nur innerhalb derselben Benutzer-/Gast-, Workspace-, Dokument-, Generations- und Schemaidentität übernommen. Parallel geöffnete Ansichten bleiben eigenständig. Die Diagnose `document_retained` enthält Identität und Fehlercode, keine Inhalte oder Tokens. Ein erzwungener Browserprozess-Abbruch kann eine ausschließlich im Arbeitsspeicher verbliebene Kopie bei gleichzeitig defektem IndexedDB und fehlender Serverbestätigung weiterhin verlieren.
+
+Direkte Agentenverbindungen prüfen nach dem Öffnen und nach Wartezeiten erneut die aktuellen Rechte und Dokumentidentität unter derselben Workspace-Sperre wie Rename/Delete/Restore. Archivierte Agent-Sitzungen werden abgewiesen. Hocuspocus-Räume behalten die Generation ihrer tatsächlich geladenen Bytes. Ein alter Raum darf weder neue Generationen übernehmen noch durch einen verspäteten Aufräumvorgang einen neueren Raum entfernen. Paralleles Erstöffnen und normale Umbenennungen funktionieren weiterhin. Abgewiesene alte Raumzugriffe erhalten eine private Diagnose.
+
+Zusätzlich wurde eine Datenbankblockade reproduziert: zehn gleichzeitige Agenten-/Freigabeanfragen hielten alle zehn Poolverbindungen und warteten auf weitere. Der Operationsspeicher leiht jetzt nur für einzelne CAS-Abfragen eine Verbindung. Länger gehaltene Freigabesperren werden vor dem Verbindungsaufbau begrenzt; Widerruf und laufende Anwendung behalten ihre Sperrreihenfolge. Die gemeinsame begrenzte Warteschlange bewahrt Kapazität für Rechteprüfung und Persistenz. Überlast endet nachvollziehbar als wiederholbare Anfrage, ohne ausgeführte Änderungen zu wiederholen. Für diesen Sperrpfad benötigt ein abweichend konfigurierter PostgreSQL-Pool mindestens drei Verbindungen; der unveränderte Standard ist zehn.
+
+Der PDF-Wechsel wurde getrennt abgesichert: Späte Text-/Annotations-Renderabschlüsse dürfen nach dem Schließen keine Layer oder Auswahl-Listener zurücklassen. Das Schließen einer Seite entfernt keine Listener anderer sichtbarer Seiten. Der konkrete PDF.js-Auswahl-Handler prüft, ob überhaupt noch ein Textlayer existiert. PDF.js ist für den überprüften Patch exakt auf `6.2.108` gepinnt; andere `getComputedStyle`-Fehler bleiben sichtbar.
+
+Nachweise: tatsächliche React-/Yjs-Übergänge und Browser-Schließ-Callbacks unter JSDOM, echter installierter PDF.js-Handler, echte Hocuspocus-Raum-Lifecycles sowie PostgreSQL-18 mit echten Dateimutationen. Sechs PostgreSQL-Lifecycle-Szenarien prüfen verzögerte Projektion, Rename/Delete/Restore, Ersatzdateien, Generationen und archivierte Sitzungen. Ein weiterer Lauf bestätigt 20 parallele dauerhaft gesicherte Agentenänderungen und 40 gleichzeitige Status-/Freigabeabfragen mit vollständig freigegebenem Pool. Die dafür erzeugten Testdatenbanken wurden entfernt. Die bisherigen fehlerhaften Lease- und Raum-Lifecycles schlagen in den neuen Gegenproben fehl. Die gemeinsamen Gates `test:collaboration:lifecycle`, `test:collaboration:agent-capacity`, `test:collaboration:agent-approval`, `test:collaboration:agent-durability`, `test:collaboration:projection` und `test:editor:presentation` sowie TypeScript, ESLint und Diff-Prüfung bestehen. Die vollständige WebSocket-/Browser-/iOS- und Neustartabnahme bleibt Schritt 7.
 
 ### Umsetzungsnachweis Schritt 5: ruhige Oberfläche und verständliche Vorschläge
 

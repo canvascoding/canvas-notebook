@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { applyRateLimit } from '@/app/lib/api/route-helpers';
+import { isAgentDatabaseCapacityError } from '@/app/lib/collaboration/agent-database-capacity';
 import {
   AgentDirectEditGrantUnavailableError,
   getAgentDirectEditGrantForOperation,
@@ -11,6 +12,10 @@ import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 type RouteContext = { params: Promise<{ operationId: string }> };
 
 function failure(error: unknown) {
+  if (isAgentDatabaseCapacityError(error)) {
+    return NextResponse.json({ success: false, code: error.code, error: 'Agent editing is busy. Please try again.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '5' } });
+  }
   return NextResponse.json({ success: false,
     code: error instanceof AgentDirectEditGrantUnavailableError ? error.code : 'direct_edit_grant_failed',
     error: error instanceof AgentDirectEditGrantUnavailableError ? error.message : 'Could not update direct editing permission.',

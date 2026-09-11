@@ -50,8 +50,7 @@ async function main() {
       return registerDocumentTransitionGuard(workspaceId, path, {
         hasPendingChanges: () => true,
         prepare: () => prepareRecoverableCollaborationTransition({
-          doc: activeDoc, connection: 'live', durability: 'degraded',
-          requestCheckpoint: async () => { throw new Error('stable_id_duplicate'); },
+          doc: activeDoc, isPersistedCurrent: () => false,
           preserveLocalSnapshot: async () => {
             if (failStorage) throw new Error('Local storage unavailable. Download recovery state before closing.');
             await preserveLocalCollaborationRecovery(persistence, activeDoc);

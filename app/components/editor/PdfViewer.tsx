@@ -184,7 +184,7 @@ function PdfPageCanvas({
     let renderTask: RenderTask | null = null;
     let textLayer: InstanceType<PdfJsViewerModule['TextLayerBuilder']> | null = null;
     let annotationLayer: InstanceType<PdfJsViewerModule['AnnotationLayerBuilder']> | null = null;
-    const abortController = new AbortController();
+    const ownedLayers = new Set<HTMLDivElement>();
 
     async function renderPage() {
       const canvas = canvasRef.current;
@@ -222,18 +222,22 @@ function PdfPageCanvas({
         });
         setIsRendered(false);
 
-        textLayer = new viewer.TextLayerBuilder({
-          pdfPage: page,
-          abortSignal: abortController.signal,
-        });
+        // PDF.js shares selection listeners between pages. A page's abort signal
+        // must not terminate listeners still owned by another visible page.
+        const ownedTextLayer = textLayer = new viewer.TextLayerBuilder({ pdfPage: page });
+        ownedLayers.add(textLayer.div);
         layers.append(textLayer.div);
 
-        annotationLayer = new viewer.AnnotationLayerBuilder({
+        const ownedAnnotationLayer = annotationLayer = new viewer.AnnotationLayerBuilder({
           pdfPage: page,
           linkService,
           renderForms: false,
           enableScripting: false,
-          onAppend: (element: HTMLDivElement) => layers.append(element),
+          onAppend: (element: HTMLDivElement) => {
+            if (cancelled) return;
+            ownedLayers.add(element);
+            layers.append(element);
+          },
         });
 
         const textLayerPromise = textLayer.render({
@@ -243,12 +247,24 @@ function PdfPageCanvas({
           if (!cancelled) {
             console.error('[PdfViewer] Failed to render text layer:', layerError);
           }
+        }).finally(() => {
+          // render() can finish its await after cancel() and register selection
+          // listeners again. Revoke that late completion before the next event.
+          if (cancelled) {
+            ownedTextLayer.cancel();
+            ownedTextLayer.div.remove();
+          }
         });
         const annotationLayerPromise = annotationLayer.render({
           viewport: cssViewport,
         }).catch((layerError: unknown) => {
           if (!cancelled) {
             console.error('[PdfViewer] Failed to render annotation layer:', layerError);
+          }
+        }).finally(() => {
+          if (cancelled) {
+            ownedAnnotationLayer.cancel();
+            ownedAnnotationLayer.div?.remove();
           }
         });
 
@@ -258,11 +274,9 @@ function PdfPageCanvas({
           background: '#ffffff',
         });
 
-        await renderTask.promise;
-        if (!cancelled) {
-          setIsRendered(true);
-        }
-        await Promise.all([textLayerPromise, annotationLayerPromise]);
+        await Promise.all([renderTask.promise.then(() => {
+          if (!cancelled) setIsRendered(true);
+        }), textLayerPromise, annotationLayerPromise]);
       } catch (renderError) {
         if (!cancelled && !isRenderingCancelled(renderError)) {
           console.error('[PdfViewer] Failed to render page:', renderError);
@@ -279,10 +293,10 @@ function PdfPageCanvas({
 
     return () => {
       cancelled = true;
-      abortController.abort();
       renderTask?.cancel();
       textLayer?.cancel();
       annotationLayer?.cancel();
+      for (const layer of ownedLayers) layer.remove();
     };
   }, [containerWidth, isNearViewport, linkService, pageNumber, pdf, rotation, t, zoom]);
 
@@ -414,6 +428,16 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
     let loadingTask: PDFDocumentLoadingTask | null = null;
     let loadedPdf: PDFDocumentProxy | null = null;
     let loadedLinkService: PdfLinkService | null = null;
+    let destroying = false;
+    const destroyLoadingTask = () => {
+      if (!loadingTask || destroying) return;
+      destroying = true;
+      // The loading task owns the document and worker, including a document
+      // whose loading promise settles after this view has already closed.
+      void loadingTask.destroy().catch((destroyError: unknown) => {
+        console.error('[PdfViewer] Failed to release PDF:', destroyError);
+      });
+    };
 
     const previousPage = activePageRef.current;
     pageRefs.current.clear();
@@ -472,8 +496,7 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
     return () => {
       cancelled = true;
       loadedLinkService?.setDocument(null);
-      void loadingTask?.destroy();
-      void loadedPdf?.cleanup();
+      destroyLoadingTask();
     };
   }, [scrollToPage, src, t]);
 
