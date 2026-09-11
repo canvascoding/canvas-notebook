@@ -20,16 +20,23 @@ const VISIBLE_OPERATION_STATUSES = new Set<CollaborationAgentOperation['operatio
   'cancel_requested',
 ]);
 
-export interface CollaborationAgentTargetAnchor {
+interface AgentTargetIdentity {
   operationId: string;
   targetId: string;
   groupId: string;
+}
+
+interface AgentTextTargetAnchor extends AgentTargetIdentity {
+  kind?: 'text';
   startAnchor: string;
   endAnchor: string;
   blockId?: string | null;
 }
 
-export interface CollaborationAgentTargetRange extends CollaborationAgentTargetAnchor {
+export type CollaborationAgentTargetAnchor = AgentTextTargetAnchor
+  | (AgentTargetIdentity & { kind: 'block'; blockId: string });
+
+export interface CollaborationAgentTargetRange extends AgentTextTargetAnchor {
   from: number;
   to: number;
 }
@@ -37,14 +44,15 @@ export interface CollaborationAgentTargetRange extends CollaborationAgentTargetA
 export function visibleAgentTargetAnchors(
   operations: CollaborationAgentOperation[],
 ): CollaborationAgentTargetAnchor[] {
-  return operations.flatMap((operation) => (
-    VISIBLE_OPERATION_STATUSES.has(operation.operationStatus)
-      ? operation.targetAnchors.map((target) => ({
-          operationId: operation.operationId,
-          ...target,
-        }))
-      : []
-  ));
+  return operations.flatMap<CollaborationAgentTargetAnchor>((operation) => {
+    if (!VISIBLE_OPERATION_STATUSES.has(operation.operationStatus)) return [];
+    const textTargets = operation.targetAnchors.map((target) => ({ operationId: operation.operationId, ...target }));
+    const blockTargets = (operation.reviewTargets ?? []).flatMap((target) => target.previewFormat === 'blocks'
+      ? [...new Set(target.blockLocations?.before.map((location) => location.id) ?? [])].map((blockId) => ({
+          kind: 'block' as const, operationId: operation.operationId, targetId: target.targetId, groupId: target.groupId, blockId,
+        })) : []);
+    return [...textTargets, ...blockTargets];
+  });
 }
 
 function decodeRelativePosition(value: string): Y.RelativePosition | null {
@@ -64,6 +72,7 @@ export function resolveAgentTextTargetRanges(
 ): CollaborationAgentTargetRange[] {
   const text = doc.getText(textName);
   return targets.flatMap((target) => {
+    if (target.kind === 'block') return [];
     const start = decodeRelativePosition(target.startAnchor);
     const end = decodeRelativePosition(target.endAnchor);
     const absoluteStart = start ? Y.createAbsolutePositionFromRelativePosition(start, doc) : null;
@@ -105,6 +114,22 @@ function createRichTargetDecorations(
   const fragment = blocks ? null : doc.getXmlFragment('body');
   const maxPosition = editorState.doc.content.size;
   const decorations = targets.flatMap((target) => {
+    const attributes = {
+      class: 'collaboration-agent-target',
+      'data-agent-operation-id': target.operationId,
+      'data-agent-target-id': target.targetId,
+    };
+    if (target.kind === 'block') {
+      if (!blocks) return [];
+      try {
+        if (!blocks.records.has(target.blockId) || blocks.project().deleted.has(target.blockId)) return [];
+        const matches: Decoration[] = [];
+        editorState.doc.descendants((node, position) => {
+          if (node.attrs.id === target.blockId) matches.push(Decoration.node(position, position + node.nodeSize, attributes));
+        });
+        return matches.length === 1 ? matches : [];
+      } catch { return []; }
+    }
     const start = decodeRelativePosition(target.startAnchor);
     const end = decodeRelativePosition(target.endAnchor);
     const resolve = (relative: Y.RelativePosition | null) => {
@@ -119,11 +144,6 @@ function createRichTargetDecorations(
     const to = resolve(end);
     if (from === null || to === null || from > to || from < 0 || to > maxPosition) return [];
 
-    const attributes = {
-      class: 'collaboration-agent-target',
-      'data-agent-operation-id': target.operationId,
-      'data-agent-target-id': target.targetId,
-    };
     if (from < to) return [Decoration.inline(from, to, attributes)];
     return [Decoration.widget(from, () => {
       const marker = document.createElement('span');

@@ -19,42 +19,18 @@ function input(): DriverInput {
 }
 
 async function ensureStoredAgentSession(context: AgentExecutionContext): Promise<void> {
-  // This driver is used only by the collaboration E2E suite. The production
-  // accept path deliberately requires an already-persisted PI session.
+  // Browser tests create the session through the normal authenticated API.
+  // This worker must not manufacture a runtime/session configuration in SQL.
   const database = await openDb();
   try {
     const existing = await database.get(
       `SELECT 1 FROM pi_sessions
-       WHERE session_id = ? AND user_id = ? AND agent_id = ?
+       WHERE session_id = $1 AND user_id = $2 AND agent_id = $3
+         AND workspace_id = $4 AND archived_at IS NULL
        LIMIT 1`,
-      [context.sessionId, context.userId, context.agentId || 'canvas-agent'],
+      [context.sessionId, context.userId, context.agentId || 'canvas-agent', context.workspaceId],
     );
-    if (existing) return;
-
-    const now = Date.now();
-    await database.run(
-      `INSERT INTO pi_sessions (
-         session_id, user_id, agent_id, provider, model, title,
-         created_at, updated_at, channel_id, session_kind, delegation_depth,
-         organization_id, customer_id, project_id, workspace_id, workspace_type,
-         workspace_name, workspace_root_relative_path
-       ) VALUES (?, ?, ?, 'test', 'test', 'Collaboration E2E agent',
-         ?, ?, 'app', 'conversation', 0, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        context.sessionId,
-        context.userId,
-        context.agentId || 'canvas-agent',
-        now,
-        now,
-        context.organizationId,
-        context.customerId,
-        context.projectId,
-        context.workspaceId,
-        context.workspaceType,
-        context.workspaceName,
-        context.workspaceRootRelativePath,
-      ],
-    );
+    if (!existing) throw new Error('Create the scoped agent session through /api/sessions before running an E2E tool.');
   } finally {
     await database.close();
   }

@@ -42,9 +42,14 @@ assert.deepEqual(visibleAgentTargetAnchors([{
 }]), [], 'completed operations belong in history and must not leave stale editor highlights');
 
 assert.deepEqual(resolveAgentTextTargetRanges(doc, 'content', [{
-  ...visible[0],
+  operationId: operation.operationId,
+  ...target,
   startAnchor: 'not-base64',
 }]), [], 'invalid or stale anchors must fail closed');
+
+assert.deepEqual(resolveAgentTextTargetRanges(doc, 'content', [{
+  kind: 'block', operationId: operation.operationId, targetId: 'structural-target', groupId: 'group', blockId: 'block',
+}]), [], 'a structural highlight cannot be treated as a plain-text offset');
 
 doc.destroy();
 console.log('collaboration agent target decorations test passed');

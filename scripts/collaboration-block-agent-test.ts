@@ -7,12 +7,44 @@ import * as Y from 'yjs';
 import { BLOCK_TREE_KEY, CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { applyAgentTextTargets, createRichAgentTextTargets } from '../app/lib/collaboration/agent-operations';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
-import { agentTargetDecorationPluginKey, createAgentTargetDecorationPlugin } from '../app/lib/collaboration/agent-target-decorations';
+import { agentTargetDecorationPluginKey, createAgentTargetDecorationPlugin, visibleAgentTargetAnchors } from '../app/lib/collaboration/agent-target-decorations';
+import type { CollaborationAgentOperation } from '../app/lib/collaboration/agent-operations-client';
 
 const schema = getSchema(richMarkdownSchemaExtensions());
 const origin = { actorType: 'agent' as const, actorId: 'agent', initiatedByUserId: 'user', operationId: 'operation' };
 const apply = (doc: Y.Doc, targets: Parameters<typeof applyAgentTextTargets>[0]['targets']) => applyAgentTextTargets({
   doc, targets, origin, validateClone: (clone) => validateRichMarkdownYDoc(clone).code ?? null,
+});
+
+test('structural review highlights use exact block identities through movement, deletion and completion', () => {
+  const doc = createRichMarkdownYDoc('Same\n\nSame\n\nTail', 'tiptap_blocks');
+  try {
+    const tree = new CollaborationBlockTree(doc, schema);
+    const id = tree.read().child(1).attrs.id as string;
+    const operation = { operationId: 'structural-review', operationStatus: 'needs_review', targetAnchors: [],
+      reviewTargets: [{ targetId: 'delete-block', groupId: 'group', previewFormat: 'blocks', currentText: 'Same',
+        proposedReplacement: '', blockLocations: { before: [{ id, position: [1], parent: null, following: null }], after: [] } }],
+    } as unknown as CollaborationAgentOperation;
+    let state = EditorState.create({ doc: tree.read(), plugins: [createAgentTargetDecorationPlugin(doc)] });
+    state = state.apply(state.tr.setMeta(agentTargetDecorationPluginKey, visibleAgentTargetAnchors([operation])));
+    const ranges = () => agentTargetDecorationPluginKey.getState(state)!.decorations.find().map(({ from, to }) => [from, to]);
+    assert.deepEqual(ranges(), [[6, 12]], 'the second equal-looking block is the only highlighted node');
+    tree.move({ blockId: id, parentId: null, beforeId: null, operationId: 'move' }, 'peer');
+    state = state.apply(state.tr.replaceWith(0, state.doc.content.size, tree.read().content));
+    assert.deepEqual(ranges(), [[12, 18]]);
+    const nativeBefore = Y.encodeStateAsUpdate(doc);
+    for (const status of ['persisted_yjs', 'checkpointed_file', 'rejected', 'reverted'] as const) {
+      state = state.apply(state.tr.setMeta(agentTargetDecorationPluginKey,
+        visibleAgentTargetAnchors([{ ...operation, operationStatus: status }])));
+      assert.deepEqual(ranges(), [], `no stale highlight after ${status}`);
+    }
+    assert.deepEqual(Y.encodeStateAsUpdate(doc), nativeBefore, 'review decoration does not change the document');
+    state = state.apply(state.tr.setMeta(agentTargetDecorationPluginKey, visibleAgentTargetAnchors([operation])));
+    tree.delete(id, 'delete', 'peer');
+    state = state.apply(state.tr.replaceWith(0, state.doc.content.size, tree.read().content));
+    assert.deepEqual(ranges(), [], 'a deleted target never marks an equal-looking surviving block');
+    assert.equal(doc.share.has('body'), false);
+  } finally { doc.destroy(); }
 });
 
 test('prepared agent targets follow a moved block, including binary reopening and revert', () => {
