@@ -10,6 +10,7 @@ import { CellSelection } from '@tiptap/pm/tables';
 import * as Y from 'yjs';
 import messages from '../messages/en.json';
 import { MarkdownBlockMovement, captureBlockMoveSource, moveBlockInDirection } from '../app/lib/editor/block-move-command';
+import { MarkdownDomSelection } from '../app/components/editor/MarkdownDomSelection';
 import { createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { generateRichNodeIds } from '../app/lib/editor/generate-rich-node-ids';
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
@@ -54,6 +55,7 @@ function harness(collaborative: boolean, markdown = 'AAA\n\nBBB\n\nCCC') {
         : extension.name === 'uniqueID' ? CanvasUniqueID.configure({ types: 'all', filterTransaction: (tr: Transaction) =>
           !isRemoteRichEditorTransaction(tr) && !tr.getMeta(LOCAL_MARKDOWN_PROJECTION) }) : extension),
       MarkdownBlockMovement.configure({ onRejected }),
+      MarkdownDomSelection,
       ...(doc ? createRichEditorCollaborationExtensions({ document: doc, representation: 'tiptap_blocks', awareness: null,
         user: { name: 'Test', color: '#123456' }, onError: error => errors.push(error) })
         : [createLocalMarkdownRichExtension({ document: local!, onError: error => errors.push(error) })]),
@@ -76,6 +78,65 @@ function key(editor: Editor, key: string, extra: KeyboardEventInit = {}) {
   editor.view.dom.dispatchEvent(event);
   return event.defaultPrevented;
 }
+
+for (const collaborative of [false, true]) test(`keyboard move follows the visible caret before selectionchange arrives (collaborative=${collaborative})`, async () => {
+  const h = harness(collaborative);
+  const editor = h.mount();
+  try {
+    await Promise.resolve();
+    editor.view.focus();
+    const id = editor.state.doc.child(2).attrs.id;
+    const targetText = editor.view.dom.querySelectorAll('p')[2].firstChild!;
+    dom.window.getSelection()!.collapse(targetText, 1);
+    assert.equal(editor.state.selection.from, 1, 'the observer has not yet received the visible caret move');
+    assert.equal(key(editor, 'ArrowUp'), true);
+    assert.deepEqual(texts(editor), ['AAA', 'CCC', 'BBB']);
+    assert.equal(editor.state.selection.$head.parent.attrs.id, id);
+    assert.equal(editor.commands.undo(), true);
+    assert.deepEqual(texts(editor), ['AAA', 'BBB', 'CCC']);
+    assert.equal(editor.can().undo(), false, 'reconciling the caret does not add a content history entry');
+    assert.deepEqual(h.errors, []);
+  } finally { editor.destroy(); h.destroy(); }
+});
+
+for (const collaborative of [false, true]) test(`caret reconciliation preserves structured selection and composition guards (collaborative=${collaborative})`, async () => {
+  for (const mode of ['node', 'cells', 'all', 'composing', 'readOnly'] as const) {
+    const h = harness(collaborative, 'AAA\n\n![Block](image.png)\n\n| H |\n| --- |\n| Cell |\n\nCCC');
+    const editor = h.mount();
+    try {
+      await Promise.resolve(); editor.view.focus();
+      const original = editor.getJSON();
+      if (mode === 'node' || mode === 'cells') {
+        const from = position(editor, mode === 'node' ? 'image' : 'tableCell');
+        const selection = mode === 'node' ? NodeSelection.create(editor.state.doc, from) : CellSelection.create(editor.state.doc, from);
+        const selectedId = editor.state.doc.nodeAt(from)!.attrs.id;
+        editor.view.dispatch(editor.state.tr.setSelection(selection));
+        assert.equal(key(editor, 'ArrowUp'), true);
+        if (mode === 'node') {
+          assert(editor.state.selection instanceof NodeSelection);
+          assert.equal(editor.state.selection.node.attrs.id, selectedId);
+        } else {
+          assert(editor.state.selection instanceof CellSelection);
+          assert.equal(editor.state.selection.$anchorCell.nodeAfter!.attrs.id, selectedId);
+        }
+        assert.equal(editor.state.doc.child(mode === 'node' ? 0 : 1).type.name, mode === 'node' ? 'image' : 'table');
+        assert.equal(editor.commands.undo(), true);
+      } else if (mode === 'all') {
+        editor.view.dispatch(editor.state.tr.setSelection(new AllSelection(editor.state.doc)));
+        key(editor, 'ArrowUp');
+        assert(editor.state.selection instanceof AllSelection);
+      } else {
+        const targetText = editor.view.dom.querySelector(':scope > p:last-child')!.firstChild!;
+        dom.window.getSelection()!.collapse(targetText, 1);
+        if (mode === 'readOnly') editor.setEditable(false);
+        key(editor, 'ArrowUp', { isComposing: mode === 'composing' });
+        assert.equal(editor.state.selection.from, 1, `${mode} must not reconcile an ineligible input`);
+      }
+      assert.deepEqual(editor.getJSON(), original);
+      assert.deepEqual(h.errors, []);
+    } finally { editor.destroy(); h.destroy(); }
+  }
+});
 
 for (const collaborative of [false, true]) test(`keyboard move preserves backward selection and document history (collaborative=${collaborative})`, async () => {
   const h = harness(collaborative);

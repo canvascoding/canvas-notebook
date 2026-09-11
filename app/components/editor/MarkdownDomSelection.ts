@@ -1,5 +1,5 @@
 import { Extension } from '@tiptap/core';
-import { Plugin } from '@tiptap/pm/state';
+import { Plugin, TextSelection } from '@tiptap/pm/state';
 import { CellSelection } from '@tiptap/pm/tables';
 import type { EditorView } from '@tiptap/pm/view';
 import { synchronizeEditorSelectionFromDom } from '@/app/lib/markdown/core/dom-selection';
@@ -18,7 +18,9 @@ export const MarkdownDomSelection = Extension.create({
   addProseMirrorPlugins() {
     return [new Plugin({ props: { handleDOMEvents: {
       keydown(view, event) {
-        if (!['Enter', 'Backspace', 'Delete'].includes(event.key)
+        const movingBlock = event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.isComposing
+          && ['ArrowUp', 'ArrowDown'].includes(event.key) && view.state.selection instanceof TextSelection;
+        if ((!movingBlock && !['Enter', 'Backspace', 'Delete'].includes(event.key))
           || !(event.target instanceof Element) || event.target.closest('[contenteditable="false"]')) return false;
         synchronizeMarkdownTextSelection(view);
         return false;
