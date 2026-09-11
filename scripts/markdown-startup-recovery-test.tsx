@@ -174,14 +174,19 @@ async function main() {
     assert.equal(get().doc, nextDoc); assert.equal(get().clientState.indexedDbHydrated, false);
     await act(async () => hydration().finish());
     await until(() => !!get().provider);
-    assert(text().includes(labels.opening)); assert.equal(document.querySelector('[data-testid="markdown-save-state"]'), null); noEditor();
+    assert(get().ready); assert.equal(get().clientState.remoteSynced, false);
+    assert(document.querySelector('.tiptap[contenteditable="true"]')?.textContent?.includes('Local draft'));
+    assert.equal(document.querySelector('[data-testid="markdown-save-state"]'), null);
     const provider = providers.at(-1)!;
     await act(async () => provider.options.onStatus({ status: 'disconnected' }));
-    assert(text().includes(labels.recoveryLocalOnly)); assert(button(labels.snapshot)); noEditor();
+    assert(get().ready); assert.equal(get().connection, 'offline');
+    assert(document.querySelector('.tiptap[contenteditable="true"]'));
     await act(async () => provider.options.onAuthenticationFailed({ reason: 'Access denied before first sync' }));
-    assert(text().includes(labels.failure.authentication)); assert(button(labels.snapshot)); noWriteControls(); noEditor();
+    assert(text().includes(labels.failure.authentication)); assert(button(labels.snapshot)); noWriteControls();
+    assert(document.querySelector('.tiptap[contenteditable="false"]')?.textContent?.includes('Local draft'));
     await act(async () => provider.options.onStatus({ status: 'connected' }));
-    assert.equal(get().connection, 'denied'); noWriteControls(); noEditor();
+    assert.equal(get().connection, 'denied'); noWriteControls();
+    assert(document.querySelector('.tiptap[contenteditable="false"]'));
 
     await fixture(null); await act(async () => hydration().finish());
     await until(() => !!get().provider);

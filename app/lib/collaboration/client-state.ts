@@ -10,6 +10,7 @@ export type TextCollaborationClientState = {
   connection: TextCollaborationConnectionState;
   durability: TextCollaborationDurabilityState;
   indexedDbHydrated: boolean;
+  locallyUsable?: boolean;
   remoteSynced: boolean;
   ready: boolean;
   unsyncedChanges: number;
@@ -25,6 +26,7 @@ export type TextCollaborationClientState = {
 
 export type TextCollaborationClientEvent =
   | { type: 'indexeddb_hydrated' }
+  | { type: 'local_document_restored' }
   | { type: 'document_changed' }
   | { type: 'provider_status'; status: 'connected' | 'connecting' | 'disconnected'; permission: CollaborationPermission }
   | { type: 'remote_synced'; permission: CollaborationPermission }
@@ -79,7 +81,7 @@ export function createInitialTextCollaborationClientState(input: {
 function withReadiness(state: TextCollaborationClientState): TextCollaborationClientState {
   return {
     ...state,
-    ready: state.indexedDbHydrated && state.remoteSynced,
+    ready: state.indexedDbHydrated && (state.remoteSynced || state.locallyUsable === true),
   };
 }
 
@@ -102,6 +104,9 @@ export function reduceTextCollaborationClientState(
   switch (event.type) {
     case 'indexeddb_hydrated':
       return withReadiness({ ...state, indexedDbHydrated: true });
+    case 'local_document_restored':
+      if (state.connection === 'denied' || state.failure) return state;
+      return withReadiness({ ...state, locallyUsable: true, connection: 'offline', durability: 'local_pending' });
     case 'provider_status':
       if (state.connection === 'denied') return state;
       return withReadiness({

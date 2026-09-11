@@ -3,6 +3,7 @@ import type { WorkspacePathRenameMutation } from './file-events';
 import type { WorkspaceUploadCommit } from './upload-result';
 import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { fetchLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
 import {
@@ -347,7 +348,7 @@ export async function readWorkspaceFile(
     url += `&t=${Date.now()}`;
   }
 
-  const response = await fetch(url, {
+  const response = await fetchLiveDocument(url, {
     credentials: 'include',
     cache: 'no-store',
     headers: workspaceHeaders(workspaceId),

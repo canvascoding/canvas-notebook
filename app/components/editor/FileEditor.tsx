@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useFileStore } from '@/app/store/file-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { CurrentFile, FileNode } from '@/app/lib/files/types';
 import {
   isWorkspaceFileRevisionConflictError,
@@ -22,7 +23,8 @@ import {
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
-import { hasCurrentPersistedCollaborationDocument, prepareCollaborationDocumentTransition, useTextCollaborationSession, useCollaborationDocument } from '@/app/lib/collaboration/client';
+import { hasCurrentPersistedCollaborationDocument, prepareCollaborationDocumentTransition, rememberOpenedCollaborationDocument, useTextCollaborationSession, useCollaborationDocument } from '@/app/lib/collaboration/client';
+import { invalidateOpenedLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
 import { useCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-client';
 import {
   CollaborationCheckpointRequestError,
@@ -465,6 +467,19 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     session: textSession.session,
   });
   const liveDocument = useLiveMarkdown(activeCollaborationDocument, currentFile?.content ?? '');
+  useEffect(() => {
+    const current = useFileStore.getState();
+    if (!currentFile || !currentFileWorkspaceId || current.currentFile !== currentFile
+      || current.currentFileWorkspaceId !== currentFileWorkspaceId
+      || useWorkspaceStore.getState().activeWorkspaceId !== currentFileWorkspaceId) return;
+    if (currentFile.unavailable || activeCollaborationDocument?.connection === 'denied'
+      || activeCollaborationDocument?.clientState.failure?.kind === 'lifecycle') {
+      invalidateOpenedLiveDocument(currentFileWorkspaceId,
+        { path: currentFile.path, documentId: currentFile.collaboration?.document?.id });
+    } else if (activeCollaborationDocument) {
+      rememberOpenedCollaborationDocument(activeCollaborationDocument, currentFile, currentFileWorkspaceId);
+    }
+  }, [activeCollaborationDocument, currentFile, currentFileWorkspaceId]);
   useEffect(() => {
     if (activeCollaborationDocument?.ready && liveDocument.available
       && useEditorStore.getState().activePath === currentFilePath) syncCollaborativeDraft(liveDocument.content);

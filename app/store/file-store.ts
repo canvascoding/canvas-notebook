@@ -1,6 +1,8 @@
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { documentCapabilities } from '@/app/lib/files/document-capabilities';
+import { findOpenedLiveDocument, invalidateOpenedLiveDocument, LiveDocumentNetworkError,
+  isOpenedDocumentAuthCurrent, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { create } from 'zustand';
 import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
@@ -740,6 +742,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   loadFile: async (path: string, noCache = false, requestedWorkspaceId?: string | null, expectedDocumentId?: string, canApply?: () => boolean) => {
+    const authScope = openedDocumentAuthScope();
     const workspaceId = requestedWorkspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
@@ -747,6 +750,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (canApply && !canApply()) return { status: 'superseded', path };
     const canCommit = () => {
       if (get().fileLoadRequestId !== requestId || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return false;
+      if (authScope && !isOpenedDocumentAuthCurrent(authScope)) {
+        set({ isLoadingFile: false, loadingFilePath: null });
+        return false;
+      }
       if (!canApply || canApply()) return true;
       set({ isLoadingFile: false, loadingFilePath: null });
       return false;
@@ -764,13 +771,29 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       const isText = documentCapabilities(path).text;
       const useMetaOnly = !isText;
 
-      const data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId });
+      let data: CurrentFile;
+      try {
+        data = await readWorkspaceFile(path, { metaOnly: useMetaOnly, noCache, workspaceId });
+      } catch (error) {
+        const local = isText && workspaceId && error instanceof LiveDocumentNetworkError
+          ? findOpenedLiveDocument(workspaceId, path, expectedDocumentId, authScope) : null;
+        if (!local) {
+          if (workspaceId && error instanceof Response && [401, 403, 404, 409, 410].includes(error.status)) {
+            invalidateOpenedLiveDocument(workspaceId, { path, documentId: expectedDocumentId }, authScope);
+          }
+          throw error;
+        }
+        // This contains only the previously authenticated identity/metadata.
+        // The editor separately hydrates the full native document from IndexedDB.
+        data = local.file;
+      }
       if (!canCommit()) {
         return { status: 'superseded', path };
       }
 
       const latestEditor = useEditorStore.getState();
       if (expectedDocumentId && data.collaboration?.document?.id !== expectedDocumentId) {
+        if (workspaceId) invalidateOpenedLiveDocument(workspaceId, { path, documentId: expectedDocumentId }, authScope);
         throw new Error('The document at this path changed. Please reopen the original document.');
       }
       if (latestEditor.isDirty && latestEditor.activePath && (latestEditor.activePath !== path
