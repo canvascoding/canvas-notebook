@@ -1,0 +1,18 @@
+diff --git a/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs b/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs
+index 028e922..d0d74b7 100644
+--- a/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs
++++ b/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs
+@@ -11283,7 +11283,12 @@ class TextLayerBuilder {
+         }
+       }
+       if (isFirefoxOrModernChromium === undefined) {
+-        isFirefoxOrModernChromium = getComputedStyle(this.#textLayers.values().next().value).getPropertyValue("-moz-user-select") === "none";
++        const endOfContent = this.#textLayers.values().next().value;
++        // `selectionchange` may be queued after the final text layer is cancelled.
++        if (!(endOfContent instanceof Element)) {
++          return;
++        }
++        isFirefoxOrModernChromium = getComputedStyle(endOfContent).getPropertyValue("-moz-user-select") === "none";
+         if (!isFirefoxOrModernChromium) {
+           const chromiumVersion = navigator.userAgentData ? navigator.userAgentData.brands.find(({
+             brand
