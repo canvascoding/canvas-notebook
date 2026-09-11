@@ -13,7 +13,7 @@ import { materializeCollaborationCheckpoint } from '../app/lib/collaboration/che
 import {
   acceptAgentOperation,
   applyAgentTextTargets,
-  applyPersistedAgentTextOperation,
+  applyPersistedAgentTextOperation as applyOperation,
   cancelAgentOperation,
   createAgentTextTarget,
   createRichAgentTextTargets,
@@ -65,6 +65,7 @@ import {
 import { runWithAgentExecutionContext, type AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 import { piTools } from '../app/lib/pi/core-tools';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { ensureAgentGrantIntegrationFixture } from './agent-grant-integration-fixture';
 
 if (process.env.CANVAS_DATABASE_PROVIDER !== 'postgres' || !process.env.DATABASE_URL) {
   console.log('file-agent-operation-integration-test: skipped (Postgres test profile is not enabled)');
@@ -120,11 +121,32 @@ const agentExecutionContext: AgentExecutionContext = {
   legacy: false,
 };
 
+let grantFixture: Awaited<ReturnType<typeof ensureAgentGrantIntegrationFixture>>;
+// Existing low-level direct-apply regressions now obtain the same real, bounded
+// session/document grant used by the product. Explicit review/autonomous cases
+// deliberately receive no grant from this fixture adapter.
+async function applyPersistedAgentTextOperation(input: Parameters<typeof applyOperation>[0]) {
+  if (input.explicitUserRequest && input.requestedMode !== 'review') {
+    const actorSessionId = input.actorSessionId ?? `agent-session:${input.actorId}:${suffix}`;
+    await grantFixture.grantForDocument({ documentId: input.documentId, agentId: input.actorId,
+      actorSessionId, lifecycleGeneration: input.documentLifecycleGeneration, targets: input.targets });
+    return applyOperation({ ...input, actorSessionId });
+  }
+  return applyOperation(input);
+}
+
 async function runPiTool(
   name: 'read' | 'edit_file' | 'apply_patch' | 'move_path',
   toolCallId: string,
   params: Record<string, unknown>,
 ) {
+  if (name === 'edit_file' && typeof params.path === 'string') {
+    const collaboration = await readFileCollaborationState({ workspace, path: params.path });
+    if (collaboration.document && await loadCollaborationState(collaboration.document.id)) {
+      await grantFixture.grantForDocument({ documentId: collaboration.document.id,
+        agentId: agentExecutionContext.agentId!, actorSessionId: agentExecutionContext.sessionId });
+    }
+  }
   const tool = piTools.find((candidate) => candidate.name === name);
   assert(tool, `PI tool ${name} must exist`);
   return runWithAgentExecutionContext(
@@ -190,6 +212,11 @@ async function persistUserMutation(
 }
 
 async function main(): Promise<void> {
+grantFixture = await ensureAgentGrantIntegrationFixture({ userId, agentId: 'canvas-agent',
+  sessionId: agentExecutionContext.sessionId,
+  workspace: { workspaceId, rootPath: workspace.rootPath, workspaceType: 'organization' } });
+Object.assign(workspace, grantFixture.workspace);
+Object.assign(agentExecutionContext, grantFixture.execution);
 await fs.mkdir(workspace.rootPath, { recursive: true });
 await ensureCollaborationState({
   documentId,
@@ -203,7 +230,6 @@ await ensureCollaborationState({
 const activeDocuments = new Map<string, Y.Doc>();
 const deferredAgentPersistence = new Set<string>();
 const deferredAgentProjection = new Set<string>();
-let beforeAgentApply: (() => Promise<void>) | null = null;
 const directConnectionInputs: Array<{ operationId: string; actorSessionId?: string }> = [];
 const uninstallDocumentReader = installCollaborationDocumentReader(async (targetDocumentId, targetWorkspaceId, read) => {
   const state = await loadCollaborationState(targetDocumentId);
@@ -233,7 +259,6 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
   const doc = activeDocument || new Y.Doc({ gc: true });
   try {
     if (!activeDocument) Y.applyUpdate(doc, state.yjsState);
-    if (beforeAgentApply) await beforeAgentApply();
     const result = apply(doc);
     if (onApplied) await onApplied(result);
     if (deferredAgentPersistence.has(input.documentId)) return result;
@@ -413,6 +438,7 @@ try {
     assert.equal(repeated.operationId, uncertain.operationId);
     assert.equal(repeated.operationStatus, 'persisted_yjs');
     const retryLookup = { documentId: checkpointRaceDocumentId, workspace, userId, actorId: 'agent-b',
+      actorSessionId: `agent-session:agent-b:${suffix}`,
       idempotencyKey: deletionInput.idempotencyKey, fingerprint: deletionInput.fileEditRequest.fingerprint };
     const receipt = await findAgentFileEditOperation(retryLookup);
     assert.equal(receipt?.operation.operationId, uncertain.operationId);
@@ -458,22 +484,16 @@ try {
     assert(resolvedPartial?.conflicts.some((conflict) => conflict.code === 'target_changed'), 'late durability must not erase the un-applied group conflict');
     assert.equal(resolvedPartial?.appliedTargetIds.length, 1);
 
-    // The old partial receipt must not certify an in-flight second attempt.
-    beforeAgentApply = async () => {
-      const applying = await getAgentOperation({ operationId: partial.operationId, workspace, userId });
-      assert.equal(applying?.operationStatus, 'applying');
-      assert.equal(applying?.durability, 'applied_to_ydoc');
-      throw new Error('Simulated interrupted second apply before its new receipt');
-    };
-    try {
-      const interrupted = await acceptAgentOperation({ operationId: partial.operationId, workspace, userId, idempotencyKey: `partial-retry-${suffix}` });
-      assert.equal(interrupted.durability, 'applied_to_ydoc');
-      assert(interrupted.conflicts.some((conflict) => conflict.code === 'target_changed'));
-    } finally { beforeAgentApply = null; }
+    // A changed remaining target no longer offers an approval. A failed click
+    // cannot downgrade the durable receipt for work that is already applied.
+    assert.equal(resolvedPartial?.proposalVersion, null);
+    await assert.rejects(acceptAgentOperation({ operationId: partial.operationId, workspace, userId,
+      idempotencyKey: `partial-retry-${suffix}`, proposalVersion: `v1.${'0'.repeat(64)}` }),
+    { code: 'AGENT_PROPOSAL_CHANGED' });
     await recoverCollaborationAgentOperations();
     const recoveredPartial = await getAgentOperation({ operationId: partial.operationId, workspace, userId });
-    assert.equal(recoveredPartial?.operationStatus, 'needs_review');
-    assert.equal(recoveredPartial?.durability, 'applied_to_ydoc');
+    assert.equal(recoveredPartial?.operationStatus, 'partially_applied');
+    assert.equal(recoveredPartial?.durability, 'persisted_yjs');
 
   } finally {
     deferredAgentPersistence.delete(checkpointRaceDocumentId);
@@ -528,8 +548,11 @@ try {
   });
   assert.equal(review.operationStatus, 'needs_review');
   assert.equal(await persistedText(), 'Alpha\nBeta by agent\nGamma');
+  const reviewVersion = (await getAgentOperation({ operationId: review.operationId, workspace, userId }))?.proposalVersion;
+  assert(reviewVersion);
   const accepted = await acceptAgentOperation({
     operationId: review.operationId,
+    proposalVersion: reviewVersion,
     workspace,
     userId,
     idempotencyKey: `accept-${suffix}`,
@@ -537,6 +560,7 @@ try {
   assert.equal(accepted.operationStatus, 'checkpointed_file');
   const acceptedAgain = await acceptAgentOperation({
     operationId: review.operationId,
+    proposalVersion: reviewVersion,
     workspace,
     userId,
     idempotencyKey: `accept-${suffix}`,
@@ -583,6 +607,8 @@ try {
     targets: [targetFor(state, 'Alpha', 'Cancelled alpha')],
     requestedMode: 'review',
   });
+  const cancellableVersion = (await getAgentOperation({ operationId: cancellable.operationId, workspace, userId }))?.proposalVersion;
+  assert(cancellableVersion);
   const cancelled = await cancelAgentOperation({
     operationId: cancellable.operationId,
     workspace,
@@ -595,6 +621,7 @@ try {
     workspace,
     userId,
     idempotencyKey: `late-accept-${suffix}`,
+    proposalVersion: cancellableVersion,
   })).operationStatus, 'cancelled');
   assert.equal(await persistedText(), 'Alpha\nBeta by agent\nGamma reviewed');
 
@@ -1129,6 +1156,8 @@ try {
   );
   activeDocuments.set(toolDocumentId, resetToolDocument);
   activeToolDocument.destroy();
+  await grantFixture.grantForDocument({ documentId: toolDocumentId, agentId: 'agent-b',
+    actorSessionId: `agent-session:agent-b:${suffix}`, targets: staleVectorPrepared.targets });
   const staleVectorResult = await executePreparedCollaborationTextEdit({
     prepared: staleVectorPrepared,
     workspace,
@@ -1136,7 +1165,7 @@ try {
       initiatedByUserId: userId,
       actorId: 'agent-b',
       actorDisplayName: 'Agent B',
-      actorSessionId: agentExecutionContext.sessionId,
+      actorSessionId: `agent-session:agent-b:${suffix}`,
     },
     idempotencyKey: `stale-vector-${suffix}`,
   });
@@ -1569,8 +1598,9 @@ try {
   assert.equal(await persistedText(concurrentAutoMigrationDocumentId), autoMigrationContent);
 
   // Cross-node Markdown edits are persisted as real review operations. Accept
-  // reapplies the exact patch to the then-current Yjs document, preserving an
-  // unrelated human edit outside the reviewed target.
+  // binds that preview to its original Yjs identities. The legacy XML path
+  // requires a newly reviewed proposal after another change; block adapters
+  // cover preserving independent changes without re-review in their own suite.
   const richSnapshot = await readCurrentCollaborationTextSnapshot({
     documentId: richDocumentId,
     workspace,
@@ -1598,6 +1628,8 @@ try {
   assert.equal(structuralReview.operationStatus, 'needs_review');
   assert.match(await persistedText(richDocumentId), /Rich \*\*strong\*\* paragraph/u);
 
+  const originalStructuralVersion = (await getAgentOperation({ operationId: structuralReview.operationId, workspace, userId }))?.proposalVersion;
+  assert(originalStructuralVersion);
   const concurrentRichState = await loadCollaborationState(richDocumentId);
   assert(concurrentRichState);
   const concurrentRichDoc = new Y.Doc({ gc: true });
@@ -1636,12 +1668,23 @@ try {
   });
   concurrentRichDoc.destroy();
 
-  const acceptedStructural = await acceptAgentOperation({
-    operationId: structuralReview.operationId,
-    workspace,
-    userId,
-    idempotencyKey: `accept-structural-${suffix}`,
-  });
+  // XML legacy source patches are deliberately conservative: any changed Yjs
+  // identity requires a fresh proposal instead of relocating unanchored text.
+  await assert.rejects(acceptAgentOperation({ operationId: structuralReview.operationId, workspace, userId,
+    idempotencyKey: `accept-old-structural-${suffix}`, proposalVersion: originalStructuralVersion }),
+  { code: 'AGENT_PROPOSAL_CHANGED' });
+  await rejectAgentOperation({ operationId: structuralReview.operationId, workspace, userId,
+    idempotencyKey: `reject-old-structural-${suffix}` });
+  const refreshedPrepared = await prepareCollaborationTextEdit({ documentId: richDocumentId, workspace,
+    path: `agent-operation-rich-${suffix}.md`, edits: [{ oldText: 'Rich **strong** paragraph\n\n', newText: '' }],
+    groupId: 'refreshed-structural-review' });
+  const refreshedProposal = await executePreparedCollaborationTextEdit({ prepared: refreshedPrepared, workspace,
+    identity: { initiatedByUserId: userId, actorId: 'agent-b', actorDisplayName: 'Agent B', actorSessionId: `structural-session-${suffix}` },
+    idempotencyKey: `refreshed-structural-review-${suffix}` });
+  const refreshedVersion = (await getAgentOperation({ operationId: refreshedProposal.operationId, workspace, userId }))?.proposalVersion;
+  assert(refreshedVersion);
+  const acceptedStructural = await acceptAgentOperation({ operationId: refreshedProposal.operationId, workspace, userId,
+    idempotencyKey: `accept-structural-${suffix}`, proposalVersion: refreshedVersion });
   assert.equal(acceptedStructural.operationStatus, 'checkpointed_file');
   assert.equal(await persistedText(richDocumentId), 'Other paragraph updated by user');
 
@@ -1736,12 +1779,16 @@ try {
     sagaSecondDocumentId,
   );
   sagaUserDoc.destroy();
+  const sagaSession = `agent-session:agent-b:${suffix}`;
+  await grantFixture.grantForDocument({ documentId: sagaFirstDocumentId, agentId: 'agent-b', actorSessionId: sagaSession });
+  await grantFixture.grantForDocument({ documentId: sagaSecondDocumentId, agentId: 'agent-b', actorSessionId: sagaSession });
   const saga = await applyPersistedAgentTextSaga({
     workspace,
     initiatedByUserId: userId,
     actorId: 'agent-b',
     actorDisplayName: 'Agent B',
     idempotencyKey: `saga-${suffix}`,
+    actorSessionId: sagaSession,
     runGeneration: 1,
     documents: [
       { documentId: sagaFirstDocumentId, targets: [sagaFirstTarget] },
@@ -1759,6 +1806,7 @@ try {
     actorId: 'agent-b',
     actorDisplayName: 'Agent B',
     idempotencyKey: `saga-${suffix}`,
+    actorSessionId: sagaSession,
     runGeneration: 1,
     documents: [
       { documentId: sagaFirstDocumentId, targets: [sagaFirstTarget] },
@@ -1865,6 +1913,8 @@ try {
     targets: [targetFor(state, 'Gamma reviewed', 'Stale gamma')],
     requestedMode: 'review',
   });
+  const staleVersion = (await getAgentOperation({ operationId: staleReview.operationId, workspace, userId }))?.proposalVersion;
+  assert(staleVersion);
   database = await openDb();
   try {
     await database.run(
@@ -1874,14 +1924,11 @@ try {
   } finally {
     await database.close();
   }
-  const staleAccept = await acceptAgentOperation({
-    operationId: staleReview.operationId,
-    workspace,
-    userId,
-    idempotencyKey: `stale-accept-${suffix}`,
-  });
-  assert.equal(staleAccept.operationStatus, 'needs_review');
-  assert.equal(staleAccept.conflicts[0]?.code, 'lifecycle_stale');
+  await assert.rejects(acceptAgentOperation({ operationId: staleReview.operationId, workspace, userId,
+    idempotencyKey: `stale-accept-${suffix}`, proposalVersion: staleVersion }), { code: 'AGENT_PROPOSAL_CHANGED' });
+  const staleView = await getAgentOperation({ operationId: staleReview.operationId, workspace, userId });
+  assert.equal(staleView?.operationStatus, 'needs_review');
+  assert.equal(staleView?.proposalVersion, null);
   assert.equal(await persistedText(), 'User alpha\nBeta human after seeing agent\nGamma reviewed');
 } finally {
   uninstallDirectConnection();

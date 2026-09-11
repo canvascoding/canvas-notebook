@@ -5,7 +5,7 @@ import path from 'node:path';
 import { getSchema } from '@tiptap/core';
 import * as Y from 'yjs';
 
-import { closeDatabaseConnections } from '../app/lib/db';
+import { closeDatabaseConnections, openDb } from '../app/lib/db';
 import { createCollaborationSessionGrant, parseCollaborationSessionRequest } from '../app/lib/collaboration/session-service';
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import { loadCollaborationState, persistCollaborationYDoc } from '../app/lib/collaboration/persistence';
@@ -17,27 +17,19 @@ import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { readAgentBlockStructure } from '../app/lib/collaboration/agent-block-structure';
 import { richMarkdownFromYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { piTools } from '../app/lib/pi/core-tools';
-import { runWithAgentExecutionContext, type AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
+import { runWithAgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 import type { AgentFileToolSuccess } from '../app/lib/pi/agent-file-tool-results';
-import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { ensureAgentGrantIntegrationFixture } from './agent-grant-integration-fixture';
+import { AgentDirectEditGrantUnavailableError, resolveAgentDirectEditGrant,
+  setAgentDirectEditGrantForOperation, withAgentDirectEditGrant } from '../app/lib/collaboration/agent-direct-edit-grants';
 
 async function main() {
   assert.equal(process.env.CANVAS_DATABASE_PROVIDER, 'postgres');
   assert.match(new URL(process.env.DATABASE_URL!).pathname, /^\/canvas_editor_test_\w+$/u,
     'Run only in an isolated disposable test database.');
-  const rootPath = await fs.mkdtemp(path.join(process.env.DATA!, 'agent-structured-'));
-  const workspace: WorkspaceContext = {
-    workspaceId: randomUUID(), workspaceType: 'organization', organizationId: null, rootPath, legacy: false,
-    permissions: { canRead: true, canWrite: true, canDelete: true, canCreatePublicLinks: true,
-      canManageWorkspace: true, canRunAgent: true },
-  };
-  const userId = randomUUID();
-  const execution: AgentExecutionContext = {
-    userId, agentId: 'canvas-agent', sessionId: randomUUID(), workspaceId: workspace.workspaceId,
-    workspaceType: workspace.workspaceType, workspaceName: 'Structured test', organizationId: null,
-    customerId: null, projectId: null, workspaceRoot: rootPath, workspaceRootRelativePath: null,
-    canWrite: true, canDelete: true, canShare: true, legacy: false,
-  };
+  const fixture = await ensureAgentGrantIntegrationFixture({ agentId: 'canvas-agent' });
+  const { userId, workspace, execution } = fixture;
+  const rootPath = workspace.rootPath;
   const filePath = 'structured.md';
   const initialMarkdown = 'AAA\n\nSame\n\nSame\n\nOther';
   await fs.writeFile(path.join(rootPath, filePath), initialMarkdown);
@@ -110,6 +102,9 @@ async function main() {
     assert.equal(snapshot.structure?.blocks.length, 2);
     assert.equal(snapshot.structure?.nextOffset, 2);
     const [first, sameA, sameB, other] = blocks();
+    const beforeGrant = Y.encodeStateAsUpdate(live);
+    await fixture.grantForDocument({ documentId: document.documentId });
+    assert.deepEqual(Y.encodeStateAsUpdate(live), beforeGrant, 'Explicit direct-edit permission does not apply its source proposal.');
 
     // A move prepared before a new human character preserves that character.
     const moveKey = randomUUID();
@@ -224,7 +219,9 @@ async function main() {
       requestedMode: 'review', targets: prepared.targets });
     const view = await getAgentOperation({ operationId: proposal.operationId, workspace, userId });
     assert(view?.reviewTargets?.[0].currentTargetHash, JSON.stringify(view));
-    const approved = await acceptAgentOperation({ operationId: proposal.operationId, workspace, userId, idempotencyKey: randomUUID() });
+    assert(view.proposalVersion);
+    const approved = await acceptAgentOperation({ operationId: proposal.operationId, workspace, userId,
+      idempotencyKey: randomUUID(), proposalVersion: view.proposalVersion });
     assert.equal(approved.durability, 'persisted_yjs', JSON.stringify(approved));
 
     success(await run('edit_file', { path: filePath, document, operations: [{ kind: 'insert_blocks', parentId: null,
@@ -247,6 +244,47 @@ async function main() {
     assert((await run('edit_file', { path: filePath, document: { ...document, lifecycleGeneration: document.lifecycleGeneration + 1 },
       operations: [{ kind: 'delete_block', blockId: first.id, subtreeHash: blocks().find((block) => block.id === first.id)!.subtreeHash }] })).isError);
     assert((await run('edit_file', { path: filePath, document, operations: [{ kind: 'reverse', update: 'foreign' }] })).isError);
+    assert.deepEqual(Y.encodeStateAsUpdate(live), unchanged);
+
+    // Verify the real cross-connection PostgreSQL fence, beyond the unit test's lock model.
+    const directScope = { userId, workspaceId: workspace.workspaceId, agentId: execution.agentId!,
+      actorSessionId: execution.sessionId, documentId: document.documentId, lifecycleGeneration: document.lifecycleGeneration };
+    const capturedGrant = await resolveAgentDirectEditGrant(directScope); assert(capturedGrant);
+    let enter!: () => void;
+    let finish!: () => void;
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const finishApply = new Promise<void>((resolve) => { finish = resolve; });
+    const applying = withAgentDirectEditGrant({ grantId: capturedGrant.id, scope: directScope }, async () => {
+      enter(); await finishApply; return 'finished';
+    });
+    await Promise.race([entered, applying]);
+    let revokeFinished = false;
+    const revoking = setAgentDirectEditGrantForOperation({ operationId: moved.collaboration!.operationId,
+      workspace, userId, action: 'revoke', idempotencyKey: randomUUID() }).then((result) => {
+      revokeFinished = true; return result;
+    });
+    const probe = await openDb();
+    try {
+      const deadline = Date.now() + 3_000;
+      let blocked = false;
+      while (Date.now() < deadline) {
+        const row = await probe.get(`SELECT COUNT(*) AS waiting FROM pg_stat_activity
+          WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = 'Lock'
+            AND query LIKE '%collaboration_agent_direct_edit_grants%'
+            AND cardinality(pg_blocking_pids(pid)) > 0`) as { waiting: string };
+        if (Number(row.waiting) > 0) { blocked = true; break; }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert(blocked, 'Revoke must wait on the grant row held by the current apply.');
+      assert.equal(revokeFinished, false);
+    } finally {
+      finish();
+      await probe.close();
+      await Promise.all([applying, revoking]);
+    }
+    assert.equal(await resolveAgentDirectEditGrant(directScope), null);
+    await assert.rejects(withAgentDirectEditGrant({ grantId: capturedGrant.id, scope: directScope }, async () => assert.fail()),
+      AgentDirectEditGrantUnavailableError);
     assert.deepEqual(Y.encodeStateAsUpdate(live), unchanged);
     console.log('collaboration-agent-structured-integration-test: ok');
   } finally {

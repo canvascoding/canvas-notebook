@@ -16,7 +16,10 @@ import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
 import {
+  canAcceptCollaborationAgentOperation,
+  collaborationAgentAcceptanceOutcome,
   loadCollaborationAgentOperations,
+  prepareCollaborationAgentAction,
   type CollaborationAgentOperation as AgentOperation,
   type CollaborationAgentOperationStatus as OperationStatus,
 } from '@/app/lib/collaboration/agent-operations-client';
@@ -26,6 +29,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { CollaborationAgentDirectEditGrant } from './CollaborationAgentDirectEditGrant';
 
 const REVIEW_STATUSES = new Set<OperationStatus>(['needs_review', 'partially_applied', 'semantic_conflict']);
 const ACTIVE_STATUSES = new Set<OperationStatus>([
@@ -66,14 +70,16 @@ export function CollaborationAgentOperations({
   const actionKeys = useRef(new Map<string, string>());
   const previousStatuses = useRef(new Map<string, OperationStatus>());
   const hasLoaded = useRef(false);
+  const loadSequence = useRef(0);
 
   const load = useCallback(async (signal?: AbortSignal) => {
+    const sequence = ++loadSequence.current;
     const nextOperations = await loadCollaborationAgentOperations({
       documentId,
       headers: workspaceHeaders(),
       signal,
     });
-    if (nextOperations === null) return;
+    if (nextOperations === null || sequence !== loadSequence.current) return;
 
     if (hasLoaded.current) {
       for (const operation of nextOperations) {
@@ -127,19 +133,46 @@ export function CollaborationAgentOperations({
   );
 
   const act = useCallback(async (operation: AgentOperation, action: 'accept' | 'reject' | 'cancel' | 'revert') => {
-    if (!operation.actionsAllowed) return;
-    const key = `${operation.operationId}:${action}`;
-    const idempotencyKey = actionKeys.current.get(key) || crypto.randomUUID();
-    actionKeys.current.set(key, idempotencyKey);
+    const request = prepareCollaborationAgentAction(operation, action, actionKeys.current);
+    if (!request) return;
+    const { key, body } = request;
+    const invalidateDisplayedProposal = () => setOperations((current) => current.map((entry) => (
+      entry.operationId === operation.operationId && entry.proposalVersion === operation.proposalVersion
+        ? { ...entry, proposalVersion: null } : entry
+    )));
     setBusyAction(key);
     try {
       const response = await fetch(`/api/files/collaboration/operations/${encodeURIComponent(operation.operationId)}/${action}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
-        body: JSON.stringify({ idempotencyKey }),
+        body: JSON.stringify(body),
       });
-      const payload = await response.json().catch(() => ({})) as { error?: string };
-      if (!response.ok) throw new Error(payload.error || t('agentActionFailed'));
+      const decoded: unknown = await response.json().catch(() => null);
+      const payload = decoded && typeof decoded === 'object'
+        ? decoded as { success?: boolean; code?: string; error?: string; operation?: AgentOperation } : {};
+      if (payload.code === 'AGENT_PROPOSAL_CHANGED') {
+        invalidateDisplayedProposal();
+        toast.message(t('agentProposalChanged'));
+        await load();
+        return;
+      }
+      if (!response.ok || payload.success === false) throw new Error(payload.error || t('agentActionFailed'));
+      if (action === 'accept') {
+        const outcome = collaborationAgentAcceptanceOutcome(payload.operation);
+        if (outcome !== 'accepted') {
+          if (outcome === 'review') {
+            invalidateDisplayedProposal();
+            toast.message(t('agentActionNeedsReview'));
+          } else if (outcome === 'pending') toast.message(t('agentActionPending'));
+          else toast.error(t('agentActionFailed'));
+          await load();
+          return;
+        }
+      } else if (payload.operation && REVIEW_STATUSES.has(payload.operation.operationStatus)) {
+        toast.message(t('agentActionNeedsReview'));
+        await load();
+        return;
+      }
       toast.success(t(`agentAction_${action}`));
       await load();
     } catch (error) {
@@ -218,6 +251,7 @@ export function CollaborationAgentOperations({
                     operation={operation}
                     busyAction={busyAction}
                     onAction={act}
+                    showDirectEditGrant={open}
                     t={t}
                   />
                 ))}
@@ -240,6 +274,7 @@ export function CollaborationAgentOperations({
                           operation={operation}
                           busyAction={busyAction}
                           onAction={act}
+                          showDirectEditGrant={open}
                           t={t}
                         />
                       ))}
@@ -261,6 +296,7 @@ export function CollaborationAgentOperations({
                         operation={operation}
                         busyAction={busyAction}
                         onAction={act}
+                        showDirectEditGrant={open}
                         t={t}
                       />
                     ))}
@@ -279,13 +315,13 @@ interface OperationCardProps {
   operation: AgentOperation;
   busyAction: string | null;
   onAction: (operation: AgentOperation, action: 'accept' | 'reject' | 'cancel' | 'revert') => Promise<void>;
+  showDirectEditGrant?: boolean;
   t: ReturnType<typeof useTranslations<'notebook.collaboration'>>;
 }
 
-function ReviewOperationCard({ operation, busyAction, onAction, t }: OperationCardProps) {
+function ReviewOperationCard({ operation, busyAction, onAction, showDirectEditGrant, t }: OperationCardProps) {
   const isBusy = busyAction?.startsWith(`${operation.operationId}:`) || false;
-  const canAccept = operation.actionsAllowed
-    && (operation.operationStatus === 'needs_review' || operation.operationStatus === 'partially_applied');
+  const canAccept = canAcceptCollaborationAgentOperation(operation);
   const canReject = operation.actionsAllowed
     && (operation.operationStatus === 'needs_review' || operation.operationStatus === 'semantic_conflict');
 
@@ -323,6 +359,10 @@ function ReviewOperationCard({ operation, busyAction, onAction, t }: OperationCa
             {t('agentActionsOwnerOnly')}
           </p>
         ) : null}
+        {operation.actionsAllowed && !canAccept
+          && (operation.operationStatus === 'needs_review' || operation.operationStatus === 'partially_applied') ? (
+          <p className="rounded-md bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">{t('agentProposalUnavailable')}</p>
+        ) : null}
         {canAccept || canReject ? (
           <div className="flex justify-end gap-1.5 pt-1">
             {canReject ? (
@@ -339,12 +379,15 @@ function ReviewOperationCard({ operation, busyAction, onAction, t }: OperationCa
             ) : null}
           </div>
         ) : null}
+        {showDirectEditGrant && operation.initiatedByCurrentUser === true ? (
+          <CollaborationAgentDirectEditGrant operationId={operation.operationId} />
+        ) : null}
       </div>
     </article>
   );
 }
 
-function ActivityOperationRow({ operation, busyAction, onAction, t }: OperationCardProps) {
+function ActivityOperationRow({ operation, busyAction, onAction, showDirectEditGrant, t }: OperationCardProps) {
   const isBusy = busyAction?.startsWith(`${operation.operationId}:`) || false;
   const canCancel = operation.actionsAllowed && CANCELLABLE_STATUSES.has(operation.operationStatus);
   const canRevert = operation.actionsAllowed
@@ -361,6 +404,9 @@ function ActivityOperationRow({ operation, busyAction, onAction, t }: OperationC
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium">{t(`agentStatus_${operation.operationStatus}`)}</p>
         <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{operationAttribution(operation, t)}</p>
+        {showDirectEditGrant && operation.initiatedByCurrentUser === true ? (
+          <CollaborationAgentDirectEditGrant operationId={operation.operationId} />
+        ) : null}
       </div>
       {canCancel ? (
         <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={isBusy} onClick={() => void onAction(operation, 'cancel')}>

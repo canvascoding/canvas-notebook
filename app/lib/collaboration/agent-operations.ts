@@ -7,7 +7,6 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   applyExactTextEdits,
-  resolveExactTextEditMatchCount,
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
@@ -19,6 +18,9 @@ import {
 import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { logCollaborationDiagnostic } from './diagnostics';
+import { readCurrentCollaborationDocument } from './document-access';
+import { resolveAgentDirectEditGrant, withAgentDirectEditGrant, AgentDirectEditGrantUnavailableError,
+  type AgentDirectEditGrantScope } from './agent-direct-edit-grants';
 import { AgentBlockEditError, applyAgentBlockEdit, previewAgentBlockEdit, type PreparedAgentBlockEdit } from './agent-block-edits';
 import { validateAgentBlockDocument } from './agent-block-structure';
 import {
@@ -32,7 +34,6 @@ import { isRichTextCollaborationRepresentation, type TextCollaborationRepresenta
 import { BLOCK_TREE_KEY } from './block-tree';
 import { blockTreeTextScopes, richDocumentFormat } from './rich-document';
 import {
-  getWorkspacePresenceSnapshot,
   removeDocumentPresenceEntry,
   upsertDocumentPresenceEntry,
 } from './presence';
@@ -48,6 +49,7 @@ const PERSISTENCE_CONFIRMATION_TIMEOUT_MS = 5_000;
 const MAX_AGENT_TRIGGER_DEPTH = 4;
 const MAX_PENDING_AGENT_APPLIES_PER_DOCUMENT = 16;
 const AGENT_QUEUE_REVIEW_AFTER_MS = 1_000;
+const USER_REVERT_AUTHORITY = Symbol('trusted-user-selective-revert');
 
 export type AgentBoundaryPolicy = 'exclude_external';
 export type AgentOperationStatus =
@@ -76,9 +78,15 @@ export interface AgentTextTarget {
   endAnchor: string;
   blockId?: string | null;
   baseTargetHash: string;
+  /** Formatting of the anchored range, excluding unrelated boundary text. */
+  baseFormatHash?: string;
   replacement: string;
   replacementAttributes?: Record<string, unknown>;
+  /** Server-prepared selective inverse; public tools never accept raw Yjs runs. */
+  replacementDelta?: Array<{ insert: string; attributes: Record<string, unknown> }>;
   patchEdits?: ExactTextEdit[];
+  /** Legacy unanchored patches require the exact original Yjs identity, including deletions. */
+  baseDocumentSnapshot?: string;
   blockEdit?: PreparedAgentBlockEdit;
   boundaryPolicy: AgentBoundaryPolicy;
 }
@@ -151,6 +159,8 @@ export interface AgentOperationView extends PersistedAgentApplyResult {
   createdAt: number;
   updatedAt: number;
   expiresAt: number | null;
+  /** Exact server-issued proposal revision displayed by the approving user. */
+  proposalVersion?: string | null;
   reviewTargets?: Array<{
     targetId: string;
     groupId: string;
@@ -194,6 +204,7 @@ type AgentOperationRow = {
   payload_hash: string;
   operation_type: 'apply' | 'revert';
   requested_mode: 'direct_apply' | 'review';
+  direct_edit_grant_id: string | null;
   atomicity: 'all_or_nothing' | 'independent';
   operation_payload: string | null;
   reverse_payload: string | null;
@@ -223,6 +234,19 @@ type AgentOperationRow = {
 };
 
 class AgentOperationCancelledError extends Error {}
+
+export class AgentProposalChangedError extends Error {
+  readonly code = 'AGENT_PROPOSAL_CHANGED';
+  constructor() {
+    super('This proposal has changed or can no longer be applied. Reload it before approving.');
+    this.name = 'AgentProposalChangedError';
+  }
+}
+
+type AgentOperationReview = {
+  targets: AgentOperationView['reviewTargets'];
+  proposalVersion: string | null;
+};
 
 /** A historical receipt is available, but cannot describe this document lifecycle. */
 export class AgentFileEditOperationScopeError extends Error {
@@ -266,23 +290,88 @@ function materializeCollaborationTypes(doc: YTypes.Doc): void {
 }
 
 function uniformTextAttributes(text: YTypes.Text, from: number, to: number): Record<string, unknown> | undefined {
-  if (from === to) return undefined;
-  let offset = 0;
-  let signature: string | null = null;
-  let attributes: Record<string, unknown> | undefined;
-  for (const part of text.toDelta() as Array<{ insert?: unknown; attributes?: Record<string, unknown> }>) {
-    const length = typeof part.insert === 'string' ? part.insert.length : 0;
-    const partFrom = offset;
-    const partTo = offset + length;
-    offset = partTo;
-    if (partTo <= from || partFrom >= to) continue;
-    const nextAttributes = part.attributes || {};
-    const nextSignature = JSON.stringify(nextAttributes, Object.keys(nextAttributes).sort());
-    if (signature !== null && signature !== nextSignature) return undefined;
-    signature = nextSignature;
-    attributes = Object.keys(nextAttributes).length > 0 ? nextAttributes : undefined;
+  const delta = clippedTextDelta(text, from, to);
+  return delta.length === 1 && Object.keys(delta[0].attributes).length ? delta[0].attributes : undefined;
+}
+
+type AgentTextDelta = NonNullable<AgentTextTarget['replacementDelta']>;
+
+function canonicalFormatValue(value: unknown, depth = 0): unknown {
+  if (depth > 16) throw new Error('Invalid text format nesting.');
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && !hasUnpairedSurrogate(value)) return value;
+  if (Array.isArray(value)) return value.map((entry) => canonicalFormatValue(entry, depth + 1));
+  if (value && typeof value === 'object' && [Object.prototype, null].includes(Object.getPrototypeOf(value))) {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => {
+      if (hasUnpairedSurrogate(key)) throw new Error('Invalid text format key.');
+      return [key, canonicalFormatValue((value as Record<string, unknown>)[key], depth + 1)];
+    }));
   }
-  return attributes;
+  throw new Error('Invalid text format value.');
+}
+
+function canonicalTextAttributes(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid text attributes.');
+  return canonicalFormatValue(value) as Record<string, unknown>;
+}
+
+function appendTextDelta(delta: AgentTextDelta, insert: string, attributes: Record<string, unknown>): void {
+  if (!insert) return;
+  const previous = delta.at(-1);
+  if (previous && JSON.stringify(previous.attributes) === JSON.stringify(attributes)) previous.insert += insert;
+  else delta.push({ insert, attributes });
+}
+
+function clippedTextDelta(text: YTypes.Text, from: number, to: number): AgentTextDelta {
+  const result: AgentTextDelta = []; let offset = 0;
+  for (const part of text.toDelta() as Array<{ insert?: unknown; attributes?: unknown }>) {
+    if (typeof part.insert !== 'string') throw new Error('Unsupported embedded agent text.');
+    const start = Math.max(from, offset); const end = Math.min(to, offset + part.insert.length);
+    if (start < end) appendTextDelta(result, part.insert.slice(start - offset, end - offset), canonicalTextAttributes(part.attributes ?? {}));
+    offset += part.insert.length;
+  }
+  return result;
+}
+
+function textFormatHash(text: YTypes.Text, from: number, to: number): string {
+  return hash(JSON.stringify(clippedTextDelta(text, from, to).map((part) => ({ length: part.insert.length, attributes: part.attributes }))));
+}
+
+function replacementTextDelta(target: AgentTextTarget): AgentTextDelta {
+  // Explicitly empty attributes prevent Yjs from inheriting newer formatting
+  // from text immediately outside the approved range after its deletion.
+  const attributes = canonicalTextAttributes(target.replacementAttributes ?? {});
+  if (target.replacementDelta === undefined) return target.replacement ? [{ insert: target.replacement, attributes }] : [];
+  if (!Array.isArray(target.replacementDelta)
+    || Buffer.byteLength(JSON.stringify(target.replacementDelta), 'utf8') > MAX_AGENT_PAYLOAD_BYTES) throw new Error('Invalid text replacement delta.');
+  const result: AgentTextDelta = [];
+  for (const part of target.replacementDelta) {
+    if (!part || typeof part !== 'object' || Array.isArray(part)
+      || Object.keys(part).some((key) => key !== 'insert' && key !== 'attributes')
+      || typeof part.insert !== 'string' || !part.insert || hasUnpairedSurrogate(part.insert)) throw new Error('Invalid text replacement run.');
+    appendTextDelta(result, part.insert, canonicalTextAttributes(part.attributes));
+  }
+  if (result.map((part) => part.insert).join('') !== target.replacement) throw new Error('Text replacement delta does not match its replacement.');
+  return result;
+}
+
+function replaceResolvedText(target: ResolvedTarget): AgentTextDelta {
+  const before = clippedTextDelta(target.text, target.from, target.to);
+  const replacement = replacementTextDelta(target);
+  target.text.delete(target.from, target.to - target.from);
+  let offset = target.from;
+  for (const part of replacement) {
+    target.text.insert(offset, part.insert, part.attributes);
+    offset += part.insert.length;
+  }
+  return before;
+}
+
+function reverseTextTarget(target: ResolvedTarget, original: AgentTextDelta): AgentTextTarget {
+  return { ...createAgentTextTarget({ text: target.text, from: target.from, to: target.from + target.replacement.length,
+    replacement: target.currentText, targetId: `revert:${target.targetId}`, groupId: target.groupId, boundaryPolicy: target.boundaryPolicy }),
+  replacementAttributes: original.length === 1 ? original[0].attributes : {}, replacementDelta: original };
 }
 
 function hasUnpairedSurrogate(value: string): boolean {
@@ -378,8 +467,9 @@ export function createAgentTextTarget(input: {
     startAnchor: encodePosition(Y.createRelativePositionFromTypeIndex(input.text, input.from, 0)),
     endAnchor: encodePosition(Y.createRelativePositionFromTypeIndex(input.text, input.to, empty ? 0 : -1)),
     baseTargetHash: hash(value.slice(input.from, input.to)),
+    baseFormatHash: textFormatHash(input.text, input.from, input.to),
     replacement: input.replacement,
-    replacementAttributes: uniformTextAttributes(input.text, input.from, input.to),
+    replacementAttributes: uniformTextAttributes(input.text, input.from, input.to) ?? {},
     boundaryPolicy: input.boundaryPolicy || 'exclude_external',
     ...(blockId !== undefined ? { blockId } : {}),
   };
@@ -453,6 +543,7 @@ export function createRichAgentTextTargets(input: {
 }
 
 export function createRichMarkdownReviewTarget(input: {
+  doc?: YTypes.Doc;
   currentMarkdown: string;
   proposedMarkdown: string;
   edits: ExactTextEdit[];
@@ -475,6 +566,7 @@ export function createRichMarkdownReviewTarget(input: {
     startAnchor: '',
     endAnchor: '',
     baseTargetHash: hash(input.currentMarkdown),
+    ...(input.doc ? { baseDocumentSnapshot: agentDocumentSnapshot(input.doc) ?? undefined } : {}),
     // Structural reviews persist the bounded exact patch, not a second full
     // document snapshot. `proposedMarkdown` is used only for schema/roundtrip
     // validation before the operation is stored.
@@ -491,6 +583,18 @@ export function createRichMarkdownReviewTarget(input: {
 
 function isRichMarkdownPatchTarget(target: AgentTextTarget): boolean {
   return target.kind === 'rich_markdown_patch';
+}
+
+function agentDocumentSnapshot(doc: YTypes.Doc): string | null {
+  const snapshot = captureAgentStateSnapshot(doc, Y);
+  return snapshot ? Buffer.from(snapshot).toString('base64') : null;
+}
+
+function legacyMarkdownTargetStillMatches(doc: YTypes.Doc, target: AgentTextTarget): boolean {
+  // Old proposals without an identity receipt cannot safely relocate an unanchored patch.
+  return Boolean(target.baseDocumentSnapshot)
+    && target.baseDocumentSnapshot === agentDocumentSnapshot(doc)
+    && hash(richMarkdownFromYDoc(doc)) === target.baseTargetHash;
 }
 
 function richPatchConflict(
@@ -546,6 +650,7 @@ function applyRichMarkdownPatchTargets(input: {
   const currentMarkdown = richMarkdownFromYDoc(input.doc);
   let nextMarkdown: string;
   try {
+    if (!legacyMarkdownTargetStillMatches(input.doc, target)) throw new AgentProposalChangedError();
     nextMarkdown = target.patchEdits?.length
       ? applyExactTextEdits(currentMarkdown, target.patchEdits, 'collaborative Markdown review')
       : hash(currentMarkdown) === target.baseTargetHash
@@ -593,6 +698,7 @@ function applyRichMarkdownPatchTargets(input: {
       startAnchor: '',
       endAnchor: '',
       baseTargetHash: hash(nextMarkdown),
+      baseDocumentSnapshot: agentDocumentSnapshot(input.doc) ?? undefined,
       replacement: currentMarkdown,
       boundaryPolicy: target.boundaryPolicy,
     }],
@@ -638,6 +744,11 @@ function preflight(
       conflicts.push({ targetId: target.targetId, groupId: target.groupId, code: 'limit_exceeded' });
       continue;
     }
+    try { replacementTextDelta(target); }
+    catch {
+      conflicts.push({ targetId: target.targetId, groupId: target.groupId, code: 'schema_invalid' });
+      continue;
+    }
     const start = decodePosition(target.startAnchor);
     const end = decodePosition(target.endAnchor);
     const absoluteStart = start ? Y.createAbsolutePositionFromRelativePosition(start, doc) : null;
@@ -676,6 +787,19 @@ function preflight(
     }
     if (hash(resolvedTarget.currentText) !== target.baseTargetHash) {
       conflicts.push({ targetId: target.targetId, groupId: target.groupId, code: 'target_changed' });
+      continue;
+    }
+    try {
+      // Legacy rich ranges lack a formatting receipt; text equality cannot
+      // prove that accepting them would preserve a later human mark change.
+      if ((target.baseFormatHash === undefined && Boolean(text.parent))
+        || (target.baseFormatHash !== undefined && (!/^[a-f0-9]{64}$/u.test(target.baseFormatHash)
+          || target.baseFormatHash !== textFormatHash(text, resolvedTarget.from, resolvedTarget.to)))) {
+        conflicts.push({ targetId: target.targetId, groupId: target.groupId, code: 'target_changed' });
+        continue;
+      }
+    } catch {
+      conflicts.push({ targetId: target.targetId, groupId: target.groupId, code: 'schema_invalid' });
       continue;
     }
     resolved.push(resolvedTarget);
@@ -739,20 +863,24 @@ export function applyAgentTextTargets(input: {
   const clone = new Y.Doc({ gc: true });
   Y.applyUpdate(clone, Y.encodeStateAsUpdate(input.doc));
   const clonePreflight = preflight(clone, input.targets, independentGroups, input.compositionRanges);
-  if (clonePreflight.resolved.length > 0) {
+  let inverseValidationCode: AgentApplyConflict['code'] | null = null;
+  try {
+    const inverse: AgentTextTarget[] = [];
     clone.transact(() => {
       for (const target of [...clonePreflight.resolved].sort((a, b) => b.from - a.from)) {
-        target.text.delete(target.from, target.to - target.from);
-        if (target.replacement) target.text.insert(target.from, target.replacement, target.replacementAttributes);
+        inverse.push(reverseTextTarget(target, replaceResolvedText(target)));
       }
     }, input.origin);
+    if (Buffer.byteLength(JSON.stringify(inverse), 'utf8') > MAX_AGENT_PAYLOAD_BYTES) inverseValidationCode = 'limit_exceeded';
+  } catch (error) {
+    inverseValidationCode = error instanceof Error && error.message.includes('Unicode grapheme') ? 'unicode_boundary' : 'schema_invalid';
   }
   const uniqueCloneTexts = [...new Set(clonePreflight.resolved.map((target) => target.text))];
   const invalidText = uniqueCloneTexts.some((text) => {
     const value = textValue(text);
     return Buffer.byteLength(value, 'utf8') > MAX_COLLABORATIVE_TEXT_BYTES || hasUnpairedSurrogate(value);
   });
-  const cloneValidationCode = invalidText ? 'limit_exceeded' : input.validateClone?.(clone) || null;
+  const cloneValidationCode = inverseValidationCode || (invalidText ? 'limit_exceeded' : input.validateClone?.(clone) || null);
   if (cloneValidationCode) {
     clone.destroy();
     return {
@@ -775,17 +903,7 @@ export function applyAgentTextTargets(input: {
   if (final.resolved.length > 0) {
     input.doc.transact(() => {
       for (const target of [...final.resolved].sort((a, b) => b.from - a.from)) {
-        target.text.delete(target.from, target.to - target.from);
-        if (target.replacement) target.text.insert(target.from, target.replacement, target.replacementAttributes);
-        reverseTargets.push(createAgentTextTarget({
-          text: target.text,
-          from: target.from,
-          to: target.from + target.replacement.length,
-          replacement: target.currentText,
-          targetId: `revert:${target.targetId}`,
-          groupId: target.groupId,
-          boundaryPolicy: target.boundaryPolicy,
-        }));
+        reverseTargets.push(reverseTextTarget(target, replaceResolvedText(target)));
       }
     }, input.origin);
   }
@@ -1073,6 +1191,7 @@ async function createOrLoadOperation(input: {
   baseStateVector?: string;
   baseDocumentSequence?: number;
   fileEditRequest?: AgentFileEditRequestReceipt;
+  directEditGrantId?: string | null;
 }): Promise<{ row: AgentOperationRow; created: boolean }> {
   const triggerDepth = input.triggerDepth || 0;
   if (!Number.isInteger(triggerDepth) || triggerDepth < 0 || triggerDepth > MAX_AGENT_TRIGGER_DEPTH) {
@@ -1145,8 +1264,8 @@ async function createOrLoadOperation(input: {
       supersedes_operation_id, idempotency_key, run_generation, payload_hash, operation_type,
       requested_mode, atomicity, operation_payload, status, base_state_vector,
       base_document_sequence, result_json, cas_version, expires_at, correlation_id,
-      causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at, file_edit_request_json
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'preparing', $21, $22, NULL, 0, $23, $24, $25, $26, $27, $28, $29, $30)`,
+      causation_id, trigger_depth, expected_canonical_hash, created_at, updated_at, file_edit_request_json, direct_edit_grant_id
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, 'preparing', $21, $22, NULL, 0, $23, $24, $25, $26, $27, $28, $29, $30, $31)`,
     [
       operationId,
       input.documentId,
@@ -1170,7 +1289,7 @@ async function createOrLoadOperation(input: {
       sealPayload(input.targets),
       input.baseStateVector ? Buffer.from(input.baseStateVector, 'base64') : Buffer.from(state.stateVector),
       input.baseDocumentSequence ?? state.documentSequence,
-      now + AGENT_OPERATION_TTL_MS,
+      input.requestedMode === 'review' ? null : now + AGENT_OPERATION_TTL_MS,
       input.correlationId || operationId,
       input.causationId || null,
       input.triggerDepth || 0,
@@ -1178,6 +1297,7 @@ async function createOrLoadOperation(input: {
       now,
       now,
       fileEditRequestJson,
+      input.directEditGrantId ?? null,
     ],
   );
   const row = await readOperation(input.database, operationId);
@@ -1317,7 +1437,8 @@ async function applyStoredOperation(input: {
   row: AgentOperationRow;
   workspace: WorkspaceContext;
   actorDisplayName: string;
-  allowReviewApply?: boolean;
+  approval?: { row: AgentOperationRow; userId: string; proposalVersion: string; actionKeysJson: string };
+  directGrant?: { id: string; expiresAt: number };
 }): Promise<PersistedAgentApplyResult> {
   let row = input.row;
   if (row.result_json && !['needs_review', 'partially_applied'].includes(row.status)) return parseResult(row);
@@ -1377,7 +1498,7 @@ async function applyStoredOperation(input: {
     });
     return { ...terminal, operationStatus: row.status, casVersion: Number(row.cas_version) };
   }
-  if ((row.status === 'needs_review' || row.status === 'partially_applied') && !input.allowReviewApply) return parseResult(row);
+  if ((row.status === 'needs_review' || row.status === 'partially_applied') && !input.approval) return parseResult(row);
 
   const allTargets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
   const priorResult = parseResult(row);
@@ -1392,6 +1513,7 @@ async function applyStoredOperation(input: {
     status: 'applying',
     // A prior partial apply cannot certify this new attempt after a crash.
     fields: { error_code: null, resulting_state_snapshot: null, resulting_state_vector_hash: null,
+      ...(input.approval ? { action_keys_json: input.approval.actionKeysJson } : {}),
       result_json: JSON.stringify({ ...priorResult, operationStatus: 'applying',
         durability: priorResult.appliedTargetIds.length > 0 ? 'applied_to_ydoc' : 'pending' }) },
   });
@@ -1451,6 +1573,21 @@ async function applyStoredOperation(input: {
       actorSessionId: row.actor_session_id || undefined,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
+      if (input.directGrant && (input.directGrant.id !== row.direct_edit_grant_id || input.directGrant.expiresAt <= Date.now())) {
+        throw new AgentDirectConnectionAuthorizationError('The direct editing permission has expired.');
+      }
+      // The row claim and the direct-connection authorization can await I/O.
+      // Recheck the exact displayed proposal in this room, then mutate without yielding.
+      if (input.approval && !matchesProposalVersion(
+        input.approval.proposalVersion,
+        reviewTargetsInDocument(input.approval.row, doc, input.approval.userId).proposalVersion,
+      )) {
+        logCollaborationDiagnostic('info', { event: 'agent_target_conflict', operationId: row.operation_id,
+          documentId: row.document_id, workspaceId: row.workspace_id, code: 'AGENT_PROPOSAL_CHANGED' });
+        return { status: 'needs_review' as const, appliedTargetIds: [], reverseTargets: [],
+          conflicts: targets.map((target) => ({ targetId: target.targetId, groupId: target.groupId, code: 'target_changed' as const })),
+          stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64') };
+      }
       const currentStateVector = Y.encodeStateVector(doc);
       const baseStateVector = Buffer.from(row.base_state_vector).toString('base64');
       if (!stateVectorIncludes(currentStateVector, baseStateVector)) {
@@ -1493,7 +1630,7 @@ async function applyStoredOperation(input: {
         : applyAgentTextTargets({
             doc,
             targets,
-            independentGroups: row.atomicity === 'independent',
+            independentGroups: !input.approval && row.atomicity === 'independent',
             validateClone: (clone) => validateOperationClone(
               state.representation,
               row.expected_canonical_hash,
@@ -1680,7 +1817,9 @@ export async function applyPersistedAgentTextOperation(input: {
   targets: AgentTextTarget[];
   independentGroups?: boolean;
   requestedMode?: 'direct_apply' | 'review';
+  /** Deprecated compatibility input. It never grants editing authority. */
   explicitUserRequest?: boolean;
+  [USER_REVERT_AUTHORITY]?: true;
   operationType?: 'apply' | 'revert';
   agentRunId?: string;
   actorSessionId?: string;
@@ -1698,17 +1837,29 @@ export async function applyPersistedAgentTextOperation(input: {
   fileEditRequest?: AgentFileEditRequestReceipt;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
+  const trustedRevert = input.operationType === 'revert' && input[USER_REVERT_AUTHORITY] === true;
+  let directScope: AgentDirectEditGrantScope | null = null;
+  let grant: { id: string; expiresAt: number } | null = null;
+  // Capture permission before queueing. A later grant must not authorize an old queued edit.
+  if (!trustedRevert && input.requestedMode !== 'review' && input.actorSessionId) {
+    try {
+      const generation = input.documentLifecycleGeneration ?? (await loadCollaborationState(input.documentId))?.lifecycleGeneration;
+      if (generation !== undefined) {
+        directScope = { userId: input.initiatedByUserId, workspaceId: input.workspace.workspaceId,
+          agentId: input.actorId, actorSessionId: input.actorSessionId, documentId: input.documentId, lifecycleGeneration: generation };
+        grant = await resolveAgentDirectEditGrant(directScope);
+      }
+    } catch {
+      logCollaborationDiagnostic('warn', { event: 'agent_target_conflict', documentId: input.documentId,
+        workspaceId: input.workspace.workspaceId, code: 'AGENT_DIRECT_PERMISSION_UNAVAILABLE' });
+    }
+  }
   return serialized(input.documentId, async (queue) => {
     const database = await openDb();
     try {
-      const requestedMode = input.requestedMode || 'direct_apply';
-      const activeHuman = getWorkspacePresenceSnapshot(input.workspace.workspaceId).entries.some((entry) => (
-        entry.documentId === input.documentId && entry.actorType === 'user'
-      ));
+      const requestedMode = input.requestedMode ?? 'direct_apply';
       const backpressureReview = queue.waitMs >= AGENT_QUEUE_REVIEW_AFTER_MS || queue.depth > 4;
-      const mustReview = requestedMode === 'review'
-        || (activeHuman && !input.explicitUserRequest)
-        || backpressureReview;
+      const mustReview = requestedMode === 'review' || (!trustedRevert && !grant) || backpressureReview;
       const created = await createOrLoadOperation({
         database,
         documentId: input.documentId,
@@ -1735,40 +1886,47 @@ export async function applyPersistedAgentTextOperation(input: {
         baseStateVector: input.baseStateVector,
         baseDocumentSequence: input.baseDocumentSequence,
         fileEditRequest: input.fileEditRequest,
+        directEditGrantId: !mustReview ? grant?.id : null,
       });
       if (!created.created) return {
         ...parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace)),
         ...(input.fileEditRequest ? { fileEditRequestReused: true as const } : {}),
       };
-      if (mustReview) {
-        const state = await loadCollaborationState(input.documentId);
-        const reviewResult = publicResult(created.row, {
-          status: 'needs_review',
-          appliedTargetIds: [],
-          conflicts: [],
-          stateVector: state ? Buffer.from(state.stateVector).toString('base64') : Buffer.from(created.row.base_state_vector).toString('base64'),
-        }, 'needs_review');
-        const review = await transitionOperation({
-          database,
-          row: created.row,
-          expectedStatuses: ['preparing'],
-          status: 'needs_review',
-          fields: {
-            result_json: JSON.stringify(reviewResult),
-            error_code: activeHuman && !input.explicitUserRequest
-              ? 'active_human_review_required'
-              : backpressureReview
-                ? 'backpressure_review_required'
-                : null,
-          },
+      if (mustReview) return placeAgentOperationInReview(database, created.row,
+        backpressureReview ? 'backpressure_review_required' : 'user_review_required');
+      if (trustedRevert) return applyStoredOperation({ database, row: created.row,
+        workspace: input.workspace, actorDisplayName: input.actorDisplayName });
+      let appliedResult: PersistedAgentApplyResult | undefined;
+      try {
+        return await withAgentDirectEditGrant({ grantId: grant!.id, scope: directScope! }, async (currentGrant) => {
+          appliedResult = await applyStoredOperation({ database, row: created.row, workspace: input.workspace,
+            actorDisplayName: input.actorDisplayName, directGrant: currentGrant });
+          return appliedResult;
         });
-        return { ...reviewResult, operationStatus: review.status, casVersion: Number(review.cas_version) };
+      } catch (error) {
+        // The grant transaction only holds authority stable; it does not own the
+        // already-written operation/Yjs receipt. A COMMIT response loss must not
+        // turn that completed apply into another execution attempt.
+        if (appliedResult) {
+          logCollaborationDiagnostic('warn', { event: 'agent_audit_failed', operationId: created.row.operation_id,
+            documentId: input.documentId, workspaceId: input.workspace.workspaceId, code: 'AGENT_GRANT_LOCK_RELEASE_UNCONFIRMED' });
+          return appliedResult;
+        }
+        if (!(error instanceof AgentDirectEditGrantUnavailableError)) throw error;
+        return placeAgentOperationInReview(database, created.row, 'authorization_revoked');
       }
-      return applyStoredOperation({ database, row: created.row, workspace: input.workspace, actorDisplayName: input.actorDisplayName });
     } finally {
       await database.close();
     }
   });
+}
+
+async function placeAgentOperationInReview(database: SqlConnection, row: AgentOperationRow, code: string) {
+  const result = publicResult(row, { status: 'needs_review', appliedTargetIds: [], conflicts: [],
+    stateVector: Buffer.from(row.base_state_vector).toString('base64') }, 'needs_review');
+  const review = await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'needs_review',
+    fields: { requested_mode: 'review', expires_at: null, result_json: JSON.stringify(result), error_code: code } });
+  return { ...result, operationStatus: review.status, casVersion: Number(review.cas_version) };
 }
 
 function canManageOperation(row: AgentOperationRow, workspace: WorkspaceContext, userId: string): boolean {
@@ -1795,109 +1953,135 @@ function operationTargetAnchors(row: AgentOperationRow): AgentOperationView['tar
   ));
 }
 
-async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView['reviewTargets']> {
-  if (!['needs_review', 'partially_applied', 'semantic_conflict'].includes(row.status)) return undefined;
-  const targets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
-  const state = await loadCollaborationState(row.document_id);
-  if (!state) return targets.flatMap((target) => (
-    isRichMarkdownPatchTarget(target) && target.patchEdits?.length
-      ? target.patchEdits.map((edit, index) => ({
-          targetId: `${target.targetId}:${index}`,
-          groupId: target.groupId,
-          proposedReplacement: edit.newText,
-          currentText: null,
-          currentTargetHash: null,
-        }))
-      : [{
-          targetId: target.targetId,
-          groupId: target.groupId,
-          proposedReplacement: target.replacement,
-          currentText: null,
-          currentTargetHash: null,
-        }]
-  ));
-  const doc = new Y.Doc({ gc: true });
-  try {
-    Y.applyUpdate(doc, state.yjsState);
-    materializeCollaborationTypes(doc);
-    const scopes = richDocumentFormat(doc) === 'tiptap_blocks' ? blockTreeTextScopes(doc) : undefined;
-    const currentMarkdown = isRichTextCollaborationRepresentation(state.representation)
-      ? richMarkdownFromYDoc(doc)
+/** Reads only the pending part of a proposal, synchronously from the shared room. */
+function reviewTargetsInDocument(row: AgentOperationRow, doc: YTypes.Doc, userId: string): AgentOperationReview {
+  const alreadyApplied = new Set(parseResult(row).appliedTargetIds);
+  const targets = (openPayload<AgentTextTarget[]>(row.operation_payload) || [])
+    .filter((target) => !alreadyApplied.has(target.targetId));
+  materializeCollaborationTypes(doc);
+  const scopes = richDocumentFormat(doc) === 'tiptap_blocks' ? blockTreeTextScopes(doc) : undefined;
+  const currentMarkdown = targets.some(isRichMarkdownPatchTarget) ? richMarkdownFromYDoc(doc) : null;
+  const review = targets.flatMap((target) => {
+    if (target.kind === 'block_edit') {
+      try {
+        if (!target.blockEdit) throw new Error('Missing block edit.');
+        const preview = previewAgentBlockEdit(doc, target.blockEdit);
+        return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: preview.afterText,
+          currentText: preview.beforeText, currentTargetHash: preview.footprintHash }];
+      } catch {
+        return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: target.replacement,
+          currentText: null, currentTargetHash: null }];
+      }
+    }
+    if (isRichMarkdownPatchTarget(target)) {
+      try {
+        if (!legacyMarkdownTargetStillMatches(doc, target)) throw new AgentProposalChangedError();
+        if (currentMarkdown === null) throw new Error('Missing rich document.');
+        const proposed = target.patchEdits?.length
+          ? applyExactTextEdits(currentMarkdown, target.patchEdits, 'collaborative Markdown review')
+          : hash(currentMarkdown) === target.baseTargetHash ? target.replacement : null;
+        return [{ targetId: target.targetId, groupId: target.groupId,
+          proposedReplacement: proposed ?? target.replacement, currentText: currentMarkdown,
+          currentTargetHash: proposed === null ? null : hash(currentMarkdown) }];
+      } catch {
+        return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: target.replacement,
+          currentText: null, currentTargetHash: null }];
+      }
+    }
+    const start = decodePosition(target.startAnchor);
+    const end = decodePosition(target.endAnchor);
+    const absoluteStart = start ? Y.createAbsolutePositionFromRelativePosition(start, doc) : null;
+    const absoluteEnd = end ? Y.createAbsolutePositionFromRelativePosition(end, doc) : null;
+    const currentText = absoluteStart
+      && absoluteEnd
+      && absoluteStart.type === absoluteEnd.type
+      && absoluteStart.type instanceof Y.Text
+      && (!scopes || (target.blockId !== undefined && scopes.has(absoluteStart.type as YTypes.Text)
+        && scopes.get(absoluteStart.type as YTypes.Text) === target.blockId))
+      && absoluteEnd.index >= absoluteStart.index
+      ? textValue(absoluteStart.type as YTypes.Text).slice(absoluteStart.index, absoluteEnd.index)
       : null;
-    return targets.flatMap((target) => {
-      if (target.kind === 'block_edit') {
-        try {
-          if (!target.blockEdit) throw new Error('Missing block edit.');
-          const preview = previewAgentBlockEdit(doc, target.blockEdit);
-          return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: preview.afterText,
-            currentText: preview.beforeText, currentTargetHash: preview.footprintHash }];
-        } catch {
-          return [{ targetId: target.targetId, groupId: target.groupId, proposedReplacement: target.replacement,
-            currentText: null, currentTargetHash: null }];
-        }
-      }
-      if (isRichMarkdownPatchTarget(target)) {
-        if (target.patchEdits?.length) {
-          return target.patchEdits.map((edit, index) => {
-            const exactStillResolves = currentMarkdown !== null && (() => {
-              try {
-                resolveExactTextEditMatchCount({
-                  content: currentMarkdown,
-                  edit,
-                  label: 'live Markdown collaboration state',
-                  editIndex: index,
-                });
-                return true;
-              } catch {
-                return false;
-              }
-            })();
-            return {
-              targetId: `${target.targetId}:${index}`,
-              groupId: target.groupId,
-              proposedReplacement: edit.newText,
-              currentText: exactStillResolves ? edit.oldText : null,
-              currentTargetHash: exactStillResolves ? hash(edit.oldText) : null,
-            };
-          });
-        }
-        return [{
-          targetId: target.targetId,
-          groupId: target.groupId,
-          proposedReplacement: target.replacement,
-          currentText: currentMarkdown,
-          currentTargetHash: currentMarkdown === null ? null : hash(currentMarkdown),
-        }];
-      }
-      const start = decodePosition(target.startAnchor);
-      const end = decodePosition(target.endAnchor);
-      const absoluteStart = start ? Y.createAbsolutePositionFromRelativePosition(start, doc) : null;
-      const absoluteEnd = end ? Y.createAbsolutePositionFromRelativePosition(end, doc) : null;
-      const currentText = absoluteStart
-        && absoluteEnd
-        && absoluteStart.type === absoluteEnd.type
-        && absoluteStart.type instanceof Y.Text
-        && (!scopes || (target.blockId !== undefined && scopes.has(absoluteStart.type as YTypes.Text)
-          && scopes.get(absoluteStart.type as YTypes.Text) === target.blockId))
-        && absoluteEnd.index >= absoluteStart.index
-        ? textValue(absoluteStart.type as YTypes.Text).slice(absoluteStart.index, absoluteEnd.index)
-        : null;
-      return [{
-        targetId: target.targetId,
-        groupId: target.groupId,
-        proposedReplacement: target.replacement,
-        currentText,
-        currentTargetHash: currentText === null ? null : hash(currentText),
-      }];
-    });
-  } finally {
-    doc.destroy();
+    return [{
+      targetId: target.targetId,
+      groupId: target.groupId,
+      proposedReplacement: target.replacement,
+      currentText,
+      currentTargetHash: currentText === null ? null : hash(currentText),
+    }];
+  });
+  const textTargets = targets.filter((target) => !target.kind || target.kind === 'text_replace');
+  const applicable = targets.length > 0 && (row.expires_at === null || Number(row.expires_at) > Date.now())
+    && review.every((target) => target.currentTargetHash !== null)
+    && preflight(doc, textTargets, false).conflicts.length === 0;
+  const proposalVersion = applicable ? proposalVersionForReview(row, targets, review, userId) : null;
+  return { targets: review, proposalVersion };
+}
+
+function proposalVersionForReview(
+  row: AgentOperationRow,
+  targets: AgentTextTarget[],
+  review: NonNullable<AgentOperationView['reviewTargets']>,
+  userId: string,
+): string {
+  // A move's surrounding text is context, not content that will be replaced.
+  // Its footprint binds the exact placement operation and structural guards.
+  const footprint = review.map((target, index) => ({
+    targetId: target.targetId, groupId: target.groupId, currentTargetHash: target.currentTargetHash,
+    proposedReplacement: targets[index]?.kind === 'block_edit' ? null : target.proposedReplacement,
+  }));
+  const binding = { purpose: 'agent-proposal-approval-v1', operationId: row.operation_id,
+    userId, workspaceId: row.workspace_id, organizationId: row.organization_id,
+    documentId: row.document_id, generation: Number(row.document_lifecycle_generation),
+    schema: Number(row.schema_version), payloadHash: row.payload_hash,
+    casVersion: Number(row.cas_version), runGeneration: Number(row.run_generation),
+    expiresAt: row.expires_at === null ? null : Number(row.expires_at), footprint };
+  return `v1.${crypto.createHmac('sha256', payloadKey()).update(JSON.stringify(binding)).digest('hex')}`;
+}
+
+function matchesProposalVersion(supplied: unknown, current: string | null): boolean {
+  return typeof supplied === 'string' && /^v1\.[a-f0-9]{64}$/.test(supplied)
+    && current !== null && crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(current));
+}
+
+function approvalReceipt(row: AgentOperationRow, input: { idempotencyKey: string; proposalVersion: string; userId: string }) {
+  const key = `approval:${hash(input.idempotencyKey)}`;
+  const value = hash(JSON.stringify({ userId: input.userId, proposalVersion: input.proposalVersion }));
+  const keys = JSON.parse(row.action_keys_json || '{}') as Record<string, string>;
+  const existing = keys[key];
+  if (existing && existing !== value) throw new AgentProposalChangedError();
+  if (!existing && Object.keys(keys).filter((entry) => entry.startsWith('approval:')).length >= 64) {
+    throw new Error('This proposal has too many approval attempts. Request a new proposal.');
+  }
+  return { handled: existing === value, actionKeysJson: JSON.stringify({ ...keys, [key]: value }) };
+}
+
+async function reviewTargets(row: AgentOperationRow, userId: string): Promise<AgentOperationReview> {
+  const unavailable: AgentOperationReview = { targets: undefined, proposalVersion: null };
+  if (!['needs_review', 'partially_applied', 'semantic_conflict'].includes(row.status)) return unavailable;
+  const targets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
+  unavailable.targets = targets.filter((target) => !parseResult(row).appliedTargetIds.includes(target.targetId))
+    .map((target) => ({ targetId: target.targetId, groupId: target.groupId,
+      proposedReplacement: target.replacement, currentText: null, currentTargetHash: null }));
+  const state = await loadCollaborationState(row.document_id);
+  if (!state || state.status !== 'active' || state.degraded || state.workspaceId !== row.workspace_id
+    || state.organizationId !== row.organization_id || state.lifecycleGeneration !== Number(row.document_lifecycle_generation)
+    || state.schemaVersion !== Number(row.schema_version) || (row.document_path !== null && row.document_path !== state.path)
+    || (row.document_representation !== null && row.document_representation !== state.representation)
+    || (row.expires_at !== null && Number(row.expires_at) <= Date.now())) return unavailable;
+  try {
+    const review = await readCurrentCollaborationDocument({ documentId: row.document_id, workspaceId: row.workspace_id,
+      read: (doc) => reviewTargetsInDocument(row, doc, userId) });
+    // Late semantic conflicts describe already-applied work; they are not a new permission to replay it.
+    if (row.status === 'semantic_conflict') review.proposalVersion = null;
+    return review;
+  } catch {
+    return unavailable;
   }
 }
 
 function toOperationView(
   row: AgentOperationRow,
-  review: AgentOperationView['reviewTargets'],
+  review: AgentOperationReview,
   currentUserId: string,
   actionsAllowed: boolean,
 ): AgentOperationView {
@@ -1916,7 +2100,8 @@ function toOperationView(
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     expiresAt: row.expires_at === null ? null : Number(row.expires_at),
-    reviewTargets: review,
+    reviewTargets: review.targets,
+    proposalVersion: actionsAllowed ? review.proposalVersion : null,
     targetAnchors: operationTargetAnchors(row),
   };
 }
@@ -1933,7 +2118,7 @@ export async function getAgentOperation(input: {
     row = await reconcileAgentOperationDurability(database, row, input.workspace);
     return toOperationView(
       row,
-      await reviewTargets(row),
+      await reviewTargets(row, input.userId),
       input.userId,
       canManageOperation(row, input.workspace, input.userId),
     );
@@ -1978,7 +2163,7 @@ export async function findAgentFileEditOperation(input: {
       throw new AgentFileEditOperationScopeError(parseResult(row));
     }
     row = await reconcileAgentOperationDurability(database, row, input.workspace);
-    return { operation: toOperationView(row, await reviewTargets(row), input.userId, canManageOperation(row, input.workspace, input.userId)), request,
+    return { operation: toOperationView(row, await reviewTargets(row, input.userId), input.userId, canManageOperation(row, input.workspace, input.userId)), request,
       identity: { path: row.document_path ?? state.path, representation: row.document_representation ?? state.representation,
         lifecycleGeneration: Number(row.document_lifecycle_generation), schemaVersion: Number(row.schema_version) } };
   } finally { await database.close(); }
@@ -2008,7 +2193,7 @@ export async function listAgentOperations(input: {
     ) as AgentOperationRow[];
     return Promise.all(rows.map(async (stored) => {
       const row = await reconcileAgentOperationDurability(database, stored, input.workspace);
-      return toOperationView(row, await reviewTargets(row), input.userId, canManageOperation(row, input.workspace, input.userId));
+      return toOperationView(row, await reviewTargets(row, input.userId), input.userId, canManageOperation(row, input.workspace, input.userId));
     }));
   } finally {
     await database.close();
@@ -2054,6 +2239,7 @@ export async function acceptAgentOperation(input: {
   workspace: WorkspaceContext;
   userId: string;
   idempotencyKey: string;
+  proposalVersion: string;
   actorDisplayName?: string;
 }): Promise<PersistedAgentApplyResult> {
   const lookup = await openDb();
@@ -2067,16 +2253,21 @@ export async function acceptAgentOperation(input: {
   return serialized(documentId!, async () => {
     const database = await openDb();
     try {
-      let row = await authorizedActionRow(database, input);
-      if (actionWasHandled(row, 'accept', input.idempotencyKey)) return parseResult(row);
+      const row = await authorizedActionRow(database, input);
+      if (typeof input.proposalVersion !== 'string' || !/^v1\.[a-f0-9]{64}$/.test(input.proposalVersion)) {
+        throw new AgentProposalChangedError();
+      }
+      const receipt = approvalReceipt(row, input);
+      if (receipt.handled) return parseResult(await reconcileAgentOperationDurability(database, row, input.workspace));
       if (!['needs_review', 'partially_applied'].includes(row.status)) return parseResult(row);
-      row = await rememberAction(database, row, 'accept', input.idempotencyKey);
+      const review = await reviewTargets(row, input.userId);
+      if (!matchesProposalVersion(input.proposalVersion, review.proposalVersion)) throw new AgentProposalChangedError();
       return applyStoredOperation({
         database,
         row,
         workspace: input.workspace,
         actorDisplayName: input.actorDisplayName || `Agent ${row.actor_id}`,
-        allowReviewApply: true,
+        approval: { row, userId: input.userId, proposalVersion: input.proposalVersion, actionKeysJson: receipt.actionKeysJson },
       });
     } finally {
       await database.close();
@@ -2138,7 +2329,7 @@ export async function revertAgentOperation(input: {
     targets: reverseTargets,
     independentGroups: row!.atomicity === 'independent',
     requestedMode: input.requestedMode || 'direct_apply',
-    explicitUserRequest: true,
+    [USER_REVERT_AUTHORITY]: true,
     operationType: 'revert',
     actorSessionId: row!.actor_session_id || undefined,
     supersedesOperationId: row!.operation_id,

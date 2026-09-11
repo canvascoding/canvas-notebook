@@ -8,6 +8,7 @@ import { toDatabaseTimestamp } from './timestamps';
 import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
+import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
@@ -1420,6 +1421,9 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   }
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_document_status ON collaboration_agent_operations (document_id, status, updated_at)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_expiry ON collaboration_agent_operations (status, expires_at)');
+  for (const statement of AGENT_DIRECT_EDIT_GRANT_STATEMENTS) {
+    await pool.query(statement);
+  }
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_agent_sagas (

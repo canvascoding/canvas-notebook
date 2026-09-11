@@ -69,6 +69,7 @@ async function serviceHarness() {
       if (name === '@/app/lib/db') return { openDb: async () => ({ get: async () => row,
         run: async () => { writes++; throw new Error('A replay must not write'); }, close: async () => {} }) };
       if (name === './presence') return { getWorkspacePresenceSnapshot: () => ({ entries: [] }) };
+      if (name === './agent-direct-edit-grants') return { resolveAgentDirectEditGrant: async () => null };
       if (name === './persistence') return { loadCollaborationState: async () => state };
       if (name === './server-runtime') return { Y };
       if (name.startsWith('node:') || name === 'server-only') return load(name);

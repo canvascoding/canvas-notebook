@@ -4,7 +4,8 @@ const log = logger.module('Collaboration');
 export type CollaborationDiagnostic = {
   event: 'yjs_persisted' | 'yjs_persistence_failed' | 'projection_completed' | 'projection_failed'
     | 'projection_superseded' | 'projection_recovery_failed' | 'guest_version_failed'
-    | 'agent_applied' | 'agent_durable' | 'agent_durability_unconfirmed' | 'agent_audit_failed' | 'agent_target_conflict';
+    | 'agent_applied' | 'agent_durable' | 'agent_durability_unconfirmed' | 'agent_audit_failed' | 'agent_target_conflict'
+    | 'agent_direct_edit_grant_created' | 'agent_direct_edit_grant_revoked' | 'agent_direct_edit_grant_denied';
   operationId?: string;
   documentId?: string;
   workspaceId?: string;

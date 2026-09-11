@@ -116,7 +116,7 @@ assert.throws(
     targets: [structuralReview],
     origin: { actorType: 'agent', actorId: 'rich-agent', initiatedByUserId: 'user', operationId: 'structural-review' },
   }),
-  /review path/u,
+  /structured collaboration application path/u,
   'structural review patches must never enter the direct text-target path',
 );
 

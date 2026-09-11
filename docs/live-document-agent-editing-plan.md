@@ -1,6 +1,6 @@
 # Plan: Dokumente bearbeiten, Agentenvorschläge prüfen, automatisch sichern
 
-Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–3 abgeschlossen; Schritte 4–7 offen.
+Stand: 2026-09-11. Ausgangsbasis: `03f32ec0`. Status: Umsetzung in `codex/live-document-agent-editing`; Schritte 1–4 abgeschlossen; Schritte 5–7 offen.
 
 Dieser Plan ergänzt den [Plan zum Editor-Lifecycle](editor-structure-lifecycle-plan.md). Seine historischen Implementierungsstände bleiben bestehen. Maßgeblich für die folgende Weiterentwicklung sind die aktuellen Befunde und das gewünschte Produktverhalten.
 
@@ -12,7 +12,7 @@ Sichtbar bleiben Menschen und Agenten, die am Dokument arbeiten, sowie prüfbare
 
 Agenten lesen und ändern denselben aktuellen Dokumentzustand wie die Nutzer. Das bestehende Edit-Tool bleibt der Einstieg. Es verwendet den autorisierten Collaboration-Zugang und strukturierte Operationen. Der Agent muss weder Tasten simulieren noch eine Markdown-Datei überschreiben.
 
-**Vorgeschlagene Freigaberegel:** Agentenänderungen werden standardmäßig als Vorschläge vorbereitet. Ein Nutzer kann direkte Bearbeitung für einen klar abgegrenzten Auftrag ausdrücklich erlauben. Diese Regel ist eine Produktentscheidung dieses Plans und noch nicht das aktuelle Verhalten. Beide Modi verwenden beim tatsächlichen Anwenden denselben Weg ins Live-Dokument.
+**Umgesetzte Freigaberegel:** Agentenänderungen werden standardmäßig als Vorschläge vorbereitet. Ein Nutzer kann direkte Bearbeitung für seinen konkreten Chat und dieses Dokument ausdrücklich für 30 Minuten erlauben und jederzeit widerrufen. Die Freigabe nimmt einen bereits vorliegenden Vorschlag nicht automatisch an. Beide Modi verwenden beim tatsächlichen Anwenden denselben Weg ins Live-Dokument.
 
 ## 2. Was vorhanden ist und was geändert werden muss
 
@@ -150,6 +150,18 @@ Browserprüfung mit zwei Nutzerkontexten plus tatsächlichem Agenten-Tool, zusä
 Messwerte nur für Entwickler: Zeit bis bestätigter Yjs-Sicherung, Projektionsrückstand/Fehler, Agentenlaufzeit bis Anwendung, wiederholte/unklare Operationen, Zielkonflikte und von Statusänderungen verursachte Layoutverschiebungen. Rollout zunächst für interne Dokumente, dann Gäste/Teams/Mobile nach Kompatibilitätsnachweis. Ein Abschalten neuer Agentenfunktionen darf vorhandene Yjs-Daten oder Vorschläge nicht auf einen älteren Markdown-Stand zurücksetzen.
 
 ## 9. Grundlagen und Grenze der Zusage
+
+### Umsetzungsnachweis Schritt 4: genaue Freigabe und begrenzte Direktbearbeitung
+
+Eine Annahme überträgt die tatsächlich angezeigte Vorschlagsversion. Der Server bindet sie kryptografisch an Nutzer, Operation, Payload, Dokumentgeneration und die relevanten aktuellen Ziele. Er prüft sie nochmals unmittelbar vor der synchronen Mutation im Live-Raum. Unabhängige Textänderungen bleiben erhalten; veränderte Ziele oder Formatierungen verlangen eine neue Prüfung. Ein zusammengehöriger Vorschlag wird bei der Annahme atomar angewendet. Doppelte Zustellung verwendet denselben dauerhaften Annahmebeleg. Alte Clients ohne Vorschlagsversion erhalten eine verständliche Aufforderung zum Neuladen. Vorschläge haben keine automatische Ablaufzeit; Rechte und Ziele werden bei jeder Annahme aktuell geprüft.
+
+Eine Direktfreigabe kommt ausschließlich aus einer ausdrücklichen Nutzeraktion. Ihr Umfang wird aus der eigenen gespeicherten Chat-Sitzung und dem Dokument serverseitig ermittelt; Agentenparameter wie `explicitUserRequest` erteilen keine Berechtigung. Die Freigabe gilt für Nutzer, Agent, gespeicherte Sitzung, Workspace, Dokument und Generation höchstens 30 Minuten. Wiederholte Klicks oder Netz-Retries verlängern sie nicht. Löschen/Neuanlegen einer Sitzung übernimmt keine alte Freigabe. Eine PostgreSQL-Zeilensperre ordnet Direktanwendung und Widerruf eindeutig: Nach bestätigtem Widerruf kann keine weitere Mutation mit der alten Freigabe beginnen. Ein verlorenes Transaktionsabschluss-Ergebnis nach bereits bestätigter Dokumentanwendung verliert deren Operationsbeleg nicht und löst keine Doppeländerung aus.
+
+Strukturänderungen des Markdown-Adapters werden für Blockdokumente einmalig als gezielte Operation mit festen Identitäten vorbereitet. Vorschau und Annahme suchen die ursprünglichen Texte nicht erneut in einem inzwischen veränderten Dokument. Gleichzeitige fremde Absätze bleiben beim Anwenden und bei der gezielten Rücknahme erhalten. Textoperationen prüfen auch die Formatierung des betroffenen Bereichs; Gegenoperationen erhalten gemischte Formatierungen und werden vor der Live-Mutation auf Größenlimits geprüft.
+
+Kompatibilitätsgrenzen: Alte XML-Ganzdokumentvorschläge benötigen einen exakten serverseitigen Ausgangsbeleg; jede zwischenzeitliche XML-Änderung verlangt einen neuen Vorschlag. Alte Vorschläge ohne diesen Beleg werden nicht blind angewendet. Nicht sicher kombinierbare Änderungen von Blockstruktur und Frontmatter/abschließendem Zeilenumbruch werden vom Adapter abgewiesen und müssen gezielt getrennt vorbereitet werden. Für neue Blockoperationen gelten lokale Vorbedingungen statt eines pauschalen Ganzdokumentvergleichs.
+
+Nachweise: `test:collaboration:agent-approval` mit 104 Service-, API-, Adapter- und gerenderten React-Prüfungen bestanden, einschließlich veränderter Formatierung, stale Polling, exakter Retry-Schlüssel und nicht automatisch angenommener Vorschläge. Struktur- und Durability-Suites, TypeScript, ESLint und Diff-Prüfung bestanden. Beide realen PostgreSQL-Integrationen bestehen mit echten gespeicherten Nutzern, Sitzungen und Berechtigungsauflösung. Der Widerrufstest weist den tatsächlichen Zeilen-Lock über `pg_blocking_pids` nach. Jede eigene Testdatenbank wurde entfernt. Logging enthält IDs und Fehlercodes, keine Dokumentinhalte oder Freigabetokens. Browserabnahme und die Vereinfachung der Oberfläche folgen in Schritten 5–7.
 
 ### Umsetzungsnachweis Schritt 3, Teil B: strukturierte Agentenoperationen
 

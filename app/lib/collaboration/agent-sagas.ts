@@ -210,6 +210,7 @@ export async function applyPersistedAgentTextSaga(input: {
   initiatedByUserId: string;
   actorId: string;
   actorDisplayName: string;
+  actorSessionId?: string;
   idempotencyKey: string;
   runGeneration: number;
   documents: AgentTextSagaDocumentInput[];
@@ -317,7 +318,7 @@ export async function applyPersistedAgentTextSaga(input: {
         runGeneration: input.runGeneration,
         targets: document.targets,
         independentGroups: document.independentGroups,
-        explicitUserRequest: true,
+        actorSessionId: input.actorSessionId,
         correlationId: input.correlationId || saga.sagaId,
         causationId: input.causationId || saga.sagaId,
         triggerDepth: 1,

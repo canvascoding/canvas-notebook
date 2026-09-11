@@ -21,12 +21,13 @@ import {
   type PersistedAgentApplyResult,
 } from './agent-operations';
 import { readCurrentCollaborationDocument } from './document-access';
-import { richMarkdownFromYDoc, validateRichMarkdownYDoc } from './markdown-state';
+import { createRichMarkdownYDoc, richMarkdownFromYDoc, validateRichMarkdownYDoc } from './markdown-state';
+import { readRichDocumentJson } from './rich-document';
 import { loadCollaborationState } from './persistence';
 import { Y } from './server-runtime';
 import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
 import { readAgentBlockStructure, validateAgentBlockDocument, type AgentBlockStructure } from './agent-block-structure';
-import { applyAgentBlockEdit, prepareAgentBlockEdit, previewAgentBlockEdit, type AgentBlockEditRequest } from './agent-block-edits';
+import { applyAgentBlockEdit, prepareAgentBlockDocumentChange, prepareAgentBlockEdit, previewAgentBlockEdit, type AgentBlockEditRequest } from './agent-block-edits';
 
 export type CollaborationAgentIdentity = {
   initiatedByUserId: string;
@@ -343,13 +344,30 @@ export async function prepareCollaborationTextEdit(input: {
         }
       } catch (error) {
         if (!isRichTextCollaborationRepresentation(state.representation)) throw error;
-        targets = [createRichMarkdownReviewTarget({
-          currentMarkdown: content,
-          proposedMarkdown: proposedContent,
-          edits: input.edits,
-          targetId: `${input.groupId}:structural`,
-          groupId: input.groupId,
-        })];
+        if (state.representation === 'tiptap_blocks') {
+          const proposed = createRichMarkdownYDoc(proposedContent, 'tiptap_blocks');
+          try {
+            // Source metadata has its own shared roots. Never silently route
+            // changes to them through an unanchored whole-document fallback.
+            if (['frontmatter', 'bodyFinalLineEnding'].some((name) => proposed.getText(name).toString() !== doc.getText(name).toString())) {
+              throw new Error('This source edit changes document metadata or final line endings. Use a dedicated source edit instead of a live block proposal.');
+            }
+            const blockEdit = prepareAgentBlockDocumentChange(doc, readRichDocumentJson(proposed));
+            const preview = previewAgentBlockEdit(doc, blockEdit);
+            targets = [{ kind: 'block_edit', targetId: `${input.groupId}:structural`, groupId: input.groupId,
+              startAnchor: '', endAnchor: '', baseTargetHash: preview.footprintHash,
+              replacement: blockEdit.afterText, blockEdit, boundaryPolicy: 'exclude_external' }];
+          } finally { proposed.destroy(); }
+        } else {
+          targets = [createRichMarkdownReviewTarget({
+            doc,
+            currentMarkdown: content,
+            proposedMarkdown: proposedContent,
+            edits: input.edits,
+            targetId: `${input.groupId}:structural`,
+            groupId: input.groupId,
+          })];
+        }
         requestedMode = 'review';
       }
       return {
@@ -389,7 +407,6 @@ export async function executePreparedCollaborationTextEdit(input: {
     runGeneration: 1,
     targets: input.prepared.targets,
     requestedMode: input.prepared.requestedMode,
-    explicitUserRequest: true,
     actorSessionId: input.identity.actorSessionId,
     documentPath: input.prepared.path,
     documentRepresentation: input.prepared.representation,

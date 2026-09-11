@@ -9,6 +9,7 @@ import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap
 import * as Y from 'yjs';
 
 import { generateRichNodeIds } from '../editor/generate-rich-node-ids';
+import { preserveAlignedStableIds, stableIdCounts } from '../editor/rich-node-identities';
 import { moveMarkdownTablePart, portableTableCommands } from '../markdown/core/table-commands';
 import { richMarkdownCodecExtensions } from '../markdown/rich-markdown-codec';
 import { hashAgentBlockJson, readAgentBlockStructure, validateAgentBlockDocument, type AgentBlockStructure } from './agent-block-structure';
@@ -468,6 +469,97 @@ export function prepareAgentBlockEdit(doc: Y.Doc, requests: AgentBlockEditReques
       // Include the inverse's size in admission; never discover an oversized
       // rollback payload only after the authoritative operation has applied.
       bounded(reverseFor(doc, scratch, prepared.affectedBlockIds));
+      return prepared;
+    } finally { scratch.destroy(); }
+  });
+}
+
+/**
+ * Convert a source proposal once, against its original document identities.
+ * Only this preparation step aligns Markdown nodes; approval and application
+ * consume the frozen delta through the same guards as structured block tools.
+ */
+export function prepareAgentBlockDocumentChange(doc: Y.Doc, nextDocument: JSONContent): PreparedAgentBlockEdit {
+  return checked(() => {
+    // Document admission allows 5 MiB; only the local stored delta/reverse is
+    // limited to 512 KiB. A large unchanged paragraph is never payload data.
+    if (Buffer.byteLength(JSON.stringify(nextDocument), 'utf8') > 5 * 1024 * 1024) fail('limit_exceeded');
+    validate(doc);
+    if (nextDocument?.type !== 'doc') fail('schema_invalid');
+    const scratch = copy(doc);
+    try {
+      const tree = treeFor(scratch); const before = tree.read();
+      const clearIds = (node: JSONContent): JSONContent => ({ ...node,
+        ...(node.attrs ? { attrs: Object.fromEntries(Object.entries(node.attrs).filter(([key]) => key !== 'id')) } : {}),
+        ...(node.content ? { content: node.content.map(clearIds) } : {}) });
+      const next = clearIds(nextDocument);
+      const currentJson = before.toJSON();
+      preserveAlignedStableIds(currentJson, next, stableIdCounts(currentJson));
+      const aligned = tree.schema.nodeFromJSON(generateRichNodeIds(next, richMarkdownCodecExtensions()));
+      aligned.check();
+      tree.applyDocumentChange(before, aligned, 'agent-source-prepare');
+      validate(scratch);
+
+      const initial = structure(doc); const after = structure(scratch);
+      const previousTree = treeFor(doc);
+      const records = changedRecords(recordSnapshot(previousTree), recordSnapshot(tree));
+      const operations = [...tree.operations.values()].filter((operation) => !previousTree.operations.has(operation.id));
+      const addedIds = [...tree.records.keys()].filter((id) => !previousTree.records.has(id));
+      if (addedIds.length > MAX_NEW_BLOCKS) fail('limit_exceeded');
+      const added = new Set(addedIds); const affected = new Set<string>();
+      const conditions: Condition[] = []; const postconditions: Condition[] = [];
+      const guardContent = (id: string) => {
+        const entry = requireBlock(initial, id);
+        if (!conditions.some((condition) => condition.id === id && condition.subtreeHash === entry.subtreeHash)) {
+          conditions.push({ id, subtreeHash: entry.subtreeHash });
+        }
+        affected.add(id);
+      };
+      // Exact source changes are conservative within a changed block, but
+      // never guard unchanged paragraphs or copy them into the reverse payload.
+      for (const record of records) {
+        guardContent(record.id);
+        const entry = after.get(record.id);
+        postconditions.push(entry ? { id: entry.id, subtreeHash: entry.subtreeHash } : { id: record.id, absent: true });
+      }
+      for (const operation of operations) {
+        if (operation.kind === 'delete') {
+          for (const id of operation.blockIds) {
+            if (initial.has(id)) guardContent(id);
+            postconditions.push({ id, absent: true });
+          }
+        } else {
+          const id = operation.blockId; const entry = requireBlock(after, id);
+          if (initial.has(id)) conditions.push({ id, placementHash: initial.get(id)!.placementHash });
+          // Newly inserted parents/anchors are verified by their complete
+          // postconditions. Existing destinations remain identity-bound.
+          if (entry.parentId !== null && !added.has(entry.parentId)) {
+            const parent = requireBlock(initial, entry.parentId);
+            conditions.push({ id: parent.id, type: parent.type });
+          }
+          if (entry.beforeId !== null && !added.has(entry.beforeId)) {
+            const anchor = requireBlock(initial, entry.beforeId);
+            conditions.push({ id: anchor.id, parentId: anchor.parentId });
+          }
+          postconditions.push({ id, parentId: entry.parentId, beforeId: entry.beforeId });
+          affected.add(id);
+        }
+      }
+      for (const id of addedIds) {
+        const entry = requireBlock(after, id);
+        conditions.push({ id, absent: true });
+        postconditions.push({ id, subtreeHash: entry.subtreeHash, parentId: entry.parentId, beforeId: entry.beforeId });
+        affected.add(id);
+      }
+      const prepared: PreparedAgentBlockEdit = { version: 1, kind: 'forward',
+        beforeText: localPreview(doc, [...affected]), afterText: localPreview(scratch, [...affected]),
+        affectedBlockIds: [...affected], conditions, postconditions,
+        updateBase64: Buffer.from(Y.encodeStateAsUpdate(scratch, Y.encodeStateVector(doc))).toString('base64') };
+      bounded(prepared);
+      bounded(reverseFor(doc, scratch, prepared.affectedBlockIds));
+      // Exercise exactly the acceptance path before storing the proposal.
+      const candidate = candidateFor(doc, prepared);
+      candidate.destroy();
       return prepared;
     } finally { scratch.destroy(); }
   });
