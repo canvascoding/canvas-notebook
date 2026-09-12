@@ -1,4 +1,5 @@
 import type { Extensions } from '@tiptap/core';
+import type { HocuspocusProvider } from '@hocuspocus/provider';
 import type { Transaction } from '@tiptap/pm/state';
 import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
@@ -17,6 +18,7 @@ export function createRichEditorCollaborationExtensions(options: {
   document: Y.Doc;
   representation: RichTextCollaborationRepresentation;
   awareness: Awareness | null;
+  provider?: HocuspocusProvider;
   user: CaretUser;
   renderCaret?: (user: Record<string, unknown>) => HTMLElement;
   selectionRender?: (user: Record<string, unknown>) => Record<string, string>;
@@ -26,10 +28,15 @@ export function createRichEditorCollaborationExtensions(options: {
     ? [createBlockTreeCollaborationExtension({ document: options.document, onError: options.onError })]
     : [Collaboration.configure({ document: options.document, field: 'body' })];
   if (options.awareness) {
+    // UniqueID also consumes this provider's synced/on/off lifecycle. An
+    // awareness-only object is not a provider and crashes existing XML docs.
+    if (options.representation === 'tiptap_xml' && !options.provider) {
+      throw new Error('XML collaboration carets require the live provider.');
+    }
     extensions.push(options.representation === 'tiptap_blocks'
       ? createBlockTreeCaretExtension({ document: options.document, awareness: options.awareness,
           user: options.user, render: options.renderCaret, selectionRender: options.selectionRender })
-      : CollaborationCaret.configure({ provider: { awareness: options.awareness }, user: options.user,
+      : CollaborationCaret.configure({ provider: options.provider, user: options.user,
           ...(options.renderCaret ? { render: options.renderCaret } : {}),
           ...(options.selectionRender ? { selectionRender: options.selectionRender } : {}) }));
   }

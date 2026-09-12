@@ -10,6 +10,7 @@ import {
 import {
   COLLABORATION_SCHEMA_VERSION,
   RICH_MARKDOWN_SCHEMA_VERSION,
+  RICH_BLOCK_TREE_FORMAT_VERSION,
   type CollaborationSessionResponse,
 } from '@/app/lib/collaboration/types';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
@@ -35,12 +36,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await readJsonBody<{ path?: unknown }>(request);
+  const body = await readJsonBody<{ path?: unknown; richTextSchemaVersion?: unknown; blockTreeFormatVersion?: unknown }>(request);
   const fileOptions = workspaceFileOptions(workspaceResult.workspace);
   const collaborationRequest = parseCollaborationSessionRequest({
     path: body.path,
     provider: 'yjs',
     representation: 'auto',
+    richTextSchemaVersion: body.richTextSchemaVersion,
+    blockTreeFormatVersion: body.blockTreeFormatVersion,
   });
   if (!collaborationRequest) {
     return NextResponse.json(
@@ -90,6 +93,7 @@ export async function POST(request: NextRequest) {
       lifecycleGeneration: grant.lifecycleGeneration,
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
       richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
+      ...(grant.representation === 'tiptap_blocks' ? { blockTreeFormatVersion: RICH_BLOCK_TREE_FORMAT_VERSION } : {}),
       permission: grant.permission,
       documentSequence: grant.documentSequence,
       checkpointSequence: grant.checkpointSequence,
