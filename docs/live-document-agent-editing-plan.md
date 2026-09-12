@@ -349,3 +349,8 @@ Grenzen und separate Befunde: Gewöhnliche relative PDF-Links in der Markdown-Le
 ### Ergänzung: leere Zitate und nicht umgeschriebener Quelltext
 
 Alle drei Fälle in `editor-empty-quote.spec.ts` bestehen erneut auf Image `fb16204c006a` (`step7-empty-quote-final`, 46,0 Sekunden): leeres Slash-Zitat mit weiterer Eingabe, Undo und Neuladen; vorhandene gemeinsame Markdown-Strukturen einschließlich Tabellenzellen und Code; sowie Lesen aus dem aktuellen Live-Quelltext ohne Umschreiben und zurückgestellter Darstellungswechsel bei anderen aktiven Bearbeitern. Die bereits vorbereiteten Browserfixture-Korrekturen verwenden den tatsächlichen View-Wechsel und getrennte Browserkontexte. Gemeinsamer TypeScript-Lauf, ESLint und Diff-Prüfung bestehen.
+
+
+### Ergänzung: tatsächliches Einfügen von URLs
+
+Der unveränderte Fall `editor-url-paste.spec.ts` besteht auf Image `fb16204c006a` (`step7-url-paste-final`, 28,7 Sekunden). Er verwendet die Browser-Zwischenablage und prüft Abbrechen mit erhaltener Auswahl, einen normalen Link, die ausdrücklich gewählte Vorschau, eine unterstützte Dokumenteinbettung sowie unveränderte URL-Eingabe innerhalb von Code. Markdown-Ausgabe, Wiederöffnung und sichtbarer eingebetteter Inhalt in Lesen bleiben erhalten; keine Speicherstatuszeile erscheint. Der kontrollierte Vorschau-Endpunkt liefert eine Testgrafik und misst, dass ohne ausdrückliche Vorschauwahl kein Abruf erfolgt.
