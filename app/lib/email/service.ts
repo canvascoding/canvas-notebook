@@ -39,6 +39,7 @@ import {
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
 import {
+  emailMessageCacheRef,
   readThroughEmailDetail,
   readThroughEmailList,
   type EmailCacheBackgroundScheduler,
@@ -50,6 +51,7 @@ import {
   invalidateEmailMailboxCache,
   purgeEmailMailboxCache,
   reactivateEmailMailboxCache,
+  runLocalEmailMessageReadMutation,
   runLocalEmailMailboxMutation,
 } from '@/app/lib/email/cache/consistency';
 import { getRuntimeEmailCacheStore, normalizeEmailCacheProvider } from '@/app/lib/email/cache/store';
@@ -693,8 +695,14 @@ export async function setEmailMessageRead(
   folder: string | undefined,
   read: boolean,
 ) {
-  return runLocalEmailMailboxMutation(
-    { userId, accountId },
+  const resolved = await resolveLocalEmailCacheAccount(userId, accountId);
+  return runLocalEmailMessageReadMutation(
+    {
+      userId,
+      accountId: resolved.account.id,
+      read,
+      ref: emailMessageCacheRef(resolved.provider, messageId, folder),
+    },
     () => setLocalEmailMessageRead(userId, accountId, messageId, folder, read),
   );
 }

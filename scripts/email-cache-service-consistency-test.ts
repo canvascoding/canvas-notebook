@@ -1,15 +1,14 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 
-import {
-  setEmailCacheConsistencyStoreFactoryForTests,
-} from '../app/lib/email/cache/consistency';
 import type { EmailCacheStore } from '../app/lib/email/cache/store';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 type Account = { id: string; provider: string; authType: string; emailAddress: string; isPrimary: boolean; status: string };
 
-const events: Array<{ name: string; accountId?: string; accountSource?: string }> = [];
+type CacheEvent = { name: string; accountId?: string; accountSource?: string; read?: boolean };
+
+const events: CacheEvent[] = [];
 const localAccount: Account = {
   id: 'shared-account',
   provider: 'google',
@@ -34,6 +33,7 @@ let nextLocalError: Error | null = null;
 let nextDisconnectError: Error | null = null;
 let nextManagedDisconnectError: Error | null = null;
 let localResultAuthType = 'oauth';
+let resetConsistencyStoreFactoryForTests: (() => void) | null = null;
 
 function providerResult(accountId = localAccount.id) {
   return { account: { ...localAccount, id: accountId, authType: localResultAuthType }, ok: true };
@@ -51,6 +51,49 @@ async function localMutation(name: string) {
 
 const cacheStore = {
   enabled: true,
+  async getMessage(input: { accountId: string; accountSource?: string }) {
+    events.push({ name: 'cache:get-message', accountId: input.accountId, accountSource: input.accountSource });
+    return {
+      state: 'fresh' as const,
+      enabled: true,
+      generation: 1,
+      fetchedAt: 1,
+      staleAt: 2,
+      expiresAt: 3,
+      value: {
+        ref: {
+          messageKey: 'google:message-1',
+          provider: 'google',
+          messageId: 'message-1',
+          folder: null,
+          uidValidity: null,
+          uid: null,
+        },
+        metadata: {
+          from: 'sender@example.test',
+          subject: 'Subject',
+          date: '2026-09-12T08:00:00.000Z',
+          dateTimestamp: 1,
+          snippet: 'Preview',
+          isRead: false,
+          isAnswered: false,
+          isFlagged: false,
+          hasAttachments: false,
+          size: null,
+        },
+        detail: null,
+      },
+    };
+  },
+  async putMessage(input: { accountId: string; accountSource?: string; metadata?: { isRead: boolean } }) {
+    events.push({
+      name: 'cache:put-message',
+      accountId: input.accountId,
+      accountSource: input.accountSource,
+      read: input.metadata?.isRead,
+    });
+    return { enabled: true, stored: true, reason: 'stored' as const };
+  },
   async bumpMailboxGeneration(input: { accountId: string; accountSource?: string }) {
     events.push({ name: 'cache:bump', accountId: input.accountId, accountSource: input.accountSource });
     return 2;
@@ -104,6 +147,7 @@ moduleInternals._load = function loadWithEmailServiceMocks(request, parent, isMa
   }
   if (request === '@/app/lib/email/cache/read-through') {
     return {
+      emailMessageCacheRef: (provider: string, messageId: string) => ({ provider, messageId }),
       readThroughEmailDetail: async () => { throw new Error('Unexpected detail cache read.'); },
       readThroughEmailList: async () => { throw new Error('Unexpected list cache read.'); },
     };
@@ -147,12 +191,22 @@ moduleInternals._load = function loadWithEmailServiceMocks(request, parent, isMa
 };
 
 async function main() {
+  const { setEmailCacheConsistencyStoreFactoryForTests } = await import('../app/lib/email/cache/consistency');
+  resetConsistencyStoreFactoryForTests = () => setEmailCacheConsistencyStoreFactoryForTests(null);
   setEmailCacheConsistencyStoreFactoryForTests(async () => cacheStore);
   try {
     const service = await import('../app/lib/email/service');
 
+    const readAction = () => service.setEmailMessageRead('user-1', localAccount.id, 'message-1', 'INBOX', true);
+    events.length = 0;
+    await readAction();
+    assert.deepEqual(events, [
+      { name: 'provider:read' },
+      { name: 'cache:get-message', accountId: localAccount.id, accountSource: 'local' },
+      { name: 'cache:put-message', accountId: localAccount.id, accountSource: 'local', read: true },
+    ]);
+
     const actions: Array<[string, () => Promise<unknown>]> = [
-      ['provider:read', () => service.setEmailMessageRead('user-1', localAccount.id, 'message-1', 'INBOX', true)],
       ['provider:answered', () => service.setEmailMessageAnswered('user-1', localAccount.id, 'message-1', 'INBOX', true)],
       ['provider:archive', () => service.archiveEmailMessage('user-1', localAccount.id, 'message-1', 'INBOX')],
       ['provider:move', () => service.moveEmailMessage('user-1', localAccount.id, 'message-1', 'INBOX', 'Archive')],
@@ -170,7 +224,7 @@ async function main() {
 
     events.length = 0;
     nextLocalError = new Error('provider failed');
-    await assert.rejects(actions[0][1], /provider failed/u);
+    await assert.rejects(readAction, /provider failed/u);
     assert.deepEqual(events, [{ name: 'provider:read' }]);
 
     events.length = 0;
@@ -179,7 +233,7 @@ async function main() {
       status: 409,
     });
     nextLocalError = mailboxChanged;
-    await assert.rejects(actions[0][1], (error) => error === mailboxChanged);
+    await assert.rejects(readAction, (error) => error === mailboxChanged);
     assert.deepEqual(events, [
       { name: 'provider:read' },
       { name: 'cache:bump', accountId: localAccount.id, accountSource: 'local' },
@@ -218,7 +272,6 @@ async function main() {
     assert.equal(events.some((event) => event.name === 'cache:reactivate'), false);
 
     events.length = 0;
-    nextLocalError = new Error('Email account not found.');
     await assert.rejects(
       service.setEmailMessageRead('user-1', managedAccount.id, 'message-1', 'INBOX', true),
       /not found/u,
@@ -267,13 +320,13 @@ async function main() {
     console.log('email-cache-service-consistency-test: ok');
   } finally {
     moduleInternals._load = originalLoad;
-    setEmailCacheConsistencyStoreFactoryForTests(null);
+    resetConsistencyStoreFactoryForTests();
   }
 }
 
 main().catch((error) => {
   moduleInternals._load = originalLoad;
-  setEmailCacheConsistencyStoreFactoryForTests(null);
+  resetConsistencyStoreFactoryForTests?.();
   console.error(error);
   process.exitCode = 1;
 });

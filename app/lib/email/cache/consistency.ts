@@ -4,6 +4,7 @@ import { logEmailClientEvent } from '@/app/lib/email/logging';
 import {
   getRuntimeEmailCacheStore,
   type EmailCacheAccountSource,
+  type EmailMessageRefInput,
   type EmailCacheStore,
 } from './store';
 
@@ -78,4 +79,63 @@ export async function runLocalEmailMailboxMutation<T>(
     }
     throw error;
   }
+}
+
+export async function runLocalEmailMessageReadMutation<T>(
+  mailbox: Omit<EmailCacheMailbox, 'accountSource'> & {
+    read: boolean;
+    ref: EmailMessageRefInput | null;
+  },
+  mutateProvider: () => Promise<T>,
+): Promise<T> {
+  const localMailbox = {
+    userId: mailbox.userId,
+    accountId: mailbox.accountId,
+    accountSource: 'local' as const,
+  };
+  let result: T;
+  try {
+    result = await mutateProvider();
+  } catch (error) {
+    if (isImapMailboxChangedFailure(error)) {
+      await invalidateEmailMailboxCache(localMailbox);
+    }
+    throw error;
+  }
+
+  if (!mailbox.ref) {
+    await invalidateEmailMailboxCache(localMailbox);
+    return result;
+  }
+
+  try {
+    const store = await emailCacheStoreFactory();
+    const cached = await store.getMessage({
+      ...localMailbox,
+      ref: mailbox.ref,
+      part: 'metadata',
+    });
+    if (!cached.value?.metadata || cached.generation === null) return result;
+
+    await store.putMessage({
+      ...localMailbox,
+      ref: mailbox.ref,
+      metadata: {
+        ...cached.value.metadata,
+        isRead: mailbox.read,
+      },
+      expectedGeneration: cached.generation,
+    });
+  } catch (error) {
+    logEmailClientEvent('warn', 'email_cache_consistency_failed', {
+      accountId: mailbox.accountId,
+      error,
+      operation: 'patch-read-state',
+      status: 'failed',
+      userId: mailbox.userId,
+    });
+    await invalidateEmailMailboxCache(localMailbox);
+  }
+
+  return result;
 }
