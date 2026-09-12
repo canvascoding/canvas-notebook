@@ -17,12 +17,16 @@ test('focus and width retain the live editor, panels and undo; tables scroll wit
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((entry: { name: string }) => entry.name === 'Shared Test Workspace');
   const headers = { 'x-canvas-workspace-id': workspace.id };
+  const availabilityResponse = await page.request.get('/api/terminal/availability');
+  expect(availabilityResponse.ok()).toBe(true);
+  const terminalEnabled = (await availabilityResponse.json()).data.terminalEnabled as boolean;
+  expect(typeof terminalEnabled).toBe('boolean');
   const path = `editor-focus-${randomUUID()}.md`;
-  await page.addInitScript((id) => {
+  await page.addInitScript(({ id, terminalEnabled }) => {
     localStorage.setItem('canvas.activeWorkspaceId', id);
     localStorage.setItem('canvas.notebookLayout.v2', JSON.stringify({ version: 2, explorerOpen: true,
-      explorerWidth: 240, chatDocked: true, chatWidth: 360, terminalOpen: true }));
-  }, workspace.id);
+      explorerWidth: 240, chatDocked: true, chatWidth: 360, terminalOpen: terminalEnabled }));
+  }, { id: workspace.id, terminalEnabled });
   try {
   await page.request.post('/api/files/create', { headers, data: { path, type: 'file' } });
   const original = await (await page.request.get(`/api/mobile/v1/notebook/document?path=${path}`, { headers })).json();
@@ -37,12 +41,14 @@ test('focus and width retain the live editor, panels and undo; tables scroll wit
     const explorer = page.locator('#onboarding-notebook-fileBrowser');
     const chat = page.getByTestId('notebook-desktop-chat');
     const terminal = page.locator('#app-layout-terminal');
-    await expect(explorer).toBeVisible(); await expect(chat).toBeVisible(); await expect(terminal).toBeVisible();
+    await expect(explorer).toBeVisible(); await expect(chat).toBeVisible();
+    if (terminalEnabled) await expect(terminal).toBeVisible();
+    else await expect(terminal).toHaveCount(0);
     const draft = chat.getByTestId('chat-input');
     await draft.fill('Unsent focus test');
     const panels = await page.evaluate(() => localStorage.getItem('canvas.notebookLayout.v2'));
     const node = await editor.elementHandle();
-    const terminalNode = await terminal.elementHandle();
+    const terminalNode = terminalEnabled ? await terminal.elementHandle() : null;
     const sessions: string[] = [];
     page.on('websocket', (socket) => sessions.push(socket.url()));
     await editor.getByText('First paragraph', { exact: true }).click();
@@ -69,8 +75,11 @@ test('focus and width retain the live editor, panels and undo; tables scroll wit
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Escape');
     await expect(page.getByRole('button', { name: 'Focus document', exact: true })).toBeVisible();
-    await expect(explorer).toBeVisible(); await expect(chat).toBeVisible(); await expect(terminal).toBeVisible();
-    expect(await terminal.evaluate((current, before) => current === before, terminalNode)).toBe(true);
+    await expect(explorer).toBeVisible(); await expect(chat).toBeVisible();
+    if (terminalEnabled) {
+      await expect(terminal).toBeVisible();
+      expect(await terminal.evaluate((current, before) => current === before, terminalNode)).toBe(true);
+    } else await expect(terminal).toHaveCount(0);
     await expect(draft).toHaveValue('Unsent focus test');
     await draft.fill('');
     expect(await page.evaluate(() => localStorage.getItem('canvas.notebookLayout.v2'))).toBe(panels);
