@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.12.1] - 2026-09-12
+
+### Added
+
+- Added structured live-document agent edits with proposal previews, scoped direct-edit grants, durable operation receipts, and selective block reverts.
+- Added cross-tab live events and projection scheduling for responsive collaborative document updates.
+
+### Changed
+
+- Strengthened collaborative editing across offline transitions, reconnects, guest access changes, document renames, and background persistence.
+- Improved Markdown structure handling, native editor preservation, caret placement, and agent-review presentation.
+
+### Fixed
+
+- Prevented stale collaboration access, projections, or file-watcher events from overwriting newer document state.
+- Preserved PDF selection cleanup and editor lifecycle behavior across notebook view changes.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.11.1] - 2026-09-11
 
 ### Changed
