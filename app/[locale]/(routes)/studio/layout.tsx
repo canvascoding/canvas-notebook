@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { Suspense, type ReactNode } from 'react';
 
 import { StudioChatProvider } from '@/app/apps/studio/context/studio-chat-context';
 import { StudioWorkspaceBoundary } from '@/app/apps/studio/components/StudioWorkspaceBoundary';
@@ -7,10 +7,12 @@ import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 
 export default function StudioLayout({ children }: { children: ReactNode }) {
   return (
-    <StudioWorkspaceBoundary>
-      <StudioChatProvider>
-        <StudioShell hintEnabled={isOnboardingHintsEnabled()}>{children}</StudioShell>
-      </StudioChatProvider>
-    </StudioWorkspaceBoundary>
+    <Suspense fallback={null}>
+      <StudioWorkspaceBoundary>
+        <StudioChatProvider>
+          <StudioShell hintEnabled={isOnboardingHintsEnabled()}>{children}</StudioShell>
+        </StudioChatProvider>
+      </StudioWorkspaceBoundary>
+    </Suspense>
   );
 }

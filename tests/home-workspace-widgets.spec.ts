@@ -130,6 +130,71 @@ test('workspace widgets fill page two with stable, directly actionable previews'
   await page.screenshot({ path: info.outputPath('workspace-widgets-desktop.png'), animations: 'disabled' });
 });
 
+test('studio widget link switches workspace before opening the requested output', async ({ page }) => {
+  const workspace = await prepare(page);
+  const workspacesResponse = await page.request.get('/api/workspaces');
+  expect(workspacesResponse.ok()).toBeTruthy();
+  const workspacePayload = await workspacesResponse.json();
+  const previousWorkspace = {
+    ...workspace,
+    id: 'previous-workspace',
+    name: 'Previous workspace',
+    isDefault: false,
+  };
+
+  await mockWidgets(page, workspace.id);
+  await page.goto('/de');
+  await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
+  const studioHref = await page.getByTestId('workspace-widget-studio')
+    .getByRole('link', { name: /Editoriales Produktbild für den Launch/ })
+    .getAttribute('href');
+  expect(studioHref).toBeTruthy();
+
+  await page.route('**/api/workspaces', route => route.fulfill({
+    json: {
+      ...workspacePayload,
+      activeWorkspaceId: previousWorkspace.id,
+      workspaces: [previousWorkspace, ...workspacePayload.workspaces],
+    },
+  }));
+  const generationWorkspaceIds: Array<string | undefined> = [];
+  await page.route('**/api/studio/generations/generation-latest', route => {
+    generationWorkspaceIds.push(route.request().headers()['x-canvas-workspace-id']);
+    return route.fulfill({ json: {
+      success: true,
+      generation: {
+        id: 'generation-latest',
+        userId: 'widget-test-user',
+        mode: 'image',
+        prompt: 'Editoriales Produktbild für den Launch',
+        rawPrompt: 'Editoriales Produktbild für den Launch',
+        provider: 'gemini',
+        model: 'gemini-3.1-flash-image',
+        aspectRatio: '1:1',
+        status: 'completed',
+        createdAt: '2026-09-07T12:00:00Z',
+        outputs: [{
+          id: 'output',
+          generationId: 'generation-latest',
+          type: 'image',
+          filePath: 'studio/outputs/widget-output.png',
+          fileName: 'widget-output.png',
+          mediaUrl: '/images/examples/aura_serum_produktfoto.png',
+          mimeType: 'image/png',
+          isFavorite: false,
+        }],
+      },
+    } });
+  });
+  await page.addInitScript(id => localStorage.setItem('canvas.activeWorkspaceId', id), previousWorkspace.id);
+  await page.goto(studioHref!);
+
+  await expect(page.getByRole('region', { name: 'Studio output preview' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('canvas.activeWorkspaceId'))).toBe(workspace.id);
+  expect(generationWorkspaceIds.length).toBeGreaterThan(0);
+  expect(new Set(generationWorkspaceIds)).toEqual(new Set([workspace.id]));
+});
+
 test('touch layout keeps quick selections visible in one column', async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const workspace = await prepare(page);
