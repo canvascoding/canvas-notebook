@@ -64,11 +64,11 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
       const message = JSON.parse(raw);
       if (message.type === 'collaboration-ticket-request') {
         const renewed = await freshSession();
-        await mobile.evaluate(({ id, renewed }) => (window as MobileFixtureWindow).__canvasNotebookResolveCollaborationTicket(id, renewed), { id: message.requestId, renewed });
+        await mobile.evaluate(({ id, renewed }) => (window as unknown as MobileFixtureWindow).__canvasNotebookResolveCollaborationTicket(id, renewed), { id: message.requestId, renewed });
       }
     });
     await mobile.addInitScript(input => {
-      const fixture = window as MobileFixtureWindow;
+      const fixture = window as unknown as MobileFixtureWindow;
       fixture.mobileMessages = [];
       fixture.ReactNativeWebView = {
         injectedObjectJson: () => JSON.stringify(input),
@@ -80,7 +80,7 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
     const mobileEditor = mobile.locator('.ProseMirror');
     await mobileEditor.tap();
     await expect(mobileEditor).toHaveAttribute('contenteditable', 'true', { timeout: 15_000 }).catch(async error => {
-      const diagnostics = await mobile.evaluate(() => (window as MobileFixtureWindow).mobileMessages.filter(message => {
+      const diagnostics = await mobile.evaluate(() => (window as unknown as MobileFixtureWindow).mobileMessages.filter(message => {
         const type = (message as { type?: string }).type;
         return type === 'collaboration-status' || type === 'error';
       }));
