@@ -99,6 +99,27 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
       editor.view.dispatch(tr.insert(tr.doc.content.size, first));
     });
     await expect.poll(() => json(mobileEditor)).toEqual(await json(webEditor));
+    const beforeMove = await json(mobileEditor);
+    await mobileEditor.evaluate(element => {
+      const editor = (element as HTMLElement & { editor: Editor }).editor;
+      editor.commands.setTextSelection(1);
+      (window as unknown as { __canvasNotebookCommand: (message: object) => void }).__canvasNotebookCommand({ name: 'moveBlockDown' });
+    });
+    await expect.poll(() => json(webEditor)).toEqual(await json(mobileEditor));
+    expect((await json(mobileEditor)).content!.map(block => block.attrs?.id)).toEqual([
+      beforeMove.content![1].attrs!.id, beforeMove.content![0].attrs!.id, beforeMove.content![2].attrs!.id,
+    ]);
+    await mobile.evaluate(() => (window as unknown as { __canvasNotebookCommand: (message: object) => void })
+      .__canvasNotebookCommand({ name: 'moveBlockUp' }));
+    await expect.poll(() => json(mobileEditor)).toEqual(beforeMove);
+    await mobile.evaluate(() => {
+      const command = (window as unknown as { __canvasNotebookCommand: (message: object) => void }).__canvasNotebookCommand;
+      command({ name: 'interactionEnabled', payload: { enabled: false } });
+      for (const name of ['moveBlockDown', 'heading1', 'bulletList', 'bold']) command({ name });
+    });
+    expect(await json(mobileEditor)).toEqual(beforeMove);
+    await mobile.evaluate(() => (window as unknown as { __canvasNotebookCommand: (message: object) => void })
+      .__canvasNotebookCommand({ name: 'interactionEnabled', payload: { enabled: true } }));
     const beforeDelete = await json(mobileEditor);
     await mobileEditor.evaluate(element => (element as HTMLElement & { editor: Editor }).editor.commands.deleteRange({ from: 1, to: 3 }));
     await expect.poll(() => json(webEditor)).toEqual(await json(mobileEditor));
@@ -108,6 +129,7 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
     // The native file/barrier contract is tested in the companion repository.
     // Here the exact WebView bundle cold-opens its binary with no server.
     const latestSnapshot = () => mobile.evaluate(() => {
+      (window as unknown as { __canvasNotebookFullSnapshot: () => void }).__canvasNotebookFullSnapshot();
       const messages = (window as unknown as MobileFixtureWindow).mobileMessages as { type: string; update?: string }[];
       return messages.filter(message => message.type === 'collaboration-snapshot').at(-1)!.update!;
     });
@@ -145,6 +167,35 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
     await expect.poll(() => json(webEditor)).toEqual(offlineJson);
     expect(errors).toEqual([]);
     await mobile.screenshot({ path: test.info().outputPath('expo-live-editor.png') });
+    const metrics = await mobileEditor.evaluate(async element => {
+      const editor = (element as HTMLElement & { editor: Editor }).editor;
+      editor.commands.setContent({ type: 'doc', content: Array.from({ length: 400 }, (_, index) => ({ type: 'paragraph',
+        content: [{ type: 'text', text: `Paragraph ${index}: ${'Measured live document text. '.repeat(8)}` }] })) });
+      await new Promise(resolve => setTimeout(resolve, 400));
+      editor.commands.setTextSelection(1);
+      const fixture = window as unknown as MobileFixtureWindow;
+      const first = fixture.mobileMessages.length;
+      const original = editor.getMarkdown;
+      let markdownSerializations = 0;
+      editor.getMarkdown = () => { markdownSerializations++; return original.call(editor); };
+      const start = performance.now();
+      try {
+        for (let index = 0; index < 40; index++) {
+          editor.commands.insertContent('x');
+          await new Promise(resolve => setTimeout(resolve, 16));
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const messages = fixture.mobileMessages.slice(first) as Array<{ type: string; update?: string }>;
+        return { characters: editor.state.doc.textContent.length, edits: 40, elapsedMs: Math.round(performance.now() - start),
+          markdownSerializations, snapshots: messages.filter(message => message.type === 'collaboration-snapshot').length,
+          snapshotCharacters: messages.reduce((sum, message) => sum + (message.update?.length || 0), 0) };
+      } finally { editor.getMarkdown = original; }
+    });
+    await test.info().attach('mobile-editor-performance', { body: JSON.stringify(metrics), contentType: 'application/json' });
+    console.log('Expo editor performance:', JSON.stringify(metrics));
+    expect(metrics.markdownSerializations).toBeLessThan(8);
+    expect(metrics.snapshotCharacters).toBeLessThan(4_000_000);
+
   } finally {
     await mobileContext.close();
     if (headers['x-canvas-workspace-id']) await web.request.delete('/api/files/delete', { headers, data: { path: filePath } });

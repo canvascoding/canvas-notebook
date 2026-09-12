@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 
-type Operation = { operationId: string; operationStatus: string; durability: string; sessionId?: string };
+type Operation = { operationId: string; operationStatus: string; durability: string; sessionId?: string; proposalVersion?: string };
 type RuntimeEvent = { type: string; success?: boolean; error?: string; event?: { type?: string; toolName?: string; isError?: boolean } };
 
 test('a normal chat agent edits the live document after its owner grants permission', async ({ browser }, info) => {
@@ -10,6 +11,8 @@ test('a normal chat agent edits the live document after its owner grants permiss
     'Requires the managed stack and explicit use of its configured agent runtime.');
   test.setTimeout(360_000);
   const base = process.env.BASE_URL!;
+  const mobileReview = Boolean(process.env.MOBILE_AGENT_PREVIEW_HTML);
+  const operationBase = mobileReview ? '/api/mobile/v1/notebook/collaboration/operations' : '/api/files/collaboration/operations';
   const { baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor } = info.project.use;
   const contextOptions = { baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor };
   const owner = await browser.newContext(contextOptions);
@@ -54,7 +57,7 @@ test('a normal chat agent edits the live document after its owner grants permiss
     const read = await page.request.get(`/api/files/read?path=${encodeURIComponent(filePath)}`, { headers });
     const documentId = (await read.json()).data.collaboration.document.id as string;
     const operations = async (): Promise<Operation[]> => {
-      const response = await page.request.get('/api/files/collaboration/operations', { headers, params: { documentId } });
+      const response = await page.request.get(operationBase, { headers, params: { documentId } });
       expect(response.ok()).toBe(true);
       return (await response.json()).operations;
     };
@@ -87,6 +90,43 @@ test('a normal chat agent edits the live document after its owner grants permiss
       { timeout: 60_000 }).toBe(1);
     const proposal = (await operations()).find(operation => operation.operationStatus === 'needs_review')!;
     await expect(editor.locator('p').first()).toHaveText('Agent original');
+    if (mobileReview) {
+      const preview = await owner.newPage();
+      await preview.addInitScript(operation => {
+        const messages: unknown[] = [];
+        Object.assign(window, { previewMessages: messages, ReactNativeWebView: {
+          injectedObjectJson: () => JSON.stringify({ operation, theme: 'light', labels: {
+            before: 'Current version', after: 'Proposed version', change: 'Change', exactText: 'Exact Markdown',
+            block: 'Block', edited: 'Edited', moved: 'Moved', document: 'Document', atEnd: 'at the end', beforePosition: 'before',
+          } }), postMessage: (raw: string) => messages.push(JSON.parse(raw)),
+        } });
+      }, proposal);
+      const remoteRequests: string[] = [];
+      preview.on('request', request => { if (!request.url().startsWith(base)) remoteRequests.push(request.url()); });
+      await preview.route('**/__expo-agent-preview', route => route.fulfill({ contentType: 'text/html', body: readFileSync(process.env.MOBILE_AGENT_PREVIEW_HTML!, 'utf8') }));
+      await preview.goto('/__expo-agent-preview');
+      await expect(preview.locator('body')).toContainText('Agent original');
+      await expect(preview.locator('body')).toContainText('Agent reviewed');
+      const ready = await preview.evaluate(() => (window as unknown as { previewMessages: { valid: boolean; proposalVersion: string }[] }).previewMessages.at(-1));
+      expect(ready).toMatchObject({ valid: true, proposalVersion: proposal.proposalVersion });
+      expect(remoteRequests).toEqual([]);
+      await preview.screenshot({ path: info.outputPath('expo-agent-preview.png') });
+      await preview.close();
+      const changed = await page.request.post(`${operationBase}/${proposal.operationId}/accept`, { headers,
+        data: { idempotencyKey: randomUUID(), proposalVersion: `v1.${'0'.repeat(64)}` } });
+      expect(changed.status()).toBe(409);
+      expect((await changed.json()).code).toBe('AGENT_PROPOSAL_CHANGED');
+      await expect(editor.locator('p').first()).toHaveText('Agent original');
+      const grantReply = await page.request.post(`${operationBase}/${proposal.operationId}/direct-edit-grant`, { headers,
+        data: { action: 'grant', idempotencyKey: randomUUID() } });
+      expect(grantReply.ok()).toBe(true); grantedOperationId = proposal.operationId;
+      const acceptance = { idempotencyKey: randomUUID(), proposalVersion: proposal.proposalVersion };
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const accepted = await page.request.post(`${operationBase}/${proposal.operationId}/accept`, { headers, data: acceptance });
+        expect(accepted.ok()).toBe(true);
+      }
+      await expect(peerEditor.locator('p').first()).toHaveText('Agent reviewed');
+    } else {
     await page.getByRole('button', { name: /Agent changes|Agentenänderungen/u }).click();
     const panel = page.getByRole('region', { name: /Agent changes|Agentenänderungen/u });
     await expect(panel).toContainText('Agent reviewed');
@@ -100,6 +140,7 @@ test('a normal chat agent edits the live document after its owner grants permiss
     expect((await acceptReply).ok()).toBe(true);
     await expect(peerEditor.locator('p').first()).toHaveText('Agent reviewed');
     await page.getByRole('button', { name: /Agent changes|Agentenänderungen/u }).click();
+    }
     const previousIds = new Set((await operations()).map(operation => operation.operationId));
     send('Agent reviewed', 'Agent direct');
     const human = peerEditor.locator('p').filter({ hasText: /^Human paragraph$/u });
@@ -120,6 +161,13 @@ test('a normal chat agent edits the live document after its owner grants permiss
     expect(events.filter(event => event.type === 'send_message_result' && event.success === false)).toEqual([]);
     expect(events.filter(event => event.type === 'agent_event' && event.event?.type === 'tool_execution_end' && event.event.isError)).toEqual([]);
     for (const target of [page, peer]) await expect(target.getByTestId('markdown-save-state')).toHaveCount(0);
+    if (mobileReview) {
+      const direct = (await operations()).find(operation => !previousIds.has(operation.operationId))!;
+      const result = await page.request.post(`${operationBase}/${direct.operationId}/revert`, { headers, data: { idempotencyKey: randomUUID() } });
+      expect(result.ok()).toBe(true);
+      await expect(editor.locator('p').first()).toHaveText('Agent reviewed');
+      await expect(peerEditor.locator('p').last()).toContainText('Human paragraph edited concurrently by another user');
+    }
     expect(errors).toEqual([]);
     await page.screenshot({ path: info.outputPath('agent-and-two-users.png') });
     await info.attach('real runtime evidence', { body: Buffer.from(JSON.stringify({
@@ -127,7 +175,7 @@ test('a normal chat agent edits the live document after its owner grants permiss
       tools: events.filter(event => event.event?.type === 'tool_execution_end').map(event => event.event?.toolName),
     })), contentType: 'application/json' });
   } finally {
-    if (grantedOperationId) await page.request.post(`/api/files/collaboration/operations/${grantedOperationId}/direct-edit-grant`,
+    if (grantedOperationId) await page.request.post(`${operationBase}/${grantedOperationId}/direct-edit-grant`,
       { headers, data: { action: 'revoke', idempotencyKey: randomUUID() } });
     if (socket?.readyState === WebSocket.OPEN && sessionId) socket.send(JSON.stringify({ type: 'control', sessionId, action: 'abort' }));
     socket?.close();

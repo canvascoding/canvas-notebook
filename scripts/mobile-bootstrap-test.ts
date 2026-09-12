@@ -88,6 +88,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'workspace.switch',
   'workspace.update',
   'workspace.members.read',
+  'workspace.members.manage',
   'workspace.brand.read',
   'workspace.brand.update',
   'license.status',
@@ -119,6 +120,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'notebook.image_import',
   'notebook.collaboration.yjs',
   'notebook.collaboration.session.v1',
+  'notebook.collaboration.agent_review.v1',
   'files.browse',
   'files.sort.v1',
   'files.html_preview',
@@ -162,7 +164,9 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'extensions.marketplace_v2',
   'integrations.composio_catalog',
   'integrations.composio_mobile_auth',
+  'workspace.create.personal',
   'workspace.create',
+  'workspace.create.team',
 ]);
 assert.deepEqual(bootstrap.user.profile, {
   name: 'Mobile User',
