@@ -31,6 +31,8 @@ function createLiveMarkdownStore(doc: Y.Doc | undefined, representation: string 
     subscribe(listener: () => void) {
       const update = () => { cached = undefined; listener(); };
       doc?.on('update', update);
+      // React rechecks after subscribing; include updates received since render.
+      cached = undefined;
       return () => doc?.off('update', update);
     },
     snapshot() {

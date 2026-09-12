@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
-import { act } from 'react';
+import { readFileSync } from 'node:fs';
+import { act, useLayoutEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { generateUniqueIds } from '@tiptap/extension-unique-id';
 import { getSchema } from '@tiptap/core';
 import * as Y from 'yjs';
 
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
-import { createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
+import { analyzeMarkdownRichMode, createRichMarkdownManager, richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import type { CollaborationDocument } from '../app/lib/collaboration/client';
 import { createInitialTextCollaborationClientState } from '../app/lib/collaboration/client-state';
 
@@ -35,8 +36,41 @@ async function main() {
     const snapshot = useLiveMarkdown(collaboration, 'stale file checkpoint');
     return <output data-available={snapshot.available}>{snapshot.content}</output>;
   }
+  function StartupView({ collaboration, update }: { collaboration: CollaborationDocument; update: Uint8Array }) {
+    const snapshot = useLiveMarkdown(collaboration, 'stale file checkpoint');
+    useLayoutEffect(() => {
+      // The initial sync lands after snapshot(), before the passive subscription.
+      Y.applyUpdate(collaboration.doc, update);
+    }, [collaboration, update]);
+    return <output data-available={snapshot.available} data-mode={analyzeMarkdownRichMode(snapshot.content).mode}>
+      {snapshot.content}
+    </output>;
+  }
+  const startupDocuments: Y.Doc[] = [];
   const baseline = doc._observers.get('update')?.size ?? 0;
   try {
+    const marp = readFileSync('tests/fixtures/markdown-roundtrip/marp-directive-source-only.md', 'utf8');
+    const initialSource = new Y.Doc(); startupDocuments.push(initialSource);
+    initialSource.getText('content').insert(0, marp);
+    for (const [representation, initialDocument, expected] of [
+      ['plain_text', initialSource, marp], ['tiptap_blocks', doc, 'AAA\n\nBBB\n\nCCC'],
+    ] as const) {
+      const receiving = new Y.Doc(); startupDocuments.push(receiving);
+      await act(async () => root.render(<StartupView key={representation}
+        collaboration={session(receiving, representation)} update={Y.encodeStateAsUpdate(initialDocument)} />));
+      assert.equal(container.textContent, expected, 'initial sync between render and subscribe must not leave a stale empty preview');
+      assert.equal(container.querySelector('output')?.getAttribute('data-available'), 'true');
+      if (representation === 'plain_text') assert.equal(container.querySelector('output')?.getAttribute('data-mode'), 'source');
+      else assert.equal(receiving.share.has('body'), false, 'catching up must not create legacy roots');
+    }
+    const deletionReceiver = new Y.Doc(); const deletionPeer = new Y.Doc();
+    startupDocuments.push(deletionReceiver, deletionPeer);
+    deletionReceiver.getText('content').insert(0, 'Delete this');
+    Y.applyUpdate(deletionPeer, Y.encodeStateAsUpdate(deletionReceiver));
+    deletionPeer.getText('content').delete(0, 'Delete this'.length);
+    await act(async () => root.render(<StartupView key="deletion" collaboration={session(deletionReceiver, 'plain_text')}
+      update={Y.encodeStateAsUpdate(deletionPeer)} />));
+    assert.equal(container.textContent, '', 'a deletion in the same gap must not restore stale text or the file fallback');
     await act(async () => root.render(<View collaboration={session(pending, 'tiptap_blocks', false)} />));
     assert.equal(container.textContent, 'stale file checkpoint', 'startup retains the file preview until local state is known');
     assert.equal(pending.share.size, 0, 'an unhydrated block document must not acquire guessed XML roots');
@@ -63,7 +97,7 @@ async function main() {
     await act(async () => root.unmount());
     assert.equal(source._observers.get('update')?.size ?? 0, 0);
     console.log('Live Read/Source subscription follows block moves and text edits and releases the previous document.');
-  } finally { doc.destroy(); source.destroy(); pending.destroy(); dom.window.close(); }
+  } finally { startupDocuments.forEach((document) => document.destroy()); doc.destroy(); source.destroy(); pending.destroy(); dom.window.close(); }
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

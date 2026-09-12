@@ -297,6 +297,11 @@ test.describe('formatting preserves Markdown meaning', () => {
   test('source-required presentation syntax stays exact through typing, Read and reopen', async ({ browser }, info) => {
     const context = await fixtureContext(browser); const page = await context.newPage();
     const errors: string[] = []; page.on('pageerror', (error) => errors.push(error.name));
+    let unexpectedMigrations = 0;
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/files/collaboration/session'
+        && request.postDataJSON()?.allowRichMigration === true) unexpectedMigrations++;
+    });
     const filePath = `editor-formatting-${randomUUID()}.md`;
     let workspace: Workspace | undefined;
     const original = await readFile(path.join(process.cwd(), 'tests/fixtures/markdown-roundtrip/marp-directive-source-only.md'), 'utf8');
@@ -332,6 +337,7 @@ test.describe('formatting preserves Markdown meaning', () => {
       await expect.poll(async () => (await source.locator('.cm-line').allTextContents()).join('\n')).toBe(original + suffix);
       expect((await session(page, workspace, filePath)).representation).toBe('plain_text');
       expect(await readFile(diskPath(workspace, filePath), 'utf8')).toBe(original + suffix);
+      expect(unexpectedMigrations, 'source-required syntax must never start a rich migration from an empty startup preview').toBe(0);
       await expect(page.getByTestId('markdown-save-state')).toHaveCount(0);
       await page.screenshot({ path: info.outputPath('source-required-syntax-reopened.png') });
       expect(errors).toEqual([]);
