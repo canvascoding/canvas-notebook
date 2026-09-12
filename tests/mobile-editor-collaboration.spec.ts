@@ -71,7 +71,7 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
       const fixture = window as unknown as MobileFixtureWindow;
       fixture.mobileMessages = [];
       fixture.ReactNativeWebView = {
-        injectedObjectJson: () => JSON.stringify(input),
+        injectedObjectJson: () => sessionStorage.getItem('fixture-native-recovery') || JSON.stringify(input),
         postMessage: (raw: string) => { fixture.mobileMessages.push(JSON.parse(raw)); void fixture.mobileBridgeMessage(raw); },
       };
     }, { locale: 'en', variant: 'markdown', content: '', editable: true, collaboration: { session, active: true, offlineUpdate: null } });
@@ -105,6 +105,44 @@ test('Expo asset and web editor share block identities, deletion and undo', asyn
     await mobileEditor.evaluate(element => (element as HTMLElement & { editor: Editor }).editor.commands.undo());
     await expect.poll(() => json(mobileEditor)).toEqual(beforeDelete);
     await expect.poll(() => json(webEditor)).toEqual(beforeDelete);
+    // The native file/barrier contract is tested in the companion repository.
+    // Here the exact WebView bundle cold-opens its binary with no server.
+    const latestSnapshot = () => mobile.evaluate(() => {
+      const messages = (window as unknown as MobileFixtureWindow).mobileMessages as { type: string; update?: string }[];
+      return messages.filter(message => message.type === 'collaboration-snapshot').at(-1)!.update!;
+    });
+    const update = await latestSnapshot();
+    expect(update).toBeTruthy();
+    await mobile.evaluate(({ session, update }) => sessionStorage.setItem('fixture-native-recovery', JSON.stringify({
+      locale: 'en', variant: 'markdown', content: '', editable: true,
+      collaboration: { session: { ...session, token: '', expiresAt: new Date(0).toISOString() }, active: false, offlineUpdate: update },
+    })), { session, update });
+    await mobileContext.setOffline(true);
+    await mobile.reload();
+    await mobileEditor.tap();
+    await expect(mobileEditor).toHaveAttribute('contenteditable', 'true');
+    await expect.poll(() => json(mobileEditor)).toEqual(beforeDelete);
+    await mobileEditor.evaluate(element => {
+      const instance = (element as HTMLElement & { editor: Editor }).editor;
+      instance.commands.insertContentAt(1, { type: 'text', text: '# literal offline ' });
+    });
+    const offlineJson = await json(mobileEditor);
+    const offlineUpdate = await latestSnapshot();
+    expect(offlineUpdate).not.toBe(update);
+    await mobile.evaluate(update => {
+      const input = JSON.parse(sessionStorage.getItem('fixture-native-recovery')!);
+      input.collaboration.offlineUpdate = update;
+      sessionStorage.setItem('fixture-native-recovery', JSON.stringify(input));
+    }, offlineUpdate);
+    await mobile.reload();
+    await mobileEditor.tap();
+    await expect.poll(() => json(mobileEditor)).toEqual(offlineJson);
+    await mobileContext.setOffline(false);
+    await mobile.evaluate(() => {
+      (window as unknown as { __canvasNotebookCommand: (input: object) => void })
+        .__canvasNotebookCommand({ name: 'collaborationActive', payload: { active: true } });
+    });
+    await expect.poll(() => json(webEditor)).toEqual(offlineJson);
     expect(errors).toEqual([]);
     await mobile.screenshot({ path: test.info().outputPath('expo-live-editor.png') });
   } finally {
