@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import corpus from '../app/lib/markdown/core/fixtures.json';
-import { serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
+import { analyzeMarkdownRichMode, serializeRichMarkdownBody } from '../app/lib/markdown/rich-markdown-codec';
 
 test('empty slash quote checkpoints and survives editing, undo, and reload', async ({ page }, info) => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed local Postgres stack.');
@@ -129,6 +129,10 @@ test('reading observes live source without rewriting it and migration waits for 
   const headers = { 'x-canvas-workspace-id': workspace.id };
   const path = `editor-modes-${randomUUID()}.md`;
   const content = '# Live preview\n\n| Code | Value |\n|---|---|\n| `a\\|b` | Original |\n\n';
+  const liveSource = `${content}\n\nLive addition`;
+  const supportedSource = `${content}Live addition\n`;
+  expect(analyzeMarkdownRichMode(liveSource)).toMatchObject({ mode: 'source', reason: 'roundtrip_changed' });
+  expect(analyzeMarkdownRichMode(supportedSource).mode).toBe('normalizable');
   await page.addInitScript((id) => { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); }, workspace.id);
   const readContent = async () => (await (await page.request.get(`/api/files/read?path=${encodeURIComponent(path)}`, { headers })).json()).data?.content as string;
   const uploaded = await page.request.post('/api/files/upload', { headers, multipart: { path: '.', files: { name: path, mimeType: 'text/markdown', buffer: Buffer.from(content) } } });
@@ -146,11 +150,24 @@ test('reading observes live source without rewriting it and migration waits for 
     await source.click();
     await second.keyboard.press('ControlOrMeta+End');
     await second.keyboard.type('\n\nLive addition');
-    await expect.poll(readContent).toContain('Live addition');
+    await expect.poll(readContent).toBe(liveSource);
     await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Edit', exact: true }).click();
-    await page.getByRole('button', { name: 'Prepare formatted editing', exact: true }).click();
-    await expect(page.getByText(/Other editors or pending changes prevent/)).toBeVisible();
+    await expect(page.getByText('This document stays in source mode so its Markdown is preserved exactly.')).toBeVisible();
+    await expect(page.locator('.cm-content')).toHaveAttribute('contenteditable', 'true');
+    expect(await readContent()).toBe(liveSource);
+    await page.getByRole('button', { name: 'Read', exact: true }).click();
+    // The source contains two extra blank lines that cannot be normalized
+    // silently. Explicit user input removes them before requesting rich editing.
+    await source.click();
+    await second.keyboard.press('ControlOrMeta+a');
+    await second.keyboard.insertText(supportedSource);
+    await expect.poll(readContent).toBe(supportedSource);
+    await expect(page.getByText('Live addition', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Edit', exact: true }).click();
+    // Edit itself starts the migration. An active source peer must block it.
+    await expect(page.getByText(/Other editors or pending changes prevent/)).toBeVisible({ timeout: 20_000 });
+    await expect(source).toHaveAttribute('contenteditable', 'true');
     await second.close();
     await page.getByRole('button', { name: 'Prepare formatted editing', exact: true }).click();
     await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 20_000 });
@@ -205,8 +222,10 @@ test('reading observes live source without rewriting it and migration waits for 
     await page.screenshot({ path: info.outputPath('checkpoint-recovery.png') });
 
   } finally {
-    if (!second.isClosed()) await second.close();
-    await page.goto('about:blank');
-    await page.request.delete('/api/files/delete', { headers, data: { path } });
+    // A timed-out test may already have closed its pages. Cleanup must not mask
+    // the first failed UI assertion with a secondary navigation error.
+    if (!second.isClosed()) await second.close().catch(() => undefined);
+    if (!page.isClosed()) await page.goto('about:blank', { timeout: 5_000 }).catch(() => undefined);
+    await page.request.delete('/api/files/delete', { headers, data: { path } }).catch(() => undefined);
   }
 });

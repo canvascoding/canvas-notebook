@@ -344,3 +344,8 @@ Grenzen und separate Befunde: Gewöhnliche relative PDF-Links in der Markdown-Le
 ### Ergänzung: Fokus und Dokumentbreite
 
 `editor-focus-width.spec.ts` besteht auf Image `fb16204c006a` (`step7-focus-width-chromium`, 19,4 Sekunden). Fokusmodus und Breitenwechsel erhalten die tatsächliche Editorinstanz, History, Chatentwurf und gespeicherte Panel-Einstellungen; die breite Tabelle scrollt innerhalb der Leseansicht. Das Fixture liest die reale Terminal-Verfügbarkeit: Ist das Terminal wie in diesem Stack abgeschaltet, wird seine Abwesenheit geprüft. Ein laufendes Terminal wurde in diesem Durchgang nicht getestet. Gemeinsamer TypeScript-Lauf, ESLint und Diff-Prüfung bestehen.
+
+
+### Ergänzung: leere Zitate und nicht umgeschriebener Quelltext
+
+Alle drei Fälle in `editor-empty-quote.spec.ts` bestehen erneut auf Image `fb16204c006a` (`step7-empty-quote-final`, 46,0 Sekunden): leeres Slash-Zitat mit weiterer Eingabe, Undo und Neuladen; vorhandene gemeinsame Markdown-Strukturen einschließlich Tabellenzellen und Code; sowie Lesen aus dem aktuellen Live-Quelltext ohne Umschreiben und zurückgestellter Darstellungswechsel bei anderen aktiven Bearbeitern. Die bereits vorbereiteten Browserfixture-Korrekturen verwenden den tatsächlichen View-Wechsel und getrennte Browserkontexte. Gemeinsamer TypeScript-Lauf, ESLint und Diff-Prüfung bestehen.
