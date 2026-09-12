@@ -19,15 +19,18 @@ type WidgetCardProps = {
   icon: typeof Inbox;
   preview: ReactNode;
   footer: string;
+  freezeEnabled: boolean;
 };
 
-function WidgetCard({ id, title, description, href, icon: Icon, preview, footer }: WidgetCardProps) {
+function WidgetCard({ id, title, description, href, icon: Icon, preview, footer, freezeEnabled }: WidgetCardProps) {
   const t = useTranslations('home.workspaceWidgets');
   const [frozenContent, setFrozenContent] = useState<{ footer: string; href: string; preview: ReactNode } | null>(null);
   const pointerWithinRef = useRef(false);
   const focusWithinRef = useRef(false);
   const displayedContent = frozenContent ?? { footer, href, preview };
-  const freezeContent = () => setFrozenContent((current) => current ?? { footer, href, preview });
+  const freezeContent = () => {
+    if (freezeEnabled) setFrozenContent((current) => current ?? { footer, href, preview });
+  };
   const releaseContent = () => {
     if (!pointerWithinRef.current && !focusWithinRef.current) setFrozenContent(null);
   };
@@ -112,6 +115,15 @@ function plainPreviewText(value: string | null): string {
     .trim();
 }
 
+function studioHref(workspaceId: string, generation?: HomeWidgetStudio | null): string {
+  if (!generation) return `/studio?workspaceId=${encodeURIComponent(workspaceId)}`;
+  return `/studio?${new URLSearchParams({
+    workspaceId,
+    generation: generation.id,
+    ...(generation.output ? { output: generation.output.id } : {}),
+  })}`;
+}
+
 function isSafeApplicationMediaUrl(value: string): boolean {
   return value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
 }
@@ -133,7 +145,7 @@ function stateSummary<T>({ state, ready, onRetry }: { state: HomeWidgetState<T>;
 function EmailWidget({ state, onRetry }: { state: HomeWidgetState<HomeWidgetEmail[]>; onRetry: () => void }) {
   const t = useTranslations('home.workspaceWidgets.email');
   const messageHref = (message: HomeWidgetEmail) => `/emails?${new URLSearchParams({ accountId: message.accountId, messageId: message.id, ...(message.folder ? { folder: message.folder } : {}) })}`;
-  return <WidgetCard id="email" title={t('title')} description={t('description')} href="/emails" icon={Inbox} footer={t('openAll')}
+  return <WidgetCard id="email" title={t('title')} description={t('description')} href="/emails" icon={Inbox} footer={t('openAll')} freezeEnabled={state.status === 'ready'}
     preview={stateSummary({ state, onRetry, ready: data => <ListPreview countLabel={t('count', { count: data.length })}>{data.length ? <div className="divide-y divide-border/60">{data.slice(0, 2).map(message => <Link key={`${message.accountId}:${message.id}`} href={messageHref(message)} className="flex h-11 min-w-0 items-center gap-3 px-2 transition-colors hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><MailOpen className="h-4 w-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-4">{message.subject || t('noSubject')}</span><span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{message.from || t('unknownSender')} · {message.accountLabel}</span></span></Link>)}</div> : <p className="px-2 py-5 text-sm text-muted-foreground">{t('empty')}</p>}</ListPreview> })}
   />;
 }
@@ -141,7 +153,7 @@ function EmailWidget({ state, onRetry }: { state: HomeWidgetState<HomeWidgetEmai
 function TodoWidget({ state, workspaceId, onRetry }: { state: HomeWidgetState<HomeWidgetTodo[]>; workspaceId: string; onRetry: () => void }) {
   const t = useTranslations('home.workspaceWidgets.todos');
   const format = useFormatter();
-  return <WidgetCard id="todos" title={t('title')} description={t('description')} href={`/todos?workspaceId=${encodeURIComponent(workspaceId)}`} icon={ListTodo} footer={t('openAll')}
+  return <WidgetCard id="todos" title={t('title')} description={t('description')} href={`/todos?workspaceId=${encodeURIComponent(workspaceId)}`} icon={ListTodo} footer={t('openAll')} freezeEnabled={state.status === 'ready'}
     preview={stateSummary({ state, onRetry, ready: data => <ListPreview countLabel={t('count', { count: data.length })}>{data.length ? <div className="divide-y divide-border/60">{data.slice(0, 2).map(todo => <Link key={todo.id} href={`/todos?todo=${encodeURIComponent(todo.id)}&workspaceId=${encodeURIComponent(workspaceId)}`} className="flex h-11 min-w-0 items-center gap-3 px-2 transition-colors hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><span className={`h-2.5 w-2.5 shrink-0 rounded-full border ${todo.priority === 'high' ? 'border-destructive bg-destructive/15' : 'border-muted-foreground/50'}`} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-4">{todo.title}</span><span className={`mt-0.5 block truncate text-xs leading-4 ${todo.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`}>{todo.priority === 'high' ? t('highPriority') : todo.dueAt ? t('due', { time: relativeTime(format, todo.dueAt) }) : t('open')}</span></span></Link>)}</div> : <p className="px-2 py-5 text-sm text-muted-foreground">{t('empty')}</p>}</ListPreview> })}
   />;
 }
@@ -150,10 +162,11 @@ function AutomationWidget({ state, onRetry }: { state: HomeWidgetState<HomeWidge
   const t = useTranslations('home.workspaceWidgets.automation');
   const format = useFormatter();
   const automation = state.data;
+  const href = automation ? `/automations/${encodeURIComponent(automation.id)}` : '/automations';
   const runLabel = automation?.lastRunStatus ? t(`status.${automation.lastRunStatus}`) : t('notRun');
   const resultPreview = plainPreviewText(automation?.resultText || null);
-  return <WidgetCard id="automation" title={t('title')} description={t('description')} href="/automations" icon={Workflow} footer={t('openAll')}
-    preview={stateSummary({ state, onRetry, ready: data => data ? <div className="flex h-full min-h-0 flex-col justify-between gap-2 px-5 py-3.5"><div className="flex min-w-0 items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${data.lastRunStatus === 'failed' ? 'bg-destructive' : data.lastRunStatus === 'running' || data.lastRunStatus === 'pending' ? 'bg-primary animate-pulse' : 'bg-muted-foreground/60'}`} /><span className="truncate text-xs font-medium text-muted-foreground">{runLabel}</span></div><span className="shrink-0 text-[0.7rem] text-muted-foreground">{data.lastRunAt ? t('lastRun', { time: relativeTime(format, data.lastRunAt) }) : t('notRun')}</span></div><div className="min-h-0"><p className="truncate text-sm font-semibold">{data.name}</p><p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-muted-foreground">{resultPreview || t('noResult')}</p></div><div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{data.nextRunAt ? t('nextRun', { time: relativeTime(format, data.nextRunAt) }) : t('noNextRun')}</span></div></div> : <div className="flex h-full items-end p-5"><p className="text-sm text-muted-foreground">{t('empty')}</p></div> })}
+  return <WidgetCard id="automation" title={t('title')} description={t('description')} href={href} icon={Workflow} footer={t('openAll')} freezeEnabled={state.status === 'ready'}
+    preview={stateSummary({ state, onRetry, ready: data => data ? <Link href={`/automations/${encodeURIComponent(data.id)}`} className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><div className="flex h-full min-h-0 flex-col justify-between gap-2 px-5 py-3.5"><div className="flex min-w-0 items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-2"><span className={`h-2 w-2 shrink-0 rounded-full ${data.lastRunStatus === 'failed' ? 'bg-destructive' : data.lastRunStatus === 'running' || data.lastRunStatus === 'pending' ? 'bg-primary animate-pulse' : 'bg-muted-foreground/60'}`} /><span className="truncate text-xs font-medium text-muted-foreground">{runLabel}</span></div><span className="shrink-0 text-[0.7rem] text-muted-foreground">{data.lastRunAt ? t('lastRun', { time: relativeTime(format, data.lastRunAt) }) : t('notRun')}</span></div><div className="min-h-0"><p className="truncate text-sm font-semibold">{data.name}</p><p className="mt-1 line-clamp-2 break-words text-xs leading-5 text-muted-foreground">{resultPreview || t('noResult')}</p></div><div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground"><Clock3 className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{data.nextRunAt ? t('nextRun', { time: relativeTime(format, data.nextRunAt) }) : t('noNextRun')}</span></div></div></Link> : <div className="flex h-full items-end p-5"><p className="text-sm text-muted-foreground">{t('empty')}</p></div> })}
   />;
 }
 
@@ -161,9 +174,9 @@ function StudioWidget({ state, workspaceId, onRetry }: { state: HomeWidgetState<
   const t = useTranslations('home.workspaceWidgets.studio');
   const format = useFormatter();
   const generation = state.data;
-  const href = generation ? `/studio?${new URLSearchParams({ workspaceId, generation: generation.id })}` : `/studio?workspaceId=${encodeURIComponent(workspaceId)}`;
-  return <WidgetCard id="studio" title={t('title')} description={t('description')} href={href} icon={Sparkles} footer={generation ? t('openGeneration') : t('openStudio')}
-    preview={stateSummary({ state, onRetry, ready: data => data ? <div className="relative h-full min-h-40 overflow-hidden bg-muted">{data.output ? <SafeStudioImage key={data.output.mediaUrl} src={data.output.mediaUrl} /> : <div className="flex h-full items-center justify-center"><Sparkles className="h-8 w-8 text-muted-foreground" /></div>}<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-5 pb-4 pt-10"><p className="line-clamp-2 break-words text-sm font-medium">{data.prompt || t('untitled')}</p><p className="mt-1 truncate text-xs text-muted-foreground">{t('created', { time: relativeTime(format, data.createdAt) })}</p></div></div> : <div className="flex h-full items-end p-5"><p className="text-sm text-muted-foreground">{t('empty')}</p></div> })}
+  const href = studioHref(workspaceId, generation);
+  return <WidgetCard id="studio" title={t('title')} description={t('description')} href={href} icon={Sparkles} footer={generation ? t('openGeneration') : t('openStudio')} freezeEnabled={state.status === 'ready'}
+    preview={stateSummary({ state, onRetry, ready: data => data ? <Link href={studioHref(workspaceId, data)} className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><div className="relative h-full min-h-40 overflow-hidden bg-muted">{data.output ? <SafeStudioImage key={data.output.mediaUrl} src={data.output.mediaUrl} /> : <div className="flex h-full items-center justify-center"><Sparkles className="h-8 w-8 text-muted-foreground" /></div>}<div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-5 pb-4 pt-10"><p className="line-clamp-2 break-words text-sm font-medium">{data.prompt || t('untitled')}</p><p className="mt-1 truncate text-xs text-muted-foreground">{t('created', { time: relativeTime(format, data.createdAt) })}</p></div></div></Link> : <div className="flex h-full items-end p-5"><p className="text-sm text-muted-foreground">{t('empty')}</p></div> })}
   />;
 }
 

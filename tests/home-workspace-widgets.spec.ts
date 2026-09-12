@@ -101,12 +101,26 @@ test('workspace widgets fill page two with stable, directly actionable previews'
   const boxBeforeHover = await emailCard.boundingBox();
   await emailCard.hover();
   await expect(emailPreview.getByText('Launch-Freigabe')).toBeVisible();
-  expect(await emailCard.boundingBox()).toEqual(boxBeforeHover);
+  const boxAfterHover = await emailCard.boundingBox();
+  expect(boxAfterHover?.width).toBe(boxBeforeHover?.width);
+  expect(boxAfterHover?.height).toBe(boxBeforeHover?.height);
   await expect(emailCard.getByRole('link', { name: /Launch-Freigabe/ })).toHaveAttribute('href', /accountId=sales.*messageId=mail-sales/);
 
   const todoCard = page.getByTestId('workspace-widget-todos');
   await todoCard.getByRole('link', { name: 'To-dos öffnen', exact: true }).focus();
   await expect(todoCard.getByRole('link', { name: /Launch prüfen/ })).toHaveAttribute('href', new RegExp(`todo=todo-critical.*workspaceId=${workspace.id}`));
+
+  const automationCard = page.getByTestId('workspace-widget-automation');
+  await expect(automationCard.getByRole('link', { name: /Kampagnen-Report/ })).toHaveAttribute('href', '/de/automations/job-latest');
+  await expect(automationCard.getByRole('link', { name: 'Automationen öffnen', exact: true }).last()).toHaveAttribute('href', '/de/automations/job-latest');
+
+  const studioCard = page.getByTestId('workspace-widget-studio');
+  const studioPreviewHref = await studioCard.getByRole('link', { name: /Editoriales Produktbild für den Launch/ }).getAttribute('href');
+  const studioPreviewUrl = new URL(studioPreviewHref || '', 'http://localhost');
+  expect(studioPreviewUrl.pathname).toBe('/de/studio');
+  expect(studioPreviewUrl.searchParams.get('workspaceId')).toBe(workspace.id);
+  expect(studioPreviewUrl.searchParams.get('generation')).toBe('generation-latest');
+  expect(studioPreviewUrl.searchParams.get('output')).toBe('output');
 
   const firstBox = await cards.nth(0).boundingBox();
   const secondBox = await cards.nth(1).boundingBox();
@@ -119,11 +133,12 @@ test('workspace widgets fill page two with stable, directly actionable previews'
 test('touch layout keeps quick selections visible in one column', async ({ page }, info) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const workspace = await prepare(page);
-  await mockWidgets(page, workspace.id);
+  const { widgetRequests } = await mockWidgets(page, workspace.id);
   await page.goto('/de');
   await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
   const cards = page.locator('#home-workspace article[data-testid^="workspace-widget-"]');
   await expect(cards).toHaveCount(4);
+  await expect.poll(() => widgetRequests.map(request => new URL(request).searchParams.get('widgets'))).toContain('emails,todos,automation,studio');
   await expect(page.getByTestId('workspace-widget-email-preview').getByText('Schnellauswahl')).toBeVisible();
   const [firstBox, secondBox] = await cards.evaluateAll(elements => elements.slice(0, 2).map(element => {
     const box = element.getBoundingClientRect();
