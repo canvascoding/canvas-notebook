@@ -105,6 +105,12 @@ function logBrowserDiagnostics(page: Page, label: string): string[] {
   });
   page.on('console', (message) => {
     if (message.type() === 'error' || message.type() === 'warning') {
+      const unsupportedViewportHint = page.context().browser()?.browserType().name() === 'webkit'
+        && message.text() === 'Viewport argument key "interactive-widget" not recognized and ignored.';
+      if (unsupportedViewportHint) {
+        console.warn(`[${label}] unsupported browser viewport hint:`, message.text());
+        return;
+      }
       if (message.type() === 'error') browserErrors.push(`[${label}] console error: ${message.text()}`);
       console.error(`[${label}] console ${message.type()}:`, message.text());
     }
@@ -243,6 +249,87 @@ test.describe('Markdown live collaboration', () => {
       if (workspaceId) await owner.request.delete('/api/files/delete', {
         headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: filePath },
       }).catch(() => undefined);
+      await ownerContext.close();
+    }
+  });
+
+  test('keeps remote labels inside table and viewport edges after scrolling and resizing', async ({ browser }, testInfo) => {
+    const filePath = `collaboration-caret-bounds-${randomUUID()}.md`;
+    const ownerContext = await fixtureContext(browser);
+    const peerContext = await fixtureContext(browser);
+    const owner = await ownerContext.newPage();
+    const peer = await peerContext.newPage();
+    const errors = logBrowserDiagnostics(owner, 'caret-owner');
+    const peerErrors = logBrowserDiagnostics(peer, 'caret-peer');
+    let workspaceId: string | null = null;
+    try {
+      const ownerId = await login(owner, ADMIN_EMAIL, ADMIN_PASSWORD);
+      expect(await login(peer, SECONDARY_EMAIL, SECONDARY_PASSWORD)).not.toBe(ownerId);
+      workspaceId = await organizationWorkspace(owner.request);
+      await useWorkspace(ownerContext, workspaceId);
+      await useWorkspace(peerContext, workspaceId);
+      const content = 'Before table\n\n| Header Alpha | Header Beta |\n| --- | --- |\n| One | Two |\n| Three | Four |\n\n'
+        + Array.from({ length: 30 }, (_, i) => `Following paragraph ${i}`).join('\n\n');
+      const uploaded = await owner.request.post('/api/files/upload', {
+        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
+        multipart: { path: '.', files: { name: filePath, mimeType: 'text/markdown', buffer: Buffer.from(content) } },
+      });
+      expect(uploaded.ok(), await uploaded.text()).toBe(true);
+      await Promise.all([openCollaborativeMarkdown(owner, filePath), openCollaborativeMarkdown(peer, filePath)]);
+      const editor = owner.locator('.tiptap-editor-shell .ProseMirror');
+      const peerEditor = peer.locator('.tiptap-editor-shell .ProseMirror');
+      await peerEditor.getByText('Header Alpha', { exact: true }).click();
+      await peer.keyboard.press('Home');
+      const caret = editor.locator('th .collaboration-carets__caret');
+      await expect(caret).toBeVisible({ timeout: 15_000 });
+      const label = caret.locator('.collaboration-carets__label');
+      const withinBounds = () => label.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const table = element.closest('.tableWrapper')!.getBoundingClientRect();
+        const viewport = element.closest('[data-testid="markdown-scroll-container"]')!.getBoundingClientRect();
+        return rect.left >= Math.max(table.left, viewport.left, 0)
+          && rect.right <= Math.min(table.right, viewport.right, window.innerWidth)
+          && rect.top >= Math.max(table.top, viewport.top, 0)
+          && rect.bottom <= Math.min(table.bottom, viewport.bottom, window.innerHeight);
+      });
+      await expect.poll(withinBounds).toBe(true);
+      await caret.hover();
+      await expect.poll(() => label.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+      await expect.poll(withinBounds).toBe(true);
+
+      // No pointer interaction after these geometry changes: the view owns updates.
+      await owner.mouse.move(1, 1);
+      await owner.setViewportSize({ width: 390, height: 544 });
+      await expect.poll(withinBounds).toBe(true);
+      await editor.locator('.tableWrapper').evaluate((table) => {
+        const viewport = table.closest('[data-testid="markdown-scroll-container"]')!;
+        viewport.scrollTop += table.getBoundingClientRect().top - viewport.getBoundingClientRect().top + 8;
+      });
+      await expect.poll(withinBounds).toBe(true);
+      const screenshot = testInfo.outputPath('table-caret-bounds.png');
+      await owner.screenshot({ path: screenshot });
+      await testInfo.attach('table caret after resize and scroll', { path: screenshot, contentType: 'image/png' });
+      const before = await editor.evaluate((element) => (element as ObservedEditor).editor.getJSON());
+      for (let i = 0; i < 2; i += 1) {
+        const modes = owner.getByRole('group', { name: 'Document view' });
+        await modes.getByRole('button', { name: 'Read', exact: true }).click();
+        await modes.getByRole('button', { name: 'Edit', exact: true }).click();
+        await expect(editor).toHaveAttribute('contenteditable', 'true');
+      }
+      await expect.poll(() => editor.evaluate((element) => (element as ObservedEditor).editor.getJSON())).toEqual(before);
+      await peerEditor.getByText('Header Alpha', { exact: true }).click();
+      await peer.keyboard.insertText(' updated');
+      const updated = await peerEditor.evaluate((element) => (element as ObservedEditor).editor.getJSON());
+      expect(await collaborativeEditorText(peerEditor)).toContain(' updated');
+      await expect.poll(() => editor.evaluate((element) => (element as ObservedEditor).editor.getJSON())).toEqual(updated);
+      await expect.poll(withinBounds).toBe(true);
+      expect([...errors, ...peerErrors]).toEqual([]);
+    } finally {
+      await peerContext.close();
+      await owner.close();
+      if (workspaceId) await ownerContext.request.delete('/api/files/delete', {
+        headers: { [WORKSPACE_ID_HEADER]: workspaceId }, data: { path: filePath },
+      });
       await ownerContext.close();
     }
   });
@@ -392,15 +479,22 @@ test.describe('Markdown live collaboration', () => {
       const labelBounds = await memberCaretOnAdmin.locator('.collaboration-carets__label').evaluate((element) => {
         const labelRect = element.getBoundingClientRect();
         const editorRect = element.closest('.tiptap-editor-shell')?.getBoundingClientRect();
+        const viewportRect = element.closest('[data-testid="markdown-scroll-container"]')?.getBoundingClientRect();
         return {
           labelLeft: labelRect.left,
           labelRight: labelRect.right,
+          labelTop: labelRect.top,
+          labelBottom: labelRect.bottom,
           editorLeft: editorRect?.left ?? 0,
           editorRight: editorRect?.right ?? window.innerWidth,
+          viewportTop: Math.max(editorRect?.top ?? 0, viewportRect?.top ?? 0, 0),
+          viewportBottom: Math.min(viewportRect?.bottom ?? window.innerHeight, window.innerHeight),
         };
       });
       expect(labelBounds.labelLeft).toBeGreaterThanOrEqual(labelBounds.editorLeft);
       expect(labelBounds.labelRight).toBeLessThanOrEqual(labelBounds.editorRight);
+      expect(labelBounds.labelTop).toBeGreaterThanOrEqual(labelBounds.viewportTop);
+      expect(labelBounds.labelBottom).toBeLessThanOrEqual(labelBounds.viewportBottom);
       await expect.poll(
         () => memberCaretOnAdmin.locator('.collaboration-carets__label').evaluate(
           (element) => getComputedStyle(element).opacity,

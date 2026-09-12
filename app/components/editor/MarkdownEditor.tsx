@@ -28,6 +28,7 @@ import { MarkdownUrlPaste } from './MarkdownUrlPaste';
 import { MarkdownDomSelection } from './MarkdownDomSelection';
 import { MarkdownBlockMoveMenu } from './MarkdownBlockMoveMenu';
 import { MarkdownBlockMovement } from '@/app/lib/editor/block-move-command';
+import { CollaborationCaretLayout } from '@/app/lib/editor/collaboration-caret-layout';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { CanvasTaskList as TaskList } from '@/app/lib/markdown/core/lists-and-tables';
 import { CanvasTaskItem as TaskItem } from '@/app/lib/markdown/core/lists-and-tables';
@@ -2305,6 +2306,7 @@ function createEditorExtensions(
   if (collaboration?.provider && collaboration.session
     && isRichTextCollaborationRepresentation(collaboration.session.representation)) {
     extensions.push(
+      CollaborationCaretLayout,
       ...createRichEditorCollaborationExtensions({
         document: collaboration.doc,
         representation: collaboration.session.representation,
@@ -2343,23 +2345,6 @@ function createEditorExtensions(
           label.append(activity, document.createTextNode(name));
           cursor.append(needle, label);
 
-          const updateLabelPlacement = () => {
-            const boundary = cursor.closest<HTMLElement>('.tiptap-editor-shell')
-              || cursor.closest<HTMLElement>('[data-testid="markdown-scroll-container"]');
-            if (!boundary) return;
-            const cursorRect = cursor.getBoundingClientRect();
-            const boundaryRect = boundary.getBoundingClientRect();
-            const labelWidth = label.getBoundingClientRect().width;
-            const spaceLeft = cursorRect.left - boundaryRect.left;
-            const spaceRight = boundaryRect.right - cursorRect.right;
-            const labelSide = spaceRight >= labelWidth + 12 || spaceRight >= spaceLeft
-              ? 'right'
-              : 'left';
-            cursor.dataset.labelSide = labelSide;
-            cursor.classList.toggle('collaboration-carets__caret--label-left', labelSide === 'left');
-          };
-          cursor.addEventListener('pointerenter', updateLabelPlacement);
-          window.requestAnimationFrame(updateLabelPlacement);
           return cursor;
         },
         selectionRender: (user) => ({

@@ -17,6 +17,7 @@ for (const key of ['window', 'Window', 'document', 'DOMParser', 'navigator', 'El
 Object.assign(globalThis, { React, IS_REACT_ACT_ENVIRONMENT: true, CSS: { escape: (value: string) => value.replace(/[^a-zA-Z0-9_-]/gu, char => '\\' + char) } });
 Object.defineProperty(dom.window, 'matchMedia', { value: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) });
 Object.defineProperty(globalThis, 'ResizeObserver', { value: class { observe() {} unobserve() {} disconnect() {} }, configurable: true });
+Object.defineProperty(dom.window, 'ResizeObserver', { value: globalThis.ResizeObserver, configurable: true });
 // JSDOM has no layout. These tests inspect document state and lifecycle, not geometry.
 dom.window.Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
 dom.window.Range.prototype.getBoundingClientRect = () => new dom.window.DOMRect();

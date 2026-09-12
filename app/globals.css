@@ -754,6 +754,26 @@ li.task-list-item > p {
   right: -1px;
 }
 
+.tiptap-editor-shell .collaboration-carets__caret--label-below .collaboration-carets__label {
+  border-radius: 0.16rem 0.55rem 0.55rem 0.55rem;
+  transform-origin: left top;
+}
+
+.tiptap-editor-shell .collaboration-carets__caret--label-left.collaboration-carets__caret--label-below .collaboration-carets__label {
+  border-radius: 0.55rem 0.16rem 0.55rem 0.55rem;
+  transform-origin: right top;
+}
+
+.tiptap-editor-shell .collaboration-carets__caret--label-below .collaboration-carets__label::after {
+  bottom: auto;
+  top: -0.2rem;
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+.tiptap-editor-shell .collaboration-carets__caret--label-left.collaboration-carets__caret--label-below .collaboration-carets__label::after {
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+}
+
 .tiptap-editor-shell .collaboration-carets__activity {
   background: white;
   border-radius: 999px;
