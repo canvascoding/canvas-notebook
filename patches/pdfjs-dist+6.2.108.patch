@@ -6,7 +6,7 @@ diff --git a/node_modules/pdfjs-dist/legacy/web/pdf_viewer.mjs b/node_modules/pd
      var isFirefoxOrModernChromium, prevRange;
      document.addEventListener("selectionchange", () => {
 +      const firstTextLayer = this.#textLayers.values().next().value;
-+      if (!firstTextLayer) {
++      if (!(firstTextLayer instanceof Element)) {
 +        return;
 +      }
        const selection = document.getSelection();
@@ -29,7 +29,7 @@ diff --git a/node_modules/pdfjs-dist/web/pdf_viewer.mjs b/node_modules/pdfjs-dis
      var isFirefoxOrModernChromium, prevRange;
      document.addEventListener("selectionchange", () => {
 +      const firstTextLayer = this.#textLayers.values().next().value;
-+      if (!firstTextLayer) {
++      if (!(firstTextLayer instanceof Element)) {
 +        return;
 +      }
        const selection = document.getSelection();
