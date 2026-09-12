@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { loadCachedWorkspaceWidget } from '../app/lib/home/workspace-widget-cache';
+import { createWorkspaceWidgetFetcher, internalAppOrigin } from '../app/lib/home/workspace-widget-fetcher';
 
 async function main() {
   const suffix = `${Date.now()}-${Math.random()}`;
@@ -47,6 +48,26 @@ async function main() {
   assert.deepEqual((await Promise.all([pendingA, pendingB])).map((result) => result.data), ['ready', 'ready']);
   assert.equal(concurrentLoads, 1, 'concurrent loads for the same user and workspace should be deduplicated');
 
+  assert.equal(internalAppOrigin(undefined), 'http://127.0.0.1:3000');
+  assert.equal(internalAppOrigin('4711'), 'http://127.0.0.1:4711');
+  let internalRequest: { url: string; init?: RequestInit } | undefined;
+  const internalFetcher = createWorkspaceWidgetFetcher(
+    new Headers({ cookie: 'session=test-session' }),
+    async (input, init) => {
+      internalRequest = { url: input.toString(), init };
+      return new Response(null, { status: 204 });
+    },
+    'http://127.0.0.1:3000',
+  );
+  await internalFetcher('/api/todos?workspaceId=workspace-a', {
+    cache: 'no-store',
+    headers: { accept: 'application/json' },
+  });
+  assert.equal(internalRequest?.url, 'http://127.0.0.1:3000/api/todos?workspaceId=workspace-a');
+  assert.equal(new Headers(internalRequest?.init?.headers).get('cookie'), 'session=test-session');
+  assert.equal(new Headers(internalRequest?.init?.headers).get('accept'), 'application/json');
+  assert.equal(internalRequest?.init?.cache, 'no-store');
+
   const routeSource = fs.readFileSync(
     path.join(process.cwd(), 'app', 'api', 'home', 'workspace-widgets', 'route.ts'),
     'utf8',
@@ -54,6 +75,8 @@ async function main() {
   assert.doesNotMatch(routeSource, /widget:\s*'emails'/u, 'email must bypass the process-local Home cache');
   assert.match(routeSource, /loadHomeWidgetEmails\(access\.session\.user\.id/u);
   assert.match(routeSource, /services: \{ listAccounts: listEmailAccounts, listMessages: listEmailMessages \}/u);
+  assert.match(routeSource, /createWorkspaceWidgetFetcher\(request\.headers\)/u, 'widget API requests must use the container-local fetcher');
+  assert.doesNotMatch(routeSource, /new URL\(value, request\.nextUrl\.origin\)/u, 'widget API requests must not use the externally mapped browser port');
   assert.match(routeSource, /parseHomeWidgetSelection\(request\.nextUrl\.searchParams\.get\('widgets'\), HOME_WIDGET_NAMES\)/u);
   assert.match(routeSource, /selected\.has\('emails'\)/u);
   for (const widget of ['todos', 'automation', 'studio']) {
