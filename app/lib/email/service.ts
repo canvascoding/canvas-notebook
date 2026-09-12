@@ -15,6 +15,7 @@ import {
   listLocalEmailAccounts,
   listLocalEmailMessages,
   moveLocalEmailMessage,
+  prefetchLocalEmailMessages,
   readLocalEmailMessage,
   resolveLocalEmailCacheAccount,
   searchLocalEmail,
@@ -40,10 +41,13 @@ import {
 } from '@/app/lib/email/local-service';
 import {
   emailMessageCacheRef,
+  prefetchEmailDetails,
   readThroughEmailDetail,
   readThroughEmailList,
   type EmailCacheBackgroundScheduler,
   type EmailCacheMode,
+  type EmailDetailPrefetchLoadResult,
+  type EmailDetailPrefetchRequest,
   type EmailDetailPayload,
   type EmailListPayload,
 } from '@/app/lib/email/cache/read-through';
@@ -95,6 +99,7 @@ type EmailReadPolicyOptions = {
   enforceReadPolicy?: boolean;
   workspaceId?: string | null;
   cacheMode?: EmailCacheMode;
+  prefetchDetails?: boolean;
   scheduleBackgroundTask?: EmailCacheBackgroundScheduler;
 };
 
@@ -481,6 +486,99 @@ export async function searchEmail(userId: string, input: EmailSearchInput, optio
   return searchLocalEmail(userId, input, options);
 }
 
+async function loadManagedEmailMessage(
+  userId: string,
+  managedAccount: ManagedEmailAccount,
+  messageId: string,
+  folder?: string,
+): Promise<EmailDetailPayload> {
+  let payload: ManagedEmailReadResponse;
+  try {
+    payload = await managedEmailRequest<ManagedEmailReadResponse>(
+      `/v1/managed/email/accounts/${encodeURIComponent(managedAccount.id)}/messages/${encodeURIComponent(messageId)}`,
+      undefined,
+      managedEmailScope(userId),
+    );
+  } catch (error) {
+    if (error instanceof ManagedEmailRequestError && error.status === 404) throw new EmailMessageNotFoundError();
+    throw error;
+  }
+  return {
+    ...payload,
+    account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
+    message: payload.message ? normalizeManagedMessage(payload.message, folder || 'INBOX') : undefined,
+  };
+}
+
+async function loadEmailDetailPrefetchRequests(
+  requests: EmailDetailPrefetchRequest[],
+  load: (request: EmailDetailPrefetchRequest) => Promise<EmailDetailPayload>,
+): Promise<EmailDetailPrefetchLoadResult[]> {
+  const results: Array<EmailDetailPrefetchLoadResult | null> = Array.from(
+    { length: requests.length },
+    () => null,
+  );
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < requests.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        results[index] = { request: requests[index], payload: await load(requests[index]) };
+      } catch {
+        results[index] = null;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(3, requests.length) }, () => worker()));
+  return results.filter((result): result is EmailDetailPrefetchLoadResult => result !== null);
+}
+
+function scheduleEmailDetailPrefetch(input: {
+  userId: string;
+  accountId: string;
+  options?: EmailReadPolicyOptions;
+  offset: number;
+  store: Awaited<ReturnType<typeof getRuntimeEmailCacheStore>>;
+  mailbox: {
+    userId: string;
+    accountId: string;
+    accountSource: 'local' | 'managed';
+    provider: string;
+  };
+  messages: unknown[];
+  load: (requests: EmailDetailPrefetchRequest[]) => Promise<EmailDetailPrefetchLoadResult[]>;
+}): void {
+  const schedule = input.options?.prefetchDetails ? input.options.scheduleBackgroundTask : undefined;
+  if (!schedule || input.offset !== 0 || input.messages.length === 0) return;
+  try {
+    schedule(async () => {
+      try {
+        await prefetchEmailDetails({
+          runtime: { store: input.store },
+          mailbox: input.mailbox,
+          messages: input.messages,
+          load: input.load,
+        });
+      } catch (error) {
+        logEmailClientEvent('warn', 'email_detail_prefetch_failed', {
+          accountId: input.accountId,
+          error,
+          status: 'failed',
+          userId: input.userId,
+        });
+      }
+    });
+  } catch (error) {
+    logEmailClientEvent('warn', 'email_detail_prefetch_schedule_failed', {
+      accountId: input.accountId,
+      error,
+      status: 'failed',
+      userId: input.userId,
+    });
+  }
+}
+
 export async function listEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
   const managedAccount = await findManagedEmailAccount(userId, input.accountId);
   if (managedAccount) {
@@ -514,14 +612,15 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
     };
     if (!useCache) return load();
     const store = await getRuntimeEmailCacheStore();
-    return readThroughEmailList<EmailListPayload>({
+    const mailbox = {
+      userId,
+      accountId: managedAccount.id,
+      accountSource: 'managed' as const,
+      provider: managedAccount.provider,
+    };
+    const result = await readThroughEmailList<EmailListPayload>({
       runtime: { store, scheduleBackgroundTask: options?.scheduleBackgroundTask },
-      mailbox: {
-        userId,
-        accountId: managedAccount.id,
-        accountSource: 'managed',
-        provider: managedAccount.provider,
-      },
+      mailbox,
       scope: {
         folder,
         filter: effectiveListFilter(input),
@@ -539,6 +638,20 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
         limit,
       }),
     });
+    scheduleEmailDetailPrefetch({
+      userId,
+      accountId: managedAccount.id,
+      options,
+      offset: 0,
+      store,
+      mailbox,
+      messages: Array.isArray(result.messages) ? result.messages : [],
+      load: (requests) => loadEmailDetailPrefetchRequests(
+        requests,
+        (request) => loadManagedEmailMessage(userId, managedAccount, request.messageId, request.folder),
+      ),
+    });
+    return result;
   }
 
   if (shouldUseEmailCache(options)) {
@@ -547,14 +660,15 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
     const offset = effectiveListOffset(input, false);
     const folder = effectiveListFolder(input, resolved.provider);
     const store = await getRuntimeEmailCacheStore();
-    return readThroughEmailList<EmailListPayload>({
+    const mailbox = {
+      userId,
+      accountId: resolved.account.id,
+      accountSource: 'local' as const,
+      provider: resolved.provider,
+    };
+    const result = await readThroughEmailList<EmailListPayload>({
       runtime: { store, scheduleBackgroundTask: options?.scheduleBackgroundTask },
-      mailbox: {
-        userId,
-        accountId: resolved.account.id,
-        accountSource: 'local',
-        provider: resolved.provider,
-      },
+      mailbox,
       scope: {
         folder,
         filter: effectiveListFilter(input),
@@ -572,6 +686,28 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
         limit,
       }),
     });
+    scheduleEmailDetailPrefetch({
+      userId,
+      accountId: resolved.account.id,
+      options,
+      offset,
+      store,
+      mailbox,
+      messages: Array.isArray(result.messages) ? result.messages : [],
+      load: async (requests) => {
+        const payloads = await prefetchLocalEmailMessages(
+          userId,
+          resolved.account.id,
+          requests.map((request) => ({ messageId: request.messageId, folder: request.folder })),
+          options,
+        );
+        const loaded = payloads.flatMap((payload, index) => payload
+          ? [{ request: requests[index], payload }]
+          : []);
+        return loaded;
+      },
+    });
+    return result;
   }
   return listLocalEmailMessages(userId, input, options);
 }
@@ -579,24 +715,7 @@ export async function listEmailMessages(userId: string, input: EmailMessageListI
 export async function readEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
   const managedAccount = await findManagedEmailAccount(userId, accountId);
   if (managedAccount) {
-    const load = async () => {
-      let payload: ManagedEmailReadResponse;
-      try {
-        payload = await managedEmailRequest<ManagedEmailReadResponse>(
-          `/v1/managed/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}`,
-          undefined,
-          managedEmailScope(userId),
-        );
-      } catch (error) {
-        if (error instanceof ManagedEmailRequestError && error.status === 404) throw new EmailMessageNotFoundError();
-        throw error;
-      }
-      return {
-        ...payload,
-        account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
-        message: payload.message ? normalizeManagedMessage(payload.message, folder || 'INBOX') : undefined,
-      };
-    };
+    const load = () => loadManagedEmailMessage(userId, managedAccount, messageId, folder);
     if (!shouldUseEmailCache(options)) return load();
     const store = await getRuntimeEmailCacheStore();
     return readThroughEmailDetail<EmailDetailPayload>({

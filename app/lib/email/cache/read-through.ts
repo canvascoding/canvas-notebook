@@ -22,6 +22,7 @@ import {
 const LIST_LEASE_MS = 15_000;
 const DETAIL_LEASE_MS = 20_000;
 const LEASE_POLL_MS = 50;
+const DETAIL_PREFETCH_MAX_MESSAGES = 20;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -56,6 +57,25 @@ export type EmailListPayload = JsonRecord & {
 
 export type EmailDetailPayload = JsonRecord & {
   message?: JsonRecord;
+};
+
+export type EmailDetailPrefetchRequest = {
+  messageId: string;
+  folder?: string;
+  ref: EmailMessageRefInput;
+};
+
+export type EmailDetailPrefetchLoadResult = {
+  request: EmailDetailPrefetchRequest;
+  payload: EmailDetailPayload;
+};
+
+export type EmailDetailPrefetchSummary = {
+  requested: number;
+  cacheHits: number;
+  leased: number;
+  loaded: number;
+  stored: number;
 };
 
 type CacheRuntime = {
@@ -738,4 +758,128 @@ export async function readThroughEmailDetail<T extends EmailDetailPayload>(input
   }
   const refreshed = await refreshDetail({ ...input, ref, owner, generation: lease.generation, runtime: input.runtime });
   return withCache(refreshed.payload, providerMissMetadata(true, 'detail', nowFor(input.runtime), lease.generation, refreshed.cacheable ? 'provider' : 'bypass', refreshed.bypassReason));
+}
+
+export async function prefetchEmailDetails(input: {
+  runtime: CacheRuntime;
+  mailbox: EmailCacheMailboxContext;
+  messages: unknown[];
+  load: (requests: EmailDetailPrefetchRequest[]) => Promise<EmailDetailPrefetchLoadResult[]>;
+  maxMessages?: number;
+}): Promise<EmailDetailPrefetchSummary> {
+  const maxMessages = Math.min(
+    Math.max(Math.trunc(input.maxMessages ?? DETAIL_PREFETCH_MAX_MESSAGES), 0),
+    DETAIL_PREFETCH_MAX_MESSAGES,
+  );
+  const candidates: EmailDetailPrefetchRequest[] = [];
+  const candidateKeys = new Set<string>();
+  for (const value of input.messages.slice(0, maxMessages)) {
+    const message = record(value);
+    if (!message) continue;
+    const messageId = stringValue(message.id);
+    const folder = stringValue(message.folder) || undefined;
+    const ref = emailMessageCacheRef(input.mailbox.provider, messageId, folder, message);
+    if (!ref) continue;
+    const messageKey = normalizeEmailMessageRef(ref).messageKey;
+    if (candidateKeys.has(messageKey)) continue;
+    candidateKeys.add(messageKey);
+    candidates.push({ messageId, ...(folder ? { folder } : {}), ref });
+  }
+
+  const summary: EmailDetailPrefetchSummary = {
+    requested: candidates.length,
+    cacheHits: 0,
+    leased: 0,
+    loaded: 0,
+    stored: 0,
+  };
+  if (!input.runtime.store.enabled || candidates.length === 0) return summary;
+
+  const cached = await input.runtime.store.getMessages({
+    userId: input.mailbox.userId,
+    accountId: input.mailbox.accountId,
+    accountSource: input.mailbox.accountSource,
+    refs: candidates.map((candidate) => candidate.ref),
+    part: 'detail',
+    now: nowFor(input.runtime),
+  });
+  const cachedKeys = new Set(
+    cached
+      .filter((entry) => entry.value?.metadata && entry.value.detail)
+      .map((entry) => entry.messageKey),
+  );
+  summary.cacheHits = cachedKeys.size;
+
+  const missing = candidates.filter(
+    (candidate) => !cachedKeys.has(normalizeEmailMessageRef(candidate.ref).messageKey),
+  );
+  const leased = (await Promise.all(missing.map(async (request) => {
+    const owner = randomUUID();
+    try {
+      const lease = await input.runtime.store.acquireMessageRefreshLease({
+        userId: input.mailbox.userId,
+        accountId: input.mailbox.accountId,
+        accountSource: input.mailbox.accountSource,
+        ref: request.ref,
+        owner,
+        leaseMs: DETAIL_LEASE_MS,
+        now: nowFor(input.runtime),
+      });
+      return lease.acquired && lease.generation !== null
+        ? { request, owner, generation: lease.generation }
+        : null;
+    } catch {
+      return null;
+    }
+  }))).filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  summary.leased = leased.length;
+  if (leased.length === 0) return summary;
+
+  try {
+    const loaded = await input.load(leased.map((entry) => entry.request));
+    summary.loaded = loaded.length;
+    const leaseByMessageKey = new Map(leased.map((entry) => [
+      normalizeEmailMessageRef(entry.request.ref).messageKey,
+      entry,
+    ]));
+    const writes = await Promise.all(loaded.map(async ({ request, payload }) => {
+      const expected = leaseByMessageKey.get(normalizeEmailMessageRef(request.ref).messageKey);
+      const message = record(payload.message);
+      if (!expected || !message) return false;
+      const actualRef = emailMessageCacheRef(
+        input.mailbox.provider,
+        stringValue(message.id) || request.messageId,
+        stringValue(message.folder) || request.folder,
+        message,
+      );
+      if (!actualRef
+        || normalizeEmailMessageRef(actualRef).messageKey !== normalizeEmailMessageRef(request.ref).messageKey) {
+        return false;
+      }
+      const stored = await input.runtime.store.putMessage({
+        userId: input.mailbox.userId,
+        accountId: input.mailbox.accountId,
+        accountSource: input.mailbox.accountSource,
+        ref: actualRef,
+        metadata: metadataForMessage(message),
+        detail: detailForMessage(message),
+        expectedGeneration: expected.generation,
+        leaseOwner: expected.owner,
+        now: nowFor(input.runtime),
+      });
+      return stored.stored;
+    }));
+    summary.stored = writes.filter(Boolean).length;
+    if (summary.stored > 0) void input.runtime.store.maybeCleanup().catch(() => undefined);
+    return summary;
+  } finally {
+    await Promise.all(leased.map((entry) => input.runtime.store.releaseMessageRefreshLease({
+      userId: input.mailbox.userId,
+      accountId: input.mailbox.accountId,
+      accountSource: input.mailbox.accountSource,
+      ref: entry.request.ref,
+      owner: entry.owner,
+      now: nowFor(input.runtime),
+    }).catch(() => false)));
+  }
 }

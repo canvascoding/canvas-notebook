@@ -8,6 +8,28 @@ tags: [type/implementation-plan, topic/email, topic/inbox, topic/user-interface,
 
 # Umsetzungsplan: E-Mail-Inbox-Lesefluss und Progressive Disclosure
 
+## Implementierungsnachtrag vom 12. September 2026
+
+Der Web-Inbox-Pfad lädt nach der Listenantwort die Details der sichtbaren
+ersten Seite im Hintergrund in den PostgreSQL-Cache. Der Prefetch ist über
+`prefetchDetails: true` ausschließlich für `/api/email/messages/list`
+aktiviert; Agenten, Todo-Watcher, Inbox-Poller und das Home-Widget lösen ihn
+nicht aus. Es werden höchstens 20 Nachrichten mit Offset `0` berücksichtigt.
+Bereits vorhandene frische oder noch verwertbare stale Details werden
+übersprungen, Cache-Leases verhindern doppelte Provider-Abrufe.
+
+Gmail, Microsoft und Managed Email laden höchstens drei Details parallel.
+SMTP/IMAP verwendet für die fehlenden Nachrichten derselben Seite eine
+gemeinsame Verbindung und einen gebündelten UID-Fetch. Attachment-Binärdaten
+werden nicht vorab gespeichert; im Cache liegen Body und Attachment-Metadaten.
+
+Das automatische Markieren beim Öffnen erhöht außerdem nicht mehr die
+Generation der gesamten Mailbox. Nach erfolgreicher Provider-Mutation wird nur
+`isRead` in den Metadaten der betroffenen Cache-Nachricht aktualisiert. Die
+vorab geladenen Details bleiben gültig. Verschieben, Archivieren, Löschen und
+IMAP-UIDVALIDITY-Wechsel invalidieren weiterhin die gesamte Mailbox-
+Generation.
+
 ## Auftrag und Arbeitsmodus
 
 Dieser Plan konkretisiert [Ticket 27](./27-email-inbox-lesefluss-und-progressive-disclosure.md)

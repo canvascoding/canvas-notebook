@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     const data = await listEmailMessages(session.user.id, body, {
       enforceReadPolicy: false,
       cacheMode: 'swr',
+      prefetchDetails: true,
       scheduleBackgroundTask: after,
     });
     return NextResponse.json({ success: true, data });

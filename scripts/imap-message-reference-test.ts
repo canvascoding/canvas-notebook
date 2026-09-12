@@ -35,6 +35,7 @@ async function main() {
     listImapEmailMessages,
     moveImapEmailMessage,
     parseImapMessageReference,
+    prefetchImapEmailMessages,
     readImapEmailMessage,
     setImapClientFactoryForTests,
     setImapEmailMessageRead,
@@ -85,6 +86,7 @@ async function main() {
 
   let currentUidValidity = BigInt(7001);
   let connectCalls = 0;
+  let fetchCalls = 0;
   let fetchOneCalls = 0;
   let flagCalls = 0;
   let moveCalls = 0;
@@ -124,6 +126,14 @@ async function main() {
     },
     source,
   };
+  const secondFetchedMessage = {
+    ...fetchedMessage,
+    uid: 42,
+    envelope: {
+      ...fetchedMessage.envelope,
+      subject: 'Second stable IMAP identity',
+    },
+  };
 
   setImapClientFactoryForTests(() => {
     const client: ImapClientLike = {
@@ -144,8 +154,11 @@ async function main() {
         return { release: () => undefined };
       },
       search: async () => [41],
-      fetch: async function* () {
-        yield fetchedMessage as never;
+      fetch: async function* (range) {
+        fetchCalls += 1;
+        const requestedUids = Array.isArray(range) ? range : [41];
+        if (requestedUids.includes(41)) yield fetchedMessage as never;
+        if (requestedUids.includes(42)) yield secondFetchedMessage as never;
       },
       fetchOne: async () => {
         fetchOneCalls += 1;
@@ -224,6 +237,19 @@ async function main() {
     downloadable: true,
   }]);
 
+  const secondReference = createImapMessageReference('INBOX', '7001', 42);
+  const connectsBeforePrefetch = connectCalls;
+  const fetchCallsBeforePrefetch = fetchCalls;
+  const fetchOneCallsBeforePrefetch = fetchOneCalls;
+  const prefetched = await prefetchImapEmailMessages(account, [
+    { messageId: reference, folder: 'INBOX' },
+    { messageId: secondReference, folder: 'INBOX' },
+  ], { enforceReadPolicy: false });
+  assert.equal(connectCalls, connectsBeforePrefetch + 1, 'detail prefetch must reuse one IMAP connection');
+  assert.equal(fetchCalls, fetchCallsBeforePrefetch + 1, 'detail prefetch must use one batch fetch');
+  assert.equal(fetchOneCalls, fetchOneCallsBeforePrefetch, 'detail prefetch must not open per-message fetches');
+  assert.deepEqual(prefetched.messages.map((message) => message?.id), [reference, secondReference]);
+
   const downloaded = await downloadImapEmailAttachment(account, reference, 'imap-part:2');
   assert.equal(downloaded.attachment.filename, 'brief.pdf');
   assert.equal(downloaded.attachment.size, 15);
@@ -245,6 +271,7 @@ async function main() {
 
   currentUidValidity = BigInt(7002);
   const providerCallsBeforeStaleReference = {
+    fetchCalls,
     fetchOneCalls,
     flagCalls,
     moveCalls,
@@ -253,6 +280,7 @@ async function main() {
   };
   const staleOperations = [
     () => readImapEmailMessage(account, reference),
+    () => prefetchImapEmailMessages(account, [{ messageId: reference }]),
     () => setImapEmailMessageRead(account, reference, undefined, true),
     () => moveImapEmailMessage(account, reference, undefined, 'Archive'),
     () => archiveImapEmailMessage(account, reference),
@@ -273,7 +301,7 @@ async function main() {
       return true;
     });
   }
-  assert.deepEqual({ fetchOneCalls, flagCalls, moveCalls, deleteCalls, downloadCalls }, providerCallsBeforeStaleReference);
+  assert.deepEqual({ fetchCalls, fetchOneCalls, flagCalls, moveCalls, deleteCalls, downloadCalls }, providerCallsBeforeStaleReference);
 
   const legacyRead = await readImapEmailMessage(account, '41', 'INBOX');
   assert.equal(legacyRead.message.id, '41');

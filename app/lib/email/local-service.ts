@@ -68,6 +68,7 @@ import {
   listImapEmailFolders,
   listImapEmailMessages,
   moveImapEmailMessage,
+  prefetchImapEmailMessages,
   readImapEmailMessage,
   setImapEmailMessageAnswered,
   setImapEmailMessageRead,
@@ -1183,6 +1184,50 @@ export async function readLocalEmailMessage(userId: string, accountId: string, m
     };
   }
   return { account: await publicLocalEmailAccount(account), message };
+}
+
+export async function prefetchLocalEmailMessages(
+  userId: string,
+  accountId: string,
+  requests: Array<{ messageId: string; folder?: string }>,
+  options?: EmailReadPolicyOptions,
+) {
+  const limitedRequests = requests.slice(0, 20);
+  if (limitedRequests.length === 0) return [];
+  const account = await findLocalEmailAccount(userId, accountId);
+  if (account.authType === 'smtp_imap') {
+    const result = await prefetchImapEmailMessages(account, limitedRequests, {
+      enforceReadPolicy: options?.enforceReadPolicy !== false,
+    });
+    return result.messages.map((message) => message ? { account: result.account, message } : null);
+  }
+
+  type Payload = Awaited<ReturnType<typeof readLocalEmailMessage>>;
+  const results: Array<Payload | null> = Array.from({ length: limitedRequests.length }, () => null);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < limitedRequests.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const request = limitedRequests[index];
+      try {
+        results[index] = await readLocalEmailMessage(
+          userId,
+          accountId,
+          request.messageId,
+          request.folder,
+          options,
+        );
+      } catch {
+        results[index] = null;
+      }
+    }
+  }
+  await Promise.all(Array.from(
+    { length: Math.min(3, limitedRequests.length) },
+    () => worker(),
+  ));
+  return results;
 }
 
 export async function downloadLocalEmailAttachment(

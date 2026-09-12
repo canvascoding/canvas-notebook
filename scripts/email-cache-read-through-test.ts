@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import {
+  prefetchEmailDetails,
   readThroughEmailDetail,
   readThroughEmailList,
 } from '../app/lib/email/cache/read-through';
@@ -318,6 +319,65 @@ async function main() {
   assert.equal(detailHit.cache.source, 'cache');
   assert.equal((detailHit.message as { body: string }).body, 'Cached body');
 
+  const prefetchedKeys: string[] = [];
+  const releasedKeys: string[] = [];
+  const prefetchStore = fakeStore({
+    async getMessages() {
+      return [{
+        ...readResult({ ref: normalizedGoogleRef, metadata: metadata(), detail: detail() }),
+        messageKey: normalizedGoogleRef.messageKey,
+      }];
+    },
+    async putMessage(input) {
+      prefetchedKeys.push(normalizeEmailMessageRef(input.ref).messageKey);
+      assert.equal(input.detail?.body, `Body for ${'messageId' in input.ref ? input.ref.messageId : ''}`);
+      assert.equal(typeof input.leaseOwner, 'string');
+      return { enabled: true, stored: true, reason: 'stored' };
+    },
+    async releaseMessageRefreshLease(input) {
+      releasedKeys.push(normalizeEmailMessageRef(input.ref).messageKey);
+      return true;
+    },
+  });
+  const prefetchSummary = await prefetchEmailDetails({
+    runtime: { store: prefetchStore },
+    mailbox: localMailbox,
+    messages: [
+      { id: 'g-1', folder: 'INBOX' },
+      { id: 'g-2', folder: 'INBOX' },
+      { id: 'g-3', folder: 'INBOX' },
+    ],
+    load: async (requests) => {
+      assert.deepEqual(requests.map((request) => request.messageId), ['g-2', 'g-3']);
+      return requests.map((request) => ({
+        request,
+        payload: {
+          message: {
+            id: request.messageId,
+            folder: request.folder,
+            from: 'sender@example.test',
+            subject: request.messageId,
+            date: '2026-09-08T12:00:00.000Z',
+            snippet: request.messageId,
+            body: `Body for ${request.messageId}`,
+            bodyHtml: '',
+            isRead: false,
+            isAnswered: false,
+            isFlagged: false,
+            hasAttachments: false,
+            attachments: [],
+          },
+        },
+      }));
+    },
+  });
+  assert.deepEqual(prefetchSummary, { requested: 3, cacheHits: 1, leased: 2, loaded: 2, stored: 2 });
+  const expectedPrefetchKeys = ['g-2', 'g-3']
+    .map((messageId) => normalizeEmailMessageRef({ provider: 'google', messageId, folder: 'INBOX' }).messageKey)
+    .sort();
+  assert.deepEqual(prefetchedKeys.sort(), expectedPrefetchKeys);
+  assert.deepEqual(releasedKeys.sort(), expectedPrefetchKeys);
+
   let legacyCacheReads = 0;
   let legacyProviderLoads = 0;
   const legacy = await readThroughEmailDetail({
@@ -381,6 +441,7 @@ async function main() {
     assert.match(source, /cacheMode: 'swr'/u);
     assert.match(source, /scheduleBackgroundTask: after/u);
   }
+  assert.match(routeSource, /prefetchDetails: true/u);
 
   console.log('email cache read-through tests passed');
 }

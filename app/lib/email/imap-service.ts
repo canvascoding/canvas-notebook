@@ -139,6 +139,16 @@ const SEARCH_SOURCE_MAX_BYTES = 64 * 1024;
 const READ_SOURCE_MAX_BYTES = 1024 * 1024;
 const IMAP_MESSAGE_REFERENCE_PREFIX = 'imap:v1:';
 const IMAP_MESSAGE_REFERENCE_MAX_LENGTH = 1024;
+const IMAP_DETAIL_PREFETCH_MAX_MESSAGES = 20;
+const IMAP_DETAIL_FETCH_QUERY = {
+  uid: true,
+  flags: true,
+  envelope: true,
+  internalDate: true,
+  source: { maxLength: READ_SOURCE_MAX_BYTES },
+  bodyStructure: true,
+  threadId: true,
+} satisfies FetchQueryObject;
 
 let imapClientFactory: ImapClientFactory = (secret) => new ImapFlow(imapClientOptions(secret));
 
@@ -796,64 +806,114 @@ export async function searchImapEmail(account: StoredEmailAccount, input: ImapEm
   };
 }
 
+async function normalizeImapDetailMessage(
+  account: StoredEmailAccount,
+  fetched: FetchMessageObject,
+  reference: ResolvedImapMessageReference,
+  folderPath: string,
+  options?: ImapReadPolicyOptions,
+) {
+  const from = firstAddress(fetched.envelope);
+  if (options?.enforceReadPolicy !== false) {
+    assertEmailSenderAllowed(from, policyForAccount(account).readFrom);
+  }
+  const parsed = fetched.source ? await simpleParser(fetched.source, {
+    skipHtmlToText: false,
+    skipTextToHtml: true,
+    maxHtmlLengthToParse: 512 * 1024,
+  }) : null;
+  const parsedHtml = typeof parsed?.html === 'string' ? normalizeEmailHtmlContent(parsed.html) : '';
+  const fallbackHtml = !parsedHtml && isLikelyHtmlEmailContent(parsed?.text) ? normalizeEmailHtmlContent(parsed?.text) : '';
+  const bodyHtml = parsedHtml || fallbackHtml;
+  const body = parsed?.text || bodyHtml;
+  const flags = publicFlags(fetched.flags);
+  const attachments = imapMessageAttachments(fetched.bodyStructure);
+
+  return {
+    id: reference.id,
+    uid: String(fetched.uid),
+    uidValidity: reference.currentUidValidity,
+    folder: folderPath,
+    threadId: fetched.threadId || String(fetched.uid),
+    from,
+    to: formatAddressList(fetched.envelope?.to),
+    cc: formatAddressList(fetched.envelope?.cc),
+    subject: fetched.envelope?.subject || parsed?.subject || '',
+    date: isoDate(fetched.envelope?.date || fetched.internalDate || parsed?.date),
+    messageId: parsed?.messageId || '',
+    inReplyTo: parsed?.inReplyTo || '',
+    references: normalizeReferences(parsed?.references),
+    body,
+    bodyHtml,
+    attachments,
+    flags,
+    isRead: hasFlag(flags, '\\Seen'),
+    isAnswered: hasFlag(flags, '\\Answered'),
+    isFlagged: hasFlag(flags, '\\Flagged'),
+    hasAttachments: attachments.length > 0,
+    snippet: snippetFromText(body),
+  };
+}
+
+export async function prefetchImapEmailMessages(
+  account: StoredEmailAccount,
+  requests: Array<{ messageId: string; folder?: string }>,
+  options?: ImapReadPolicyOptions,
+) {
+  const secret = await readStoredEmailAccountSecret(account);
+  if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
+  requireImapSecret(secret);
+  const limitedRequests = requests.slice(0, IMAP_DETAIL_PREFETCH_MAX_MESSAGES);
+  if (limitedRequests.length === 0) {
+    return { account: publicImapAccount(account, secret), messages: [] };
+  }
+
+  const references = limitedRequests.map((request) => resolveImapMessageReference(request.messageId, request.folder));
+  const requestedFolder = references[0].folder;
+  if (references.some((reference) => !foldersMatch(reference.folder, requestedFolder))) {
+    throw new Error('IMAP detail prefetch requires messages from one folder.');
+  }
+
+  const messages = await withImapMailbox(secret, requestedFolder, async (client, folderPath) => {
+    const currentUidValidity = getImapMailboxUidValidity(client);
+    const resolved = references.map((reference): ResolvedImapMessageReference => {
+      if (reference.uidValidity && reference.uidValidity !== currentUidValidity) {
+        throw new ImapMailboxChangedError(folderPath, reference.uidValidity, currentUidValidity);
+      }
+      return { ...reference, currentUidValidity };
+    });
+    const uids = [...new Set(resolved.map((reference) => reference.uid))];
+    const fetchedByUid = new Map<number, FetchMessageObject>();
+    for await (const fetched of client.fetch(uids, IMAP_DETAIL_FETCH_QUERY, { uid: true })) {
+      if (uids.includes(fetched.uid)) fetchedByUid.set(fetched.uid, fetched);
+    }
+
+    const normalized = [];
+    for (const reference of resolved) {
+      const fetched = fetchedByUid.get(reference.uid);
+      normalized.push(fetched
+        ? await normalizeImapDetailMessage(account, fetched, reference, folderPath, options)
+        : null);
+    }
+    return normalized;
+  });
+
+  return {
+    account: publicImapAccount(account, secret),
+    messages,
+  };
+}
+
 export async function readImapEmailMessage(account: StoredEmailAccount, messageId: string, folder?: string, options?: ImapReadPolicyOptions) {
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
 
   const message = await withImapMessage(secret, messageId, folder, async (client, reference, folderPath) => {
-    const fetched = await client.fetchOne(reference.uid, {
-      uid: true,
-      flags: true,
-      envelope: true,
-      internalDate: true,
-      source: { maxLength: READ_SOURCE_MAX_BYTES },
-      bodyStructure: true,
-      threadId: true,
-    }, { uid: true });
+    const fetched = await client.fetchOne(reference.uid, IMAP_DETAIL_FETCH_QUERY, { uid: true });
     if (!fetched) throw new EmailMessageNotFoundError();
     if (fetched.uid !== reference.uid) throw new EmailMessageNotFoundError();
-
-    const from = firstAddress(fetched.envelope);
-    if (options?.enforceReadPolicy !== false) {
-      assertEmailSenderAllowed(from, policyForAccount(account).readFrom);
-    }
-    const parsed = fetched.source ? await simpleParser(fetched.source, {
-      skipHtmlToText: false,
-      skipTextToHtml: true,
-      maxHtmlLengthToParse: 512 * 1024,
-    }) : null;
-    const parsedHtml = typeof parsed?.html === 'string' ? normalizeEmailHtmlContent(parsed.html) : '';
-    const fallbackHtml = !parsedHtml && isLikelyHtmlEmailContent(parsed?.text) ? normalizeEmailHtmlContent(parsed?.text) : '';
-    const bodyHtml = parsedHtml || fallbackHtml;
-    const body = parsed?.text || bodyHtml;
-    const flags = publicFlags(fetched.flags);
-    const attachments = imapMessageAttachments(fetched.bodyStructure);
-
-    return {
-      id: reference.id,
-      uid: String(fetched.uid),
-      uidValidity: reference.currentUidValidity,
-      folder: folderPath,
-      threadId: fetched.threadId || String(fetched.uid),
-      from,
-      to: formatAddressList(fetched.envelope?.to),
-      cc: formatAddressList(fetched.envelope?.cc),
-      subject: fetched.envelope?.subject || parsed?.subject || '',
-      date: isoDate(fetched.envelope?.date || fetched.internalDate || parsed?.date),
-      messageId: parsed?.messageId || '',
-      inReplyTo: parsed?.inReplyTo || '',
-      references: normalizeReferences(parsed?.references),
-      body,
-      bodyHtml,
-      attachments,
-      flags,
-      isRead: hasFlag(flags, '\\Seen'),
-      isAnswered: hasFlag(flags, '\\Answered'),
-      isFlagged: hasFlag(flags, '\\Flagged'),
-      hasAttachments: attachments.length > 0,
-      snippet: snippetFromText(body),
-    };
+    return normalizeImapDetailMessage(account, fetched, reference, folderPath, options);
   });
 
   return {
