@@ -420,6 +420,8 @@
     "test:notifications:preview": "tsx scripts/notification-preview-test.ts",
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:todos:store": "tsx --conditions react-server scripts/todo-store-test.ts",
+    "test:todos:bulk": "tsx --conditions react-server scripts/todo-bulk-test.ts",
+    "test:todos:bulk-ui": "node scripts/todo-bulk-ui-test.mjs",
     "test:todos:reminder": "tsx --conditions react-server scripts/todo-reminder-idempotency-test.ts",
     "test:todos:api": "node scripts/todo-api-test.mjs",
     "test:todos:assignees": "tsx --conditions react-server scripts/todo-assignees-route-test.ts",

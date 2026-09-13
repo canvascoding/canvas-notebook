@@ -58,6 +58,8 @@ import {
   getTodoFileMetadataTitle,
 } from '@/app/lib/todos/file-link-display';
 import { resolveTodoById } from './todo-selection';
+import { useTodoBulkSelection } from './todo-bulk-selection';
+import { TodoBulkToolbar, TodoSelectionCheckbox } from './TodoBulkToolbar';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { useSetTodoChatContext } from '@/app/apps/todos/context/todo-chat-context';
 import { buildTodoPageChatContext } from '@/app/apps/todos/context/todo-route-chat-context';
@@ -133,6 +135,7 @@ type AssigneeOption = TodoUserSummary & {
 
 type TodoItem = {
   id: string;
+  canWrite: boolean;
   createdByUserId: string | null;
   assigneeUserId: string | null;
   organizationId: string | null;
@@ -434,7 +437,7 @@ function TodoDetailPanel({
           </div>
           <h3 className="mt-2 break-words text-lg font-semibold leading-tight">{todo.title}</h3>
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={() => onEdit(todo)} disabled={todo.status === 'archived'}>
+        <Button variant="ghost" size="icon-sm" onClick={() => onEdit(todo)} disabled={todo.status === 'archived' || isMutating}>
           <Edit3 className="h-4 w-4" />
         </Button>
       </div>
@@ -661,6 +664,7 @@ export function TodosClient({ title }: { title: string }) {
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
   const [selectedTodoSnapshot, setSelectedTodoSnapshot] = useState<TodoItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadedFilterKey, setLoadedFilterKey] = useState('');
   const [isMutating, setIsMutating] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
@@ -828,18 +832,20 @@ export function TodosClient({ title }: { title: string }) {
     return data;
   }, [listScope, selectedWorkspaceId]);
 
+  const bulkFilterParams = new URLSearchParams({ status: statusFilter });
+  if (categoryFilter) bulkFilterParams.set('categoryId', categoryFilter);
+  bulkFilterParams.set('scope', listScope);
+  if (listScope === 'workspace' && selectedWorkspaceId) bulkFilterParams.set('workspaceId', selectedWorkspaceId);
+  if (priorityFilter) bulkFilterParams.set('priority', priorityFilter);
+  if (readStateFilter !== 'all') bulkFilterParams.set('readState', readStateFilter);
+  const bulkFilterKey = bulkFilterParams.toString();
+
   const loadTodos = useCallback(async () => {
     todoListRequestRef.current?.abort();
     const controller = new AbortController();
     todoListRequestRef.current = controller;
-    const params = new URLSearchParams({ status: statusFilter });
-    if (categoryFilter) params.set('categoryId', categoryFilter);
-    params.set('scope', listScope);
-    if (listScope === 'workspace' && selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
-    if (priorityFilter) params.set('priority', priorityFilter);
-    if (readStateFilter !== 'all') params.set('readState', readStateFilter);
     try {
-      const response = await fetch(`/api/todos?${params.toString()}`, {
+      const response = await fetch(`/api/todos?${bulkFilterKey}`, {
         credentials: 'include',
         cache: 'no-store',
         signal: controller.signal,
@@ -850,6 +856,7 @@ export function TodosClient({ title }: { title: string }) {
       }
 
       setTodos(data);
+      setLoadedFilterKey(bulkFilterKey);
       setSelectedTodoId((current) => (
         current && (data.some((todo) => todo.id === current) || current === todoIdParam)
           ? current
@@ -866,7 +873,17 @@ export function TodosClient({ title }: { title: string }) {
         todoListRequestRef.current = null;
       }
     }
-  }, [categoryFilter, listScope, priorityFilter, readStateFilter, selectedWorkspaceId, statusFilter, todoIdParam]);
+  }, [bulkFilterKey, todoIdParam]);
+  const bulk = useTodoBulkSelection(bulkFilterKey, async (ids) => {
+    if (selectedTodoId && ids.includes(selectedTodoId)) {
+      setSelectedTodoId(null);
+      setSelectedTodoSnapshot(null);
+      setDetailDialogOpen(false);
+    }
+    // The existing event listener reloads this list and other to-do consumers.
+    window.dispatchEvent(new CustomEvent('todo_updated'));
+  });
+  const bulkDisabled = isMutating || isLoading || loadedFilterKey !== bulkFilterKey;
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
@@ -895,6 +912,7 @@ export function TodosClient({ title }: { title: string }) {
     let cancelled = false;
 
     async function loadScopedData() {
+      setIsLoading(true);
       try {
         await Promise.all([loadAssignees(), loadTodos()]);
       } catch (error) {
@@ -1514,16 +1532,16 @@ export function TodosClient({ title }: { title: string }) {
               size="sm"
               className="px-2 sm:px-2.5"
               onClick={markAllVisibleSeen}
-              disabled={isMutating || visibleUnreadCount === 0}
+              disabled={isMutating || bulk.busy || visibleUnreadCount === 0}
             >
               <BellOff className="h-4 w-4" />
               <span className="sr-only sm:not-sr-only">{t('actions.markAllSeen')}</span>
             </Button>
-            <Button variant="outline" size="sm" className="px-2 sm:px-2.5" onClick={() => void refreshAll()} disabled={isLoading}>
+            <Button variant="outline" size="sm" className="px-2 sm:px-2.5" onClick={() => void refreshAll()} disabled={isLoading || bulk.busy}>
               <RefreshCcw className="h-4 w-4" />
               <span className="sr-only sm:not-sr-only">{t('actions.refresh')}</span>
             </Button>
-            <Button data-testid="todo-create-button" size="sm" className="min-w-0" onClick={openCreateDialog}>
+            <Button data-testid="todo-create-button" size="sm" className="min-w-0" disabled={bulk.busy} onClick={openCreateDialog}>
               <Plus className="h-4 w-4" />
               <span className="min-w-0 truncate">{t('actions.newTodo')}</span>
             </Button>
@@ -1531,7 +1549,7 @@ export function TodosClient({ title }: { title: string }) {
         </div>
       </div>
 
-      <div className="mx-auto grid w-full min-w-0 max-w-7xl flex-1 gap-4 p-4 md:min-h-0 md:grid-cols-[240px_minmax(0,1fr)] md:overflow-hidden md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+      <div className="mx-auto grid w-full min-w-0 max-w-7xl flex-1 grid-cols-1 gap-4 p-4 md:min-h-0 md:grid-cols-[240px_minmax(0,1fr)] md:overflow-hidden md:p-6 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
         <div className="md:hidden">
           <Button
             variant="outline"
@@ -1539,7 +1557,7 @@ export function TodosClient({ title }: { title: string }) {
             className="h-auto min-h-9 w-full min-w-0 justify-between overflow-hidden whitespace-normal py-2 text-left"
             onClick={() => setFilterSheetOpen(true)}
           >
-            <span className="flex min-w-0 items-center gap-2">
+            <span className="flex shrink-0 items-center gap-2">
               <Menu className="h-4 w-4 shrink-0" />
               <span className="shrink-0">{t('actions.filters')}</span>
             </span>
@@ -1592,7 +1610,16 @@ export function TodosClient({ title }: { title: string }) {
           </section>
         </aside>
 
-        <section className="min-h-0 min-w-0 space-y-3 md:overflow-y-auto md:overscroll-contain">
+        <section className="min-h-0 min-w-0 space-y-3 md:overflow-y-auto md:overscroll-contain" aria-label={t('title')} tabIndex={-1}
+          onKeyDown={(event) => {
+            const target = event.target;
+            if (target instanceof Element && target.closest('textarea, select, input:not([type="checkbox"]), [contenteditable="true"], [role="dialog"]')) return;
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && !bulkDisabled && !bulk.busy) {
+              event.preventDefault();
+              event.currentTarget.focus();
+              void bulk.selectAll();
+            } else if (event.key === 'Escape' && !bulk.busy) bulk.clear();
+          }}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="min-w-0">
               <h3 className="truncate text-sm font-semibold">{selectedCategoryName}</h3>
@@ -1601,6 +1628,9 @@ export function TodosClient({ title }: { title: string }) {
               </p>
             </div>
           </div>
+
+          <TodoBulkToolbar key={bulkFilterKey} selection={bulk} disabled={bulkDisabled}
+            categories={categories.filter((category) => !category.isArchived).map((category) => ({ id: category.id, name: formatCategoryName(category) }))} assignees={assignees} />
 
           <div className="grid gap-2">
             {isLoading ? (
@@ -1624,10 +1654,14 @@ export function TodosClient({ title }: { title: string }) {
                   className={cn(
                     'group min-w-0 overflow-hidden rounded-md border bg-card p-3 transition-colors hover:border-primary/40 hover:bg-accent/60',
                     selectedTodoId === todo.id && 'border-primary/60 bg-accent',
+                    bulk.items.has(todo.id) && 'border-primary bg-primary/5 ring-1 ring-primary/20',
                     todo.status === 'archived' && 'opacity-80',
                   )}
                 >
                   <div className="flex min-w-0 items-start gap-3">
+                    <TodoSelectionCheckbox label={t(todo.canWrite ? 'bulk.select' : 'bulk.readonly', { title: todo.title })}
+                      checked={bulk.items.has(todo.id)} disabled={bulkDisabled || bulk.busy || bulk.selecting || !todo.canWrite}
+                      onChange={() => bulk.toggle(todo)} />
                     <button
                       type="button"
                       className="mt-0.5 shrink-0 text-muted-foreground transition hover:text-foreground"
@@ -1636,7 +1670,7 @@ export function TodosClient({ title }: { title: string }) {
                         void toggleDone(todo);
                       }}
                       aria-label={todo.status === 'done' ? t('actions.reopen') : t('actions.complete')}
-                      disabled={todo.status === 'archived'}
+                      disabled={todo.status === 'archived' || bulk.busy || isMutating}
                     >
                       {todo.status === 'done' ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Circle className="h-5 w-5" />}
                     </button>
@@ -1691,7 +1725,7 @@ export function TodosClient({ title }: { title: string }) {
 
                     <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" aria-label={t('actions.todoActions')}>
+                        <Button variant="ghost" size="icon-sm" aria-label={t('actions.todoActions')} disabled={bulk.busy}>
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -1738,7 +1772,7 @@ export function TodosClient({ title }: { title: string }) {
               todo={selectedTodo}
               locale={locale}
               followUpComment={followUpComment}
-              isMutating={isMutating}
+              isMutating={isMutating || bulk.busy}
               isSendingFollowUp={isSendingFollowUp}
               formatCategoryName={formatCategoryName}
               onEdit={openEditDialog}
@@ -1769,7 +1803,7 @@ export function TodosClient({ title }: { title: string }) {
               todo={selectedTodo}
               locale={locale}
               followUpComment={followUpComment}
-              isMutating={isMutating}
+              isMutating={isMutating || bulk.busy}
               isSendingFollowUp={isSendingFollowUp}
               showEmptyState={false}
               formatCategoryName={formatCategoryName}
