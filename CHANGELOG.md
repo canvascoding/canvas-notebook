@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.13.1] - 2026-09-13
+
+### Added
+
+- Added mobile endpoints for live-document identity, collaboration operations, agent proposal review, and scoped direct-edit grants.
+- Added durable mobile notebook operation storage and recovery coverage for collaborative editing and offline reopening.
+
+### Changed
+
+- Prefetched visible email details and kept message caches consistent across read-state updates.
+- Made home workspace widgets resolve exact items and preserve workspace context in Studio deep links.
+
+### Fixed
+
+- Made mobile document saves retry-safe while preserving Yjs document identity and provider lifecycles.
+- Prevented stale home-widget and email-cache responses from replacing current data.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.12.1] - 2026-09-12
 
 ### Added
