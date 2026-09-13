@@ -50,6 +50,7 @@ export async function PUT(request: NextRequest) {
       content?: unknown;
       expectedSha256?: unknown;
       baseRevisionId?: unknown;
+      idempotencyKey?: unknown;
     }>(request);
     const document = await saveMobileNotebookDocument({
       workspace: workspaceResult.workspace,
@@ -60,6 +61,7 @@ export async function PUT(request: NextRequest) {
       content: body.content,
       expectedSha256: body.expectedSha256,
       baseRevisionId: body.baseRevisionId,
+      idempotencyKey: body.idempotencyKey,
     });
     return NextResponse.json({ success: true, document }, { headers: mobileNotebookResponseHeaders });
   } catch (error) {

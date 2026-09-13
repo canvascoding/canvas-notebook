@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -20,6 +20,10 @@ import {
   getFileCollaborationState,
 } from '@/app/lib/files/collaboration-policy';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from '@/app/lib/collaboration/agent-durability';
+import { collaborationStateProof } from '@/app/lib/collaboration/state-proof';
+import { mobileNotebookOperationIdentity, readMobileNotebookOperation, prepareMobileNotebookOperation, compactMobileNotebookOperation, type MobileNotebookOperation } from './notebook-operations';
 import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
 import { readCurrentCollaborationTextSnapshot } from '@/app/lib/collaboration/agent-file-edits';
 import {
@@ -37,6 +41,7 @@ import {
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import type { Doc as YDoc } from 'yjs';
 import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from '@/app/lib/collaboration/types';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -63,6 +68,7 @@ export type MobileNotebookDocument = MobileNotebookSummary & {
   content: string;
   sha256: string;
   revisionId: string;
+  saveReceipt?: { operationId: string; applied: true; durable: true; projectionPending: boolean; documentSequence: number };
   canEdit: boolean;
   editBlockReason: 'READ_ONLY' | 'LIVE_COLLABORATION_ACTIVE' | null;
   collaboration: {
@@ -366,21 +372,32 @@ export async function readMobileNotebookDocument(input: {
   };
 }
 
-async function waitForMobileCollaborationCheckpoint(documentId: string, expectedCanonicalHash: string): Promise<void> {
+function mobileOperationIncluded(doc: YDoc, expected: Uint8Array): boolean {
+  const actual = captureAgentStateSnapshot(doc, Y);
+  // Exact empty documents are also valid receipts; the agent containment helper
+  // intentionally excludes empty snapshots as agent operation evidence.
+  return Boolean(actual && Buffer.from(actual).equals(Buffer.from(expected)))
+    || persistedUpdateIncludesAgentSnapshot(Y.encodeStateAsUpdate(doc), expected, Y);
+}
+
+async function waitForMobileCollaborationDurability(operation: MobileNotebookOperation) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    const state = await loadCollaborationState(documentId);
-    if (
-      state
-      && state.canonicalHash === expectedCanonicalHash
-      && state.checkpointSequence >= state.documentSequence
-      && !state.degraded
-    ) return;
+    const state = await loadCollaborationState(operation.document_id);
+    if (!state || state.status !== 'active' || state.lifecycleGeneration !== Number(operation.lifecycle_generation)
+      || state.workspaceId !== operation.workspace_id || state.path !== operation.document_path
+      || state.representation !== operation.representation) {
+      throw new MobileNotebookError('The collaborative document lifecycle changed. Reload the note.', 409, 'COLLABORATION_STATE_STALE');
+    }
+    const doc = new Y.Doc();
+    try {
+      Y.applyUpdate(doc, state.yjsState);
+      if (mobileOperationIncluded(doc, operation.resulting_state_snapshot)) return state;
+    } finally { doc.destroy(); }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new MobileNotebookError(
-    'The collaborative edit was accepted but its durable file checkpoint is not ready yet. Reload before editing again.',
-    503,
-    'COLLABORATION_CHECKPOINT_PENDING',
+    'The edit is prepared for recovery but its Yjs persistence is not confirmed. Retry the same request.',
+    503, 'COLLABORATION_YJS_PENDING',
   );
 }
 
@@ -393,122 +410,108 @@ async function saveMobileCollaborativeNotebookDocument(input: {
   content: string;
   expectedSha256: string;
   baseRevisionId: string;
+  idempotencyKey?: string;
   documentId: string;
   currentRevisionId: string | null;
 }): Promise<MobileNotebookDocument> {
-  if (input.currentRevisionId && input.currentRevisionId !== input.baseRevisionId) {
-    throw new FileCollaborationPolicyError({
-      code: 'FILE_REVISION_ID_CONFLICT',
-      status: 409,
-      message: 'File revision conflict: this file changed after it was loaded. Reload the latest version before saving.',
-      path: input.path,
-      currentRevisionId: input.currentRevisionId,
-      baseRevisionId: input.baseRevisionId,
-    });
-  }
-
-  const persistedState = await loadCollaborationState(input.documentId);
-  if (!persistedState || persistedState.workspaceId !== input.workspace.workspaceId) {
-    throw new MobileNotebookError(
-      'The collaborative document is unavailable. Reload the note before editing.',
-      409,
-      'COLLABORATION_STATE_STALE',
-    );
-  }
-  let collaborationContent = input.content;
-  if (isRichTextCollaborationRepresentation(persistedState.representation)) {
-    const candidate = createRichMarkdownYDoc(input.content);
-    try {
-      const normalized = richMarkdownFromYDoc(candidate);
-      const onlyTerminalNewlineChanged = normalized === input.content.replace(/\n$/u, '');
-      if (normalized !== input.content && !onlyTerminalNewlineChanged) {
-        throw new MobileNotebookError(
-          'This Markdown source cannot be represented losslessly by the active collaborative web editor.',
-          422,
-          'COLLABORATION_MARKDOWN_UNSUPPORTED',
-        );
-      }
-      collaborationContent = normalized;
-    } finally {
-      candidate.destroy();
+  return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
+    const persistedState = await loadCollaborationState(input.documentId);
+    if (!persistedState || persistedState.workspaceId !== input.workspace.workspaceId || persistedState.path !== input.path) {
+      throw new MobileNotebookError('The collaborative document is unavailable. Reload the note.', 409, 'COLLABORATION_STATE_STALE');
     }
-  }
-  const operationId = `mobile-notebook-${randomUUID()}`;
-  try {
-    await runCollaborationDirectConnection({
-      documentId: input.documentId,
-      documentPath: persistedState.path,
-      documentRepresentation: persistedState.representation,
-      documentLifecycleGeneration: persistedState.lifecycleGeneration,
-      documentSchemaVersion: persistedState.schemaVersion,
-      requiresFileCheckpointIdentity: true,
-      workspace: input.workspace,
-      actorId: input.actorUserId,
-      actorDisplayName: 'Mobile editor',
-      initiatedByUserId: input.actorUserId,
-      operationId,
-      actorType: 'user',
+    const identity = mobileNotebookOperationIdentity({ ...input, workspaceId: input.workspace.workspaceId, userId: input.actorUserId });
+    const origin = { actorType: 'user' as const, actorId: input.actorUserId, sessionId: input.actorSessionId, operationId: identity.operationId };
+    const connection = {
+      documentId: input.documentId, documentPath: persistedState.path,
+      documentRepresentation: persistedState.representation, documentLifecycleGeneration: persistedState.lifecycleGeneration,
+      documentSchemaVersion: persistedState.schemaVersion, requiresFileCheckpointIdentity: false,
+      workspace: input.workspace, actorId: input.actorUserId, actorDisplayName: 'Mobile editor',
+      initiatedByUserId: input.actorUserId, operationId: identity.operationId, actorType: 'user' as const,
       actorSessionId: input.actorSessionId,
-    }, (doc) => {
-      const currentContent = isRichTextCollaborationRepresentation(persistedState.representation)
-        ? richMarkdownFromYDoc(doc)
-        : doc.getText('content').toString();
-      const currentSha256 = sha256Text(currentContent);
-      if (currentSha256 !== input.expectedSha256) {
-        throw new MobileCollaborationRevisionConflict(currentSha256);
-      }
-      if (isRichTextCollaborationRepresentation(persistedState.representation)) {
-        const preflight = new Y.Doc({ gc: true });
-        try {
-          Y.applyUpdate(preflight, Y.encodeStateAsUpdate(doc));
-          replaceRichMarkdownInYDoc(preflight, collaborationContent);
-          const validation = validateRichMarkdownYDoc(preflight);
-          if (!validation.valid || validation.markdown !== collaborationContent) {
-            throw new MobileNotebookError(
-              'This Markdown source cannot be represented losslessly by the active collaborative web editor.',
-              422,
-              'COLLABORATION_MARKDOWN_UNSUPPORTED',
-            );
-          }
-        } finally {
-          preflight.destroy();
-        }
-        replaceRichMarkdownInYDoc(doc, collaborationContent, {
-          actorType: 'user',
-          actorId: input.actorUserId,
-          sessionId: input.actorSessionId,
-          operationId,
-        });
-      } else {
-        const text = doc.getText('content');
-        doc.transact(() => {
-          if (text.length > 0) text.delete(0, text.length);
-          if (collaborationContent) text.insert(0, collaborationContent);
-        }, {
-          actorType: 'user',
-          actorId: input.actorUserId,
-          sessionId: input.actorSessionId,
-          operationId,
-        });
-      }
-    });
-  } catch (error) {
-    if (error instanceof MobileCollaborationRevisionConflict) {
-      throw new WorkspaceFileRevisionError({
-        code: 'FILE_REVISION_CONFLICT',
-        status: 409,
-        message: 'File revision conflict: the live document changed after it was loaded. Reload the latest version before saving.',
-        path: input.path,
-        expectedSha256: input.expectedSha256,
-        currentSha256: error.currentSha256,
-        currentStats: (await getWorkspaceFileRevision(input.path, input.fileOptions))?.stats ?? null,
-      });
+    };
+    let operation = await readMobileNotebookOperation(identity.operationId);
+    if (operation && (operation.fingerprint !== identity.fingerprint || operation.user_id !== input.actorUserId
+      || operation.document_id !== input.documentId || operation.workspace_id !== input.workspace.workspaceId
+      || Number(operation.lifecycle_generation) !== persistedState.lifecycleGeneration
+      || operation.representation !== persistedState.representation || operation.document_path !== input.path)) {
+      throw new MobileNotebookError('The operation key belongs to a different edit or document lifecycle.', 409, 'IDEMPOTENCY_CONFLICT');
     }
-    throw error;
-  }
-
-  await waitForMobileCollaborationCheckpoint(input.documentId, sha256Text(collaborationContent));
-  return readMobileNotebookDocument({ ...input, path: input.path });
+    try {
+      if (!operation) {
+        if (input.currentRevisionId && input.currentRevisionId !== input.baseRevisionId) {
+          throw new FileCollaborationPolicyError({ code: 'FILE_REVISION_ID_CONFLICT', status: 409,
+            message: 'File revision conflict: reload the latest version before saving.', path: input.path,
+            currentRevisionId: input.currentRevisionId, baseRevisionId: input.baseRevisionId });
+        }
+        operation = await runCollaborationDirectConnection(connection, (doc): MobileNotebookOperation => {
+          const currentContent = isRichTextCollaborationRepresentation(persistedState.representation)
+            ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
+          if (sha256Text(currentContent) !== input.expectedSha256) throw new MobileCollaborationRevisionConflict(sha256Text(currentContent));
+          const baseProof = collaborationStateProof(doc, Y);
+          if (!baseProof) throw new MobileNotebookError('The document is waiting for missing updates.', 409, 'COLLABORATION_STATE_STALE');
+          const planned = new Y.Doc();
+          try {
+            Y.applyUpdate(planned, Y.encodeStateAsUpdate(doc));
+            if (isRichTextCollaborationRepresentation(persistedState.representation)) {
+              const candidate = createRichMarkdownYDoc(input.content);
+              let normalized: string;
+              try { normalized = richMarkdownFromYDoc(candidate); } finally { candidate.destroy(); }
+              if (normalized !== input.content && normalized !== input.content.replace(/\n$/u, '')) {
+                throw new MobileNotebookError('This source cannot be represented losslessly by the live editor.', 422, 'COLLABORATION_MARKDOWN_UNSUPPORTED');
+              }
+              replaceRichMarkdownInYDoc(planned, normalized, origin);
+              const validation = validateRichMarkdownYDoc(planned);
+              if (!validation.valid || validation.markdown !== normalized) {
+                throw new MobileNotebookError('This source cannot be represented losslessly by the live editor.', 422, 'COLLABORATION_MARKDOWN_UNSUPPORTED');
+              }
+            } else {
+              planned.transact(() => {
+                const text = planned.getText('content');
+                if (text.length) text.delete(0, text.length);
+                if (input.content) text.insert(0, input.content);
+              }, origin);
+            }
+            const snapshot = captureAgentStateSnapshot(planned, Y);
+            if (!snapshot) throw new MobileNotebookError('The prepared edit is incomplete.', 409, 'COLLABORATION_STATE_STALE');
+            return { operation_id: identity.operationId, document_id: input.documentId, workspace_id: input.workspace.workspaceId,
+              user_id: input.actorUserId, lifecycle_generation: persistedState.lifecycleGeneration,
+              representation: persistedState.representation, document_path: input.path, fingerprint: identity.fingerprint,
+              base_state_proof: baseProof, resulting_state_snapshot: snapshot,
+              yjs_update: Y.encodeStateAsUpdate(planned, Y.encodeStateVector(doc)) };
+          } finally { planned.destroy(); }
+        });
+        await prepareMobileNotebookOperation(operation);
+      }
+      const prepared = operation;
+      await runCollaborationDirectConnection(connection, (doc) => {
+        if (mobileOperationIncluded(doc, prepared.resulting_state_snapshot)) return;
+        if (!prepared.yjs_update || collaborationStateProof(doc, Y) !== prepared.base_state_proof) {
+          const content = isRichTextCollaborationRepresentation(persistedState.representation)
+            ? richMarkdownFromYDoc(doc) : doc.getText('content').toString();
+          throw new MobileCollaborationRevisionConflict(sha256Text(content));
+        }
+        // Replaying the exact server-prepared delta is idempotent, including
+        // after response loss and subsequent peer changes to its text.
+        doc.transact(() => Y.applyUpdate(doc, prepared.yjs_update!, origin), origin);
+      });
+    } catch (error) {
+      if (error instanceof MobileCollaborationRevisionConflict) {
+        throw new WorkspaceFileRevisionError({ code: 'FILE_REVISION_CONFLICT', status: 409,
+          message: 'File revision conflict: the live document changed. Reload before saving.', path: input.path,
+          expectedSha256: input.expectedSha256, currentSha256: error.currentSha256,
+          currentStats: (await getWorkspaceFileRevision(input.path, input.fileOptions))?.stats ?? null });
+      }
+      throw error;
+    }
+    const durable = await waitForMobileCollaborationDurability(operation);
+    // This is only compaction; the retained prepared delta remains safe if it fails.
+    await compactMobileNotebookOperation(operation.operation_id).catch(() => undefined);
+    return { ...await readMobileNotebookDocument(input), saveReceipt: {
+      operationId: operation.operation_id, applied: true, durable: true,
+      projectionPending: durable.checkpointSequence < durable.documentSequence,
+      documentSequence: durable.documentSequence,
+    } };
+  });
 }
 
 export async function saveMobileNotebookDocument(input: {
@@ -520,6 +523,7 @@ export async function saveMobileNotebookDocument(input: {
   content: unknown;
   expectedSha256: unknown;
   baseRevisionId: unknown;
+  idempotencyKey?: unknown;
 }): Promise<MobileNotebookDocument> {
   const filePath = normalizeMobileNotebookPath(input.path);
   if (typeof input.content !== 'string') {
@@ -534,6 +538,10 @@ export async function saveMobileNotebookDocument(input: {
   if (typeof input.baseRevisionId !== 'string' || !input.baseRevisionId.trim()) {
     throw new MobileNotebookError('A current document revision is required.', 428, 'FILE_REVISION_REQUIRED');
   }
+  if (input.idempotencyKey !== undefined && (typeof input.idempotencyKey !== 'string'
+    || !/^[A-Za-z0-9:_-]{8,200}$/u.test(input.idempotencyKey))) {
+    throw new MobileNotebookError('A valid operation key is required.', 400, 'INVALID_OPERATION_KEY');
+  }
   const collaboration = await getFileCollaborationState({
     workspace: input.workspace,
     path: filePath,
@@ -546,6 +554,7 @@ export async function saveMobileNotebookDocument(input: {
       content: input.content,
       expectedSha256: input.expectedSha256,
       baseRevisionId: input.baseRevisionId.trim(),
+      idempotencyKey: input.idempotencyKey as string | undefined,
       documentId: collaboration.document.id,
       currentRevisionId: collaboration.latestRevision?.id ?? null,
     });

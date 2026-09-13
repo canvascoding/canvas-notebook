@@ -9,6 +9,7 @@ import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-migration';
+import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from './mobile-notebook-operation-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
@@ -1424,6 +1425,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of AGENT_DIRECT_EDIT_GRANT_STATEMENTS) {
     await pool.query(statement);
   }
+  for (const statement of MOBILE_NOTEBOOK_OPERATION_STATEMENTS) await pool.query(statement);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_agent_sagas (

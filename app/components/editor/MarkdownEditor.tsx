@@ -2311,6 +2311,7 @@ function createEditorExtensions(
         document: collaboration.doc,
         representation: collaboration.session.representation,
         awareness: collaboration.provider.awareness,
+        provider: collaboration.provider,
         onError: onCollaborationError,
         user: {
           name: collaboration.session.user.name,
