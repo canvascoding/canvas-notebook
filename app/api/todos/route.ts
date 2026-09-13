@@ -13,6 +13,7 @@ import {
   TODO_STATUSES,
   createTodo,
   listTodos,
+  listTodoSelection,
   type ListTodosOptions,
   type TodoFileLinkInput,
   type TodoPriority,
@@ -27,6 +28,8 @@ import {
   todoScopeForWorkspace,
 } from '@/app/lib/todos/scope';
 import { listReadableTodoWorkspaceIds } from '@/app/lib/todos/list-policy';
+import { createTodoWritePolicy } from '@/app/lib/todos/write-policy';
+import { TodoBulkError } from '@/app/lib/todos/bulk-policy';
 
 const TODO_LIST_SCOPES = ['personal', 'workspace', 'global'] as const;
 type TodoListScope = typeof TODO_LIST_SCOPES[number];
@@ -148,7 +151,7 @@ export async function GET(request: NextRequest) {
     const globalWorkspaceIds = scope === 'global'
       ? await listReadableTodoWorkspaceIds(session.user)
       : undefined;
-    const todos = await listTodos(session.user.id, {
+    const options: ListTodosOptions = {
       ...(scope === 'global'
         ? { workspaceType: 'all' as const, workspaceIds: globalWorkspaceIds }
         : workspaceResult.workspace ? todoScopeForWorkspace(workspaceResult.workspace) : USER_TODO_SCOPE),
@@ -162,10 +165,25 @@ export async function GET(request: NextRequest) {
       due,
       query: searchParams.get('query') || undefined,
       limit: Number.isFinite(limit) ? limit : undefined,
-    });
+    };
 
-    return NextResponse.json({ success: true, data: todos, scope: { kind: scope, workspaceId: workspaceResult.workspace?.workspaceId ?? null } });
+    const policy = createTodoWritePolicy(session);
+    if (searchParams.get('selection') === 'true') {
+      const rows = await listTodoSelection(session.user.id, options);
+      const data = await Promise.all(rows.map(async (todo) => ({
+        id: todo.id, updatedAt: todo.updatedAt.toISOString(), status: todo.status,
+        canWrite: await policy.canWrite(todo),
+      })));
+      return NextResponse.json({ success: true, data }, { headers: { 'Cache-Control': 'no-store' } });
+    }
+    const todos = await listTodos(session.user.id, options);
+    const data = await Promise.all(todos.map(async (todo) => ({ ...todo, canWrite: await policy.canWrite(todo) })));
+
+    return NextResponse.json({ success: true, data, scope: { kind: scope, workspaceId: workspaceResult.workspace?.workspaceId ?? null } });
   } catch (error) {
+    if (error instanceof TodoBulkError) {
+      return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: 400 });
+    }
     return todoErrorResponse(error, 'Failed to list todos.');
   }
 }

@@ -10,6 +10,7 @@ import {
   todoCategories,
   todoFileLinks,
   todoItems,
+  todoReadStates,
   user,
 } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
@@ -28,6 +29,7 @@ import {
 import { deriveTodoEffectiveReadState, todoLifecycleAllowsUnread } from './read-state-policy';
 import type { TodoScopeKind } from './scope';
 import { isTodoIconKey, type TodoIconKey } from './icons';
+import { bulkActionAllowsStatus, TODO_BULK_LIMIT, TodoBulkError, type TodoBulkAction } from './bulk-policy';
 
 export type { TodoScopeKind } from './scope';
 
@@ -920,6 +922,12 @@ export async function getTodo(userId: string, todoId: string): Promise<TodoWithR
 }
 
 export async function listTodos(userId: string, options: ListTodosOptions = {}): Promise<TodoWithRelations[]> {
+  return hydrateTodos(await queryTodoRows(userId, options), userId);
+}
+
+type TodoTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function queryTodoRows(userId: string, options: ListTodosOptions, database: typeof db | TodoTransaction = db): Promise<TodoItem[]> {
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 200);
   const workspaceType = options.workspaceType || 'personal';
   const conditions = [];
@@ -1157,7 +1165,7 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     )!);
   }
 
-  const rows = await db
+  const rows = await database
     .select()
     .from(todoItems)
     .where(and(...conditions))
@@ -1172,14 +1180,10 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     )
     .limit(limit);
 
-  return hydrateTodos(rows, userId);
+  return rows;
 }
 
-export async function updateTodo(userId: string, todoId: string, input: UpdateTodoInput): Promise<TodoWithRelations | null> {
-  const current = await db.query.todoItems.findFirst({
-    where: eq(todoItems.id, todoId),
-  });
-  if (!current) return null;
+async function prepareTodoUpdate(userId: string, current: TodoItem, input: UpdateTodoInput, now: Date) {
   await assertCanReadTodo(userId, current);
   await assertCanWriteTodo(userId, current);
 
@@ -1190,7 +1194,6 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
     throw new TodoStoreError('Todo changed since it was inspected. Inspect it again before updating.', 'TODO_UPDATE_CONFLICT');
   }
 
-  const now = new Date();
   const updates: Partial<typeof todoItems.$inferInsert> = {
     updatedAt: now,
   };
@@ -1259,6 +1262,14 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
     }
   }
 
+  return { updates, expectedUpdatedAt };
+}
+
+export async function updateTodo(userId: string, todoId: string, input: UpdateTodoInput): Promise<TodoWithRelations | null> {
+  const current = await db.query.todoItems.findFirst({ where: eq(todoItems.id, todoId) });
+  if (!current) return null;
+  const now = new Date();
+  const { updates, expectedUpdatedAt } = await prepareTodoUpdate(userId, current, input, now);
   const updatedRows = await db
     .update(todoItems)
     .set(updates)
@@ -1309,4 +1320,98 @@ export async function markTodoUnread(userId: string, todoId: string): Promise<To
   }
   await clearTodoReadState(userId, todoId);
   return getTodo(userId, todoId);
+}
+
+/** Uses the same filter and sort as the list, across pages in one stable snapshot. */
+export async function listTodoSelection(userId: string, options: ListTodosOptions): Promise<TodoItem[]> {
+  return db.transaction(async (tx) => {
+    const selected: TodoItem[] = [];
+    const sortAsOf = new Date();
+    let beforeCursor: TodoListCursor | undefined;
+    while (true) {
+      const page = await queryTodoRows(userId, { ...options, sortAsOf, beforeCursor, limit: 200 }, tx);
+      selected.push(...page);
+      if (selected.length > TODO_BULK_LIMIT) {
+        throw new TodoBulkError('Select fewer to-dos by narrowing the filters.', 'TODO_SELECTION_LIMIT');
+      }
+      const last = page.at(-1);
+      if (page.length < 200 || !last) return selected;
+      beforeCursor = {
+        id: last.id, status: last.status as TodoStatus, priority: last.priority as TodoPriority,
+        dueAt: last.dueAt, createdAt: last.createdAt,
+      };
+    }
+  }, { isolationLevel: 'repeatable read', accessMode: 'read only' });
+}
+
+export async function canWriteTodo(userId: string, todo: TodoItem): Promise<boolean> {
+  try {
+    await assertCanReadTodo(userId, todo);
+    await assertCanWriteTodo(userId, todo);
+    return true;
+  } catch (error) {
+    if (error instanceof TodoStoreError) return false;
+    throw error;
+  }
+}
+
+function bulkTodoPatch(action: TodoBulkAction): UpdateTodoInput {
+  switch (action.type) {
+    case 'complete': return { status: 'done' };
+    case 'reopen': case 'restore': return { status: 'open' };
+    case 'archive': return { status: 'archived' };
+    case 'category': return { categoryId: action.categoryId };
+    case 'priority': return { priority: action.priority };
+    case 'assign': return { assigneeUserId: action.assigneeUserId };
+  }
+}
+
+/** All authorization/validation finishes before writing; any failure rolls back every item. */
+export async function mutateTodosBulk(input: {
+  userId: string;
+  items: Array<{ id: string; expectedUpdatedAt: Date }>;
+  action: TodoBulkAction;
+  authorize: (todo: TodoItem) => Promise<void>;
+}): Promise<{ count: number; changed: number; ids: string[] }> {
+  if (!input.items.length || input.items.length > TODO_BULK_LIMIT) {
+    throw new TodoBulkError('Invalid selection size.', 'INVALID_BULK_INPUT');
+  }
+  return db.transaction(async (tx) => {
+    // Stable lock ordering prevents deadlocks between overlapping batches.
+    const rows = await tx.select().from(todoItems)
+      .where(inArray(todoItems.id, input.items.map((item) => item.id)))
+      .orderBy(asc(todoItems.id)).for('update');
+    if (rows.length !== input.items.length) throw new TodoStoreError('Todo not found.', 'TODO_NOT_FOUND');
+    for (const row of rows) {
+      await assertCanReadTodo(input.userId, row);
+      await input.authorize(row);
+    }
+    const expectations = new Map(input.items.map((item) => [item.id, item.expectedUpdatedAt.getTime()]));
+    const conflicts = rows.filter((row) => row.updatedAt.getTime() !== expectations.get(row.id));
+    if (conflicts.length) throw new TodoBulkError('The selected to-dos changed. Review the selection and retry.', 'TODO_BULK_CONFLICT', conflicts.map((row) => row.id));
+    const incompatible = rows.filter((row) => !bulkActionAllowsStatus(input.action.type, row.status as TodoStatus));
+    if (incompatible.length) throw new TodoBulkError('Restore archived to-dos before editing them.', 'TODO_BULK_STATUS', incompatible.map((row) => row.id));
+    if (input.action.type === 'category' && input.action.categoryId) {
+      const categories = await tx.select().from(todoCategories).where(and(
+        eq(todoCategories.id, input.action.categoryId), eq(todoCategories.userId, input.userId), eq(todoCategories.isArchived, false),
+      )).for('share');
+      if (!categories.length) throw new TodoStoreError('Category not found.', 'CATEGORY_NOT_FOUND');
+    }
+    const patch = bulkTodoPatch(input.action);
+    const now = new Date(Math.max(Date.now(), ...rows.map((row) => row.updatedAt.getTime() + 1)));
+    const prepared = [];
+    for (const row of rows) {
+      const { updates } = await prepareTodoUpdate(input.userId, row, patch, now);
+      const changed = Object.entries(patch).some(([key, value]) => row[key as keyof TodoItem] !== value);
+      prepared.push({ row, updates, changed });
+    }
+    for (const { row, updates, changed } of prepared) {
+      if (changed) await tx.update(todoItems).set(updates).where(eq(todoItems.id, row.id));
+      if (changed && (input.action.type === 'restore' || input.action.type === 'reopen')) {
+        await tx.insert(todoReadStates).values({ userId: input.userId, todoId: row.id, readAt: now, createdAt: now, updatedAt: now })
+          .onConflictDoUpdate({ target: [todoReadStates.userId, todoReadStates.todoId], set: { readAt: now, updatedAt: now } });
+      }
+    }
+    return { count: rows.length, changed: prepared.filter((item) => item.changed).length, ids: rows.map((row) => row.id) };
+  });
 }
