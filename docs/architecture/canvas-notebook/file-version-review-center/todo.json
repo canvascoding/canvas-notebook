@@ -815,7 +815,7 @@
           "id": "FVRC-601",
           "order": 1,
           "title": "write und edit_file an Change Groups und das neue Widget anbinden",
-          "status": "planned",
+          "status": "completed",
           "area": "agent-tools",
           "dependsOn": ["FVRC-600"],
           "deliverables": [
@@ -832,6 +832,12 @@
             "Core-Tool-Result- und Output-Preparation-Tests",
             "Applied-, review-required-, unchanged- und Retry-Szenarien",
             "Chat-Message-Projektionsregression"
+          ],
+          "completionEvidence": [
+            "write und edit_file erzeugen nach erfolgreichem Toolabschluss genau dann eine Widget-Bindung, wenn die aktuelle Workspace-Datei als immutable agent_apply-Revision gebunden oder eine workspacegebundene Review-Operation dauerhaft gespeichert ist.",
+            "Die gemeinsame Result-Orchestrierung prueft Workspace-Pfad, Read-back-Hash, Groesse, Lineage, Dokument und Session; unchanged, Fehler, deaktiviertes Capture und unvollstaendige Referenzen bleiben ohne Widget.",
+            "Idempotente Retries validieren dieselbe Revision beziehungsweise Operation und die stabile Change Group erneut, ohne die bereits abgeschlossene Dateimutation zu wiederholen; ein reiner Widget-Speicherfehler fordert keinen gefaehrlichen Mutation-Retry an.",
+            "scripts/file-change-tool-result-test.ts deckt applied, review_required, unchanged, Fehler, Capture-Ausfall, Widget-Ausfall, Retry, Output-Preparation und Persisted-Message-Projektion ab; Tool-App-, External-Output-, Core-Tool-Registry- und Live-Collaboration-Bestandssuites bestehen."
           ]
         },
         {

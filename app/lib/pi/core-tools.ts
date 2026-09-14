@@ -79,6 +79,7 @@ import {
   asAgentFileToolError,
   asAgentFileToolSuccess,
 } from '@/app/lib/pi/agent-file-tool-results';
+import { asAgentFileToolAppSuccess } from '@/app/lib/pi/file-change-tool-result';
 
 function formatAgentStructureReadResult(
   snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>>,
@@ -431,7 +432,7 @@ export const piTools: AgentTool[] = [
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
-          details: asAgentFileToolSuccess(result, 'write'),
+          details: await asAgentFileToolAppSuccess(result, 'write', toolCallId),
         };
       } catch (error: unknown) {
         const details = asAgentFileToolError(error, 'write', filePath);
@@ -464,7 +465,7 @@ export const piTools: AgentTool[] = [
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
-          details: asAgentFileToolSuccess(result, 'edit_file'),
+          details: await asAgentFileToolAppSuccess(result, 'edit_file', toolCallId),
         };
       } catch (error: unknown) {
         const details = asAgentFileToolError(error, 'edit_file', filePath);

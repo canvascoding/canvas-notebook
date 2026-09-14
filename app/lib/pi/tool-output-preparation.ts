@@ -6,7 +6,8 @@ import type { ToolOutputMetadata } from './tool-output-metadata';
 import { headTailToolText, clipToolText } from './tool-output-format';
 import { isPreparedToolOutput, markPreparedToolOutput } from './prepared-tool-output';
 import { TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS, TOOL_OUTPUT_LARGE_RESULT_PREVIEW_CHARACTERS, TOOL_OUTPUT_POLICY_VERSION } from './tool-output-policy';
-import { AUTOMATION_APP_URI, PUBLIC_SHARE_APP_URI, readBuiltinToolAppMessages } from '@/app/lib/tool-apps/types';
+import { parseFileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
+import { AUTOMATION_APP_URI, FILE_CHANGE_APP_URI, PUBLIC_SHARE_APP_URI, readBuiltinToolAppMessages } from '@/app/lib/tool-apps/types';
 
 export type ToolOutputPreparationContext = { identity: ToolOutputIdentity | null; toolCallId: string };
 
@@ -92,6 +93,9 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
     if (builtin.resourceUri === PUBLIC_SHARE_APP_URI) {
       builtinDetails = { toolApps: builtins, publicShareAction: builtin.operation,
         ...(builtin.operation === 'revoke' ? { share: { id: builtin.entityId } } : { shares: builtins.map(app => ({ id: app.entityId })) }) };
+    } else if (builtin.resourceUri === FILE_CHANGE_APP_URI) {
+      builtinDetails = { toolApp: builtin,
+        changeGroup: parseFileChangeGroupV1((result.details as Record<string, unknown>).changeGroup) };
     } else {
       builtinDetails = { toolApp: builtin, [builtin.resourceUri === AUTOMATION_APP_URI ? 'job' : 'todo']: { id: builtin.entityId },
         ...(input.toolName === 'automation_manage' ? { action: 'call', operation: builtin.operation } : {}) };
