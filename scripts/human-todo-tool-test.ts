@@ -66,6 +66,10 @@ async function main() {
   assert.ok(listTool);
   assert.ok(inspectTool);
   assert.ok(updateTool);
+  const updateParameterSchema = updateTool.parameters as unknown as {
+    properties?: { status?: { description?: string } };
+  };
+  assert.match(updateParameterSchema.properties?.status?.description ?? '', /delete-like but recoverable/i);
 
   const listResult = await listTool.execute('tool-test-list', { query: 'generated summary', status: 'open' });
   assert.match(listResult.content?.[0]?.type === 'text' ? listResult.content[0].text : '', /Review generated summary/);

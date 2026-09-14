@@ -349,7 +349,12 @@ export function createUpdateHumanTodoTool(deps: HumanTodoToolDeps = {}): AgentTo
         Type.String(),
         Type.Object({ workspacePath: Type.String(), label: Type.Optional(Type.String()) }),
       ]), { maxItems: 20 })),
-      status: Type.Optional(Type.Union([Type.Literal('open'), Type.Literal('done'), Type.Literal('archived')])),
+      status: Type.Optional(Type.Union(
+        [Type.Literal('open'), Type.Literal('done'), Type.Literal('archived')],
+        {
+          description: 'Lifecycle state. Use "archived" when the user asks to delete or remove the to-do from active views. Archiving is delete-like but recoverable: the to-do appears under "Recently deleted" and is not permanently erased.',
+        },
+      )),
     }),
     execute: async (_toolCallId, params) => {
       try {
