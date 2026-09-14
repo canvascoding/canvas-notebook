@@ -3,12 +3,13 @@
   "feature": "file-version-review-center",
   "title": "File Version & Review Center",
   "updatedAt": "2026-09-14",
-  "status": "planned",
+  "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "documents": [
     "docs/architecture/canvas-notebook/file-version-review-center/plan.md",
     "docs/architecture/canvas-notebook/file-version-review-center/contract-inventory.md",
     "docs/architecture/canvas-notebook/file-version-review-center/contracts-v1.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/security-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -89,7 +90,7 @@
       "id": "FVRC-P00",
       "order": 0,
       "title": "Produkt-, Contract- und Sicherheitsbaseline",
-      "status": "planned",
+      "status": "completed",
       "dependsOn": [],
       "exitGate": "FVRC-G00-CONTRACTS",
       "tasks": [
@@ -156,7 +157,8 @@
           "id": "FVRC-002",
           "order": 2,
           "title": "V1-Capability-, Retention-, Quota- und Threat-Model-Entscheidungen sperren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "security-product",
           "dependsOn": ["FVRC-001"],
           "deliverables": [
@@ -173,6 +175,13 @@
             "Entscheidungstabellen-Tests",
             "Security-Review",
             "Produktreview der Defaulttexte und Toggle-Semantik"
+          ],
+          "completionEvidence": [
+            "policy-v1.ts fixiert fail-closed Rollout, serverseitige Scope-Pruefung, V1-Capabilities, Review-Praezedenz, Retention, Quota, Compare- und Preview-Grenzen sowie kombinierte Nutzer-/IP-Ratenlimits.",
+            "file-version-center-policy-v1.json deckt Markdown, Text, aufgeschobene Code-/Office-/Binaerformate, Teil-Backends, Cross-Workspace, Rechteverlust, Policy-Ausfaelle, Retention und Quota-Saettigung ab.",
+            "security-v1.md dokumentiert 13 konkrete Threats, sichere Preview-Regeln, datenbewahrenden Rollback und den serverseitigen FILE_VERSION_CENTER_MODE.",
+            "npx tsx scripts/file-version-center-policy-test.ts, geaenderte TypeScript-Dateien per ESLint, npx tsc --noEmit und git diff --check bestehen.",
+            "npm run build besteht; die bestehende lokale Auth-Konfiguration meldet dabei nur nicht-blockierende fehlende Base-URL-Warnungen."
           ]
         }
       ]

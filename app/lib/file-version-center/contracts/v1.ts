@@ -139,6 +139,9 @@ export const FileVersionCapabilitiesSchemaV1 = Type.Object({
     Type.Literal('missing'),
     Type.Literal('policy_forced'),
     Type.Literal('rollout_disabled'),
+    Type.Literal('read_only_rollout'),
+    Type.Literal('limit_exceeded'),
+    Type.Literal('storage_unavailable'),
   ])),
 }, { additionalProperties: false });
 

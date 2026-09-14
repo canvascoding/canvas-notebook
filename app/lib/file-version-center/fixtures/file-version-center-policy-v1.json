@@ -1,0 +1,209 @@
+{
+  "fixtureVersion": "1.0.0",
+  "contractVersion": 1,
+  "rolloutCases": [
+    {
+      "name": "missing flag fails closed",
+      "value": null,
+      "expected": { "mode": "off", "capture": false, "visibleUi": false, "history": false, "compare": false, "restore": false, "policyMutation": false, "notifications": false }
+    },
+    {
+      "name": "unknown flag fails closed",
+      "value": "experimental",
+      "expected": { "mode": "off", "capture": false, "visibleUi": false, "history": false, "compare": false, "restore": false, "policyMutation": false, "notifications": false }
+    },
+    {
+      "name": "shadow captures without UI",
+      "value": "shadow",
+      "expected": { "mode": "shadow", "capture": true, "visibleUi": false, "history": false, "compare": false, "restore": false, "policyMutation": false, "notifications": false }
+    },
+    {
+      "name": "read only exposes inspection",
+      "value": "read_only",
+      "expected": { "mode": "read_only", "capture": true, "visibleUi": true, "history": true, "compare": true, "restore": false, "policyMutation": false, "notifications": false }
+    },
+    {
+      "name": "full enables core mutations",
+      "value": "full",
+      "expected": { "mode": "full", "capture": true, "visibleUi": true, "history": true, "compare": true, "restore": true, "policyMutation": true, "notifications": false }
+    }
+  ],
+  "capabilityCases": [
+    {
+      "name": "full markdown",
+      "input": { "pathHint": "docs/plan.md", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": true, "compare": true, "restore": true, "agentReviewPolicy": true, "preview": "markdown" }
+    },
+    {
+      "name": "full long markdown extension",
+      "input": { "pathHint": "docs/plan.markdown", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": true, "compare": true, "restore": true, "agentReviewPolicy": true, "preview": "markdown" }
+    },
+    {
+      "name": "full plain text",
+      "input": { "pathHint": "notes/ideas.TXT", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": true, "compare": true, "restore": true, "agentReviewPolicy": true, "preview": "text" }
+    },
+    {
+      "name": "read only rollout",
+      "input": { "pathHint": "docs/plan.md", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "read_only", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": true, "compare": true, "restore": false, "agentReviewPolicy": false, "preview": "markdown", "reason": "read_only_rollout" }
+    },
+    {
+      "name": "reader cannot mutate",
+      "input": { "pathHint": "docs/plan.md", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": false, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": true, "compare": true, "restore": false, "agentReviewPolicy": false, "preview": "markdown", "reason": "read_only" }
+    },
+    {
+      "name": "shadow keeps UI hidden",
+      "input": { "pathHint": "docs/plan.md", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "shadow", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": false, "compare": false, "restore": false, "agentReviewPolicy": false, "preview": "markdown", "reason": "rollout_disabled" }
+    },
+    {
+      "name": "storage unavailable",
+      "input": { "pathHint": "docs/plan.md", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": false, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": false, "compare": false, "restore": false, "agentReviewPolicy": false, "preview": "markdown", "reason": "storage_unavailable" }
+    },
+    {
+      "name": "partial backend exposes only backed features",
+      "input": { "pathHint": "docs/plan.md", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": false, "restoreReady": true, "policyReady": false } },
+      "expected": { "contractVersion": 1, "history": true, "compare": false, "restore": true, "agentReviewPolicy": false, "preview": "markdown", "reason": "storage_unavailable" }
+    },
+    {
+      "name": "oversize markdown",
+      "input": { "pathHint": "docs/large.md", "sizeBytes": 1048577, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": false, "compare": false, "restore": false, "agentReviewPolicy": false, "preview": "markdown", "reason": "limit_exceeded" }
+    },
+    {
+      "name": "missing lineage",
+      "input": { "pathHint": "docs/plan.md", "sizeBytes": 12000, "lineageAvailable": false, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": false, "compare": false, "restore": false, "agentReviewPolicy": false, "preview": "markdown", "reason": "missing" }
+    },
+    {
+      "name": "code deferred",
+      "input": { "pathHint": "app/page.tsx", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": false, "compare": false, "restore": false, "agentReviewPolicy": false, "preview": "metadata", "reason": "unsupported_type" }
+    },
+    {
+      "name": "office deferred",
+      "input": { "pathHint": "reports/q3.docx", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": false, "compare": false, "restore": false, "agentReviewPolicy": false, "preview": "metadata", "reason": "unsupported_type" }
+    },
+    {
+      "name": "binary deferred",
+      "input": { "pathHint": "assets/logo.png", "sizeBytes": 12000, "lineageAvailable": true, "canRead": true, "canWrite": true, "rolloutMode": "full", "backends": { "storageReady": true, "compareReady": true, "restoreReady": true, "policyReady": true } },
+      "expected": { "contractVersion": 1, "history": false, "compare": false, "restore": false, "agentReviewPolicy": false, "preview": "metadata", "reason": "unsupported_type" }
+    }
+  ],
+  "scopeCases": [
+    {
+      "name": "active workspace reader",
+      "input": { "authenticatedWorkspaceId": "workspace-1", "requestedWorkspaceId": "workspace-1", "resolvedWorkspaceId": "workspace-1", "membership": "active", "permissionsResolved": true, "canRead": true },
+      "allowed": true
+    },
+    {
+      "name": "cross workspace target",
+      "input": { "authenticatedWorkspaceId": "workspace-1", "requestedWorkspaceId": "workspace-2", "resolvedWorkspaceId": "workspace-2", "membership": "active", "permissionsResolved": true, "canRead": true },
+      "allowed": false
+    },
+    {
+      "name": "revoked membership",
+      "input": { "authenticatedWorkspaceId": "workspace-1", "requestedWorkspaceId": "workspace-1", "resolvedWorkspaceId": "workspace-1", "membership": "revoked", "permissionsResolved": true, "canRead": true },
+      "allowed": false
+    },
+    {
+      "name": "unresolved permissions",
+      "input": { "authenticatedWorkspaceId": "workspace-1", "requestedWorkspaceId": "workspace-1", "resolvedWorkspaceId": "workspace-1", "membership": "unknown", "permissionsResolved": false, "canRead": false },
+      "allowed": false
+    }
+  ],
+  "policyCases": [
+    {
+      "name": "loaded safe direct preference",
+      "input": { "requestedMode": "safe_direct", "policyRevision": 7, "preferenceState": "loaded", "persistenceState": "ready", "hardSafetyRequiresReview": false, "workspacePolicy": "allow_user_choice", "operationExplicitlyRequiresReview": false },
+      "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "safe_direct", "revision": 7, "locked": false, "reason": "user_preference" }
+    },
+    {
+      "name": "missing preference defaults review",
+      "input": { "requestedMode": null, "policyRevision": null, "preferenceState": "missing", "persistenceState": "ready", "hardSafetyRequiresReview": false, "workspacePolicy": "allow_user_choice", "operationExplicitlyRequiresReview": false },
+      "expected": { "contractVersion": 1, "requestedMode": "review_required", "effectiveMode": "review_required", "revision": 0, "locked": false, "reason": "default_review_required" }
+    },
+    {
+      "name": "policy read error fails closed",
+      "input": { "requestedMode": "safe_direct", "policyRevision": 7, "preferenceState": "error", "persistenceState": "ready", "hardSafetyRequiresReview": false, "workspacePolicy": "allow_user_choice", "operationExplicitlyRequiresReview": false },
+      "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "review_required", "revision": 7, "locked": true, "reason": "persistence_unavailable" }
+    },
+    {
+      "name": "unknown persistence fails closed",
+      "input": { "requestedMode": "safe_direct", "policyRevision": 7, "preferenceState": "loaded", "persistenceState": "unknown", "hardSafetyRequiresReview": false, "workspacePolicy": "allow_user_choice", "operationExplicitlyRequiresReview": false },
+      "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "review_required", "revision": 7, "locked": true, "reason": "persistence_unavailable" }
+    },
+    {
+      "name": "workspace forces review",
+      "input": { "requestedMode": "safe_direct", "policyRevision": 7, "preferenceState": "loaded", "persistenceState": "ready", "hardSafetyRequiresReview": false, "workspacePolicy": "force_review", "operationExplicitlyRequiresReview": false },
+      "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "review_required", "revision": 7, "locked": true, "reason": "workspace_policy" }
+    },
+    {
+      "name": "operation forces review",
+      "input": { "requestedMode": "safe_direct", "policyRevision": 7, "preferenceState": "loaded", "persistenceState": "ready", "hardSafetyRequiresReview": false, "workspacePolicy": "allow_user_choice", "operationExplicitlyRequiresReview": true },
+      "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "review_required", "revision": 7, "locked": true, "reason": "explicit_review" }
+    },
+    {
+      "name": "hard safety has highest precedence",
+      "input": { "requestedMode": "safe_direct", "policyRevision": 7, "preferenceState": "error", "persistenceState": "unavailable", "hardSafetyRequiresReview": true, "workspacePolicy": "unknown", "operationExplicitlyRequiresReview": true },
+      "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "review_required", "revision": 7, "locked": true, "reason": "hard_safety" }
+    }
+  ],
+  "retentionCases": [
+    { "name": "manual is protected", "input": { "source": "manual", "ageDays": 800, "newestRank": 700, "lineageArchivedAgeDays": 100, "referencedByPendingReview": false }, "expected": { "retain": true, "reason": "protected_source" } },
+    { "name": "pending automatic review is protected", "input": { "source": "automatic_checkpoint", "ageDays": 800, "newestRank": 700, "lineageArchivedAgeDays": 100, "referencedByPendingReview": true }, "expected": { "retain": true, "reason": "pending_review" } },
+    { "name": "newest automatic floor", "input": { "source": "automatic_checkpoint", "ageDays": 800, "newestRank": 100, "lineageArchivedAgeDays": 100, "referencedByPendingReview": false }, "expected": { "retain": true, "reason": "newest_floor" } },
+    { "name": "automatic age window", "input": { "source": "automatic_checkpoint", "ageDays": 90, "newestRank": 101, "lineageArchivedAgeDays": null, "referencedByPendingReview": false }, "expected": { "retain": true, "reason": "active_retention_window" } },
+    { "name": "archive grace", "input": { "source": "automatic_checkpoint", "ageDays": 91, "newestRank": 101, "lineageArchivedAgeDays": 30, "referencedByPendingReview": false }, "expected": { "retain": true, "reason": "archive_grace" } },
+    { "name": "expired automatic can be pruned", "input": { "source": "automatic_checkpoint", "ageDays": 91, "newestRank": 101, "lineageArchivedAgeDays": 31, "referencedByPendingReview": false }, "expected": { "retain": false, "reason": "eligible_for_pruning" } }
+  ],
+  "captureCases": [
+    {
+      "name": "within all limits",
+      "input": { "incomingRawBytes": 1000, "incomingStoredBytes": 800, "lineageStoredBytes": 100000, "workspaceStoredBytes": 1000000, "lineageVersionCount": 10, "safelyReclaimableLineageBytes": 0, "safelyReclaimableWorkspaceBytes": 0, "safelyReclaimableVersionCount": 0 },
+      "expected": { "accepted": true, "reason": "accepted" }
+    },
+    {
+      "name": "automatic pruning makes room",
+      "input": { "incomingRawBytes": 1000, "incomingStoredBytes": 800, "lineageStoredBytes": 134217728, "workspaceStoredBytes": 4294967296, "lineageVersionCount": 500, "safelyReclaimableLineageBytes": 800, "safelyReclaimableWorkspaceBytes": 800, "safelyReclaimableVersionCount": 1 },
+      "expected": { "accepted": true, "reason": "accepted" }
+    },
+    {
+      "name": "raw input exceeds limit",
+      "input": { "incomingRawBytes": 1048577, "incomingStoredBytes": 800, "lineageStoredBytes": 100000, "workspaceStoredBytes": 1000000, "lineageVersionCount": 10, "safelyReclaimableLineageBytes": 0, "safelyReclaimableWorkspaceBytes": 0, "safelyReclaimableVersionCount": 0 },
+      "expected": { "accepted": false, "reason": "raw_version_too_large" }
+    },
+    {
+      "name": "protected lineage bytes cannot be pruned",
+      "input": { "incomingRawBytes": 1000, "incomingStoredBytes": 800, "lineageStoredBytes": 134217728, "workspaceStoredBytes": 1000000, "lineageVersionCount": 10, "safelyReclaimableLineageBytes": 0, "safelyReclaimableWorkspaceBytes": 0, "safelyReclaimableVersionCount": 0 },
+      "expected": { "accepted": false, "reason": "lineage_quota_exceeded" }
+    },
+    {
+      "name": "protected workspace bytes cannot be pruned",
+      "input": { "incomingRawBytes": 1000, "incomingStoredBytes": 800, "lineageStoredBytes": 100000, "workspaceStoredBytes": 4294967296, "lineageVersionCount": 10, "safelyReclaimableLineageBytes": 0, "safelyReclaimableWorkspaceBytes": 0, "safelyReclaimableVersionCount": 0 },
+      "expected": { "accepted": false, "reason": "workspace_quota_exceeded" }
+    },
+    {
+      "name": "protected version count cannot be pruned",
+      "input": { "incomingRawBytes": 1000, "incomingStoredBytes": 800, "lineageStoredBytes": 100000, "workspaceStoredBytes": 1000000, "lineageVersionCount": 500, "safelyReclaimableLineageBytes": 0, "safelyReclaimableWorkspaceBytes": 0, "safelyReclaimableVersionCount": 0 },
+      "expected": { "accepted": false, "reason": "version_count_exceeded" }
+    }
+  ],
+  "compareCases": [
+    { "name": "within bounds", "input": { "currentBytes": 1048576, "selectedBytes": 1048576, "currentLines": 20000, "selectedLines": 20000 }, "admitted": true },
+    { "name": "current too large", "input": { "currentBytes": 1048577, "selectedBytes": 1, "currentLines": 1, "selectedLines": 1 }, "admitted": false },
+    { "name": "too many selected lines", "input": { "currentBytes": 1, "selectedBytes": 1, "currentLines": 1, "selectedLines": 20001 }, "admitted": false }
+  ],
+  "productCopy": {
+    "label": "Agenten-Änderungen prüfen",
+    "reviewRequired": "Prüfung erforderlich",
+    "safeDirect": "Direkt bearbeiten, wenn sicher",
+    "description": "Gilt für neue Agentenänderungen an diesem Dokument. Konflikte und unsichere Änderungen werden weiterhin zur Prüfung vorgelegt.",
+    "unavailable": "Prüfung ist vorübergehend erforderlich. Die Einstellung konnte nicht sicher geladen werden."
+  }
+}
