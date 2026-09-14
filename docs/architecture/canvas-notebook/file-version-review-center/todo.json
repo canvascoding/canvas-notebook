@@ -228,7 +228,8 @@
           "id": "FVRC-101",
           "order": 1,
           "title": "Immutable Version-Content-Store mit Deduplizierung, Kompression und Quotas bauen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "storage",
           "dependsOn": ["FVRC-100"],
           "deliverables": [
@@ -244,6 +245,14 @@
             "Parallel-Deduplizierungs- und Crash-Tests",
             "Quota- und Oversize-Tests",
             "Hash-, Codec- und Korruptions-Tests"
+          ],
+          "completionEvidence": [
+            "version-content-store.ts kapselt die explizite Blob-Mechanik getrennt von History-Orchestrierung und Berechtigungsregeln.",
+            "Revisionen werden nur nach Scope-, Ledger-Hash- und Groessenabgleich atomar an einen verifizierten Gzip-Blob gebunden; Retries sind idempotent und abweichende Bindungen werden abgelehnt.",
+            "Workspace- und Lineage-Locks serialisieren Quota-Admission und Deduplizierung; identischer Inhalt wird pro Workspace nur einmal physisch gespeichert.",
+            "Die Retention-Primitive entfernt nur explizite automatic_checkpoint-Bindungen ohne pending Review und danach ausschliesslich unreferenzierte Blobs.",
+            "scripts/file-version-content-store-test.ts prueft Parallel-Deduplizierung, Crash-Rollback, Oversize, alle Quoten, Immutable-Bindung sowie Hash-, Codec-, Dekompressions- und Metadatenkorruption.",
+            "Fokustest, ESLint fuer geaenderte TypeScript-Dateien, npx tsc --noEmit und git diff --check bestehen."
           ]
         },
         {
