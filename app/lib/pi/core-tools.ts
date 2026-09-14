@@ -187,9 +187,12 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. For active Markdown/text or Excalidraw live-collaboration documents, returns the current authoritative collaboration state instead of a potentially older file checkpoint. Set includeStructure for a block collaboration document to read bounded JSON metadata with document identity, stable block IDs, hierarchy, attributes, text and local hashes required by structured edit_file operations. This mode returns structure metadata instead of Markdown; continue with structure.nextOffset. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads the content of a file. For Markdown, set source to markdown for the current canonical Markdown source or blocks for bounded live block metadata; blocks replaces includeStructure and paginates with structure.nextOffset. Active Markdown/text and Excalidraw collaboration documents return their authoritative live state instead of an older file checkpoint. Block reads include document identity, stable block IDs, hierarchy, attributes, text, and local hashes required only by low-level structured edit_file operations. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path, workspace-relative path, or tool-output:// reference returned by a tool.' }),
+      source: Type.Optional(Type.Union([
+        Type.Literal('markdown'), Type.Literal('blocks'),
+      ], { description: 'Markdown representation to return. markdown returns canonical source; blocks returns paginated live block metadata.' })),
       offset: Type.Optional(Type.Number({ minimum: 0, description: 'For text, zero-based UTF-16 character offset. Continue with nextOffset returned by the previous read; SHA-256 always covers the complete text.' })),
       maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}. Stored tool outputs use ${TOOL_OUTPUT_READ_DEFAULT_CHARACTERS}/${TOOL_OUTPUT_READ_MAX_CHARACTERS}, reserving space for pagination metadata.` })),
       includeStructure: Type.Optional(Type.Boolean({ description: 'Return JSON structure metadata for a live block document instead of Markdown. Required before structured edits; cannot be combined with text offset.' })),
@@ -204,6 +207,7 @@ export const piTools: AgentTool[] = [
     execute: async (toolCallId, params, signal) => {
       const {
         path: filePath,
+        source: requestedSource,
         offset,
         maxChars,
         includeStructure,
@@ -216,6 +220,7 @@ export const piTools: AgentTool[] = [
         maxPdfImages,
       } = params as {
         path: string;
+        source?: 'markdown' | 'blocks';
         offset?: number;
         maxChars?: number;
         includeStructure?: boolean;
@@ -228,13 +233,20 @@ export const piTools: AgentTool[] = [
         maxPdfImages?: number;
       };
       try {
-        if (includeStructure && offset !== undefined) throw new Error('includeStructure cannot be combined with text offset. Use structureOffset instead.');
-        if (!includeStructure && (structureOffset !== undefined || structureLimit !== undefined)) {
-          throw new Error('structureOffset and structureLimit require includeStructure: true.');
+        if (requestedSource === 'markdown' && includeStructure) {
+          throw new Error('source markdown cannot be combined with includeStructure. Use source blocks for structure metadata.');
+        }
+        const structureRequested = requestedSource === 'blocks' || includeStructure === true;
+        if (structureRequested && offset !== undefined) throw new Error('Block structure reads cannot be combined with text offset. Use structureOffset instead.');
+        if (!structureRequested && (structureOffset !== undefined || structureLimit !== undefined)) {
+          throw new Error('structureOffset and structureLimit require source blocks or includeStructure: true.');
         }
         const resolvedPath = await resolveReadToolPath(filePath);
         const fullPath = resolvedPath.fullPath;
         await assertAgentPathAllowed(fullPath);
+        if (requestedSource === 'markdown' && !/\.(?:md|markdown|mdx)$/iu.test(fullPath)) {
+          throw new Error('source markdown requires a .md, .markdown, or .mdx file.');
+        }
         throwIfAborted(signal);
         const isStoredOutput = resolvedPath.source === 'tool-output';
         const readTextLimit = isStoredOutput
@@ -253,11 +265,16 @@ export const piTools: AgentTool[] = [
         const collaborativeScene = !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
           ? await readAgentCollaborativeExcalidrawFile(fullPath) : null;
         const collaborative = !isStoredOutput && !collaborativeScene && /\.(?:md|markdown|txt)$/iu.test(fullPath)
-          ? await readAgentCollaborativeTextFile(fullPath, undefined, { includeStructure, structureOffset, structureLimit }) : null;
-        if (includeStructure) {
+          ? await readAgentCollaborativeTextFile(fullPath, undefined, {
+              includeStructure: structureRequested ? true : includeStructure,
+              structureOffset,
+              structureLimit,
+            }) : null;
+        if (structureRequested) {
           if (!collaborative) throw new Error('Structured reads require an active block collaboration document.');
           const details = {
             filePath, type: 'collaboration_structure', sha256: collaborative.sha256,
+            ...(requestedSource ? { requestedSource } : {}),
             collaboration: { documentId: collaborative.documentId, lifecycleGeneration: collaborative.lifecycleGeneration,
               schemaVersion: collaborative.schemaVersion, representation: collaborative.representation,
               documentSequence: collaborative.documentSequence, checkpointSequence: collaborative.checkpointSequence,
@@ -337,8 +354,12 @@ export const piTools: AgentTool[] = [
           ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))
           : collaborative?.sha256 ?? sha256;
         const window = readTextWindow(text, offset, Math.max(2, readTextLimit));
-        const formatted = formatTextReadResult(window.text, window, textSha256,
-          collaborativeScene ? '\nSource: live Excalidraw collaboration scene' : collaborative ? '\nSource: live Yjs collaboration state' : '');
+        const sourceLabel = collaborativeScene
+          ? '\nSource: live Excalidraw collaboration scene'
+          : collaborative
+            ? requestedSource === 'markdown' ? '\nSource: live canonical Markdown collaboration state' : '\nSource: live Yjs collaboration state'
+            : requestedSource === 'markdown' ? '\nSource: Markdown file' : '';
+        const formatted = formatTextReadResult(window.text, window, textSha256, sourceLabel);
         return {
           content: [{
             type: 'text',
@@ -356,6 +377,7 @@ export const piTools: AgentTool[] = [
             eof: window.eof,
             totalChars: window.totalChars,
             toolOutputReadWindow: formatted.layout,
+            ...(requestedSource ? { requestedSource } : {}),
             ...(isStoredOutput ? { toolOutputRead: true, reference: filePath } : {}),
             collaboration: collaborativeScene
               ? {

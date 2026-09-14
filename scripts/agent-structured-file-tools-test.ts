@@ -221,11 +221,37 @@ test('ordinary live and file reads preserve existing content, SHA and UTF-16 tex
   assert.equal(h.controls.projectedReads, 1);
 });
 
+test('read source selects explicit canonical Markdown or paginated live blocks', async () => {
+  const h = await harness();
+  const markdown = await h.read.execute('read-markdown', { path: 'document.md', source: 'markdown' }, undefined);
+  assert.match(textOf(markdown), /# Live heading/u);
+  assert.match(textOf(markdown), /Source: live canonical Markdown collaboration state/u);
+  assert.equal((markdown.details as { requestedSource?: string }).requestedSource, 'markdown');
+  assert.deepEqual(h.controls.fileReads.at(-1), ['/workspace/document.md', undefined,
+    { includeStructure: undefined, structureOffset: undefined, structureLimit: undefined }]);
+
+  const blocks = await h.read.execute('read-blocks', {
+    path: 'document.md', source: 'blocks', structureOffset: 1, structureLimit: 1,
+  }, undefined);
+  const metadata = JSON.parse(textOf(blocks)) as Metadata;
+  assert.deepEqual(metadata.structure.blocks, [h.controls.blocks[1]]);
+  assert.equal((blocks.details as { requestedSource?: string }).requestedSource, 'blocks');
+  assert.deepEqual(h.controls.fileReads.at(-1), ['/workspace/document.md', undefined,
+    { includeStructure: true, structureOffset: 1, structureLimit: 1 }]);
+
+  h.controls.live = false;
+  const file = await h.read.execute('read-markdown-file', { path: 'document.md', source: 'markdown' }, undefined);
+  assert.match(textOf(file), /Projected ordinary file/u);
+  assert.match(textOf(file), /Source: Markdown file/u);
+});
+
 test('structure mode rejects text offsets, missing opt-in, non-live files and legacy errors without fallback', async () => {
   const h = await harness();
   assert.match(textOf(await h.readStructure({ offset: 0 })), /cannot be combined with text offset/u);
   assert.equal(h.controls.fileReads.length, 0);
-  assert.match(textOf(await h.read.execute('read', { path: 'document.md', structureOffset: 1 }, undefined)), /require includeStructure: true/u);
+  assert.match(textOf(await h.read.execute('read', { path: 'document.md', structureOffset: 1 }, undefined)), /require source blocks or includeStructure: true/u);
+  assert.match(textOf(await h.read.execute('read', { path: 'document.md', source: 'markdown', includeStructure: true }, undefined)), /cannot be combined with includeStructure/u);
+  assert.match(textOf(await h.read.execute('read', { path: 'document.txt', source: 'markdown' }, undefined)), /requires a \.md/u);
   h.controls.live = false;
   assert.match(textOf(await h.readStructure()), /active block collaboration document/u);
   h.controls.live = true;
@@ -336,6 +362,9 @@ test('schemas expose all supported table commands and bounded formatting and str
     assert.equal(Value.Check(h.read.parameters, { path: 'document.md', includeStructure: true, ...params }), false);
   }
   assert.equal(Value.Check(h.read.parameters, { path: 'document.md', includeStructure: true, structureLimit: 100 }), true);
+  assert.equal(Value.Check(h.read.parameters, { path: 'document.md', source: 'markdown' }), true);
+  assert.equal(Value.Check(h.read.parameters, { path: 'document.md', source: 'blocks', structureLimit: 100 }), true);
+  assert.equal(Value.Check(h.read.parameters, { path: 'document.md', source: 'raw' }), false);
   assert.equal((h.edit.parameters as { type?: string }).type, 'object', 'provider schemas and parameter discovery retain their object root');
 });
 
