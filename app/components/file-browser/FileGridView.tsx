@@ -481,7 +481,7 @@ export function FileGridView({
         <div className={cn('flex justify-end px-2 pb-1', variant === 'fullscreen' && 'md:hidden')}>
           {sortMenu}
         </div>
-        <SidebarProvider>
+        <SidebarProvider className="min-h-0">
           <SidebarGroup className="p-0">
             <SidebarGroupContent>
               <SidebarMenu className="space-y-0.5" role="listbox" aria-label={t('fileListLabel')}>
@@ -553,7 +553,7 @@ export function FileGridView({
       aria-label={t('fileTreeLabel')}
     >
       <div className="px-2">{searchSummary}</div>
-      <SidebarProvider>
+      <SidebarProvider className="min-h-0">
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5" role="tree" aria-label={t('fileTreeLabel')}>
