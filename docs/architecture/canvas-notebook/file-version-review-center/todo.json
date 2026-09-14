@@ -466,7 +466,7 @@
       "id": "FVRC-P03",
       "order": 3,
       "title": "Globaler Versions- und Review-Center",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": ["FVRC-P02"],
       "exitGate": "FVRC-G03-CENTER",
       "tasks": [
@@ -507,7 +507,8 @@
           "id": "FVRC-301",
           "order": 1,
           "title": "Responsive Timeline mit Review-, Current- und History-Zustaenden bauen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "frontend-ui",
           "dependsOn": ["FVRC-300"],
           "deliverables": [
@@ -524,6 +525,15 @@
             "Gerenderte Komponenten- und Accessibility-Tests",
             "Light-/Dark-Token-Review",
             "Mobile-/Tablet-Zustandstests"
+          ],
+          "completionEvidence": [
+            "FileVersionTimeline rendert semantische, tastaturbedienbare Review-, Current- und History-Gruppen in fester Reihenfolge; sichtbare Badges, Icons und Texte transportieren jeden Status unabhaengig von Farbe.",
+            "Agentenvorschlaege verwenden vorhandene Violett-Akzente, Current eine zurueckhaltende Emerald-Flaeche und Konflikt-/Fehlerzustaende Amber beziehungsweise Destructive-Tokens inklusive Dark-Mode-Varianten.",
+            "Der globale Host stellt die Timeline mobil gestapelt und ab Tablet als informationsdichtes Master-Detail-Raster dar; Loading-, Empty-, Read-only-, Fehler- und paginierte Retry-Zustaende bleiben im selben Dialog erreichbar.",
+            "POST /api/files/version-center/v1/timeline autorisiert jede Seite serverseitig erneut und delegiert Cursor/Limit an den P02-Query-Service; private/no-store sowie Workspace-Scope bleiben erhalten.",
+            "Timeline-Seiten werden nur bei identischem Workspace und identischer Lineage dedupliziert zusammengefuehrt. Deep-Link-Auswahlen bleiben bis zum Auffinden stabil und werden erst nach vollstaendig geladener Historie sichtbar auf Current invalidiert.",
+            "scripts/file-version-center-timeline-test.tsx prueft Renderreihenfolge, Text-/Icon-Status, Light-/Dark-Klassen, mobiles/Tablet-Raster, Pagination-Fehler/Retry, Selection-Stabilitaet, Cross-Document-Abwehr, URL-Synchronisation sowie Read-only-/Empty-Zustaende ohne Browserautomation.",
+            "Die Timeline- und bestehende Open-/Route-Access-Suite, ESLint der geaenderten TypeScript-Dateien, npx tsc --noEmit und git diff --check bestehen. Visuelle Browser-Evidence bleibt entsprechend der nicht erteilten Playwright-Freigabe dem P07-E2E-Gate vorbehalten."
           ]
         },
         {

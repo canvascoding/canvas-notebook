@@ -10,6 +10,7 @@ import {
 import {
   parseFileVersionCenterRequestV1,
   type FileVersionCenterRequestV1,
+  type FileVersionCenterSelectionV1,
 } from '@/app/lib/file-version-center/contracts/v1';
 
 type FileVersionCenterState = {
@@ -60,4 +61,21 @@ export function syncVersionCenterFromLocation(search: string): FileVersionCenter
   if (request) openVersionCenter(request, { syncLocation: false });
   else closeVersionCenter({ syncLocation: false });
   return request;
+}
+
+export function selectVersionCenterEntry(
+  selection: FileVersionCenterSelectionV1 | null,
+): FileVersionCenterRequestV1 | null {
+  const current = useFileVersionCenterStore.getState().request;
+  if (!current) return null;
+  const selectedEntry = selection ?? undefined;
+  const initialView = selection?.kind === 'agent_operation' ? 'reviews' : 'history';
+  if (current.selectedEntry?.kind === selectedEntry?.kind
+    && current.selectedEntry?.id === selectedEntry?.id
+    && current.initialView === initialView) return current;
+  return openVersionCenter({
+    ...current,
+    selectedEntry,
+    initialView,
+  });
 }
