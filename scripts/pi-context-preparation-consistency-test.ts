@@ -104,10 +104,44 @@ async function main() {
   assert.equal(storedStatus.nextRequestEstimatedTokens, sentTokens);
   await runtime.transformContext(messages);
   assert.equal(attempts, 0, 'a later send must not repeat a no-op summary attempt');
+  runtime.getRuntimeContextBlock = async () => '<runtime_context>Current project context.</runtime_context>';
+  runtime.invalidateContextMeasurement();
+  await runtime.transformContext(messages);
+  const contextualTokens = runtime.preparedRuntimePayload.budgetSnapshot.estimatedTotalTokens;
+  const contextualMeasurement = new Promise<void>(resolve => { runtime.publishStatus = resolve; });
+  runtime.refreshContextMeasurement();
+  await contextualMeasurement;
+  assert.equal(runtime.contextMeasurementCache.current.nextRequestEstimatedTokens, contextualTokens,
+    'turn context must use the same protected-tail allowance in status and send');
   console.log('pi context preparation consistency tests passed');
 }
 
-main().finally(() => { internals._load = originalLoad; }).catch(error => {
+async function verifyNormalizedTrigger() {
+  const { preparePiHermesCompactionCandidate, projectPiHermesHistory } = await import('../app/lib/pi/compaction/runtime-engine');
+  const { preparePiFinalPayload } = await import('../app/lib/pi/multimodal-preparation');
+  const messages: AgentMessage[] = Array.from({ length: 32 }, (_, i) => ({
+    role: 'user', content: `Record ${i}: ${'\\'.repeat(12_000)}`, timestamp: i + 1,
+  }));
+  const base = { messages, summary: emptySummary, model, systemPromptTokens: 0,
+    toolTokens: 0, requestOutputTokens: 8_192, sessionId: 'normalized-trigger-regression',
+    signal: new AbortController().signal };
+  const projection = projectPiHermesHistory({ ...base, selectionMode: 'full' });
+  assert.equal(projection.composition.softThresholdExceeded, false, 'rough estimate misses serialization expansion');
+  const prepared = await preparePiFinalPayload({ messages: projection.composition.llmMessages, model,
+    effectiveInstructions: [], effectiveTools: [], requestOutputTokenCap: 8_192 });
+  assert.equal(prepared.budgetSnapshot.contextBudgetExceeded, false);
+  assert.ok(prepared.budgetSnapshot.serializedMessageTokens >= prepared.budgetSnapshot.triggerHistoryTokens);
+  let summaryCalls = 0;
+  const candidate = await preparePiHermesCompactionCandidate({ ...base,
+    triggerSnapshot: prepared.budgetSnapshot,
+    streamFn: async () => { summaryCalls++; throw new Error('simulated provider failure'); } });
+  assert.ok(summaryCalls > 0, 'confirmed normalized pressure must reach the summary provider');
+  assert.equal(candidate.summaryAttempted, true);
+  assert.equal(candidate.summaryFailed, true, 'provider failure must remain visible, not become below-trigger');
+  console.log('normalized trigger handoff tests passed');
+}
+
+main().then(verifyNormalizedTrigger).finally(() => { internals._load = originalLoad; }).catch(error => {
   console.error(error);
   process.exitCode = 1;
 });

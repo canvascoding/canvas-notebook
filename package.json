@@ -74,7 +74,7 @@
     "test:pi:live-compaction": "tsx --conditions react-server scripts/pi-live-compaction-integration-test.ts && tsx --conditions react-server scripts/pi-compaction-status-failure-test.ts",
     "test:pi:compaction-ui": "tsx scripts/pi-compaction-ui-contract-test.ts && tsx --conditions react-server scripts/pi-context-measurement-test.ts",
     "test:pi:context-ui-browser": "playwright test --config playwright.context-status.config.ts",
-    "test:pi:normalized-compaction-preflight": "tsx scripts/pi-normalized-compaction-preflight-test.ts",
+    "test:pi:normalized-compaction-preflight": "tsx scripts/pi-normalized-compaction-preflight-test.ts && tsx scripts/pi-context-preparation-consistency-test.ts",
     "test:pi:compaction-candidate-normalization": "tsx scripts/pi-compaction-candidate-normalization-test.ts",
     "test:pi:compaction-orientation": "tsx scripts/pi-compaction-orientation-test.ts",
     "test:pi:summary-framing": "tsx scripts/pi-summary-framing-test.ts",
