@@ -11,6 +11,7 @@ import {
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   AgentDirectConnectionAuthorizationError,
@@ -1378,6 +1379,15 @@ async function waitForDurableState(input: { row: AgentOperationRow; workspace: W
   do {
     const state = await loadCollaborationState(input.row.document_id);
     if (stateConfirmsAgentOperation(input.row, state)) {
+      await fileVersionHistoryService.capturePersistedCollaboration({
+        workspace: input.workspace,
+        state,
+        source: 'agent_apply',
+        actorUserId: input.row.initiated_by_user_id,
+        actorType: 'agent',
+        sourceSessionId: input.row.actor_session_id,
+        baseRevisionId: input.row.checkpoint_revision_id,
+      });
       return { state, ...await confirmedAgentFileRevision(input.row, state, input.workspace) };
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -1427,6 +1437,21 @@ async function reconcileAgentOperationDurability(database: SqlConnection, row: A
     || !(row.status === 'applied_to_ydoc' || (row.status === 'partially_applied' && row.error_code === 'persistence_degraded'))) return row;
   const state = await loadCollaborationState(row.document_id);
   if (!stateConfirmsAgentOperation(row, state)) return row;
+  if (workspace) {
+    try {
+      await fileVersionHistoryService.capturePersistedCollaboration({
+        workspace,
+        state,
+        source: 'agent_apply',
+        actorUserId: row.initiated_by_user_id,
+        actorType: 'agent',
+        sourceSessionId: row.actor_session_id,
+        baseRevisionId: row.checkpoint_revision_id,
+      });
+    } catch {
+      return row;
+    }
+  }
   const projection = workspace ? await confirmedAgentFileRevision(row, state, workspace) : { checkpointed: false, revisionId: null };
   try { return await confirmDurableAgentOperation({ database, row, state, ...projection }); }
   catch { return await readOperation(database, row.operation_id) || row; }

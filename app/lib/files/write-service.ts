@@ -34,6 +34,8 @@ import { invalidateWorkspaceFileViews } from '@/app/lib/api/route-helpers';
 import { queuePublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
+import type { FileVersionContentSource } from '@/app/lib/file-version-center/version-content-store';
 
 export type WriteWorkspaceFileContentInput = {
   workspace: WorkspaceContext;
@@ -52,6 +54,7 @@ export type WriteWorkspaceFileContentInput = {
   createOnly?: boolean;
   encoded?: boolean;
   ensureCollaborationDocument?: boolean;
+  versionSource?: Extract<FileVersionContentSource, 'initial' | 'manual' | 'agent_apply' | 'restore' | 'external_import'>;
 };
 
 
@@ -170,6 +173,18 @@ async function writeWorkspaceFileContentUnlocked(input: WriteWorkspaceFileConten
     path: input.path,
     contentHash: afterRevision.sha256,
     sizeBytes: afterRevision.stats.size,
+    actorUserId: input.actorUserId,
+    actorType: input.actorType ?? 'user',
+    sourceSessionId: input.actorSessionId ?? null,
+    baseRevisionId: input.baseRevisionId ?? storedBaseRevision?.id ?? null,
+  });
+  await fileVersionHistoryService.capture({
+    workspace: input.workspace,
+    path: input.path,
+    content: contentBuffer,
+    source: input.versionSource ?? (input.actorType === 'agent'
+      ? 'agent_apply'
+      : input.createOnly ? 'initial' : 'manual'),
     actorUserId: input.actorUserId,
     actorType: input.actorType ?? 'user',
     sourceSessionId: input.actorSessionId ?? null,

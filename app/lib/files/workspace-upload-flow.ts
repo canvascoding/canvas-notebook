@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 
-import { createDirectory, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
+import { createDirectory, readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import {
   assertWorkspaceFileRevisionUnchanged,
   getWorkspaceFileRevision,
@@ -24,6 +24,7 @@ import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lo
 import { DOCX_PACKAGE_LIMITS, DocxPackageValidationError } from '@/app/lib/office/docx-package';
 import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import { findOfficeCommit } from '@/app/lib/office/document-journal';
+import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
 
 export type OfficeUploadAttempt = Readonly<{
   version: 1;
@@ -194,7 +195,7 @@ export async function runWorkspaceUploadWrite(params: {
       await params.write(assertUploadStillAllowed);
       const afterRevision = await getWorkspaceFileRevision(params.targetPath, params.fileOptions);
       if (afterRevision) {
-        await ensureFileRevisionForCurrentContent({
+        const revision = await ensureFileRevisionForCurrentContent({
           workspace: params.workspace,
           path: params.targetPath,
           contentHash: afterRevision.sha256,
@@ -204,6 +205,16 @@ export async function runWorkspaceUploadWrite(params: {
           sourceSessionId: null,
           baseRevisionId: storedBaseRevision?.id ?? null,
         });
+        await fileVersionHistoryService.capture({
+          workspace: params.workspace,
+          path: params.targetPath,
+          content: await readFile(params.targetPath, params.fileOptions),
+          source: 'external_import',
+          actorUserId: params.actorUserId,
+          actorType: 'user',
+          baseRevisionId: storedBaseRevision?.id ?? null,
+        });
+        if (!revision.lineageId) throw new Error('Uploaded file revision is missing its lineage.');
       }
     } finally {
       if (transientUploadLockId) {

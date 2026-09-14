@@ -333,7 +333,8 @@
           "id": "FVRC-200",
           "order": 0,
           "title": "Schmale Version-Capture-Grenzen fuer Markdown und Text integrieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "collaboration",
           "dependsOn": ["FVRC-103"],
           "deliverables": [
@@ -350,6 +351,14 @@
             "Reale PostgreSQL-Tests mit verzoegerter Dateiprojektion",
             "Parallel-Edit-, Restart- und Deduplizierungstests",
             "Bestehende Collaboration-Durability- und Projection-Suites"
+          ],
+          "completionEvidence": [
+            "history-service.ts trennt Capture-Orchestrierung vom bestehenden Revisionsledger und bindet nur unterstuetzte Markdown-/Textinhalte an den immutable Content Store; ensureFileRevisionForCurrentContent bleibt unveraendert.",
+            "Der Collaboration-Server erfasst kanonischen Inhalt direkt aus dem bereits persistierten Yjs-Snapshot, ohne auf die verzoegerte Dateiprojektion zu warten; Capture-Fehler degradieren den autoritativen Yjs-Zustand nicht.",
+            "Agenten-Durability bestaetigt angenommene und direkt angewendete Operationen erst nach geschuetztem agent_apply-Capture; Recovery-Retries verwenden dieselbe immutable Revision-Bindung.",
+            "Manuelle Datei-Commits und externe Uploads besitzen schmale Post-Commit-Hooks; automatische Checkpoints werden im V1-Intervall gebuendelt, geschuetzte Agenten-/Restore-Captures dagegen nie zeitlich verworfen.",
+            "scripts/file-version-history-service-test.ts prueft PGlite-Lifecycle, autoritatives Yjs-Capture vor Dateiprojektion, Parallel-Retry, Blob-Deduplizierung, Intervallbuendelung, State-Vector-Hash und Unsupported-Typen.",
+            "History-/Content-Store-, Collaboration-Failure-, Agent-Live-File-, Atomic-Write- und Upload-Storage-Suites sowie ESLint und npx tsc --noEmit bestehen; die Office-Retry-Suite benoetigt ohne externes DATABASE_URL keine echte Laufzeitverbindung und beendet ihren dokumentierten Preflight-Fallback erfolgreich."
           ]
         },
         {

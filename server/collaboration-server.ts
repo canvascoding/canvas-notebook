@@ -60,6 +60,7 @@ import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
 
 const COLLABORATION_PATH = '/ws/collaboration';
 const MAX_UPDATE_BYTES = 1024 * 1024;
@@ -549,6 +550,24 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           lastContext.claims.lifecycleGeneration,
           document,
         );
+        try {
+          await fileVersionHistoryService.capturePersistedCollaboration({
+            workspace: lastContext.workspace,
+            state,
+            source: lastContext.actorType === 'agent' ? 'agent_apply' : 'automatic_checkpoint',
+            actorUserId: lastContext.initiatedByUserId ?? lastContext.user.id,
+            actorType: lastContext.actorType,
+            sourceSessionId: lastContext.claims.sessionId,
+          });
+        } catch {
+          // FVRC shadow/history failures never invalidate the already durable
+          // Yjs state. Agent completion performs its own strict capture fence.
+          console.warn('[Collaboration] File version capture failed.', {
+            documentId: state.documentId,
+            workspaceId: state.workspaceId,
+            operationId: lastContext.operationId,
+          });
+        }
       } catch (error) {
         // Delete/archive increments the lifecycle generation and invalidates
         // the room. A previously scheduled debounce may still run once; it
