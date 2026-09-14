@@ -471,10 +471,11 @@
       "exitGate": "FVRC-G03-CENTER",
       "tasks": [
         {
-          "id": "FVRC-300",
-          "order": 0,
-          "title": "Globalen Open-Store, Deep-Link-Parser und einmaligen Dialog-Host integrieren",
-          "status": "planned",
+      "id": "FVRC-300",
+      "order": 0,
+      "title": "Globalen Open-Store, Deep-Link-Parser und einmaligen Dialog-Host integrieren",
+      "status": "completed",
+      "completedAt": "2026-09-14",
           "area": "frontend-architecture",
           "dependsOn": ["FVRC-203"],
           "deliverables": [
@@ -487,11 +488,20 @@
             "Jede Route kann denselben Center ohne bereits geoeffneten Editor oeffnen.",
             "Schliessen erhaelt fremde Queryparameter und loescht nur Center-Navigationszustand."
           ],
-          "verification": [
-            "Store- und URL-Roundtrip-Tests",
-            "Cross-Workspace- und Access-Loss-Tests",
-            "React Mount-/Unmount- und Focus-Tests"
-          ]
+      "verification": [
+        "Store- und URL-Roundtrip-Tests",
+        "Cross-Workspace- und Access-Loss-Tests",
+        "React Mount-/Unmount- und Focus-Tests"
+      ],
+      "completionEvidence": [
+        "file-version-center-store.ts stellt einen globalen serialisierbaren Navigationszustand sowie openVersionCenter, closeVersionCenter und Reload-Hydration bereit; geladene Timeline- oder Dokumentinhalte werden nie im Store persistiert.",
+        "Der eingefrorene Deep-Link-V1 wird gegen die bestehenden Contract-Parser synchronisiert; replaceState erhaelt fremde Queryparameter, History-State und Hash und entfernt beim Schliessen ausschliesslich FVRC-Schluessel.",
+        "FileVersionCenterHost ist exakt einmal im gemeinsamen Locale-Layout montiert, kann von jeder Route ohne geoeffneten Editor aufgerufen werden, loest das aktuelle Dokument serverseitig auf und stellt den Fokus nach programmatischem Schliessen wieder her.",
+        "Der additive Route-Authorizer bindet jede Referenz erneut an Session, expliziten Workspace und aktuelle Lese-/Schreibrechte; fremde Workspace-Antworten, archivierte Memberships und Access-Loss werden fail-closed abgewiesen und private/no-store ausgeliefert.",
+        "POST /api/files/version-center/v1/resolve verwendet den autorisierten P02-Timeline-Service als einzige Aufloesungsquelle; der Client verwirft abgebrochene oder verspaetete Cross-Workspace-Antworten per Generation und AbortSignal.",
+        "scripts/file-version-center-open-test.tsx prueft Store-/URL-Roundtrip, Reload, Fremdparameter/Hash, serialisierbaren Inhalt, Cross-Workspace-Race, Access-Loss, Mount/Unmount und Focus-Rueckgabe; scripts/file-version-center-route-access-test.ts prueft Autorisierung, Workspace-Scope, Membership und stabile Fehlerantworten.",
+        "Beide fokussierten Suites, ESLint der geaenderten TypeScript-Dateien, npx tsc --noEmit, git diff --check und npm run build bestehen; der Build nutzte nur fuer den Lauf einen anschliessend entfernten gemeinsamen Turbopack-Root, da der dedizierte Worktree keine eigene Dependency-Kopie besitzt."
+      ]
         },
         {
           "id": "FVRC-301",

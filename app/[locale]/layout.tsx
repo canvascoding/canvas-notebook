@@ -14,6 +14,7 @@ import { WorkspaceAppearanceProvider } from '@/app/components/WorkspaceAppearanc
 import { WorkspaceNavigationSync } from '@/app/components/workspaces/WorkspaceNavigationSync';
 import { workspaceAppearanceInitScript } from '@/app/lib/workspaces/appearance-theme-init';
 import { WebSocketProvider } from '@/app/components/websocket-provider';
+import { FileVersionCenterHost } from '@/app/components/file-version-center/FileVersionCenterHost';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
 import {routing} from '@/i18n/routing';
@@ -100,6 +101,7 @@ export default async function LocaleLayout({
               <TerminalAvailabilityProvider>
                 <WebSocketProvider enabled>
                   {children}
+                  <FileVersionCenterHost />
                   <Toaster richColors position="top-right" />
                 </WebSocketProvider>
               </TerminalAvailabilityProvider>

@@ -8090,6 +8090,14 @@
     "error": "The action failed. Please reload.",
     "refresh": "Refresh"
   },
+  "fileVersionCenter": {
+    "title": "Versions & changes",
+    "loading": "Loading document history…",
+    "loadFailed": "Document history could not be loaded.",
+    "retry": "Try again",
+    "resolvingDocument": "Resolving current document…",
+    "documentResolved": "Current document resolved"
+  },
   "officeDocx": {
     "openFailed": "The current document could not be opened.",
     "historySelection": "Select document history",

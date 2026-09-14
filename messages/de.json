@@ -8089,6 +8089,14 @@
     "error": "Die Aktion ist fehlgeschlagen. Bitte erneut laden.",
     "refresh": "Aktualisieren"
   },
+  "fileVersionCenter": {
+    "title": "Versionen & Änderungen",
+    "loading": "Dokumentverlauf wird geladen…",
+    "loadFailed": "Der Dokumentverlauf konnte nicht geladen werden.",
+    "retry": "Erneut versuchen",
+    "resolvingDocument": "Aktuelles Dokument wird aufgelöst…",
+    "documentResolved": "Aktuelles Dokument aufgelöst"
+  },
   "officeDocx": {
     "openFailed": "Das aktuelle Dokument konnte nicht geöffnet werden.",
     "historySelection": "Dokumentverlauf auswählen",
