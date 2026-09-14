@@ -190,7 +190,7 @@
       "id": "FVRC-P01",
       "order": 1,
       "title": "Dauerhafter Versionsspeicher, Change Groups und Review-Policy",
-      "status": "in_progress",
+      "status": "completed",
       "dependsOn": ["FVRC-P00"],
       "exitGate": "FVRC-G01-STORAGE",
       "tasks": [
@@ -290,7 +290,8 @@
           "id": "FVRC-103",
           "order": 3,
           "title": "Review-Policy-Service und effektive Policy-Praezedenz implementieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "collaboration-security",
           "dependsOn": ["FVRC-102"],
           "deliverables": [
@@ -307,6 +308,15 @@
             "Policy-Praezedenzmatrix",
             "Parallele-Tab-CAS-Tests",
             "Grant-Ablauf-, Widerruf-, Lifecycle- und Rechteverlusttests"
+          ],
+          "completionEvidence": [
+            "review-policy-service.ts liest Nutzer-/Workspace-/Lineage-Policies unter explizitem Zugriffsscope und speichert Updates mit expectedRevision-CAS; parallele Tabs koennen denselben Stand nicht doppelt fortschreiben.",
+            "Die eingefrorene Praezedenz aus Hard-Safety, Persistenzzustand, Workspace-Policy, explizitem Review und Nutzerpraeferenz wird unveraendert verwendet; unbekannte oder fehlerhafte Zustaende fallen gesperrt auf review_required zurueck.",
+            "safe_direct gilt nur fuer eigene Operationen, die nach dem Policy-Update mit exakt beobachteter Policy-Revision erzeugt wurden und deren aktives Dokument zur Lineage gehoert.",
+            "Die Policy ersetzt keine Freigabe: Erst der bestehende kurzlebige, nutzer-, workspace-, session-, dokument- und lifecycle-gebundene Direct-Edit-Grant hebt den Enforcement-Modus fuer genau diese Operation auf safe_direct.",
+            "Policy-Audits enthalten nur Scope-IDs, Modus und CAS-Revisionen; Dokumentinhalt und Pfade werden weder gespeichert noch protokolliert.",
+            "Policy-Praezedenz-, Parallel-CAS-, Scope-, Fail-Closed- und Adaptertests sowie die bestehende 25-Faelle-Grant-Suite fuer Ablauf, Widerruf, Lifecycle und Rechteverlust bestehen.",
+            "Alle P01-Fokustests, ESLint fuer geaenderte TypeScript-Dateien, npx tsc --noEmit, git diff --check und npm run build bestehen. Der Worktree-Build nutzte temporaer den gemeinsamen Turbopack-Root; diese Hilfsanpassung ist nicht Teil des Diffs."
           ]
         }
       ]
