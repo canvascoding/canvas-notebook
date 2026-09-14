@@ -3,15 +3,22 @@ import 'server-only';
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
+import { readBoundedJson } from '@/app/lib/api/bounded-json';
+import { dualRateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 import {
+  FILE_VERSION_CENTER_CONTRACT_LIMITS,
   FILE_VERSION_CENTER_CONTRACT_VERSION,
   FILE_VERSION_CENTER_ERROR_CODES,
   FileVersionCenterContractError,
   type FileVersionCenterErrorCode,
 } from './contracts/v1';
+import {
+  observeFileVersionCenter,
+  type FileVersionCenterOperation,
+} from './observability';
 import type { FileVersionCenterAccess } from './query-service';
 
 export const FILE_VERSION_CENTER_PRIVATE_HEADERS = Object.freeze({
@@ -29,12 +36,20 @@ type AuthorizedRequest = {
   access: FileVersionCenterAccess;
 };
 type DeniedRequest = { authorized: false; response: NextResponse };
+type FileVersionCenterRateLimit = Readonly<{
+  perUserPerMinute: number;
+  perIpPerMinute: number;
+}>;
 
 function privateResponse(response: NextResponse): NextResponse {
   for (const [name, value] of Object.entries(FILE_VERSION_CENTER_PRIVATE_HEADERS)) {
     response.headers.set(name, value);
   }
   return response;
+}
+
+export function withFileVersionCenterPrivateHeaders(response: NextResponse): NextResponse {
+  return privateResponse(response);
 }
 
 export function fileVersionCenterErrorResponse(
@@ -50,9 +65,61 @@ export function fileVersionCenterErrorResponse(
   }, { status, headers: FILE_VERSION_CENTER_PRIVATE_HEADERS });
 }
 
+export async function readFileVersionCenterJson(request: NextRequest): Promise<unknown> {
+  const parsed = await readBoundedJson(request, FILE_VERSION_CENTER_CONTRACT_LIMITS.payloadBytes);
+  if (parsed.response) {
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.payloadTooLarge,
+      'The file version center request exceeds the transport limit.',
+    );
+  }
+  if (parsed.body === null) {
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.invalidRequest,
+      'A valid JSON request body is required.',
+    );
+  }
+  return parsed.body;
+}
+
+export function applyFileVersionCenterRateLimit(
+  request: NextRequest,
+  input: {
+    operation: FileVersionCenterOperation;
+    verifiedUserId: string;
+    rate: FileVersionCenterRateLimit;
+    startedAt?: number;
+  },
+): NextResponse | null {
+  const limited = dualRateLimit(request, {
+    perUserLimit: input.rate.perUserPerMinute,
+    perIpLimit: input.rate.perIpPerMinute,
+    windowMs: 60_000,
+    keyPrefix: `file-version-center:${input.operation}`,
+    verifiedUserId: input.verifiedUserId,
+  });
+  if (limited.ok) return null;
+  observeFileVersionCenter({
+    operation: input.operation,
+    outcome: 'rate_limited',
+    startedAt: input.startedAt,
+    errorCode: FILE_VERSION_CENTER_ERROR_CODES.rateLimited,
+  });
+  const response = fileVersionCenterErrorResponse(
+    FILE_VERSION_CENTER_ERROR_CODES.rateLimited,
+    'Too many file version requests. Try again shortly.',
+    429,
+    true,
+  );
+  const retryAfter = limited.response.headers.get('Retry-After');
+  if (retryAfter) response.headers.set('Retry-After', retryAfter);
+  return response;
+}
+
 function errorStatus(code: FileVersionCenterErrorCode): { status: number; retryable: boolean } {
   if (code === FILE_VERSION_CENTER_ERROR_CODES.accessDenied) return { status: 403, retryable: false };
   if (code === FILE_VERSION_CENTER_ERROR_CODES.notFound) return { status: 404, retryable: false };
+  if (code === FILE_VERSION_CENTER_ERROR_CODES.payloadTooLarge) return { status: 413, retryable: false };
   if (code === FILE_VERSION_CENTER_ERROR_CODES.rateLimited) return { status: 429, retryable: true };
   if (code === FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable) return { status: 503, retryable: true };
   if (code === FILE_VERSION_CENTER_ERROR_CODES.internal) return { status: 500, retryable: true };
@@ -65,12 +132,30 @@ function errorStatus(code: FileVersionCenterErrorCode): { status: number; retrya
   return { status: 400, retryable: false };
 }
 
-export function fileVersionCenterCaughtError(error: unknown): NextResponse {
+export function fileVersionCenterCaughtError(
+  error: unknown,
+  observation?: { operation: FileVersionCenterOperation; startedAt?: number },
+): NextResponse {
   if (error instanceof FileVersionCenterContractError) {
     const mapped = errorStatus(error.code);
+    if (observation) {
+      observeFileVersionCenter({
+        ...observation,
+        outcome: mapped.status === 403 ? 'denied'
+          : mapped.status === 409 ? 'conflict'
+            : mapped.status >= 500 ? 'failure' : 'invalid',
+        errorCode: error.code,
+      });
+    }
     return fileVersionCenterErrorResponse(error.code, error.message, mapped.status, mapped.retryable);
   }
-  console.error('File version center request failed', error);
+  if (observation) {
+    observeFileVersionCenter({
+      ...observation,
+      outcome: 'failure',
+      errorCode: FILE_VERSION_CENTER_ERROR_CODES.internal,
+    });
+  }
   return fileVersionCenterErrorResponse(
     FILE_VERSION_CENTER_ERROR_CODES.internal,
     'The version center request could not be completed.',

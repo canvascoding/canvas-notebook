@@ -877,7 +877,7 @@
       "id": "FVRC-P07",
       "order": 7,
       "title": "Kernfeature haerten und kontrolliert ausrollen",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": ["FVRC-P06"],
       "exitGate": "FVRC-G07-CORE-READY",
       "tasks": [
@@ -885,7 +885,8 @@
           "id": "FVRC-700",
           "order": 0,
           "title": "Security-, Performance-, Accessibility- und Observability-Gates schliessen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "hardening",
           "dependsOn": ["FVRC-602"],
           "deliverables": [
@@ -903,6 +904,14 @@
             "Last- und Begrenzungstests",
             "Accessibility-Komponententests",
             "npm run build"
+          ],
+          "completionEvidence": [
+            "Der systematische P00-P06-Audit bestaetigt serverseitige User-, Workspace-, Session-, Lineage- und Objekt-Scope-Pruefungen fuer Timeline, Revisionen, Restore, Agentenoperationen und Tool-App-Deskriptoren; bestehende Query-Services verwenden parametrisierte SQL-Abfragen und die versionierten TypeBox-Contracts weisen unbekannte Felder, erratene Fremd-IDs, unsichere Deep-Links, Inhalte und Grants fail-closed ab.",
+            "resolve, timeline, compare, restore, policy, Datei-Widget-Refresh sowie Accept/Reject verwenden jetzt unabhaengige authentifizierte Nutzer- und transportverifizierte IP-Buckets aus zentralen Policy-Limits; die bestehende rateLimit-Defaultsemantik bleibt unveraendert. Restore, Policy und Review-Mutationen autorisieren den gepinnten Workspace unmittelbar vor dem Serviceaufruf erneut.",
+            "Alle FVRC-POST-Routen parsen gestreamte Bodies innerhalb des 512-KiB-Contract-Limits; Collaboration-Actions sind auf 4 KiB, exakte Felder und 200 Zeichen pro Idempotency-Key begrenzt. Oversize-Compare prueft Byte-Limits vor Zeilensplit und erzeugt weder Diff noch Preview- oder Blockprojektion fuer abgewiesene Inhalte; Blob-, Timeline-, Query-, Batch-, Hunk- und Preview-Grenzen wurden durch die P00-P06-Suites erneut bestaetigt.",
+            "Private Antworten tragen no-store/nosniff/Vary, unbekannte Accept-/Reject- und FVRC-Fehler geben keine Stack-, Pfad-, Datenbank- oder Inhaltsdetails aus. Der neue strukturierte Observability-Adapter akzeptiert ausschliesslich feste Operationen, Outcomes, Fehlercodes, Booleans und begrenzte Zaehler und liefert inhaltsfreie Request- und Latenzmetriken.",
+            "npm run test:file-version-center:hardening deckt Security-Negativfaelle, Dual-Bucket-Bursts, gestreamte Oversize-Cancellation, Mass Assignment, Rechteverlust, Error-Redaction, Compare-Limits sowie Dialogbenennung, Timeline-Landmarks, Tastaturfokus, Tab-Pfeilnavigation, Focus-Return und Reduced Motion auf Komponentenebene ab. Zusaetzlich bestehen Storage-, Content-, Change-Group-, Policy-, History-, Query-, Lifecycle-, Restore-, Editor-, File-Browser-, Tool-Result-, Batch- und Direct-Grant-Regressionssuites.",
+            "Changed-file ESLint, npx tsc --noEmit, JSON-Validierung und git diff --check bestehen. npm run build kompiliert in 93 Sekunden, fuehrt den Post-Compile-Hook aus und schliesst den TypeScript-Lauf ab; die unveraenderte lokale Baseline stoppt erst beim Prerender von /en/sign-up, weil Postgres-Modus ohne DATABASE_URL laeuft. Es wurde kein Quellcode-Workaround, keine Browserautomation und kein Container gestartet."
           ]
         },
         {

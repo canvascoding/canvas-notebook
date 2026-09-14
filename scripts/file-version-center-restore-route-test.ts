@@ -23,29 +23,33 @@ async function harness() {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const calls: Array<Record<string, unknown>> = [];
-  const controls = { denied: false, limited: false };
+  const controls = { denied: false, limited: false, revokeBeforeMutation: false };
+  let authorizationCalls = 0;
   const workspace = { workspaceId: 'workspace-one', permissions: { canWrite: true } };
   const access = { userId: 'user-one', canWrite: true };
   const route = {} as typeof Route;
   new Function('require', 'module', 'exports', source)((name: string) => {
-    if (name === '@/app/lib/api/route-helpers') return {
-      readJsonBody: async (request: NextRequest) => request.json(),
-      applyRateLimit: (_request: NextRequest, options: unknown) => {
-        calls.push({ rateLimit: options });
-        return controls.limited ? new NextResponse(null, { status: 429 }) : null;
-      },
-    };
     if (name === '@/app/lib/file-version-center/contracts/v1') {
       return contracts;
     }
     if (name === '@/app/lib/file-version-center/policy-v1') return {
-      FILE_VERSION_CENTER_RATE_LIMITS_V1: { restore: { perUserPerMinute: 10 } },
+      FILE_VERSION_CENTER_RATE_LIMITS_V1: { restore: { perUserPerMinute: 10, perIpPerMinute: 60 } },
+    };
+    if (name === '@/app/lib/file-version-center/observability') return {
+      observeFileVersionCenter: () => undefined,
     };
     if (name === '@/app/lib/file-version-center/route-adapter') return {
       FILE_VERSION_CENTER_PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store, max-age=0' },
+      readFileVersionCenterJson: async (request: NextRequest) => request.json(),
+      applyFileVersionCenterRateLimit: (_request: NextRequest, input: unknown) => {
+        calls.push({ rateLimit: input });
+        return controls.limited ? new NextResponse(null, { status: 429,
+          headers: { 'Cache-Control': 'private, no-store, max-age=0' } }) : null;
+      },
       authorizeFileVersionCenterRequest: async (_request: NextRequest, workspaceId: string, permission: string) => {
+        authorizationCalls += 1;
         calls.push({ authorize: { workspaceId, permission } });
-        return controls.denied
+        return controls.denied || (controls.revokeBeforeMutation && authorizationCalls === 2)
           ? { authorized: false, response: new NextResponse(null, { status: 403 }) }
           : { authorized: true, session: { user: { id: 'user-one' } }, workspace, access };
       },
@@ -81,10 +85,13 @@ async function main(): Promise<void> {
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
   assert.deepEqual(success.calls[0], { authorize: { workspaceId: 'workspace-one', permission: 'canWrite' } });
-  assert.deepEqual(success.calls[1], {
-    rateLimit: { limit: 10, windowMs: 60_000, keyPrefix: 'file-version-center-restore:user-one' },
-  });
-  assert.deepEqual(success.calls[2], {
+  const rateCall = success.calls[1]?.rateLimit as Record<string, unknown>;
+  assert.equal(rateCall.operation, 'restore');
+  assert.deepEqual(rateCall.rate, { perUserPerMinute: 10, perIpPerMinute: 60 });
+  assert.equal(rateCall.verifiedUserId, 'user-one');
+  assert.equal(typeof rateCall.startedAt, 'number');
+  assert.deepEqual(success.calls[2], { authorize: { workspaceId: 'workspace-one', permission: 'canWrite' } });
+  assert.deepEqual(success.calls[3], {
     restore: { request: restoreBody, access: success.access, workspace: success.workspace },
   });
   assert.equal((await response.json()).restoredRevisionId, 'revision-restored');
@@ -93,6 +100,13 @@ async function main(): Promise<void> {
   denied.controls.denied = true;
   assert.equal((await denied.route.POST(denied.request())).status, 403);
   assert.equal(denied.calls.some((call) => 'restore' in call), false);
+
+  const revoked = await harness();
+  revoked.controls.revokeBeforeMutation = true;
+  assert.equal((await revoked.route.POST(revoked.request())).status, 403);
+  assert.equal(revoked.calls.filter((call) => 'authorize' in call).length, 2);
+  assert.equal(revoked.calls.some((call) => 'restore' in call), false,
+    'permission loss after validation must stop the restore mutation');
 
   const limited = await harness();
   limited.controls.limited = true;

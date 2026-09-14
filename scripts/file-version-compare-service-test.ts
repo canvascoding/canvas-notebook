@@ -198,12 +198,19 @@ async function run(): Promise<void> {
 
   const oversized = `${'x'.repeat(FILE_VERSION_CENTER_LIMITS_V1.maxCompareBytesPerSide + 1)}\n`;
   revisions.set('revision-oversized', oversized);
-  const oversizedResponse = await service.compare({
+  const oversizedResponse = await service.compareWithPreview({
     request: request({ fence, id: 'revision-oversized' }), access, workspace,
   });
-  assert.equal(oversizedResponse.candidate.contentAvailable, true);
-  assert.equal(oversizedResponse.truncated, true);
-  assert.equal(oversizedResponse.hunks.length, 0);
+  assert.equal(oversizedResponse.response.candidate.contentAvailable, true);
+  assert.equal(oversizedResponse.response.truncated, true);
+  assert.equal(oversizedResponse.response.hunks.length, 0);
+  assert.equal(oversizedResponse.preview.current, '',
+    'an over-limit candidate must not trigger a second preview-processing pass');
+  assert.equal(oversizedResponse.preview.candidate, null,
+    'over-limit content must not be returned in the preview projection');
+  assert.deepEqual(oversizedResponse.preview.blocks, {
+    current: 0, candidate: 0, unchanged: 0, changed: 0,
+  });
 
   currentValue = Array.from({ length: 32 }, (_, index) => `line-${index}`).join('\n');
   const pagedCandidate = Array.from({ length: 32 }, (_, index) => (

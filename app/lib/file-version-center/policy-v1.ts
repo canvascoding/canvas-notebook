@@ -28,10 +28,13 @@ export const FILE_VERSION_CENTER_LIMITS_V1 = Object.freeze({
 } as const);
 
 export const FILE_VERSION_CENTER_RATE_LIMITS_V1 = Object.freeze({
+  resolve: Object.freeze({ perUserPerMinute: 120, perIpPerMinute: 600 }),
   timeline: Object.freeze({ perUserPerMinute: 120, perIpPerMinute: 600 }),
   compare: Object.freeze({ perUserPerMinute: 30, perIpPerMinute: 120 }),
   restore: Object.freeze({ perUserPerMinute: 10, perIpPerMinute: 60 }),
   policyMutation: Object.freeze({ perUserPerMinute: 30, perIpPerMinute: 120 }),
+  reviewMutation: Object.freeze({ perUserPerMinute: 30, perIpPerMinute: 120 }),
+  toolAppRefresh: Object.freeze({ perUserPerMinute: 60, perIpPerMinute: 240 }),
 } as const);
 
 export const FILE_VERSION_CENTER_PROTECTED_SOURCES_V1 = Object.freeze([

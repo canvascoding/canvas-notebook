@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
 import {
   FILE_VERSION_CENTER_ERROR_CODES,
   FileVersionCenterContractError,
   parseFileReviewPolicyUpdateRequestV1,
-  type FileReviewPolicyUpdateRequestV1,
 } from '@/app/lib/file-version-center/contracts/v1';
+import { observeFileVersionCenter } from '@/app/lib/file-version-center/observability';
 import { FILE_VERSION_CENTER_RATE_LIMITS_V1 } from '@/app/lib/file-version-center/policy-v1';
 import { fileVersionCenterQueryService } from '@/app/lib/file-version-center/query-service';
 import {
@@ -14,9 +13,11 @@ import {
   FileReviewPolicyServiceError,
 } from '@/app/lib/file-version-center/review-policy-service';
 import {
+  applyFileVersionCenterRateLimit,
   authorizeFileVersionCenterRequest,
   FILE_VERSION_CENTER_PRIVATE_HEADERS,
   fileVersionCenterCaughtError,
+  readFileVersionCenterJson,
 } from '@/app/lib/file-version-center/route-adapter';
 
 function policyRouteError(error: unknown): unknown {
@@ -37,27 +38,27 @@ function policyRouteError(error: unknown): unknown {
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   try {
     const body = parseFileReviewPolicyUpdateRequestV1(
-      await readJsonBody<FileReviewPolicyUpdateRequestV1>(request),
+      await readFileVersionCenterJson(request),
     );
     const authorization = await authorizeFileVersionCenterRequest(
       request,
       body.target.workspaceId,
       'canWrite',
     );
-    if (!authorization.authorized) return authorization.response;
-    const limited = applyRateLimit(request, {
-      limit: FILE_VERSION_CENTER_RATE_LIMITS_V1.policyMutation.perUserPerMinute,
-      windowMs: 60_000,
-      keyPrefix: `file-version-center-policy:${authorization.session.user.id}`,
-    });
-    if (limited) {
-      for (const [name, value] of Object.entries(FILE_VERSION_CENTER_PRIVATE_HEADERS)) {
-        limited.headers.set(name, value);
-      }
-      return limited;
+    if (!authorization.authorized) {
+      observeFileVersionCenter({ operation: 'policy', outcome: 'denied', startedAt });
+      return authorization.response;
     }
+    const limited = applyFileVersionCenterRateLimit(request, {
+      operation: 'policy',
+      rate: FILE_VERSION_CENTER_RATE_LIMITS_V1.policyMutation,
+      verifiedUserId: authorization.session.user.id,
+      startedAt,
+    });
+    if (limited) return limited;
 
     const timeline = await fileVersionCenterQueryService.timeline({
       target: body.target,
@@ -71,15 +72,25 @@ export async function POST(request: NextRequest) {
         'The review policy cannot be changed for this document.',
       );
     }
+    const reauthorization = await authorizeFileVersionCenterRequest(
+      request,
+      body.target.workspaceId,
+      'canWrite',
+    );
+    if (!reauthorization.authorized) {
+      observeFileVersionCenter({ operation: 'policy', outcome: 'denied', startedAt });
+      return reauthorization.response;
+    }
     const policy = await fileReviewPolicyService.writeAuthorized({
-      access: authorization.access,
+      access: reauthorization.access,
       lineageId: timeline.document.lineageId,
       requestedMode: body.requestedMode,
       expectedRevision: body.expectedRevision,
       workspacePolicy: timeline.policy.reason === 'workspace_policy' ? 'force_review' : 'allow_user_choice',
     });
+    observeFileVersionCenter({ operation: 'policy', outcome: 'success', startedAt });
     return NextResponse.json(policy, { headers: FILE_VERSION_CENTER_PRIVATE_HEADERS });
   } catch (error) {
-    return fileVersionCenterCaughtError(policyRouteError(error));
+    return fileVersionCenterCaughtError(policyRouteError(error), { operation: 'policy', startedAt });
   }
 }

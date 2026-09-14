@@ -162,12 +162,27 @@ async function main() {
   const layout = document.querySelector('[data-testid="file-version-center-responsive-layout"]');
   assert.ok(layout?.className.includes('grid-cols-1') && layout.className.includes('md:grid-cols'),
     'the center exposes mobile stacking and a tablet/desktop master-detail grid');
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  const labelledBy = dialog?.getAttribute('aria-labelledby');
+  const describedBy = dialog?.getAttribute('aria-describedby');
+  assert.ok(labelledBy && document.getElementById(labelledBy), 'the dialog has a screen-reader title');
+  assert.ok(describedBy && document.getElementById(describedBy), 'the dialog has a document description');
+  assert.ok(document.querySelector('nav[aria-label]'), 'the timeline landmark has an accessible name');
+  assert.equal(document.querySelectorAll('section[aria-labelledby]').length, 3,
+    'review, current and history sections expose named landmarks');
+  const animated = [...document.querySelectorAll('[class*="animate-spin"]')];
+  assert.ok(animated.length > 0 && animated.every((element) => (
+    element.getAttribute('class')?.includes('motion-reduce:animate-none')
+  )),
+    'every active progress animation honors reduced-motion preferences');
   assert.match(document.body.textContent ?? '', /Agent reviews[\s\S]*Agent proposal[\s\S]*Current[\s\S]*Version history/u,
     'review, current and history groups remain in the required order');
   assert.match(document.body.textContent ?? '', /selected version is in an older page/iu,
     'an unloaded deep-link selection remains explicit and stable');
   const agentButton = document.querySelector<HTMLButtonElement>('[data-entry-kind="agent_operation"]');
   assert.equal(agentButton?.getAttribute('aria-pressed'), 'false');
+  await act(async () => { agentButton?.focus(); });
+  assert.equal(document.activeElement, agentButton, 'timeline choices are reachable by keyboard focus');
   assert.ok(agentButton?.className.includes('violet'), 'agent rows use the violet design-system accent');
   assert.ok(agentButton?.querySelector('[class*="dark:text-violet"]'), 'agent accents define a dark-theme token');
   assert.match(agentButton?.textContent ?? '', /Needs review/iu, 'agent status is visible as text, not color alone');

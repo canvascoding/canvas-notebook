@@ -44,6 +44,9 @@ const queryParams: unknown[][] = [];
 let stored: string | null = JSON.stringify(message);
 let accessibleGroup = group;
 let currentState: 'review_required' | 'rejected' = 'review_required';
+const genericRateLimitCalls: Array<Record<string, unknown>> = [];
+const rateLimitCalls: Array<Record<string, unknown>> = [];
+const observations: Array<Record<string, unknown>> = [];
 
 const data = () => ({
   contractVersion: 1 as const,
@@ -97,7 +100,31 @@ internals._load = (request, parent, isMain) => {
   if (request.includes('mcp/access')) return { McpAccessError: AccessError, mcpErrorStatus: (error: unknown) => (error as AccessError).status || 500 };
   if (request.includes('automations/store') || request.includes('automations/policy')
     || request.includes('todos/store') || request.includes('public-sharing/public-file-shares')) return {};
-  if (request.includes('mcp/apps-config')) return { mcpAppOrigins: () => ({ appOrigin: 'http://localhost:3000' }) };
+  if (request.includes('mcp/apps-config')) return {
+    isMcpAppsEnabled: () => true,
+    mcpAppOrigins: () => ({ appOrigin: 'http://localhost:3000' }),
+  };
+  if (request.includes('mcp/apps-host')) return {
+    requireMcpAppChatAccess: async () => undefined,
+    issueBuiltinToolAppTicket: async () => ({ frameUrl: 'http://localhost/frame' }),
+  };
+  if (request.includes('utils/rate-limit')) return {
+    rateLimit: (_request: Request, input: Record<string, unknown>) => {
+      genericRateLimitCalls.push(input);
+      return { ok: true };
+    },
+    dualRateLimit: (_request: Request, input: Record<string, unknown>) => {
+      rateLimitCalls.push(input);
+      return { ok: true };
+    },
+  };
+  if (request.includes('file-version-center/observability')) return {
+    observeFileVersionCenter: (input: Record<string, unknown>) => { observations.push(input); },
+  };
+  if (request === '@/app/lib/auth') return { auth: { api: { getSession: async () => ({
+    user: { id: chat.userId },
+    session: { id: 'auth-session', expiresAt: new Date(Date.now() + 60_000) },
+  }) } } };
   return originalLoad(request, parent, isMain);
 };
 
@@ -138,6 +165,28 @@ async function main() {
     await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 425 });
     stored = JSON.stringify({ ...message, isError: true });
     await assert.rejects(requireBuiltinToolAppAccess(chat, app), { status: 403 });
+
+    stored = JSON.stringify(message);
+    currentState = 'review_required';
+    const { POST } = await import('../app/api/chat/tool-apps/route');
+    const refresh = await POST(new Request('http://localhost:3000/api/chat/tool-apps', {
+      method: 'POST',
+      headers: { origin: 'http://localhost:3000', 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'refresh', app, ...chat }),
+    }) as Parameters<typeof POST>[0]);
+    assert.equal(refresh.status, 200);
+    assert.deepEqual(genericRateLimitCalls.map((call) => call.keyPrefix), ['tool-app']);
+    assert.equal(genericRateLimitCalls[0]?.limit, 60);
+    assert.equal(genericRateLimitCalls[0]?.verifiedUserId, chat.userId);
+    assert.deepEqual(rateLimitCalls.map((call) => call.keyPrefix), [
+      'file-version-center:tool-app-refresh',
+    ]);
+    assert.ok(rateLimitCalls.every((call) => call.verifiedUserId === chat.userId));
+    assert.ok(rateLimitCalls.every((call) => typeof call.perUserLimit === 'number'
+      && typeof call.perIpLimit === 'number'));
+    assert.equal(observations.at(-1)?.operation, 'tool_app_refresh');
+    assert.equal(observations.at(-1)?.outcome, 'success');
+    assert.equal(refresh.headers.get('cache-control'), 'private, no-store');
 
     const html = await readFile('public/_canvas-tool-apps/file-change-group-v1.html', 'utf8');
     type Node = { nodeName: string; childNodes?: Node[] };

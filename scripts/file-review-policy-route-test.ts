@@ -29,6 +29,7 @@ async function harness() {
   const controls = {
     denied: false,
     limited: false,
+    revokeBeforeMutation: false,
     capable: true,
     writeError: null as null | 'policy_conflict' | 'access_denied' | 'target_invalid' | 'policy_inconsistent',
   };
@@ -37,22 +38,21 @@ async function harness() {
   }
   const workspace = { workspaceId: 'workspace-one', permissions: { canWrite: true, canRunAgent: true } };
   const access = { userId: 'user-one', canWrite: true, canRunAgent: true };
+  let authorizationCalls = 0;
   const route = {} as typeof Route;
   new Function('require', 'module', 'exports', source)((name: string) => {
-    if (name === '@/app/lib/api/route-helpers') return {
-      readJsonBody: async (request: NextRequest) => request.json(),
-      applyRateLimit: (_request: NextRequest, options: unknown) => {
-        calls.push({ kind: 'rate-limit', input: options });
-        return controls.limited ? new NextResponse(null, { status: 429 }) : null;
-      },
-    };
     if (name === '@/app/lib/file-version-center/contracts/v1') return {
       FILE_VERSION_CENTER_ERROR_CODES,
       FileVersionCenterContractError,
       parseFileReviewPolicyUpdateRequestV1,
     };
     if (name === '@/app/lib/file-version-center/policy-v1') return {
-      FILE_VERSION_CENTER_RATE_LIMITS_V1: { policyMutation: { perUserPerMinute: 30 } },
+      FILE_VERSION_CENTER_RATE_LIMITS_V1: {
+        policyMutation: { perUserPerMinute: 30, perIpPerMinute: 120 },
+      },
+    };
+    if (name === '@/app/lib/file-version-center/observability') return {
+      observeFileVersionCenter: () => undefined,
     };
     if (name === '@/app/lib/file-version-center/query-service') return {
       fileVersionCenterQueryService: {
@@ -85,9 +85,16 @@ async function harness() {
     };
     if (name === '@/app/lib/file-version-center/route-adapter') return {
       FILE_VERSION_CENTER_PRIVATE_HEADERS: { 'Cache-Control': 'private, no-store, max-age=0' },
+      readFileVersionCenterJson: async (request: NextRequest) => request.json(),
+      applyFileVersionCenterRateLimit: (_request: NextRequest, input: unknown) => {
+        calls.push({ kind: 'rate-limit', input });
+        return controls.limited ? new NextResponse(null, { status: 429,
+          headers: { 'Cache-Control': 'private, no-store, max-age=0' } }) : null;
+      },
       authorizeFileVersionCenterRequest: async (_request: NextRequest, workspaceId: string, permission: string) => {
+        authorizationCalls += 1;
         calls.push({ kind: 'authorize', input: { workspaceId, permission } });
-        return controls.denied
+        return controls.denied || (controls.revokeBeforeMutation && authorizationCalls === 2)
           ? { authorized: false, response: new NextResponse(null, { status: 403 }) }
           : { authorized: true, session: { user: { id: 'user-one' } }, workspace, access };
       },
@@ -118,7 +125,9 @@ async function main(): Promise<void> {
   const response = await success.route.POST(success.request());
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
-  assert.deepEqual(success.calls.map((call) => call.kind), ['authorize', 'rate-limit', 'timeline', 'write']);
+  assert.deepEqual(success.calls.map((call) => call.kind), [
+    'authorize', 'rate-limit', 'timeline', 'authorize', 'write',
+  ]);
   assert.deepEqual(success.calls.find((call) => call.kind === 'authorize')?.input, {
     workspaceId: 'workspace-one', permission: 'canWrite',
   });
@@ -148,6 +157,13 @@ async function main(): Promise<void> {
   denied.controls.denied = true;
   assert.equal((await denied.route.POST(denied.request())).status, 403);
   assert.equal(denied.calls.some((call) => call.kind === 'timeline'), false);
+
+  const revoked = await harness();
+  revoked.controls.revokeBeforeMutation = true;
+  assert.equal((await revoked.route.POST(revoked.request())).status, 403);
+  assert.equal(revoked.calls.filter((call) => call.kind === 'authorize').length, 2);
+  assert.equal(revoked.calls.some((call) => call.kind === 'write'), false,
+    'permission loss after capability resolution must stop the policy mutation');
 
   const limited = await harness();
   limited.controls.limited = true;

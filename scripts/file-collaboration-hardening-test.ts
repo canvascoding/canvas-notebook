@@ -217,6 +217,42 @@ async function assertOperationBodyHardening(): Promise<void> {
   );
   assert.equal(missing.response?.status, 400, 'a missing idempotency key must return HTTP 400');
 
+  const forged = await readCollaborationOperationIdempotencyKey(
+    new NextRequest('http://localhost/api/files/collaboration/operations/test/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"idempotencyKey":"operation-key","userId":"other"}',
+    }),
+  );
+  assert.equal(forged.response?.status, 400, 'unknown action fields must be rejected');
+
+  const longKey = await readCollaborationOperationIdempotencyKey(
+    new NextRequest('http://localhost/api/files/collaboration/operations/test/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idempotencyKey: 'x'.repeat(201) }),
+    }),
+  );
+  assert.equal(longKey.response?.status, 400, 'idempotency keys must have a bounded length');
+
+  let cancelled = false;
+  const oversizedStream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(3_000));
+      controller.enqueue(new Uint8Array(2_000));
+    },
+    cancel() { cancelled = true; },
+  });
+  const oversized = await readCollaborationOperationIdempotencyKey(
+    new NextRequest(new Request(
+      'http://localhost/api/files/collaboration/operations/test/reject',
+      { method: 'POST', body: oversizedStream, duplex: 'half' } as RequestInit,
+    )),
+  );
+  assert.equal(oversized.response?.status, 413, 'streamed action bodies must be bounded');
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(cancelled, true, 'oversized action streams must be cancelled');
+
   const valid = await readCollaborationOperationIdempotencyKey(
     new NextRequest('http://localhost/api/files/collaboration/operations/test/reject', {
       method: 'POST',

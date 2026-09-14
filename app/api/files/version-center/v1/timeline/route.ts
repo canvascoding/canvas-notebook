@@ -1,39 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { applyRateLimit, readJsonBody } from '@/app/lib/api/route-helpers';
-import {
-  parseFileVersionTimelineRequestV1,
-  type FileVersionTimelineRequestV1,
-} from '@/app/lib/file-version-center/contracts/v1';
+import { parseFileVersionTimelineRequestV1 } from '@/app/lib/file-version-center/contracts/v1';
+import { observeFileVersionCenter } from '@/app/lib/file-version-center/observability';
+import { FILE_VERSION_CENTER_RATE_LIMITS_V1 } from '@/app/lib/file-version-center/policy-v1';
 import { fileVersionCenterQueryService } from '@/app/lib/file-version-center/query-service';
 import {
+  applyFileVersionCenterRateLimit,
   authorizeFileVersionCenterRequest,
   FILE_VERSION_CENTER_PRIVATE_HEADERS,
   fileVersionCenterCaughtError,
+  readFileVersionCenterJson,
 } from '@/app/lib/file-version-center/route-adapter';
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
   try {
     const body = parseFileVersionTimelineRequestV1(
-      await readJsonBody<FileVersionTimelineRequestV1>(request),
+      await readFileVersionCenterJson(request),
     );
     const authorization = await authorizeFileVersionCenterRequest(
       request,
       body.target.workspaceId,
       'canRead',
     );
-    if (!authorization.authorized) return authorization.response;
-    const limited = applyRateLimit(request, {
-      limit: 120,
-      windowMs: 60_000,
-      keyPrefix: `file-version-center-timeline:${authorization.session.user.id}`,
-    });
-    if (limited) {
-      for (const [name, value] of Object.entries(FILE_VERSION_CENTER_PRIVATE_HEADERS)) {
-        limited.headers.set(name, value);
-      }
-      return limited;
+    if (!authorization.authorized) {
+      observeFileVersionCenter({ operation: 'timeline', outcome: 'denied', startedAt });
+      return authorization.response;
     }
+    const limited = applyFileVersionCenterRateLimit(request, {
+      operation: 'timeline',
+      rate: FILE_VERSION_CENTER_RATE_LIMITS_V1.timeline,
+      verifiedUserId: authorization.session.user.id,
+      startedAt,
+    });
+    if (limited) return limited;
     const timeline = await fileVersionCenterQueryService.timeline({
       target: body.target,
       access: authorization.access,
@@ -41,8 +41,14 @@ export async function POST(request: NextRequest) {
       ...(body.cursor ? { cursor: body.cursor } : {}),
       limit: body.limit ?? 25,
     });
+    observeFileVersionCenter({
+      operation: 'timeline',
+      outcome: 'success',
+      startedAt,
+      itemCount: timeline.entries.length,
+    });
     return NextResponse.json(timeline, { headers: FILE_VERSION_CENTER_PRIVATE_HEADERS });
   } catch (error) {
-    return fileVersionCenterCaughtError(error);
+    return fileVersionCenterCaughtError(error, { operation: 'timeline', startedAt });
   }
 }

@@ -3,8 +3,14 @@ import { auth } from '@/app/lib/auth';
 import { McpAccessError, mcpErrorStatus } from '@/app/lib/mcp/access';
 import { isMcpAppsEnabled, mcpAppOrigins } from '@/app/lib/mcp/apps-config';
 import { issueBuiltinToolAppTicket, requireMcpAppChatAccess } from '@/app/lib/mcp/apps-host';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { AUTOMATION_APP_URI, readBuiltinToolAppDescriptor } from '@/app/lib/tool-apps/types';
+import { observeFileVersionCenter } from '@/app/lib/file-version-center/observability';
+import { FILE_VERSION_CENTER_RATE_LIMITS_V1 } from '@/app/lib/file-version-center/policy-v1';
+import { dualRateLimit, rateLimit } from '@/app/lib/utils/rate-limit';
+import {
+  AUTOMATION_APP_URI,
+  FILE_CHANGE_APP_URI,
+  readBuiltinToolAppDescriptor,
+} from '@/app/lib/tool-apps/types';
 import { requireBuiltinToolAppAccess } from '@/app/lib/tool-apps/builtin-access';
 import { readBoundedWidgetJson } from '@/app/lib/tool-apps/request';
 import { AutomationMutationError } from '@/app/lib/automations/mutation-errors';
@@ -14,6 +20,8 @@ export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   const headers = { 'Cache-Control': 'private, no-store' };
+  const startedAt = Date.now();
+  let observesFileChangeRefresh = false;
   try {
     if (!isMcpAppsEnabled()) throw new McpAccessError('Widgets are disabled.', 404, 'TOOL_APPS_DISABLED');
     if (request.headers.get('origin') !== mcpAppOrigins().appOrigin) throw new McpAccessError('Cross-origin widget access is not allowed.', 403);
@@ -24,10 +32,27 @@ export async function POST(request: NextRequest) {
     const body = await readBoundedWidgetJson(request, 8192);
     const app = readBuiltinToolAppDescriptor(body?.app);
     if (!app || (body.action !== 'render' && body.action !== 'status' && body.action !== 'refresh')) throw new McpAccessError('Invalid widget action.', 400);
+    observesFileChangeRefresh = body.action === 'refresh' && app.resourceUri === FILE_CHANGE_APP_URI;
     const chat = { userId: session.user.id, sessionId: typeof body.sessionId === 'string' ? body.sessionId : '',
       agentId: typeof body.agentId === 'string' ? body.agentId : '' };
     let data;
     if (body.action === 'refresh') {
+      if (observesFileChangeRefresh) {
+        const refreshLimit = dualRateLimit(request, {
+          perUserLimit: FILE_VERSION_CENTER_RATE_LIMITS_V1.toolAppRefresh.perUserPerMinute,
+          perIpLimit: FILE_VERSION_CENTER_RATE_LIMITS_V1.toolAppRefresh.perIpPerMinute,
+          windowMs: 60_000,
+          keyPrefix: 'file-version-center:tool-app-refresh',
+          verifiedUserId: session.user.id,
+        });
+        if (!refreshLimit.ok) {
+          observeFileVersionCenter({ operation: 'tool_app_refresh', outcome: 'rate_limited', startedAt });
+          return NextResponse.json(
+            { success: false, error: 'Too many requests' },
+            { status: 429, headers: { ...headers, 'Retry-After': refreshLimit.response.headers.get('Retry-After') ?? '60' } },
+          );
+        }
+      }
       await requireMcpAppChatAccess(chat);
       data = await requireBuiltinToolAppAccess(chat, app);
     } else if (body.action === 'status') {
@@ -40,8 +65,18 @@ export async function POST(request: NextRequest) {
       const { changeAutomationAppStatus } = await import('@/app/lib/tool-apps/automation-actions');
       data = await changeAutomationAppStatus(chat, app, body.status, Number(body.expectedRevision), body.locale === 'de' ? 'de' : 'en', body.expectedUpdatedAt);
     } else data = await issueBuiltinToolAppTicket({ ...chat, app, authSessionId: session.session.id, authSessionExpiresAt: session.session.expiresAt });
+    if (observesFileChangeRefresh) {
+      observeFileVersionCenter({ operation: 'tool_app_refresh', outcome: 'success', startedAt });
+    }
     return NextResponse.json({ success: true, data }, { headers });
   } catch (error) {
+    if (observesFileChangeRefresh) {
+      observeFileVersionCenter({
+        operation: 'tool_app_refresh',
+        outcome: error instanceof McpAccessError && error.status === 403 ? 'denied' : 'failure',
+        startedAt,
+      });
+    }
     return NextResponse.json({ success: false, error: error instanceof McpAccessError || error instanceof AutomationMutationError ? error.message : 'Widget is unavailable.',
       ...(error instanceof AutomationMutationError || error instanceof McpAccessError ? { code: error.code } : {}) },
       { status: error instanceof AutomationMutationError ? error.status : mcpErrorStatus(error), headers });

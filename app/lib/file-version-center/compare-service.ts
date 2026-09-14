@@ -390,11 +390,18 @@ export function createFileVersionCompareService(options: {
         'The comparison page size is invalid.');
     }
 
-    const currentLines = lines(observed.content);
-    const candidateLines = candidateContent === null ? [] : lines(candidateContent);
-    const admitted = candidateContent !== null && isFileVersionCompareAdmittedV1({
-      currentBytes: Buffer.byteLength(observed.content, 'utf8'),
-      selectedBytes: Buffer.byteLength(candidateContent, 'utf8'),
+    const currentBytes = Buffer.byteLength(observed.content, 'utf8');
+    const candidateBytes = candidateContent === null ? 0 : Buffer.byteLength(candidateContent, 'utf8');
+    const currentByteAdmitted = currentBytes <= FILE_VERSION_CENTER_LIMITS_V1.maxCompareBytesPerSide;
+    const bytesAdmitted = candidateContent !== null
+      && currentByteAdmitted
+      && candidateBytes <= FILE_VERSION_CENTER_LIMITS_V1.maxCompareBytesPerSide
+      && currentBytes + candidateBytes <= FILE_VERSION_CENTER_LIMITS_V1.maxCompareCombinedBytes;
+    const currentLines = currentByteAdmitted ? lines(observed.content) : [];
+    const candidateLines = bytesAdmitted && candidateContent !== null ? lines(candidateContent) : [];
+    const admitted = bytesAdmitted && isFileVersionCompareAdmittedV1({
+      currentBytes,
+      selectedBytes: candidateBytes,
       currentLines: currentLines.length,
       selectedLines: candidateLines.length,
     });
@@ -423,6 +430,20 @@ export function createFileVersionCompareService(options: {
       page: { hasMore, nextCursor: hasMore ? encodeCursor({ offset: nextOffset, binding: cursorBinding }) : null },
       truncated: !admitted || built.lineTextTruncated || built.hunks.length > boundedHunks.length,
     });
+
+    const currentPreviewAdmitted = currentByteAdmitted
+      && currentLines.length <= FILE_VERSION_CENTER_LIMITS_V1.maxCompareLinesPerSide;
+    const previewAdmitted = candidateContent === null ? currentPreviewAdmitted : admitted;
+    if (!previewAdmitted) {
+      return { response, actionFence: { proposalVersion }, preview: {
+        format: fileClass === 'markdown' ? 'markdown' : 'text',
+        current: '',
+        candidate: null,
+        externalRequestsAllowed: false,
+        blockedExternalReferences: 0,
+        blocks: { current: 0, candidate: 0, unchanged: 0, changed: 0 },
+      } };
+    }
 
     const candidateForPreview = candidateContent ?? '';
     if (fileClass === 'markdown') {

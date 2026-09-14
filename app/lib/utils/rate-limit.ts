@@ -10,6 +10,15 @@ interface RateLimitOptions {
   verifiedUserId?: string;
 }
 
+interface DualRateLimitOptions {
+  perUserLimit: number;
+  perIpLimit: number;
+  windowMs: number;
+  keyPrefix: string;
+  /** Must be obtained from an already verified server-side session. */
+  verifiedUserId: string;
+}
+
 type RateLimitBucket = {
   count: number;
   resetAt: number;
@@ -37,9 +46,7 @@ function getClientId(_request: NextRequest, verifiedUserId?: string) {
   return createHash('sha256').update(key).digest('base64url');
 }
 
-export function rateLimit(request: NextRequest, options: RateLimitOptions) {
-  const clientId = getClientId(request, options.verifiedUserId);
-  const key = `${options.keyPrefix}:${clientId}`;
+function rateLimitBucket(key: string, limit: number, windowMs: number) {
   const now = Date.now();
   const existing = buckets.get(key);
 
@@ -57,22 +64,17 @@ export function rateLimit(request: NextRequest, options: RateLimitOptions) {
         } as const;
       }
     }
-    buckets.set(key, { count: 1, resetAt: now + options.windowMs });
+    buckets.set(key, { count: 1, resetAt: now + windowMs });
     return { ok: true } as const;
   }
 
-  if (existing.count >= options.limit) {
+  if (existing.count >= limit) {
     const retryAfter = Math.max(1, Math.ceil((existing.resetAt - now) / 1000));
     return {
       ok: false,
       response: NextResponse.json(
         { success: false, error: 'Too many requests' },
-        {
-          status: 429,
-          headers: {
-            'Retry-After': retryAfter.toString(),
-          },
-        }
+        { status: 429, headers: { 'Retry-After': retryAfter.toString() } },
       ),
     } as const;
   }
@@ -80,4 +82,36 @@ export function rateLimit(request: NextRequest, options: RateLimitOptions) {
   existing.count += 1;
   buckets.set(key, existing);
   return { ok: true } as const;
+}
+
+export function rateLimit(request: NextRequest, options: RateLimitOptions) {
+  const clientId = getClientId(request, options.verifiedUserId);
+  const key = `${options.keyPrefix}:${clientId}`;
+  return rateLimitBucket(key, options.limit, options.windowMs);
+}
+
+/**
+ * Applies independent authenticated-user and transport-IP budgets. The
+ * established rateLimit() auto-selection contract remains unchanged for
+ * callers that need one identity dimension only.
+ */
+export function dualRateLimit(request: NextRequest, options: DualRateLimitOptions) {
+  const identity = getRequestRateLimitIdentity();
+  const ipIdentity = createHash('sha256')
+    .update(`client:${identity?.clientAddress ?? 'unknown'}`)
+    .digest('base64url');
+  const userIdentity = createHash('sha256')
+    .update(`user:${options.verifiedUserId}`)
+    .digest('base64url');
+  const ipResult = rateLimitBucket(
+    `${options.keyPrefix}:ip:${ipIdentity}`,
+    options.perIpLimit,
+    options.windowMs,
+  );
+  if (!ipResult.ok) return ipResult;
+  return rateLimitBucket(
+    `${options.keyPrefix}:user:${userIdentity}`,
+    options.perUserLimit,
+    options.windowMs,
+  );
 }

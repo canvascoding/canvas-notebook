@@ -17,7 +17,13 @@ const request = (value: unknown) => new NextRequest('https://canvas.test/api/fil
 async function harness() {
   const calls: Array<Record<string, unknown>> = [];
   const workspace = { workspaceId: 'workspace', organizationId: 'organization' };
-  const controls = { denied: false, limited: false, error: null as Error | null };
+  const controls = {
+    denied: false,
+    limited: false,
+    revokeBeforeMutation: false,
+    error: null as Error | null,
+  };
+  let authorizationCalls = 0;
   class ProposalChangedError extends Error { readonly code = 'AGENT_PROPOSAL_CHANGED'; }
   const filename = path.resolve('app/api/files/collaboration/operations/[operationId]/accept/route.ts');
   const load = createRequire(filename);
@@ -27,11 +33,27 @@ async function harness() {
   const route = {} as typeof Route;
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name === '@/app/lib/workspaces/request') return { requireRequestWorkspace: async (_request: NextRequest, options: unknown) => {
-      assert.deepEqual(options, { permissions: 'canWrite' });
-      return controls.denied ? { response: NextResponse.json({ error: 'Denied' }, { status: 403 }) }
+      authorizationCalls += 1;
+      assert.deepEqual(options, authorizationCalls === 1
+        ? { permissions: 'canWrite' }
+        : { workspaceId: 'workspace', permissions: 'canWrite' });
+      return controls.denied || (controls.revokeBeforeMutation && authorizationCalls === 2)
+        ? { response: NextResponse.json({ error: 'Denied' }, { status: 403 }) }
         : { response: null, workspace, session: { user: { id: 'user' } } };
     } };
-    if (name === '@/app/lib/api/route-helpers') return { applyRateLimit: () => controls.limited ? new NextResponse(null, { status: 429 }) : null };
+    if (name === '@/app/lib/utils/rate-limit') return { dualRateLimit: () => controls.limited
+      ? { ok: false, response: new NextResponse(null, { status: 429 }) }
+      : { ok: true } };
+    if (name === '@/app/lib/file-version-center/policy-v1') return { FILE_VERSION_CENTER_RATE_LIMITS_V1: {
+      reviewMutation: { perUserPerMinute: 30, perIpPerMinute: 120 },
+    } };
+    if (name === '@/app/lib/file-version-center/observability') return { observeFileVersionCenter: () => undefined };
+    if (name === '@/app/lib/file-version-center/route-adapter') return {
+      withFileVersionCenterPrivateHeaders: (response: NextResponse) => {
+        response.headers.set('Cache-Control', 'private, no-store, max-age=0');
+        return response;
+      },
+    };
     if (name === '@/app/lib/collaboration/agent-operations') return {
       AgentProposalChangedError: ProposalChangedError,
       acceptAgentOperation: async (input: Record<string, unknown>) => {
@@ -42,16 +64,27 @@ async function harness() {
     };
     return load(name);
   }, { exports: route }, route);
-  const accept = (req: NextRequest) => route.POST(req, { params: Promise.resolve({ operationId: 'operation' }) });
+  const accept = (req: NextRequest) => {
+    authorizationCalls = 0;
+    return route.POST(req, { params: Promise.resolve({ operationId: 'operation' }) });
+  };
   return { accept, calls, controls, workspace, ProposalChangedError };
 }
 
 test('the accept route forwards only the exact proposal and authenticated action scope', async () => {
   const h = await harness();
-  const response = await h.accept(request({ ...body, idempotencyKey: '  delivery  ', userId: 'other', workspace: 'foreign', targets: ['forged'] }));
+  const response = await h.accept(request({ ...body, idempotencyKey: '  delivery  ' }));
   assert.equal(response.status, 200);
   assert.deepEqual(h.calls, [{ operationId: 'operation', workspace: h.workspace, userId: 'user', idempotencyKey: 'delivery', proposalVersion }]);
   assert.equal((await response.json()).operation.operationStatus, 'persisted_yjs');
+  assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
+});
+
+test('unknown approval fields are rejected instead of becoming a mass-assignment surface', async () => {
+  const h = await harness();
+  const response = await h.accept(request({ ...body, userId: 'other', workspace: 'foreign', targets: ['forged'] }));
+  assert.equal(response.status, 400);
+  assert.equal(h.calls.length, 0);
 });
 
 test('missing, malformed and nonobject approval bodies never call the operation service', async (t) => {
@@ -104,6 +137,14 @@ test('authorization and rate limits still stop acceptance before parsing or appl
   assert.equal(h.calls.length, 0);
 });
 
+test('permission loss immediately before acceptance prevents the mutation', async () => {
+  const h = await harness();
+  h.controls.revokeBeforeMutation = true;
+  const response = await h.accept(request(body));
+  assert.equal(response.status, 403);
+  assert.equal(h.calls.length, 0);
+});
+
 test('a changed proposal has a typed refresh response without leaking service details', async () => {
   const h = await harness();
   h.controls.error = new h.ProposalChangedError('private document text, path, or proposal bytes');
@@ -113,6 +154,15 @@ test('a changed proposal has a typed refresh response without leaking service de
   assert.equal(payload.success, false); assert.equal(payload.code, 'AGENT_PROPOSAL_CHANGED');
   assert.match(payload.error, /Reload/u); assert.doesNotMatch(JSON.stringify(payload), /private/u);
   assert.equal(h.calls.length, 1);
+});
+
+test('unexpected service errors are redacted from private responses', async () => {
+  const h = await harness();
+  h.controls.error = new Error('private document text at /workspace/secret.md');
+  const response = await h.accept(request(body));
+  assert.equal(response.status, 409);
+  assert.doesNotMatch(await response.text(), /private|workspace|secret\.md/iu);
+  assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
 });
 
 test('the approval reader preserves tokens exactly while other action bodies remain compatible', async () => {
