@@ -3,10 +3,6 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 
 import { previewAgentOperationContent } from '@/app/lib/collaboration/agent-operations';
-import { authoritativeCollaborationSnapshot } from '@/app/lib/collaboration/checkpoint';
-import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
-import { readFile } from '@/app/lib/filesystem/workspace-files';
-import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 import {
@@ -18,7 +14,6 @@ import {
   parseFileVersionCompareResponseV1,
   type FileVersionCompareRequestV1,
   type FileVersionCompareResponseV1,
-  type FileVersionCurrentFenceV1,
   type FileVersionDiffHunkV1,
 } from './contracts/v1';
 import {
@@ -35,12 +30,12 @@ import {
   type ResolvedFileVersionTarget,
 } from './query-service';
 import { createFileVersionContentStore, type FileVersionContentStore } from './version-content-store';
-
-export type AuthoritativeFileVersionContent = {
-  content: string;
-  fence: FileVersionCurrentFenceV1;
-  observedAt: number;
-};
+import {
+  fileVersionFencesMatch,
+  loadAuthoritativeFileVersionContent,
+  type AuthoritativeFileVersionContent,
+} from './authoritative-content';
+export type { AuthoritativeFileVersionContent } from './authoritative-content';
 
 export type FileVersionAgentCandidate = {
   content: string | null;
@@ -87,43 +82,6 @@ function lines(value: string): string[] {
   return normalized.endsWith('\n') ? normalized.slice(0, -1).split('\n') : normalized.split('\n');
 }
 
-async function runtimeCurrentContent(
-  target: ResolvedFileVersionTarget,
-  workspace: WorkspaceContext,
-): Promise<AuthoritativeFileVersionContent> {
-  if (target.documentId) {
-    const state = await loadCollaborationState(target.documentId);
-    if (!state || state.degraded || state.status !== 'active' || state.workspaceId !== target.workspaceId
-      || state.path !== target.path) {
-      throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable,
-        'The authoritative collaboration state is unavailable.');
-    }
-    const snapshot = authoritativeCollaborationSnapshot(state);
-    const content = normalizedText(snapshot.canonicalContent);
-    const contentSha256 = sha256(content);
-    return {
-      content,
-      fence: {
-        revisionId: target.latestRevisionHash === contentSha256 ? target.latestRevisionId : null,
-        sha256: contentSha256,
-        stateVectorHash: sha256(state.stateVector),
-      },
-      observedAt: Date.now(),
-    };
-  }
-  const raw = await readFile(target.path, workspaceFileOptions(workspace));
-  const content = raw.toString('utf8');
-  const contentSha256 = sha256(raw);
-  return {
-    content,
-    fence: {
-      revisionId: target.latestRevisionHash === contentSha256 ? target.latestRevisionId : null,
-      sha256: contentSha256,
-    },
-    observedAt: Date.now(),
-  };
-}
-
 async function runtimeAgentCandidate(input: {
   operationId: string;
   workspace: WorkspaceContext;
@@ -134,12 +92,6 @@ async function runtimeAgentCandidate(input: {
     ? { content: preview.content, baseSha256: preview.baseSha256,
         baseStateVectorHash: preview.baseStateVectorHash, stale: preview.stale }
     : { content: null, baseSha256: null, stale: true };
-}
-
-function sameFence(actual: FileVersionCurrentFenceV1, expected: FileVersionCurrentFenceV1): boolean {
-  return actual.sha256 === expected.sha256
-    && actual.revisionId === expected.revisionId
-    && actual.stateVectorHash === expected.stateVectorHash;
 }
 
 function encodeCursor(cursor: DiffCursor): string {
@@ -368,7 +320,7 @@ export function createFileVersionCompareService(options: {
 } = {}) {
   const query = options.query ?? fileVersionCenterQueryService;
   const contentStore = options.contentStore ?? createFileVersionContentStore();
-  const current = options.current ?? runtimeCurrentContent;
+  const current = options.current ?? loadAuthoritativeFileVersionContent;
   const agentCandidate = options.agentCandidate ?? runtimeAgentCandidate;
   const compareEnabled = options.compareEnabled ?? (() => resolveFileVersionRolloutV1(
     process.env[FILE_VERSION_CENTER_ROLLOUT_ENV_V1.mode],
@@ -391,7 +343,7 @@ export function createFileVersionCompareService(options: {
         'Comparison is not available for this document.');
     }
     const observed = await current(target, input.workspace);
-    if (!sameFence(observed.fence, request.expectedCurrent)) {
+    if (!fileVersionFencesMatch(observed.fence, request.expectedCurrent)) {
       throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.staleCurrent,
         'The current document changed. Reload its timeline before comparing.');
     }

@@ -113,6 +113,9 @@ type CollaborationContext = {
   workspace: WorkspaceContext;
   user: { id: string; name: string; email: string | null; profile?: CollaborationPresenceProfile | null };
   actorType: 'user' | 'agent';
+  versionSource: 'automatic_checkpoint' | 'agent_apply' | 'restore';
+  versionBaseRevisionId: string | null;
+  versionSourceSessionId: string | null;
   initiatedByUserId: string | null;
   operationId: string | null;
   observedDocumentSequence: number | null;
@@ -369,6 +372,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           profile: presenceProfile,
         },
         actorType: 'user',
+        versionSource: 'automatic_checkpoint',
+        versionBaseRevisionId: null,
+        versionSourceSessionId: null,
         initiatedByUserId: null,
         operationId: null,
         observedDocumentSequence: null,
@@ -554,10 +560,11 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           await fileVersionHistoryService.capturePersistedCollaboration({
             workspace: lastContext.workspace,
             state,
-            source: lastContext.actorType === 'agent' ? 'agent_apply' : 'automatic_checkpoint',
+            source: lastContext.versionSource,
             actorUserId: lastContext.initiatedByUserId ?? lastContext.user.id,
             actorType: lastContext.actorType,
-            sourceSessionId: lastContext.claims.sessionId,
+            sourceSessionId: lastContext.versionSourceSessionId ?? lastContext.claims.sessionId,
+            baseRevisionId: lastContext.versionBaseRevisionId,
           });
         } catch {
           // FVRC shadow/history failures never invalidate the already durable
@@ -666,6 +673,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       workspace,
       user: { id: input.actorId, name: input.actorDisplayName, email: null },
       actorType,
+      versionSource: actorType === 'agent' ? 'agent_apply' : input.versionSource ?? 'automatic_checkpoint',
+      versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
+      versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
       initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
       operationId: actorType === 'agent' ? input.operationId : null,
       observedDocumentSequence: state.documentSequence,

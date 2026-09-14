@@ -325,7 +325,7 @@
       "id": "FVRC-P02",
       "order": 2,
       "title": "Markdown-/Text-Historie, Vergleich und Restore",
-      "status": "planned",
+      "status": "completed",
       "dependsOn": ["FVRC-P01"],
       "exitGate": "FVRC-G02-MARKDOWN-HISTORY",
       "tasks": [
@@ -430,7 +430,8 @@
           "id": "FVRC-203",
           "order": 3,
           "title": "Idempotenten Restore-Service ueber Yjs- und Dateiadapter implementieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "restore",
           "dependsOn": ["FVRC-202"],
           "deliverables": [
@@ -448,6 +449,15 @@
             "Idempotenz- und Crash-Recovery-Tests",
             "Restore nach Rename, Move und Restart",
             "Reale PostgreSQL-Integration"
+          ],
+          "completionEvidence": [
+            "restore-service.ts kapselt Restore als leasegeschuetzte PostgreSQL-Saga mit workspace-/usergebundenem Idempotenzschluessel, unveraenderlichem Request-Hash und dauerhaftem prepared/completed-Receipt; parallele oder nach unklarem Abschluss wiederholte Requests wenden denselben Restore hoechstens einmal an.",
+            "Vor jeder Mutation wird der autoritative aktuelle Inhalt als immutable Revision gesichert; der Yjs-Adapter prueft SHA und State Vector innerhalb der direkten Collaboration-Transaktion, waehrend der Dateiadapter den erwarteten SHA an den bestehenden atomaren Writer weiterreicht.",
+            "Restore-Inhalte werden nur aus scopegebundenen, integritaetsgeprueften Markdown-/Text-Bindings geladen; UTF-8-, Format- und kanonische Yjs-Darstellungsfehler werden vor der Mutation abgewiesen.",
+            "Der persistierte Yjs-Checkpoint beziehungsweise File-Write wird mit source restore, stabiler Receipt-Session und Base-Revision erfasst; die vorangehende und ausgewaehlte Historie bleibt erhalten und der neue aktuelle Fence verweist auf die Restore-Revision.",
+            "Offene Agentenoperationen werden nach dem Restore erneut vollstaendig projiziert; weiterhin passende Vorschlaege bleiben reviewbar, waehrend stale oder nicht mehr projizierbare Vorschlaege atomar als semantic_conflict markiert werden.",
+            "scripts/file-version-restore-service-test.ts prueft PGlite-Migration und Receipt-Lifecycle, Rename-Pfade, Restart-/Crash-Recovery, parallele Nutzer-Edits, konkurrierende Retries, Read-only- und Idempotenzkonflikte sowie die realen Yjs-/Dateiadapter-Fences und source-restore-Durchreichung.",
+            "Alle P00-P02-Service-, Migrations-, Collaboration-, Agent-Live-File-, Atomic-Write- und Upload-Suites, ESLint fuer 31 geaenderte TypeScript-Dateien, npx tsc --noEmit, git diff --check und npm run build bestehen; PostgreSQL-Lifecycle-Abdeckung nutzt die im Repository etablierte In-Process-PGlite-Konvention ohne externen Container."
           ]
         }
       ]

@@ -16,6 +16,7 @@ const FVRC_TABLES = [
   'file_change_groups',
   'file_revision_contents',
   'file_version_blobs',
+  'file_version_restore_receipts',
 ] as const;
 
 async function tableNames(postgres: PGlite): Promise<string[]> {

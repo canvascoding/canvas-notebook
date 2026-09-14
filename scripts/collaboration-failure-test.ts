@@ -48,6 +48,7 @@ async function main() {
   let accessMonitorDisposed = 0;
   let projectionCallbacks!: Parameters<typeof createCollaborationProjectionRuntime>[0];
   const queuedProjections: PersistedCollaborationState[] = [];
+  const versionCaptures: Array<Record<string, unknown>> = [];
   const documents = new Map();
   class StaleError extends Error {}
   class InactiveError extends Error {}
@@ -90,6 +91,9 @@ async function main() {
     if (name.endsWith('/document-access')) return { installCollaborationDocumentReader() {} };
     if (name.endsWith('/direct-connection')) return { installCollaborationDirectConnection() {} };
     if (name.endsWith('/agent-operations')) return { recoverCollaborationAgentOperations: async () => {} };
+    if (name.endsWith('/history-service')) return { fileVersionHistoryService: {
+      capturePersistedCollaboration: async (input: Record<string, unknown>) => { versionCaptures.push(input); },
+    } };
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
     if (name.endsWith('/server-runtime')) return { Y };
     if (name.endsWith('/failure') || name.endsWith('/checkpoint-errors') || name.endsWith('/state-proof')) return load(name);
@@ -101,7 +105,9 @@ async function main() {
   const emitted: Array<{ type: string; code?: string; documentId?: string; lifecycleGeneration?: number;
     documentSequence?: number; checkpointSequence?: number; stateVector?: string; stateProof?: string;
     sequence?: number; revisionId?: string; message?: string }> = [];
-  const lastContext = { claims: { ...state, sessionId: 'session' }, workspace: {}, user: { id: 'user' }, actorType: 'user' };
+  const lastContext = { claims: { ...state, sessionId: 'session' }, workspace: {}, user: { id: 'user' }, actorType: 'user',
+    versionSource: 'automatic_checkpoint' as 'automatic_checkpoint' | 'restore',
+    versionBaseRevisionId: null as string | null, versionSourceSessionId: null as string | null };
   const storeInput = { documentName: 'doc', lastContext,
     document: { broadcastStateless: (payload: string) => emitted.push(JSON.parse(payload)) } };
   await hooks.onLoadDocument({ documentName: 'doc', document: storeInput.document });
@@ -138,6 +144,18 @@ async function main() {
     await assert.rejects(store, /Storage unavailable/);
     assert.equal(lastFailure().kind, 'storage'); assert.equal(lastFailure().code, COLLABORATION_FAILURE_CODES.persistenceFailed);
     persistenceFailure = null;
+    await store();
+    assert.equal(versionCaptures.at(-1)?.source, 'automatic_checkpoint');
+    lastContext.versionSource = 'restore';
+    lastContext.versionBaseRevisionId = 'revision-before-restore';
+    lastContext.versionSourceSessionId = 'fvrc-restore-receipt';
+    await store();
+    assert.equal(versionCaptures.at(-1)?.source, 'restore');
+    assert.equal(versionCaptures.at(-1)?.baseRevisionId, 'revision-before-restore');
+    assert.equal(versionCaptures.at(-1)?.sourceSessionId, 'fvrc-restore-receipt');
+    lastContext.versionSource = 'automatic_checkpoint';
+    lastContext.versionBaseRevisionId = null;
+    lastContext.versionSourceSessionId = null;
     for (const code of ['schema_invalid', 'stable_id_missing', 'stable_id_duplicate', 'roundtrip_unstable'] as const) {
       const validationError = new CollaborationCheckpointValidationError(code);
       await store();

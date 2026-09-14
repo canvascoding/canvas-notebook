@@ -193,9 +193,56 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
   );
   CREATE INDEX IF NOT EXISTS idx_file_agent_review_policies_workspace_user_updated
     ON file_agent_review_policies (workspace_id, user_id, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS file_version_restore_receipts (
+    workspace_id text NOT NULL REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+    lineage_id text NOT NULL,
+    target_revision_id text NOT NULL,
+    initiated_by_user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    idempotency_key text NOT NULL,
+    request_hash text NOT NULL,
+    status text NOT NULL,
+    lease_token text NOT NULL,
+    lease_expires_at bigint NOT NULL,
+    prior_revision_id text,
+    restored_revision_id text,
+    result_json text,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    PRIMARY KEY (workspace_id, initiated_by_user_id, idempotency_key),
+    CONSTRAINT file_version_restore_receipts_lineage_scope_fk
+      FOREIGN KEY (lineage_id, workspace_id)
+      REFERENCES file_collaboration_lineages (id, workspace_id) ON DELETE RESTRICT,
+    CONSTRAINT file_version_restore_receipts_target_scope_fk
+      FOREIGN KEY (target_revision_id, workspace_id, lineage_id)
+      REFERENCES file_revisions (id, workspace_id, lineage_id) ON DELETE RESTRICT,
+    CONSTRAINT file_version_restore_receipts_prior_scope_fk
+      FOREIGN KEY (prior_revision_id, workspace_id, lineage_id)
+      REFERENCES file_revisions (id, workspace_id, lineage_id) ON DELETE RESTRICT,
+    CONSTRAINT file_version_restore_receipts_restored_scope_fk
+      FOREIGN KEY (restored_revision_id, workspace_id, lineage_id)
+      REFERENCES file_revisions (id, workspace_id, lineage_id) ON DELETE RESTRICT,
+    CONSTRAINT file_version_restore_receipts_status_check
+      CHECK (status IN ('prepared', 'completed')),
+    CONSTRAINT file_version_restore_receipts_idempotency_check
+      CHECK (char_length(idempotency_key) BETWEEN 16 AND 128
+        AND idempotency_key ~ '^[A-Za-z0-9][A-Za-z0-9._:-]*$'),
+    CONSTRAINT file_version_restore_receipts_request_hash_check
+      CHECK (request_hash ~ '^[a-f0-9]{64}$'),
+    CONSTRAINT file_version_restore_receipts_lease_check
+      CHECK (char_length(lease_token) BETWEEN 16 AND 128 AND lease_expires_at >= created_at),
+    CONSTRAINT file_version_restore_receipts_time_check CHECK (updated_at >= created_at),
+    CONSTRAINT file_version_restore_receipts_completion_check CHECK (
+      (status = 'prepared' AND restored_revision_id IS NULL AND result_json IS NULL)
+      OR (status = 'completed' AND restored_revision_id IS NOT NULL AND result_json IS NOT NULL)
+    )
+  );
+  CREATE INDEX IF NOT EXISTS idx_file_version_restore_receipts_lineage_updated
+    ON file_version_restore_receipts (workspace_id, lineage_id, updated_at DESC, idempotency_key);
 `;
 
 export const FILE_VERSION_CENTER_STORAGE_DOWN_SQL = `
+  DROP TABLE IF EXISTS file_version_restore_receipts;
   DROP TABLE IF EXISTS file_agent_review_policies;
   DROP TABLE IF EXISTS file_change_group_entries;
   DROP TABLE IF EXISTS file_change_groups;
