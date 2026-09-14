@@ -12,6 +12,11 @@ import {
 } from '@/app/lib/files/exact-text-patch';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
+import {
+  authorizeNewAgentDirectApply,
+  readAgentReviewPolicySnapshot,
+  type AgentReviewPolicySnapshot,
+} from '@/app/lib/file-version-center/agent-review-policy-adapter';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   AgentDirectConnectionAuthorizationError,
@@ -21,7 +26,7 @@ import { loadCollaborationState, type PersistedCollaborationState } from './pers
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { logCollaborationDiagnostic } from './diagnostics';
 import { readCurrentCollaborationDocument } from './document-access';
-import { resolveAgentDirectEditGrant, withAgentDirectEditGrant, AgentDirectEditGrantUnavailableError,
+import { withAgentDirectEditGrant, AgentDirectEditGrantUnavailableError,
   type AgentDirectEditGrantScope } from './agent-direct-edit-grants';
 import { AgentBlockEditError, applyAgentBlockEdit, previewAgentBlockEdit, type PreparedAgentBlockEdit } from './agent-block-edits';
 import type { AgentProposalPreviewMetadata } from './agent-proposal-preview';
@@ -1895,15 +1900,19 @@ export async function applyPersistedAgentTextOperation(input: {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   const trustedRevert = input.operationType === 'revert' && input[USER_REVERT_AUTHORITY] === true;
   let directScope: AgentDirectEditGrantScope | null = null;
-  let grant: { id: string; expiresAt: number } | null = null;
-  // Capture permission before queueing. A later grant must not authorize an old queued edit.
+  let policySnapshot: AgentReviewPolicySnapshot | null = null;
+  // Capture policy before queueing. A later toggle must not authorize an old queued edit.
   if (!trustedRevert && input.requestedMode !== 'review' && input.actorSessionId) {
     try {
       const generation = input.documentLifecycleGeneration ?? (await loadCollaborationState(input.documentId))?.lifecycleGeneration;
       if (generation !== undefined) {
         directScope = { userId: input.initiatedByUserId, workspaceId: input.workspace.workspaceId,
           agentId: input.actorId, actorSessionId: input.actorSessionId, documentId: input.documentId, lifecycleGeneration: generation };
-        grant = await resolveAgentDirectEditGrant(directScope);
+        policySnapshot = await readAgentReviewPolicySnapshot({
+          documentId: input.documentId,
+          workspace: input.workspace,
+          initiatedByUserId: input.initiatedByUserId,
+        });
       }
     } catch {
       logCollaborationDiagnostic('warn', { event: 'agent_target_conflict', documentId: input.documentId,
@@ -1915,7 +1924,12 @@ export async function applyPersistedAgentTextOperation(input: {
     try {
       const requestedMode = input.requestedMode ?? 'direct_apply';
       const backpressureReview = queue.waitMs >= AGENT_QUEUE_REVIEW_AFTER_MS || queue.depth > 4;
-      const mustReview = requestedMode === 'review' || (!trustedRevert && !grant) || backpressureReview;
+      const hardSafetyReview = backpressureReview || Boolean(input.independentGroups);
+      const policyAllowsDirect = policySnapshot?.policy.effectiveMode === 'safe_direct'
+        && !policySnapshot.policy.locked;
+      const mustReview = requestedMode === 'review'
+        || (!trustedRevert && (!directScope || !policyAllowsDirect))
+        || hardSafetyReview;
       const created = await createOrLoadOperation({
         database,
         documentId: input.documentId,
@@ -1942,7 +1956,7 @@ export async function applyPersistedAgentTextOperation(input: {
         baseStateVector: input.baseStateVector,
         baseDocumentSequence: input.baseDocumentSequence,
         fileEditRequest: input.fileEditRequest,
-        directEditGrantId: !mustReview ? grant?.id : null,
+        directEditGrantId: null,
       });
       if (!created.created) return {
         ...parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace)),
@@ -1952,10 +1966,29 @@ export async function applyPersistedAgentTextOperation(input: {
         backpressureReview ? 'backpressure_review_required' : 'user_review_required');
       if (trustedRevert) return applyStoredOperation({ database, row: created.row,
         workspace: input.workspace, actorDisplayName: input.actorDisplayName });
+      const authorization = await authorizeNewAgentDirectApply({
+        operationId: created.row.operation_id,
+        workspace: input.workspace,
+        initiatedByUserId: input.initiatedByUserId,
+        snapshot: policySnapshot!,
+        grantScope: directScope!,
+        hardSafetyRequiresReview: hardSafetyReview,
+        operationExplicitlyRequiresReview: false,
+      });
+      if (authorization.enforcementMode !== 'safe_direct' || !authorization.grant) {
+        return placeAgentOperationInReview(database, created.row, 'policy_review_required');
+      }
+      const authorizedRow = await transitionOperation({
+        database,
+        row: created.row,
+        expectedStatuses: ['preparing'],
+        status: 'preparing',
+        fields: { direct_edit_grant_id: authorization.grant.id },
+      });
       let appliedResult: PersistedAgentApplyResult | undefined;
       try {
-        return await withAgentDirectEditGrant({ grantId: grant!.id, scope: directScope! }, async (currentGrant) => {
-          appliedResult = await applyStoredOperation({ database, row: created.row, workspace: input.workspace,
+        return await withAgentDirectEditGrant({ grantId: authorization.grant.id, scope: directScope! }, async (currentGrant) => {
+          appliedResult = await applyStoredOperation({ database, row: authorizedRow, workspace: input.workspace,
             actorDisplayName: input.actorDisplayName, directGrant: currentGrant });
           return appliedResult;
         });
@@ -1969,10 +2002,10 @@ export async function applyPersistedAgentTextOperation(input: {
           return appliedResult;
         }
         if (isAgentDatabaseCapacityError(error)) {
-          return placeAgentOperationInReview(database, created.row, 'backpressure_review_required');
+          return placeAgentOperationInReview(database, authorizedRow, 'backpressure_review_required');
         }
         if (!(error instanceof AgentDirectEditGrantUnavailableError)) throw error;
-        return placeAgentOperationInReview(database, created.row, 'authorization_revoked');
+        return placeAgentOperationInReview(database, authorizedRow, 'authorization_revoked');
       }
     } finally {
       await database.close();

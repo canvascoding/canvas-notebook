@@ -70,6 +70,12 @@ async function serviceHarness() {
         run: async () => { writes++; throw new Error('A replay must not write'); }, close: async () => {} }) };
       if (name === './presence') return { getWorkspacePresenceSnapshot: () => ({ entries: [] }) };
       if (name === './agent-direct-edit-grants') return { resolveAgentDirectEditGrant: async () => null };
+      if (name === '@/app/lib/file-version-center/agent-review-policy-adapter') return {
+        readAgentReviewPolicySnapshot: async () => ({
+          access: {}, lineageId: 'lineage',
+          policy: { effectiveMode: 'review_required', locked: false },
+        }),
+      };
       if (name === './persistence') return { loadCollaborationState: async () => state };
       if (name === './server-runtime') return { Y };
       if (name.startsWith('node:') || name === 'server-only') return load(name);

@@ -38,6 +38,8 @@ function harness(markdown?: string) {
   let reads = 0;
   let newDelivery = false;
   let directGrant: { id: string; expiresAt: number } | null = null;
+  let policyMode: 'review_required' | 'safe_direct' = 'review_required';
+  let denyPolicyAuthorization = false;
   let denyGrantLock = false;
   let failGrantCommit = false;
   let beforeGrantLock = () => {};
@@ -95,6 +97,27 @@ function harness(markdown?: string) {
         return result;
       },
     };
+    if (name === '@/app/lib/file-version-center/agent-review-policy-adapter') return {
+      readAgentReviewPolicySnapshot: async () => ({
+        access: {},
+        lineageId: 'lineage',
+        policy: {
+          contractVersion: 1,
+          requestedMode: policyMode,
+          effectiveMode: policyMode,
+          revision: 1,
+          locked: false,
+          reason: 'user_preference',
+        },
+      }),
+      authorizeNewAgentDirectApply: async () => {
+        if (denyPolicyAuthorization || policyMode !== 'safe_direct') {
+          return { enforcementMode: 'review_required', grant: null };
+        }
+        directGrant ??= { id: 'policy-generated', expiresAt: Date.now() + 60_000 };
+        return { enforcementMode: 'safe_direct', grant: directGrant };
+      },
+    };
     if (name === './direct-connection') return {
       AgentDirectConnectionAuthorizationError: class extends Error {},
       runCollaborationDirectConnection: async (_input: unknown, apply: (doc: Y.Doc) => Agent.AgentApplyResult,
@@ -143,7 +166,12 @@ function harness(markdown?: string) {
       documentSchemaVersion: 1, ...overrides });
   };
   return { doc, state, row, agent, target, preview, accept, deliver,
-    setGrant: (value: { id: string; expiresAt: number } | null) => { directGrant = value; },
+    setGrant: (value: { id: string; expiresAt: number } | null) => {
+      directGrant = value;
+      policyMode = value ? 'safe_direct' : 'review_required';
+    },
+    setPolicyMode: (value: 'review_required' | 'safe_direct') => { policyMode = value; },
+    denyPolicyAuthorization: () => { denyPolicyAuthorization = true; },
     denyGrant: () => { denyGrantLock = true; },
     failGrantCommit: () => { failGrantCommit = true; },
     beforeGrantLock: (value: () => void) => { beforeGrantLock = value; }, directCalls: () => directCalls, reads: () => reads,
@@ -273,6 +301,42 @@ test('default is a proposal even when the caller sets explicitUserRequest or dir
       assert.equal(h.row.requested_mode, 'review'); assert.equal(h.row.direct_edit_grant_id, null);
     } finally { h.close(); }
   }
+});
+
+test('a safe-direct document policy creates only the new operation authority and uses the durable pipeline', async () => {
+  const h = harness();
+  try {
+    h.setPolicyMode('safe_direct');
+    const result = await h.deliver();
+    assert.equal(result.durability, 'persisted_yjs');
+    assert.equal(h.row.direct_edit_grant_id, 'policy-generated');
+    assert.equal(h.directCalls(), 1);
+    assert.match(h.doc.getText('content').toString(), /^Revised/);
+  } finally { h.close(); }
+});
+
+test('a policy revision race after operation creation fails closed without mutating the document', async () => {
+  const h = harness();
+  try {
+    h.setPolicyMode('safe_direct');
+    h.denyPolicyAuthorization();
+    const before = Y.encodeStateAsUpdate(h.doc);
+    const result = await h.deliver();
+    assert.equal(result.operationStatus, 'needs_review');
+    assert.equal(h.row.error_code, 'policy_review_required');
+    assert.equal(h.directCalls(), 0);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc), before);
+  } finally { h.close(); }
+});
+
+test('independent partial-apply semantics stay behind review even with safe-direct policy', async () => {
+  const h = harness();
+  try {
+    h.setPolicyMode('safe_direct');
+    const result = await h.deliver({ independentGroups: true });
+    assert.equal(result.operationStatus, 'needs_review');
+    assert.equal(h.directCalls(), 0);
+  } finally { h.close(); }
 });
 
 test('a current scoped grant is recorded and applies through the same durable pipeline', async () => {

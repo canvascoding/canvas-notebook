@@ -3,10 +3,13 @@
 import {
   FILE_VERSION_CENTER_API_V1,
   parseFileVersionCenterErrorResponseV1,
+  parseFileReviewPolicyV1,
   parseFileVersionTimelineResponseV1,
   type FileVersionCenterErrorCode,
   type FileVersionCenterRequestV1,
   type FileVersionTimelineResponseV1,
+  type FileReviewPolicyUpdateRequestV1,
+  type FileReviewPolicyV1,
 } from './contracts/v1';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
@@ -82,4 +85,53 @@ export async function resolveFileVersionCenter(
     }
   }
   return parseFileVersionTimelineResponseV1(payload);
+}
+
+export async function updateFileReviewPolicy(
+  request: FileReviewPolicyUpdateRequestV1,
+  signal?: AbortSignal,
+): Promise<FileReviewPolicyV1> {
+  let response: Response;
+  try {
+    response = await fetch(FILE_VERSION_CENTER_API_V1.policy, {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        [WORKSPACE_ID_HEADER]: request.target.workspaceId,
+      },
+      body: JSON.stringify(request),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new FileVersionCenterClientError(
+      'FVRC_TRANSPORT_ERROR',
+      'The review policy could not be reached.',
+      0,
+      true,
+    );
+  }
+  const payload = await responseJson(response);
+  if (!response.ok) {
+    try {
+      const failure = parseFileVersionCenterErrorResponseV1(payload);
+      throw new FileVersionCenterClientError(
+        failure.error.code,
+        failure.error.message,
+        response.status,
+        failure.error.retryable,
+      );
+    } catch (error) {
+      if (error instanceof FileVersionCenterClientError) throw error;
+      throw new FileVersionCenterClientError(
+        'FVRC_TRANSPORT_ERROR',
+        'The review policy update failed.',
+        response.status,
+        response.status >= 500,
+      );
+    }
+  }
+  return parseFileReviewPolicyV1(payload);
 }

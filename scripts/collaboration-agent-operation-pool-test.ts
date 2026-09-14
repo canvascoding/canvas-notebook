@@ -122,6 +122,16 @@ function harness(count = 10) {
         grantCount++; await grants.promise; return apply({ id: 'grant', expiresAt: Date.now() + 60_000 });
       },
     };
+    if (name === '@/app/lib/file-version-center/agent-review-policy-adapter') return {
+      readAgentReviewPolicySnapshot: async () => ({
+        access: {}, lineageId: 'lineage',
+        policy: { effectiveMode: 'safe_direct', locked: false },
+      }),
+      authorizeNewAgentDirectApply: async () => ({
+        enforcementMode: 'safe_direct',
+        grant: { id: 'grant', expiresAt: Date.now() + 60_000 },
+      }),
+    };
     if (name === './direct-connection') return {
       AgentDirectConnectionAuthorizationError: class extends Error {},
       runCollaborationDirectConnection: async (input: { documentId: string }, apply: (doc: Y.Doc) => Agent.AgentApplyResult,

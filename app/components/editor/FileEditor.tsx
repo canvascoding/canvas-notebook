@@ -41,6 +41,7 @@ import { PublicShareDialog } from '../file-browser/PublicShareDialog';
 import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
 import { CodeEditor } from './CodeEditorClient';
 import { CollaborationAgentOperations } from './CollaborationAgentOperations';
+import { FileReviewPolicyControl } from './FileReviewPolicyControl';
 import { FileVersionHistoryButton } from './FileVersionHistoryButton';
 import { HtmlViewer } from './HtmlViewer';
 import { ImageViewer } from './ImageViewer';
@@ -1302,6 +1303,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               />
             ) : null}
             <FileVersionHistoryButton
+              workspaceId={currentFileWorkspaceId}
+              path={currentFile.path}
+              documentId={collaboration?.document?.id}
+            />
+            <FileReviewPolicyControl
               workspaceId={currentFileWorkspaceId}
               path={currentFile.path}
               documentId={collaboration?.document?.id}

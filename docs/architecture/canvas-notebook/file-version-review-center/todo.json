@@ -609,7 +609,7 @@
       "id": "FVRC-P04",
       "order": 4,
       "title": "Editor-Einstiege und Review-Toggle",
-      "status": "planned",
+      "status": "completed",
       "dependsOn": ["FVRC-P03"],
       "exitGate": "FVRC-G04-EDITOR",
       "tasks": [
@@ -676,7 +676,8 @@
           "id": "FVRC-402",
           "order": 2,
           "title": "Fail-safe Review-Toggle in Editor und mobile Dateiaktionen integrieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "editor-collaboration",
           "dependsOn": ["FVRC-401"],
           "deliverables": [
@@ -693,6 +694,15 @@
             "Policy-UI- und CAS-Tests",
             "Agenten-Direktanwendung und erzwungener Review",
             "Mobile-Header- und Accessibility-Tests"
+          ],
+          "completionEvidence": [
+            "FileReviewPolicyControl ist als eigenstaendige, capability-basierte Komponente im vorhandenen FileEditor-Header fuer .md, .markdown und .txt montiert. Loading, Fehler, nicht verfuegbare und erzwungene Policy bleiben fail-closed auf Review; die kompakte Switch-Flaeche besitzt mobile Hit-Area-, Tooltip-, ARIA- und Live-Status-Semantik.",
+            "Der sichtbare Hinweis erklaert, dass die Auswahl nur zukuenftige Agentenaenderungen betrifft. Das Ausschalten fordert direkt sofern sicher an; Read-only- oder serverseitig gesperrte Zustaende koennen die Policy nicht aendern.",
+            "POST /api/files/version-center/v1/policy und updateFileReviewPolicy verwenden den bestehenden V1-Contract, authentifizierten Workspace-Scope, aktuelle serverseitige Lineage-/Capability-Aufloesung, Mutations-Rate-Limit und expectedRevision-CAS. Konflikte laden die autoritative Policy neu; Fehler geben keine Bearbeitungsberechtigung frei.",
+            "agent-review-policy-adapter bindet eine interne kurzlebige Direct-Apply-Autorisierung ausschliesslich an die nach dem Policy-Snapshot neu angelegte eigene Operation, User, Workspace, aktive Lineage und beobachtete Policy-Revision. Unmittelbar vor Apply wird resolveForOperation erneut ausgewertet; Replay, fremde Scopes, Policy-Races und Persistenzfehler fallen auf Review zurueck.",
+            "Die bestehende Agentenpipeline behaelt ihre durable Operation-, Grant-Lock-, Apply- und Receipt-Mechanik. Expliziter Review, Backpressure und unabhaengige partielle Gruppen erzwingen weiterhin Review; damit koennen Konflikte keine Teilanwendung durch den Safe-Direct-Pfad erhalten. Operationsweise Grant-Controls bleiben aus dem Editor-Normalflow entfernt.",
+            "file-review-policy-client-, service-, route-, adapter- und control-test sowie file-version-editor-entry-test decken Contract, Autorisierung, CAS, Race, Replay, Fremd-Scope, Fail-closed, Mobile-Header und Accessibility ab. Die Agent-Approval-, Grant-, Capacity-, Structure-, Durability-, Block-Agent- und FileEditor-Scope-Suiten bestehen ebenfalls.",
+            "npx tsc --noEmit, changed-file ESLint, JSON-Validierung und git diff --check bestehen. Der Standard-Build kompiliert und typprueft vollstaendig und erreicht die statische Seitengenerierung; die unveraenderte Umgebung stoppt erst an der bekannten /en/sign-up-Baseline, weil Postgres-Modus ohne DATABASE_URL laeuft. Es wurde kein temporaerer App-Workaround committed und keine Browserautomation oder Containerumgebung gestartet."
           ]
         }
       ]
