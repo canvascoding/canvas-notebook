@@ -105,3 +105,29 @@ test('retained context failure is consistent and does not blame the latest user 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('retained-context-overflow.png'), fullPage: true, animations: 'disabled' });
 });
+
+test('a previous no-op is never the disabled compact reason or a conflicting current status', async ({ page }, info) => {
+  await page.getByRole('button', { name: 'Previous no-op', exact: true }).click();
+  await expect(page.getByTestId('chat-runtime-notice')).toContainText('Automatic summarization is planned');
+  await expect(page.getByTestId('chat-runtime-notice')).not.toContainText('required before continuing');
+  await page.getByTestId('chat-header-menu-trigger').click();
+  await expect(page.getByTestId('chat-compact')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('chat-compact')).toContainText('Available after the response finishes');
+  await expect(page.getByTestId('chat-context-details')).not.toContainText('Context is below');
+  await page.screenshot({ path: info.outputPath('context-running-after-noop.png'), fullPage: true, animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  await page.getByTestId('chat-header-menu-trigger').click();
+  await expect(page.getByTestId('chat-compact')).not.toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'New 63%', exact: true }).click();
+  await expect(page.getByTestId('chat-runtime-notice')).toHaveCount(0);
+});
+
+test('running compaction takes priority over pressure and the response lock', async ({ page }) => {
+  await page.getByRole('button', { name: 'Compacting', exact: true }).click();
+  await expect(page.getByTestId('chat-runtime-notice')).toHaveAttribute('data-notice-kind', 'compaction');
+  await page.getByTestId('chat-header-menu-trigger').click();
+  await expect(page.getByTestId('chat-compact')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByTestId('chat-compact')).not.toContainText('Available after the response finishes');
+});

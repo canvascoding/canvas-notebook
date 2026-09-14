@@ -96,6 +96,7 @@ export function getContextStatusPresentation(status: RuntimeStatus | null) {
     blocking,
     failed,
     severity,
-    needsCompaction: display.source === 'pressure' && percent >= 100,
+    needsCompaction: freshness === 'current' && display.source === 'pressure'
+      && display.pressureTokens >= display.triggerTokens,
   } as const;
 }

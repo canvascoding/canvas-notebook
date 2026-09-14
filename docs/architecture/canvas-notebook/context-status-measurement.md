@@ -12,6 +12,11 @@ a provider tokenizer count. In particular, status-only measurement must not use
 an automatically selected smaller tail and pretend compaction has happened.
 The actual send/preflight safety checks remain independent and unchanged.
 
+As of the [context preparation consistency fix](context-preparation-consistency.md),
+full effective history includes the same deterministic tool pruning used for
+send preparation. This does not create a summary or remove history records.
+Status and send use the same runtime-context allowance and bounded projection.
+
 ## Lifecycle and freshness
 
 - Completed user/assistant/tool-result messages, context configuration changes,
@@ -38,7 +43,7 @@ messages, tool arguments, attachments, reasoning or secrets.
 ## UI semantics
 
 Below 80% of the trigger: no pressure warning. At 80–99%: yellow warning.
-At 100% and above: yellow automatic-summary-required notice, with the true
+At the unrounded trigger and above: yellow automatic-summary-planned notice, with the true
 percentage in text and a visually clamped bar. Red is reserved for current
 token/attachment budget overflow or failed compaction. Stale pressure does not
 produce a current warning. Legacy responses use one shared fallback in both views.
