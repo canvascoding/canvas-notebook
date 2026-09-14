@@ -341,9 +341,31 @@ test('the edit schema strictly rejects ambiguous input, missing conditions and i
     assert.equal(Value.Check(agentEditFileParameters, params), false, JSON.stringify(params));
     const result = await h.edit.execute('invalid', params, undefined);
     assert.equal((result as { isError?: boolean }).isError, true, JSON.stringify(params));
-    assert.match(textOf(result), /Supply either an exact/u);
+    assert.match(textOf(result), /Invalid edit_file arguments/u);
   }
   assert.equal(h.controls.edits.length, 0);
+});
+
+test('edit_file argument preparation reports the first actionable structured validation error', async () => {
+  const h = await harness();
+  assert.ok(h.edit.prepareArguments);
+  const prepare = h.edit.prepareArguments;
+  const input = { path: 'document.md', document, operations: [operations[0]] };
+  assert.equal(prepare(input), input, 'valid arguments retain their identity');
+  assert.throws(() => prepare({ ...input, operations: [{ ...operations[0], placementHash: undefined }] }),
+    /operations\[0\]\.placementHash is required.*64-character hash.*Example.*move_block/u);
+  assert.throws(() => prepare({ ...input, operations: [{ kind: 'prepared', updateBase64: 'AA==' }] }),
+    /operations\[0\]\.kind.*must be one of: move_block, delete_block, insert_blocks, format_block, format_text, table_operation.*Example/u);
+  assert.throws(() => prepare({ ...input, operations: [{ ...operations[4], action: 'mergeCells' }] }),
+    /operations\[0\]\.action must be one of: addRowBefore.*moveColumnRight.*Example/u);
+  assert.throws(() => prepare({ ...input, operations: [{ ...operations[3], afterAttrs: { style: 'color:red' } }] }),
+    /operations\[0\]\.beforeAttrs and operations\[0\]\.afterAttrs must name the same supported attribute: level, checked, start, language.*Example/u);
+  assert.throws(() => prepare({ ...input, operations: [{ ...operations[3], afterAttrs: { level: 7 } }] }),
+    /operations\[0\]\.beforeAttrs and operations\[0\]\.afterAttrs have an invalid level value.*level is 1–6.*Example/u);
+  assert.throws(() => prepare({ ...input, document: { documentId: 'document-1', schemaVersion: 2 } }),
+    /document\.lifecycleGeneration is required.*at least 1.*Example/u);
+  assert.throws(() => prepare({ path: 'document.md', mode: 'insert_after_heading', content: 'Body' }),
+    /heading is required for mode insert_after_heading.*Example/u);
 });
 
 test('schemas expose all supported table commands and bounded formatting and structure pagination', async () => {

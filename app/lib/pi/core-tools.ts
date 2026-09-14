@@ -2,10 +2,10 @@ import { execFile } from 'child_process';
 import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
-import { Type } from 'typebox';
+import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
 import type { AgentEditFileInput } from '@/app/lib/pi/agent-file-operations';
-import { agentEditFileParameters } from '@/app/lib/pi/agent-file-tool-schemas';
+import { agentEditFileParameters, formatAgentEditFileValidationError } from '@/app/lib/pi/agent-file-tool-schemas';
 import { AgentShellSandboxError } from '@/app/lib/pi/agent-shell-sandbox';
 import { ensureAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import {
@@ -448,11 +448,15 @@ export const piTools: AgentTool[] = [
     label: 'Editing file safely',
     description: 'Safely edits an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Results report applied or review required; never assume a review was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
     parameters: agentEditFileParameters,
+    prepareArguments: (params) => {
+      if (!Value.Check(agentEditFileParameters, params)) throw new Error(formatAgentEditFileValidationError(params));
+      return params as Static<typeof agentEditFileParameters>;
+    },
     execute: async (toolCallId, params) => {
       const { path: filePath } = params as { path: string };
       try {
         if (!Value.Check(agentEditFileParameters, params)) {
-          throw new Error('Supply either an exact oldText/newText edit or 1–32 structured operations with document from a current structure read. Include document when targeting blockId, and only the supported operation fields.');
+          throw new Error(formatAgentEditFileValidationError(params));
         }
         const result = await editAgentFile({
           ...(params as AgentEditFileInput),

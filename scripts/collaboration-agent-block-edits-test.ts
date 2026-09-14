@@ -243,6 +243,32 @@ test('format reverses the authored attribute and keeps concurrent block text', (
   } finally { doc.destroy(); }
 });
 
+test('semantic block-operation failures explain the required target shape without mutating the document', () => {
+  const doc = createRichMarkdownYDoc('Plain text\n\n| A | B |\n| --- | --- |\n| one | two |', 'tiptap_blocks');
+  try {
+    const paragraph = block(doc, 'Plain text');
+    const unchanged = Y.encodeStateAsUpdate(doc);
+    const rejects = (request: AgentBlockEditRequest, pattern: RegExp) => {
+      assert.throws(() => prepareAgentBlockEdit(doc, [request]), (error: unknown) => {
+        assert.ok(error instanceof AgentBlockEditError);
+        assert.equal(error.code, 'schema_invalid');
+        assert.match(error.message, pattern);
+        return true;
+      });
+      assert.deepEqual(Y.encodeStateAsUpdate(doc), unchanged);
+    };
+    rejects({ kind: 'format_block', blockId: paragraph.id, beforeAttrs: { level: 1 }, afterAttrs: { level: 2 } },
+      /requires heading, taskItem, orderedList, or codeBlock.*is paragraph/u);
+    rejects({ kind: 'table_operation', cellId: paragraph.id, subtreeHash: paragraph.subtreeHash, action: 'addRowAfter' },
+      /cellId must identify a tableCell or tableHeader.*is paragraph/u);
+    rejects({ kind: 'format_text', blockId: paragraph.id, subtreeHash: paragraph.subtreeHash,
+      from: 4, to: 2, mark: 'bold', enabled: true }, /to must be greater than format_text\.from/u);
+    rejects({ kind: 'insert_blocks', parentId: paragraph.id, beforeId: null,
+      blocks: [{ type: 'paragraph', content: [{ type: 'text', text: 'Nested' }] }] },
+    /parentId must identify a container block.*is paragraph/u);
+  } finally { doc.destroy(); }
+});
+
 test('format reversion rejects a later human change to the same attribute', () => {
   const doc = createRichMarkdownYDoc('# Heading\n\nTail', 'tiptap_blocks');
   try {

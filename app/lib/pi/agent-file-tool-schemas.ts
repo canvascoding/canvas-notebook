@@ -1,4 +1,5 @@
 import { Type } from 'typebox';
+import { Value } from 'typebox/value';
 
 const blockId = Type.String({ minLength: 1, description: 'Stable block ID from read(includeStructure: true).' });
 const parentId = Type.Union([blockId, Type.Null()], { description: 'Parent block ID, or null for the document root.' });
@@ -110,3 +111,220 @@ export const agentEditFileParameters = Type.Object({
       ['oldText', 'newText', 'operations', 'blockId', 'document', 'expectedOccurrences', 'replaceAll'].map((key) => ({ required: [key] })) } },
   ],
 });
+
+const editModes = ['append', 'replace', 'insert_after_heading'] as const;
+const operationKinds = ['move_block', 'delete_block', 'insert_blocks', 'format_block', 'format_text', 'table_operation'] as const;
+const tableActions = [
+  'addRowBefore', 'addRowAfter', 'deleteRow', 'addColumnBefore', 'addColumnAfter', 'deleteColumn',
+  'deleteTable', 'alignLeft', 'alignCenter', 'alignRight', 'alignNone', 'moveRowUp', 'moveRowDown',
+  'moveColumnLeft', 'moveColumnRight',
+] as const;
+const textMarks = ['bold', 'italic', 'strike', 'code', 'link'] as const;
+const hashExample = '0'.repeat(64);
+const documentExample = { documentId: 'document-id', lifecycleGeneration: 1, schemaVersion: 1 };
+const operationExamples: Record<(typeof operationKinds)[number], Record<string, unknown>> = {
+  move_block: { kind: 'move_block', blockId: 'block-id', placementHash: hashExample, parentId: null, beforeId: null },
+  delete_block: { kind: 'delete_block', blockId: 'block-id', subtreeHash: hashExample },
+  insert_blocks: { kind: 'insert_blocks', parentId: null, beforeId: null,
+    blocks: [{ type: 'paragraph', content: [{ type: 'text', text: 'New paragraph' }] }] },
+  format_block: { kind: 'format_block', blockId: 'heading-id', beforeAttrs: { level: 1 }, afterAttrs: { level: 2 } },
+  format_text: { kind: 'format_text', blockId: 'paragraph-id', subtreeHash: hashExample,
+    from: 0, to: 4, mark: 'bold', enabled: true },
+  table_operation: { kind: 'table_operation', cellId: 'cell-id', subtreeHash: hashExample, action: 'addRowAfter' },
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function owns(value: Record<string, unknown>, key: string): boolean {
+  return Object.hasOwn(value, key);
+}
+
+function withExample(message: string, example: Record<string, unknown>): string {
+  return `${message} Example: ${JSON.stringify(example)}`;
+}
+
+function documentValidationError(value: unknown): string | null {
+  const example = { path: 'document.md', document: documentExample, operations: [operationExamples.move_block] };
+  if (!isRecord(value)) return withExample('Invalid edit_file arguments: document must be an object copied from read(source: "blocks").', example);
+  const unexpected = Object.keys(value).find((key) => !['documentId', 'lifecycleGeneration', 'schemaVersion'].includes(key));
+  if (unexpected) return withExample(`Invalid edit_file arguments: document.${unexpected} is not allowed. Allowed fields: documentId, lifecycleGeneration, schemaVersion.`, example);
+  if (typeof value.documentId !== 'string' || value.documentId.length === 0) {
+    return withExample('Invalid edit_file arguments: document.documentId is required and must be a non-empty string.', example);
+  }
+  for (const field of ['lifecycleGeneration', 'schemaVersion'] as const) {
+    if (!Number.isInteger(value[field]) || Number(value[field]) < 1) {
+      return withExample(`Invalid edit_file arguments: document.${field} is required and must be an integer of at least 1.`, example);
+    }
+  }
+  return null;
+}
+
+function operationValidationError(value: unknown, index: number): string | null {
+  const scope = `operations[${index}]`;
+  if (!isRecord(value)) {
+    return withExample(`Invalid edit_file arguments: ${scope} must be an operation object. Allowed kinds: ${operationKinds.join(', ')}.`, operationExamples.move_block);
+  }
+  if (typeof value.kind !== 'string' || !operationKinds.includes(value.kind as (typeof operationKinds)[number])) {
+    return withExample(`Invalid edit_file arguments: ${scope}.kind is required and must be one of: ${operationKinds.join(', ')}.`, operationExamples.move_block);
+  }
+  const kind = value.kind as (typeof operationKinds)[number];
+  const example = operationExamples[kind];
+  const fields: Record<typeof kind, readonly string[]> = {
+    move_block: ['kind', 'blockId', 'placementHash', 'parentId', 'beforeId'],
+    delete_block: ['kind', 'blockId', 'subtreeHash'],
+    insert_blocks: ['kind', 'parentId', 'beforeId', 'blocks'],
+    format_block: ['kind', 'blockId', 'beforeAttrs', 'afterAttrs'],
+    format_text: ['kind', 'blockId', 'subtreeHash', 'from', 'to', 'mark', 'enabled', 'href'],
+    table_operation: ['kind', 'cellId', 'subtreeHash', 'action'],
+  };
+  const unexpected = Object.keys(value).find((key) => !fields[kind].includes(key));
+  if (unexpected) {
+    return withExample(`Invalid edit_file arguments: ${scope}.${unexpected} is not allowed for ${kind}. Allowed fields: ${fields[kind].join(', ')}.`, example);
+  }
+  const requireId = (field: string): string | null => typeof value[field] === 'string' && value[field].length > 0
+    ? null : `${scope}.${field} is required and must be a non-empty block ID`;
+  const requireHash = (field: string): string | null => typeof value[field] === 'string' && /^[a-f0-9]{64}$/u.test(value[field])
+    ? null : `${scope}.${field} is required and must be the 64-character hash from read(source: "blocks")`;
+  const requirePointer = (field: string): string | null => value[field] === null || (typeof value[field] === 'string' && value[field].length > 0)
+    ? null : `${scope}.${field} is required and must be a block ID or null`;
+  let problem: string | null = null;
+  if (kind === 'move_block') {
+    problem = requireId('blockId') || requireHash('placementHash') || requirePointer('parentId') || requirePointer('beforeId');
+  } else if (kind === 'delete_block') {
+    problem = requireId('blockId') || requireHash('subtreeHash');
+  } else if (kind === 'insert_blocks') {
+    problem = requirePointer('parentId') || requirePointer('beforeId');
+    if (!problem && (!Array.isArray(value.blocks) || value.blocks.length < 1 || value.blocks.length > 256)) {
+      problem = `${scope}.blocks is required and must contain 1–256 ProseMirror block objects`;
+    }
+    if (!problem && Array.isArray(value.blocks)) {
+      const invalid = value.blocks.findIndex((block) => !isRecord(block) || typeof block.type !== 'string' || block.type.length === 0
+        || Object.keys(block).some((key) => !['type', 'attrs', 'content'].includes(key))
+        || (owns(block, 'attrs') && !isRecord(block.attrs)) || (owns(block, 'content') && !Array.isArray(block.content)));
+      if (invalid >= 0) problem = `${scope}.blocks[${invalid}] must contain type and only optional attrs/content fields`;
+    }
+  } else if (kind === 'format_block') {
+    problem = requireId('blockId');
+    const allowed = ['level', 'checked', 'start', 'language'];
+    if (!problem && (!isRecord(value.beforeAttrs) || Object.keys(value.beforeAttrs).length !== 1)) {
+      problem = `${scope}.beforeAttrs must contain exactly one supported attribute: ${allowed.join(', ')}`;
+    }
+    if (!problem && (!isRecord(value.afterAttrs) || Object.keys(value.afterAttrs).length !== 1)) {
+      problem = `${scope}.afterAttrs must contain exactly one supported attribute: ${allowed.join(', ')}`;
+    }
+    if (!problem && isRecord(value.beforeAttrs) && isRecord(value.afterAttrs)) {
+      const beforeKey = Object.keys(value.beforeAttrs)[0]; const afterKey = Object.keys(value.afterAttrs)[0];
+      if (!allowed.includes(beforeKey) || beforeKey !== afterKey) {
+        problem = `${scope}.beforeAttrs and ${scope}.afterAttrs must name the same supported attribute: ${allowed.join(', ')}`;
+      } else {
+        const validAttribute = (key: string, attribute: unknown) => key === 'level'
+          ? Number.isInteger(attribute) && Number(attribute) >= 1 && Number(attribute) <= 6
+          : key === 'checked' ? typeof attribute === 'boolean'
+            : key === 'start' ? Number.isSafeInteger(attribute) && Number(attribute) >= 1
+              : attribute === null || (typeof attribute === 'string' && attribute.length <= 64 && /^[\w+-]*$/u.test(attribute));
+        if (!validAttribute(beforeKey, value.beforeAttrs[beforeKey]) || !validAttribute(afterKey, value.afterAttrs[afterKey])) {
+          problem = `${scope}.beforeAttrs and ${scope}.afterAttrs have an invalid ${beforeKey} value; level is 1–6, checked is boolean, start is at least 1, and language is null or a short language name`;
+        }
+      }
+    }
+  } else if (kind === 'format_text') {
+    problem = requireId('blockId') || requireHash('subtreeHash');
+    if (!problem && (!Number.isSafeInteger(value.from) || Number(value.from) < 0)) problem = `${scope}.from must be an integer of at least 0`;
+    if (!problem && (!Number.isSafeInteger(value.to) || Number(value.to) < 1)) problem = `${scope}.to must be an integer of at least 1`;
+    if (!problem && (typeof value.mark !== 'string' || !textMarks.includes(value.mark as (typeof textMarks)[number]))) {
+      problem = `${scope}.mark must be one of: ${textMarks.join(', ')}`;
+    }
+    if (!problem && typeof value.enabled !== 'boolean') problem = `${scope}.enabled is required and must be boolean`;
+    if (!problem && value.mark === 'link' && value.enabled === true
+      && (typeof value.href !== 'string' || value.href.length === 0 || value.href.length > 2048)) {
+      problem = `${scope}.href is required and must contain 1–2048 characters when enabling a link`;
+    }
+    if (!problem && !(value.mark === 'link' && value.enabled === true) && owns(value, 'href')) {
+      problem = `${scope}.href is allowed only when enabling a link`;
+    }
+  } else if (kind === 'table_operation') {
+    problem = requireId('cellId') || requireHash('subtreeHash');
+    if (!problem && (typeof value.action !== 'string' || !tableActions.includes(value.action as (typeof tableActions)[number]))) {
+      problem = `${scope}.action must be one of: ${tableActions.join(', ')}`;
+    }
+  }
+  return problem ? withExample(`Invalid edit_file arguments: ${problem}.`, example) : null;
+}
+
+/** Produces one deterministic, actionable error instead of exposing every union-schema branch failure. */
+export function formatAgentEditFileValidationError(value: unknown): string {
+  if (!isRecord(value)) return 'Invalid edit_file arguments: expected an object. Example: {"path":"notes.md","mode":"append","content":"New text"}';
+  if (typeof value.path !== 'string') return 'Invalid edit_file arguments: path is required and must be a string.';
+  const rootFields = ['path', 'mode', 'content', 'heading', 'oldText', 'newText', 'expectedOccurrences', 'replaceAll',
+    'expectedSha256', 'blockId', 'document', 'operations'];
+  const unexpected = Object.keys(value).find((key) => !rootFields.includes(key));
+  if (unexpected) return `Invalid edit_file arguments: ${unexpected} is not an allowed field. Allowed fields: ${rootFields.join(', ')}.`;
+  if (owns(value, 'expectedOccurrences') && (!Number.isInteger(value.expectedOccurrences) || Number(value.expectedOccurrences) < 1)) {
+    return 'Invalid edit_file arguments: expectedOccurrences must be an integer of at least 1.';
+  }
+  if (owns(value, 'replaceAll') && typeof value.replaceAll !== 'boolean') {
+    return 'Invalid edit_file arguments: replaceAll must be boolean.';
+  }
+  if (owns(value, 'expectedSha256') && typeof value.expectedSha256 !== 'string') {
+    return 'Invalid edit_file arguments: expectedSha256 must be a string.';
+  }
+
+  if (owns(value, 'operations')) {
+    const conflicts = ['mode', 'content', 'heading', 'oldText', 'newText', 'blockId', 'expectedOccurrences', 'replaceAll'].filter((key) => owns(value, key));
+    if (conflicts.length) return `Invalid edit_file arguments: operations cannot be combined with ${conflicts.join(', ')}.`;
+    const documentError = documentValidationError(value.document);
+    if (documentError) return documentError;
+    if (!Array.isArray(value.operations) || value.operations.length < 1 || value.operations.length > 32) {
+      return withExample('Invalid edit_file arguments: operations must contain 1–32 operations.',
+        { path: 'document.md', document: documentExample, operations: [operationExamples.move_block] });
+    }
+    for (let index = 0; index < value.operations.length; index++) {
+      const error = operationValidationError(value.operations[index], index);
+      if (error) return error;
+    }
+  } else if (owns(value, 'mode')) {
+    if (typeof value.mode !== 'string' || !editModes.includes(value.mode as (typeof editModes)[number])) {
+      return `Invalid edit_file arguments: mode must be one of: ${editModes.join(', ')}.`;
+    }
+    const commonConflicts = ['newText', 'operations', 'blockId', 'document'].filter((key) => owns(value, key));
+    const modeConflicts = value.mode === 'append' ? ['oldText', 'heading', 'expectedOccurrences', 'replaceAll']
+      : value.mode === 'replace' ? ['heading'] : ['oldText', 'heading', 'expectedOccurrences', 'replaceAll'].filter((key) => key !== 'heading');
+    const conflicts = [...commonConflicts, ...modeConflicts.filter((key) => owns(value, key))];
+    if (conflicts.length) return `Invalid edit_file arguments: mode ${value.mode} cannot be combined with ${conflicts.join(', ')}.`;
+    if (typeof value.content !== 'string' || value.content.length === 0) {
+      return `Invalid edit_file arguments: content is required and must be non-empty for mode ${value.mode}.`;
+    }
+    if (value.mode === 'replace' && typeof value.oldText !== 'string') {
+      return 'Invalid edit_file arguments: oldText is required for mode replace. Example: {"path":"notes.md","mode":"replace","oldText":"Old","content":"New"}';
+    }
+    if (value.mode === 'insert_after_heading' && (typeof value.heading !== 'string' || value.heading.length === 0)) {
+      return 'Invalid edit_file arguments: heading is required for mode insert_after_heading. Example: {"path":"notes.md","mode":"insert_after_heading","heading":"Details","content":"New section"}';
+    }
+  } else {
+    const conflicts = ['content', 'heading'].filter((key) => owns(value, key));
+    if (conflicts.length) return `Invalid edit_file arguments: an exact oldText/newText edit cannot include ${conflicts.join(', ')} without a Markdown mode.`;
+    if (owns(value, 'document') && !owns(value, 'blockId')) {
+      return 'Invalid edit_file arguments: document requires operations or blockId.';
+    }
+    if (owns(value, 'blockId') && !owns(value, 'document')) {
+      return 'Invalid edit_file arguments: document is required when blockId targets a live block. Read source: "blocks" and copy its document reference.';
+    }
+    if (owns(value, 'blockId') && (typeof value.blockId !== 'string' || value.blockId.length === 0)) {
+      return 'Invalid edit_file arguments: blockId must be a non-empty string copied from read(source: "blocks").';
+    }
+    if (typeof value.oldText !== 'string' || typeof value.newText !== 'string') {
+      return 'Invalid edit_file arguments: supply oldText and newText for an exact edit, or choose a Markdown mode, or supply operations with document.';
+    }
+    if (owns(value, 'document')) {
+      const documentError = documentValidationError(value.document);
+      if (documentError) return documentError;
+    }
+  }
+
+  const [error] = Array.from(Value.Errors(agentEditFileParameters, value));
+  const location = error && 'path' in error && typeof error.path === 'string' && error.path ? error.path : '/';
+  const message = error && 'message' in error ? String(error.message) : 'arguments do not match a supported edit form';
+  return `Invalid edit_file arguments at ${location}: ${message}. Use exactly one edit form: exact text, Markdown mode, or structured operations.`;
+}

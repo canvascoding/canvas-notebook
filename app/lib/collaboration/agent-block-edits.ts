@@ -53,8 +53,8 @@ export type PreparedAgentBlockEdit = {
 };
 
 export class AgentBlockEditError extends Error {
-  constructor(readonly code: 'target_changed' | 'schema_invalid' | 'limit_exceeded') {
-    super(`Structured agent edit failed: ${code}.`);
+  constructor(readonly code: 'target_changed' | 'schema_invalid' | 'limit_exceeded', detail?: string) {
+    super(detail ?? `Structured agent edit failed: ${code}.`);
     this.name = 'AgentBlockEditError';
   }
 }
@@ -63,7 +63,7 @@ const MAX_BYTES = 512 * 1024;
 const MAX_REQUESTS = 32;
 const MAX_NEW_BLOCKS = 256;
 const equal = (left: unknown, right: unknown) => hashAgentBlockJson(left) === hashAgentBlockJson(right);
-function fail(code: AgentBlockEditError['code']): never { throw new AgentBlockEditError(code); }
+function fail(code: AgentBlockEditError['code'], detail?: string): never { throw new AgentBlockEditError(code, detail); }
 const schema = () => getSchema(richMarkdownCodecExtensions());
 const treeFor = (doc: Y.Doc) => new CollaborationBlockTree(doc, schema());
 const structure = (doc: Y.Doc) => new Map(readAgentBlockStructure(doc).map((entry) => [entry.id, entry]));
@@ -83,8 +83,8 @@ function validateRequest(value: unknown): asserts value is AgentBlockEditRequest
   let keys: string[];
   if (request.kind === 'move_block') {
     keys = ['kind', 'blockId', 'placementHash', 'parentId', 'beforeId'];
-    if (!id(request.blockId) || !hash(request.placementHash) || !pointer(request.parentId) || !pointer(request.beforeId)
-      || request.beforeId === request.blockId) fail('schema_invalid');
+    if (!id(request.blockId) || !hash(request.placementHash) || !pointer(request.parentId) || !pointer(request.beforeId)) fail('schema_invalid');
+    if (request.beforeId === request.blockId) fail('schema_invalid', 'move_block.beforeId cannot equal move_block.blockId.');
   } else if (request.kind === 'delete_block') {
     keys = ['kind', 'blockId', 'subtreeHash'];
     if (!id(request.blockId) || !hash(request.subtreeHash)) fail('schema_invalid');
@@ -98,10 +98,13 @@ function validateRequest(value: unknown): asserts value is AgentBlockEditRequest
   } else if (request.kind === 'format_text') {
     keys = ['kind', 'blockId', 'subtreeHash', 'from', 'to', 'mark', 'enabled', 'href'];
     if (!id(request.blockId) || !hash(request.subtreeHash) || !Number.isSafeInteger(request.from) || !Number.isSafeInteger(request.to)
-      || Number(request.from) < 0 || Number(request.to) <= Number(request.from) || typeof request.enabled !== 'boolean'
+      || Number(request.from) < 0 || Number(request.to) < 1 || typeof request.enabled !== 'boolean'
       || !['bold', 'italic', 'strike', 'code', 'link'].includes(String(request.mark))) fail('schema_invalid');
+    if (Number(request.to) <= Number(request.from)) fail('schema_invalid', 'format_text.to must be greater than format_text.from.');
     if (request.mark === 'link' && request.enabled) {
-      if (typeof request.href !== 'string' || !request.href.trim() || request.href.length > 2048 || !isAllowedUri(request.href)) fail('schema_invalid');
+      if (typeof request.href !== 'string' || !request.href.trim() || request.href.length > 2048 || !isAllowedUri(request.href)) {
+        fail('schema_invalid', 'format_text.href must be an allowed non-empty URL of at most 2048 characters when enabling a link.');
+      }
     } else if (request.href !== undefined) fail('schema_invalid');
   } else if (request.kind === 'table_operation') {
     keys = ['kind', 'cellId', 'subtreeHash', 'action'];
@@ -287,19 +290,32 @@ function destination(entries: Map<string, AgentBlockStructure>, parentId: string
 
 function formatKeys(entry: AgentBlockStructure, request: Extract<AgentBlockEditRequest, { kind: 'format_block' }>): string[] {
   const allowed: Record<string, string> = { heading: 'level', taskItem: 'checked', orderedList: 'start', codeBlock: 'language' };
+  if (!allowed[entry.type]) {
+    fail('schema_invalid', `format_block requires heading, taskItem, orderedList, or codeBlock; block ${request.blockId} is ${entry.type}.`);
+  }
   const keys = Object.keys(request.afterAttrs);
-  if (keys.length !== 1 || keys[0] !== allowed[entry.type] || !equal(Object.keys(request.beforeAttrs).sort(), keys.slice().sort())) fail('schema_invalid');
+  if (keys.length !== 1 || keys[0] !== allowed[entry.type] || !equal(Object.keys(request.beforeAttrs).sort(), keys.slice().sort())) {
+    fail('schema_invalid', `format_block on ${entry.type} must use exactly ${allowed[entry.type]} in both beforeAttrs and afterAttrs.`);
+  }
   const value = request.afterAttrs[keys[0]];
-  if (entry.type === 'heading' && (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 6)) fail('schema_invalid');
-  if (entry.type === 'taskItem' && typeof value !== 'boolean') fail('schema_invalid');
-  if (entry.type === 'orderedList' && (!Number.isSafeInteger(value) || Number(value) < 1)) fail('schema_invalid');
-  if (entry.type === 'codeBlock' && value !== null && (typeof value !== 'string' || value.length > 64 || !/^[\w+-]*$/u.test(value))) fail('schema_invalid');
+  if (entry.type === 'heading' && (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 6)) {
+    fail('schema_invalid', 'format_block.afterAttrs.level must be an integer from 1 through 6.');
+  }
+  if (entry.type === 'taskItem' && typeof value !== 'boolean') fail('schema_invalid', 'format_block.afterAttrs.checked must be boolean.');
+  if (entry.type === 'orderedList' && (!Number.isSafeInteger(value) || Number(value) < 1)) {
+    fail('schema_invalid', 'format_block.afterAttrs.start must be a positive safe integer.');
+  }
+  if (entry.type === 'codeBlock' && value !== null && (typeof value !== 'string' || value.length > 64 || !/^[\w+-]*$/u.test(value))) {
+    fail('schema_invalid', 'format_block.afterAttrs.language must be null or at most 64 letters, digits, underscores, plus signs, or hyphens.');
+  }
   return keys;
 }
 
 function containingTable(entries: Map<string, AgentBlockStructure>, cellId: string): AgentBlockStructure {
   let entry = requireBlock(entries, cellId);
-  if (!['tableCell', 'tableHeader'].includes(entry.type)) fail('schema_invalid');
+  if (!['tableCell', 'tableHeader'].includes(entry.type)) {
+    fail('schema_invalid', `table_operation.cellId must identify a tableCell or tableHeader; block ${cellId} is ${entry.type}.`);
+  }
   while (entry.type !== 'table') {
     if (entry.parentId === null) fail('schema_invalid');
     entry = requireBlock(entries, entry.parentId);
@@ -309,16 +325,23 @@ function containingTable(entries: Map<string, AgentBlockStructure>, cellId: stri
 
 function formatText(doc: ProseMirrorNode, request: Extract<AgentBlockEditRequest, { kind: 'format_text' }>): ProseMirrorNode {
   const target = positioned(doc, request.blockId);
-  if (!target.node.isTextblock || request.to > target.node.content.size) fail('schema_invalid');
+  if (!target.node.isTextblock) fail('schema_invalid', `format_text.blockId must identify a text block; ${request.blockId} is ${target.node.type.name}.`);
+  if (request.to > target.node.content.size) {
+    fail('schema_invalid', `format_text range ${request.from}–${request.to} exceeds the block content size ${target.node.content.size}.`);
+  }
   // Leaf placeholders preserve PM's one-position inline atoms while grapheme
   // boundaries remain continuous across differently marked text nodes.
   const text = target.node.textBetween(0, target.node.content.size, '', '\uFFFC');
   if (text.length !== target.node.content.size || new TextDecoder().decode(new TextEncoder().encode(text)) !== text) fail('schema_invalid');
   const boundaries = new Set([0, text.length]);
   for (const part of new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)) boundaries.add(part.index);
-  if (!boundaries.has(request.from) || !boundaries.has(request.to)) fail('schema_invalid');
+  if (!boundaries.has(request.from) || !boundaries.has(request.to)) {
+    fail('schema_invalid', 'format_text.from and format_text.to must fall on grapheme boundaries in the current block text.');
+  }
   const mark = doc.type.schema.marks[request.mark];
-  if (!mark || !target.node.type.allowsMarkType(mark)) fail('schema_invalid');
+  if (!mark || !target.node.type.allowsMarkType(mark)) {
+    fail('schema_invalid', `format_text mark ${request.mark} is not allowed on ${target.node.type.name}.`);
+  }
   const state = EditorState.create({ doc });
   const from = target.pos + 1 + request.from; const to = target.pos + 1 + request.to;
   return (request.enabled ? state.tr.addMark(from, to, mark.create(request.mark === 'link' ? { href: request.href } : undefined))
@@ -415,9 +438,11 @@ export function prepareAgentBlockEdit(doc: Y.Doc, requests: AgentBlockEditReques
             ...(node.attrs ? { attrs: Object.fromEntries(Object.entries(node.attrs).filter(([key]) => key !== 'id')) } : {}),
             ...(node.content ? { content: node.content.map(clearIds) } : {}) });
           const blocks = request.blocks.map(clearIds).map((node) => tree.schema.nodeFromJSON(node));
-          if (blocks.some((node) => !node.isBlock)) fail('schema_invalid');
+          if (blocks.some((node) => !node.isBlock)) fail('schema_invalid', 'insert_blocks.blocks must contain block nodes, not inline nodes.');
           const parent = request.parentId === null ? { node: before, pos: -1 } : positioned(before, request.parentId);
-          if (parent.node.inlineContent || parent.node.isLeaf) fail('schema_invalid');
+          if (parent.node.inlineContent || parent.node.isLeaf) {
+            fail('schema_invalid', `insert_blocks.parentId must identify a container block; ${request.parentId} is ${parent.node.type.name}.`);
+          }
           const at = request.beforeId === null ? parent.pos + 1 + parent.node.content.size : positioned(before, request.beforeId).pos;
           const state = EditorState.create({ doc: before });
           const inserted = state.tr.insert(at, Fragment.fromArray(blocks)).doc;
