@@ -8,6 +8,7 @@
   "documents": [
     "docs/architecture/canvas-notebook/file-version-review-center/plan.md",
     "docs/architecture/canvas-notebook/file-version-review-center/contract-inventory.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/contracts-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -125,7 +126,8 @@
           "id": "FVRC-001",
           "order": 1,
           "title": "Versionierte Domain-, API- und Deep-Link-Contracts festschreiben",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "contracts",
           "dependsOn": ["FVRC-000"],
           "deliverables": [
@@ -141,6 +143,13 @@
             "Schema- und Roundtrip-Fixture-Tests",
             "Ungueltige und uebergrosse Payload-Fixtures",
             "Contract-Review fuer Desktop und Mobile"
+          ],
+          "completionEvidence": [
+            "Versionierte TypeBox-Schemas und TypeScript-Typen decken Open-Target, Timeline, Compare, Restore, Capabilities, Policy, Change Groups und Fehler ab.",
+            "Deep-Link V1 behaelt fremde Queryparameter und Hashes, setzt beim Parse source=deep_link und serialisiert weder Inhalte noch Grants.",
+            "file-version-center-contract-v1.json fixiert vier Open-Ziele, Timeline, zwei paginierte Diff-Hunks, Restore, Policy, Change Group und Fehlerantwort.",
+            "npx tsx scripts/file-version-center-contract-test.ts, geaenderte TypeScript-Dateien per ESLint und npx tsc --noEmit bestehen.",
+            "contracts-v1.md dokumentiert denselben Contract fuer Desktop, Mobile, Chat, Dateibrowser und spaetere Notifications."
           ]
         },
         {

@@ -1,0 +1,434 @@
+{
+  "fixtureVersion": "1.0.0",
+  "contractVersion": 1,
+  "valid": {
+    "openRequests": [
+      {
+        "contractVersion": 1,
+        "target": {
+          "kind": "document",
+          "workspaceId": "workspace-team-1",
+          "documentId": "collab-doc-1"
+        },
+        "selectedEntry": {
+          "kind": "agent_operation",
+          "id": "agent-operation-17"
+        },
+        "initialView": "reviews",
+        "source": "editor"
+      },
+      {
+        "contractVersion": 1,
+        "target": {
+          "kind": "lineage",
+          "workspaceId": "workspace-team-1",
+          "lineageId": "file-lineage-1"
+        },
+        "selectedEntry": {
+          "kind": "revision",
+          "id": "file-rev-41"
+        },
+        "initialView": "history",
+        "source": "file_browser"
+      },
+      {
+        "contractVersion": 1,
+        "target": {
+          "kind": "change_group",
+          "workspaceId": "workspace-team-1",
+          "changeGroupId": "file-change-group-9",
+          "entryId": "file-change-entry-2"
+        },
+        "initialView": "reviews",
+        "source": "chat"
+      },
+      {
+        "contractVersion": 1,
+        "target": {
+          "kind": "path",
+          "workspaceId": "workspace-personal-1",
+          "pathHint": "docs/guide with spaces.md"
+        },
+        "initialView": "history",
+        "source": "notification"
+      }
+    ],
+    "capabilities": {
+      "contractVersion": 1,
+      "history": true,
+      "compare": true,
+      "restore": true,
+      "agentReviewPolicy": true,
+      "preview": "markdown"
+    },
+    "policy": {
+      "contractVersion": 1,
+      "requestedMode": "safe_direct",
+      "effectiveMode": "review_required",
+      "revision": 4,
+      "locked": true,
+      "reason": "workspace_policy"
+    },
+    "timelinePage": {
+      "contractVersion": 1,
+      "document": {
+        "workspaceId": "workspace-team-1",
+        "lineageId": "file-lineage-1",
+        "documentId": "collab-doc-1",
+        "path": "docs/README.md"
+      },
+      "capabilities": {
+        "contractVersion": 1,
+        "history": true,
+        "compare": true,
+        "restore": true,
+        "agentReviewPolicy": true,
+        "preview": "markdown"
+      },
+      "policy": {
+        "contractVersion": 1,
+        "requestedMode": "review_required",
+        "effectiveMode": "review_required",
+        "revision": 2,
+        "locked": false,
+        "reason": "user_preference"
+      },
+      "entries": [
+        {
+          "kind": "agent_operation",
+          "id": "agent-operation-17",
+          "operationId": "agent-operation-17",
+          "createdAt": "2026-09-14T10:00:00.000Z",
+          "actor": {
+            "type": "agent",
+            "id": "agent-bradley",
+            "displayName": "Bradley"
+          },
+          "status": "needs_review",
+          "proposalVersion": "proposal-3",
+          "additions": 8,
+          "deletions": 2,
+          "actionsAllowed": true
+        },
+        {
+          "kind": "current",
+          "id": "current",
+          "observedAt": "2026-09-14T10:01:00.000Z",
+          "revisionId": "file-rev-42",
+          "stateVectorHash": "dGhpcy1pcy1hLXN0YXRlLXZlY3Rvcg",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "sizeBytes": 2048
+        },
+        {
+          "kind": "revision",
+          "id": "file-rev-41",
+          "revisionId": "file-rev-41",
+          "revisionNumber": 41,
+          "createdAt": "2026-09-14T09:30:00.000Z",
+          "source": "automatic_checkpoint",
+          "actor": {
+            "type": "user",
+            "id": "user-1",
+            "displayName": "Frank"
+          },
+          "content": {
+            "availability": "available",
+            "format": "markdown",
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "sizeBytes": 1980
+          },
+          "restorable": true
+        }
+      ],
+      "page": {
+        "hasMore": false,
+        "nextCursor": null
+      }
+    },
+    "compareRequest": {
+      "contractVersion": 1,
+      "target": {
+        "kind": "lineage",
+        "workspaceId": "workspace-team-1",
+        "lineageId": "file-lineage-1"
+      },
+      "candidate": {
+        "kind": "revision",
+        "id": "file-rev-41"
+      },
+      "expectedCurrent": {
+        "revisionId": "file-rev-42",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stateVectorHash": "dGhpcy1pcy1hLXN0YXRlLXZlY3Rvcg"
+      },
+      "limit": 1
+    },
+    "diffPages": [
+      {
+        "contractVersion": 1,
+        "current": {
+          "fence": {
+            "revisionId": "file-rev-42",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "stateVectorHash": "dGhpcy1pcy1hLXN0YXRlLXZlY3Rvcg"
+          },
+          "observedAt": "2026-09-14T10:01:00.000Z"
+        },
+        "candidate": {
+          "selection": {
+            "kind": "revision",
+            "id": "file-rev-41"
+          },
+          "stale": false,
+          "contentAvailable": true
+        },
+        "summary": {
+          "additions": 2,
+          "deletions": 1,
+          "unchanged": 8
+        },
+        "hunks": [
+          {
+            "id": "hunk-1",
+            "oldStart": 1,
+            "oldLines": 3,
+            "newStart": 1,
+            "newLines": 4,
+            "lines": [
+              {
+                "kind": "context",
+                "oldLineNumber": 1,
+                "newLineNumber": 1,
+                "text": "# Guide"
+              },
+              {
+                "kind": "deletion",
+                "oldLineNumber": 2,
+                "newLineNumber": null,
+                "text": "Old sentence."
+              },
+              {
+                "kind": "addition",
+                "oldLineNumber": null,
+                "newLineNumber": 2,
+                "text": "New sentence."
+              },
+              {
+                "kind": "addition",
+                "oldLineNumber": null,
+                "newLineNumber": 3,
+                "text": "More context."
+              }
+            ]
+          }
+        ],
+        "page": {
+          "hasMore": true,
+          "nextCursor": "diff-cursor-2"
+        },
+        "truncated": false
+      },
+      {
+        "contractVersion": 1,
+        "current": {
+          "fence": {
+            "revisionId": "file-rev-42",
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "stateVectorHash": "dGhpcy1pcy1hLXN0YXRlLXZlY3Rvcg"
+          },
+          "observedAt": "2026-09-14T10:01:00.000Z"
+        },
+        "candidate": {
+          "selection": {
+            "kind": "revision",
+            "id": "file-rev-41"
+          },
+          "stale": false,
+          "contentAvailable": true
+        },
+        "summary": {
+          "additions": 2,
+          "deletions": 1,
+          "unchanged": 8
+        },
+        "hunks": [
+          {
+            "id": "hunk-2",
+            "oldStart": 10,
+            "oldLines": 2,
+            "newStart": 11,
+            "newLines": 2,
+            "lines": [
+              {
+                "kind": "context",
+                "oldLineNumber": 10,
+                "newLineNumber": 11,
+                "text": "End."
+              }
+            ]
+          }
+        ],
+        "page": {
+          "hasMore": false,
+          "nextCursor": null
+        },
+        "truncated": false
+      }
+    ],
+    "restoreRequest": {
+      "contractVersion": 1,
+      "target": {
+        "kind": "lineage",
+        "workspaceId": "workspace-team-1",
+        "lineageId": "file-lineage-1"
+      },
+      "revisionId": "file-rev-41",
+      "expectedCurrent": {
+        "revisionId": "file-rev-42",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stateVectorHash": "dGhpcy1pcy1hLXN0YXRlLXZlY3Rvcg"
+      },
+      "idempotencyKey": "restore-request-0001"
+    },
+    "restoreResponse": {
+      "contractVersion": 1,
+      "outcome": "restored",
+      "priorRevisionId": "file-rev-42",
+      "restoredRevisionId": "file-rev-43",
+      "current": {
+        "revisionId": "file-rev-43",
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "stateVectorHash": "cmVzdG9yZWQtc3RhdGUtdmVjdG9y"
+      }
+    },
+    "policyUpdate": {
+      "contractVersion": 1,
+      "target": {
+        "kind": "lineage",
+        "workspaceId": "workspace-team-1",
+        "lineageId": "file-lineage-1"
+      },
+      "requestedMode": "safe_direct",
+      "expectedRevision": 2
+    },
+    "changeGroup": {
+      "contractVersion": 1,
+      "id": "file-change-group-9",
+      "workspaceId": "workspace-team-1",
+      "sourceSessionId": "session-1",
+      "toolCallId": "tool-call-19",
+      "operation": "apply_patch",
+      "status": "mixed",
+      "createdAt": "2026-09-14T10:00:00.000Z",
+      "entries": [
+        {
+          "id": "file-change-entry-1",
+          "ordinal": 0,
+          "lineageId": "file-lineage-1",
+          "documentId": "collab-doc-1",
+          "operationId": "agent-operation-17",
+          "revisionId": null,
+          "pathHint": "docs/README.md",
+          "outcome": "review_required",
+          "additions": 8,
+          "deletions": 2
+        },
+        {
+          "id": "file-change-entry-2",
+          "ordinal": 1,
+          "lineageId": "file-lineage-2",
+          "documentId": null,
+          "operationId": null,
+          "revisionId": "file-rev-8",
+          "pathHint": "src/example.ts",
+          "outcome": "applied",
+          "additions": 1,
+          "deletions": 0
+        }
+      ]
+    },
+    "errorResponse": {
+      "contractVersion": 1,
+      "success": false,
+      "error": {
+        "code": "FVRC_STALE_CURRENT",
+        "message": "The document changed after the comparison was loaded.",
+        "retryable": true,
+        "requestId": "request-9"
+      }
+    }
+  },
+  "invalid": {
+    "absolutePathTarget": {
+      "contractVersion": 1,
+      "target": {
+        "kind": "path",
+        "workspaceId": "workspace-team-1",
+        "pathHint": "/data/workspaces/team-1/docs/README.md"
+      },
+      "initialView": "history",
+      "source": "deep_link"
+    },
+    "traversalPathTarget": {
+      "contractVersion": 1,
+      "target": {
+        "kind": "path",
+        "workspaceId": "workspace-team-1",
+        "pathHint": "docs/../../secrets.env"
+      },
+      "initialView": "history",
+      "source": "chat"
+    },
+    "contentInReference": {
+      "contractVersion": 1,
+      "target": {
+        "kind": "lineage",
+        "workspaceId": "workspace-team-1",
+        "lineageId": "file-lineage-1"
+      },
+      "initialView": "history",
+      "source": "editor",
+      "content": "# Never place document content in an open contract"
+    },
+    "grantInReference": {
+      "contractVersion": 1,
+      "target": {
+        "kind": "document",
+        "workspaceId": "workspace-team-1",
+        "documentId": "collab-doc-1"
+      },
+      "initialView": "reviews",
+      "source": "chat",
+      "grantId": "direct-edit-grant-secret"
+    },
+    "unsupportedVersion": {
+      "contractVersion": 2,
+      "target": {
+        "kind": "lineage",
+        "workspaceId": "workspace-team-1",
+        "lineageId": "file-lineage-1"
+      },
+      "initialView": "history",
+      "source": "deep_link"
+    },
+    "nonContiguousChangeGroup": {
+      "contractVersion": 1,
+      "id": "file-change-group-10",
+      "workspaceId": "workspace-team-1",
+      "sourceSessionId": "session-1",
+      "toolCallId": "tool-call-20",
+      "operation": "apply_patch",
+      "status": "applied",
+      "createdAt": "2026-09-14T10:00:00.000Z",
+      "entries": [
+        {
+          "id": "file-change-entry-1",
+          "ordinal": 1,
+          "lineageId": "file-lineage-1",
+          "pathHint": "docs/README.md",
+          "outcome": "applied"
+        }
+      ]
+    }
+  }
+}
