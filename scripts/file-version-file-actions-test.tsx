@@ -31,9 +31,13 @@ class ClientError extends Error {
   }
 }
 
-function timeline(lineageId: string, capabilities: Partial<Timeline['capabilities']> = {}): Timeline {
+function timeline(
+  lineageId: string,
+  capabilities: Partial<Timeline['capabilities']> = {},
+  workspaceId = 'workspace-one',
+): Timeline {
   return {
-    document: { workspaceId: 'workspace-one', lineageId },
+    document: { workspaceId, lineageId },
     capabilities: {
       contractVersion: 1,
       history: true,
@@ -189,6 +193,33 @@ test('the shared item follows server capabilities and opens only the resolved li
     assert.equal(missing?.disabled, true);
     assert.equal(missing?.dataset.fileVersionCapability, 'missing');
     assert.equal(missing?.getAttribute('aria-label'), 'fileVersionChangesMissing');
+
+    let releasePreviousWorkspace!: (value: Timeline) => void;
+    const previousWorkspace = new Promise<Timeline>((resolve) => { releasePreviousWorkspace = resolve; });
+    resolveTimeline = (call) => {
+      const target = call.request.target as { workspaceId: string };
+      return target.workspaceId === 'workspace-old'
+        ? previousWorkspace
+        : Promise.resolve(timeline('lineage-new-workspace', {}, 'workspace-new'));
+    };
+    await act(async () => root.render(
+      <ui.FileVersionMenuItem workspaceId="workspace-old" path="Notes/switch.md" source="file_browser" />,
+    ));
+    await act(async () => root.render(
+      <ui.FileVersionMenuItem workspaceId="workspace-new" path="Notes/switch.md" source="file_browser" />,
+    ));
+    await settle();
+    releasePreviousWorkspace(timeline('lineage-old-workspace', {}, 'workspace-old'));
+    await settle();
+    const switched = document.querySelector<HTMLButtonElement>('button');
+    assert.equal(switched?.dataset.fileVersionCapability, 'full');
+    await act(async () => switched?.click());
+    assert.deepEqual(opened.at(-1), {
+      contractVersion: 1,
+      target: { kind: 'lineage', workspaceId: 'workspace-new', lineageId: 'lineage-new-workspace' },
+      initialView: 'history',
+      source: 'file_browser',
+    }, 'a late response from the previous workspace cannot replace the active target');
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

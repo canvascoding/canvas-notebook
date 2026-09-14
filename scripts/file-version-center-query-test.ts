@@ -175,14 +175,18 @@ async function main(): Promise<void> {
       target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
       access: access(),
     })).path, 'renamed.md');
-    assert.equal((await service.resolve({
+    await assert.rejects(service.resolve({
       target: { kind: 'path', workspaceId: 'workspace-a', pathHint: 'old.md' },
       access: access(),
-    })).lineageId, 'lineage-reused');
+    }), (error: unknown) => error instanceof FileVersionCenterContractError
+      && error.code === 'FVRC_NOT_FOUND'
+      && /deleted or replaced/u.test(error.message));
     await assert.rejects(service.resolve({
       target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-archived' },
       access: access(),
-    }), (error: unknown) => error instanceof FileVersionCenterContractError && error.code === 'FVRC_NOT_FOUND');
+    }), (error: unknown) => error instanceof FileVersionCenterContractError
+      && error.code === 'FVRC_NOT_FOUND'
+      && /archived/u.test(error.message));
     await assert.rejects(service.resolve({
       target: { kind: 'lineage', workspaceId: 'workspace-b', lineageId: 'lineage-b' },
       access: access(),

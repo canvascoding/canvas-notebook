@@ -162,9 +162,24 @@ function assertAccessEnvelope(access: FileVersionCenterAccess, requestedWorkspac
 }
 
 function resolvedTarget(row: ResolvedRow | undefined): ResolvedFileVersionTarget {
-  if (!row || row.status !== 'active' || !validId(row.workspace_id) || !validId(row.lineage_id)
+  if (!row) {
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.notFound,
+      'The document version target was not found. It may have been deleted or replaced.',
+    );
+  }
+  if (row.status === 'archived') {
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.notFound,
+      'This document is archived. Restore it from the workspace trash to reopen its version history.',
+    );
+  }
+  if (row.status !== 'active' || !validId(row.workspace_id) || !validId(row.lineage_id)
     || (row.document_id !== null && !validId(row.document_id)) || !isSafeFileVersionPathHint(row.path)) {
-    throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.notFound, 'The active document version target was not found.');
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.notFound,
+      'The active document version target is unavailable.',
+    );
   }
   return {
     workspaceId: row.workspace_id,
@@ -210,7 +225,21 @@ async function resolveTargetRow(
   if (target.kind === 'path') {
     if (!isSafeFileVersionPathHint(target.pathHint)) return undefined;
     return (await transaction.query<ResolvedRow>(`${TARGET_PROJECTION_SQL}
-      WHERE lineage.workspace_id = $1 AND lineage.path = $2 AND lineage.status = 'active'`,
+      WHERE lineage.workspace_id = $1 AND lineage.path = $2 AND lineage.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM file_collaboration_lineages historical_lineage
+          WHERE historical_lineage.workspace_id = lineage.workspace_id
+            AND historical_lineage.path = $2
+            AND historical_lineage.id <> lineage.id
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM file_revisions historical_revision
+          WHERE historical_revision.workspace_id = lineage.workspace_id
+            AND historical_revision.path = $2
+            AND historical_revision.lineage_id IS DISTINCT FROM lineage.id
+        )`,
     [target.workspaceId, target.pathHint])).rows[0];
   }
   const entryFilter = target.entryId ? 'AND entry.entry_id = $4' : '';

@@ -711,7 +711,8 @@
       "id": "FVRC-P05",
       "order": 5,
       "title": "Dateibrowser- und Dateiaktionsintegration",
-      "status": "in_progress",
+      "status": "completed",
+      "completedAt": "2026-09-14",
       "dependsOn": ["FVRC-P04"],
       "exitGate": "FVRC-G05-FILE-BROWSER",
       "tasks": [
@@ -746,7 +747,8 @@
           "id": "FVRC-501",
           "order": 1,
           "title": "Dateiaufloesung nach Rename, Move, Trash und Workspace-Wechsel absichern",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "file-lifecycle",
           "dependsOn": ["FVRC-500"],
           "deliverables": [
@@ -762,6 +764,12 @@
             "Rename-/Move-/Trash-/Restore-Integration",
             "Cross-Workspace-Wechseltests",
             "App-Neustart-Test ohne Browserautomation"
+          ],
+          "completionEvidence": [
+            "Lineage-Targets werden unabhaengig vom Pfad gegen den aktuellen aktiven Pfad aufgeloest; archivierte Lineages liefern einen verstaendlichen Restore-Hinweis.",
+            "Der Legacy-Pfad-Fallback wird bei historischen oder archivierten Fremd-Lineages fail-closed abgelehnt und kann dadurch keine Ersatzdatei-Historie uebernehmen.",
+            "scripts/file-version-target-lifecycle-test.ts prueft Rename/Move, Ersatzdatei, Trash, Restore, Cross-Workspace und einen frischen Service-Prozess auf PGlite; der Menu-Test prueft zusaetzlich veraltete Workspace-Antworten.",
+            "FVRC-Query-, globaler Open-, Collaboration-Lifecycle-, Komponenten-, ESLint-, TypeScript- und diff-check-Pruefungen sind gruen. Der Produktions-Build kompiliert und typprueft erfolgreich; die unveraenderte lokale Baseline stoppt erst beim Prerender von /en/sign-up, weil DATABASE_URL ausserhalb des Containers nicht gesetzt ist."
           ]
         }
       ]
