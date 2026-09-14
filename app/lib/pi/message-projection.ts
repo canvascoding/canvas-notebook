@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { resizeTextReadResult } from './text-read-result';
-import { AUTOMATION_APP_URI, PUBLIC_SHARE_APP_URI, readBuiltinToolAppMessages } from '@/app/lib/tool-apps/types';
+import { parseFileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
+import { AUTOMATION_APP_URI, FILE_CHANGE_APP_URI, PUBLIC_SHARE_APP_URI, readBuiltinToolAppMessages } from '@/app/lib/tool-apps/types';
 
 export type PiMessageProjectionMode = 'raw' | 'context' | 'display';
 
@@ -240,6 +241,13 @@ function compactToolResultMessage(
         builtinDetails.publicShareAction = builtin.operation;
         if (builtin.operation === 'revoke') builtinDetails.share = { id: builtin.entityId };
         else builtinDetails.shares = builtins.map(app => ({ id: app.entityId }));
+      } else if (builtin.resourceUri === FILE_CHANGE_APP_URI) {
+        builtinDetails.toolApp = builtin;
+        // Keep the bounded, validated reference group intact so batches with
+        // more than the generic 20 detail entries survive a chat reload.
+        builtinDetails.changeGroup = parseFileChangeGroupV1(
+          (record.details as Record<string, unknown>).changeGroup,
+        );
       } else {
         builtinDetails.toolApp = builtin;
         // Preserve only the validated binding, never bypass the entity-data limits.

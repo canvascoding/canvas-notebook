@@ -1,4 +1,5 @@
 import type { McpAppInvocationDetails } from '@/app/lib/mcp/apps-types';
+import { parseFileChangeGroupV1, type FileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
 
 export const AUTOMATION_APP_URI = 'ui://canvas/automation-job/v1';
 export const AUTOMATION_APP_OPERATIONS = ['create_automation_job', 'inspect_automation_job', 'update_automation_job'] as const;
@@ -6,6 +7,9 @@ export type AutomationAppOperation = typeof AUTOMATION_APP_OPERATIONS[number];
 export const PUBLIC_SHARE_APP_URI = 'ui://canvas/public-share/v1';
 export const PUBLIC_SHARE_APP_OPERATIONS = ['create', 'list', 'revoke'] as const;
 export type PublicShareAppOperation = typeof PUBLIC_SHARE_APP_OPERATIONS[number];
+export const FILE_CHANGE_APP_URI = 'ui://canvas/file-change-group/v1';
+export const FILE_CHANGE_APP_OPERATIONS = ['write', 'edit_file', 'apply_patch'] as const;
+export type FileChangeAppOperation = typeof FILE_CHANGE_APP_OPERATIONS[number];
 export const MAX_BUILTIN_TOOL_APPS = 10;
 
 export const TODO_APP_URI = 'ui://canvas/human-todo/v1';
@@ -22,6 +26,7 @@ export type BuiltinToolAppDescriptor = BuiltinToolAppBinding & (
   { resourceUri: typeof AUTOMATION_APP_URI; operation: AutomationAppOperation }
   | { resourceUri: typeof TODO_APP_URI; operation: TodoAppOperation }
   | { resourceUri: typeof PUBLIC_SHARE_APP_URI; operation: PublicShareAppOperation }
+  | { resourceUri: typeof FILE_CHANGE_APP_URI; operation: FileChangeAppOperation }
 );
 
 export function automationToolApp(entityId: string, toolCallId: string, operation: AutomationAppOperation): BuiltinToolAppDescriptor {
@@ -30,6 +35,11 @@ export function automationToolApp(entityId: string, toolCallId: string, operatio
 
 export function todoToolApp(entityId: string, toolCallId: string, operation: TodoAppOperation): BuiltinToolAppDescriptor {
   return { kind: 'builtin', version: 1, resourceUri: TODO_APP_URI, entityId, toolCallId, operation };
+}
+
+export function fileChangeToolApp(group: Pick<FileChangeGroupV1, 'id' | 'toolCallId' | 'operation'>): BuiltinToolAppDescriptor {
+  return { kind: 'builtin', version: 1, resourceUri: FILE_CHANGE_APP_URI,
+    entityId: group.id, toolCallId: group.toolCallId, operation: group.operation };
 }
 
 /** One bounded, deduplicated card per returned public link. */
@@ -69,6 +79,12 @@ export function readBuiltinToolAppDescriptor(value: unknown): BuiltinToolAppDesc
     && PUBLIC_SHARE_APP_OPERATIONS.includes(value.operation as PublicShareAppOperation)) {
     return publicShareToolApps([{ id: value.entityId }], value.toolCallId, value.operation as PublicShareAppOperation)[0];
   }
+  if (value.resourceUri === FILE_CHANGE_APP_URI && /^fvcg-[a-f0-9]{64}$/u.test(value.entityId)
+    && FILE_CHANGE_APP_OPERATIONS.includes(value.operation as FileChangeAppOperation)
+    && Object.keys(value).length === 6) {
+    return { kind: 'builtin', version: 1, resourceUri: FILE_CHANGE_APP_URI,
+      entityId: value.entityId, toolCallId: value.toolCallId, operation: value.operation as FileChangeAppOperation };
+  }
   return null;
 }
 
@@ -88,6 +104,12 @@ export function readBuiltinToolAppMessages(value: unknown): BuiltinToolAppDescri
       const shares = descriptor.operation === 'revoke' ? [details.share] : details.shares;
       if (value.toolName !== 'public_share_file' || descriptor.operation !== details.publicShareAction
         || !Array.isArray(shares) || !shares.some(share => isToolAppRecord(share) && share.id === descriptor.entityId)) return [];
+    } else if (descriptor.resourceUri === FILE_CHANGE_APP_URI) {
+      let group: FileChangeGroupV1;
+      try { group = parseFileChangeGroupV1(details.changeGroup); } catch { return []; }
+      if (value.toolName !== descriptor.operation || group.id !== descriptor.entityId
+        || group.toolCallId !== descriptor.toolCallId || group.operation !== descriptor.operation
+        || group.status === 'failed' || !group.entries.some(entry => entry.outcome !== 'failed')) return [];
     } else {
       const operation = descriptor.resourceUri === AUTOMATION_APP_URI && value.toolName === 'automation_manage' && details.action === 'call'
         ? details.operation : value.toolName;

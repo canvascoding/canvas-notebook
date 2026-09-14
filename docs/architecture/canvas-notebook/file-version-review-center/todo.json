@@ -786,7 +786,7 @@
           "id": "FVRC-600",
           "order": 0,
           "title": "Built-in File-Change-Tool-App und strikte Descriptor-Validierung ergaenzen",
-          "status": "planned",
+          "status": "completed",
           "area": "tool-app-contract",
           "dependsOn": ["FVRC-501"],
           "deliverables": [
@@ -803,6 +803,12 @@
             "Descriptor-Parser- und Tool-App-Access-Tests",
             "Persisted-message- und Reload-Tests",
             "Security-Negativtests"
+          ],
+          "completionEvidence": [
+            "ui://canvas/file-change-group/v1 ist als strikt validierter Built-in-Descriptor registriert; nur ein erfolgreiches persistiertes ToolResult mit passender Change Group, Tool-Call-ID und Operation erzeugt eine Karte.",
+            "Der autorisierte Datenpfad bindet User, Workspace, Agent, Chat-Session und gespeicherte Change Group erneut und aktualisiert Accept/Reject/Restore/Revert-Zustaende aus Operationen und Revisionen.",
+            "Die kompakte Canvas-Karte nutzt den bestehenden sandboxed Tool-App-Host, bietet Host-Actions zum globalen Center und einen Datei-Fallback und begrenzt Payload und sichtbare Eintraege.",
+            "scripts/tool-apps-file-change-test.ts und scripts/file-change-app-data-test.ts sowie alle bestehenden Tool-App-, Projektions-, ESLint-, TypeScript- und diff-check-Pruefungen sind gruen. Der Produktions-Build kompiliert und typprueft erfolgreich; die bekannte lokale Baseline stoppt erst beim Prerender von /en/sign-up ohne DATABASE_URL."
           ]
         },
         {

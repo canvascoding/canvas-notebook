@@ -15,7 +15,9 @@ import { presentTodoAppData } from './todo-data';
 import { presentPublicShareAppData } from './public-share-data';
 import { getPublicFileShareForUser } from '@/app/lib/public-sharing/public-file-shares';
 import { mcpAppOrigins } from '@/app/lib/mcp/apps-config';
-import { PUBLIC_SHARE_APP_URI, TODO_APP_URI, readBuiltinToolAppMessages, type BuiltinToolAppDescriptor } from './types';
+import { fileChangeGroupService } from '@/app/lib/file-version-center/change-group-service';
+import { presentFileChangeAppData } from './file-change-service';
+import { FILE_CHANGE_APP_URI, PUBLIC_SHARE_APP_URI, TODO_APP_URI, readBuiltinToolAppMessages, type BuiltinToolAppDescriptor } from './types';
 
 /** Re-authorize the stored operation and its entity, never the browser's snapshot. */
 export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: BuiltinToolAppDescriptor) {
@@ -44,6 +46,31 @@ export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: Builtin
       if (!share) throw new Error('missing');
       return presentPublicShareAppData(share, workspace.workspaceId);
     } catch { throw new McpAccessError('Public share is unavailable.', 404); }
+  }
+  if (stored.resourceUri === FILE_CHANGE_APP_URI) {
+    try {
+      const workspace = await resolveAgentSessionWorkspaceForUser({
+        userId: chat.userId,
+        workspaceId: session.workspaceId,
+        permissions: ['canRead'],
+      });
+      const group = await fileChangeGroupService.readAuthorized({
+        access: {
+          userId: chat.userId,
+          authenticatedWorkspaceId: workspace.workspaceId,
+          requestedWorkspaceId: workspace.workspaceId,
+          membership: 'active',
+          permissionsResolved: true,
+          canRead: workspace.permissions.canRead,
+        },
+        groupId: stored.entityId,
+      });
+      if (group.workspaceId !== workspace.workspaceId || group.sourceSessionId !== chat.sessionId
+        || group.toolCallId !== stored.toolCallId || group.operation !== stored.operation) throw new Error('scope');
+      return await presentFileChangeAppData(group);
+    } catch {
+      throw new McpAccessError('File changes are unavailable.', 404);
+    }
   }
   if (stored.resourceUri === TODO_APP_URI) {
     try {
