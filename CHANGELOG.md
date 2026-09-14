@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.14.1] - 2026-09-14
+
+### Added
+
+- Added filtered multi-selection and atomic bulk actions for todos, including complete, reopen, assign, schedule, tag, and delete operations.
+- Added Markdown-aware agent edit modes and explicit document representations for reliable structured file changes.
+
+### Changed
+
+- Improved validation messages and tool schemas for agent file edits, preserving clearer Markdown editing workflows.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.13.1] - 2026-09-13
 
 ### Added
