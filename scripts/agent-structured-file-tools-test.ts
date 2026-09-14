@@ -339,6 +339,31 @@ test('schemas expose all supported table commands and bounded formatting and str
   assert.equal((h.edit.parameters as { type?: string }).type, 'object', 'provider schemas and parameter discovery retain their object root');
 });
 
+test('edit_file exposes strict Markdown-aware append, replace and heading insertion modes', async () => {
+  const h = await harness();
+  const valid = [
+    { path: 'document.md', mode: 'append', content: '# Added' },
+    { path: 'document.markdown', mode: 'replace', oldText: 'Old', content: '**New**', expectedOccurrences: 2 },
+    { path: 'document.mdx', mode: 'replace', oldText: 'Old', content: 'New', replaceAll: true },
+    { path: 'document.md', mode: 'insert_after_heading', heading: 'Details', content: 'Body' },
+  ];
+  for (const params of valid) {
+    assert.equal(Value.Check(h.edit.parameters, params), true, JSON.stringify(params));
+    const result = await h.edit.execute('markdown-edit', params, undefined);
+    assert.equal((result as { isError?: boolean }).isError, undefined);
+    assert.deepEqual(h.controls.edits.at(-1), { ...params, idempotencyKey: 'markdown-edit' });
+  }
+  for (const params of [
+    { path: 'document.md', mode: 'append' },
+    { path: 'document.md', mode: 'append', content: 'Text', oldText: 'Old' },
+    { path: 'document.md', mode: 'replace', content: 'Text' },
+    { path: 'document.md', mode: 'replace', oldText: 'Old', newText: 'New', content: 'Text' },
+    { path: 'document.md', mode: 'insert_after_heading', content: 'Text' },
+    { path: 'document.md', mode: 'insert_after_heading', heading: 'A', content: 'Text', replaceAll: true },
+    { path: 'document.md', mode: 'unknown', content: 'Text' },
+  ]) assert.equal(Value.Check(h.edit.parameters, params), false, JSON.stringify(params));
+});
+
 test('inline formatting accepts supported marks and requires a link URL only when enabling a link', async () => {
   const h = await harness();
   const operation = { kind: 'format_text', blockId: 'paragraph', subtreeHash: hash('inline'), from: 0, to: 5, mark: 'bold', enabled: true };

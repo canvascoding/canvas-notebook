@@ -79,6 +79,11 @@ const structuredOperation = Type.Union([
 // The alternatives require exactly one public edit form, including its local guards.
 export const agentEditFileParameters = Type.Object({
   path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
+  mode: Type.Optional(Type.Union([
+    Type.Literal('append'), Type.Literal('replace'), Type.Literal('insert_after_heading'),
+  ], { description: 'Markdown-aware edit mode. Use only for .md, .markdown, or .mdx files.' })),
+  content: Type.Optional(Type.String({ minLength: 1, description: 'Markdown fragment to append, insert, or use as the replacement.' })),
+  heading: Type.Optional(Type.String({ minLength: 1, description: 'Exact heading title, with or without leading # markers, for insert_after_heading.' })),
   oldText: Type.Optional(Type.String({ description: 'Exact text to replace. Must occur exactly once by default, match expectedOccurrences, or use replaceAll.' })),
   newText: Type.Optional(Type.String({ description: 'Replacement text.' })),
   expectedOccurrences: Type.Optional(Type.Integer({ minimum: 1, description: 'Exact number of expected oldText matches. Defaults to 1.' })),
@@ -91,9 +96,17 @@ export const agentEditFileParameters = Type.Object({
 }, {
   additionalProperties: false,
   anyOf: [
-    { required: ['oldText', 'newText'], not: { anyOf: [{ required: ['operations'] }, { required: ['blockId'] }, { required: ['document'] }] } },
-    { required: ['oldText', 'newText', 'blockId', 'document'], not: { required: ['operations'] } },
+    { required: ['oldText', 'newText'], not: { anyOf:
+      ['operations', 'blockId', 'document', 'mode', 'content', 'heading'].map((key) => ({ required: [key] })) } },
+    { required: ['oldText', 'newText', 'blockId', 'document'], not: { anyOf:
+      ['operations', 'mode', 'content', 'heading'].map((key) => ({ required: [key] })) } },
     { required: ['operations', 'document'], not: { anyOf:
-      ['oldText', 'newText', 'blockId', 'expectedOccurrences', 'replaceAll'].map((key) => ({ required: [key] })) } },
+      ['oldText', 'newText', 'blockId', 'expectedOccurrences', 'replaceAll', 'mode', 'content', 'heading'].map((key) => ({ required: [key] })) } },
+    { properties: { mode: { const: 'append' } }, required: ['mode', 'content'], not: { anyOf:
+      ['oldText', 'newText', 'heading', 'operations', 'blockId', 'document', 'expectedOccurrences', 'replaceAll'].map((key) => ({ required: [key] })) } },
+    { properties: { mode: { const: 'replace' } }, required: ['mode', 'content', 'oldText'], not: { anyOf:
+      ['newText', 'heading', 'operations', 'blockId', 'document'].map((key) => ({ required: [key] })) } },
+    { properties: { mode: { const: 'insert_after_heading' } }, required: ['mode', 'content', 'heading'], not: { anyOf:
+      ['oldText', 'newText', 'operations', 'blockId', 'document', 'expectedOccurrences', 'replaceAll'].map((key) => ({ required: [key] })) } },
   ],
 });

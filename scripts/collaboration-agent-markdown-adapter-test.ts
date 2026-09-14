@@ -198,7 +198,11 @@ async function adapter(doc: Y.Doc) {
     };
     return load(name);
   }, { exports }, exports);
-  return { prepare: (exports as typeof FileEdits).prepareCollaborationTextEdit, legacyCalls: () => legacyCalls };
+  return {
+    prepare: (exports as typeof FileEdits).prepareCollaborationTextEdit,
+    prepareMarkdown: (exports as typeof FileEdits).prepareCollaborationMarkdownEdit,
+    legacyCalls: () => legacyCalls,
+  };
 }
 
 const workspace = { workspaceId: 'workspace' } as WorkspaceContext;
@@ -214,6 +218,22 @@ test('file preparation persists a block proposal, with no exact patch accepted a
     humanText(doc, b.id, 'Human B');
     applyAgentBlockEdit(doc, prepared.targets[0].blockEdit!, 'agent');
     assert.equal(richMarkdownFromYDoc(doc), '# A\n\nHuman B');
+  } finally { doc.destroy(); }
+});
+
+test('Markdown-aware preparation parses appended source into blocks and requests direct live application', async () => {
+  const doc = createRichMarkdownYDoc('# Existing\n\nBody\n', 'tiptap_blocks');
+  try {
+    const harness = await adapter(doc);
+    const prepared = await harness.prepareMarkdown({
+      documentId: 'doc', workspace, path: 'doc.md', groupId: 'markdown',
+      edit: { mode: 'append', content: '# Added\n\n![Preview](image.png)\n\n> [!success] Done\n> Render me' },
+    });
+    assert.equal(prepared.requestedMode, 'direct_apply');
+    assert.equal(prepared.targets.length, 1);
+    assert.equal(prepared.targets[0].kind, 'block_edit');
+    applyAgentBlockEdit(doc, prepared.targets[0].blockEdit!, 'agent');
+    assert.equal(richMarkdownFromYDoc(doc), '# Existing\n\nBody\n\n# Added\n\n![Preview](image.png)\n\n> [!success] Done\n> Render me\n');
   } finally { doc.destroy(); }
 });
 

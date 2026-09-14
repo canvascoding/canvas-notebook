@@ -28,6 +28,7 @@ import { loadCollaborationStateIncludingArchived } from '@/app/lib/collaboration
 import { AgentFileEditOperationScopeError, findAgentFileEditOperation, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
 import {
   executePreparedCollaborationTextEdit,
+  prepareCollaborationMarkdownEdit,
   prepareCollaborationTextEdit,
   prepareCollaborationBlockEdit,
   readCurrentCollaborationTextSnapshot,
@@ -39,6 +40,7 @@ import {
 import { hashAgentBlockJson } from '@/app/lib/collaboration/agent-block-structure';
 import type { AgentBlockEditRequest } from '@/app/lib/collaboration/agent-block-edits';
 import { applyExactTextEdits } from '@/app/lib/files/exact-text-patch';
+import { applyAgentMarkdownEdit, type AgentMarkdownEdit } from '@/app/lib/markdown/agent-markdown-edit';
 import {
   validateTextFileContent,
   type TextFileValidationCheck,
@@ -1795,28 +1797,47 @@ async function applyPreparedCollaborativeFileEdit(input: {
   return result;
 }
 
-export type AgentEditFileInput = {
+type AgentEditFileCommonInput = {
   path: string;
   expectedOccurrences?: number;
   replaceAll?: boolean;
   expectedSha256?: string;
   idempotencyKey?: string;
-} & ({
+};
+
+export type AgentEditFileInput = AgentEditFileCommonInput & ({
   operations: AgentBlockEditRequest[];
   document: CollaborationAgentDocumentReference;
   oldText?: never;
   newText?: never;
   blockId?: never;
+  mode?: never;
+  content?: never;
+  heading?: never;
 } | {
   oldText: string;
   newText: string;
+  expectedOccurrences?: number;
+  replaceAll?: boolean;
   operations?: never;
   blockId?: string;
   document?: CollaborationAgentDocumentReference;
-});
+  mode?: never;
+  content?: never;
+  heading?: never;
+} | (AgentMarkdownEdit & {
+  operations?: never;
+  newText?: never;
+  blockId?: never;
+  document?: never;
+}));
 
 export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFileChangeResult> {
+  const markdownEdit = params.mode !== undefined;
   const structured = params.operations !== undefined || params.blockId !== undefined;
+  if (markdownEdit && !/\.(?:md|markdown|mdx)$/iu.test(params.path)) {
+    throw new Error('Markdown edit modes require a .md, .markdown, or .mdx file.');
+  }
   if (!structured && params.document !== undefined) {
     throw new Error('A document reference requires structured operations or a blockId text edit.');
   }
@@ -1826,7 +1847,7 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
       || params.expectedOccurrences !== undefined || params.replaceAll !== undefined) {
       throw new Error('Supply either 1–32 structured operations or an exact text edit.');
     }
-  } else if (typeof params.oldText !== 'string' || typeof params.newText !== 'string') {
+  } else if (!markdownEdit && (typeof params.oldText !== 'string' || typeof params.newText !== 'string')) {
     throw new Error('An exact text edit requires oldText and newText.');
   }
   if (structured && (!params.document || typeof params.document.documentId !== 'string' || !params.document.documentId
@@ -1847,6 +1868,29 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
   });
 
   const collaboration = await collaborativeAgentFileContext(fullPath);
+  if (markdownEdit && collaboration) {
+    const fingerprint = hashAgentBlockJson({ version: 1, operation: 'edit_file_markdown', path: collaboration.relativePath,
+      expectedSha256, edit: params });
+    const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
+      idempotencyKey: params.idempotencyKey, fingerprint });
+    if (reused) return reused;
+    const preparation = await prepareOrReuseCollaborativeFileEdit({
+      retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
+      prepare: () => prepareCollaborationMarkdownEdit({
+        documentId: collaboration.documentId,
+        workspace: collaboration.workspace,
+        path: collaboration.relativePath,
+        edit: params,
+        expectedSha256,
+        groupId: 'edit_file:markdown',
+      }),
+    });
+    if ('reused' in preparation) return preparation.reused;
+    return applyPreparedCollaborativeFileEdit({ inputPath: params.path, fullPath, prepared: preparation.prepared,
+      workspace: collaboration.workspace, executionContext: collaboration.executionContext,
+      idempotencyKey: params.idempotencyKey || `edit-file-markdown:${randomUUID()}`,
+      auditOperation: 'collaboration_edit_file', fingerprint });
+  }
   if (structured) {
     if (!collaboration || collaboration.documentId !== params.document!.documentId) {
       throw new Error('The structured document reference does not match this path. Read its current structure again.');
@@ -1874,8 +1918,8 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
       auditOperation: 'collaboration_edit_file', fingerprint });
   }
   // The structured branch above cannot fall back to writing a file projection.
-  const oldText = params.oldText!;
-  const newText = params.newText!;
+  const oldText = markdownEdit ? '' : params.oldText!;
+  const newText = markdownEdit ? '' : params.newText!;
   if (collaboration) {
     const edits = [{ oldText, newText,
       expectedOccurrences: params.expectedOccurrences, replaceAll: params.replaceAll }];
@@ -1915,7 +1959,9 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
   if (expectedSha256 && beforeSha256 !== expectedSha256) {
     throwAgentFileRevisionConflict({ operation: 'edit_file', path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
-  const nextContent = applyExactTextEdits(beforeContent, [{ ...params, oldText, newText }], params.path);
+  const nextContent = markdownEdit
+    ? applyAgentMarkdownEdit(beforeContent, params, params.path)
+    : applyExactTextEdits(beforeContent, [{ ...params, oldText, newText }], params.path);
   return commitTextChange({
     inputPath: params.path,
     fullPath,

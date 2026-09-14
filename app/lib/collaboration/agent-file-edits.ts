@@ -9,6 +9,7 @@ import {
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
+import { applyAgentMarkdownEdit, type AgentMarkdownEdit } from '@/app/lib/markdown/agent-markdown-edit';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   applyAgentTextTargets,
@@ -286,15 +287,20 @@ export async function prepareCollaborationBlockEdit(input: {
   } });
 }
 
-export async function prepareCollaborationTextEdit(input: {
+type CollaborationContentEditPlan = {
+  edits: ExactTextEdit[];
+  proposedContent: string;
+  richMode: 'exact_text' | 'markdown_structure';
+};
+
+async function prepareCollaborationContentEdit(input: {
   documentId: string;
   workspace: WorkspaceContext;
   path: string;
-  edits: ExactTextEdit[];
   expectedSha256?: string | null;
   groupId: string;
+  plan: (content: string) => CollaborationContentEditPlan;
 }): Promise<PreparedCollaborationTextEdit> {
-  if (input.edits.length === 0) throw new Error(`No edits provided for ${input.path}.`);
   const state = await loadCollaborationState(input.documentId);
   if (
     !state
@@ -321,7 +327,8 @@ export async function prepareCollaborationTextEdit(input: {
           message: `Refusing to edit ${input.path}: expectedSha256 did not match the current live collaboration state (${currentSha256}). Read the file again before retrying.`,
         });
       }
-      const proposedContent = applyExactTextEdits(content, input.edits, input.path);
+      const plan = input.plan(content);
+      const { edits, proposedContent } = plan;
       let targets: AgentTextTarget[] = [];
       let requestedMode: PreparedCollaborationTextEdit['requestedMode'] = 'direct_apply';
       try {
@@ -330,10 +337,12 @@ export async function prepareCollaborationTextEdit(input: {
               doc,
               content,
               proposedContent,
-              edits: input.edits,
+              edits,
               groupId: input.groupId,
             })
-          : createRichTargets({ doc, edits: input.edits, groupId: input.groupId });
+          : plan.richMode === 'exact_text'
+            ? createRichTargets({ doc, edits, groupId: input.groupId })
+            : (() => { throw new Error('Markdown-aware edits require structural block integration.'); })();
         if (!directTargetsProduceProposedContent({
           doc,
           representation: state.representation,
@@ -363,12 +372,14 @@ export async function prepareCollaborationTextEdit(input: {
             doc,
             currentMarkdown: content,
             proposedMarkdown: proposedContent,
-            edits: input.edits,
+            edits,
             targetId: `${input.groupId}:structural`,
             groupId: input.groupId,
           })];
         }
-        requestedMode = 'review';
+        requestedMode = state.representation === 'tiptap_blocks' && plan.richMode === 'markdown_structure'
+          ? 'direct_apply'
+          : 'review';
       }
       return {
         documentId: state.documentId,
@@ -385,6 +396,46 @@ export async function prepareCollaborationTextEdit(input: {
         proposedSha256: sha256(proposedContent),
         targets,
         requestedMode,
+      };
+    },
+  });
+}
+
+export async function prepareCollaborationTextEdit(input: {
+  documentId: string;
+  workspace: WorkspaceContext;
+  path: string;
+  edits: ExactTextEdit[];
+  expectedSha256?: string | null;
+  groupId: string;
+}): Promise<PreparedCollaborationTextEdit> {
+  if (input.edits.length === 0) throw new Error(`No edits provided for ${input.path}.`);
+  return prepareCollaborationContentEdit({
+    ...input,
+    plan: (content) => ({
+      edits: input.edits,
+      proposedContent: applyExactTextEdits(content, input.edits, input.path),
+      richMode: 'exact_text',
+    }),
+  });
+}
+
+export async function prepareCollaborationMarkdownEdit(input: {
+  documentId: string;
+  workspace: WorkspaceContext;
+  path: string;
+  edit: AgentMarkdownEdit;
+  expectedSha256?: string | null;
+  groupId: string;
+}): Promise<PreparedCollaborationTextEdit> {
+  return prepareCollaborationContentEdit({
+    ...input,
+    plan: (content) => {
+      const proposedContent = applyAgentMarkdownEdit(content, input.edit, input.path);
+      return {
+        edits: [{ oldText: content, newText: proposedContent, expectedOccurrences: 1 }],
+        proposedContent,
+        richMode: 'markdown_structure',
       };
     },
   });
