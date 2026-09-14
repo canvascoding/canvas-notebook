@@ -1,0 +1,150 @@
+'use client';
+
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+
+import { FileVersionCenterClientError } from './client';
+import {
+  FILE_VERSION_CENTER_API_V1,
+  parseFileVersionCenterErrorResponseV1,
+  parseFileVersionCompareResponseV1,
+  type FileVersionCompareRequestV1,
+  type FileVersionCompareResponseV1,
+} from './contracts/v1';
+
+export type FileVersionComparePreview = {
+  format: 'markdown' | 'text';
+  current: string;
+  candidate: string | null;
+  externalRequestsAllowed: false;
+  blockedExternalReferences: number;
+  blocks: {
+    current: number;
+    candidate: number;
+    unchanged: number;
+    changed: number;
+  };
+};
+
+export type FileVersionComparePayload = {
+  response: FileVersionCompareResponseV1;
+  preview: FileVersionComparePreview;
+};
+
+function safeCount(value: unknown): value is number {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+function parsePreview(value: unknown): FileVersionComparePreview {
+  if (!value || typeof value !== 'object') throw new Error('Missing preview.');
+  const preview = value as Partial<FileVersionComparePreview>;
+  const blocks = preview.blocks as Partial<FileVersionComparePreview['blocks']> | undefined;
+  if ((preview.format !== 'markdown' && preview.format !== 'text')
+    || typeof preview.current !== 'string'
+    || (typeof preview.candidate !== 'string' && preview.candidate !== null)
+    || preview.externalRequestsAllowed !== false
+    || !safeCount(preview.blockedExternalReferences)
+    || !blocks
+    || !safeCount(blocks.current)
+    || !safeCount(blocks.candidate)
+    || !safeCount(blocks.unchanged)
+    || !safeCount(blocks.changed)) {
+    throw new Error('Invalid preview.');
+  }
+  return preview as FileVersionComparePreview;
+}
+
+async function readPayload(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    throw new FileVersionCenterClientError(
+      'FVRC_TRANSPORT_ERROR',
+      'The comparison returned an unreadable response.',
+      response.status,
+      response.status >= 500,
+    );
+  }
+}
+
+export async function compareFileVersion(
+  request: FileVersionCompareRequestV1,
+  signal?: AbortSignal,
+): Promise<FileVersionComparePayload> {
+  let response: Response;
+  try {
+    response = await fetch(FILE_VERSION_CENTER_API_V1.compare, {
+      method: 'POST',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        [WORKSPACE_ID_HEADER]: request.target.workspaceId,
+      },
+      body: JSON.stringify(request),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new FileVersionCenterClientError(
+      'FVRC_TRANSPORT_ERROR',
+      'The comparison could not be reached.',
+      0,
+      true,
+    );
+  }
+  const payload = await readPayload(response);
+  if (!response.ok) {
+    try {
+      const failure = parseFileVersionCenterErrorResponseV1(payload);
+      throw new FileVersionCenterClientError(
+        failure.error.code,
+        failure.error.message,
+        response.status,
+        failure.error.retryable,
+      );
+    } catch (error) {
+      if (error instanceof FileVersionCenterClientError) throw error;
+      throw new FileVersionCenterClientError(
+        'FVRC_TRANSPORT_ERROR',
+        'The comparison request failed.',
+        response.status,
+        response.status >= 500,
+      );
+    }
+  }
+  try {
+    const result = payload as { response?: unknown; preview?: unknown };
+    return {
+      response: parseFileVersionCompareResponseV1(result.response),
+      preview: parsePreview(result.preview),
+    };
+  } catch {
+    throw new FileVersionCenterClientError(
+      'FVRC_TRANSPORT_ERROR',
+      'The comparison response does not match the expected contract.',
+      response.status,
+      false,
+    );
+  }
+}
+
+export function mergeFileVersionComparePayload(
+  previous: FileVersionComparePayload,
+  next: FileVersionComparePayload,
+): FileVersionComparePayload {
+  const previousSelection = previous.response.candidate.selection;
+  const nextSelection = next.response.candidate.selection;
+  if (previous.response.current.fence.sha256 !== next.response.current.fence.sha256
+    || previous.response.current.fence.revisionId !== next.response.current.fence.revisionId
+    || previous.response.current.fence.stateVectorHash !== next.response.current.fence.stateVectorHash
+    || previousSelection.kind !== nextSelection.kind
+    || previousSelection.id !== nextSelection.id) {
+    throw new Error('The comparison page belongs to another document state.');
+  }
+  const hunks = new Map(previous.response.hunks.map((hunk) => [hunk.id, hunk]));
+  next.response.hunks.forEach((hunk) => hunks.set(hunk.id, hunk));
+  return {
+    response: { ...next.response, hunks: [...hunks.values()] },
+    preview: previous.preview,
+  };
+}

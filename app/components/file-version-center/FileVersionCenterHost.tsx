@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileClock, History, RefreshCw, Sparkles } from 'lucide-react';
+import { FileClock, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,7 @@ import {
   useFileVersionCenterStore,
 } from '@/app/store/file-version-center-store';
 
+import { FileVersionComparison } from './FileVersionComparison';
 import { FileVersionTimeline } from './FileVersionTimeline';
 
 export function FileVersionCenterHost() {
@@ -207,7 +208,7 @@ export function FileVersionCenterHost() {
             ) : timeline && selection ? (
               <div
                 data-testid="file-version-center-responsive-layout"
-                className="grid size-full min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]"
+                className="grid size-full min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] md:overflow-hidden"
               >
                 <FileVersionTimeline
                   timeline={timeline}
@@ -217,26 +218,7 @@ export function FileVersionCenterHost() {
                   loadingMore={loadingMore}
                   loadMoreError={loadMoreError}
                 />
-                <section
-                  aria-live="polite"
-                  aria-labelledby="version-center-selection-title"
-                  className="flex min-h-[16rem] items-center justify-center p-5 sm:p-8 md:min-h-0"
-                >
-                  <div className="max-w-lg text-center">
-                    <span className="mx-auto flex size-10 items-center justify-center rounded-lg border bg-muted/35 text-muted-foreground">
-                      {selection.entry?.kind === 'agent_operation'
-                        ? <Sparkles className="size-4" aria-hidden="true" />
-                        : <History className="size-4" aria-hidden="true" />}
-                    </span>
-                    <h2 id="version-center-selection-title" className="mt-3 text-sm font-semibold">
-                      {selection.entry?.kind === 'agent_operation' ? t('agentProposal')
-                        : selection.entry?.kind === 'revision'
-                          ? t('revisionNumber', { number: selection.entry.revisionNumber })
-                          : t('currentVersion')}
-                    </h2>
-                    <p className="mt-1 text-sm text-muted-foreground">{t('selectionDescription')}</p>
-                  </div>
-                </section>
+                <FileVersionComparison request={request} timeline={timeline} selection={selection} />
               </div>
             ) : null}
           </div>

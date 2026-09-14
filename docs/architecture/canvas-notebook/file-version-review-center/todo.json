@@ -540,7 +540,8 @@
           "id": "FVRC-302",
           "order": 2,
           "title": "Diff-, Markdown-Preview-, Quelltext- und Detailansichten integrieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "frontend-ui",
           "dependsOn": ["FVRC-301"],
           "deliverables": [
@@ -557,6 +558,15 @@
             "Renderer- und Sanitization-Tests",
             "Grosse-Dokument- und Pagination-Tests",
             "Keyboard- und Focus-Unit-Tests"
+          ],
+          "completionEvidence": [
+            "FileVersionComparison laedt jeden Vergleich ueber die serverseitig autorisierte und rate-limitierte POST-/compare-Route gegen den aktuellen SHA-/Revision-/State-Vector-Fence des P02-Services.",
+            "Die vier Radix-Tabs Aenderungen, Vorschau, Quelltext und Details zeigen paginierte Diff-Hunks, die vollstaendige zugelassene Kandidatenversion, beide exakten Quelltexte sowie Fence-, Auswahl-, Block- und Referenzmetadaten.",
+            "Diff- und Source-Paare synchronisieren relative Scrollpositionen, sind als fokussierbare Regionen beschriftet und wechseln mobil von gestapelt zu zweispaltig; Arrow-Key-Tabnavigation und explizite Fokusaufnahme sind abgedeckt.",
+            "InertMarkdownPreview ist der gemeinsame Markdown-Renderer fuer bestehende Agentenreviews und das globale Center: Raw HTML wird uebersprungen, URL-Transformation gesperrt, Links bleiben nicht interaktiver Text und Bilder request-freie Platzhalter.",
+            "Stale-, Content-unavailable-, Compare-Error-, Truncation- und Hunk-Retry-Zustaende sind sichtbar mit Text und Icon; Seiten mit abweichendem SHA, Revision, State Vector oder Kandidatenziel werden vor dem Merge abgewiesen.",
+            "scripts/file-version-center-comparison-test.tsx prueft eine 120-KiB-Candidate-Tail, Inertness ohne a/img/iframe/script/src/href, Source/Details, Sync-Scroll, Hunk-Pagination mit Retry, Fence-Abwehr, stale Agentenoperationen und Keyboard-Fokus.",
+            "Comparison-, Timeline- und Open-Suites, die bestehenden sechs Agenten-Preview-Clienttests und drei Proposal-Context-Tests, ESLint der geaenderten TypeScript-Dateien, npx tsc --noEmit und git diff --check bestehen; Browser-Evidence bleibt dem P07-E2E-Gate vorbehalten."
           ]
         },
         {

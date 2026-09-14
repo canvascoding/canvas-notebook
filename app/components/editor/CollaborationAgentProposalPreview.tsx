@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import type { useTranslations } from 'next-intl';
-import ReactMarkdown from 'react-markdown';
-import { CANVAS_MARKDOWN_CONTENT_REMARK_PLUGINS, CANVAS_MARKDOWN_REHYPE_PLUGINS } from '@/app/lib/markdown/canvas-markdown';
+import { InertMarkdownPreview } from '@/app/components/shared/InertMarkdownPreview';
 import {
   agentPreviewAttributeChanges, agentPreviewChanges, canDisplayAgentReviewTarget,
   parseAgentPreviewBlocks, renderAgentPreviewBlocks, type AgentReviewTarget,
@@ -68,12 +67,13 @@ export function CollaborationAgentProposalPreview({ target, index, t, onReady }:
       ? <p className="text-muted-foreground">{t(mounted ? 'agentPreviewUnavailable' : 'agentPreviewPreparing')}</p>
       : html ? <div className={classes} dangerouslySetInnerHTML={{ __html: html }} /> : <SourceText content="" t={t} />;
     if (target.previewFormat === 'markdown') return (
-      <div className={classes}>
-        <ReactMarkdown remarkPlugins={CANVAS_MARKDOWN_CONTENT_REMARK_PLUGINS} rehypePlugins={CANVAS_MARKDOWN_REHYPE_PLUGINS}
-          components={{
-            a: ({ children, href }) => <span>{children}{href ? ` (${t('agentPreviewProperty_href')}: ${href})` : ''}</span>,
-            img: ({ src, alt }) => <span className="block rounded border border-dashed p-2">{t('agentPreviewBlock_image')}: {alt} ({typeof src === 'string' ? src : ''})</span>,
-          }}>{content}</ReactMarkdown>
+      <div>
+        <InertMarkdownPreview
+          content={content}
+          className={classes}
+          imageLabel={t('agentPreviewBlock_image')}
+          linkLabel={t('agentPreviewProperty_href')}
+        />
         <div className="mt-3 border-t pt-2"><p className="mb-1 font-medium">{t('agentPreviewExactText')}</p><SourceText content={content} t={t} /></div>
       </div>
     );
