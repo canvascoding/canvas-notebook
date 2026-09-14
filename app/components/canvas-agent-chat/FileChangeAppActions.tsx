@@ -1,10 +1,11 @@
 'use client';
 
-import { Eye, FileText, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Eye, FileText, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useState } from 'react';
 
 import {
-  FILE_CHANGE_APP_VISIBLE_ENTRIES,
+  paginateFileChangeAppEntries,
   readFileChangeAppData,
   type FileChangeAppEntryData,
 } from '@/app/lib/tool-apps/file-change-data';
@@ -25,6 +26,7 @@ function needsReview(entry: FileChangeAppEntryData): boolean {
 
 export function FileChangeAppActions({ data: value, refresh }: { data: unknown; refresh: () => void }) {
   const t = useTranslations('chat.toolApp');
+  const [requestedPage, setRequestedPage] = useState(0);
   const openFile = useOpenChatFileReference();
   const data = readFileChangeAppData(value);
   if (!data) return null;
@@ -41,7 +43,7 @@ export function FileChangeAppActions({ data: value, refresh }: { data: unknown; 
     initialView: needsReview(entry) ? 'reviews' : 'history',
     source: 'chat',
   });
-  const visible = data.entries.slice(0, FILE_CHANGE_APP_VISIBLE_ENTRIES);
+  const page = paginateFileChangeAppEntries(data.entries, requestedPage);
   return <div className="space-y-2 border-t px-3 py-3">
     <div className="flex flex-wrap gap-2">
       <Button size="xs" variant="outline" onClick={() => openEntry(preferred)}>
@@ -55,13 +57,21 @@ export function FileChangeAppActions({ data: value, refresh }: { data: unknown; 
       </Button>
     </div>
     {data.entries.length > 1 ? <div className="flex flex-wrap gap-1" aria-label={t('fileChangeChooseFile')}>
-      {visible.map((entry) => <Button key={entry.id} size="xs" variant="ghost"
+      {page.entries.map((entry) => <Button key={entry.id} size="xs" variant="ghost"
         className="h-7 max-w-52 justify-start px-2 font-normal" title={entry.pathHint}
         onClick={() => openEntry(entry)}>
         <span className="truncate">{entry.pathHint.split('/').at(-1) || entry.pathHint}</span>
       </Button>)}
-      {data.entries.length > visible.length ? <span className="self-center px-1 text-[11px] text-muted-foreground">
-        {t('fileChangeMore', { count: data.entries.length - visible.length })}
+      {page.pageCount > 1 ? <span className="flex items-center gap-0.5 self-center text-[11px] text-muted-foreground">
+        <Button size="icon-xs" variant="ghost" aria-label={t('fileChangePrevious')}
+          disabled={page.pageIndex === 0} onClick={() => setRequestedPage(page.pageIndex - 1)}>
+          <ChevronLeft className="h-3.5 w-3.5" />
+        </Button>
+        {t('fileChangePage', { page: page.pageIndex + 1, pages: page.pageCount })}
+        <Button size="icon-xs" variant="ghost" aria-label={t('fileChangeNext')}
+          disabled={page.pageIndex === page.pageCount - 1} onClick={() => setRequestedPage(page.pageIndex + 1)}>
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
       </span> : null}
     </div> : null}
   </div>;

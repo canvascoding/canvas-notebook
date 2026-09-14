@@ -72,6 +72,7 @@ import {
   type ExcalidrawAgentSceneAction,
 } from '@/app/lib/excalidraw-collaboration/agent-operations';
 import { loadExcalidrawScene } from '@/app/lib/excalidraw-collaboration/repository';
+import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -1979,6 +1980,9 @@ export async function applyAgentFilePatch(params: {
 }): Promise<AgentFileChangeResult[]> {
   if (!Array.isArray(params.files) || params.files.length === 0) {
     throw new Error('apply_patch requires at least one file.');
+  }
+  if (params.files.length > FILE_VERSION_CENTER_CONTRACT_LIMITS.changeGroupEntries) {
+    throw new Error(`apply_patch supports at most ${FILE_VERSION_CENTER_CONTRACT_LIMITS.changeGroupEntries} files per call.`);
   }
 
   const seen = new Set<string>();

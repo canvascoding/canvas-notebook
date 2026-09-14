@@ -778,7 +778,8 @@
       "id": "FVRC-P06",
       "order": 6,
       "title": "Chat-Widget fuer erfolgreiche Agenten-Dateiaenderungen",
-      "status": "planned",
+      "status": "completed",
+      "completedAt": "2026-09-14",
       "dependsOn": ["FVRC-P05"],
       "exitGate": "FVRC-G06-CHAT-WIDGET",
       "tasks": [
@@ -844,7 +845,8 @@
           "id": "FVRC-602",
           "order": 2,
           "title": "apply_patch Batch-Widget mit dokumentweiser Auswahl integrieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "agent-tools",
           "dependsOn": ["FVRC-601"],
           "deliverables": [
@@ -861,6 +863,12 @@
             "Mixed applied/review/unchanged Batchtests",
             "Max-Items- und Pagination-/Overflow-Tests",
             "Idempotenter Batch-Retry"
+          ],
+          "completionEvidence": [
+            "apply_patch verwendet dieselbe durable Result-Orchestrierung und erzeugt pro Tool-Call exakt eine stabile Change Group samt einem Descriptor; angewendete und Review-Dateien bleiben in deterministischer Eingabereihenfolge, unchanged bleibt im Tool-Result ohne falschen Group-Outcome.",
+            "Ein fehlender durable Verweis verhindert die gesamte Batch-Karte statt bereits angewendete Dateien in einer Teilgruppe zu verbergen. Retry validiert dieselben Captures und uebergibt dieselbe Tool-Call-ID an den idempotenten Change-Group-Service, ohne eine Dateimutation zu wiederholen.",
+            "Runtime und TypeBox-Schema begrenzen apply_patch vor der ersten Dateiberuehrung auf 100 Dateien. Das Sandbox-Widget zeigt hoechstens fuenf Eintraege; die Host-Actions paginieren in Fuenferseiten und oeffnen jeden dargestellten Eintrag direkt im globalen Center.",
+            "scripts/file-change-patch-result-test.ts prueft mixed applied/review/unchanged, genau einen Descriptor, Reihenfolge, 100-Entry-Maximum, Oversize-Fail-closed, Fuenfer-Pagination, Output-Preparation, Reload-Projektion und idempotenten Retry. Tool-App-, Core-Tool-, Live-Collaboration- und External-Output-Bestandssuites bestehen."
           ]
         }
       ]

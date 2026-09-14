@@ -9,6 +9,18 @@ import { isToolAppRecord } from './types';
 export const FILE_CHANGE_APP_DATA_MAX_BYTES = 256 * 1024;
 export const FILE_CHANGE_APP_VISIBLE_ENTRIES = 5;
 
+export function paginateFileChangeAppEntries<T>(entries: readonly T[], requestedPage: number) {
+  const pageCount = Math.max(1, Math.ceil(entries.length / FILE_CHANGE_APP_VISIBLE_ENTRIES));
+  const pageIndex = Math.max(0, Math.min(Math.trunc(requestedPage) || 0, pageCount - 1));
+  const offset = pageIndex * FILE_CHANGE_APP_VISIBLE_ENTRIES;
+  return {
+    entries: entries.slice(offset, offset + FILE_CHANGE_APP_VISIBLE_ENTRIES),
+    pageIndex,
+    pageCount,
+    hiddenCount: Math.max(0, entries.length - FILE_CHANGE_APP_VISIBLE_ENTRIES),
+  };
+}
+
 export type FileChangeAppEntryState = FileChangeGroupEntryV1['outcome']
   | 'rejected'
   | 'reverted'

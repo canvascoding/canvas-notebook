@@ -1600,7 +1600,10 @@
       "fileChangeCurrentState": "Aktueller autorisierter Stand beim letzten Laden.",
       "fileChangeReview": "Änderungen ansehen",
       "fileChangeOpenFile": "Datei öffnen",
-      "fileChangeChooseFile": "Änderungen einer Datei auswählen"
+      "fileChangeChooseFile": "Änderungen einer Datei auswählen",
+      "fileChangePrevious": "Vorherige Dateien",
+      "fileChangeNext": "Nächste Dateien",
+      "fileChangePage": "{page}/{pages}"
     },
     "mcpApp": {
       "loading": "Interaktive MCP-App wird geladen …",

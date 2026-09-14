@@ -19,6 +19,7 @@ import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { readTextWindow } from '@/app/lib/pi/text-read-window';
 import { formatTextReadResult } from '@/app/lib/pi/text-read-result';
 import { TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS, TOOL_OUTPUT_READ_DEFAULT_CHARACTERS, TOOL_OUTPUT_READ_MAX_CHARACTERS } from '@/app/lib/pi/tool-output-policy';
+import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/lib/pi/studio-tools';
@@ -77,9 +78,8 @@ import {
 } from '@/app/lib/pi/tool-file-formatters';
 import {
   asAgentFileToolError,
-  asAgentFileToolSuccess,
 } from '@/app/lib/pi/agent-file-tool-results';
-import { asAgentFileToolAppSuccess } from '@/app/lib/pi/file-change-tool-result';
+import { asAgentFilePatchToolAppSuccess, asAgentFileToolAppSuccess } from '@/app/lib/pi/file-change-tool-result';
 
 function formatAgentStructureReadResult(
   snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>>,
@@ -491,7 +491,7 @@ export const piTools: AgentTool[] = [
           expectedOccurrences: Type.Optional(Type.Number({ description: 'Exact number of expected oldText matches. Defaults to 1.' })),
           replaceAll: Type.Optional(Type.Boolean({ description: 'Replace every matching non-overlapping occurrence. Cannot be combined with expectedOccurrences.' })),
         })),
-      })),
+      }), { maxItems: FILE_VERSION_CENTER_CONTRACT_LIMITS.changeGroupEntries }),
     }),
     execute: async (toolCallId, params) => {
       try {
@@ -501,16 +501,7 @@ export const piTools: AgentTool[] = [
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResults(results) }],
-          details: {
-            contractVersion: 1,
-            kind: 'file_patch_batch',
-            operation: 'apply_patch',
-            outcome: results.some((result) => result.collaboration?.reviewRequired) ? 'review_required' : 'applied',
-            category: results.some((result) => result.collaboration?.reviewRequired) ? 'review_required' : 'success',
-            results: results.map((result) => asAgentFileToolSuccess(result, 'apply_patch')),
-            recommendedAction: results.some((result) => result.collaboration?.reviewRequired) ? 'review_in_editor' : 'none',
-            safeToAutoRetry: false,
-          },
+          details: await asAgentFilePatchToolAppSuccess(results, toolCallId),
         };
       } catch (error: unknown) {
         const details = asAgentFileToolError(error, 'apply_patch');

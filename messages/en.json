@@ -1585,7 +1585,10 @@
       "fileChangeCurrentState": "Current authorized state when last loaded.",
       "fileChangeReview": "View changes",
       "fileChangeOpenFile": "Open file",
-      "fileChangeChooseFile": "Choose a file change"
+      "fileChangeChooseFile": "Choose a file change",
+      "fileChangePrevious": "Previous files",
+      "fileChangeNext": "Next files",
+      "fileChangePage": "{page}/{pages}"
     },
     "mcpApp": {
       "loading": "Loading interactive MCP app…",

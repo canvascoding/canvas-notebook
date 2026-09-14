@@ -30,6 +30,22 @@ export type AgentFileToolAppSuccess = AgentFileToolSuccess & {
   toolApp: BuiltinToolAppDescriptor;
 };
 
+export type AgentFilePatchToolSuccess = {
+  contractVersion: 1;
+  kind: 'file_patch_batch';
+  operation: 'apply_patch';
+  outcome: 'applied' | 'review_required';
+  category: 'success' | 'review_required';
+  results: AgentFileToolSuccess[];
+  recommendedAction: 'none' | 'review_in_editor';
+  safeToAutoRetry: false;
+};
+
+export type AgentFilePatchToolAppSuccess = AgentFilePatchToolSuccess & {
+  changeGroup: FileChangeGroupV1;
+  toolApp: BuiltinToolAppDescriptor;
+};
+
 type Dependencies = {
   captureFile: (input: Parameters<typeof fileVersionHistoryService.capture>[0]) => Promise<FileVersionCaptureResult>;
   captureCollaboration: (input: Parameters<typeof fileVersionHistoryService.capturePersistedCollaboration>[0]) => Promise<FileVersionCaptureResult>;
@@ -170,6 +186,37 @@ async function durableEntry(
   return reference ? { ...reference, pathHint, outcome: 'applied', ...countDiff(result.diff) } : null;
 }
 
+function changeGroupAccess(context: AgentExecutionContext): FileChangeGroupAccess {
+  return {
+    userId: context.userId,
+    authenticatedWorkspaceId: context.workspaceId,
+    requestedWorkspaceId: context.workspaceId,
+    membership: 'active',
+    permissionsResolved: true,
+    canRead: true,
+    canWrite: context.canWrite,
+    canRunAgent: true,
+  };
+}
+
+async function withChangeGroup<T extends AgentFileToolSuccess | AgentFilePatchToolSuccess>(input: {
+  success: T;
+  context: AgentExecutionContext;
+  operation: AgentFileToolOperation;
+  toolCallId: string;
+  entries: FileChangeGroupEntryInput[];
+  dependencies: Dependencies;
+}): Promise<T & { changeGroup: FileChangeGroupV1; toolApp: BuiltinToolAppDescriptor }> {
+  const changeGroup = await input.dependencies.createGroup({
+    access: changeGroupAccess(input.context),
+    sourceSessionId: input.context.sessionId,
+    toolCallId: input.toolCallId,
+    operation: input.operation,
+    entries: input.entries,
+  });
+  return { ...input.success, changeGroup, toolApp: fileChangeToolApp(changeGroup) };
+}
+
 /**
  * Adds a reloadable widget binding only after the mutation has a durable,
  * workspace-scoped revision or review operation. Grouping is side-effect-free
@@ -188,24 +235,14 @@ export function createAgentFileToolAppSuccess(dependencies: Dependencies = runti
     try {
       const entry = await durableEntry(result, context, dependencies);
       if (!entry) return success;
-      const access: FileChangeGroupAccess = {
-        userId: context.userId,
-        authenticatedWorkspaceId: context.workspaceId,
-        requestedWorkspaceId: context.workspaceId,
-        membership: 'active',
-        permissionsResolved: true,
-        canRead: true,
-        canWrite: context.canWrite,
-        canRunAgent: true,
-      };
-      const changeGroup = await dependencies.createGroup({
-        access,
-        sourceSessionId: context.sessionId,
+      return await withChangeGroup({
+        success,
+        context,
         toolCallId,
         operation,
         entries: [entry],
+        dependencies,
       });
-      return { ...success, changeGroup, toolApp: fileChangeToolApp(changeGroup) };
     } catch {
       // The file operation already has its own durable receipt. Do not turn a
       // presentation-layer outage into an error that encourages mutation retry.
@@ -215,3 +252,47 @@ export function createAgentFileToolAppSuccess(dependencies: Dependencies = runti
 }
 
 export const asAgentFileToolAppSuccess = createAgentFileToolAppSuccess();
+
+export function createAgentFilePatchToolAppSuccess(dependencies: Dependencies = runtimeDependencies) {
+  return async (
+    results: AgentFileChangeResult[],
+    toolCallId: string,
+  ): Promise<AgentFilePatchToolSuccess | AgentFilePatchToolAppSuccess> => {
+    const reviewRequired = results.some((result) => result.collaboration?.reviewRequired);
+    const success: AgentFilePatchToolSuccess = {
+      contractVersion: 1,
+      kind: 'file_patch_batch',
+      operation: 'apply_patch',
+      outcome: reviewRequired ? 'review_required' : 'applied',
+      category: reviewRequired ? 'review_required' : 'success',
+      results: results.map((result) => asAgentFileToolSuccess(result, 'apply_patch')),
+      recommendedAction: reviewRequired ? 'review_in_editor' : 'none',
+      safeToAutoRetry: false,
+    };
+    const context = dependencies.getExecutionContext();
+    if (!context || !context.canWrite || !dependencies.visibleUiEnabled()) return success;
+    const candidates = results.filter((result) => result.changed || result.collaboration?.reviewRequired);
+    if (candidates.length === 0) return success;
+    try {
+      const entries: FileChangeGroupEntryInput[] = [];
+      for (const result of candidates) {
+        const entry = await durableEntry(result, context, dependencies);
+        // Never publish a partial batch card that hides an applied mutation.
+        if (!entry) return success;
+        entries.push(entry);
+      }
+      return await withChangeGroup({
+        success,
+        context,
+        operation: 'apply_patch',
+        toolCallId,
+        entries,
+        dependencies,
+      });
+    } catch {
+      return success;
+    }
+  };
+}
+
+export const asAgentFilePatchToolAppSuccess = createAgentFilePatchToolAppSuccess();
