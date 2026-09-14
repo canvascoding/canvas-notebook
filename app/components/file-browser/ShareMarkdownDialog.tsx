@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { MarkdownPaperPreview } from './MarkdownPaperPreview';
 
 interface ShareMarkdownDialogProps {
   open: boolean;
@@ -77,7 +78,6 @@ export function ShareMarkdownDialog({
   const epoch = useRef(0);
   const pending = useRef(new Set<AbortController>());
   const previewSequence = useRef(0);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const internalHeaders = useCallback((contentType?: string): HeadersInit | undefined => {
     if (!activeWorkspaceId && !contentType) return undefined;
@@ -290,20 +290,13 @@ export function ShareMarkdownDialog({
             <div className="border rounded-md sm:rounded-lg overflow-hidden bg-white h-full">
               {kind === 'html' ? (
                 <iframe
-                  ref={iframeRef}
                   src={internalUrl(toHtmlPreviewUrl(filePath))}
                   className="w-full h-full"
                   sandbox="allow-scripts allow-same-origin"
                   title={t('previewTitle', { fileName })}
                 />
               ) : htmlContent ? (
-                <iframe
-                  ref={iframeRef}
-                  srcDoc={htmlContent}
-                  className="w-full h-full"
-                  sandbox="allow-same-origin"
-                  title={t('previewTitle', { fileName })}
-                />
+                <MarkdownPaperPreview html={htmlContent} title={t('previewTitle', { fileName })} />
               ) : (
                 <div className="flex items-center justify-center h-full text-muted-foreground">
                   {t('noPreviewAvailable')}

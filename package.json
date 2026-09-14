@@ -278,6 +278,7 @@
     "test:markdown:links": "tsx scripts/workspace-link-index-test.ts",
     "test:knowledge-graph": "tsx scripts/knowledge-graph-model-test.ts",
     "test:pdf:mermaid": "tsx --conditions react-server scripts/mermaid-pdf-export-test.ts",
+    "test:pdf:paper-preview": "tsx scripts/markdown-paper-preview-test.ts",
     "test:pdf:markdown-table": "tsx scripts/markdown-wide-table-export-test.ts",
     "test:pdf:latex": "tsx scripts/markdown-pdf-latex-export-test.ts",
     "test:pdf:rich-blocks": "tsx --conditions react-server scripts/markdown-pdf-rich-blocks-export-test.ts",
