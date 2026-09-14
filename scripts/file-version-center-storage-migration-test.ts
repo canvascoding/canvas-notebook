@@ -117,10 +117,10 @@ async function assertPrefilledMigrationAndConstraints(): Promise<void> {
     await postgres.query(`
       INSERT INTO file_change_groups (
         group_id, workspace_id, user_id, source_session_id, pi_session_db_id,
-        tool_call_id, operation, status, created_at, updated_at
+        tool_call_id, payload_hash, operation, status, created_at, updated_at
       ) VALUES ('group-a', 'workspace-a', 'owner', 'session-a', $1,
-        'tool-a', 'write', 'review_required', 1, 1)
-    `, [sessionId]);
+        'tool-a', $2, 'write', 'review_required', 1, 1)
+    `, [sessionId, 'e'.repeat(64)]);
     await postgres.exec(`
       INSERT INTO file_change_group_entries (
         entry_id, change_group_id, workspace_id, ordinal, lineage_id,
@@ -148,10 +148,10 @@ async function assertPrefilledMigrationAndConstraints(): Promise<void> {
     await assert.rejects(postgres.query(`
       INSERT INTO file_change_groups (
         group_id, workspace_id, user_id, source_session_id, pi_session_db_id,
-        tool_call_id, operation, status, created_at, updated_at
+        tool_call_id, payload_hash, operation, status, created_at, updated_at
       ) VALUES ('group-cross-user', 'workspace-a', 'other', 'session-a', $1,
-        'tool-cross-user', 'write', 'failed', 1, 1)
-    `, [sessionId]));
+        'tool-cross-user', $2, 'write', 'failed', 1, 1)
+    `, [sessionId, 'f'.repeat(64)]));
     await assert.rejects(postgres.exec(`
       INSERT INTO file_change_group_entries (
         entry_id, change_group_id, workspace_id, ordinal, lineage_id,

@@ -82,6 +82,7 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
     source_session_id text NOT NULL,
     pi_session_db_id bigint NOT NULL,
     tool_call_id text NOT NULL,
+    payload_hash text NOT NULL,
     operation text NOT NULL,
     status text NOT NULL,
     created_at bigint NOT NULL,
@@ -98,8 +99,25 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
       CHECK (status IN ('applied', 'review_required', 'conflict', 'failed', 'mixed')),
     CONSTRAINT file_change_groups_time_check CHECK (updated_at >= created_at),
     CONSTRAINT file_change_groups_id_length_check CHECK (char_length(group_id) BETWEEN 1 AND 128),
-    CONSTRAINT file_change_groups_tool_call_length_check CHECK (char_length(tool_call_id) BETWEEN 1 AND 128)
+    CONSTRAINT file_change_groups_tool_call_length_check CHECK (char_length(tool_call_id) BETWEEN 1 AND 128),
+    CONSTRAINT file_change_groups_payload_hash_check CHECK (payload_hash ~ '^[a-f0-9]{64}$')
   );
+  ALTER TABLE file_change_groups ADD COLUMN IF NOT EXISTS payload_hash text;
+  UPDATE file_change_groups
+    SET payload_hash = md5(group_id || ':' || tool_call_id) || md5(tool_call_id || ':' || group_id)
+    WHERE payload_hash IS NULL;
+  ALTER TABLE file_change_groups ALTER COLUMN payload_hash SET NOT NULL;
+  DO $file_change_groups_payload_hash_constraint$
+  BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint WHERE conname = 'file_change_groups_payload_hash_check'
+    ) THEN
+      ALTER TABLE file_change_groups
+        ADD CONSTRAINT file_change_groups_payload_hash_check
+        CHECK (payload_hash ~ '^[a-f0-9]{64}$');
+    END IF;
+  END
+  $file_change_groups_payload_hash_constraint$;
   CREATE INDEX IF NOT EXISTS idx_file_change_groups_user_workspace_created
     ON file_change_groups (user_id, workspace_id, created_at DESC, group_id);
   CREATE INDEX IF NOT EXISTS idx_file_change_groups_session_created

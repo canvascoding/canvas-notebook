@@ -259,7 +259,8 @@
           "id": "FVRC-102",
           "order": 2,
           "title": "Change-Group-Service fuer einzelne und gebuendelte Agenten-Dateioperationen implementieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "agent-tools",
           "dependsOn": ["FVRC-101"],
           "deliverables": [
@@ -275,6 +276,14 @@
             "Idempotenz- und Batchtests",
             "Cross-User- und Cross-Workspace-Ablehnung",
             "Archivierte-Session- und geloeschte-Lineage-Tests"
+          ],
+          "completionEvidence": [
+            "change-group-service.ts erzeugt deterministische Gruppen- und Entry-IDs aus dem autorisierten Tool-Aufruf und speichert 1 bis 100 Eintraege in einer Transaktion.",
+            "Ein Payload-Hash bindet Idempotenz an Operation, Reihenfolge und Referenzen; identische parallele Retries liefern dieselbe Gruppe, abweichende Retries werden als Konflikt abgelehnt.",
+            "Session, Nutzer, Workspace sowie optionale Lineage-, Dokument-, Agentenoperations- und Revisionsreferenzen werden vor dem Insert serverseitig gegen den aktuellen Datenbankzustand geprueft.",
+            "readAuthorized filtert vor jeder Existenzantwort nach aktuellem Nutzer-/Workspace-Zugriff; archivierte Sessions behalten gespeicherte Ergebnisse, koennen aber keine neue Gruppe erzeugen.",
+            "Physisch referenzierte Lineages sind gegen Loeschung geschuetzt; archivierte Lineages bleiben als stabile historische Referenz erhalten.",
+            "scripts/file-change-group-service-test.ts sowie die erneut ausgefuehrten Migration- und Content-Store-Tests, ESLint, npx tsc --noEmit und git diff --check bestehen."
           ]
         },
         {

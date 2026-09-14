@@ -3,7 +3,11 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 import { gunzipSync, gzipSync } from 'node:zlib';
 
-import { openDb } from '@/app/lib/db';
+import {
+  createRuntimeFileVersionCenterDatabase,
+  type FileVersionCenterDatabase,
+  type FileVersionCenterTransaction,
+} from './database';
 import { FILE_VERSION_CENTER_LIMITS_V1 } from './policy-v1';
 
 export type FileVersionContentFormat = 'markdown' | 'text' | 'structured' | 'binary';
@@ -86,15 +90,8 @@ export class FileVersionContentStoreError extends Error {
   }
 }
 
-type QueryResult<Row> = { rows: Row[]; rowCount?: number | null };
-
-export type FileVersionContentTransaction = {
-  query: <Row = Record<string, unknown>>(sql: string, params?: unknown[]) => Promise<QueryResult<Row>>;
-};
-
-export type FileVersionContentDatabase = {
-  transaction: <T>(action: (transaction: FileVersionContentTransaction) => Promise<T>) => Promise<T>;
-};
+export type FileVersionContentTransaction = FileVersionCenterTransaction;
+export type FileVersionContentDatabase = FileVersionCenterDatabase;
 
 type BlobRow = {
   blob_id: string;
@@ -213,35 +210,6 @@ async function lockStorageScope(
   await transaction.query('SELECT pg_advisory_xact_lock($1::bigint)', [advisoryLockId(`lineage:${workspaceId}:${lineageId}`)]);
 }
 
-function runtimeFileVersionContentDatabase(): FileVersionContentDatabase {
-  return {
-    transaction: async <T>(action: (transaction: FileVersionContentTransaction) => Promise<T>) => {
-      const connection = await openDb();
-      let discard: Error | undefined;
-      try {
-        await connection.run('BEGIN');
-        const transaction: FileVersionContentTransaction = {
-          query: async <Row>(sql: string, params?: unknown[]) => ({
-            rows: await connection.all(sql, params) as Row[],
-          }),
-        };
-        const result = await action(transaction);
-        await connection.run('COMMIT');
-        return result;
-      } catch (error) {
-        try {
-          await connection.run('ROLLBACK');
-        } catch (rollbackError) {
-          discard = rollbackError instanceof Error ? rollbackError : new Error('Version storage rollback failed.');
-        }
-        throw error;
-      } finally {
-        await connection.close(discard);
-      }
-    },
-  };
-}
-
 function bindingFromRow(row: BindingRow): FileVersionContentBinding {
   return {
     revisionId: row.revision_id,
@@ -326,7 +294,7 @@ export function createFileVersionContentStore(options: {
   now?: () => number;
   id?: () => string;
 } = {}) {
-  const database = options.database ?? runtimeFileVersionContentDatabase();
+  const database = options.database ?? createRuntimeFileVersionCenterDatabase();
   const limits = options.limits ?? DEFAULT_LIMITS;
   const now = options.now ?? Date.now;
   const id = options.id ?? (() => `fvb-${randomUUID()}`);
