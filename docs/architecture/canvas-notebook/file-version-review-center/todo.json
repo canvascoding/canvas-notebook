@@ -365,7 +365,8 @@
           "id": "FVRC-201",
           "order": 1,
           "title": "Capability-Resolve und paginierte Timeline-Query bauen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "api-query",
           "dependsOn": ["FVRC-200"],
           "deliverables": [
@@ -382,6 +383,14 @@
             "Sortierungs- und Cursor-Tests",
             "Lifecycle- und Pfadauflosungstests",
             "Read-only- und Cross-Workspace-API-Tests"
+          ],
+          "completionEvidence": [
+            "query-service.ts loest Pfad, aktive Lineage, Collaboration-Dokument, Agentenoperation sowie autorisierte Change-Group-Eintraege in einen workspacegebundenen Zieltyp auf; archivierte Lineages und wiederverwendete Pfade bleiben isoliert.",
+            "Die Timeline fuehrt offene Agentenreviews vor dem frisch beobachteten autoritativen Yjs-/Dateistand und danach immutable Revisionen in absteigender Reihenfolge zusammen; fehlende oder unverifizierte Blobs bleiben explizit metadata_only und nicht restorable.",
+            "Capability-, Review-Policy- und actionsAllowed-Antworten werden aus Rollout, Backend-Readiness, Dateiklasse, Schreibrecht und Besitzer-/Managerrecht abgeleitet; Actor-Anzeigenamen und gespeicherte Metadaten werden begrenzt und bereinigt.",
+            "Der opake V1-Keyset-Cursor validiert Form, Laenge und Sortierschluessel; zwischen Seiten eingefuegte neuere Eintraege verschieben oder duplizieren die bereits gelesene Historie nicht.",
+            "scripts/file-version-center-query-test.ts prueft PGlite-Migrationen, alle Zielaufloesungen, Rename/Archive/Pfad-Neuanlage, Cross-Workspace- und Read-only-Grenzen, Timeline-Prioritaet, stabile Paginierung und ungueltige Cursor.",
+            "Query- und History-Service-Suites, fokussiertes ESLint, npx tsc --noEmit und git diff --check bestehen; die lokalen Auth-Konfigurationswarnungen sind erwarteter Test-Bootstrap ohne externen Server."
           ]
         },
         {
