@@ -1,0 +1,869 @@
+{
+  "schemaVersion": 1,
+  "feature": "file-version-review-center",
+  "title": "File Version & Review Center",
+  "updatedAt": "2026-09-14",
+  "status": "planned",
+  "repository": "canvasstudios-notebook",
+  "documents": [
+    "docs/architecture/canvas-notebook/file-version-review-center/plan.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
+  ],
+  "scope": {
+    "coreFileTypes": ["md", "markdown", "txt"],
+    "laterTextFileTypes": ["mdx", "json", "yaml", "yml", "source-code"],
+    "deferred": ["notification-center", "office-structured-diff", "binary-content-diff"],
+    "reviewPolicyScope": "per-user-per-workspace-lineage",
+    "defaultReviewPolicy": "review_required",
+    "comparisonBase": "current-authoritative-document-state",
+    "restorePolicy": "create-new-version"
+  },
+  "executionPolicy": {
+    "packageOrder": "strict",
+    "taskOrderWithinPackage": "strict",
+    "nextTaskRequiresPreviousVerification": true,
+    "nextPackageRequiresPreviousGate": true,
+    "commitPolicy": "one focused commit per completed task",
+    "impactPolicy": "Run GitNexus upstream impact before editing every symbol and report HIGH or CRITICAL risk before proceeding.",
+    "changePolicy": "Run GitNexus detect_changes with compare scope against main before every commit.",
+    "buildPolicy": "Run focused tests, changed-file lint, git diff --check and npm run build before completing each implementation package.",
+    "browserPolicy": "Playwright or Chrome testing requires explicit user approval.",
+    "containerPolicy": "Do not build or start containers unless explicitly requested. Use canvas-local-team-seat-dev for an approved local production-like stack and never run parallel test containers."
+  },
+  "gates": [
+    {
+      "id": "FVRC-G00-CONTRACTS",
+      "packageId": "FVRC-P00",
+      "evidence": "Product defaults, versioned contracts, capability matrix, retention limits and threat model are approved and covered by fixtures."
+    },
+    {
+      "id": "FVRC-G01-STORAGE",
+      "packageId": "FVRC-P01",
+      "evidence": "Immutable content storage, revision binding, change groups and review policies pass migrations, limits, authorization and concurrency tests."
+    },
+    {
+      "id": "FVRC-G02-MARKDOWN-HISTORY",
+      "packageId": "FVRC-P02",
+      "evidence": "Markdown and text capture, timeline, compare and restore pass unit and real PostgreSQL lifecycle tests."
+    },
+    {
+      "id": "FVRC-G03-CENTER",
+      "packageId": "FVRC-P03",
+      "evidence": "One globally mounted center renders reviews, current state and history with bounded diff and accessible responsive states."
+    },
+    {
+      "id": "FVRC-G04-EDITOR",
+      "packageId": "FVRC-P04",
+      "evidence": "Editor agent button, history button and fail-safe review toggle use the global center and the old small review flow is safely migrated."
+    },
+    {
+      "id": "FVRC-G05-FILE-BROWSER",
+      "packageId": "FVRC-P05",
+      "evidence": "Supported files expose one capability-driven action in every FileActionsDropdown surface and open the correct document after rename or move."
+    },
+    {
+      "id": "FVRC-G06-CHAT-WIDGET",
+      "packageId": "FVRC-P06",
+      "evidence": "Successful changed file tools create authorized reload-safe single or batch widgets that open the matching center selection."
+    },
+    {
+      "id": "FVRC-G07-CORE-READY",
+      "packageId": "FVRC-P07",
+      "evidence": "Markdown core rollout, rollback, security, accessibility, performance, build and approved UI/E2E gates pass."
+    },
+    {
+      "id": "FVRC-G08-NOTIFICATIONS",
+      "packageId": "FVRC-P08",
+      "evidence": "Action-needed notifications are deduplicated, permission-safe and open the exact review without storing content."
+    },
+    {
+      "id": "FVRC-G09-TEXT-ADAPTERS",
+      "packageId": "FVRC-P09",
+      "evidence": "Each additional text or code adapter has explicit capabilities, safe proposal storage, compare/restore coverage and no extension-only UI assumptions."
+    }
+  ],
+  "packages": [
+    {
+      "id": "FVRC-P00",
+      "order": 0,
+      "title": "Produkt-, Contract- und Sicherheitsbaseline",
+      "status": "planned",
+      "dependsOn": [],
+      "exitGate": "FVRC-G00-CONTRACTS",
+      "tasks": [
+        {
+          "id": "FVRC-000",
+          "order": 0,
+          "title": "Bestehende Revisions-, Yjs-, Agentenreview-, Tool-App- und Dateiaktionspfade als Contract-Inventar fixieren",
+          "status": "planned",
+          "area": "architecture",
+          "dependsOn": [],
+          "deliverables": [
+            "Inventar der autoritativen Zustaende und Capture-Grenzen",
+            "Aufrufmatrix fuer Editor, Dateibrowser, Chat und spaetere Notifications",
+            "Blast-Radius-Bericht fuer die spaeter zu aendernden Symbole und Routen"
+          ],
+          "acceptanceCriteria": [
+            "Es ist fuer jeden Schreibpfad dokumentiert, welcher Zustand autoritativ ist und wann eine Version dauerhaft erfasst werden darf.",
+            "Der breite Contract von ensureFileRevisionForCurrentContent wird nicht ungeprueft zur zentralen Versions-API erweitert."
+          ],
+          "verification": [
+            "GitNexus query/context/process review",
+            "GitNexus upstream impact fuer alle vorgesehenen Aenderungssymbole",
+            "Architekturreview gegen plan.md"
+          ]
+        },
+        {
+          "id": "FVRC-001",
+          "order": 1,
+          "title": "Versionierte Domain-, API- und Deep-Link-Contracts festschreiben",
+          "status": "planned",
+          "area": "contracts",
+          "dependsOn": ["FVRC-000"],
+          "deliverables": [
+            "FileVersionCenterRequest und serialisierbare Zielreferenzen",
+            "Timeline-, Compare-, Restore-, Capability-, Policy- und Change-Group-Schemas",
+            "Stabile Fehlercodes und paginierte Diff-Hunk-Fixtures"
+          ],
+          "acceptanceCriteria": [
+            "Alle Einstiegspunkte koennen denselben Open-Contract verwenden.",
+            "Kein Contract enthaelt absolute Serverpfade, Dokumentinhalt in URLs oder Freigabetokens."
+          ],
+          "verification": [
+            "Schema- und Roundtrip-Fixture-Tests",
+            "Ungueltige und uebergrosse Payload-Fixtures",
+            "Contract-Review fuer Desktop und Mobile"
+          ]
+        },
+        {
+          "id": "FVRC-002",
+          "order": 2,
+          "title": "V1-Capability-, Retention-, Quota- und Threat-Model-Entscheidungen sperren",
+          "status": "planned",
+          "area": "security-product",
+          "dependsOn": ["FVRC-001"],
+          "deliverables": [
+            "Capability-Matrix fuer Markdown, Text, Code, Office und Binaerdateien",
+            "Konkrete Groessen-, Versionsanzahl-, Diff- und Retention-Grenzen",
+            "Threat Model fuer IDs, Deep-Links, Vorschau, Restore, Rechteverlust und Cross-Workspace-Zugriff",
+            "Feature-Flag- und Rollback-Plan"
+          ],
+          "acceptanceCriteria": [
+            "V1 zeigt nur Funktionen an, die Storage und Server sicher unterstuetzen.",
+            "Review ist bei fehlender Policy oder Stoerung standardmaessig erzwungen."
+          ],
+          "verification": [
+            "Entscheidungstabellen-Tests",
+            "Security-Review",
+            "Produktreview der Defaulttexte und Toggle-Semantik"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P01",
+      "order": 1,
+      "title": "Dauerhafter Versionsspeicher, Change Groups und Review-Policy",
+      "status": "planned",
+      "dependsOn": ["FVRC-P00"],
+      "exitGate": "FVRC-G01-STORAGE",
+      "tasks": [
+        {
+          "id": "FVRC-100",
+          "order": 0,
+          "title": "PostgreSQL-Schema und reversible Migrationen fuer Versionsinhalte, Change Groups und Review-Policies implementieren",
+          "status": "planned",
+          "area": "database",
+          "dependsOn": ["FVRC-002"],
+          "deliverables": [
+            "file_version_blobs und file_revision_contents",
+            "file_change_groups und file_change_group_entries",
+            "file_agent_review_policies mit CAS-Revision",
+            "Indizes, Constraints, Foreign Keys und Migrationsfixtures"
+          ],
+          "acceptanceCriteria": [
+            "Migration ist wiederholbar und bestaetigt keine halbfertigen fachlichen Zustaende.",
+            "Lineage, Workspace und Nutzer-Scope sind durch Constraints und Servicepruefungen eindeutig."
+          ],
+          "verification": [
+            "Leere und vorbefuellte PostgreSQL-Migration",
+            "Constraint- und Rollback-Tests",
+            "npm run build"
+          ]
+        },
+        {
+          "id": "FVRC-101",
+          "order": 1,
+          "title": "Immutable Version-Content-Store mit Deduplizierung, Kompression und Quotas bauen",
+          "status": "planned",
+          "area": "storage",
+          "dependsOn": ["FVRC-100"],
+          "deliverables": [
+            "Content-addressed Blob Store",
+            "Idempotente Bindung von Revision und Blob",
+            "Groessenpruefung, Kompressionsmetadaten und Retention-Primitiven"
+          ],
+          "acceptanceCriteria": [
+            "Identische Inhalte werden einmal gespeichert und von mehreren Revisionen referenziert.",
+            "Ein unvollstaendiger Blob wird nie als wiederherstellbare Version sichtbar."
+          ],
+          "verification": [
+            "Parallel-Deduplizierungs- und Crash-Tests",
+            "Quota- und Oversize-Tests",
+            "Hash-, Codec- und Korruptions-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-102",
+          "order": 2,
+          "title": "Change-Group-Service fuer einzelne und gebuendelte Agenten-Dateioperationen implementieren",
+          "status": "planned",
+          "area": "agent-tools",
+          "dependsOn": ["FVRC-101"],
+          "deliverables": [
+            "Stabile Change-Group-ID pro Tool-Aufruf",
+            "Geordnete Dokumenteintraege mit Operation-, Revision- und Outcome-Referenzen",
+            "Autorisierte Statusabfrage fuer gespeicherte Widgets"
+          ],
+          "acceptanceCriteria": [
+            "Ein Tool-Retry erzeugt keine zweite Change Group.",
+            "Batchreihenfolge und Dateizuordnung bleiben nach Chat-Reload erhalten."
+          ],
+          "verification": [
+            "Idempotenz- und Batchtests",
+            "Cross-User- und Cross-Workspace-Ablehnung",
+            "Archivierte-Session- und geloeschte-Lineage-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-103",
+          "order": 3,
+          "title": "Review-Policy-Service und effektive Policy-Praezedenz implementieren",
+          "status": "planned",
+          "area": "collaboration-security",
+          "dependsOn": ["FVRC-102"],
+          "deliverables": [
+            "Nutzer- und Lineage-bezogene Policy-Reads und CAS-Writes",
+            "Effektive Policy aus Hard-Safety, explizitem Review und Nutzerpraeferenz",
+            "Adapter zur bestehenden kurzlebigen Direct-Edit-Freigabe",
+            "Audit ohne Dokumentinhalt"
+          ],
+          "acceptanceCriteria": [
+            "safe_direct gilt nur fuer zukuenftige eigene Operationen und ist kein globaler Blankoscheck.",
+            "Jeder Lade-, Berechtigungs- oder Konsistenzfehler faellt auf review_required zurueck."
+          ],
+          "verification": [
+            "Policy-Praezedenzmatrix",
+            "Parallele-Tab-CAS-Tests",
+            "Grant-Ablauf-, Widerruf-, Lifecycle- und Rechteverlusttests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P02",
+      "order": 2,
+      "title": "Markdown-/Text-Historie, Vergleich und Restore",
+      "status": "planned",
+      "dependsOn": ["FVRC-P01"],
+      "exitGate": "FVRC-G02-MARKDOWN-HISTORY",
+      "tasks": [
+        {
+          "id": "FVRC-200",
+          "order": 0,
+          "title": "Schmale Version-Capture-Grenzen fuer Markdown und Text integrieren",
+          "status": "planned",
+          "area": "collaboration",
+          "dependsOn": ["FVRC-103"],
+          "deliverables": [
+            "Capture nach autoritativer Yjs-Persistenz",
+            "Capture fuer angenommene und direkt angewendete Agentenaenderungen",
+            "Capture vor und nach Restore sowie bei externem Import",
+            "Deduplizierung zeitlich gebuendelter automatischer Checkpoints"
+          ],
+          "acceptanceCriteria": [
+            "Eine bestaetigte Agentenaenderung ist vor Rueckgabe des Chat-Widgets dauerhaft referenzierbar.",
+            "Verzoegerte oder fehlgeschlagene Dateiprojektion verliert keinen autoritativen Yjs-Versionsstand."
+          ],
+          "verification": [
+            "Reale PostgreSQL-Tests mit verzoegerter Dateiprojektion",
+            "Parallel-Edit-, Restart- und Deduplizierungstests",
+            "Bestehende Collaboration-Durability- und Projection-Suites"
+          ]
+        },
+        {
+          "id": "FVRC-201",
+          "order": 1,
+          "title": "Capability-Resolve und paginierte Timeline-Query bauen",
+          "status": "planned",
+          "area": "api-query",
+          "dependsOn": ["FVRC-200"],
+          "deliverables": [
+            "Aufloesung von Pfad, Lineage, Document, Operation und Change Group",
+            "Zusammengefuehrte Timeline aus offenen Reviews, aktuellem Stand und Revisionen",
+            "Capability- und Berechtigungsantwort",
+            "Stabile Cursor-Paginierung"
+          ],
+          "acceptanceCriteria": [
+            "Reviews stehen immer ueber aktuellem Stand und absteigender Historie.",
+            "Rename, Move, Trash und Neuanlage am selben Pfad vermischen keine Lineages."
+          ],
+          "verification": [
+            "Sortierungs- und Cursor-Tests",
+            "Lifecycle- und Pfadauflosungstests",
+            "Read-only- und Cross-Workspace-API-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-202",
+          "order": 2,
+          "title": "Begrenzten Compare-Service fuer aktuelle Version, Historie und Agentenkandidaten implementieren",
+          "status": "planned",
+          "area": "diff-preview",
+          "dependsOn": ["FVRC-201"],
+          "deliverables": [
+            "Aktuell-gegen-Auswahl-Vergleich",
+            "Vollstaendige Kandidatenprojektion fuer Agentenvorschlaege",
+            "Zeilen- und Blockstatistik",
+            "Paginierte Diff-Hunks und bereinigte Markdown-Preview-Daten"
+          ],
+          "acceptanceCriteria": [
+            "Der primaere Vergleich verwendet nie stillschweigend eine alte Basis als aktuellen Stand.",
+            "Zu grosse oder nicht darstellbare Vorschlaege koennen nicht blind angenommen werden."
+          ],
+          "verification": [
+            "Stale-Base-, Konflikt- und unabhaengige-Edit-Tests",
+            "Oversize- und Hunk-Paginierungstests",
+            "Markdown-Sanitization- und External-Request-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-203",
+          "order": 3,
+          "title": "Idempotenten Restore-Service ueber Yjs- und Dateiadapter implementieren",
+          "status": "planned",
+          "area": "restore",
+          "dependsOn": ["FVRC-202"],
+          "deliverables": [
+            "Expected-Hash-/State-Vector-Fence",
+            "Sicherung des aktuellen Stands vor Restore",
+            "Neue Revision mit source restore",
+            "Neubewertung offener Agentenvorschlaege"
+          ],
+          "acceptanceCriteria": [
+            "Restore ueberschreibt oder loescht keine Historie.",
+            "Ein Retry oder unklarer Netzwerkabschluss erzeugt maximal einen Restore."
+          ],
+          "verification": [
+            "Parallel-User-Edit- und stale-fence-Tests",
+            "Idempotenz- und Crash-Recovery-Tests",
+            "Restore nach Rename, Move und Restart",
+            "Reale PostgreSQL-Integration"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P03",
+      "order": 3,
+      "title": "Globaler Versions- und Review-Center",
+      "status": "planned",
+      "dependsOn": ["FVRC-P02"],
+      "exitGate": "FVRC-G03-CENTER",
+      "tasks": [
+        {
+          "id": "FVRC-300",
+          "order": 0,
+          "title": "Globalen Open-Store, Deep-Link-Parser und einmaligen Dialog-Host integrieren",
+          "status": "planned",
+          "area": "frontend-architecture",
+          "dependsOn": ["FVRC-203"],
+          "deliverables": [
+            "openVersionCenter und closeVersionCenter",
+            "Ein Host im gemeinsamen authentifizierten Locale-Layout",
+            "Reload-faehiger Deep-Link ohne Inhaltsdaten",
+            "Workspace-Wechsel und aktuelle Dokumentaufloesung"
+          ],
+          "acceptanceCriteria": [
+            "Jede Route kann denselben Center ohne bereits geoeffneten Editor oeffnen.",
+            "Schliessen erhaelt fremde Queryparameter und loescht nur Center-Navigationszustand."
+          ],
+          "verification": [
+            "Store- und URL-Roundtrip-Tests",
+            "Cross-Workspace- und Access-Loss-Tests",
+            "React Mount-/Unmount- und Focus-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-301",
+          "order": 1,
+          "title": "Responsive Timeline mit Review-, Current- und History-Zustaenden bauen",
+          "status": "planned",
+          "area": "frontend-ui",
+          "dependsOn": ["FVRC-300"],
+          "deliverables": [
+            "Semantische Statuszeilen und Badges",
+            "Aktuelle Version in leichtem Emerald",
+            "Agentenvorschlaege in Violett und Konflikte in Amber/Rot",
+            "Pagination, Loading, Empty, Read-only und Error States"
+          ],
+          "acceptanceCriteria": [
+            "Reihenfolge und Status sind ohne alleinige Farbabhaengigkeit erkennbar.",
+            "Eine Auswahl bleibt waehrend Timeline-Nachladen stabil oder wird nachvollziehbar invalidiert."
+          ],
+          "verification": [
+            "Gerenderte Komponenten- und Accessibility-Tests",
+            "Light-/Dark-Token-Review",
+            "Mobile-/Tablet-Zustandstests"
+          ]
+        },
+        {
+          "id": "FVRC-302",
+          "order": 2,
+          "title": "Diff-, Markdown-Preview-, Quelltext- und Detailansichten integrieren",
+          "status": "planned",
+          "area": "frontend-ui",
+          "dependsOn": ["FVRC-301"],
+          "deliverables": [
+            "Tabs fuer Aenderungen, Markdown-Vorschau, Quelltext und Details",
+            "Synchrones Scrollen und Hunk-Nachladen",
+            "Stale- und Konflikthinweise",
+            "Wiederverwendung des sicheren Agenten-Proposal-Renderers"
+          ],
+          "acceptanceCriteria": [
+            "Der Dialog zeigt die komplette resultierende Kandidatenversion und nicht nur einen kleinen Zielfragment-Ausschnitt.",
+            "Preview fuehrt keine Links, Bilder oder externen Requests aus."
+          ],
+          "verification": [
+            "Renderer- und Sanitization-Tests",
+            "Grosse-Dokument- und Pagination-Tests",
+            "Keyboard- und Focus-Unit-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-303",
+          "order": 3,
+          "title": "Accept-, Reject-, Restore- und Weiterbearbeiten-Aktionen anbinden",
+          "status": "planned",
+          "area": "frontend-actions",
+          "dependsOn": ["FVRC-302"],
+          "deliverables": [
+            "Wiederverwendung bestehender autorisierter Agentenaktionen",
+            "Restore mit sichtbarer Revisions-Fence",
+            "Busy-, Retry-, Changed- und Permission-Loss-Zustaende",
+            "Timeline-Invalidierung nach jeder Mutation"
+          ],
+          "acceptanceCriteria": [
+            "Keine Mutationslogik wird separat in jedem Einstiegspunkt implementiert.",
+            "Doppelklicks und Netzwerk-Retries koennen keine Aktion doppelt anwenden."
+          ],
+          "verification": [
+            "Action-Idempotenztests",
+            "AGENT_PROPOSAL_CHANGED- und Rechteverlusttests",
+            "Restore-Konflikt- und Refresh-Tests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P04",
+      "order": 4,
+      "title": "Editor-Einstiege und Review-Toggle",
+      "status": "planned",
+      "dependsOn": ["FVRC-P03"],
+      "exitGate": "FVRC-G04-EDITOR",
+      "tasks": [
+        {
+          "id": "FVRC-400",
+          "order": 0,
+          "title": "Editor-Agentenbutton auf den globalen Review-Center umstellen",
+          "status": "planned",
+          "area": "editor-ui",
+          "dependsOn": ["FVRC-303"],
+          "deliverables": [
+            "Review- und Konflikt-Badges am Bot-Button",
+            "Direkte Auswahl der neuesten offenen Operation",
+            "Migration der kleinen Popover-Vorschau ohne Funktionsverlust"
+          ],
+          "acceptanceCriteria": [
+            "Es existiert nach der Migration nur eine aktive Accept/Reject-Oberflaeche.",
+            "Bestehende Operationen bleiben waehrend der Migration erreichbar."
+          ],
+          "verification": [
+            "Editor-Komponententests",
+            "Review-, Konflikt- und keine-Aktivitaet-Zustaende",
+            "Bestehende Agent-Approval-Suite"
+          ]
+        },
+        {
+          "id": "FVRC-401",
+          "order": 1,
+          "title": "Dauerhaften Versionen-Button fuer unterstuetzte Editor-Dateien ergaenzen",
+          "status": "planned",
+          "area": "editor-ui",
+          "dependsOn": ["FVRC-400"],
+          "deliverables": [
+            "History-Button im vorhandenen Headerstil",
+            "Capability-basierte Sichtbarkeit",
+            "History-Startansicht mit aktueller Version"
+          ],
+          "acceptanceCriteria": [
+            "Der Button ist bei unterstuetzten Dateien auch ohne Agentenaktivitaet sichtbar.",
+            "Unsupported und read-only Zustaende werden korrekt dargestellt."
+          ],
+          "verification": [
+            "Header-Breiten- und Tooltip-Tests",
+            "Capability-Matrix in Editor-Komponententests"
+          ]
+        },
+        {
+          "id": "FVRC-402",
+          "order": 2,
+          "title": "Fail-safe Review-Toggle in Editor und mobile Dateiaktionen integrieren",
+          "status": "planned",
+          "area": "editor-collaboration",
+          "dependsOn": ["FVRC-401"],
+          "deliverables": [
+            "Review erforderlich und direkt sofern sicher",
+            "Hinweis auf zukuenftige Aenderungen",
+            "Erzwungen-, Loading-, Error- und CAS-Konflikt-Zustaende",
+            "Entfernung der verwirrenden operationsweisen Grant-Controls aus dem Normalflow"
+          ],
+          "acceptanceCriteria": [
+            "Toggle aus autorisiert keine alte oder fremde Operation.",
+            "Hard-Safety, Backpressure und Konflikte erzwingen weiterhin Review."
+          ],
+          "verification": [
+            "Policy-UI- und CAS-Tests",
+            "Agenten-Direktanwendung und erzwungener Review",
+            "Mobile-Header- und Accessibility-Tests"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P05",
+      "order": 5,
+      "title": "Dateibrowser- und Dateiaktionsintegration",
+      "status": "planned",
+      "dependsOn": ["FVRC-P04"],
+      "exitGate": "FVRC-G05-FILE-BROWSER",
+      "tasks": [
+        {
+          "id": "FVRC-500",
+          "order": 0,
+          "title": "Versionen & Aenderungen capability-basiert in FileActionsDropdown aufnehmen",
+          "status": "planned",
+          "area": "file-browser-ui",
+          "dependsOn": ["FVRC-402"],
+          "deliverables": [
+            "Ein gemeinsamer DropdownMenuItem",
+            "Open-Request aus Workspace, Pfad und optionaler Lineage",
+            "Sichtbarkeit und Disabled-Zustaende aus Server-Capabilities"
+          ],
+          "acceptanceCriteria": [
+            "Rechtsklick, Editor-Drei-Punkte-Menue und weitere Wiederverwendungen zeigen dieselbe Aktion.",
+            "Die UI pflegt keine abweichende eigene Liste unterstuetzter Extensions."
+          ],
+          "verification": [
+            "FileContextMenu- und FileEditor-Dropdown-Komponententests",
+            "Unterstuetzte-, unsupported-, missing- und read-only Tests"
+          ]
+        },
+        {
+          "id": "FVRC-501",
+          "order": 1,
+          "title": "Dateiaufloesung nach Rename, Move, Trash und Workspace-Wechsel absichern",
+          "status": "planned",
+          "area": "file-lifecycle",
+          "dependsOn": ["FVRC-500"],
+          "deliverables": [
+            "Lineage-basierte aktuelle Pfadauflosung",
+            "Verstaendliche Missing-/Archived-Zustaende",
+            "Schutz vor Pfadwiederverwendung durch eine andere Datei"
+          ],
+          "acceptanceCriteria": [
+            "Ein alter Einstieg oeffnet nie die Historie einer Ersatzdatei am selben Pfad.",
+            "Ein gueltig verschobenes Dokument oeffnet unter seinem aktuellen Pfad."
+          ],
+          "verification": [
+            "Rename-/Move-/Trash-/Restore-Integration",
+            "Cross-Workspace-Wechseltests",
+            "App-Neustart-Test ohne Browserautomation"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P06",
+      "order": 6,
+      "title": "Chat-Widget fuer erfolgreiche Agenten-Dateiaenderungen",
+      "status": "planned",
+      "dependsOn": ["FVRC-P05"],
+      "exitGate": "FVRC-G06-CHAT-WIDGET",
+      "tasks": [
+        {
+          "id": "FVRC-600",
+          "order": 0,
+          "title": "Built-in File-Change-Tool-App und strikte Descriptor-Validierung ergaenzen",
+          "status": "planned",
+          "area": "tool-app-contract",
+          "dependsOn": ["FVRC-501"],
+          "deliverables": [
+            "Versionierter File-Change-Resource-URI",
+            "Descriptor- und Tool-Result-Bindung an Change Group und Tool Call",
+            "Autorisierte Render-/Refresh-Datenquelle",
+            "Canvas-stilgemaesses Widget und Host-Actions"
+          ],
+          "acceptanceCriteria": [
+            "Nur genuine erfolgreiche und gespeicherte Dateioperationen koennen ein internes Widget binden.",
+            "Gefälschte IDs, fremde Sitzungen und zu grosse Payloads werden abgewiesen."
+          ],
+          "verification": [
+            "Descriptor-Parser- und Tool-App-Access-Tests",
+            "Persisted-message- und Reload-Tests",
+            "Security-Negativtests"
+          ]
+        },
+        {
+          "id": "FVRC-601",
+          "order": 1,
+          "title": "write und edit_file an Change Groups und das neue Widget anbinden",
+          "status": "planned",
+          "area": "agent-tools",
+          "dependsOn": ["FVRC-600"],
+          "deliverables": [
+            "Widget fuer applied und review_required",
+            "Keine Widget-Erzeugung bei unchanged oder Fehler",
+            "Direkte Center-Auswahl fuer Operation oder Revision",
+            "Datei-oeffnen-Fallback"
+          ],
+          "acceptanceCriteria": [
+            "Das Tool meldet applied erst, wenn eine dauerhaft referenzierbare Version existiert.",
+            "Der Widgetstatus aktualisiert sich nach Accept, Reject, Restore oder Revert."
+          ],
+          "verification": [
+            "Core-Tool-Result- und Output-Preparation-Tests",
+            "Applied-, review-required-, unchanged- und Retry-Szenarien",
+            "Chat-Message-Projektionsregression"
+          ]
+        },
+        {
+          "id": "FVRC-602",
+          "order": 2,
+          "title": "apply_patch Batch-Widget mit dokumentweiser Auswahl integrieren",
+          "status": "planned",
+          "area": "agent-tools",
+          "dependsOn": ["FVRC-601"],
+          "deliverables": [
+            "Eine Change Group fuer den gesamten Patch-Aufruf",
+            "Geordnete Dateiliste mit individuellem Outcome",
+            "Center-Aufruf pro Dokument",
+            "Begrenzte Darstellung grosser Batches"
+          ],
+          "acceptanceCriteria": [
+            "Ein Batch erzeugt nicht unkontrolliert mehrere grosse Chat-Widgets.",
+            "Jede dargestellte Datei oeffnet ihren eigenen aktuellen Vergleich."
+          ],
+          "verification": [
+            "Mixed applied/review/unchanged Batchtests",
+            "Max-Items- und Pagination-/Overflow-Tests",
+            "Idempotenter Batch-Retry"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P07",
+      "order": 7,
+      "title": "Kernfeature haerten und kontrolliert ausrollen",
+      "status": "planned",
+      "dependsOn": ["FVRC-P06"],
+      "exitGate": "FVRC-G07-CORE-READY",
+      "tasks": [
+        {
+          "id": "FVRC-700",
+          "order": 0,
+          "title": "Security-, Performance-, Accessibility- und Observability-Gates schliessen",
+          "status": "planned",
+          "area": "hardening",
+          "dependsOn": ["FVRC-602"],
+          "deliverables": [
+            "Cross-Scope- und Rechteverlust-Hardening",
+            "Diff-, Blob-, Timeline- und Query-Limits",
+            "Inhaltsfreie Logs und Metriken",
+            "Keyboard-, Focus-, Screenreader- und Reduced-Motion-Abdeckung"
+          ],
+          "acceptanceCriteria": [
+            "Kein bekannter Pfad liest oder mutiert fremde Versionen ueber erratene IDs.",
+            "Grosse Historien und Dateien bleiben begrenzt und blockieren die App nicht."
+          ],
+          "verification": [
+            "Security-Negativsuite",
+            "Last- und Begrenzungstests",
+            "Accessibility-Komponententests",
+            "npm run build"
+          ]
+        },
+        {
+          "id": "FVRC-701",
+          "order": 1,
+          "title": "Freigegebene UI-/E2E-Abnahme fuer den kompletten Markdown-Workflow durchfuehren",
+          "status": "planned",
+          "area": "browser-validation",
+          "dependsOn": ["FVRC-700"],
+          "requiresExplicitUserApproval": true,
+          "deliverables": [
+            "Desktop-, schmale- und Mobile-Evidence",
+            "Light-, Dark- und Reduced-Motion-Evidence",
+            "Editor-, Dateibrowser- und Chat-Einstieg",
+            "Review, direkte sichere Anwendung, Konflikt und Restore"
+          ],
+          "acceptanceCriteria": [
+            "Alle sichtbaren Einstiege oeffnen denselben Center im erwarteten Zustand.",
+            "Der Workflow passt visuell und interaktiv zum bestehenden Canvas-Design."
+          ],
+          "verification": [
+            "Playwright oder Chrome nach ausdruecklicher Nutzerfreigabe",
+            "Screenshots und reproduzierbare Testschritte",
+            "Bestehende Notebook- und Collaboration-E2E-Regressions"
+          ]
+        },
+        {
+          "id": "FVRC-702",
+          "order": 2,
+          "title": "Feature-Flag-Rollout, Shadow-Capture-Messung und Rollback-Nachweis abschliessen",
+          "status": "planned",
+          "area": "rollout",
+          "dependsOn": ["FVRC-701"],
+          "deliverables": [
+            "Interner Shadow-Capture-Bericht",
+            "Aktivierungsreihenfolge fuer Read-only, Mutationen und Einstiegspunkte",
+            "Rollback ohne Verlust gespeicherter Versionen",
+            "Betriebs- und Supporthinweise"
+          ],
+          "acceptanceCriteria": [
+            "Das Kernfeature kann deaktiviert werden, ohne bestehende Agentenreviews oder Dokumentzugriff zu blockieren.",
+            "Speicherwachstum und Latenz bleiben innerhalb der in FVRC-002 fixierten Grenzen."
+          ],
+          "verification": [
+            "Feature-Flag- und Rollback-Test",
+            "Metrik- und Log-Review",
+            "Vollstaendiger fokussierter Testlauf, git diff --check, ESLint und npm run build"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P08",
+      "order": 8,
+      "title": "Benachrichtigungszentrale fuer erforderliche Reviews",
+      "status": "planned",
+      "phase": "deferred",
+      "dependsOn": ["FVRC-P07"],
+      "exitGate": "FVRC-G08-NOTIFICATIONS",
+      "tasks": [
+        {
+          "id": "FVRC-800",
+          "order": 0,
+          "title": "File-Change-Notification-Typ und abgeleitete Action-needed-Quelle implementieren",
+          "status": "planned",
+          "area": "notifications",
+          "dependsOn": ["FVRC-702"],
+          "deliverables": [
+            "NotificationItem-Ziel fuer Lineage und Agentenoperation",
+            "Eintraege fuer needs_review, semantic_conflict und fehlgeschlagene Direktanwendung",
+            "Deduplizierung, Read-State und automatische Aufloesung nach Entscheidung"
+          ],
+          "acceptanceCriteria": [
+            "Notifications enthalten keinen Dokumentinhalt und zeigen keine fremden Pfade.",
+            "Erfolgreiche Direktanwendungen erzeugen standardmaessig keinen einzelnen ungelesenen Eintrag."
+          ],
+          "verification": [
+            "Desktop- und Mobile-Inbox-Contracttests",
+            "Deduplizierungs- und Permission-Tests",
+            "Resolved-/Dismissed-/Read-State-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-801",
+          "order": 1,
+          "title": "Notification-, Home- und Mobile-Einstiege an den globalen Center anbinden",
+          "status": "planned",
+          "area": "notifications-ui",
+          "dependsOn": ["FVRC-800"],
+          "deliverables": [
+            "Passendes Icon und Statuscopy",
+            "Center-Open im selben Fenster",
+            "Deep-Link-Fallback nach Reload oder Routenwechsel",
+            "Mark-read beim erfolgreichen Oeffnen"
+          ],
+          "acceptanceCriteria": [
+            "Desktop, Home und Mobile oeffnen dieselbe exakte Review-Operation.",
+            "Fehlender Zugriff markiert die Operation nicht faelschlich als bearbeitet."
+          ],
+          "verification": [
+            "NotificationBell-, HomeNotificationItem- und Mobile-Inbox-Tests",
+            "Deep-Link- und Workspace-Wechseltests",
+            "UI/E2E nach erneuter ausdruecklicher Nutzerfreigabe"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P09",
+      "order": 9,
+      "title": "Weitere Text- und Codeformate ueber Adapter erweitern",
+      "status": "planned",
+      "phase": "deferred",
+      "dependsOn": ["FVRC-P08"],
+      "exitGate": "FVRC-G09-TEXT-ADAPTERS",
+      "tasks": [
+        {
+          "id": "FVRC-900",
+          "order": 0,
+          "title": "Revision-Check-Adapter fuer MDX, JSON, YAML und Quellcode implementieren",
+          "status": "planned",
+          "area": "file-adapters",
+          "dependsOn": ["FVRC-801"],
+          "deliverables": [
+            "Explizite Adapter-Capabilities je Formatklasse",
+            "Text-Diff und idempotenter Restore mit Expected-Revision",
+            "Dauerhafte nicht-CRDT-Agentenvorschlaege vor Aktivierung des Review-Toggles"
+          ],
+          "acceptanceCriteria": [
+            "Kein Dateityp zeigt Review an, bevor sein Proposal- und Restore-Pfad sicher implementiert ist.",
+            "Formatadapter verwenden dieselbe Timeline, denselben Center und dieselben Open-Contracts."
+          ],
+          "verification": [
+            "Adapter-Contracttests je Formatklasse",
+            "Parallel-Write- und stale-revision-Tests",
+            "Roundtrip- und Syntaxerhaltstests"
+          ]
+        },
+        {
+          "id": "FVRC-901",
+          "order": 1,
+          "title": "Office-, strukturierte und binaere Versionierungsgrenzen separat evaluieren",
+          "status": "planned",
+          "area": "architecture",
+          "dependsOn": ["FVRC-900"],
+          "deliverables": [
+            "Entscheidungsmatrix fuer DOCX, Tabellen, Praesentationen, Excalidraw und Binaerdateien",
+            "Adapter- oder Metadaten-only-Entscheidung pro Format",
+            "Separater Folgeplan fuer strukturelle Vergleiche"
+          ],
+          "acceptanceCriteria": [
+            "Binaerinhalte werden nicht als Textdiff behandelt.",
+            "Bestehende Office-Journals und Excalidraw-Operationen werden nicht durch eine pauschale Versionslogik verdoppelt."
+          ],
+          "verification": [
+            "Architektur- und Speicherreview",
+            "Impact-Analyse bestehender Office- und Excalidraw-Pfade",
+            "Freigabe eines getrennten Folgeplans"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -30,6 +30,7 @@ Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 - `memory-reviewer-admin-onboarding-plan.md`: verpflichtende organisationsweite Provider-/Modellwahl fuer den isolierten Memory-Reviewer im Administrator-Onboarding, Queue-Reaktivierung und reiner PostgreSQL-Schemamigrationspfad ohne SQLite-Abhaengigkeit.
 - `memory-system-runtime.md`: produktiver Memory-Worker mit Token-/Retry-Grenzen, persistiertem Neustart-Checkpoint, stabiler Kategorien-Taxonomie, Kontosprache, UI-Semantik und datensparsamen Betriebslogs.
 - `electron-workspace-drive/README.md`: Einstieg in das Planungspaket fuer den bidirektionalen Electron Workspace Drive mit Hauptplan, V1-Pipeline und maschinenlesbarer Taskliste.
+- `file-version-review-center/plan.md`: Architektur- und UX-Plan fuer einen globalen Versionen-&-Aenderungen-Center mit Markdown-Historie, Agentenreviews, Review-Toggle, Editor-/Dateibrowser-/Chat-Einstiegen sowie spaeteren Notifications; `file-version-review-center/todo.json` enthaelt die strikt sequenzielle Umsetzungsliste.
 - `todo.json`: maschinenlesbarer Aufgabenindex ueber Notebook-, Control-Plane- und Cross-Repo-Aufgaben.
 
 Dieses Unterprojekt ist bewusst getrennt, weil der Umbau Fresh Install, Update-Migration, Auth, Rollen, Workspaces, Agent-Dateioperationen, Tool-Capabilities, Credentials, MCP, Plugins/Skills, Knowledge/Retrieval, Database Provider, Public Links, Automations, Webhooks, Studio, Export/Import, Audit und Backup/Restore beruehrt.
