@@ -8141,9 +8141,30 @@
     "blockedLink": "Link disabled in review preview",
     "comparisonUnavailable": "Comparison unavailable",
     "comparisonUnavailableDescription": "This file type or workspace mode does not currently support a safe comparison.",
-    "selectionPendingTitle": "Finding the selected version",
-    "loadCurrentDescription": "Load the next timeline page to retrieve the current document fence before comparing.",
-    "tabs": {
+  "selectionPendingTitle": "Finding the selected version",
+  "loadCurrentDescription": "Load the next timeline page to retrieve the current document fence before comparing.",
+  "actions": {
+    "accept": "Accept change",
+    "reject": "Reject",
+    "restore": "Restore version",
+    "continue": "Continue editing",
+    "cancel": "Cancel",
+    "confirmRestore": "Restore as new version",
+    "restoreTitle": "Restore version {number}?",
+    "restoreDescription": "Current fence: revision {revision}, SHA-256 {hash}…. It is kept in history, and restoring creates a new version from this selection.",
+    "retry": "Retry action",
+    "errorProposalChanged": "The agent proposal changed",
+    "errorAccessLost": "Write access is no longer available",
+    "errorCurrentChanged": "The current document changed",
+    "errorGeneric": "The action could not be completed",
+    "errorDescription": "The timeline was kept safe. Review the current state before trying again.",
+    "busy": {
+      "accept": "Accepting the reviewed proposal…",
+      "reject": "Rejecting the proposal…",
+      "restore": "Restoring the selected version…"
+    }
+  },
+  "tabs": {
       "changes": "Changes",
       "preview": "Preview",
       "source": "Source",

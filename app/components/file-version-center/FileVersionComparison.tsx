@@ -34,8 +34,11 @@ import {
   type FileVersionComparePayload,
 } from '@/app/lib/file-version-center/compare-client';
 import { FileVersionCenterClientError } from '@/app/lib/file-version-center/client';
+import type { FileVersionMutation } from '@/app/lib/file-version-center/action-client';
 import type { FileVersionTimelineSelection } from '@/app/lib/file-version-center/timeline-state';
 import { cn } from '@/lib/utils';
+
+import { FileVersionActions } from './FileVersionActions';
 
 type CandidateEntry = Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' | 'revision' }>;
 
@@ -193,10 +196,16 @@ function LoadedComparison({
   request,
   current,
   entry,
+  restoreAllowed,
+  onTimelineInvalidate,
+  onContinue,
 }: {
   request: FileVersionCenterRequestV1;
   current: Extract<FileVersionTimelineEntryV1, { kind: 'current' }>;
   entry: CandidateEntry;
+  restoreAllowed: boolean;
+  onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
+  onContinue: () => void;
 }) {
   const t = useTranslations('fileVersionCenter');
   const [payload, setPayload] = useState<FileVersionComparePayload | null>(null);
@@ -306,11 +315,13 @@ function LoadedComparison({
         </div>
       </div>
       {unavailable ? (
-        <Alert className="m-4 rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
-          <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
-          <AlertTitle>{t('candidateUnavailable')}</AlertTitle>
-          <AlertDescription>{t('candidateUnavailableDescription')}</AlertDescription>
-        </Alert>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Alert className="m-4 rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
+            <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
+            <AlertTitle>{t('candidateUnavailable')}</AlertTitle>
+            <AlertDescription>{t('candidateUnavailableDescription')}</AlertDescription>
+          </Alert>
+        </div>
       ) : (
         <Tabs defaultValue="changes" className="min-h-0 flex-1 gap-0 overflow-hidden">
           <div className="border-b px-3 py-2 sm:px-4">
@@ -382,6 +393,16 @@ function LoadedComparison({
           </TabsContent>
         </Tabs>
       )}
+      <FileVersionActions
+        request={request}
+        current={current}
+        entry={entry}
+        reviewedProposalVersion={payload.actionFence.proposalVersion}
+        candidateAvailable={!unavailable}
+        restoreAllowed={restoreAllowed}
+        onTimelineInvalidate={onTimelineInvalidate}
+        onContinue={onContinue}
+      />
     </div>
   );
 }
@@ -402,10 +423,14 @@ export function FileVersionComparison({
   request,
   timeline,
   selection,
+  onTimelineInvalidate,
+  onContinue,
 }: {
   request: FileVersionCenterRequestV1;
   timeline: FileVersionTimelineResponseV1;
   selection: FileVersionTimelineSelection;
+  onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
+  onContinue: () => void;
 }) {
   const t = useTranslations('fileVersionCenter');
   const current = timeline.entries.find((entry) => entry.kind === 'current');
@@ -441,7 +466,15 @@ export function FileVersionComparison({
           description={t('selectionDescription')}
         />
       ) : (
-        <LoadedComparison key={identity} request={request} current={current} entry={selected} />
+        <LoadedComparison
+          key={identity}
+          request={request}
+          current={current}
+          entry={selected}
+          restoreAllowed={timeline.capabilities.restore}
+          onTimelineInvalidate={onTimelineInvalidate}
+          onContinue={onContinue}
+        />
       )}
     </main>
   );

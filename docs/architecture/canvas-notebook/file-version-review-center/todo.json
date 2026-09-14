@@ -466,7 +466,7 @@
       "id": "FVRC-P03",
       "order": 3,
       "title": "Globaler Versions- und Review-Center",
-      "status": "in_progress",
+      "status": "completed",
       "dependsOn": ["FVRC-P02"],
       "exitGate": "FVRC-G03-CENTER",
       "tasks": [
@@ -573,7 +573,8 @@
           "id": "FVRC-303",
           "order": 3,
           "title": "Accept-, Reject-, Restore- und Weiterbearbeiten-Aktionen anbinden",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "frontend-actions",
           "dependsOn": ["FVRC-302"],
           "deliverables": [
@@ -590,6 +591,16 @@
             "Action-Idempotenztests",
             "AGENT_PROPOSAL_CHANGED- und Rechteverlusttests",
             "Restore-Konflikt- und Refresh-Tests"
+          ],
+          "completionEvidence": [
+            "action-client.ts ist der zentrale Client-Controller fuer Accept, Reject und Restore: parallele Doppelklicks teilen einen In-Flight-Promise, und fehlgeschlagene Netzwerk-Retries verwenden je Dokument, Auswahl, Aktion und Current-Fence denselben Idempotency-Key.",
+            "Accept und Reject verwenden die bestehenden autorisierten Collaboration-Operation-Routen sowie prepareCollaborationAgentAction; Accept laedt die Operation vor der Mutation erneut und bindet sie an den Proposal-Fence der vollstaendig angezeigten Comparison, sodass AGENT_PROPOSAL_CHANGED vor oder durch den Server fail-closed stoppt.",
+            "POST /api/files/version-center/v1/restore validiert den V1-Contract, fordert canWrite fuer den expliziten Workspace, begrenzt Mutationen pro Nutzer und delegiert ausschliesslich an den idempotenten P02-Restore-Service; private/no-store bleibt erhalten.",
+            "FileVersionActions zeigt responsive Accept-, Reject-, Restore- und Weiterbearbeiten-Aktionen im bestehenden Designsystem. Restore bestaetigt sichtbar Versionsnummer und gekuerzten aktuellen SHA-Fence; Busy-, Retry-, Proposal-Changed-, Current-Changed- und Permission-Loss-Zustaende sind textlich und per Status-Semantik erkennbar.",
+            "Der einmalige FileVersionCenterHost ist die einzige Timeline-Invalidierungsstelle: Nach jeder erfolgreichen Mutation wird die veraltete Auswahl aus dem reload-faehigen Deep-Link entfernt und die autoritative Timeline neu aufgeloest; Changed- und Access-Loss-Antworten fordern ebenfalls einen sicheren Refresh an.",
+            "scripts/file-version-center-actions-test.tsx prueft Single-Flight-Doppelklicks, stabile Accept-/Reject-/Restore-Keys, Proposal-Changed vor POST, Rechteverlust, Restore-Konflikt, Busy/Retry, sichtbaren Restore-Fence, Continue-URL sowie genau einen globalen Host-Refresh; die Restore-Route, P02-Restore-/Compare-Services, P03-Comparison/Timeline/Open/Access und bestehenden Agenten-Approval-Suites bestehen ebenfalls.",
+            "ESLint aller geaenderten TypeScript-Dateien, npx tsc --noEmit und git diff --check bestehen. Der Produktions-Build besteht mit ausschliesslich fuer den Lauf gesetztem gemeinsamem Turbopack-Root und temporaer force-dynamic fuer die bestehende sign-up-Seite; beide Aenderungen wurden entfernt. Der unveraenderte Standard-Build erreicht Compile und TypeScript, bleibt aber an der vorbestehenden /sign-up-Prerender-Auswertung gegen die waehrend NEXT_PHASE gesperrte Datenbank blockiert.",
+            "Browser-/Playwright-Evidence wurde gemaess fehlender expliziter Freigabe nicht erzeugt und bleibt als verifizierbare FVRC-P07-E2E-Evidence-Luecke offen."
           ]
         }
       ]

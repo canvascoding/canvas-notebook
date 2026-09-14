@@ -28,6 +28,7 @@ export type FileVersionComparePreview = {
 export type FileVersionComparePayload = {
   response: FileVersionCompareResponseV1;
   preview: FileVersionComparePreview;
+  actionFence: { proposalVersion: string | null };
 };
 
 function safeCount(value: unknown): value is number {
@@ -114,9 +115,19 @@ export async function compareFileVersion(
   }
   try {
     const result = payload as { response?: unknown; preview?: unknown };
+    const actionFence = (payload as { actionFence?: { proposalVersion?: unknown } }).actionFence;
+    if (!actionFence || !Object.hasOwn(actionFence, 'proposalVersion')) {
+      throw new Error('Missing action fence.');
+    }
+    const proposalVersion = actionFence.proposalVersion;
+    if (proposalVersion !== null
+      && (typeof proposalVersion !== 'string' || !/^v1\.[a-f0-9]{64}$/u.test(proposalVersion))) {
+      throw new Error('Invalid action fence.');
+    }
     return {
       response: parseFileVersionCompareResponseV1(result.response),
       preview: parsePreview(result.preview),
+      actionFence: { proposalVersion },
     };
   } catch {
     throw new FileVersionCenterClientError(
@@ -146,5 +157,6 @@ export function mergeFileVersionComparePayload(
   return {
     response: { ...next.response, hunks: [...hunks.values()] },
     preview: previous.preview,
+    actionFence: previous.actionFence,
   };
 }

@@ -89,6 +89,7 @@ const secondHunk = {
 
 function comparison(hunks: Array<typeof firstHunk | typeof secondHunk>, hasMore: boolean, stale = false) {
   return {
+    actionFence: { proposalVersion: stale ? null : null },
     response: {
       contractVersion: 1,
       current: { fence: { revisionId: 'revision-current', sha256: 'a'.repeat(64) }, observedAt: currentEntry.observedAt },
@@ -158,6 +159,8 @@ async function main() {
         request={request}
         timeline={timeline}
         selection={{ key: 'revision:revision-seven', entry: revisionEntry, state: 'selected' }}
+        onTimelineInvalidate={() => {}}
+        onContinue={() => {}}
       />
     </NextIntlClientProvider>,
   ));
@@ -230,6 +233,8 @@ async function main() {
         request={staleRequest}
         timeline={{ ...timeline, entries: [staleEntry, currentEntry, revisionEntry] }}
         selection={{ key: 'agent_operation:operation-stale', entry: staleEntry, state: 'selected' }}
+        onTimelineInvalidate={() => {}}
+        onContinue={() => {}}
       />
     </NextIntlClientProvider>,
   ));

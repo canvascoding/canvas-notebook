@@ -2,9 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileClock, RefreshCw } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
+import {
+  buildContinueFileVersionHref,
+  type FileVersionMutation,
+} from '@/app/lib/file-version-center/action-client';
 import {
   Dialog,
   DialogContent,
@@ -36,6 +40,7 @@ import { FileVersionTimeline } from './FileVersionTimeline';
 
 export function FileVersionCenterHost() {
   const t = useTranslations('fileVersionCenter');
+  const locale = useLocale();
   const request = useFileVersionCenterStore((state) => state.request);
   const [timeline, setTimeline] = useState<FileVersionTimelineResponseV1 | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -157,6 +162,24 @@ export function FileVersionCenterHost() {
     ? request.target.pathHint
     : t('resolvingDocument'));
 
+  const invalidateTimeline = useCallback(async (action?: FileVersionMutation) => {
+    if (action) selectVersionCenterEntry(null);
+    const activeRequest = useFileVersionCenterStore.getState().request;
+    if (activeRequest) await load(activeRequest);
+  }, [load]);
+
+  const continueEditing = useCallback(() => {
+    const activeTimeline = timeline;
+    if (!activeTimeline) return;
+    const href = buildContinueFileVersionHref({
+      workspaceId: activeTimeline.document.workspaceId,
+      path: activeTimeline.document.path,
+      locale,
+    });
+    closeVersionCenter({ syncLocation: false });
+    window.location.assign(href);
+  }, [locale, timeline]);
+
   return (
     <Dialog open={Boolean(request)} onOpenChange={(open) => { if (!open) close(); }}>
       {request ? (
@@ -218,7 +241,13 @@ export function FileVersionCenterHost() {
                   loadingMore={loadingMore}
                   loadMoreError={loadMoreError}
                 />
-                <FileVersionComparison request={request} timeline={timeline} selection={selection} />
+                <FileVersionComparison
+                  request={request}
+                  timeline={timeline}
+                  selection={selection}
+                  onTimelineInvalidate={invalidateTimeline}
+                  onContinue={continueEditing}
+                />
               </div>
             ) : null}
           </div>

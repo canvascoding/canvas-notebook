@@ -121,6 +121,7 @@ async function run(): Promise<void> {
       content: '# Proposed\n\nShared block\n\nHuman-only line\n',
       baseSha256: sha256(currentValue),
       baseStateVectorHash: sha256('state-vector-current'),
+      proposalVersion: `v1.${'1'.repeat(64)}`,
       stale: false,
     }],
     ['operation-conflict', {
@@ -171,6 +172,7 @@ async function run(): Promise<void> {
   });
   assert.equal(agent.response.candidate.stale, false);
   assert.equal(agent.response.candidate.contentAvailable, true);
+  assert.equal(agent.actionFence.proposalVersion, `v1.${'1'.repeat(64)}`);
   assert.match(agent.preview.candidate ?? '', /Human-only line/u,
     'a full candidate projection must retain independent current edits');
 

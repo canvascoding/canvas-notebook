@@ -8140,9 +8140,30 @@
     "blockedLink": "Link in der Review-Vorschau deaktiviert",
     "comparisonUnavailable": "Vergleich nicht verfügbar",
     "comparisonUnavailableDescription": "Dieser Dateityp oder Workspace-Modus unterstützt aktuell keinen sicheren Vergleich.",
-    "selectionPendingTitle": "Ausgewählte Version wird gesucht",
-    "loadCurrentDescription": "Lade die nächste Timeline-Seite, um den aktuellen Dokument-Fence vor dem Vergleich abzurufen.",
-    "tabs": {
+  "selectionPendingTitle": "Ausgewählte Version wird gesucht",
+  "loadCurrentDescription": "Lade die nächste Timeline-Seite, um den aktuellen Dokument-Fence vor dem Vergleich abzurufen.",
+  "actions": {
+    "accept": "Änderung annehmen",
+    "reject": "Ablehnen",
+    "restore": "Version wiederherstellen",
+    "continue": "Weiterbearbeiten",
+    "cancel": "Abbrechen",
+    "confirmRestore": "Als neue Version wiederherstellen",
+    "restoreTitle": "Version {number} wiederherstellen?",
+    "restoreDescription": "Aktueller Fence: Revision {revision}, SHA-256 {hash}…. Er bleibt im Verlauf erhalten; die Wiederherstellung erzeugt aus dieser Auswahl eine neue Version.",
+    "retry": "Aktion wiederholen",
+    "errorProposalChanged": "Der Agentenvorschlag wurde geändert",
+    "errorAccessLost": "Der Schreibzugriff ist nicht mehr verfügbar",
+    "errorCurrentChanged": "Das aktuelle Dokument wurde geändert",
+    "errorGeneric": "Die Aktion konnte nicht abgeschlossen werden",
+    "errorDescription": "Die Timeline blieb unverändert sicher. Prüfe den aktuellen Stand, bevor du es erneut versuchst.",
+    "busy": {
+      "accept": "Der geprüfte Vorschlag wird angenommen…",
+      "reject": "Der Vorschlag wird abgelehnt…",
+      "restore": "Die ausgewählte Version wird wiederhergestellt…"
+    }
+  },
+  "tabs": {
       "changes": "Änderungen",
       "preview": "Vorschau",
       "source": "Quelltext",

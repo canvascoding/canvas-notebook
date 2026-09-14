@@ -41,6 +41,7 @@ export type FileVersionAgentCandidate = {
   content: string | null;
   baseSha256: string | null;
   baseStateVectorHash?: string | null;
+  proposalVersion?: string | null;
   stale: boolean;
 };
 
@@ -61,6 +62,7 @@ export type FileVersionComparePreviewData = {
 export type FileVersionCompareResult = {
   response: FileVersionCompareResponseV1;
   preview: FileVersionComparePreviewData;
+  actionFence: { proposalVersion: string | null };
 };
 
 type CompareQueryService = Pick<ReturnType<typeof createFileVersionCenterQueryService>, 'resolve' | 'resolveOperation'>;
@@ -90,7 +92,8 @@ async function runtimeAgentCandidate(input: {
   const preview = await previewAgentOperationContent(input);
   return preview
     ? { content: preview.content, baseSha256: preview.baseSha256,
-        baseStateVectorHash: preview.baseStateVectorHash, stale: preview.stale }
+        baseStateVectorHash: preview.baseStateVectorHash,
+        proposalVersion: preview.proposalVersion, stale: preview.stale }
     : { content: null, baseSha256: null, stale: true };
 }
 
@@ -350,6 +353,7 @@ export function createFileVersionCompareService(options: {
 
     let candidateContent: string | null = null;
     let candidateStale = false;
+    let proposalVersion: string | null = null;
     if (request.candidate.kind === 'revision') {
       const revision = await contentStore.readRevisionContent({ revisionId: request.candidate.id,
         workspaceId: target.workspaceId, lineageId: target.lineageId });
@@ -364,6 +368,7 @@ export function createFileVersionCompareService(options: {
       const candidate = await agentCandidate({ operationId: request.candidate.id,
         workspace: input.workspace, userId: input.access.userId });
       candidateContent = candidate.content;
+      proposalVersion = candidate.proposalVersion ?? null;
       candidateStale = candidate.stale || candidate.baseSha256 !== observed.fence.sha256
         || (observed.fence.stateVectorHash !== undefined
           && candidate.baseStateVectorHash !== observed.fence.stateVectorHash);
@@ -423,12 +428,12 @@ export function createFileVersionCompareService(options: {
     if (fileClass === 'markdown') {
       const safeCurrent = markdownPreview(observed.content);
       const safeCandidate = candidateContent === null ? null : markdownPreview(candidateContent);
-      return { response, preview: { format: 'markdown', current: safeCurrent.content,
+      return { response, actionFence: { proposalVersion }, preview: { format: 'markdown', current: safeCurrent.content,
         candidate: safeCandidate?.content ?? null, externalRequestsAllowed: false,
         blockedExternalReferences: safeCurrent.blocked + (safeCandidate?.blocked ?? 0),
         blocks: blockStats(observed.content, candidateForPreview) } };
     }
-    return { response, preview: { format: 'text', current: textPreview(observed.content),
+    return { response, actionFence: { proposalVersion }, preview: { format: 'text', current: textPreview(observed.content),
       candidate: candidateContent === null ? null : textPreview(candidateContent), externalRequestsAllowed: false,
       blockedExternalReferences: 0, blocks: blockStats(observed.content, candidateForPreview) } };
   };
