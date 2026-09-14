@@ -5,6 +5,11 @@ import { randomUUID } from 'node:crypto';
 
 const EXTERNAL_LINK = 'https://example.com/pdf-viewer-link';
 
+type PdfTextPoint = {
+  x: number;
+  y: number;
+};
+
 test.beforeEach(async ({ page }) => {
   // Keep local viewer checks independent of the external telemetry transport.
   // Application page errors remain observed normally by each test.
@@ -56,6 +61,25 @@ async function expectExternalLinkAligned(page: Page, pageNumber: number) {
     const intersectionHeight = Math.max(0, Math.min(textRect.bottom, linkRect.bottom) - Math.max(textRect.top, linkRect.top));
     return intersectionWidth * intersectionHeight > 0;
   }, EXTERNAL_LINK)).toBe(true);
+}
+
+async function pdfTextPoint(page: Page, pageNumber: number, text: string, horizontalPosition: number): Promise<PdfTextPoint> {
+  const point = await page.locator(`[data-pdf-page="${pageNumber}"] .textLayer`).evaluate((element, input) => {
+    const span = [...element.querySelectorAll<HTMLElement>('span')]
+      .find((candidate) => candidate.textContent?.includes(input.text));
+    if (!span) return null;
+
+    const rect = span.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    return {
+      x: rect.left + rect.width * input.horizontalPosition,
+      y: rect.top + rect.height / 2,
+    };
+  }, { text, horizontalPosition });
+
+  expect(point).not.toBeNull();
+  return point as PdfTextPoint;
 }
 
 test('closing a multi-page PDF leaves Markdown selection usable in the same notebook page', async ({ page }, info) => {
@@ -225,9 +249,34 @@ test('PDF text and links remain interactive in private and public previews', asy
     });
     expect(selectedText).toContain('Alpha Bravo Charlie');
 
+    const dragStart = await pdfTextPoint(page, 1, 'Selectable fixture text: Alpha Bravo Charlie.', 0.54);
+    const dragEnd = await pdfTextPoint(page, 1, 'Selectable fixture text: Alpha Bravo Charlie.', 0.96);
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    await page.mouse.move(dragStart.x, dragStart.y);
+    await page.mouse.down();
+    await expect(textLayer).toHaveClass(/selecting/);
+    await page.mouse.move(dragEnd.x, dragEnd.y, { steps: 12 });
+    await page.mouse.up();
+    const selectedByMouse = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+    expect(selectedByMouse).toMatch(/Alpha\s+Bravo\s+Char/u);
+
     const externalLink = firstPage.locator(`.annotationLayer .linkAnnotation a[href="${EXTERNAL_LINK}"]`);
     await expect(externalLink).toHaveAttribute('target', '_blank');
     await expect(externalLink).toHaveAttribute('rel', 'noopener noreferrer');
+
+    const linkDragStart = await pdfTextPoint(page, 1, 'Selectable fixture text: Alpha Bravo Charlie.', 0.54);
+    const linkDragEnd = await pdfTextPoint(page, 1, 'External link fixture', 0.8);
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    await page.mouse.move(linkDragStart.x, linkDragStart.y);
+    await page.mouse.down();
+    await expect(textLayer).toHaveClass(/selecting/);
+    await page.mouse.move(linkDragEnd.x, linkDragEnd.y, { steps: 12 });
+    await expect(externalLink.locator('..')).toHaveCSS('pointer-events', 'none');
+    await page.mouse.up();
+    const selectedAcrossLink = await page.evaluate(() => window.getSelection()?.toString() ?? '');
+    await expect(externalLink.locator('..')).toHaveCSS('pointer-events', 'auto');
+    expect(selectedAcrossLink).toContain('Alpha Bravo Char');
+
     await externalLink.evaluate((element) => {
       element.addEventListener('click', (event) => {
         event.preventDefault();
