@@ -1298,6 +1298,8 @@
       "closeRecoveryBlocked": "The local backup could not be saved. Download the recovery state in the document, then close it or switch to another file.",
       "remoteCaretLabel": "{name} is editing here",
       "agentOperations": "Agent changes",
+      "agentOperationsReviewLabel": "Open agent changes: {count}",
+      "agentOperationsConflictLabel": "Agent changes with conflicts: {count}",
       "agentOperationsDescription": "Live agent activity and changes that need your review, without interrupting editing.",
       "agentActivityShort": "Agent",
       "agentReviewTab": "Review",

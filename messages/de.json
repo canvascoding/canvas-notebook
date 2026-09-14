@@ -1297,6 +1297,8 @@
       "closeRecoveryBlocked": "Die lokale Sicherung konnte nicht gespeichert werden. Lade den Wiederherstellungsstand im Dokument herunter. Danach kannst du es schließen oder zu einer anderen Datei wechseln.",
       "remoteCaretLabel": "{name} bearbeitet hier",
       "agentOperations": "Agentenänderungen",
+      "agentOperationsReviewLabel": "Offene Agentenänderungen: {count}",
+      "agentOperationsConflictLabel": "Agentenänderungen mit Konflikten: {count}",
       "agentOperationsDescription": "Live-Aktivität von Agenten und Änderungen zur Prüfung, ohne die Bearbeitung zu unterbrechen.",
       "agentActivityShort": "Agent",
       "agentReviewTab": "Prüfen",

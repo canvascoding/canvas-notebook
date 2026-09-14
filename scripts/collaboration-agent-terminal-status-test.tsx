@@ -208,36 +208,50 @@ test('archiving preserves completed agent history while cancelling outstanding w
   assert.equal((await h.persistence.loadCollaborationStateIncludingArchived('doc'))?.status, 'archived');
 });
 
-test('the activity UI offers revert for persisted operations only to an allowed actor with applied targets', async () => {
-  let current: CollaborationAgentOperation = {
-    operationId: 'operation', operationStatus: 'persisted_yjs', status: 'applied_to_ydoc', durability: 'persisted_yjs',
-    actorId: 'agent', actionsAllowed: true, appliedTargetIds: ['target'], targetAnchors: [], conflicts: [],
-  };
-  const container = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
+test('the editor agent entry summarizes status and routes review actions to the global version center', async () => {
+  const current: CollaborationAgentOperation[] = [
+    { operationId: 'newest-review', operationStatus: 'needs_review', status: 'needs_review', durability: 'needs_review',
+      actorId: 'agent', actionsAllowed: true, appliedTargetIds: [], targetAnchors: [], conflicts: [] },
+    { operationId: 'conflict', operationStatus: 'semantic_conflict', status: 'semantic_conflict', durability: 'needs_review',
+      actorId: 'agent', actionsAllowed: true, appliedTargetIds: ['target'], targetAnchors: [], conflicts: [{ targetId: 'target', groupId: 'group', code: 'changed' }] },
+    { operationId: 'running', operationStatus: 'applying', status: 'applied_to_ydoc', durability: 'pending',
+      actorId: 'agent', actionsAllowed: true, appliedTargetIds: [], targetAnchors: [], conflicts: [] },
+    { operationId: 'stored', operationStatus: 'persisted_yjs', status: 'applied_to_ydoc', durability: 'persisted_yjs',
+      actorId: 'agent', actionsAllowed: true, appliedTargetIds: ['target'], targetAnchors: [], conflicts: [] },
+  ];
   const ui = await compile<typeof OperationsUi>('app/components/editor/CollaborationAgentOperations.tsx', {
     react: { ...React, useState: (initial: unknown) => {
       const actual = React.useState(initial);
-      return Array.isArray(initial) ? [[current], () => {}] : actual;
+      return Array.isArray(initial) ? [current, () => {}] : actual;
     } },
-    'next-intl': { useTranslations: () => (key: string) => key },
-    sonner: { toast: { success() {}, error() {} } },
+    'next-intl': { useTranslations: () => (key: string, values?: { count?: number }) => `${key}${values?.count === undefined ? '' : `:${values.count}`}` },
     '@/app/lib/collaboration/agent-operations-client': {}, '@/app/lib/files/client': {},
-    '@/components/ui/button': { Button: ({ children, disabled }: { children?: React.ReactNode; disabled?: boolean }) => <button disabled={disabled}>{children}</button> },
-    '@/components/ui/popover': { Popover: container, PopoverContent: container, PopoverTrigger: container },
-    '@/components/ui/scroll-area': { ScrollArea: container },
-    '@/components/ui/tabs': { Tabs: container, TabsContent: container, TabsList: container, TabsTrigger: container },
+    '@/app/lib/file-version-center/contracts/v1': { FILE_VERSION_CENTER_CONTRACT_VERSION: 1 },
+    '@/app/store/file-version-center-store': { openVersionCenter() {} },
+    '@/components/ui/button': { Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button> },
     '@/lib/utils': { cn: (...values: unknown[]) => values.filter(Boolean).join(' ') },
   });
-  const render = () => renderToStaticMarkup(<ui.CollaborationAgentOperations documentId="doc" />);
-  assert.match(render(), />agentRevert</u);
-  assert.doesNotMatch(render(), /agentActiveChanges/u, 'confirmed operations belong to history instead of permanent active work');
-  current = { ...current, actionsAllowed: false };
-  assert.doesNotMatch(render(), />agentRevert</u);
-  current = { ...current, actionsAllowed: true, appliedTargetIds: [] };
-  assert.doesNotMatch(render(), />agentRevert</u);
-  current = { ...current, appliedTargetIds: ['target'], operationStatus: 'applied_to_ydoc' };
-  assert.doesNotMatch(render(), />agentRevert</u);
-  assert.match(render(), /agentActiveChanges/u);
+  const summary = ui.summarizeEditorAgentOperations(current);
+  assert.deepEqual(summary, { reviewCount: 2, conflictCount: 1, activeCount: 1, latestReviewOperationId: 'newest-review' });
+  assert.deepEqual(ui.buildEditorAgentVersionCenterRequest({ documentId: 'doc', workspaceId: 'workspace', summary }), {
+    contractVersion: 1,
+    target: { kind: 'document', workspaceId: 'workspace', documentId: 'doc' },
+    selectedEntry: { kind: 'agent_operation', id: 'newest-review' },
+    initialView: 'reviews',
+    source: 'editor',
+  });
+  const withoutReview = ui.summarizeEditorAgentOperations([current[3]!]);
+  assert.deepEqual(ui.buildEditorAgentVersionCenterRequest({ documentId: 'doc', workspaceId: 'workspace', summary: withoutReview }), {
+    contractVersion: 1,
+    target: { kind: 'document', workspaceId: 'workspace', documentId: 'doc' },
+    initialView: 'history',
+    source: 'editor',
+  });
+  const markup = renderToStaticMarkup(<ui.CollaborationAgentOperations documentId="doc" workspaceId="workspace" />);
+  assert.match(markup, /aria-label="agentOperationsConflictLabel:1"/u);
+  assert.match(markup, />3</u);
+  assert.doesNotMatch(markup, /agentAccept|agentReject|agentRevert|agentCancel/u,
+    'the editor entry has no second mutating review surface');
 });
 
 test('durable success removes pending highlights while running and review operations remain visible', () => {

@@ -1,39 +1,25 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Bot,
-  Check,
-  CheckCircle2,
-  Clock3,
-  History,
-  Loader2,
-  RotateCcw,
-  ShieldAlert,
-  X,
-} from 'lucide-react';
+import { Bot, ShieldAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { toast } from 'sonner';
 
 import {
-  canAcceptCollaborationAgentOperation,
-  collaborationAgentAcceptanceOutcome,
   loadCollaborationAgentOperations,
-  prepareCollaborationAgentAction,
   type CollaborationAgentOperation as AgentOperation,
   type CollaborationAgentOperationStatus as OperationStatus,
 } from '@/app/lib/collaboration/agent-operations-client';
+import {
+  FILE_VERSION_CENTER_CONTRACT_VERSION,
+  type FileVersionCenterRequestV1,
+} from '@/app/lib/file-version-center/contracts/v1';
 import { workspaceHeaders } from '@/app/lib/files/client';
+import { openVersionCenter } from '@/app/store/file-version-center-store';
 import { Button } from '@/components/ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
-import { CollaborationAgentDirectEditGrant } from './CollaborationAgentDirectEditGrant';
-import { CollaborationAgentProposalPreview } from './CollaborationAgentProposalPreview';
-import { canDisplayAgentReviewTarget, type AgentReviewTarget } from '@/app/lib/collaboration/agent-proposal-display';
 
 const REVIEW_STATUSES = new Set<OperationStatus>(['needs_review', 'partially_applied', 'semantic_conflict']);
+const CONFLICT_STATUSES = new Set<OperationStatus>(['partially_applied', 'semantic_conflict']);
 const ACTIVE_STATUSES = new Set<OperationStatus>([
   'preparing',
   'ready',
@@ -41,35 +27,58 @@ const ACTIVE_STATUSES = new Set<OperationStatus>([
   'applied_to_ydoc',
   'cancel_requested',
 ]);
-const CANCELLABLE_STATUSES = new Set<OperationStatus>(['preparing', 'ready', 'applying', 'cancel_requested']);
-const REVERTIBLE_STATUSES = new Set<OperationStatus>(['persisted_yjs', 'checkpointed_file', 'partially_applied', 'semantic_conflict']);
 
-function operationAttribution(
-  operation: AgentOperation,
-  t: ReturnType<typeof useTranslations<'notebook.collaboration'>>,
-) {
-  return operation.initiatedByCurrentUser !== false
-    ? t('agentAttribution', { agent: operation.actorId })
-    : t('agentAttributionOther', {
-        agent: operation.actorId,
-        user: operation.initiatedByDisplayName || t('agentUnknownUser'),
-      });
+export type EditorAgentOperationSummary = {
+  reviewCount: number;
+  conflictCount: number;
+  activeCount: number;
+  latestReviewOperationId: string | null;
+};
+
+export function summarizeEditorAgentOperations(operations: AgentOperation[]): EditorAgentOperationSummary {
+  const reviewOperations = operations.filter((operation) => REVIEW_STATUSES.has(operation.operationStatus));
+  return {
+    reviewCount: reviewOperations.length,
+    conflictCount: reviewOperations.filter((operation) => CONFLICT_STATUSES.has(operation.operationStatus)).length,
+    activeCount: operations.filter((operation) => ACTIVE_STATUSES.has(operation.operationStatus)).length,
+    // The collaboration endpoint is ordered by updated_at DESC, so this is the newest open review.
+    latestReviewOperationId: reviewOperations[0]?.operationId ?? null,
+  };
+}
+
+export function buildEditorAgentVersionCenterRequest(input: {
+  documentId: string;
+  workspaceId: string;
+  summary: EditorAgentOperationSummary;
+}): FileVersionCenterRequestV1 {
+  return {
+    contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
+    target: { kind: 'document', workspaceId: input.workspaceId, documentId: input.documentId },
+    ...(input.summary.latestReviewOperationId ? {
+      selectedEntry: { kind: 'agent_operation' as const, id: input.summary.latestReviewOperationId },
+    } : {}),
+    initialView: input.summary.latestReviewOperationId ? 'reviews' : 'history',
+    source: 'editor',
+  };
 }
 
 interface CollaborationAgentOperationsProps {
   documentId: string;
+  workspaceId: string | null;
   onOperationsChange?: (operations: AgentOperation[]) => void;
 }
 
+/**
+ * Editor status entry for agent-authored document changes. Mutating review actions
+ * intentionally live only in the global version center.
+ */
 export function CollaborationAgentOperations({
   documentId,
+  workspaceId,
   onOperationsChange,
 }: CollaborationAgentOperationsProps) {
   const t = useTranslations('notebook.collaboration');
   const [operations, setOperations] = useState<AgentOperation[]>([]);
-  const [busyAction, setBusyAction] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
-  const actionKeys = useRef(new Map<string, string>());
   const loadSequence = useRef(0);
 
   const load = useCallback(async (signal?: AbortSignal) => {
@@ -91,7 +100,7 @@ export function CollaborationAgentOperations({
     let timeout: number | undefined;
     const poll = async () => {
       await load(controller.signal);
-      if (!disposed) timeout = window.setTimeout(() => void poll(), open ? 2_000 : 5_000);
+      if (!disposed) timeout = window.setTimeout(() => void poll(), 5_000);
     };
     void poll();
     return () => {
@@ -99,298 +108,48 @@ export function CollaborationAgentOperations({
       if (timeout !== undefined) window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [load, open]);
+  }, [load]);
 
-  const reviewOperations = useMemo(
-    () => operations.filter((operation) => REVIEW_STATUSES.has(operation.operationStatus)),
-    [operations],
-  );
-  const activeOperations = useMemo(
-    () => operations.filter((operation) => ACTIVE_STATUSES.has(operation.operationStatus)),
-    [operations],
-  );
-  const historyOperations = useMemo(
-    () => operations.filter((operation) => !REVIEW_STATUSES.has(operation.operationStatus) && !ACTIVE_STATUSES.has(operation.operationStatus)),
-    [operations],
-  );
+  const summary = useMemo(() => summarizeEditorAgentOperations(operations), [operations]);
+  const attentionCount = summary.reviewCount + summary.activeCount;
+  if (operations.length === 0 || !workspaceId) return null;
 
-  const act = useCallback(async (operation: AgentOperation, action: 'accept' | 'reject' | 'cancel' | 'revert') => {
-    const request = prepareCollaborationAgentAction(operation, action, actionKeys.current);
-    if (!request) return;
-    const { key, body } = request;
-    const invalidateDisplayedProposal = () => setOperations((current) => current.map((entry) => (
-      entry.operationId === operation.operationId && entry.proposalVersion === operation.proposalVersion
-        ? { ...entry, proposalVersion: null } : entry
-    )));
-    setBusyAction(key);
-    try {
-      const response = await fetch(`/api/files/collaboration/operations/${encodeURIComponent(operation.operationId)}/${action}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
-        body: JSON.stringify(body),
-      });
-      const decoded: unknown = await response.json().catch(() => null);
-      const payload = decoded && typeof decoded === 'object'
-        ? decoded as { success?: boolean; code?: string; error?: string; operation?: AgentOperation } : {};
-      if (payload.code === 'AGENT_PROPOSAL_CHANGED') {
-        invalidateDisplayedProposal();
-        toast.message(t('agentProposalChanged'));
-        await load();
-        return;
-      }
-      if (!response.ok || payload.success === false) throw new Error(payload.error || t('agentActionFailed'));
-      if (action === 'accept') {
-        const outcome = collaborationAgentAcceptanceOutcome(payload.operation);
-        if (outcome !== 'accepted') {
-          if (outcome === 'review') {
-            invalidateDisplayedProposal();
-            toast.message(t('agentActionNeedsReview'));
-          } else if (outcome === 'pending') toast.message(t('agentActionPending'));
-          else toast.error(t('agentActionFailed'));
-          await load();
-          return;
-        }
-      } else if (payload.operation && REVIEW_STATUSES.has(payload.operation.operationStatus)) {
-        toast.message(t('agentActionNeedsReview'));
-        await load();
-        return;
-      }
-      toast.success(t(`agentAction_${action}`));
-      await load();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('agentActionFailed'));
-    } finally {
-      setBusyAction(null);
-    }
-  }, [load, t]);
-
-  if (operations.length === 0) return null;
-
-  const attentionCount = reviewOperations.length + activeOperations.length;
+  const openReviewCenter = () => {
+    openVersionCenter(buildEditorAgentVersionCenterRequest({ documentId, workspaceId, summary }));
+  };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={cn(
-            'relative h-8 gap-1.5 px-2 text-xs text-muted-foreground',
-            reviewOperations.length > 0 && 'text-amber-700 dark:text-amber-300',
-          )}
-          aria-label={t('agentOperations')}
-        >
-          <Bot className="h-3.5 w-3.5" aria-hidden="true" />
-          <span className="hidden sm:inline">{t('agentActivityShort')}</span>
-          {attentionCount > 0 ? (
-            <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-violet-600 px-1 text-[10px] font-semibold text-white">
-              {attentionCount}
-            </span>
-          ) : (
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-          )}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        sideOffset={8}
-        className="w-[min(92vw,42rem)] p-0"
-        role="region"
-        aria-label={t('agentOperations')}
-      >
-        <div className="border-b px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <Bot className="h-4 w-4 text-violet-600" aria-hidden="true" />
-            {t('agentOperations')}
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('agentOperationsDescription')}</p>
-        </div>
-        <Tabs defaultValue={reviewOperations.length > 0 ? 'review' : 'activity'} className="gap-0">
-          <TabsList className="mx-4 mt-3 grid w-[calc(100%-2rem)] grid-cols-2">
-            <TabsTrigger value="review" className="gap-1.5 text-xs">
-              <ShieldAlert className="h-3.5 w-3.5" />
-              {t('agentReviewTab')}
-              {reviewOperations.length > 0 ? ` (${reviewOperations.length})` : ''}
-            </TabsTrigger>
-            <TabsTrigger value="activity" className="gap-1.5 text-xs">
-              <History className="h-3.5 w-3.5" />
-              {t('agentActivityTab')}
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="review" className="m-0">
-            <ScrollArea className="h-[min(65vh,30rem)]">
-              <div className="space-y-3 p-4">
-                {reviewOperations.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
-                    <CheckCircle2 className="mx-auto mb-2 h-5 w-5 text-emerald-600" aria-hidden="true" />
-                    {t('agentNoReview')}
-                  </div>
-                ) : reviewOperations.map((operation) => (
-                  <ReviewOperationCard
-                    key={operation.operationId}
-                    operation={operation}
-                    busyAction={busyAction}
-                    onAction={act}
-                    showDirectEditGrant={open}
-                    t={t}
-                  />
-                ))}
-              </div>
-            </ScrollArea>
-          </TabsContent>
-
-          <TabsContent value="activity" className="m-0">
-            <ScrollArea className="h-[min(65vh,30rem)]">
-              <div className="space-y-4 p-4">
-                {activeOperations.length > 0 ? (
-                  <section aria-label={t('agentActiveChanges')}>
-                    <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                      {t('agentActiveChanges')}
-                    </h3>
-                    <div className="space-y-2">
-                      {activeOperations.map((operation) => (
-                        <ActivityOperationRow
-                          key={operation.operationId}
-                          operation={operation}
-                          busyAction={busyAction}
-                          onAction={act}
-                          showDirectEditGrant={open}
-                          t={t}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
-                <section aria-label={t('agentHistory')}>
-                  <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('agentHistory')}
-                  </h3>
-                  <div className="space-y-2">
-                    {historyOperations.length === 0 ? (
-                      <p className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
-                        {t('agentNoHistory')}
-                      </p>
-                    ) : historyOperations.map((operation) => (
-                      <ActivityOperationRow
-                        key={operation.operationId}
-                        operation={operation}
-                        busyAction={busyAction}
-                        onAction={act}
-                        showDirectEditGrant={open}
-                        t={t}
-                      />
-                    ))}
-                  </div>
-                </section>
-              </div>
-            </ScrollArea>
-          </TabsContent>
-        </Tabs>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-interface OperationCardProps {
-  operation: AgentOperation;
-  busyAction: string | null;
-  onAction: (operation: AgentOperation, action: 'accept' | 'reject' | 'cancel' | 'revert') => Promise<void>;
-  showDirectEditGrant?: boolean;
-  t: ReturnType<typeof useTranslations<'notebook.collaboration'>>;
-}
-
-function ReviewOperationCard({ operation, busyAction, onAction, showDirectEditGrant, t }: OperationCardProps) {
-  const [previewReadiness, setPreviewReadiness] = useState(new Map<string, { target: AgentReviewTarget; ready: boolean }>());
-  const previewReady = useCallback((target: AgentReviewTarget, ready: boolean) => setPreviewReadiness((current) => {
-    const prior = current.get(target.targetId);
-    return prior?.target === target && prior.ready === ready ? current
-      : new Map(current).set(target.targetId, { target, ready });
-  }), []);
-  const isBusy = busyAction?.startsWith(`${operation.operationId}:`) || false;
-  const canAccept = canAcceptCollaborationAgentOperation(operation)
-    && Boolean(operation.reviewTargets?.length) && operation.reviewTargets!.every((target) => canDisplayAgentReviewTarget(target)
-      && (target.previewFormat !== 'blocks' || (previewReadiness.get(target.targetId)?.target === target && previewReadiness.get(target.targetId)?.ready)));
-  const canReject = operation.actionsAllowed
-    && (operation.operationStatus === 'needs_review' || operation.operationStatus === 'semantic_conflict');
-
-  return (
-    <article className="overflow-hidden rounded-lg border bg-background shadow-sm">
-      <div className="border-b bg-muted/30 px-3 py-2.5">
-        <p className="text-xs font-semibold">{t(`agentStatus_${operation.operationStatus}`)}</p>
-        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{operationAttribution(operation, t)}</p>
-      </div>
-      <div className="space-y-2 p-3">
-        {operation.reviewTargets?.map((target, index) => (
-          <CollaborationAgentProposalPreview key={target.targetId} target={target} index={index} t={t} onReady={previewReady} />
-        ))}
-        {!operation.actionsAllowed ? (
-          <p className="flex items-start gap-1.5 rounded-md bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">
-            <ShieldAlert className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-            {t('agentActionsOwnerOnly')}
-          </p>
-        ) : null}
-        {operation.actionsAllowed && !canAccept
-          && (operation.operationStatus === 'needs_review' || operation.operationStatus === 'partially_applied') ? (
-          <p className="rounded-md bg-muted/50 px-2 py-1.5 text-[11px] text-muted-foreground">{t('agentProposalUnavailable')}</p>
-        ) : null}
-        {canAccept || canReject ? (
-          <div className="flex justify-end gap-1.5 pt-1">
-            {canReject ? (
-              <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" disabled={isBusy} onClick={() => void onAction(operation, 'reject')}>
-                <X className="h-3 w-3" />
-                {t('agentReject')}
-              </Button>
-            ) : null}
-            {canAccept ? (
-              <Button size="sm" className="h-7 gap-1 px-2 text-xs" disabled={isBusy} onClick={() => void onAction(operation, 'accept')}>
-                {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-                {t('agentAccept')}
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        {showDirectEditGrant && operation.initiatedByCurrentUser === true ? (
-          <CollaborationAgentDirectEditGrant operationId={operation.operationId} />
-        ) : null}
-      </div>
-    </article>
-  );
-}
-
-function ActivityOperationRow({ operation, busyAction, onAction, showDirectEditGrant, t }: OperationCardProps) {
-  const isBusy = busyAction?.startsWith(`${operation.operationId}:`) || false;
-  const canCancel = operation.actionsAllowed && CANCELLABLE_STATUSES.has(operation.operationStatus);
-  const canRevert = operation.actionsAllowed
-    && REVERTIBLE_STATUSES.has(operation.operationStatus)
-    && operation.appliedTargetIds.length > 0;
-
-  return (
-    <article className="flex items-start gap-2 rounded-lg border px-3 py-2.5">
-      {ACTIVE_STATUSES.has(operation.operationStatus) ? (
-        <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" aria-hidden="true" />
-      ) : (
-        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={cn(
+        'relative h-6 gap-1.5 px-1.5 text-xs text-muted-foreground 2xl:w-auto 2xl:px-2',
+        summary.reviewCount > 0 && 'text-violet-700 dark:text-violet-300',
+        summary.conflictCount > 0 && 'text-amber-700 dark:text-amber-300',
       )}
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium">{t(`agentStatus_${operation.operationStatus}`)}</p>
-        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{operationAttribution(operation, t)}</p>
-        {showDirectEditGrant && operation.initiatedByCurrentUser === true ? (
-          <CollaborationAgentDirectEditGrant operationId={operation.operationId} />
-        ) : null}
-      </div>
-      {canCancel ? (
-        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" disabled={isBusy} onClick={() => void onAction(operation, 'cancel')}>
-          {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : t('agentCancel')}
-        </Button>
+      aria-label={summary.conflictCount > 0
+        ? t('agentOperationsConflictLabel', { count: summary.conflictCount })
+        : summary.reviewCount > 0
+          ? t('agentOperationsReviewLabel', { count: summary.reviewCount })
+          : t('agentOperations')}
+      onClick={openReviewCenter}
+    >
+      {summary.conflictCount > 0
+        ? <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
+        : <Bot className="h-3.5 w-3.5" aria-hidden="true" />}
+      <span className="hidden 2xl:inline">{t('agentActivityShort')}</span>
+      {attentionCount > 0 ? (
+        <span
+          className={cn(
+            'flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white',
+            summary.conflictCount > 0 ? 'bg-amber-600' : 'bg-violet-600',
+          )}
+          aria-hidden="true"
+        >
+          {attentionCount}
+        </span>
       ) : null}
-      {canRevert ? (
-        <Button size="sm" variant="ghost" className="h-7 gap-1 px-2 text-xs" disabled={isBusy} onClick={() => void onAction(operation, 'revert')}>
-          {isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3" />}
-          {t('agentRevert')}
-        </Button>
-      ) : null}
-    </article>
+    </Button>
   );
 }

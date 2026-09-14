@@ -617,7 +617,8 @@
           "id": "FVRC-400",
           "order": 0,
           "title": "Editor-Agentenbutton auf den globalen Review-Center umstellen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "editor-ui",
           "dependsOn": ["FVRC-303"],
           "deliverables": [
@@ -633,6 +634,13 @@
             "Editor-Komponententests",
             "Review-, Konflikt- und keine-Aktivitaet-Zustaende",
             "Bestehende Agent-Approval-Suite"
+          ],
+          "completionEvidence": [
+            "CollaborationAgentOperations ist auf eine schmale Status- und Navigationseinheit reduziert: Sie pollt weiterhin die bestehenden autorisierten Operationen, zeigt Review-, Aktiv- und Konfliktzaehler im vorhandenen Editor-Headerstil und oeffnet den globalen FileVersionCenterHost.",
+            "Der Entry baut einen workspacegebundenen document-Target-Request mit source editor; bei offenen Reviews wird die vom Server nach updated_at absteigend gelieferte neueste Operation direkt ausgewaehlt, andernfalls startet der Center in der History-Ansicht.",
+            "Accept, Reject, Preview, Revert, Cancel und operationsweise Grant-Controls wurden aus dem Editor-Popover entfernt. Die einzige aktive Accept-/Reject-Oberflaeche ist FileVersionActions im globalen Center; bestehende Reviews und gespeicherte Aenderungen bleiben dort als Agentenoperation beziehungsweise Revision erreichbar.",
+            "Die migrierte collaboration-agent-approval-client Suite behaelt Idempotenz-, Proposal-Fence- und Acceptance-Outcome-Regressionen und prueft zusaetzlich den GET-only Editor-Entry sowie den direkten Center-Request; file-version-center-actions-test deckt die zentrale Mutationsoberflaeche ab.",
+            "npm run test:collaboration:agent-approval, file-version-center-actions-test, collaboration-agent-terminal-status-test, file-editor-collaboration-scope-test, ESLint der geaenderten TypeScript-Dateien und npx tsc --noEmit bestehen. Es wurde keine Browserautomation oder Containerumgebung gestartet."
           ]
         },
         {

@@ -8,6 +8,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
+
 import * as client from '../app/lib/collaboration/agent-operations-client';
 import type * as Ui from '../app/components/editor/CollaborationAgentOperations';
 
@@ -48,158 +49,73 @@ test('only a conflict-free durable terminal acceptance is classified as successf
   }
 });
 
-async function harness(initial = operation()) {
+async function compileUi(opened: unknown[]) {
+  const filename = path.resolve('app/components/editor/CollaborationAgentOperations.tsx');
+  const load = createRequire(filename);
+  const source = ts.transpileModule(await fs.readFile(filename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
+  }).outputText;
+  const exports = {} as typeof Ui;
+  const mocks: Record<string, unknown> = {
+    'next-intl': { useTranslations: () => (key: string) => key },
+    '@/app/lib/collaboration/agent-operations-client': client,
+    '@/app/lib/file-version-center/contracts/v1': { FILE_VERSION_CENTER_CONTRACT_VERSION: 1 },
+    '@/app/lib/files/client': { workspaceHeaders: () => ({ 'x-workspace-id': 'workspace' }) },
+    '@/app/store/file-version-center-store': { openVersionCenter: (request: unknown) => { opened.push(request); } },
+    '@/components/ui/button': { Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button> },
+    '@/lib/utils': { cn: (...values: unknown[]) => values.filter(Boolean).join(' ') },
+  };
+  new Function('require', 'module', 'exports', source)(
+    (name: string) => Object.hasOwn(mocks, name) ? mocks[name] : load(name),
+    { exports }, exports,
+  );
+  return exports;
+}
+
+test('the editor entry opens the latest review in the global center and never posts an approval itself', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'https://canvas.test' });
-  const globals = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'] as const;
-  const priorGlobals = globals.map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
+  const prior = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
   Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
   Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
   Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
   const timers = new Map<number, () => void>(); let timerId = 0;
   Object.defineProperty(dom.window, 'setTimeout', { value: (callback: () => void) => { timers.set(++timerId, callback); return timerId; } });
   Object.defineProperty(dom.window, 'clearTimeout', { value: (id: number) => timers.delete(id) });
-  const toasts: Array<{ type: string; message: string }> = [];
-  const posts: Array<{ url: string; body: { idempotencyKey: string; proposalVersion?: string } }> = [];
-  const controls = {
-    operations: [initial], getCount: 0,
-    nextGet: null as Promise<Response> | null,
-    post: async () => Response.json({ success: true, operation: accepted() }),
-  };
-  const oldFetch = globalThis.fetch;
+  const fetches: Array<{ url: string; method: string }> = [];
+  const priorFetch = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
-    const url = String(input);
-    assert.equal(new Headers(init?.headers).get('x-workspace-id'), 'workspace');
-    if (init?.method === 'POST') {
-      posts.push({ url, body: JSON.parse(String(init.body)) });
-      return controls.post();
-    }
-    controls.getCount++;
-    if (controls.nextGet) { const delayed = controls.nextGet; controls.nextGet = null; return delayed; }
-    return Response.json({ operations: controls.operations });
+    fetches.push({ url: String(input), method: init?.method ?? 'GET' });
+    return Response.json({ operations: [operation(), { ...operation(version('b')), operationId: 'older-review' }] });
   };
-  const container = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
-  const translate = (key: string) => key;
-  const mocks: Record<string, unknown> = {
-    'next-intl': { useTranslations: () => translate },
-    sonner: { toast: Object.fromEntries(['success', 'error', 'message'].map((type) => [type, (message: string) => toasts.push({ type, message })])) },
-    '@/app/lib/collaboration/agent-operations-client': client,
-    '@/app/lib/files/client': { workspaceHeaders: () => ({ 'x-workspace-id': 'workspace' }) },
-    '@/components/ui/button': { Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button> },
-    '@/components/ui/popover': { Popover: container, PopoverContent: container, PopoverTrigger: container },
-    '@/components/ui/scroll-area': { ScrollArea: container },
-    '@/components/ui/tabs': { Tabs: container, TabsContent: container, TabsList: container, TabsTrigger: container },
-    '@/lib/utils': { cn: (...values: unknown[]) => values.filter(Boolean).join(' ') },
-  };
-  const filename = path.resolve('app/components/editor/CollaborationAgentOperations.tsx'); const load = createRequire(filename);
-  const source = ts.transpileModule(await fs.readFile(filename, 'utf8'), {
-    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
-  }).outputText;
-  const ui = {} as typeof Ui;
-  new Function('require', 'module', 'exports', source)((name: string) => Object.hasOwn(mocks, name) ? mocks[name] : load(name), { exports: ui }, ui);
+  const opened: unknown[] = [];
+  const ui = await compileUi(opened);
   const root = createRoot(document.getElementById('root')!);
   const flush = async () => { for (let i = 0; i < 5; i++) await act(async () => { await new Promise<void>((resolve) => setImmediate(resolve)); }); };
-  await act(async () => root.render(<ui.CollaborationAgentOperations documentId="document" />));
-  await flush();
-  const button = (label = 'agentAccept') => [...document.querySelectorAll('button')].find((candidate) => candidate.textContent === label);
-  const click = async (label = 'agentAccept') => {
-    const target = button(label); assert.ok(target, `${label} is available`);
-    await act(async () => { target.click(); }); await flush();
-  };
-  const poll = async () => {
-    const next = timers.entries().next().value; assert.ok(next, 'a poll is scheduled');
-    timers.delete(next[0]); await act(async () => next[1]()); await flush();
-  };
-  return { controls, toasts, posts, click, button, poll, flush,
-    close: async () => {
-      await act(async () => root.unmount());
-      assert.equal(timers.size, 0);
-      globalThis.fetch = oldFetch; dom.window.close();
-      globals.forEach((name, index) => {
-        const descriptor = priorGlobals[index];
-        if (descriptor) Object.defineProperty(globalThis, name, descriptor); else Reflect.deleteProperty(globalThis, name);
-      });
-    } };
-}
-
-test('the rendered panel sends the displayed token, retries it consistently, then renews the key for a changed preview', async () => {
-  const h = await harness();
   try {
-    h.controls.post = async () => Response.json({ error: 'Temporary failure' }, { status: 503 });
-    await h.click(); await h.click();
-    assert.equal(h.posts[0].url, '/api/files/collaboration/operations/operation%2Fone/accept');
-    assert.equal(h.posts[0].body.proposalVersion, version('a'));
-    assert.deepEqual(h.posts[1].body, h.posts[0].body);
-    h.controls.operations = [operation(version('b'))];
-    h.controls.post = async () => Response.json({ success: false, code: 'AGENT_PROPOSAL_CHANGED' }, { status: 409 });
-    await h.click();
-    assert.ok(h.toasts.some((entry) => entry.type === 'message' && entry.message === 'agentProposalChanged'));
-    assert.equal(h.toasts.filter((entry) => entry.type === 'success').length, 0);
-    assert.match(document.body.textContent ?? '', /Proposal v1\.b/u);
-    h.controls.post = async () => Response.json({ success: true, operation: accepted() });
-    await h.click();
-    assert.equal(h.posts[3].body.proposalVersion, version('b'));
-    assert.notEqual(h.posts[3].body.idempotencyKey, h.posts[0].body.idempotencyKey);
-    assert.equal(h.toasts.filter((entry) => entry.message === 'agentAction_accept' && entry.type === 'success').length, 1);
-  } finally { await h.close(); }
-});
-
-for (const [label, result, message] of [
-  ['review', { ...accepted(), operationStatus: 'needs_review' }, 'agentActionNeedsReview'],
-  ['partial', { ...accepted(), operationStatus: 'partially_applied' }, 'agentActionNeedsReview'],
-  ['conflict', { ...accepted(), conflicts: [{ code: 'target_changed' }] }, 'agentActionNeedsReview'],
-  ['pending', { ...accepted(), operationStatus: 'applied_to_ydoc', durability: 'applied_to_ydoc' }, 'agentActionPending'],
-  ['missing result', undefined, 'agentActionFailed'],
-] as const) test(`an HTTP 200 ${label} response cannot show an acceptance success`, async () => {
-  const h = await harness();
-  try {
-    h.controls.post = async () => Response.json({ success: true, operation: result });
-    h.controls.operations = [operation(version('b'))];
-    const before = h.controls.getCount; await h.click();
-    assert.equal(h.toasts.filter((entry) => entry.type === 'success').length, 0);
-    assert.ok(h.toasts.some((entry) => entry.message === message));
-    assert.ok(h.controls.getCount > before, 'the current preview is reloaded');
-  } finally { await h.close(); }
-});
-
-test('missing proposal versions and unauthorized actors cannot issue acceptance requests', async () => {
-  for (const initial of [operation(null), { ...operation(), proposalVersion: undefined }, { ...operation(), actionsAllowed: false }]) {
-    const h = await harness(initial);
-    try { assert.equal(h.button(), undefined); assert.equal(h.posts.length, 0); }
-    finally { await h.close(); }
+    await act(async () => root.render(<ui.CollaborationAgentOperations documentId="document" workspaceId="workspace" />));
+    await flush();
+    const button = document.querySelector<HTMLButtonElement>('button');
+    assert.ok(button);
+    await act(async () => button.click());
+    assert.deepEqual(opened, [{
+      contractVersion: 1,
+      target: { kind: 'document', workspaceId: 'workspace', documentId: 'document' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation/one' },
+      initialView: 'reviews',
+      source: 'editor',
+    }]);
+    assert.deepEqual(fetches.map((entry) => entry.method), ['GET']);
+    assert.equal(document.body.textContent?.includes('agentAccept'), false,
+      'approval controls exist only in the global center');
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = priorFetch;
+    dom.window.close();
+    ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].forEach((name, index) => {
+      const descriptor = prior[index];
+      if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+      else Reflect.deleteProperty(globalThis, name);
+    });
   }
-});
-
-test('a stale pre-action polling response cannot replace the refreshed proposal', async () => {
-  const h = await harness();
-  try {
-    let release!: (value: Response) => void;
-    h.controls.nextGet = new Promise<Response>((resolve) => { release = resolve; });
-    await h.poll();
-    h.controls.operations = [operation(version('b'))];
-    h.controls.post = async () => Response.json({ success: false, code: 'AGENT_PROPOSAL_CHANGED' }, { status: 409 });
-    await h.click();
-    release(Response.json({ operations: [operation(version('a'))] })); await h.flush();
-    assert.match(document.body.textContent ?? '', /Proposal v1\.b/u);
-    assert.doesNotMatch(document.body.textContent ?? '', /Proposal v1\.a/u);
-    h.controls.post = async () => Response.json({ success: true, operation: accepted() });
-    await h.click(); assert.equal(h.posts.at(-1)?.body.proposalVersion, version('b'));
-  } finally { await h.close(); }
-});
-
-test('ordinary durability and checkpoint progress never emits a toast', async () => {
-  const h = await harness();
-  try {
-    for (const status of ['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file'] as const) {
-      h.controls.operations = [{ ...operation(), operationStatus: status }];
-      await h.poll();
-    }
-    assert.deepEqual(h.toasts, []);
-  } finally { await h.close(); }
-});
-
-test('an incomplete preview cannot be accepted even with a valid server token', async () => {
-  const h = await harness({ ...operation(), reviewTargets: [{ targetId: 'internal-target', groupId: 'internal-group',
-    currentText: '[{"id":"internal-block"}]', proposedReplacement: 'Unknown representation' }] });
-  try { assert.equal(h.button(), undefined); assert.equal(h.posts.length, 0); }
-  finally { await h.close(); }
 });

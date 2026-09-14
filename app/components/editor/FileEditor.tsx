@@ -1296,6 +1296,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             {collaboration?.crdtCapable && collaboration.document?.id ? (
               <CollaborationAgentOperations
                 documentId={collaboration.document.id}
+                workspaceId={currentFileWorkspaceId}
                 onOperationsChange={handleAgentOperationsChange}
               />
             ) : null}
