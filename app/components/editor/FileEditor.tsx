@@ -41,6 +41,7 @@ import { PublicShareDialog } from '../file-browser/PublicShareDialog';
 import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
 import { CodeEditor } from './CodeEditorClient';
 import { CollaborationAgentOperations } from './CollaborationAgentOperations';
+import { FileVersionHistoryButton } from './FileVersionHistoryButton';
 import { HtmlViewer } from './HtmlViewer';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
@@ -1300,6 +1301,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 onOperationsChange={handleAgentOperationsChange}
               />
             ) : null}
+            <FileVersionHistoryButton
+              workspaceId={currentFileWorkspaceId}
+              path={currentFile.path}
+              documentId={collaboration?.document?.id}
+            />
             {displaySaveError ? (
               <FileHeaderTooltip label={displaySaveError}>
                 <span

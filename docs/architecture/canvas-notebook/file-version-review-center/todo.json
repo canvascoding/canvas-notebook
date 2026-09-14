@@ -647,7 +647,8 @@
           "id": "FVRC-401",
           "order": 1,
           "title": "Dauerhaften Versionen-Button fuer unterstuetzte Editor-Dateien ergaenzen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "editor-ui",
           "dependsOn": ["FVRC-400"],
           "deliverables": [
@@ -662,6 +663,13 @@
           "verification": [
             "Header-Breiten- und Tooltip-Tests",
             "Capability-Matrix in Editor-Komponententests"
+          ],
+          "completionEvidence": [
+            "FileVersionHistoryButton ist als eigenstaendige, schmale Header-Komponente im bestehenden FileEditor montiert und bleibt fuer .md, .markdown und .txt auch ohne Agentenaktivitaet sichtbar; Code-, Office- und Binaerdateien werden nicht als unterstuetzt dargestellt.",
+            "Der Einstieg fragt die autorisierte Version-Center-Aufloesung ab, bleibt waehrend Loading und Fehlern fail-closed und verwendet erst danach den serverseitig aufgeloesten Lineage-Target. Workspace- oder Dateiwechsel koennen durch Abort und Target-Key-Fencing keine veralteten Berechtigungen oder Lineages oeffnen.",
+            "History-faehige Read-only-Zustaende bleiben zum Ansehen aktiv und sind per Tooltip und ARIA-Label gekennzeichnet; serverseitig nicht verfuegbare History bleibt sichtbar, aber deaktiviert. Der responsive Button entspricht den vorhandenen h-6/w-6 Editoraktionen und zeigt seinen Text erst bei grosser Headerbreite.",
+            "file-version-editor-entry-test deckt Extension- und Target-Matrix, Loading, Full, Read-only, Unavailable, Fehler, den mobilen Iconzustand und einen asynchronen Dateiwechsel ab. file-editor-collaboration-scope-test sowie die migrierten Agent-Approval- und Terminal-Status-Suiten bleiben gruen.",
+            "npx tsc --noEmit, changed-file ESLint, JSON-Validierung und git diff --check bestehen; es wurde keine Browserautomation oder Containerumgebung gestartet."
           ]
         },
         {
