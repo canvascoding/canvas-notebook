@@ -67,6 +67,7 @@ import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
 import { FileInfoDialog } from './FileInfoDialog';
+import { FileVersionMenuItem, type FileVersionMenuSource } from './FileVersionMenuItem';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -82,6 +83,8 @@ interface FileActionsDropdownProps {
   onAfterDelete?: (node: FileNode) => void;
   onAfterRename?: (oldPath: string, newPath: string, node: FileNode) => void;
   onAfterMove?: (oldPath: string, newPath: string, node: FileNode) => void;
+  versionLineageId?: string | null;
+  versionCenterSource?: FileVersionMenuSource;
 }
 
 export function FileActionsDropdown({
@@ -96,6 +99,8 @@ export function FileActionsDropdown({
   onAfterDelete,
   onAfterRename,
   onAfterMove,
+  versionLineageId,
+  versionCenterSource = 'file_browser',
 }: FileActionsDropdownProps) {
   const t = useTranslations('notebook');
   const locale = useLocale();
@@ -573,6 +578,14 @@ export function FileActionsDropdown({
             <Info className="h-4 w-4" />
             {t('fileInfoAction')}
           </DropdownMenuItem>
+          {node?.type === 'file' ? (
+            <FileVersionMenuItem
+              workspaceId={activeWorkspace?.id ?? null}
+              path={node.path}
+              lineageId={versionLineageId}
+              source={versionCenterSource}
+            />
+          ) : null}
           <DropdownMenuItem onSelect={handleCopy} disabled={!node}>
             <ClipboardCopy className="h-4 w-4" />
             {t('copy')}

@@ -1328,6 +1328,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               node={currentFileNode}
               showCreateActions={false}
               showMultiSelectActions={false}
+              versionLineageId={currentFile.revision?.lineageId ?? collaboration?.latestRevision?.lineageId}
+              versionCenterSource="editor"
               contentProps={{ align: 'end' }}
             >
               <Button

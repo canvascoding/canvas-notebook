@@ -711,7 +711,7 @@
       "id": "FVRC-P05",
       "order": 5,
       "title": "Dateibrowser- und Dateiaktionsintegration",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": ["FVRC-P04"],
       "exitGate": "FVRC-G05-FILE-BROWSER",
       "tasks": [
@@ -719,7 +719,8 @@
           "id": "FVRC-500",
           "order": 0,
           "title": "Versionen & Aenderungen capability-basiert in FileActionsDropdown aufnehmen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "file-browser-ui",
           "dependsOn": ["FVRC-402"],
           "deliverables": [
@@ -734,6 +735,11 @@
           "verification": [
             "FileContextMenu- und FileEditor-Dropdown-Komponententests",
             "Unterstuetzte-, unsupported-, missing- und read-only Tests"
+          ],
+          "completionEvidence": [
+            "FileVersionMenuItem prueft die bestehende serverseitige Resolve-Capability ohne lokale Extension-Matrix und oeffnet ausschliesslich die aufgeloeste Lineage.",
+            "FileActionsDropdown rendert genau einen gemeinsamen Eintrag fuer Datei-Kontextmenue und Editor-Overflow; der Editor uebergibt seine vorhandene Lineage bevorzugt.",
+            "scripts/file-version-file-actions-test.tsx deckt beide Wiederverwendungsstellen sowie loading, supported, unsupported, missing und read-only ab; Editor-Bestandstest, ESLint, TypeScript und diff-check sind gruen."
           ]
         },
         {
