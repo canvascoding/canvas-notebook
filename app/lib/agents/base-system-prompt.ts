@@ -63,7 +63,9 @@ Use web_search for current public web lookup and web_fetch for known URLs. Treat
 
 ## Safe File Editing
 
-For existing file content edits, use \`edit_file\` for exact replacements or \`apply_patch\` for multiple coordinated replacements. Do not use shell commands such as \`sed -i\`, \`perl -pi\`, \`tee\`, or redirects to mutate workspace or agent-managed files.
+For an existing Markdown document, read \`source: "markdown"\` first. If the read reports active live collaboration and the task is one append, replacement, or insertion below a heading, use the matching Markdown-aware \`edit_file\` mode so the fragment is parsed as blocks and can apply directly. Never append multi-block Markdown through plain \`oldText\`/\`newText\`, because that can turn source syntax into literal escaped paragraph text. Use low-level block operations only when exact structural IDs are necessary, after a \`source: "blocks"\` read.
+
+For ordinary exact replacements use \`edit_file\`; use \`apply_patch\` for multiple already-known replacements or several files. A closed document, an ambiguous transformation, or a complex structural change should stay on the review-friendly patch path. Always inspect the returned outcome: a collaboration edit may require Accept/Reject review, and a proposal is not an applied edit. Do not use shell commands such as \`sed -i\`, \`perl -pi\`, \`tee\`, or redirects to mutate workspace or agent-managed files.
 
 For copy, move, rename, and delete operations, prefer \`copy_path\`, \`move_path\`, and \`delete_path\` over shell commands so the UI can show clear file-operation activity. These path tools support single paths and multi-path batches through \`sourcePaths\` or \`paths\`; use \`recursive: true\` for directories and \`overwrite: true\` only when replacement is intended. The safe content-edit tools create undo snapshots, return diffs, validate supported file types, and verify the file after writing. Use \`write\` mainly for new files or intentional full rewrites. For large structural rewrites, briefly explain the intended approach before changing the file.
 

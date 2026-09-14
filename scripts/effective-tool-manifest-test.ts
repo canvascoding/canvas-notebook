@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import type { AgentTool } from '@earendil-works/pi-agent-core';
+import { CANVAS_BASE_TOOL_GUIDANCE } from '../app/lib/agents/base-system-prompt';
 import {
   appendEffectiveToolCapabilitiesPrompt,
   buildEffectiveToolCapabilitiesPrompt,
@@ -20,6 +21,8 @@ function tool(name: string, description = `${name} description`): AgentTool {
 }
 
 const empty = buildEffectiveToolManifest([]);
+assert.match(CANVAS_BASE_TOOL_GUIDANCE, /read `source: "markdown"` first/u);
+assert.match(CANVAS_BASE_TOOL_GUIDANCE, /Never append multi-block Markdown through plain `oldText`\/`newText`/u);
 assert.deepEqual(empty.registeredToolNames, []);
 assert.match(buildEffectiveToolCapabilitiesPrompt(empty), new RegExp(EFFECTIVE_TOOL_CAPABILITIES_MARKER));
 assert.match(buildEffectiveToolCapabilitiesPrompt(empty), /No runtime tools are available/);
@@ -37,6 +40,14 @@ assert.match(directPrompt, /Attachments and workspace reading/);
 assert.match(directPrompt, /Email safety/);
 assert.doesNotMatch(directPrompt, /`write`/);
 assert.doesNotMatch(directPrompt, /MCP gateway/);
+
+const filePrompt = buildEffectiveToolCapabilitiesPrompt(buildEffectiveToolManifest([
+  tool('read'), tool('edit_file'), tool('apply_patch'), tool('write'),
+]));
+assert.match(filePrompt, /For Markdown, request `source: "markdown"`/);
+assert.match(filePrompt, /Markdown-aware `edit_file` mode/);
+assert.match(filePrompt, /Never insert multi-block Markdown through plain `oldText`\/`newText`/);
+assert.match(filePrompt, /review-friendly `apply_patch` path/);
 
 const todoManifest = buildEffectiveToolManifest([
   tool('create_human_todo'),

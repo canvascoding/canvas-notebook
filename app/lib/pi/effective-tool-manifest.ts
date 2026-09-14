@@ -152,9 +152,11 @@ export function buildEffectiveToolCapabilitiesPrompt(manifest: EffectiveToolMani
   const hasWrite = effectiveToolManifestHas(manifest, 'write');
   if (hasEdit || hasPatch || hasWrite) {
     lines.push('', '### Safe file-edit workflow', '');
-    if (hasRead) lines.push('Read the current file before editing an existing file and use its SHA-256 as the expected revision when the schema accepts it.');
-    if (hasEdit) lines.push('- Use `edit_file` for one small, exact replacement. A successful sequential follow-up may use that result’s `afterSha256`; if the state is uncertain, read again.');
+    if (hasRead) lines.push('Read the current file before editing an existing file and use its SHA-256 as the expected revision when the schema accepts it. For Markdown, request `source: "markdown"`; use `source: "blocks"` only before low-level structural operations.');
+    if (hasEdit) lines.push('- For one Markdown append, replacement, or insertion below a heading, use the corresponding Markdown-aware `edit_file` mode. When the read reports active live collaboration this preserves Markdown structure and can apply directly. Never insert multi-block Markdown through plain `oldText`/`newText`.');
+    if (hasEdit) lines.push('- Use ordinary `edit_file` for one small, exact non-structural replacement. A successful sequential follow-up may use that result’s `afterSha256`; if the state is uncertain, read again.');
     if (hasPatch) lines.push('- Use one `apply_patch` for multiple already-known replacements, including multiple edits to the same file. Do not submit the same path twice in one patch.');
+    if (hasEdit && hasPatch) lines.push('- Prefer the review-friendly `apply_patch` path when a document is not live, the transformation is ambiguous, or the Markdown change is structurally complex. Inspect the returned outcome; review-required is not applied.');
     if (hasWrite) lines.push('- Use `write` for new files or an intentional full rewrite only after a current read when replacing an existing file.');
     lines.push('On a revision conflict, read the file again and re-plan. Never auto-retry a write from a hash in an error message. Live-collaboration reviews require editor review and must not be bypassed.');
   }
