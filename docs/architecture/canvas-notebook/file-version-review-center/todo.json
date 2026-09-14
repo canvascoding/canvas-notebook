@@ -190,7 +190,7 @@
       "id": "FVRC-P01",
       "order": 1,
       "title": "Dauerhafter Versionsspeicher, Change Groups und Review-Policy",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": ["FVRC-P00"],
       "exitGate": "FVRC-G01-STORAGE",
       "tasks": [
@@ -198,7 +198,8 @@
           "id": "FVRC-100",
           "order": 0,
           "title": "PostgreSQL-Schema und reversible Migrationen fuer Versionsinhalte, Change Groups und Review-Policies implementieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "database",
           "dependsOn": ["FVRC-002"],
           "deliverables": [
@@ -215,6 +216,12 @@
             "Leere und vorbefuellte PostgreSQL-Migration",
             "Constraint- und Rollback-Tests",
             "npm run build"
+          ],
+          "completionEvidence": [
+            "file-version-center-migration.ts erstellt die fuenf FVRC-Tabellen additiv mit Scope-Foreign-Keys, eindeutigen Tool-Call-/Ordinal-Constraints, Limits und einem expliziten Down-Batch.",
+            "Der bestehende PostgreSQL-Runner bindet genau eine schmale additive Migration ein; bestehende Revisions- und Collaboration-Vertraege bleiben unveraendert.",
+            "scripts/file-version-center-storage-migration-test.ts prueft leere und vorbefuellte Datenbanken, Wiederholung, Cross-Workspace-/Cross-User-Constraints, Rollback und atomaren Fehlerfall mit PGlite.",
+            "Fokustest, ESLint fuer geaenderte TypeScript-Dateien, npx tsc --noEmit, git diff --check und npm run build bestehen."
           ]
         },
         {
