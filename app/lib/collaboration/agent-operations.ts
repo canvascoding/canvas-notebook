@@ -2188,6 +2188,93 @@ export async function getAgentOperation(input: {
   }
 }
 
+export type AgentOperationContentPreview = {
+  documentId: string;
+  workspaceId: string;
+  baseSha256: string;
+  baseStateVectorHash: string;
+  proposalVersion: string | null;
+  content: string | null;
+  stale: boolean;
+};
+
+/**
+ * Projects a pending operation on an isolated clone of the persisted Yjs
+ * snapshot. The comparison path therefore shares the exact structural/text
+ * validators with apply, but can never mutate a live room or persist a write.
+ */
+export async function previewAgentOperationContent(input: {
+  operationId: string;
+  workspace: WorkspaceContext;
+  userId: string;
+}): Promise<AgentOperationContentPreview | null> {
+  const database = createAgentOperationDatabase();
+  try {
+    const row = await readOperation(database, input.operationId);
+    if (!row || !canViewOperation(row, input.workspace)) return null;
+    const state = await loadCollaborationState(row.document_id);
+    if (!state || state.degraded || state.status !== 'active'
+      || state.workspaceId !== row.workspace_id
+      || state.organizationId !== row.organization_id
+      || state.lifecycleGeneration !== Number(row.document_lifecycle_generation)
+      || state.schemaVersion !== Number(row.schema_version)
+      || (row.document_path !== null && row.document_path !== state.path)
+      || (row.document_representation !== null && row.document_representation !== state.representation)) return null;
+
+    const doc = new Y.Doc({ gc: true });
+    const candidate = new Y.Doc({ gc: true });
+    try {
+      Y.applyUpdate(doc, state.yjsState);
+      materializeCollaborationTypes(doc);
+      const currentContent = state.representation === 'plain_text'
+        ? textValue(doc.getText('content'))
+        : richMarkdownFromYDoc(doc);
+      const baseSha256 = hash(currentContent.replace(/\r\n?/gu, '\n'));
+      const baseStateVectorHash = hash(Y.encodeStateVector(doc));
+      const alreadyApplied = new Set(parseResult(row).appliedTargetIds);
+      const targets = (openPayload<AgentTextTarget[]>(row.operation_payload) || [])
+        .filter((target) => !alreadyApplied.has(target.targetId));
+      const review = ['needs_review', 'partially_applied'].includes(row.status)
+        ? reviewTargetsInDocument(row, doc, input.userId)
+        : { targets: undefined, proposalVersion: null };
+      if (targets.length === 0 || review.proposalVersion === null) {
+        return { documentId: row.document_id, workspaceId: row.workspace_id, baseSha256,
+          baseStateVectorHash, proposalVersion: null, content: null, stale: true };
+      }
+
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(doc));
+      materializeCollaborationTypes(candidate);
+      const origin = { actorType: 'agent' as const, actorId: row.actor_id,
+        initiatedByUserId: row.initiated_by_user_id, operationId: row.operation_id };
+      const execution = targets.some((target) => target.kind === 'block_edit')
+        ? applyAgentBlockTargets({ doc: candidate, targets, origin,
+            validateClone: (clone) => validateOperationClone(state.representation, row.expected_canonical_hash, clone) })
+        : targets.some(isRichMarkdownPatchTarget)
+          ? isRichTextCollaborationRepresentation(state.representation) && targets.every(isRichMarkdownPatchTarget)
+            ? applyRichMarkdownPatchTargets({ doc: candidate, targets, origin })
+            : null
+          : applyAgentTextTargets({ doc: candidate, targets, origin, independentGroups: false,
+              validateClone: (clone) => validateOperationClone(state.representation, row.expected_canonical_hash, clone) });
+      const complete = execution !== null && execution.conflicts.length === 0
+        && execution.appliedTargetIds.length === targets.length;
+      const content = complete
+        ? (state.representation === 'plain_text'
+            ? textValue(candidate.getText('content'))
+            : richMarkdownFromYDoc(candidate)).replace(/\r\n?/gu, '\n')
+        : null;
+      return { documentId: row.document_id, workspaceId: row.workspace_id, baseSha256,
+        baseStateVectorHash, proposalVersion: review.proposalVersion, content, stale: !complete };
+    } catch {
+      return null;
+    } finally {
+      doc.destroy();
+      candidate.destroy();
+    }
+  } finally {
+    await database.close();
+  }
+}
+
 /** Resolve a delivery retry before its oldText is matched against changed content. */
 export async function findAgentFileEditOperation(input: {
   documentId: string;

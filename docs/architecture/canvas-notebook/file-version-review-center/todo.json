@@ -397,7 +397,8 @@
           "id": "FVRC-202",
           "order": 2,
           "title": "Begrenzten Compare-Service fuer aktuelle Version, Historie und Agentenkandidaten implementieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "diff-preview",
           "dependsOn": ["FVRC-201"],
           "deliverables": [
@@ -414,6 +415,15 @@
             "Stale-Base-, Konflikt- und unabhaengige-Edit-Tests",
             "Oversize- und Hunk-Paginierungstests",
             "Markdown-Sanitization- und External-Request-Tests"
+          ],
+          "completionEvidence": [
+            "compare-service.ts laedt den aktuellen Stand stets erneut aus dem autoritativen persistierten Yjs-Snapshot beziehungsweise der Workspace-Datei und verweigert Vergleiche bei abweichendem Revision-, SHA- oder State-Vector-Fence mit FVRC_STALE_CURRENT.",
+            "Historische Kandidaten werden ausschliesslich ueber scopegebundene, integritaetsgepruefte Content-Bindings geladen; Agentenkandidaten werden mit previewAgentOperationContent auf einem isolierten Yjs-Klon unter denselben Text-, Block- und Rich-Markdown-Validatoren wie Apply vollstaendig projiziert.",
+            "Stale, konfliktbehaftete, unvollstaendig projizierbare oder zwischen Cursor-Seiten veraenderte Agentenvorschlaege liefern keinen blind nutzbaren Inhalt beziehungsweise FVRC_STALE_SELECTION.",
+            "Eine lineare Patience-Diff-Projektion erzeugt Zeilenstatistik, Kontext-Hunks, 500-Zeilen-Hunk-Grenzen, 64-Hunk-Seiten und einen kurzen inhaltsgebundenen Cursor; Admission- und Zeilenlimits werden als truncated ohne Diff-Hunks ausgewiesen.",
+            "Die separate Preview-Projektion liefert Markdown-/Textdaten ohne aktive Links, Raw-HTML oder ladbare Remote-Ressourcen und ergaenzt unveraenderte/geaenderte Blockstatistik, ohne Netzwerkzugriffe auszufuehren.",
+            "scripts/file-version-compare-service-test.ts prueft Stale-Current, Agenten-Base-Konflikte, unabhaengige Human-Edits, Lifecycle-Isolation, fehlenden Content, Oversize, Hunk-Paginierung und Cursor-Staleness, lange Zeilen sowie Markdown-Sanitization mit einem Fetch-Tripwire.",
+            "Compare-Service-Test, die bestehende 33-Faelle-Agent-Live-File-Suite, fokussiertes ESLint, npx tsc --noEmit und git diff --check bestehen."
           ]
         },
         {
