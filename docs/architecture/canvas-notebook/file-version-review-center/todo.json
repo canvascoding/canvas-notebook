@@ -7,6 +7,7 @@
   "repository": "canvasstudios-notebook",
   "documents": [
     "docs/architecture/canvas-notebook/file-version-review-center/plan.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/contract-inventory.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -95,7 +96,8 @@
           "id": "FVRC-000",
           "order": 0,
           "title": "Bestehende Revisions-, Yjs-, Agentenreview-, Tool-App- und Dateiaktionspfade als Contract-Inventar fixieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-14",
           "area": "architecture",
           "dependsOn": [],
           "deliverables": [
@@ -111,6 +113,12 @@
             "GitNexus query/context/process review",
             "GitNexus upstream impact fuer alle vorgesehenen Aenderungssymbole",
             "Architekturreview gegen plan.md"
+          ],
+          "completionEvidence": [
+            "contract-inventory.md fixiert autoritative Zustaende, Capture-Grenzen, bestehende Routen und die gemeinsame Aufrufmatrix.",
+            "GitNexus-Context und die Prozesse EditAgentFile -> GetRuntimeCwd sowie ApplyAgentFilePatch -> GetRuntimeCwd wurden geprueft.",
+            "Upstream-Impact ist fuer 16 vorgesehene Runtime-Symbole dokumentiert; P00 aendert keines davon.",
+            "Die CRITICAL-Hub-Funktion ensureFileRevisionForCurrentContent bleibt ausdruecklich ein Metadaten-Ledger und wird nicht zur globalen Versions-API erweitert."
           ]
         },
         {
