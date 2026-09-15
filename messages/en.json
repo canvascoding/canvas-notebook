@@ -3408,9 +3408,12 @@
       },
       "categories": {
         "title": "Memory categories",
-        "description": "These cards are categories, not projects. Each category groups individual memory entries that remain available over time.",
+        "description": "Work with all entries together or filter by a specific memory category.",
         "loading": "Loading memories…",
         "empty": "No memory entries yet. Add a durable fact below to begin.",
+        "filterLabel": "Category filter",
+        "all": "All categories",
+        "allDescription": "Show memory entries from every category together.",
         "pending": "{count, plural, one {# pending} other {# pending}}",
         "published": "{count, plural, one {# published} other {# published}}",
         "archived": "{count, plural, one {# archived} other {# archived}}",
@@ -3427,6 +3430,7 @@
         },
         "searchLabel": "Search memory",
         "searchPlaceholder": "Search this category",
+        "searchAllPlaceholder": "Search all categories",
         "sortLabel": "Sort memory",
         "sortPriority": "Priority",
         "sortUpdated": "Last updated",
@@ -3457,6 +3461,11 @@
           "published": "This category has no published entries you can view.",
           "pending": "There are no suggestions awaiting approval in this category.",
           "archived": "There are no archived entries in this category."
+        },
+        "emptyAllViews": {
+          "published": "There are no published entries you can view across these categories.",
+          "pending": "There are no suggestions awaiting approval across these categories.",
+          "archived": "There are no archived entries across these categories."
         },
         "noSearchResults": "No memory entries match this search."
       },
