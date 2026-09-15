@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   clearWorkspaceScopedNavigationParams,
   getWorkspaceNavigationSyncAction,
+  isExternalWorkspaceNavigationActive,
 } from '@/app/lib/workspaces/navigation-sync';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 
@@ -21,6 +22,7 @@ export function WorkspaceNavigationSync() {
   const handledRequestKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (isExternalWorkspaceNavigationActive()) return;
     const action = getWorkspaceNavigationSyncAction({
       requestedWorkspaceId,
       activeWorkspaceId,

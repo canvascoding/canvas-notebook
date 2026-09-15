@@ -129,9 +129,12 @@ async function main() {
   const originalFile = useFileStore.getState();
   const workspaces = ['workspace-one', 'workspace-a', 'workspace-b', 'workspace-failure'].map(workspace);
   const switchTargets: string[] = [];
+  let afterWorkspaceCommit: () => Promise<void> = async () => {};
   const trackedSetActiveWorkspace: typeof originalWorkspace.setActiveWorkspace = async (...args) => {
     switchTargets.push(args[0]);
-    return originalWorkspace.setActiveWorkspace(...args);
+    const switched = await originalWorkspace.setActiveWorkspace(...args);
+    if (switched) await afterWorkspaceCommit();
+    return switched;
   };
   const root = createRoot(document.getElementById('root')!);
 
@@ -152,6 +155,7 @@ async function main() {
         resetWorkspaceView: () => {},
       });
       switchTargets.length = 0;
+      afterWorkspaceCommit = async () => {};
     });
     await settle();
   }
@@ -189,6 +193,34 @@ async function main() {
     assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), 'operation-a');
     assert.deepEqual(switchTargets, ['workspace-a'],
       'the direct notification opener remains the only switch owner after URL publication');
+
+    let releaseCommittedSwitch!: () => void;
+    let reportCommittedSwitch!: () => void;
+    const committedSwitch = new Promise<void>((resolve) => { reportCommittedSwitch = resolve; });
+    await resetScenario(async () => {});
+    afterWorkspaceCommit = async () => {
+      reportCommittedSwitch();
+      await new Promise<void>((resolve) => { releaseCommittedSwitch = resolve; });
+    };
+    const committedBaselineHref = currentHref();
+    let postCommitOpen!: Promise<boolean>;
+    await act(async () => {
+      postCommitOpen = openFileChangeReviewNotification(notification('workspace-a', 'operation-post-commit'));
+      await committedSwitch;
+    });
+    await settle();
+    assert.equal(useWorkspaceStore.getState().activeWorkspaceId, 'workspace-a');
+    assert.equal(currentHref(), committedBaselineHref,
+      'navigation sync must not clear the outgoing URL while the notification owns a committed workspace switch');
+    assert.equal(useFileVersionCenterStore.getState().request, null);
+    await act(async () => {
+      releaseCommittedSwitch();
+      assert.equal(await postCommitOpen, true);
+    });
+    await settle();
+    assert.equal(new URL(window.location.href).searchParams.get('workspaceId'), 'workspace-a');
+    assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), 'operation-post-commit');
+    assert.deepEqual(switchTargets, ['workspace-a']);
 
     let releaseFailure!: () => void;
     let reportFailureStarted!: () => void;

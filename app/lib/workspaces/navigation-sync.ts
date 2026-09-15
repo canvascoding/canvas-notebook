@@ -1,5 +1,21 @@
 export type WorkspaceNavigationSyncAction = 'ignore' | 'accept' | 'switch' | 'clear';
 
+let externallyOwnedWorkspaceTransitions = 0;
+
+export function beginExternalWorkspaceNavigation(): () => void {
+  externallyOwnedWorkspaceTransitions += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    externallyOwnedWorkspaceTransitions = Math.max(0, externallyOwnedWorkspaceTransitions - 1);
+  };
+}
+
+export function isExternalWorkspaceNavigationActive(): boolean {
+  return externallyOwnedWorkspaceTransitions > 0;
+}
+
 export function getWorkspaceNavigationSyncAction(input: {
   requestedWorkspaceId: string | null;
   activeWorkspaceId: string | null;

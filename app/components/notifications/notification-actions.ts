@@ -3,6 +3,7 @@ import {
   buildFileChangeReviewCenterHref,
 } from '@/app/lib/file-version-center/notification-contract';
 import { mcpConnectionSettingsHref } from '@/app/lib/mcp/connection-health-types';
+import { beginExternalWorkspaceNavigation } from '@/app/lib/workspaces/navigation-sync';
 import { openVersionCenterFromNotification } from '@/app/store/file-version-center-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { NotificationItem, NotificationSummary } from './notification-summary';
@@ -60,6 +61,7 @@ export function notificationHref(item: NotificationItem): string {
 export async function openFileChangeReviewNotification(item: NotificationItem): Promise<boolean> {
   if (item.target.kind !== 'file_change' || item.workspaceId !== item.target.workspaceId) return false;
   const generation = ++fileChangeOpenGeneration;
+  const releaseNavigation = beginExternalWorkspaceNavigation();
   const baselineHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   let preparedHref: string | null = null;
   try {
@@ -82,6 +84,8 @@ export async function openFileChangeReviewNotification(item: NotificationItem): 
       window.history.replaceState(window.history.state, '', baselineHref);
     }
     return false;
+  } finally {
+    releaseNavigation();
   }
 }
 
