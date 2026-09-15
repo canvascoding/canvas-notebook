@@ -89,13 +89,13 @@ function TimelineRow({
         onClick={onSelect}
         className={cn(
           'group w-full rounded-lg border px-3 py-3 text-left transition-colors',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
           isAgent && 'border-violet-500/25 bg-violet-500/[0.045] hover:bg-violet-500/[0.085]',
           isCurrent && 'border-emerald-500/25 bg-emerald-500/[0.055] hover:bg-emerald-500/[0.09]',
           entry.kind === 'revision' && 'border-border bg-background hover:bg-muted/45',
           conflict && 'border-amber-500/40 bg-amber-500/[0.07] hover:bg-amber-500/[0.12]',
           failed && 'border-destructive/35 bg-destructive/[0.055] hover:bg-destructive/[0.09]',
-          selected && 'ring-2 ring-primary/65 ring-offset-2 ring-offset-background',
+          selected && 'ring-2 ring-inset ring-primary/65',
         )}
       >
         <span className="flex items-start gap-3">
@@ -186,26 +186,26 @@ export function FileVersionTimeline({
   );
 
   return (
-    <nav aria-label={t('timelineLabel')} className="flex min-h-0 flex-col border-b bg-muted/[0.12] md:border-r md:border-b-0">
+    <nav aria-label={t('timelineLabel')} className="flex min-h-[18rem] flex-col border-b bg-muted/[0.12] md:min-h-0 md:border-r md:border-b-0">
       {readOnly ? (
-        <div role="status" className="m-3 mb-0 flex gap-2 rounded-lg border bg-background/80 px-3 py-2.5 text-xs text-muted-foreground">
+        <div role="status" className="m-4 mb-0 flex gap-2 rounded-lg border bg-background/80 px-3 py-2.5 text-xs text-muted-foreground">
           <LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           <span><strong className="font-medium text-foreground">{t('readOnlyTitle')}</strong> {t('readOnlyDescription')}</span>
         </div>
       ) : null}
       {selection.state === 'pending' ? (
-        <div role="status" className="mx-3 mt-3 flex gap-2 rounded-lg border border-violet-500/25 bg-violet-500/[0.045] px-3 py-2.5 text-xs">
+        <div role="status" className="mx-4 mt-4 flex gap-2 rounded-lg border border-violet-500/25 bg-violet-500/[0.045] px-3 py-2.5 text-xs">
           <LoaderCircle className="mt-0.5 size-3.5 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
           <span>{t('selectionPending')}</span>
         </div>
       ) : selection.state === 'invalidated' ? (
-        <div role="status" className="mx-3 mt-3 flex gap-2 rounded-lg border border-amber-500/35 bg-amber-500/[0.06] px-3 py-2.5 text-xs">
+        <div role="status" className="mx-4 mt-4 flex gap-2 rounded-lg border border-amber-500/35 bg-amber-500/[0.06] px-3 py-2.5 text-xs">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden="true" />
           <span>{t('selectionInvalidated')}</span>
         </div>
       ) : null}
-      <ScrollArea className="min-h-[18rem] flex-1 md:min-h-0">
-        <div className="space-y-6 p-3 pb-6 sm:p-4">
+      <ScrollArea className="min-h-[18rem] flex-1 md:min-h-0 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!w-full">
+        <div className="w-full space-y-6 p-4 pb-6">
           {section('version-center-reviews', t('reviewsHeading'), groups.reviews, t('noReviews'))}
           {section('version-center-current', t('currentHeading'), groups.current ? [groups.current] : [], t('currentUnavailable'))}
           {section('version-center-history', t('historyHeading'), groups.revisions, t('noHistory'))}

@@ -51,14 +51,18 @@ export function FileVersionCenterHost() {
   const paginationAbortRef = useRef<AbortController | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
 
-  const load = useCallback(async (activeRequest: FileVersionCenterRequestV1, signal?: AbortSignal) => {
+  const load = useCallback(async (
+    activeRequest: FileVersionCenterRequestV1,
+    signal?: AbortSignal,
+    options?: { preserveTimeline?: boolean },
+  ) => {
     const generation = ++requestGenerationRef.current;
     paginationAbortRef.current?.abort();
     setLoading(true);
     setError(null);
     setLoadMoreError(null);
     setLoadingMore(false);
-    setTimeline(null);
+    if (!options?.preserveTimeline) setTimeline(null);
     try {
       const next = await resolveFileVersionCenter(activeRequest, signal);
       if (generation !== requestGenerationRef.current) return;
@@ -165,7 +169,7 @@ export function FileVersionCenterHost() {
   const invalidateTimeline = useCallback(async (action?: FileVersionMutation) => {
     if (action) selectVersionCenterEntry(null);
     const activeRequest = useFileVersionCenterStore.getState().request;
-    if (activeRequest) await load(activeRequest);
+    if (activeRequest) await load(activeRequest, undefined, { preserveTimeline: true });
   }, [load]);
 
   const continueEditing = useCallback(() => {
@@ -209,7 +213,7 @@ export function FileVersionCenterHost() {
             </div>
           </DialogHeader>
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            {loading ? (
+            {loading && !timeline ? (
               <div role="status" className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
                 <RefreshCw className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 {t('loading')}

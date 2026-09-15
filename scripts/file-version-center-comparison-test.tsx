@@ -208,6 +208,26 @@ async function main() {
   assert.match(document.body.textContent ?? '', /revision-seven/u);
   assert.match(document.body.textContent ?? '', new RegExp('a{64}', 'u'));
 
+  const refreshedCurrent = {
+    ...currentEntry,
+    revisionId: 'revision-current-refreshed',
+    sha256: 'c'.repeat(64),
+  };
+  await act(async () => root.render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <FileVersionComparison
+        request={request}
+        timeline={{ ...timeline, entries: [refreshedCurrent, revisionEntry] }}
+        selection={{ key: 'revision:revision-seven', entry: revisionEntry, state: 'selected' }}
+        onTimelineInvalidate={() => {}}
+        onContinue={() => {}}
+      />
+    </NextIntlClientProvider>,
+  ));
+  await settle();
+  assert.equal(tab('Details').getAttribute('aria-selected'), 'true',
+    'an authoritative current refresh keeps the selected comparison mounted so action feedback remains visible');
+
   assert.throws(() => mergeFileVersionComparePayload(
     comparison([firstHunk], true) as never,
     { ...comparison([secondHunk], false), response: {

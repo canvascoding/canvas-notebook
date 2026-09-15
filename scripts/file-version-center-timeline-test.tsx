@@ -168,6 +168,8 @@ async function main() {
   assert.ok(labelledBy && document.getElementById(labelledBy), 'the dialog has a screen-reader title');
   assert.ok(describedBy && document.getElementById(describedBy), 'the dialog has a document description');
   assert.ok(document.querySelector('nav[aria-label]'), 'the timeline landmark has an accessible name');
+  assert.ok(document.querySelector('nav[aria-label]')?.className.includes('min-h-[18rem]'),
+    'the stacked mobile timeline keeps enough intrinsic height for its scroll viewport');
   assert.equal(document.querySelectorAll('section[aria-labelledby]').length, 3,
     'review, current and history sections expose named landmarks');
   const animated = [...document.querySelectorAll('[class*="animate-spin"]')];
@@ -184,6 +186,9 @@ async function main() {
   await act(async () => { agentButton?.focus(); });
   assert.equal(document.activeElement, agentButton, 'timeline choices are reachable by keyboard focus');
   assert.ok(agentButton?.className.includes('violet'), 'agent rows use the violet design-system accent');
+  assert.ok(agentButton?.className.includes('focus-visible:ring-inset')
+    && !agentButton?.className.includes('focus-visible:ring-offset'),
+  'keyboard focus stays visible without growing beyond the timeline card gutter');
   assert.ok(agentButton?.querySelector('[class*="dark:text-violet"]'), 'agent accents define a dark-theme token');
   assert.match(agentButton?.textContent ?? '', /Needs review/iu, 'agent status is visible as text, not color alone');
   const conflictButton = document.querySelector<HTMLButtonElement>('[data-entry-status="semantic_conflict"]');
@@ -206,6 +211,17 @@ async function main() {
   const selectedRevision = document.querySelector<HTMLButtonElement>('[data-entry-kind="revision"]');
   assert.equal(selectedRevision?.getAttribute('aria-pressed'), 'true',
     'the requested revision becomes selected when its page arrives');
+  assert.ok(selectedRevision?.className.includes('ring-inset')
+    && !selectedRevision?.className.includes('ring-offset'),
+  'selected cards keep their highlight inside the shared card edge');
+  const timelineContent = document.querySelector('nav[aria-label] [class*="space-y-6"]');
+  assert.ok(timelineContent?.className.includes('w-full')
+    && timelineContent.className.includes('p-4') && !timelineContent.className.includes('p-3'),
+    'all viewport widths keep a 16px horizontal timeline gutter');
+  const timelineScrollArea = document.querySelector('nav[aria-label] [data-slot="scroll-area"]');
+  assert.ok(timelineScrollArea?.className.includes('scroll-area-viewport]>div]:!block')
+    && timelineScrollArea.className.includes('scroll-area-viewport]>div]:!w-full'),
+  'the Radix viewport wrapper cannot expand cards into the right-hand gutter');
   assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), 'revision-old');
 
   await act(async () => { document.querySelector<HTMLButtonElement>('[data-entry-kind="current"]')?.click(); });

@@ -62,6 +62,17 @@ function isCollaborationOperation(value: unknown): value is CollaborationAgentOp
     && Array.isArray(operation.targetAnchors);
 }
 
+function isCollaborationActionReceipt(value: unknown, operationId: string): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const operation = value as Partial<CollaborationAgentOperation>;
+  return operation.operationId === operationId
+    && typeof operation.operationStatus === 'string'
+    && typeof operation.status === 'string'
+    && typeof operation.durability === 'string'
+    && Array.isArray(operation.appliedTargetIds)
+    && Array.isArray(operation.conflicts);
+}
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -238,8 +249,8 @@ export class FileVersionActionController {
       if (!response.ok || (payload as { success?: unknown }).success === false) {
         throw failureFrom(response, payload);
       }
-      const updated = (payload as { operation?: unknown }).operation;
-      if (!isCollaborationOperation(updated) || updated.operationId !== input.operationId) {
+      const receipt = (payload as { operation?: unknown }).operation;
+      if (!isCollaborationActionReceipt(receipt, input.operationId)) {
         throw new FileVersionActionError(
           'FVRC_TRANSPORT_ERROR',
           'The proposal action response is invalid.',
@@ -247,6 +258,9 @@ export class FileVersionActionController {
           false,
         );
       }
+      // Mutation routes return the persisted action receipt, while the GET route
+      // owns the complete permission-aware operation projection used by the UI.
+      const updated = await this.loadOperation(input);
       if (action === 'reject') {
         this.actionKeys.delete(prepared.key);
         return { action, outcome: 'rejected', operation: updated };

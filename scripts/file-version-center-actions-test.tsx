@@ -50,11 +50,14 @@ function fvrcFailure(code: FileVersionCenterErrorCode, message: string, retryabl
 async function controllerCases(): Promise<void> {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   let releaseAccept!: (value: Response) => void;
+  let acceptCompleted = false;
   const acceptResponse = new Promise<Response>((resolve) => { releaseAccept = resolve; });
   const acceptController = new FileVersionActionController((async (input, init) => {
     const url = String(input);
     calls.push({ url, init });
-    if (init?.method === 'GET') return Response.json({ success: true, operation: operation() });
+    if (init?.method === 'GET') {
+      return Response.json({ success: true, operation: acceptCompleted ? acceptedOperation() : operation() });
+    }
     return acceptResponse;
   }) as typeof fetch, () => 'accept-key-000001');
   const acceptInput = { operationId: 'operation-one', workspaceId: 'workspace-one', reviewedProposalVersion: proposalVersion };
@@ -65,8 +68,20 @@ async function controllerCases(): Promise<void> {
   assert.equal(calls.length, 2, 'a double click issues only one authorization reload and one mutation');
   const approval = JSON.parse(String(calls[1]!.init?.body)) as { idempotencyKey: string; proposalVersion: string };
   assert.deepEqual(approval, { idempotencyKey: 'accept-key-000001', proposalVersion });
-  releaseAccept(Response.json({ success: true, operation: acceptedOperation() }));
+  acceptCompleted = true;
+  releaseAccept(Response.json({
+    success: true,
+    operation: {
+      operationId: 'operation-one',
+      operationStatus: 'persisted_yjs',
+      status: 'applied_to_ydoc',
+      durability: 'persisted_yjs',
+      appliedTargetIds: ['target-one'],
+      conflicts: [],
+    },
+  }));
   assert.equal((await firstAccept).outcome, 'accepted');
+  assert.equal(calls.length, 3, 'a successful sparse action receipt is followed by one authoritative operation reload');
 
   let changedCalls = 0;
   const changedController = new FileVersionActionController((async () => {
@@ -351,6 +366,89 @@ async function componentCase(): Promise<void> {
   assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), null,
     'a completed mutation clears the obsolete selected action from its reload URL');
   assert.equal(document.querySelector('[data-entry-kind="current"]')?.getAttribute('aria-pressed'), 'true');
+  await act(async () => { closeVersionCenter(); root.unmount(); });
+
+  let activeCurrent = current;
+  let releaseInitialResolve!: (value: Response) => void;
+  let releaseRefreshResolve!: (value: Response) => void;
+  const initialResolve = new Promise<Response>((resolve) => { releaseInitialResolve = resolve; });
+  const refreshResolve = new Promise<Response>((resolve) => { releaseRefreshResolve = resolve; });
+  let restoreResolveCount = 0;
+  const timelineResponse = () => Response.json({
+    contractVersion: 1,
+    document: { workspaceId: 'workspace-one', lineageId: 'lineage-one', documentId: 'document-one', path: 'Notes/roadmap.md' },
+    capabilities: { contractVersion: 1, history: true, compare: true, restore: true, agentReviewPolicy: true, preview: 'markdown' },
+    entries: [activeCurrent, revisionEntry],
+    page: { hasMore: false, nextCursor: null },
+  });
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith('/resolve')) {
+      restoreResolveCount += 1;
+      return restoreResolveCount === 1 ? initialResolve : refreshResolve;
+    }
+    if (url.endsWith('/compare')) {
+      return Response.json({
+        actionFence: { proposalVersion: null },
+        response: {
+          contractVersion: 1,
+          current: { fence: { revisionId: activeCurrent.revisionId, sha256: activeCurrent.sha256 }, observedAt: activeCurrent.observedAt },
+          candidate: { selection: { kind: 'revision', id: 'revision-seven' }, stale: false, contentAvailable: true },
+          summary: { additions: 0, deletions: 1, unchanged: 1 },
+          hunks: [], page: { hasMore: false, nextCursor: null }, truncated: false,
+        },
+        preview: {
+          format: 'markdown', current: '# Current', candidate: '# Revision', externalRequestsAllowed: false,
+          blockedExternalReferences: 0, blocks: { current: 1, candidate: 1, unchanged: 0, changed: 2 },
+        },
+      });
+    }
+    if (url.endsWith('/restore')) {
+      return fvrcFailure('FVRC_STALE_CURRENT', 'Current changed.', false, 409);
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  };
+  root = createRoot(document.getElementById('root')!);
+  await act(async () => root.render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <FileVersionCenterHost />
+    </NextIntlClientProvider>,
+  ));
+  await act(async () => {
+    openVersionCenter({
+      ...request,
+      initialView: 'history',
+      selectedEntry: { kind: 'revision', id: 'revision-seven' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  assert.match(document.querySelector('[role="status"]')?.textContent ?? '', /Loading document history/iu,
+    'the initial load still replaces the empty host with its progress state');
+  assert.equal(document.querySelector('[data-testid="file-version-center-responsive-layout"]'), null);
+  await act(async () => {
+    releaseInitialResolve(timelineResponse());
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+  await act(async () => { button(/Restore version/u).click(); await new Promise((resolve) => setTimeout(resolve, 10)); });
+  await act(async () => { button(/Restore as new version/u).click(); await new Promise((resolve) => setTimeout(resolve, 30)); });
+  assert.equal(restoreResolveCount, 2, 'a stale restore starts one authoritative background refresh');
+  assert.ok(document.querySelector('[data-testid="file-version-center-responsive-layout"]'),
+    'a background refresh preserves the timeline and action subtree');
+  assert.match(document.querySelector('[data-testid="file-version-action-error"]')?.textContent ?? '', /current document changed/iu,
+    'the stale-current explanation stays visible while the authoritative refresh is pending');
+  activeCurrent = {
+    ...current,
+    revisionId: 'revision-current-refreshed',
+    sha256: 'c'.repeat(64),
+    observedAt: '2026-09-14T10:00:00.000Z',
+  };
+  await act(async () => {
+    releaseRefreshResolve(timelineResponse());
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+  assert.ok(document.querySelector('[data-testid="file-version-center-responsive-layout"]'));
+  assert.match(document.querySelector('[data-testid="file-version-action-error"]')?.textContent ?? '', /current document changed/iu,
+    'the stale-current explanation survives the refreshed current fence');
   await act(async () => { closeVersionCenter(); root.unmount(); });
 }
 

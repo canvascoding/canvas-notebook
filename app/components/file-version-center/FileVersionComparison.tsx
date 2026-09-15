@@ -435,8 +435,8 @@ export function FileVersionComparison({
   const t = useTranslations('fileVersionCenter');
   const current = timeline.entries.find((entry) => entry.kind === 'current');
   const selected = selection.entry;
-  const identity = selected && selected.kind !== 'current' && current
-    ? `${selected.kind}:${selected.id}:${current.sha256}:${current.revisionId ?? ''}:${current.stateVectorHash ?? ''}`
+  const identity = selected && selected.kind !== 'current'
+    ? `${selected.kind}:${selected.id}`
     : 'empty';
 
   return (

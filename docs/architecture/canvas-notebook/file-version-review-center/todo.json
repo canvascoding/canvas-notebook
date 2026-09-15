@@ -918,7 +918,8 @@
           "id": "FVRC-701",
           "order": 1,
           "title": "Freigegebene UI-/E2E-Abnahme fuer den kompletten Markdown-Workflow durchfuehren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-15",
           "area": "browser-validation",
           "dependsOn": ["FVRC-700"],
           "requiresExplicitUserApproval": true,
@@ -936,6 +937,14 @@
             "Playwright oder Chrome nach ausdruecklicher Nutzerfreigabe",
             "Screenshots und reproduzierbare Testschritte",
             "Bestehende Notebook- und Collaboration-E2E-Regressions"
+          ],
+          "completionEvidence": [
+            "Die ausdruecklich freigegebene persistente Browserabnahme lief gegen den einzelnen verwalteten lokalen Team-Seat-Produktionsstack und einen real authentifizierten Markdown-Testfall im Shared Test Workspace. Editor-, Dateibrowser- und Chat-Widget-Einstieg oeffnen denselben globalen Center fuer dieselbe Lineage.",
+            "Timeline-Reihenfolge, Light-/Dark-Design, Changes/Preview/Source/Details, Review-required, Accept, Reject, Safe-direct, Restore-as-new-version, Deep-Link-Reload, Rename-Lineage, Keyboard/Focus, Reduced Motion sowie 1600-x-900-, 760-x-900- und 390-x-844-Viewports wurden mit echten Nutzerinteraktionen geprueft. Ein zweiter isoliert angemeldeter Nutzer bearbeitete dasselbe Markdown-Dokument. Reproduzierbare Schritte und siebenundzwanzig Screenshots liegen unter docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-701/.",
+            "Die Abnahme fand und schloss vier P701-Defekte: knappe erfolgreiche Accept-/Reject-Receipts werden vor der Outcome-Auswertung durch die autoritative GET-Projektion ergaenzt; ein Current-Fence-Refresh erhaelt Timeline, Auswahl und sichtbaren Stale-Action-Fehler; die mobile Timeline besitzt passend zu ihrem Scrollbereich eine 18-rem-Mindesthoehe ohne Desktop-Aenderung; alle Timeline-Karten besitzen nun einen konsistenten 16-px-Gutter und innenliegende Selected-/Focus-Ringe, ohne dass der Radix-Viewport die rechte Flucht aufzieht.",
+            "Der echte Restore-Race endet fail-closed mit POST 409, anschliessendem Resolve 200 und Compare 200. Die Zwischeneditierung bleibt aktuell, Version 6 bleibt ausgewaehlt, keine Wiederherstellung wird angewandt und der konkrete Current-changed-Hinweis bleibt sichtbar.",
+            "Ein gespeicherter needs-review-Vorschlag wurde nach sichtbarer Preview durch eine echte Zielabsatz-Aenderung des zweiten Nutzers stale. Der Accept-Klick stoppte fail-closed nach autoritativem GET 200 ohne stale POST, zeigte beide konkreten Hinweise und liess den Nutzerinhalt unangetastet. Unsupported-Binary, fehlender Path-Deep-Link, einmaliger Compare-503 mit erfolgreichem Retry und ein intern gescrollter Verlauf mit 16 Revisionen wurden ebenfalls geprueft.",
+            "npm run test:file-version-center:hardening und npm run test:collaboration:agent-approval bestehen. Der verwaltete Host-/Docker-Produktionsbuild samt 344 Seiten und TypeScript besteht, der Notebook-Container wurde mit dem finalen Image recreatet und alle vier Stack-Dienste sowie Health-Endpunkte sind gesund. Die abschliessende externe Ollama-Verifikation lieferte trotz eines Retries HTTP 502 MODEL_TEST_FAILED; die realen Agentenlaeufe waren zuvor mit dem persistierten Provider erfolgreich und die Modellstoerung beeinflusste Build, Stackgesundheit oder die abschliessenden Race-/Viewport-Checks nicht."
           ]
         },
         {
