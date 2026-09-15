@@ -106,7 +106,9 @@ The allowed set is the document's declared local dependency graph: HTML attribut
 
 ### Deployment contract
 
-Before rollout, provision DNS and TLS for `preview.<app hostname>` pointing to the same ingress. An existing different hostname can instead be configured with `CANVAS_HTML_PREVIEW_ORIGIN=https://documents.example.net` in the deployment environment and managed CLI configuration. A different port on the same hostname does not qualify. IP-addressed deployments require an explicit preview hostname. The portable and legacy Caddy templates generate the restricted preview vhost and remove credential/Set-Cookie headers. Custom proxies must implement the equivalent vhost restrictions. Do not deploy until that hostname is reachable; failure is closed and there is no same-origin HTML fallback.
+Workspace, Studio and mobile HTML previews work on the app's existing hostname, including localhost and IP-addressed deployments. They are served in an opaque CSP and iframe sandbox without `allow-same-origin`; their finite ticket asset path strips cookies and authorization headers before application routing. No additional DNS record, TLS certificate, reverse-proxy vhost or `CANVAS_HTML_PREVIEW_ORIGIN` setting is required for these previews.
+
+`CANVAS_HTML_PREVIEW_ORIGIN` remains an optional, separate host only for MCP app widgets that need an additional origin boundary. When it is configured, the managed Caddy templates retain the restricted `/__preview/*` vhost and remove credential/Set-Cookie headers. Custom proxies need no HTML-preview-specific behavior unless that optional MCP widget host is enabled.
 
 No DNS records, production servers or containers were changed. Local verification used temporary self-signed certificates (not installed in the OS trust store), local Caddy on port 3443 and the native app against the existing managed PostgreSQL fixture.
 

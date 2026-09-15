@@ -146,8 +146,13 @@ export async function buildHtmlPreviewAssetManifest(rootHtmlPath: string, reader
   return [...allowed].sort();
 }
 
-function ticketRootUrl(value: string, routePrefix: string) {
-  return value.startsWith('/') && !value.startsWith('//') ? routePrefix + value : value;
+function ticketRootUrl(value: string, routePrefix: string, filePath?: string) {
+  if(value.startsWith('/') && !value.startsWith('//')) return routePrefix + value;
+  if(!filePath || !/^(?:\.\.?\/)/u.test(value)) return value;
+  try {
+    const url=new URL(value,sourceUrl(filePath));
+    return url.origin===DOCUMENT_ORIGIN ? routePrefix+url.pathname+url.search+url.hash : value;
+  } catch { return value; }
 }
 
 export function rewriteHtmlPreviewCss(css: string, routePrefix: string) {
@@ -157,28 +162,38 @@ export function rewriteHtmlPreviewCss(css: string, routePrefix: string) {
   });
 }
 
-export function rewriteHtmlPreviewScript(script: string, routePrefix: string) {
+export function rewriteHtmlPreviewScript(script: string, routePrefix: string, filePath?: string) {
   const changes: Array<{from:number;to:number;text:string}> = [];
   javascriptLanguage.parser.parse(script).iterate({enter(node) {
     if (node.name !== 'String' && node.name !== 'TemplateString') return;
     const literal = script.slice(node.from,node.to);
     const value = decodeScriptString(literal);
-    if (value?.startsWith('/') && !value.startsWith('//') && value !== '/') {
-      const filePath = new URL(value,DOCUMENT_ORIGIN).pathname;
-      if (value.endsWith('/') || isHtmlFile(filePath) || getHtmlPreviewAssetContentType(filePath) !== 'application/octet-stream') {
-        changes.push({from:node.from,to:node.to,text:JSON.stringify(ticketRootUrl(value,routePrefix))});
+    const context=script.slice(Math.max(0,node.from-96),node.from);
+    const staticReference=/(?:\bfrom\s*|\bimport\s*|\b(?:importScripts|fetch|Worker|SharedWorker)\s*\(\s*)$/u.test(context);
+    if (value && (value.startsWith('/') || (staticReference && /^(?:\.\.?\/)/u.test(value))) && !value.startsWith('//') && value !== '/') {
+      const targetPath = new URL(value,DOCUMENT_ORIGIN).pathname;
+      if (value.endsWith('/') || isHtmlFile(targetPath) || getHtmlPreviewAssetContentType(targetPath) !== 'application/octet-stream' || staticReference) {
+        changes.push({from:node.from,to:node.to,text:JSON.stringify(ticketRootUrl(value,routePrefix,filePath))});
       }
     } else if (node.name === 'TemplateString' && literal.startsWith('`/') && !literal.startsWith('`//') && literal.includes('${')) {
       const prefix = literal.slice(1,literal.indexOf('${'));
       if (prefix.length > 1 && prefix.endsWith('/')) changes.push({from:node.from,to:node.from+1,text:'`'+routePrefix});
+    } else if (node.name === 'TemplateString' && literal.startsWith('`./') && literal.includes('${') && filePath) {
+      const prefix = literal.slice(1,literal.indexOf('${'));
+      if (prefix.endsWith('/')) changes.push({from:node.from,to:node.from+1+prefix.length,text:'`'+ticketRootUrl(prefix,routePrefix,filePath)});
     }
   }});
   for (const change of changes.sort((a,b)=>b.from-a.from)) script=script.slice(0,change.from)+change.text+script.slice(change.to);
   return script;
 }
 
+function opaqueWorkerBootstrap(routePrefix: string) {
+  const ticketRoot=JSON.stringify(routePrefix.replace(/\/+$/u,'')+'/');
+  return `(function(){const NativeWorker=window.Worker;if(!NativeWorker)return;const ticketRoot=${ticketRoot};function OpaqueWorker(url,options){const target=new URL(String(url),document.baseURI);if(target.origin!==location.origin||!target.pathname.startsWith(ticketRoot))return new NativeWorker(url,options);try{const request=new XMLHttpRequest();request.open('GET',target.href,false);request.send();if(request.status!==200)throw new Error('Preview worker unavailable');const source=request.responseText.replace(/((?:importScripts|fetch|Worker|SharedWorker)\\(\\s*['"])\\/([^'"]+)/g,(_match,start,path)=>start+location.origin+'/'+path);const blobUrl=URL.createObjectURL(new Blob([source+'\\n//# sourceURL='+target.href],{type:'text/javascript'}));const worker=new NativeWorker(blobUrl,options);const revoke=()=>URL.revokeObjectURL(blobUrl);worker.addEventListener('error',revoke,{once:true});worker.addEventListener('message',revoke,{once:true});return worker;}catch{return new NativeWorker(url,options);}}OpaqueWorker.prototype=NativeWorker.prototype;Object.setPrototypeOf(OpaqueWorker,NativeWorker);window.Worker=OpaqueWorker;})();`;
+}
+
 /** Preserve root-relative assets inside the ticket namespace as well as ordinary relative URLs. */
-export function rewriteHtmlPreviewDocument(html: string, filePath: string, routePrefix: string) {
+export function rewriteHtmlPreviewDocument(html: string, filePath: string, routePrefix: string, options:{opaqueOrigin?:boolean}={}) {
   const dom = new JSDOM(html);
   try {
     const document=dom.window.document;
@@ -190,7 +205,7 @@ export function rewriteHtmlPreviewDocument(html: string, filePath: string, route
       if(element.hasAttribute('style')) element.setAttribute('style',rewriteHtmlPreviewCss(element.getAttribute('style')!,routePrefix));
     }
     for(const element of document.querySelectorAll('style')) element.textContent=rewriteHtmlPreviewCss(element.textContent||'',routePrefix);
-    for(const element of document.querySelectorAll('script:not([src])')) element.textContent=rewriteHtmlPreviewScript(element.textContent||'',routePrefix);
+    for(const element of document.querySelectorAll('script:not([src])')) element.textContent=rewriteHtmlPreviewScript(element.textContent||'',routePrefix,filePath);
     if(!document.querySelector('base[href]')) {
       const base=document.createElement('base');
       const parent=filePath.split('/').slice(0,-1).map(encodeURIComponent).join('/');
@@ -199,6 +214,9 @@ export function rewriteHtmlPreviewDocument(html: string, filePath: string, route
     }
     if(!document.querySelector('meta[name="viewport" i]')) {
       const viewport=document.createElement('meta');viewport.name='viewport';viewport.content='width=device-width, initial-scale=1';document.head.prepend(viewport);
+    }
+    if(options.opaqueOrigin) {
+      const bootstrap=document.createElement('script');bootstrap.textContent=opaqueWorkerBootstrap(routePrefix);document.head.prepend(bootstrap);
     }
     return dom.serialize();
   } finally { dom.window.close(); }

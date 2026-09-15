@@ -20,6 +20,7 @@ import { buildHtmlPreviewAssetManifest, normalizeHtmlPreviewPath, type HtmlPrevi
 
 export const HTML_PREVIEW_TICKET_TTL_MS = 30 * 60 * 1000;
 export const HTML_PREVIEW_ROUTE_PREFIX = '/__preview';
+export const SAME_ORIGIN_HTML_PREVIEW_ROUTE_PREFIX = '/__document-preview';
 const MAX_TICKETS = 1024;
 const MAX_TICKETS_PER_SESSION = 16;
 const MAX_SOURCE_BYTES = 16 * 1024 * 1024;
@@ -115,6 +116,10 @@ export function revokeHtmlPreviewTicket(ticket: string) { tickets().delete(ticke
 
 export function htmlPreviewTicketPath(ticket: string, filePath: string) {
   return `${HTML_PREVIEW_ROUTE_PREFIX}/${encodeURIComponent(ticket)}/${normalizeHtmlPreviewPath(filePath).split('/').map(encodeURIComponent).join('/')}`;
+}
+
+export function sameOriginHtmlPreviewTicketPath(ticket: string, filePath: string) {
+  return `${SAME_ORIGIN_HTML_PREVIEW_ROUTE_PREFIX}/${encodeURIComponent(ticket)}/${normalizeHtmlPreviewPath(filePath).split('/').map(encodeURIComponent).join('/')}`;
 }
 
 /** The token carries file authority only; current account and workspace state wins. */

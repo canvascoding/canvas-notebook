@@ -27,7 +27,8 @@ export function HtmlViewer({ path, value, onChange, viewMode, refreshKey, lastSa
     <iframe
       key={previewUrl}
       src={previewUrl}
-      sandbox="allow-scripts allow-same-origin"
+      sandbox="allow-scripts"
+      referrerPolicy="no-referrer"
       className="h-full w-full border-0 bg-white"
       title={`Preview: ${path}`}
     />

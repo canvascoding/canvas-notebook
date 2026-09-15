@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createWorkspaceHtmlPreviewResponse } from '@/app/lib/html-preview-response';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { isHtmlFile } from '@/app/lib/html-preview';
-import { htmlPreviewTicketPath, issueHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
-import { htmlPreviewUrl } from '@/app/lib/html-preview-origin';
+import { deliverHtmlPreviewTicket } from '@/app/lib/html-preview-delivery';
+import { issueHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
 
 const WORKSPACE_HTML_PREVIEW_PREFIX = '/api/media/preview';
 const WORKSPACE_PREVIEW_SCOPE_SEGMENT = '__workspace';
@@ -45,9 +45,7 @@ export async function GET(
       const issued = await issueHtmlPreviewTicket({
         session:workspaceResult.session,workspace:workspaceResult.workspace,rootHtmlPath:filePath,kind:'workspace',
       });
-      return NextResponse.redirect(htmlPreviewUrl(htmlPreviewTicketPath(issued.ticket,filePath)),{
-        status:302,headers:{'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'},
-      });
+      return deliverHtmlPreviewTicket(issued.ticket,filePath,{sameOrigin:true});
     }
     return await createWorkspaceHtmlPreviewResponse({
       filePath,

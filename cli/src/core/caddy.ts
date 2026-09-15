@@ -82,7 +82,7 @@ function deriveProxyIdentityToken(internalApiKey: string | undefined): string | 
     : null;
 }
 
-function resolvePreviewOrigin(domain: string, configuredOrigin?: string): URL {
+function resolvePreviewOrigin(domain: string, configuredOrigin: string): URL {
   const app = new URL(`https://${domain}`);
   const parseOrigin = (value: string): URL => {
     const parsed = new URL(value);
@@ -92,17 +92,7 @@ function resolvePreviewOrigin(domain: string, configuredOrigin?: string): URL {
     }
     return parsed;
   };
-  const local = app.hostname === 'localhost' || app.hostname.endsWith('.localhost')
-    || app.hostname === '127.0.0.1' || app.hostname === '[::1]';
-  let preview: URL;
-  if (configuredOrigin?.trim()) preview = parseOrigin(configuredOrigin.trim());
-  else if (local) preview = parseOrigin(`${app.protocol}//preview.localhost${app.port ? ':' + app.port : ''}`);
-  else {
-    if (/^[\d.]+$/u.test(app.hostname) || app.hostname.includes(':')) {
-      throw new Error('CANVAS_HTML_PREVIEW_ORIGIN is required for deployments addressed by IP');
-    }
-    preview = parseOrigin(`${app.protocol}//preview.${app.host}`);
-  }
+  const preview = parseOrigin(configuredOrigin.trim());
   if (preview.hostname === app.hostname || (app.protocol === 'https:' && preview.protocol !== 'https:')) {
     throw new Error('HTML preview requires a different hostname and HTTPS when the app uses HTTPS');
   }
@@ -132,12 +122,15 @@ export function renderCaddyfile(domain: string, hostPort: number, internalApiKey
   validateHostname(domain);
   if (!Number.isInteger(hostPort) || hostPort < 1 || hostPort > 65535) throw new Error(`Invalid Caddy upstream port: ${hostPort}`);
   const token = deriveProxyIdentityToken(internalApiKey);
-  const preview = resolvePreviewOrigin(domain, previewOrigin);
-  validateHostname(preview.hostname);
+  const preview = previewOrigin?.trim() ? resolvePreviewOrigin(domain, previewOrigin) : null;
+  if (preview) validateHostname(preview.hostname);
   const proxyIdentity = token
     ? `\n\t\t\theader_up X-Canvas-Proxy-Token ${token}\n\t\t\theader_up X-Canvas-Proxy-Client-IP {remote_host}`
     : '\n\t\t\theader_up -X-Canvas-Proxy-Token\n\t\t\theader_up -X-Canvas-Proxy-Client-IP';
-  return `${MANAGED_MARKER}\n${domain} {\n\thandle /__canvas-host/operations/* {\n\t\t@not_read not method GET\n\t\trespond @not_read 405\n\t\treverse_proxy 127.0.0.1:${UPDATE_STATUS_PORT}\n\t}\n\thandle /__canvas-host/* {\n\t\trespond 404\n\t}\n\thandle {\n\t\treverse_proxy localhost:${hostPort} {\n\t\t\theader_up X-Forwarded-Port 443${proxyIdentity}\n\t\t}\n\t}\n}\n\n${preview.origin} {\n\t@preview {\n\t\tmethod GET HEAD\n\t\tpath /__preview/*\n\t}\n\thandle @preview {\n\t\treverse_proxy localhost:${hostPort} {\n\t\t\theader_up -Cookie\n\t\t\theader_up -Authorization\n\t\t\theader_up -Proxy-Authorization\n\t\t\theader_down -Set-Cookie\n\t\t\theader_down -X-Frame-Options${proxyIdentity}\n\t\t}\n\t}\n\thandle {\n\t\trespond 404\n\t}\n}\n`;
+  const previewSite = preview
+    ? `\n${preview.origin} {\n\t@preview {\n\t\tmethod GET HEAD\n\t\tpath /__preview/*\n\t}\n\thandle @preview {\n\t\treverse_proxy localhost:${hostPort} {\n\t\t\theader_up -Cookie\n\t\t\theader_up -Authorization\n\t\t\theader_up -Proxy-Authorization\n\t\t\theader_down -Set-Cookie\n\t\t\theader_down -X-Frame-Options${proxyIdentity}\n\t\t}\n\t}\n\thandle {\n\t\trespond 404\n\t}\n}\n`
+    : '';
+  return `${MANAGED_MARKER}\n${domain} {\n\thandle /__canvas-host/operations/* {\n\t\t@not_read not method GET\n\t\trespond @not_read 405\n\t\treverse_proxy 127.0.0.1:${UPDATE_STATUS_PORT}\n\t}\n\thandle /__canvas-host/* {\n\t\trespond 404\n\t}\n\thandle {\n\t\treverse_proxy localhost:${hostPort} {\n\t\t\theader_up X-Forwarded-Port 443${proxyIdentity}\n\t\t}\n\t}\n}\n${previewSite}`;
 }
 
 export function isCaddyCommand(command: string): boolean {

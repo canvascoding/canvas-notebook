@@ -14,6 +14,10 @@ assert.ok(rewritten.window.document.querySelector('script:not([src])')?.textCont
 rewritten.window.close();
 assert.equal(rewriteHtmlPreviewCss(`@import '/assets/theme.css';x{background:url(https://cdn.invalid/x.png)}`, prefix), `@import '${prefix}/assets/theme.css';x{background:url(https://cdn.invalid/x.png)}`);
 assert.equal(rewriteHtmlPreviewScript('import "/assets/main.mjs";fetch(`/assets/${name}.json`);fetch("./local.json")', prefix), `import "${prefix}/assets/main.mjs";fetch(\`${prefix}/assets/\${name}.json\`);fetch("./local.json")`);
+assert.equal(
+  rewriteHtmlPreviewScript("import './module.mjs';importScripts('../worker-helper.js');fetch('./data.json');const label='./not-a-reference';", prefix, 'report/workers/worker.js'),
+  `import "${prefix}/report/workers/module.mjs";importScripts("${prefix}/report/worker-helper.js");fetch("${prefix}/report/workers/data.json");const label='./not-a-reference';`,
+);
 assert.ok(rewriteHtmlPreviewDocument('<base href="https://cdn.invalid/"><img src="image.png">', 'report/index.html', prefix).includes('href="https://cdn.invalid/"'));
 
 async function main() {
