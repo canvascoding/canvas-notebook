@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { listMobileInbox, markMobileInboxRead } from '@/app/lib/mobile/inbox';
 import { getMobileInboxCategoryCounts } from '@/app/lib/mobile/inbox-counts';
+import { mobileInboxFileChangesRequested } from '@/app/lib/mobile/inbox-capabilities';
 import { mobileInboxErrorResponse, mobileInboxResponseHeaders } from '@/app/lib/mobile/inbox-route';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const limitValue = request.nextUrl.searchParams.get('limit');
+    const includeFileChanges = mobileInboxFileChangesRequested(request.nextUrl.searchParams);
     const [data, categories] = await Promise.all([
       listMobileInbox({
         userId: workspaceResult.session.user.id,
@@ -22,10 +24,12 @@ export async function GET(request: NextRequest) {
         filter: request.nextUrl.searchParams.get('filter'),
         cursor: request.nextUrl.searchParams.get('cursor'),
         limit: limitValue === null ? undefined : Number(limitValue),
+        includeFileChanges,
       }),
       getMobileInboxCategoryCounts({
         userId: workspaceResult.session.user.id,
         workspaces: [workspaceResult.workspace],
+        includeFileChanges,
       }),
     ]);
     return NextResponse.json({ success: true, ...data, categories }, { headers: mobileInboxResponseHeaders });
@@ -41,6 +45,7 @@ export async function PATCH(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const includeFileChanges = mobileInboxFileChangesRequested(request.nextUrl.searchParams);
     const data = await markMobileInboxRead({
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
@@ -48,6 +53,7 @@ export async function PATCH(request: NextRequest) {
       category: payload.category,
       itemId: payload.itemId,
       read: payload.read,
+      includeFileChanges,
     });
     return NextResponse.json({ success: true, data }, { headers: mobileInboxResponseHeaders });
   } catch (error) {

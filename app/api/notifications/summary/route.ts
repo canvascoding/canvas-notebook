@@ -102,6 +102,7 @@ export async function PATCH(request: NextRequest) {
           userId: session.user.id,
           workspaces: scope.includedWorkspaces,
           category: 'notifications',
+          includeFileChanges: true,
         }),
         markAllMemoryApprovalAttentionRead({
           userId: session.user.id,
@@ -143,6 +144,7 @@ export async function PATCH(request: NextRequest) {
         action: payload.action,
         itemId: payload.itemId,
         read: payload.read,
+        includeFileChanges: true,
       });
       return NextResponse.json({ success: true, data });
     }

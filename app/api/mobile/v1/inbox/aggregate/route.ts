@@ -7,6 +7,7 @@ import {
   MobileInboxError,
 } from '@/app/lib/mobile/inbox';
 import { getMobileInboxCategoryCounts } from '@/app/lib/mobile/inbox-counts';
+import { mobileInboxFileChangesRequested } from '@/app/lib/mobile/inbox-capabilities';
 import {
   mobileInboxErrorResponse,
   mobileInboxResponseHeaders,
@@ -35,6 +36,7 @@ export async function GET(request: NextRequest) {
   try {
     const scope = await loadMobileInboxScope(session.user);
     const limitValue = request.nextUrl.searchParams.get('limit');
+    const includeFileChanges = mobileInboxFileChangesRequested(request.nextUrl.searchParams);
     const [data, categories] = await Promise.all([
       listMobileAggregateInbox({
         userId: session.user.id,
@@ -43,10 +45,12 @@ export async function GET(request: NextRequest) {
         groupWorkspaceTodos: request.nextUrl.searchParams.get('groupTodos') === 'workspace',
         cursor: request.nextUrl.searchParams.get('cursor'),
         limit: limitValue === null ? undefined : Number(limitValue),
+        includeFileChanges,
       }),
       getMobileInboxCategoryCounts({
         userId: session.user.id,
         workspaces: scope.includedWorkspaces,
+        includeFileChanges,
       }),
     ]);
     return NextResponse.json({ success: true, ...data, categories }, { headers: mobileInboxResponseHeaders });
@@ -66,6 +70,7 @@ export async function PATCH(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const payload = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const includeFileChanges = mobileInboxFileChangesRequested(request.nextUrl.searchParams);
     if (
       payload.action !== 'mark_all_read'
       && !(payload.action === 'mark_category_read' && payload.category === 'notifications')
@@ -77,6 +82,7 @@ export async function PATCH(request: NextRequest) {
       userId: session.user.id,
       workspaces: scope.includedWorkspaces,
       ...(payload.action === 'mark_category_read' ? { category: 'notifications' as const } : {}),
+      includeFileChanges,
     });
     return NextResponse.json({ success: true, data }, { headers: mobileInboxResponseHeaders });
   } catch (error) {

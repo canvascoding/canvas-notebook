@@ -83,6 +83,7 @@ assert.deepEqual(compatibility, {
       'inbox.email_attention',
       'inbox.read_state',
       'inbox.dismiss',
+      'inbox.file_changes.v1',
       'todos.read',
       'todos.write',
       'todos.follow_up',

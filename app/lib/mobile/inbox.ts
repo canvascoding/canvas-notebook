@@ -33,6 +33,10 @@ import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
 import { getTodo, listTodos, type TodoWithRelations } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import {
+  FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX,
+  fileChangeReviewNotificationSource,
+} from '@/app/lib/file-version-center/notification-source';
 
 const BASELINE_KEY = '__baseline__';
 const MAX_SOURCE_ITEMS = 200;
@@ -44,7 +48,7 @@ export type MobileInboxFilter = typeof MOBILE_INBOX_FILTERS[number];
 
 export type MobileInboxItem = {
   id: string;
-  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'file.change_review_required';
   title: string;
   detail: string | null;
   previewUrl: string | null;
@@ -58,7 +62,8 @@ export type MobileInboxItem = {
     | { kind: 'email'; scope: 'personal' | 'workspace'; caseId?: string; draftId?: string }
     | { kind: 'todo'; todoId: string }
     | { kind: 'studio'; generationId: string }
-    | { kind: 'automation'; runId: string };
+    | { kind: 'automation'; runId: string }
+    | { kind: 'file_change'; workspaceId: string; lineageId: string; operationId: string };
 };
 
 export type MobileAggregateInboxItem = MobileInboxItem & {
@@ -365,9 +370,14 @@ function genericUnread(itemKey: string, occurredAt: Date, state: Awaited<ReturnT
   return occurredAt > state.baseline && !state.itemKeys.has(itemKey);
 }
 
-async function collectInboxItems(input: { userId: string; workspace: WorkspaceContext; sortAsOf: Date }) {
+async function collectInboxItems(input: {
+  userId: string;
+  workspace: WorkspaceContext;
+  sortAsOf: Date;
+  includeFileChanges?: boolean;
+}) {
   const state = await readState({ userId: input.userId, workspaceId: input.workspace.workspaceId });
-  const [sessionRows, todos, generationRows, automationRows, emailItems] = await Promise.all([
+  const [sessionRows, todos, generationRows, automationRows, emailItems, fileChangeItems] = await Promise.all([
     db.select({
       sessionId: piSessions.sessionId,
       title: piSessions.title,
@@ -404,6 +414,12 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
         : undefined,
     )).orderBy(desc(automationRuns.finishedAt), desc(automationRuns.createdAt)).limit(MAX_SOURCE_ITEMS),
     listEmailAttention({ userId: input.userId, workspace: input.workspace }),
+    input.includeFileChanges
+      ? fileChangeReviewNotificationSource.list({ userId: input.userId, workspace: input.workspace }).catch((error) => {
+          console.warn('[Mobile Inbox] File-change notifications unavailable.', { error });
+          return [];
+        })
+      : Promise.resolve([]),
   ]);
 
   const imageGenerationIds = generationRows
@@ -519,14 +535,18 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       target: { kind: 'automation', runId: row.runId },
     });
   }
+  items.push(...fileChangeItems);
   return items
-    .filter((item) => !state.dismissedItemKeys.has(item.id))
+    .filter((item) => (
+      item.target.kind === 'file_change' || !state.dismissedItemKeys.has(item.id)
+    ))
     .sort(compareCollectedInboxItems);
 }
 
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
   if (filter === 'all') return true;
   if (filter === 'unread') return item.unread;
+  if (item.target.kind === 'file_change') return filter === 'notifications';
   if (filter === 'notifications') return item.target.kind !== 'todo' && item.target.kind !== 'email';
   if (filter === 'chat') return item.target.kind === 'chat';
   if (filter === 'emails') return item.target.kind === 'email';
@@ -541,6 +561,7 @@ export async function listMobileInbox(input: {
   filter?: string | null;
   cursor?: string | null;
   limit?: number;
+  includeFileChanges?: boolean;
 }) {
   const filter = MOBILE_INBOX_FILTERS.includes(input.filter as MobileInboxFilter)
     ? input.filter as MobileInboxFilter
@@ -584,13 +605,19 @@ async function collectAggregateInboxItems(input: {
   userId: string;
   workspaces: WorkspaceContext[];
   sortAsOf: Date;
+  includeFileChanges?: boolean;
 }): Promise<CollectedAggregateInboxItem[]> {
   const items: CollectedAggregateInboxItem[] = [];
   const concurrency = 4;
   for (let index = 0; index < input.workspaces.length; index += concurrency) {
     const batch = input.workspaces.slice(index, index + concurrency);
     const batchItems = await Promise.all(batch.map(async (workspace) => {
-      const workspaceItems = await collectInboxItems({ userId: input.userId, workspace, sortAsOf: input.sortAsOf });
+      const workspaceItems = await collectInboxItems({
+        userId: input.userId,
+        workspace,
+        sortAsOf: input.sortAsOf,
+        includeFileChanges: input.includeFileChanges,
+      });
       return workspaceItems.map((item) => ({ ...item, workspaceId: workspace.workspaceId }));
     }));
     items.push(...batchItems.flat());
@@ -761,6 +788,7 @@ export async function listMobileAggregateInbox(input: {
   cursor?: string | null;
   limit?: number;
   groupWorkspaceTodos?: boolean;
+  includeFileChanges?: boolean;
 }) {
   const filter = MOBILE_INBOX_FILTERS.includes(input.filter as MobileInboxFilter)
     ? input.filter as MobileInboxFilter
@@ -823,6 +851,7 @@ export async function markMobileAggregateInboxRead(input: {
   userId: string;
   workspaces: WorkspaceContext[];
   category?: 'notifications';
+  includeFileChanges?: boolean;
 }) {
   let readAt = new Date().toISOString();
   for (const workspace of input.workspaces) {
@@ -831,6 +860,7 @@ export async function markMobileAggregateInboxRead(input: {
       workspace,
       action: input.category ? 'mark_category_read' : 'mark_all_read',
       ...(input.category ? { category: input.category } : {}),
+      includeFileChanges: input.includeFileChanges,
     });
     if ('readAt' in result && typeof result.readAt === 'string') readAt = result.readAt;
   }
@@ -880,11 +910,12 @@ export async function countMobileUnreadMessages(input: {
 export async function countMobileUnreadNotifications(input: {
   userId: string;
   workspaces: WorkspaceContext[];
+  includeFileChanges?: boolean;
 }): Promise<number> {
   const workspaces = [...new Map(input.workspaces.map((workspace) => [workspace.workspaceId, workspace])).values()];
   const counts = await Promise.all(workspaces.map(async (workspace) => {
     const state = await readState({ userId: input.userId, workspaceId: workspace.workspaceId });
-    const [sessionRows, generationRows, automationRows] = await Promise.all([
+    const [sessionRows, generationRows, automationRows, fileChangeUnread] = await Promise.all([
       db.select({
         lastMessageAt: piSessions.lastMessageAt,
         lastViewedAt: piSessions.lastViewedAt,
@@ -917,6 +948,12 @@ export async function countMobileUnreadNotifications(input: {
           ? or(eq(automationRuns.actorUserId, input.userId), eq(automationJobs.ownerUserId, input.userId))
           : undefined,
       )),
+      input.includeFileChanges
+        ? fileChangeReviewNotificationSource.countUnread({ userId: input.userId, workspace }).catch((error) => {
+            console.warn('[Mobile Inbox] File-change notification count unavailable.', { error });
+            return 0;
+          })
+        : Promise.resolve(0),
     ]);
     const unreadChats = sessionRows.filter((session) => (
       hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt)
@@ -928,7 +965,7 @@ export async function countMobileUnreadNotifications(input: {
       const occurredAt = automation.occurredAt || automation.createdAt;
       return genericUnread(`automation:${automation.runId}`, occurredAt, state);
     }).length;
-    return unreadChats + unreadGenerations + unreadAutomations;
+    return unreadChats + unreadGenerations + unreadAutomations + fileChangeUnread;
   }));
   return counts.reduce((total, count) => total + count, 0);
 }
@@ -969,6 +1006,7 @@ export async function markMobileInboxRead(input: {
   category?: unknown;
   itemId?: unknown;
   read?: unknown;
+  includeFileChanges?: boolean;
 }) {
   const now = new Date();
   const markNotificationsRead = input.action === 'mark_category_read';
@@ -995,8 +1033,38 @@ export async function markMobileInboxRead(input: {
           readAt: now,
         })),
       upsertReadState(input.userId, input.workspace.workspaceId, BASELINE_KEY, now),
+      input.includeFileChanges
+        ? fileChangeReviewNotificationSource.markAllRead({ userId: input.userId, workspace: input.workspace })
+        : Promise.resolve(),
     ]);
     return { readAt: now.toISOString() };
+  }
+  if (typeof input.itemId === 'string' && input.itemId.startsWith(FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX)) {
+    if (!input.includeFileChanges) {
+      throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
+    }
+    const requestedRead = input.action === 'mark_item_read'
+      ? true
+      : input.action === 'set_item_read_state' && typeof input.read === 'boolean'
+        ? input.read
+        : input.action === 'dismiss_item'
+          ? true
+          : null;
+    if (requestedRead === null) {
+      throw new MobileInboxError('INVALID_ACTION', 'The Inbox read action is invalid.', 400);
+    }
+    const result = await fileChangeReviewNotificationSource.setItemState({
+      userId: input.userId,
+      workspace: input.workspace,
+      itemId: input.itemId,
+      read: requestedRead,
+      dismiss: input.action === 'dismiss_item',
+    });
+    if (!result.found) throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
+    if (result.dismissedAt) return { itemId: input.itemId, dismissedAt: result.dismissedAt };
+    return requestedRead
+      ? { itemId: input.itemId, read: true, readAt: result.readAt }
+      : { itemId: input.itemId, read: false, readAt: null };
   }
   if (input.action === 'dismiss_item') {
     if (typeof input.itemId !== 'string') {

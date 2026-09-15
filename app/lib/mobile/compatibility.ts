@@ -2,6 +2,8 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 
+import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
+
 export const MOBILE_API_VERSION = 'v1' as const;
 export const MINIMUM_MOBILE_CLIENT_VERSION = '0.1.0' as const;
 export const MOBILE_AUTH_BASE_PATH = '/api/auth' as const;
@@ -69,6 +71,7 @@ export type MobileCompatibility = {
       'inbox.email_attention',
       'inbox.read_state',
       'inbox.dismiss',
+      typeof MOBILE_INBOX_FILE_CHANGES_CAPABILITY,
       'todos.read',
       'todos.write',
       'todos.follow_up',
@@ -184,6 +187,7 @@ export function createMobileCompatibility(input: {
         'inbox.email_attention',
         'inbox.read_state',
         'inbox.dismiss',
+        MOBILE_INBOX_FILE_CHANGES_CAPABILITY,
         'todos.read',
         'todos.write',
         'todos.follow_up',

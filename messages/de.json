@@ -3008,6 +3008,7 @@
       "todo": "To-do benötigt Aufmerksamkeit",
       "studio": "Studio-Ergebnis bereit",
       "automation": "Automation benötigt Aufmerksamkeit",
+      "file_change": "Dateiänderung",
       "memory": "Memory-Freigabe erforderlich",
       "mcp": "MCP-Verbindung benötigt Aufmerksamkeit"
     },

@@ -984,8 +984,8 @@
       "id": "FVRC-P08",
       "order": 8,
       "title": "Benachrichtigungszentrale fuer erforderliche Reviews",
-      "status": "planned",
-      "phase": "deferred",
+      "status": "in_progress",
+      "phase": "implementation",
       "dependsOn": ["FVRC-P07"],
       "exitGate": "FVRC-G08-NOTIFICATIONS",
       "tasks": [
@@ -993,7 +993,8 @@
           "id": "FVRC-800",
           "order": 0,
           "title": "File-Change-Notification-Typ und abgeleitete Action-needed-Quelle implementieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-15",
           "area": "notifications",
           "dependsOn": ["FVRC-702"],
           "deliverables": [
@@ -1009,6 +1010,12 @@
             "Desktop- und Mobile-Inbox-Contracttests",
             "Deduplizierungs- und Permission-Tests",
             "Resolved-/Dismissed-/Read-State-Tests"
+          ],
+          "completionEvidence": [
+            "Die abgeleitete PostgreSQL-Quelle projiziert genau einen datenminimierten file.change_review_required-Eintrag pro autorisierter, weiter aktionsbeduerftiger Agentenoperation. Sie deckt needs_review, semantic_conflict, relevante partially_applied-Zustaende und fehlgeschlagene direkte Apply-Operationen ab, waehrend erfolgreiche Direktanwendungen und persistence_degraded ausgeschlossen bleiben.",
+            "Autorisierung verlangt Lese- und Schreibrecht sowie Initiator- oder Workspace-Manager-Rolle. Fremde, schreibgeschuetzte und archivierte Workspaces liefern keine Metadaten. Read-, Unread- und Dismiss-Zustaende verwenden die generische nutzer- und workspacegebundene Inbox-State-Tabelle; neuere autoritative Updates reaktivieren dismissed Eintraege ungelesen und erfolgreiche Superseder loesen die Ausgangsoperation auf.",
+            "Desktop-Summary und Mobile Single-, Aggregate-, Filter-, Kategorie- und Badge-Vertraege sind integriert. Mobile Clients erhalten den neuen Target-Typ nur nach explizitem Capability-Opt-in inbox.file_changes.v1; Legacy-Antworten und Push-Hintergrundzaehler bleiben parse-sicher unveraendert. Der generische P800-Fallback markiert den Eintrag beim Oeffnen noch nicht als gelesen.",
+            "Fokussierte Source-, Permission-, Dedup-, Resolution-, Read-State-, Rollout- und Regressionssuites sowie Changed-file ESLint und TypeScript bestanden. Ein echter HTTP-/PostgreSQL-Smoke im einzelnen verwalteten lokalen Team-Seat-Stack bestaetigte Desktop-Summary, Mobile Single/Aggregate, Badge, Capability-Isolation, alle drei PATCH-Wege und die vollstaendige Wiederherstellung der Testzustaende. Ausfuehrliche Evidenz liegt unter evidence/fvrc-800/results.md."
           ]
         },
         {

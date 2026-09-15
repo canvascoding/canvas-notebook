@@ -5,9 +5,21 @@ import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import type { NotificationItem } from '@/app/components/notifications/notification-summary';
-import { notificationHref } from '@/app/components/notifications/notification-actions';
+import {
+  notificationHref,
+  shouldMarkNotificationReadOnOpen,
+} from '@/app/components/notifications/notification-actions';
 
-const ICONS = { chat: MessageSquare, todo: ListTodo, email: Mail, studio: ImageIcon, automation: Workflow, memory: BrainCircuit, mcp: PlugZap };
+const ICONS = {
+  chat: MessageSquare,
+  todo: ListTodo,
+  email: Mail,
+  studio: ImageIcon,
+  automation: Workflow,
+  memory: BrainCircuit,
+  mcp: PlugZap,
+  file_change: Workflow,
+};
 
 export function HomeNotificationItem({ item, showActions, pending, onRead, onDismiss }: {
   item: NotificationItem;
@@ -21,7 +33,9 @@ export function HomeNotificationItem({ item, showActions, pending, onRead, onDis
   const dismissible = item.target.kind === 'studio' || item.target.kind === 'automation';
   return (
     <li className="border-b border-border/60 last:border-0">
-      <Link href={notificationHref(item)} onClick={() => { if (item.unread) onRead(); }} className="flex min-h-[111px] items-start gap-2.5 rounded-lg px-2 py-5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Link href={notificationHref(item)} onClick={() => {
+        if (item.unread && shouldMarkNotificationReadOnOpen(item)) onRead();
+      }} className="flex min-h-[111px] items-start gap-2.5 rounded-lg px-2 py-5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`} />
         <span className="min-w-0 flex-1">
           <span className={`${showActions ? '' : 'line-clamp-2'} text-sm font-medium`}>{item.title}</span>

@@ -73,10 +73,15 @@ export async function countMobileOpenTodos(input: {
 export async function getMobileInboxCategoryCounts(input: {
   userId: string;
   workspaces: WorkspaceContext[];
+  includeFileChanges?: boolean;
 }): Promise<MobileInboxCategoryCounts> {
   const workspaces = uniqueWorkspaces(input.workspaces);
   const [notificationBadge, todoBadge, emailBadges] = await Promise.all([
-    countMobileUnreadNotifications({ userId: input.userId, workspaces }),
+    countMobileUnreadNotifications({
+      userId: input.userId,
+      workspaces,
+      includeFileChanges: input.includeFileChanges,
+    }),
     countMobileOpenTodos({ userId: input.userId, workspaces }),
     Promise.all(workspaces.map((workspace) => countEmailAttention({ userId: input.userId, workspace }))),
   ]);

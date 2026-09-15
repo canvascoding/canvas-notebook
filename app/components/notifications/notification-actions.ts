@@ -9,6 +9,10 @@ export type NotificationMutation = {
   read?: boolean;
 };
 
+export function shouldMarkNotificationReadOnOpen(item: NotificationItem): boolean {
+  return item.target.kind !== 'file_change';
+}
+
 export function notificationHref(item: NotificationItem): string {
   switch (item.target.kind) {
     case 'chat':
@@ -39,6 +43,7 @@ export function notificationHref(item: NotificationItem): string {
     case 'mcp':
       return mcpConnectionSettingsHref(item.target.connectionId);
   }
+  return '/notebook';
 }
 
 export async function updateNotification(payload: NotificationMutation): Promise<void> {

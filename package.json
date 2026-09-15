@@ -72,6 +72,8 @@
     "test:pi:compaction-v2-rollout": "tsx --conditions react-server scripts/session-compaction-v2-rollout-test.ts",
     "eval:pi:compaction-v2": "tsx --conditions react-server scripts/session-compaction-v2-shadow-evaluation.ts",
     "test:file-version-center:rollout": "tsx --conditions react-server scripts/file-version-center-rollout-test.ts && FILE_VERSION_CENTER_MODE=off tsx --conditions react-server scripts/collaboration-agent-approval-route-test.ts",
+    "test:file-version-center:notifications": "tsx --conditions react-server scripts/file-change-review-notification-source-test.ts && tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-bootstrap-test.ts && tsx scripts/home-notifications-test.ts",
+    "test:file-version-center:notifications:integration": "node scripts/file-change-review-notification-api-smoke.mjs",
     "test:file-version-center:shadow-smoke": "node scripts/file-version-center-shadow-smoke.mjs",
     "test:file-version-center:mode-smoke": "node scripts/file-version-center-mode-smoke.mjs",
     "eval:file-version-center:shadow": "tsx scripts/file-version-center-shadow-report.ts",

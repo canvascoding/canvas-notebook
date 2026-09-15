@@ -40,6 +40,7 @@ export async function readNotificationAttention(input: {
       workspaces: input.workspaces,
       filter: 'notifications',
       limit: 12,
+      includeFileChanges: true,
     }), {
       scope: { workspaceIds, workspaceCount: workspaceIds.length },
       counts: { unread: 0, chat: 0, emails: 0, todos: 0, todoUnread: 0, studio: 0, automation: 0 },
@@ -57,7 +58,11 @@ export async function readNotificationAttention(input: {
       workspace,
       items: await listEmailAttention({ userId: input.userId, workspace }),
     }))), []),
-    settleNotificationSource(countMobileUnreadNotifications({ userId: input.userId, workspaces: input.workspaces }), 0),
+    settleNotificationSource(countMobileUnreadNotifications({
+      userId: input.userId,
+      workspaces: input.workspaces,
+      includeFileChanges: true,
+    }), 0),
     settleNotificationSource(listMemoryApprovalAttention({ userId: input.userId, workspaces: input.workspaces }), []),
     settleNotificationSource(listMcpConnectionAttention({ userId: input.userId, now: now.getTime() }), []),
   ]);

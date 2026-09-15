@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
-import { homeNotificationItems, notificationHref, updateNotification } from '../app/components/notifications/notification-actions';
+import {
+  homeNotificationItems,
+  notificationHref,
+  shouldMarkNotificationReadOnOpen,
+  updateNotification,
+} from '../app/components/notifications/notification-actions';
 import type { NotificationItem, NotificationSummary } from '../app/components/notifications/notification-summary';
 
 async function main() {
@@ -16,6 +21,12 @@ async function main() {
     type: 'memory.approval_required' as const,
   };
   const mcp = { ...item('mcp:incident-1', { kind: 'mcp', connectionId: 'connection & 1' }), type: 'mcp.connection_attention' as const };
+  const fileChange = {
+    ...item('file-change:operation-1', {
+      kind: 'file_change', workspaceId: 'workspace-a', lineageId: 'lineage-1', operationId: 'operation-1',
+    }),
+    type: 'file.change_review_required' as const,
+  };
   const summary = {
     items: [chat, todo, email, studio, automation, memory, mcp],
     sections: { notifications: [chat, studio, automation, memory, mcp], todoAttention: [todo], emailAttention: [email] },
@@ -40,6 +51,9 @@ async function main() {
   assert.equal(mcpLink.searchParams.get('tab'), 'mcp');
   assert.equal(mcpLink.searchParams.get('section'), 'mcpConfig');
   assert.equal(mcpLink.searchParams.get('connection'), 'connection & 1');
+  assert.equal(notificationHref(fileChange), '/notebook');
+  assert.equal(shouldMarkNotificationReadOnOpen(fileChange), false, 'generic fallback must not preemptively mark a file review read');
+  assert.equal(shouldMarkNotificationReadOnOpen(chat), true);
   const originalFetch = globalThis.fetch;
   const events: string[] = [];
   Object.defineProperty(globalThis, 'window', { value: { dispatchEvent: (event: Event) => events.push(event.type) }, configurable: true });

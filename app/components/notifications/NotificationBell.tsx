@@ -23,7 +23,12 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
-import { notificationHref, updateNotification, type NotificationMutation } from './notification-actions';
+import {
+  notificationHref,
+  shouldMarkNotificationReadOnOpen,
+  updateNotification,
+  type NotificationMutation,
+} from './notification-actions';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 import {
   readNotificationSummary,
@@ -170,11 +175,13 @@ export function NotificationBell() {
 
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
-    try {
-      await markItemRead(item);
-    } catch {
-      // A session can disappear after the Inbox was loaded. The refresh above clears
-      // the stale entry; navigation still gives the user a route to the related area.
+    if (shouldMarkNotificationReadOnOpen(item)) {
+      try {
+        await markItemRead(item);
+      } catch {
+        // A session can disappear after the Inbox was loaded. The refresh above clears
+        // the stale entry; navigation still gives the user a route to the related area.
+      }
     }
 
     if (item.target.kind !== 'chat') {

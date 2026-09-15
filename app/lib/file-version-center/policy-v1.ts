@@ -59,7 +59,7 @@ export type FileVersionRolloutDecisionV1 = {
   compare: boolean;
   restore: boolean;
   policyMutation: boolean;
-  notifications: false;
+  notifications: boolean;
 };
 
 export function resolveFileVersionRolloutModeV1(
@@ -81,7 +81,7 @@ export function resolveFileVersionRolloutV1(
     compare: mode === 'read_only' || mode === 'full',
     restore: mode === 'full',
     policyMutation: mode === 'full',
-    notifications: false,
+    notifications: mode === 'full',
   };
 }
 

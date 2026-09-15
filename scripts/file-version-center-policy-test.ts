@@ -101,7 +101,10 @@ async function main() {
     assert.deepEqual(resolveFileVersionRolloutV1(testCase.value), testCase.expected, testCase.name);
   }
   assert.deepEqual(resolveFileVersionRolloutV1(undefined), fixtures.rolloutCases[0]?.expected);
-  assert.ok(fixtures.rolloutCases.every((testCase) => !testCase.expected.notifications));
+  assert.deepEqual(
+    fixtures.rolloutCases.filter((testCase) => testCase.expected.notifications).map((testCase) => testCase.expected.mode),
+    ['full'],
+  );
 
   for (const testCase of fixtures.capabilityCases) {
     const actual = resolveFileVersionCapabilitiesV1(testCase.input);

@@ -51,12 +51,14 @@ async function main(): Promise<void> {
   assert.deepEqual(off, resolveFileVersionRolloutV1(undefined));
   assert.equal(off.capture, false);
   assert.equal(off.visibleUi, false);
+  assert.equal(off.notifications, false);
 
   const shadow = resolveFileVersionRolloutV1('shadow');
   assert.equal(shadow.capture, true);
   assert.equal(shadow.visibleUi, false);
   assert.equal(shadow.history, false);
   assert.equal(shadow.restore, false);
+  assert.equal(shadow.notifications, false);
   assert.equal(capabilities('shadow').reason, 'rollout_disabled');
 
   const readOnly = resolveFileVersionRolloutV1('read_only');
@@ -66,13 +68,14 @@ async function main(): Promise<void> {
   assert.equal(readOnly.compare, true);
   assert.equal(readOnly.restore, false);
   assert.equal(readOnly.policyMutation, false);
+  assert.equal(readOnly.notifications, false);
   assert.equal(capabilities('read_only').history, true);
   assert.equal(capabilities('read_only').restore, false);
 
   const full = resolveFileVersionRolloutV1('full');
   assert.equal(full.restore, true);
   assert.equal(full.policyMutation, true);
-  assert.equal(full.notifications, false);
+  assert.equal(full.notifications, true);
   assert.equal(capabilities('full').restore, true);
   assert.equal(capabilities('full').agentReviewPolicy, true);
 

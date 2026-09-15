@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { MOBILE_INBOX_FILE_CHANGES_CAPABILITY } from './inbox-capabilities';
+
 import type { MobileCompatibility } from './compatibility';
 import type { MobileUserProfile } from './user-profile';
 import type { WorkspaceListing } from '@/app/lib/workspaces/listing-action';
@@ -150,6 +152,7 @@ export function createMobileBootstrap(input: {
     'inbox.email_attention',
     'inbox.read_state',
     'inbox.dismiss',
+    MOBILE_INBOX_FILE_CHANGES_CAPABILITY,
     'todos.read',
     'todos.write',
     'todos.follow_up',

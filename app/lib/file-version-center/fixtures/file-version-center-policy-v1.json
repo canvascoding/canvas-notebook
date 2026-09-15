@@ -25,7 +25,7 @@
     {
       "name": "full enables core mutations",
       "value": "full",
-      "expected": { "mode": "full", "capture": true, "visibleUi": true, "history": true, "compare": true, "restore": true, "policyMutation": true, "notifications": false }
+      "expected": { "mode": "full", "capture": true, "visibleUi": true, "history": true, "compare": true, "restore": true, "policyMutation": true, "notifications": true }
     }
   ],
   "capabilityCases": [

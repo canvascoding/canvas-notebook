@@ -2,7 +2,7 @@
 
 export type NotificationItem = {
   id: string;
-  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required';
   title: string;
   detail: string | null;
   occurredAt: string;
@@ -19,6 +19,7 @@ export type NotificationItem = {
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string }
     | { kind: 'mcp'; connectionId: string }
+    | { kind: 'file_change'; workspaceId: string; lineageId: string; operationId: string }
     | { kind: 'memory'; scope: 'workspace' | 'organization'; entryId: string; collectionId: string; workspaceId?: string; organizationId?: string };
 };
 

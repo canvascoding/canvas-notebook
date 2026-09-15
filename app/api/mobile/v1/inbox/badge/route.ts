@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { getMobileInboxCategoryCounts } from '@/app/lib/mobile/inbox-counts';
+import { mobileInboxFileChangesRequested } from '@/app/lib/mobile/inbox-capabilities';
 import { loadMobileInboxScope } from '@/app/lib/mobile/inbox-scope';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -30,9 +31,11 @@ export async function GET(request: NextRequest) {
 
   try {
     const scope = await loadMobileInboxScope(session.user);
+    const includeFileChanges = mobileInboxFileChangesRequested(request.nextUrl.searchParams);
     const categories = await getMobileInboxCategoryCounts({
       userId: session.user.id,
       workspaces: scope.availableWorkspaces,
+      includeFileChanges,
     });
     return NextResponse.json({ success: true, count: categories.notifications.badge, categories }, { headers: responseHeaders });
   } catch (error) {

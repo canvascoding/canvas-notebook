@@ -2993,6 +2993,7 @@
       "todo": "To-do needs attention",
       "studio": "Studio result ready",
       "automation": "Automation needs attention",
+      "file_change": "File change",
       "memory": "Memory approval required",
       "mcp": "MCP connection needs attention"
     },
