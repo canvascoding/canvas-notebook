@@ -11,11 +11,14 @@ import {
 import {
   BACKGROUND_OPTIONS,
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_IMAGE_FORMAT_PRESETS,
+  OPENAI_IMAGE_SIZE_LIMITS,
   OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_MODERATION_OPTIONS,
   OPENAI_RECOMMENDED_IMAGE_SIZES,
   getAspectRatiosForProvider,
   getDefaultOpenAIImageSize,
+  getOpenAIImageAspectRatio,
   getDefaultModelForProvider,
   getImageSizesForModel,
   getMaxImageCountForProvider,
@@ -23,6 +26,7 @@ import {
   getVideoDurationsForModel,
   getVideoResolutionsForModel,
   isValidOpenAIImageSize,
+  normalizeOpenAIImageSizeInput,
   QUALITY_OPTIONS,
 } from '@/app/lib/integrations/image-generation-constants';
 import { getStudioProviderConfig } from '@/app/lib/integrations/studio-config';
@@ -196,9 +200,11 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   const models = getModelsForProvider(mode, provider).map((model) => model.id);
   const model = enumValue(value.model, models, getDefaultModelForProvider(mode, provider), 'Model');
   const aspectRatios = getAspectRatiosForProvider(mode, provider);
-  const aspectRatio = mode === 'sound'
+  let aspectRatio = mode === 'sound'
     ? '1:1'
-    : enumValue(value.aspectRatio, aspectRatios, aspectRatios[0] || '1:1', 'Aspect ratio');
+    : mode === 'image' && provider === 'openai'
+      ? optionalString(value.aspectRatio, 'Aspect ratio', 40) || aspectRatios[0] || '1:1'
+      : enumValue(value.aspectRatio, aspectRatios, aspectRatios[0] || '1:1', 'Aspect ratio');
   const prompt = optionalString(
     value.prompt,
     'Prompt',
@@ -265,10 +271,11 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     : undefined;
   if (mode === 'image' && provider === 'openai') {
     imageSize = optionalString(value.imageSize, 'Image size', 40) || getDefaultOpenAIImageSize(aspectRatio);
+    imageSize = normalizeOpenAIImageSizeInput(imageSize);
     if (!isValidOpenAIImageSize(imageSize)) {
       throw new MobileStudioError('OpenAI image size is not supported.', 400, 'UNSUPPORTED_STUDIO_OPTION');
     }
-    imageSize = imageSize.toLowerCase();
+    aspectRatio = getOpenAIImageAspectRatio(imageSize, aspectRatio);
   }
   const videoResolutions = mode === 'video' ? getVideoResolutionsForModel(model) : [];
   const videoResolution = mode === 'video'
@@ -430,11 +437,7 @@ export async function getMobileStudioCatalog(input: {
       openAIImageSize: {
         format: 'WIDTHxHEIGHT',
         recommended: [...OPENAI_RECOMMENDED_IMAGE_SIZES],
-        multipleOf: 16,
-        minimumPixels: 655_360,
-        maximumPixels: 8_294_400,
-        maximumEdge: 3840,
-        maximumAspectRatio: 3,
+        ...OPENAI_IMAGE_SIZE_LIMITS,
       },
       openAIImage: {
         modelId: OPENAI_IMAGE_MODEL_ID,
@@ -449,14 +452,11 @@ export async function getMobileStudioCatalog(input: {
         outputCompression: { minimum: 0, maximum: 100, default: 100 },
         supportsStreaming: true,
         maxPartialImages: 3,
+        formats: OPENAI_IMAGE_FORMAT_PRESETS.map((format) => ({ ...format })),
         imageSize: {
           format: 'WIDTHxHEIGHT',
           recommended: [...OPENAI_RECOMMENDED_IMAGE_SIZES],
-          multipleOf: 16,
-          minimumPixels: 655_360,
-          maximumPixels: 8_294_400,
-          maximumEdge: 3840,
-          maximumAspectRatio: 3,
+          ...OPENAI_IMAGE_SIZE_LIMITS,
         },
       },
       imageOutputFormats: ['png', 'jpeg', 'webp'],

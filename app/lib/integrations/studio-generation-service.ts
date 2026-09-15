@@ -49,9 +49,12 @@ import {
   SEEDANCE_MAX_REFERENCE_IMAGES,
   VEO_MAX_REFERENCE_IMAGES,
   getMaxImageCountForProvider,
+  getOpenAIImageAspectRatio,
   getOpenAIImageRequestValidationError,
+  isValidOpenAIImageSize,
   normalizeGeminiImageModelId,
   normalizeOpenAIImageModelId,
+  normalizeOpenAIImageSizeInput,
   normalizeOpenAIImageOutputFormat,
   type OpenAIImageBackground,
   type OpenAIImageInputFidelity,
@@ -789,7 +792,13 @@ export async function createStudioGeneration(
 ): Promise<{ generationId: string; mode: string; prompt: string }> {
   const mode = request.mode || 'image';
   const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
-  const aspectRatio = request.aspect_ratio || '1:1';
+  const requestedAspectRatio = request.aspect_ratio || '1:1';
+  const openAIImageSize = mode === 'image' && providerId === 'openai' && request.image_size
+    ? normalizeOpenAIImageSizeInput(request.image_size)
+    : request.image_size;
+  const aspectRatio = mode === 'image' && providerId === 'openai' && openAIImageSize
+    ? getOpenAIImageAspectRatio(openAIImageSize, requestedAspectRatio)
+    : requestedAspectRatio;
   if (mode === 'image' && providerId === 'openai') {
     const validationError = getOpenAIImageRequestValidationError({
       model: request.model,
@@ -800,7 +809,7 @@ export async function createStudioGeneration(
       moderation: request.moderation,
       outputCompression: request.output_compression,
       inputFidelity: request.input_fidelity,
-      imageSize: request.image_size,
+      imageSize: openAIImageSize,
       stream: request.stream,
       partialImages: request.partial_images,
     });
@@ -946,7 +955,7 @@ export async function createStudioGeneration(
     inputFidelity: request.input_fidelity,
     stream: request.stream,
     partialImages: request.partial_images,
-    imageSize: request.image_size,
+    imageSize: openAIImageSize,
     videoResolution: request.video_resolution,
     videoDuration: request.video_duration,
     videoGenerateAudio: request.video_generate_audio,
@@ -1370,7 +1379,10 @@ async function generateStudioImages(
     ? normalizedModel
     : (provider.models[0]?.id || normalizedModel);
 
-  if (!provider.supportedAspectRatios.includes(aspectRatio)) {
+  const hasValidOpenAIImageSize = providerId === 'openai'
+    && typeof options?.imageSize === 'string'
+    && isValidOpenAIImageSize(options.imageSize);
+  if (!provider.supportedAspectRatios.includes(aspectRatio) && !hasValidOpenAIImageSize) {
     const supportedList = provider.supportedAspectRatios.join(', ');
     throw new StudioServiceError(
       `Aspect ratio ${aspectRatio} not supported`,

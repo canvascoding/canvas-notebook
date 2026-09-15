@@ -17,6 +17,7 @@ import {
   getOpenAIImageSizeValidationError,
   normalizeGeminiImageModelId,
   normalizeOpenAIImageOutputFormat,
+  normalizeOpenAIImageSizeInput,
   type OpenAIImageBackground,
   type OpenAIImageInputFidelity,
   type OpenAIImageModeration,
@@ -328,7 +329,9 @@ class OpenAIImageProvider implements ImageGenerationProvider {
       throw new Error('Unsupported OpenAI input fidelity.');
     }
     const outputFormat = normalizeOpenAIImageOutputFormat(params.background, params.outputFormat) || 'png';
-    const size = (params.imageSize || getDefaultOpenAIImageSize(params.aspectRatio)).trim().toLowerCase();
+    const size = normalizeOpenAIImageSizeInput(
+      params.imageSize || getDefaultOpenAIImageSize(params.aspectRatio),
+    );
     const sizeError = getOpenAIImageSizeValidationError(size);
     if (sizeError) {
       throw new Error(`Invalid OpenAI image size "${size}": ${sizeError}`);

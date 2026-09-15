@@ -39,6 +39,16 @@ assert.equal(request.stream, true);
 assert.equal(request.partial_images, 3);
 assert.equal(request.image_size, '3840x2160');
 
+const customFormatRequest = parseMobileStudioGenerationRequest({
+  mode: 'image',
+  provider: 'openai',
+  prompt: 'custom format',
+  aspectRatio: '1:1',
+  imageSize: '1280 × 1024',
+});
+assert.equal(customFormatRequest.image_size, '1280x1024');
+assert.equal(customFormatRequest.aspect_ratio, '5:4');
+
 assert.throws(() => parseMobileStudioGenerationRequest({
   mode: 'image',
   provider: 'openai',
@@ -99,5 +109,6 @@ const mobileStudioSource = readFileSync(path.join(process.cwd(), 'app/lib/mobile
 assert.match(mobileStudioSource, /qualities: \[\.\.\.LEGACY_MOBILE_QUALITY_OPTIONS\]/u);
 assert.match(mobileStudioSource, /maxPromptLength: 32_000/u);
 assert.match(mobileStudioSource, /maxOutputCount: getMaxImageCountForProvider\('image', 'openai'\)/u);
+assert.match(mobileStudioSource, /formats: OPENAI_IMAGE_FORMAT_PRESETS\.map/u);
 
 console.log('mobile-studio-test: ok');

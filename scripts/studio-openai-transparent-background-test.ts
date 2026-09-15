@@ -99,6 +99,8 @@ const generationServiceSource = readFileSync(path.join(process.cwd(), 'app/lib/i
 const validationPosition = generationServiceSource.indexOf('getOpenAIImageRequestValidationError({');
 const persistencePosition = generationServiceSource.indexOf('const requestMetadata = JSON.stringify({');
 assert.ok(validationPosition >= 0 && validationPosition < persistencePosition, 'OpenAI options must be validated before persistence');
+assert.match(generationServiceSource, /getOpenAIImageAspectRatio\(openAIImageSize, requestedAspectRatio\)/u);
+assert.match(generationServiceSource, /!provider\.supportedAspectRatios\.includes\(aspectRatio\) && !hasValidOpenAIImageSize/u);
 
 class MemoryStorage {
   private values = new Map<string, string>();
