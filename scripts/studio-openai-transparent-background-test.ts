@@ -4,11 +4,16 @@ import path from 'node:path';
 
 import {
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_ASPECT_RATIOS,
+  OPENAI_IMAGE_FORMAT_PRESETS,
   OPENAI_MODELS,
   QUALITY_OPTIONS,
   getMaxImageCountForProvider,
   getOpenAIImageRequestValidationError,
+  getOpenAIImageAspectRatio,
+  getOpenAIImageFormatPreset,
   getOpenAIImageSizeValidationError,
+  normalizeOpenAIImageSizeInput,
   normalizeOpenAIImageModelId,
   normalizeOpenAIImageOutputFormat,
 } from '../app/lib/integrations/image-generation-constants';
@@ -19,6 +24,13 @@ assert.equal(normalizeOpenAIImageModelId('gpt-image-2'), OPENAI_IMAGE_MODEL_ID);
 assert.equal(normalizeOpenAIImageModelId('gpt-image-2-2026-04-21'), OPENAI_IMAGE_MODEL_ID);
 assert.deepEqual(QUALITY_OPTIONS, ['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
 assert.equal(getMaxImageCountForProvider('image', 'openai'), 10);
+assert.deepEqual(OPENAI_ASPECT_RATIOS, ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4', '4:5', 'auto']);
+assert.equal(OPENAI_IMAGE_FORMAT_PRESETS.length, 9);
+assert.equal(getOpenAIImageFormatPreset('1536 × 1024')?.aspectRatio, '3:2');
+assert.equal(getOpenAIImageAspectRatio('1280x1024'), '5:4');
+assert.equal(getOpenAIImageAspectRatio('auto'), 'auto');
+assert.equal(normalizeOpenAIImageSizeInput(' 1536 × 864 '), '1536x864');
+assert.equal(normalizeOpenAIImageSizeInput('01024 X 01536'), '1024x1536');
 
 assert.equal(normalizeOpenAIImageOutputFormat('transparent', 'jpeg'), 'png');
 assert.equal(normalizeOpenAIImageOutputFormat('transparent', 'png'), 'png');
@@ -28,6 +40,7 @@ assert.equal(normalizeOpenAIImageOutputFormat('auto', undefined), undefined);
 
 assert.equal(getOpenAIImageSizeValidationError('auto'), null);
 assert.equal(getOpenAIImageSizeValidationError('1536x864'), null);
+assert.equal(getOpenAIImageSizeValidationError('1536 × 864'), null);
 assert.equal(getOpenAIImageSizeValidationError('2160x3840'), null);
 assert.match(getOpenAIImageSizeValidationError('1537x864') || '', /divisible by 16/);
 assert.match(getOpenAIImageSizeValidationError('4096x1024') || '', /3840/);

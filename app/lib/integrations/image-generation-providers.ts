@@ -9,6 +9,7 @@ import {
   BACKGROUND_OPTIONS,
   OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_ASPECT_RATIOS,
   OPENAI_MODERATION_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   QUALITY_OPTIONS,
@@ -109,8 +110,6 @@ const OPENAI_MODELS: ImageModelOption[] = [
 ];
 
 const GEMINI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'];
-const OPENAI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', 'auto'];
-
 function extractUsage(usage: unknown): ProviderGenerateResult['usage'] {
   if (!usage || typeof usage !== 'object') return undefined;
   const u = usage as unknown as Record<string, unknown>;
@@ -300,7 +299,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
   name = 'OpenAI GPT Image';
   requiredApiKey = 'OPENAI_API_KEY';
   models = OPENAI_MODELS;
-  supportedAspectRatios = OPENAI_ASPECT_RATIOS;
+  supportedAspectRatios = [...OPENAI_ASPECT_RATIOS];
   maxReferenceImages = 16;
   maxImageCount = 10;
   supportsQuality = true;
