@@ -7767,6 +7767,24 @@
         "adapt": "Adapts to input image (OpenAI)"
       }
     },
+    "imageFormat": {
+      "title": "Image format",
+      "description": "Choose a visual preset or enter an exact OpenAI image size.",
+      "triggerLabel": "Image format {ratio}, {size}",
+      "auto": "Auto",
+      "automatic": "Prompt based",
+      "custom": "Custom",
+      "width": "Width",
+      "height": "Height",
+      "requirements": "Both values must be multiples of 16. Ratio 1:3–3:1, maximum edge 3840 px.",
+      "errors": {
+        "format": "Enter width and height.",
+        "multipleOf": "Width and height must be divisible by 16.",
+        "maximumEdge": "Neither edge may exceed 3840 px.",
+        "aspectRatio": "The aspect ratio must be between 1:3 and 3:1.",
+        "pixelCount": "The total size must be between 655,360 and 8,294,400 pixels."
+      }
+    },
     "sections": {
       "frames": {
         "title": "Video Frames",

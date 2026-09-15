@@ -95,6 +95,9 @@ for (const apiParameter of [
   assert.match(providerSource, new RegExp(apiParameter), `Provider must pass ${apiParameter}`);
 }
 
+const studioGenerationHookSource = readFileSync(path.join(process.cwd(), 'app/apps/studio/hooks/useStudioGeneration.ts'), 'utf8');
+assert.match(studioGenerationHookSource, /image_size: imageFormat\.imageSize/u);
+
 const generationServiceSource = readFileSync(path.join(process.cwd(), 'app/lib/integrations/studio-generation-service.ts'), 'utf8');
 const validationPosition = generationServiceSource.indexOf('getOpenAIImageRequestValidationError({');
 const persistencePosition = generationServiceSource.indexOf('const requestMetadata = JSON.stringify({');
@@ -131,6 +134,22 @@ async function testPersistedOpenAIMigration() {
   const migratedState = createStudioGenerationStore().getState();
   assert.equal(migratedState.model, OPENAI_IMAGE_MODEL_ID);
   assert.equal(migratedState.imageSize, '1536x864');
+
+  localStorage.setItem('studio-generation-options', JSON.stringify({
+    mode: 'image',
+    provider: 'openai',
+    model: OPENAI_IMAGE_MODEL_ID,
+    aspectRatio: '1:1',
+    imageSize: '1280 × 1024',
+  }));
+  const restoredCustomState = createStudioGenerationStore().getState();
+  assert.equal(restoredCustomState.imageSize, '1280x1024');
+  assert.equal(restoredCustomState.aspectRatio, '5:4');
+
+  restoredCustomState.setOpenAIImageFormat({ aspectRatio: '4:5', imageSize: '1024x1280' });
+  const updatedCustomState = createStudioGenerationStore().getState();
+  assert.equal(updatedCustomState.imageSize, '1024x1280');
+  assert.equal(updatedCustomState.aspectRatio, '4:5');
 }
 
 testPersistedOpenAIMigration()

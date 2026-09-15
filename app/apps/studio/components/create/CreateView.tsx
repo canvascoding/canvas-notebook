@@ -42,7 +42,12 @@ import { FilterBar } from './FilterBar';
 import { StudioPromptComposer, canGenerateWithStudioState } from './StudioPromptComposer';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { BatchDeleteDialog } from './BatchDeleteDialog';
-import { getDefaultModelForProvider, normalizeGeminiImageModelId } from '@/app/lib/integrations/image-generation-constants';
+import {
+  getDefaultModelForProvider,
+  getDefaultOpenAIImageSize,
+  normalizeGeminiImageModelId,
+  normalizeOpenAIImageModelId,
+} from '@/app/lib/integrations/image-generation-constants';
 import { toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore, type ReferenceTag } from '@/app/store/studio-generation-store';
@@ -54,6 +59,7 @@ import {
   type StudioGenerateHandoffDraft,
 } from '../../utils/studio-generate-handoff';
 import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
+import { getStudioGenerationImageFormat } from '../../utils/studio-generation-settings';
 import { getVideoImageReferenceBudget } from '../../utils/video-reference-limits';
 import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
@@ -654,12 +660,31 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   }, [personas, presets, products, store, styles]);
 
   const applyGenerationSettingsToPrompt = useCallback((generation: StudioGeneration) => {
+    const provider = generation.provider || 'gemini';
+    const fallbackModel = getDefaultModelForProvider('image', provider);
     store.setMode('image');
-    store.setProvider(generation.provider || 'gemini');
-    store.setModel(normalizeGeminiImageModelId(generation.model || getDefaultModelForProvider('image', generation.provider || 'gemini')));
+    store.setProvider(provider);
+    store.setModel(provider === 'openai'
+      ? normalizeOpenAIImageModelId(generation.model || fallbackModel)
+      : normalizeGeminiImageModelId(generation.model || fallbackModel));
     store.setCount(1);
     applyGenerationReferencesToPrompt(generation);
   }, [applyGenerationReferencesToPrompt, store]);
+
+  const applyGenerationImageFormatToPrompt = useCallback((generation: StudioGeneration, aspectRatio?: string) => {
+    if (generation.provider === 'openai' && generation.mode === 'image') {
+      const storedFormat = getStudioGenerationImageFormat(generation);
+      const nextAspectRatio = aspectRatio || storedFormat.aspectRatio;
+      store.setOpenAIImageFormat({
+        aspectRatio: nextAspectRatio,
+        imageSize: aspectRatio && aspectRatio !== storedFormat.aspectRatio
+          ? getDefaultOpenAIImageSize(aspectRatio)
+          : storedFormat.imageSize || getDefaultOpenAIImageSize(nextAspectRatio),
+      });
+      return;
+    }
+    store.setAspectRatio(aspectRatio || generation.aspectRatio || '1:1');
+  }, [store]);
 
   const replaceFileRefsWithOutput = useCallback((output: StudioGenerationOutput) => {
     const ref = getOutputReference(output);
@@ -669,10 +694,10 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const applyOutputAsImageVariation = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
     applyGenerationSettingsToPrompt(generation);
     store.setRawPrompt(getStudioUserPrompt(generation));
-    store.setAspectRatio(generation.aspectRatio || '1:1');
+    applyGenerationImageFormatToPrompt(generation);
     replaceFileRefsWithOutput(output);
     clearSelectedOutput();
-  }, [applyGenerationSettingsToPrompt, clearSelectedOutput, replaceFileRefsWithOutput, store]);
+  }, [applyGenerationImageFormatToPrompt, applyGenerationSettingsToPrompt, clearSelectedOutput, replaceFileRefsWithOutput, store]);
 
   const applyOutputAsVideoSource = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
     store.setMode('video');
@@ -695,12 +720,12 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
   const handleUseAspectRatio = useCallback((generation: StudioGeneration, output: StudioGenerationOutput, aspectRatio: string) => {
     applyGenerationSettingsToPrompt(generation);
-    store.setAspectRatio(aspectRatio);
+    applyGenerationImageFormatToPrompt(generation, aspectRatio);
     store.setRawPrompt(`Make the aspect ratio ${aspectRatio}`);
     replaceFileRefsWithOutput(output);
     setSelectedGenerationId(null);
     setSelectedOutputId(null);
-  }, [applyGenerationSettingsToPrompt, replaceFileRefsWithOutput, store]);
+  }, [applyGenerationImageFormatToPrompt, applyGenerationSettingsToPrompt, replaceFileRefsWithOutput, store]);
 
   const handleOpenCustomAspectRatio = useCallback((generation: StudioGeneration, output: StudioGenerationOutput) => {
     if (output.type !== 'image' || !output.filePath) return;
@@ -738,7 +763,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
       }
 
       applyGenerationSettingsToPrompt(editSelection.generation);
-      store.setAspectRatio(editSelection.generation.aspectRatio || '1:1');
+      applyGenerationImageFormatToPrompt(editSelection.generation);
       store.setRawPrompt(prompt);
       store.setFileRefs([{
         id: payload.edit.path,
@@ -753,7 +778,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     } finally {
       setSavingEditSelection(false);
     }
-  }, [applyGenerationSettingsToPrompt, editSelection, store]);
+  }, [applyGenerationImageFormatToPrompt, applyGenerationSettingsToPrompt, editSelection, store]);
 
   useEffect(() => {
     void fetchGenerations();

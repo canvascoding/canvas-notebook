@@ -7766,6 +7766,24 @@
         "adapt": "Passt sich an das Eingabebild an (OpenAI)"
       }
     },
+    "imageFormat": {
+      "title": "Bildformat",
+      "description": "Wähle ein visuelles Preset oder gib eine exakte OpenAI-Bildgröße ein.",
+      "triggerLabel": "Bildformat {ratio}, {size}",
+      "auto": "Auto",
+      "automatic": "Promptbasiert",
+      "custom": "Frei",
+      "width": "Breite",
+      "height": "Höhe",
+      "requirements": "Beide Werte müssen durch 16 teilbar sein. Verhältnis 1:3–3:1, längste Kante 3840 px.",
+      "errors": {
+        "format": "Gib Breite und Höhe ein.",
+        "multipleOf": "Breite und Höhe müssen durch 16 teilbar sein.",
+        "maximumEdge": "Keine Kante darf länger als 3840 px sein.",
+        "aspectRatio": "Das Seitenverhältnis muss zwischen 1:3 und 3:1 liegen.",
+        "pixelCount": "Die Gesamtgröße muss zwischen 655.360 und 8.294.400 Pixeln liegen."
+      }
+    },
     "sections": {
       "frames": {
         "title": "Video Frames",
