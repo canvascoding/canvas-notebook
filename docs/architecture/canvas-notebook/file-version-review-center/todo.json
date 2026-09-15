@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "feature": "file-version-review-center",
   "title": "File Version & Review Center",
-  "updatedAt": "2026-09-14",
+  "updatedAt": "2026-09-15",
   "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "documents": [
@@ -877,7 +877,7 @@
       "id": "FVRC-P07",
       "order": 7,
       "title": "Kernfeature haerten und kontrolliert ausrollen",
-      "status": "in_progress",
+      "status": "completed",
       "dependsOn": ["FVRC-P06"],
       "exitGate": "FVRC-G07-CORE-READY",
       "tasks": [
@@ -951,7 +951,8 @@
           "id": "FVRC-702",
           "order": 2,
           "title": "Feature-Flag-Rollout, Shadow-Capture-Messung und Rollback-Nachweis abschliessen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-15",
           "area": "rollout",
           "dependsOn": ["FVRC-701"],
           "deliverables": [
@@ -968,6 +969,13 @@
             "Feature-Flag- und Rollback-Test",
             "Metrik- und Log-Review",
             "Vollstaendiger fokussierter Testlauf, git diff --check, ESLint und npm run build"
+          ],
+          "completionEvidence": [
+            "FILE_VERSION_CENTER_MODE wurde im einzelnen verwalteten lokalen Team-Seat-Stack in der Reihenfolge shadow, read_only, off und abschliessend full mit jeweils erfolgreichem Host-Build sowie frischem Notebook-Container-Rebuild/Recreate geprueft. Das Runbook in operations.md beschreibt Aktivierungsringe, Haltebedingungen, datenbewahrenden Rollback und Supportdiagnose.",
+            "Ein echter Markdown-Import erzeugte im Shadow-Modus eine neue immutable Versionsbindung. Der inhaltsfreie NDJSON-Report wurde gegen reale Aggregate ausgewertet: Capture-P95 72 ms, Read-P95 41 ms, 15 gebundene Versionen, 11 eindeutige Blobs, 2.157 gespeicherte Bytes und alle FVRC-002- sowie 1.000-ms-Canary-Gates bestanden. Die Capture-P95 misst bewusst die gesamte authentifizierte Import-/Write-Requestdauer.",
+            "Read-only erlaubte History und Compare und blockierte Restore sowie Policy-Aenderungen serverseitig. Off hielt normale Datei-I/O und die bestehende Collaboration-Agent-Review-Route nutzbar, verbarg alle FVRC-Capabilities und entfernte erst danach den Canary. Aggregate fuer Blobs, Revision-Contents, offene Reviews, Policies und Restore-Receipts blieben ueber read_only und off exakt 11/15/0/1/1; es gab keine Down-Migration oder Datenloeschung.",
+            "scripts/file-version-center-rollout-test.ts, file-version-center-shadow-smoke.mjs, file-version-center-mode-smoke.mjs und file-version-center-shadow-report.ts liefern reproduzierbare Contract-, Live-, Rollback- und Messgates ohne Inhalte, Pfade, IDs oder Secrets in gespeicherter Evidenz. Hardening-, Collaboration-Approval- und Fixture-Suites, ESLint, TypeScript, JSON, git diff --check sowie der finale full Host-/Container-Build und alle Loopback-Healthchecks bestanden.",
+            "Die aggregierte Evidence liegt unter evidence/fvrc-702/results.md. Die bekannte externe Ollama-502 aus FVRC-701 blieb ein separater Providerbefund, wurde fuer FVRC-702 nicht erneut als Gate ausgefuehrt und beeinflusste weder Build, Stackgesundheit, Shadow-Messung noch Rollback-Nachweis."
           ]
         }
       ]
