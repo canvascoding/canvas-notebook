@@ -1195,8 +1195,9 @@ export function MemorySettingsPanel() {
                   <Input id="memory-budget" data-testid="memory-reviewer-budget" type="number" min={0} max={4000} value={settings.memoryPromptMaxTokens} onChange={(event) => setSettings({ ...settings, memoryPromptMaxTokens: Number(event.target.value) })} />
                   <p className="text-xs text-muted-foreground">{t('reviewer.promptBudgetHint')}</p>
                 </div>
-                <Button className="mt-4 w-full" onClick={() => void savePersonalSettings()} disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}{t('reviewer.savePersonal')}
+                <Button className="mt-4 h-auto min-h-9 w-full whitespace-normal px-3 py-2 text-center leading-5" onClick={() => void savePersonalSettings()} disabled={saving}>
+                  {saving ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Save className="size-4 shrink-0" />}
+                  <span className="min-w-0">{t('reviewer.savePersonal')}</span>
                 </Button>
               </div>
               <div className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">

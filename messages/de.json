@@ -3523,7 +3523,7 @@
         "runtimeSaveError": "Die Organisations-Runtime des Memory-Reviewers konnte nicht gespeichert werden.",
         "promptBudget": "Prompt-Budget (Tokens)",
         "promptBudgetHint": "Festes Limit: 4.000 Tokens und höchstens 10 % des nutzbaren Kontexts.",
-        "savePersonal": "Persönliche Review-Einstellungen speichern",
+        "savePersonal": "Review-Einstellungen speichern",
         "personalSaved": "Deine persönlichen Memory-Review-Einstellungen wurden gespeichert.",
         "queue": "Review-Warteschlange",
         "jobs": "{count, plural, one {# Job} other {# Jobs}}"
