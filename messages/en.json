@@ -2997,6 +2997,25 @@
       "memory": "Memory approval required",
       "mcp": "MCP connection needs attention"
     },
+    "fileChanges": {
+      "openFailed": "The file change could not be opened.",
+      "needs_review": {
+        "title": "File change needs review",
+        "detail": "An agent change is waiting for review."
+      },
+      "partially_applied": {
+        "title": "File change needs review",
+        "detail": "Part of the change was applied; review what remains."
+      },
+      "semantic_conflict": {
+        "title": "File change has a conflict",
+        "detail": "The agent change conflicts with the current document."
+      },
+      "direct_apply_failed": {
+        "title": "File change could not be applied",
+        "detail": "The direct change failed safely and needs review."
+      }
+    },
     "empty": {
       "title": "All read",
       "description": "New replies, approvals, to-dos, and important results appear here."

@@ -12,6 +12,10 @@ import {
   type FileVersionCenterRequestV1,
   type FileVersionCenterSelectionV1,
 } from '@/app/lib/file-version-center/contracts/v1';
+import {
+  fileChangeReviewNotificationItemId,
+  type FileChangeReviewNotificationTarget,
+} from '@/app/lib/file-version-center/notification-contract';
 
 type FileVersionCenterState = {
   request: FileVersionCenterRequestV1 | null;
@@ -20,6 +24,25 @@ type FileVersionCenterState = {
 type FileVersionCenterOpenOptions = {
   syncLocation?: boolean;
 };
+
+type TrustedFileChangeReviewIntent = {
+  generation: number;
+  requestGeneration: number;
+  workspaceId: string;
+  lineageId: string;
+  operationId: string;
+  itemId: string;
+  state: 'pending' | 'acknowledged';
+};
+
+export type FileChangeReviewAcknowledgement = Pick<
+  TrustedFileChangeReviewIntent,
+  'generation' | 'workspaceId' | 'itemId'
+>;
+
+let requestGeneration = 0;
+let trustedIntentGeneration = 0;
+let trustedFileChangeReviewIntent: TrustedFileChangeReviewIntent | null = null;
 
 function browserHref(): string | null {
   if (typeof window === 'undefined') return null;
@@ -35,11 +58,21 @@ export const useFileVersionCenterStore = create<FileVersionCenterState>(() => ({
   request: null,
 }));
 
-export function openVersionCenter(
-  value: FileVersionCenterRequestV1,
-  options: FileVersionCenterOpenOptions = {},
+function commitVersionCenterRequest(
+  request: FileVersionCenterRequestV1,
+  options: FileVersionCenterOpenOptions,
+  trustedTarget?: FileChangeReviewNotificationTarget,
 ): FileVersionCenterRequestV1 {
-  const request = parseFileVersionCenterRequestV1(value);
+  requestGeneration += 1;
+  trustedFileChangeReviewIntent = trustedTarget ? {
+    generation: ++trustedIntentGeneration,
+    requestGeneration,
+    workspaceId: trustedTarget.workspaceId,
+    lineageId: trustedTarget.lineageId,
+    operationId: trustedTarget.operationId,
+    itemId: fileChangeReviewNotificationItemId(trustedTarget.operationId),
+    state: 'pending',
+  } : null;
   if (options.syncLocation !== false) {
     const currentHref = browserHref();
     if (currentHref) replaceBrowserHref(buildFileVersionCenterDeepLinkV1(currentHref, request));
@@ -48,7 +81,35 @@ export function openVersionCenter(
   return request;
 }
 
+export function openVersionCenter(
+  value: FileVersionCenterRequestV1,
+  options: FileVersionCenterOpenOptions = {},
+): FileVersionCenterRequestV1 {
+  const request = parseFileVersionCenterRequestV1(value);
+  return commitVersionCenterRequest(request, options);
+}
+
+export function openVersionCenterFromNotification(
+  target: FileChangeReviewNotificationTarget,
+  options: FileVersionCenterOpenOptions = {},
+): FileVersionCenterRequestV1 {
+  const request = parseFileVersionCenterRequestV1({
+    contractVersion: 1,
+    target: {
+      kind: 'lineage',
+      workspaceId: target.workspaceId,
+      lineageId: target.lineageId,
+    },
+    selectedEntry: { kind: 'agent_operation', id: target.operationId },
+    initialView: 'reviews',
+    source: 'notification',
+  });
+  return commitVersionCenterRequest(request, options, target);
+}
+
 export function closeVersionCenter(options: FileVersionCenterOpenOptions = {}): void {
+  requestGeneration += 1;
+  trustedFileChangeReviewIntent = null;
   if (options.syncLocation !== false) {
     const currentHref = browserHref();
     if (currentHref) replaceBrowserHref(removeFileVersionCenterDeepLinkV1(currentHref));
@@ -73,9 +134,49 @@ export function selectVersionCenterEntry(
   if (current.selectedEntry?.kind === selectedEntry?.kind
     && current.selectedEntry?.id === selectedEntry?.id
     && current.initialView === initialView) return current;
-  return openVersionCenter({
+  if (trustedFileChangeReviewIntent
+    && (selectedEntry?.kind !== 'agent_operation'
+      || selectedEntry.id !== trustedFileChangeReviewIntent.operationId)) {
+    trustedFileChangeReviewIntent = null;
+  }
+  const request = parseFileVersionCenterRequestV1({
     ...current,
     selectedEntry,
     initialView,
   });
+  const currentHref = browserHref();
+  if (currentHref) replaceBrowserHref(buildFileVersionCenterDeepLinkV1(currentHref, request));
+  useFileVersionCenterStore.setState({ request });
+  return request;
+}
+
+export function claimFileChangeReviewAcknowledgement(input: {
+  request: FileVersionCenterRequestV1;
+  workspaceId: string;
+  lineageId: string;
+  operationId: string;
+}): FileChangeReviewAcknowledgement | null {
+  const intent = trustedFileChangeReviewIntent;
+  if (
+    !intent
+    || intent.state !== 'pending'
+    || intent.requestGeneration !== requestGeneration
+    || useFileVersionCenterStore.getState().request !== input.request
+    || input.request.source !== 'notification'
+    || intent.workspaceId !== input.workspaceId
+    || intent.lineageId !== input.lineageId
+    || intent.operationId !== input.operationId
+  ) return null;
+  intent.state = 'acknowledged';
+  return {
+    generation: intent.generation,
+    workspaceId: intent.workspaceId,
+    itemId: intent.itemId,
+  };
+}
+
+export function releaseFileChangeReviewAcknowledgement(generation: number): void {
+  if (trustedFileChangeReviewIntent?.generation === generation) {
+    trustedFileChangeReviewIntent.state = 'pending';
+  }
 }

@@ -89,10 +89,16 @@ function assertDeepLinkRoundtrip(request: FileVersionCenterRequestV1, href: stri
   assert.deepEqual(decoded.selectedEntry, request.selectedEntry);
   assert.equal(decoded.initialView, request.initialView);
   assert.equal(decoded.source, 'deep_link');
+  assert.equal(new URL(link, 'https://canvas.test').searchParams.get('fvrcSource'), null);
 
   const removed = removeFileVersionCenterDeepLinkV1(link);
   assert.equal(removed, href);
 }
+
+const spoofedNotificationSource = parseFileVersionCenterDeepLinkV1(new URLSearchParams(
+  'fvrc=1&fvrcTarget=lineage&fvrcWorkspace=workspace-one&fvrcRef=lineage-one&fvrcView=reviews&fvrcSelectedKind=agent_operation&fvrcSelectedId=operation-one&fvrcSource=notification',
+));
+assert.equal(spoofedNotificationSource?.source, 'deep_link', 'URL input can never create a trusted notification source');
 
 async function main() {
   const fixtures = JSON.parse(await readFile(fixturePath, 'utf8')) as Fixtures;

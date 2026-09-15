@@ -1022,7 +1022,7 @@
           "id": "FVRC-801",
           "order": 1,
           "title": "Notification-, Home- und Mobile-Einstiege an den globalen Center anbinden",
-          "status": "planned",
+          "status": "in_progress",
           "area": "notifications-ui",
           "dependsOn": ["FVRC-800"],
           "deliverables": [
@@ -1039,6 +1039,11 @@
             "NotificationBell-, HomeNotificationItem- und Mobile-Inbox-Tests",
             "Deep-Link- und Workspace-Wechseltests",
             "UI/E2E nach erneuter ausdruecklicher Nutzerfreigabe"
+          ],
+          "implementationEvidence": [
+            "NotificationBell und Home verwenden denselben typisierten File-Change-Einstieg. Der versionierte Mobile-Opt-in-Vertrag liefert denselben exakten, inhaltsfreien Deep Link; Legacy-Mobile-Clients bleiben unveraendert.",
+            "Gelesen wird erst nach erfolgreicher exakter Timeline-Aufloesung eines vertrauenswuerdigen In-Memory-Notification-Intents. URL-Spoofing, stale oder verweigerte Ziele sowie konkurrierende Klicks koennen keinen Read-State ausloesen. Der Notification-Oeffner publiziert URL und Center-State erst nach erfolgreichem direkten Workspace-Switch und bleibt damit dessen einziger Owner.",
+            "Fokussierte Notification-, Mobile-, Home-, Deep-Link-, Query-, Timeline-, Editor-, Dateibrowser- und Chat-Regressionen sowie TypeScript bestanden. Ein integrierter Test mit echtem WorkspaceNavigationSync, echtem Workspace-Store-Switch und verzoegertem prepareCurrentFileForTransition belegt unveraenderte URL/FVRC-State bei Pending und Failure sowie konsistente A/B-Latest-click-Semantik. Verwalteter Build und freigegebene UI/E2E-Abnahme durch den Root-Lauf stehen noch aus; Details unter evidence/fvrc-801/."
           ]
         }
       ]

@@ -15,6 +15,7 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
   const tn = useTranslations('notifications');
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const items = homeNotificationItems(summary);
   const countLabel = isLoading ? tn('loading') : !summary ? t('notificationsFailed') : t('attentionCount', { count: items.length });
 
@@ -35,12 +36,20 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
     if (!summary) return <div className="p-5"><Button variant="outline" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('notification_summary_updated'))}>{t('retry')}</Button></div>;
     if (!items.length) return <div className="flex items-start gap-2 px-4 py-5"><Check className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" /><p className="text-sm text-muted-foreground">{t('noAttention')}</p></div>;
     return <ul className="px-2">{(all ? items : items.slice(0, 3)).map(item => (
-      <HomeNotificationItem key={`${item.workspaceId}:${item.id}`} item={item} showActions={all} pending={pending !== null} onRead={() => void act(item)} onDismiss={() => void act(item, true)} />
+      <HomeNotificationItem
+        key={`${item.workspaceId}:${item.id}`}
+        item={item}
+        showActions={all}
+        pending={pending !== null}
+        onRead={() => void act(item)}
+        onDismiss={() => void act(item, true)}
+        onOpenFileChange={() => setSheetOpen(false)}
+      />
     ))}</ul>;
   };
 
   return (
-    <Sheet>
+    <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
       <aside className="min-w-0 self-start rounded-xl border border-border bg-card" aria-labelledby="home-attention-heading">
         <div className="flex h-18 items-center gap-3 px-4">
           <Bell className="h-4 w-4 shrink-0 text-muted-foreground" />

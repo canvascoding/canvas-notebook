@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import type { FileVersionCenterDatabase } from '../app/lib/file-version-center/database';
 import { createFileChangeReviewNotificationSource } from '../app/lib/file-version-center/notification-source';
+import { parseFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 type PgQueryable = Parameters<typeof runPostgresMigrations>[0];
@@ -140,7 +141,19 @@ async function main(): Promise<void> {
     assert.equal(await source.countUnread({ userId: 'owner', workspace: ownerWorkspace }), 4);
     assert.equal(new Set(initial.map((item) => item.target.operationId)).size, initial.length);
     assert.equal(initial[0]?.type, 'file.change_review_required');
+    assert.equal(initial[0]?.fileChangeReason, 'direct_apply_failed');
     assert.deepEqual(Object.keys(initial[0]!.target).sort(), ['kind', 'lineageId', 'operationId', 'workspaceId']);
+    const deepLink = new URL(initial[0]!.deepLink, 'https://canvas.test');
+    const deepLinkRequest = parseFileVersionCenterDeepLinkV1(deepLink.searchParams);
+    assert.deepEqual(deepLinkRequest, {
+      contractVersion: 1,
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-direct-failed' },
+      initialView: 'reviews',
+      source: 'deep_link',
+    });
+    assert.equal(deepLink.searchParams.get('workspaceId'), 'workspace-a');
+    assert.equal(deepLink.searchParams.get('fvrcSource'), null);
     const serialized = JSON.stringify(initial);
     assert.doesNotMatch(serialized, /strategy\.md|archived\.md|secret\.md|workspace-root|documentContent|pathHint|grant|token/u);
 

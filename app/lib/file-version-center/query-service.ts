@@ -16,6 +16,7 @@ import {
   isSafeFileVersionPathHint,
   parseFileVersionTimelineResponseV1,
   type FileVersionCenterTargetV1,
+  type FileVersionCenterSelectionV1,
   type FileVersionCapabilitiesV1,
   type FileVersionCurrentFenceV1,
   type FileVersionTimelineEntryV1,
@@ -98,7 +99,7 @@ type RevisionRow = {
 };
 
 type TimelineCursor =
-  | { version: 1; phase: 'reviews'; updatedAt: number; id: string }
+  | { version: 1; phase: 'reviews'; updatedAt: number; id: string; selectedOperationId?: string }
   | { version: 1; phase: 'current' }
   | { version: 1; phase: 'revisions'; createdAt: number; revisionNumber: number; id: string };
 
@@ -138,7 +139,12 @@ function decodeCursor(value: string | undefined): TimelineCursor | null {
   try {
     const cursor = JSON.parse(Buffer.from(value.slice(3), 'base64url').toString('utf8')) as Partial<TimelineCursor>;
     if (cursor.version !== 1 || !['reviews', 'current', 'revisions'].includes(cursor.phase ?? '')) throw new Error();
-    if (cursor.phase === 'reviews' && (!validId(cursor.id ?? '') || !Number.isSafeInteger(cursor.updatedAt) || cursor.updatedAt! < 0)) throw new Error();
+    if (cursor.phase === 'reviews' && (
+      !validId(cursor.id ?? '')
+      || !Number.isSafeInteger(cursor.updatedAt)
+      || cursor.updatedAt! < 0
+      || (cursor.selectedOperationId !== undefined && !validId(cursor.selectedOperationId))
+    )) throw new Error();
     if (cursor.phase === 'revisions' && (!validId(cursor.id ?? '') || !Number.isSafeInteger(cursor.createdAt)
       || cursor.createdAt! < 0 || !Number.isSafeInteger(cursor.revisionNumber) || cursor.revisionNumber! < 1)) throw new Error();
     return cursor as TimelineCursor;
@@ -287,6 +293,9 @@ async function runtimeCurrent(
 }
 
 function agentEntry(row: AgentRow, access: FileVersionCenterAccess): FileVersionTimelineEntryV1 {
+  const actionable = row.status === 'needs_review'
+    || row.status === 'partially_applied'
+    || row.status === 'semantic_conflict';
   return {
     kind: 'agent_operation',
     id: row.operation_id,
@@ -298,7 +307,7 @@ function agentEntry(row: AgentRow, access: FileVersionCenterAccess): FileVersion
       displayName: safeDisplayName(row.actor_name, row.actor_id),
     },
     status: row.status as Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' }>['status'],
-    actionsAllowed: Boolean(access.canWrite
+    actionsAllowed: Boolean(actionable && access.canWrite
       && (row.initiated_by_user_id === access.userId || access.canManageWorkspace)),
   };
 }
@@ -405,6 +414,7 @@ export function createFileVersionCenterQueryService(options: {
       workspace: WorkspaceContext;
       cursor?: string;
       limit?: number;
+      selectedEntry?: FileVersionCenterSelectionV1;
       policyEvaluation?: FileReviewPolicyEvaluation;
     }): Promise<FileVersionTimelineResponseV1> {
       const target = await resolve({ target: input.target, access: input.access });
@@ -445,7 +455,67 @@ export function createFileVersionCenterQueryService(options: {
 
       if (phase === 'reviews') {
         const reviewCursor = cursor?.phase === 'reviews' ? cursor : null;
-        const reviews = await database.transaction((transaction) => transaction.query<AgentRow>(`
+        const selectedOperationId = !cursor && input.selectedEntry?.kind === 'agent_operation'
+          ? input.selectedEntry.id
+          : null;
+        if (selectedOperationId) {
+          const selected = await database.transaction((transaction) => transaction.query<AgentRow>(`
+            SELECT operation.operation_id, operation.status, operation.actor_id,
+              COALESCE(agent.name, agent.email) AS actor_name,
+              operation.created_at, operation.updated_at, operation.initiated_by_user_id
+            FROM collaboration_agent_operations operation
+            INNER JOIN collaboration_documents document
+              ON document.id = operation.document_id AND document.workspace_id = operation.workspace_id
+            LEFT JOIN "user" agent ON agent.id = operation.actor_id
+            WHERE operation.workspace_id = $1 AND document.lineage_id = $2
+              AND document.status = 'active'
+              AND operation.operation_id = $3
+              AND operation.operation_type = 'apply'
+              AND (operation.initiated_by_user_id = $4 OR $5::boolean)
+              AND (
+                operation.status IN ('needs_review', 'semantic_conflict')
+                OR (
+                  operation.status = 'partially_applied'
+                  AND COALESCE(operation.error_code, '') <> 'persistence_degraded'
+                )
+                OR (operation.status = 'failed' AND operation.requested_mode = 'direct_apply')
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM collaboration_agent_operations superseder
+                WHERE superseder.workspace_id = operation.workspace_id
+                  AND superseder.document_id = operation.document_id
+                  AND superseder.supersedes_operation_id = operation.operation_id
+                  AND superseder.operation_type = 'revert'
+                  AND superseder.status IN ('persisted_yjs', 'checkpointed_file')
+              )
+            LIMIT 1
+          `, [target.workspaceId, target.lineageId, selectedOperationId,
+            input.access.userId, Boolean(input.access.canManageWorkspace)]));
+          const selectedRow = selected.rows[0];
+          if (!selectedRow) {
+            throw new FileVersionCenterContractError(
+              FILE_VERSION_CENTER_ERROR_CODES.staleSelection,
+              'The selected agent change is no longer available for review.',
+            );
+          }
+          entries.push(agentEntry(selectedRow, input.access));
+        }
+
+        const excludedSelectedOperationId = selectedOperationId ?? reviewCursor?.selectedOperationId ?? null;
+        const remainingReviews = limit - entries.length;
+        if (remainingReviews === 0) {
+          hasMore = true;
+          nextCursor = encodeCursor({
+            version: 1,
+            phase: 'reviews',
+            updatedAt: Number.MAX_SAFE_INTEGER,
+            id: 'z',
+            ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}),
+          });
+        }
+        const reviews = remainingReviews > 0
+          ? await database.transaction((transaction) => transaction.query<AgentRow>(`
           SELECT operation.operation_id, operation.status, operation.actor_id,
             COALESCE(agent.name, agent.email) AS actor_name,
             operation.created_at, operation.updated_at, operation.initiated_by_user_id
@@ -456,20 +526,24 @@ export function createFileVersionCenterQueryService(options: {
           WHERE operation.workspace_id = $1 AND document.lineage_id = $2
             AND operation.status IN ('needs_review', 'partially_applied', 'semantic_conflict')
             AND ($3::bigint IS NULL OR (operation.updated_at, operation.operation_id) < ($3, $4))
+            AND ($5::text IS NULL OR operation.operation_id <> $5)
           ORDER BY operation.updated_at DESC, operation.operation_id DESC
-          LIMIT $5
+          LIMIT $6
         `, [target.workspaceId, target.lineageId, reviewCursor?.updatedAt ?? null,
-          reviewCursor?.id ?? null, limit + 1]));
-        entries.push(...reviews.rows.slice(0, limit).map((row) => agentEntry(row, input.access)));
-        if (reviews.rows.length > limit) {
-          const last = reviews.rows[limit - 1]!;
+          reviewCursor?.id ?? null, excludedSelectedOperationId, remainingReviews + 1]))
+          : { rows: [] as AgentRow[] };
+        entries.push(...reviews.rows.slice(0, remainingReviews).map((row) => agentEntry(row, input.access)));
+        if (reviews.rows.length > remainingReviews) {
+          const last = reviews.rows[remainingReviews - 1]!;
           hasMore = true;
-          nextCursor = encodeCursor({ version: 1, phase: 'reviews', updatedAt: checkedInteger(last.updated_at), id: last.operation_id });
-        } else if (entries.length === limit) {
+          nextCursor = encodeCursor({ version: 1, phase: 'reviews', updatedAt: checkedInteger(last.updated_at), id: last.operation_id,
+            ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}) });
+        } else if (!hasMore && entries.length === limit) {
           hasMore = true;
           const last = reviews.rows.at(-1)!;
-          nextCursor = encodeCursor({ version: 1, phase: 'reviews', updatedAt: checkedInteger(last.updated_at), id: last.operation_id });
-        } else {
+          nextCursor = encodeCursor({ version: 1, phase: 'reviews', updatedAt: checkedInteger(last.updated_at), id: last.operation_id,
+            ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}) });
+        } else if (!hasMore) {
           phase = 'current';
         }
       }

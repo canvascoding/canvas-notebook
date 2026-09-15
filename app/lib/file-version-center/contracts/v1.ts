@@ -50,6 +50,7 @@ export class FileVersionCenterContractError extends Error {
 }
 
 const opaqueIdPattern = '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$';
+const cursorPattern = '^[A-Za-z0-9][A-Za-z0-9._:-]{0,511}$';
 const sha256Pattern = '^[a-f0-9]{64}$';
 const stateVectorHashPattern = '^[A-Za-z0-9_-]{16,256}$';
 
@@ -66,7 +67,7 @@ const PathHintSchema = Type.String({
 const CursorSchema = Type.String({
   minLength: 1,
   maxLength: FILE_VERSION_CENTER_CONTRACT_LIMITS.cursorCharacters,
-  pattern: opaqueIdPattern,
+  pattern: cursorPattern,
 });
 const Sha256Schema = Type.String({ pattern: sha256Pattern });
 const IsoTimestampSchema = Type.String({ minLength: 20, maxLength: 64 });

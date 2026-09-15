@@ -3012,6 +3012,25 @@
       "memory": "Memory-Freigabe erforderlich",
       "mcp": "MCP-Verbindung benötigt Aufmerksamkeit"
     },
+    "fileChanges": {
+      "openFailed": "Die Dateiänderung konnte nicht geöffnet werden.",
+      "needs_review": {
+        "title": "Dateiänderung prüfen",
+        "detail": "Eine Agentenänderung wartet auf dein Review."
+      },
+      "partially_applied": {
+        "title": "Dateiänderung prüfen",
+        "detail": "Ein Teil wurde angewendet; prüfe die übrige Änderung."
+      },
+      "semantic_conflict": {
+        "title": "Konflikt bei Dateiänderung",
+        "detail": "Die Agentenänderung kollidiert mit dem aktuellen Dokument."
+      },
+      "direct_apply_failed": {
+        "title": "Dateiänderung nicht angewendet",
+        "detail": "Die direkte Änderung ist sicher fehlgeschlagen und muss geprüft werden."
+      }
+    },
     "empty": {
       "title": "Alles gelesen",
       "description": "Neue Antworten, Freigaben, To-dos und wichtige Ergebnisse erscheinen hier."

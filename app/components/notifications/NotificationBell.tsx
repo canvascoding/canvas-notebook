@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 import {
   Bell,
   BrainCircuit,
@@ -9,6 +10,7 @@ import {
   Circle,
   CircleAlert,
   FolderKanban,
+  FileClock,
   ImageIcon,
   ListTodo,
   Mail,
@@ -25,6 +27,7 @@ import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import {
   notificationHref,
+  openFileChangeReviewNotification,
   shouldMarkNotificationReadOnOpen,
   updateNotification,
   type NotificationMutation,
@@ -54,6 +57,7 @@ function notificationIcon(item: NotificationItem) {
   if (item.target.kind === 'studio') return ImageIcon;
   if (item.target.kind === 'memory') return BrainCircuit;
   if (item.target.kind === 'mcp') return PlugZap;
+  if (item.target.kind === 'file_change') return FileClock;
   return Workflow;
 }
 
@@ -175,6 +179,12 @@ export function NotificationBell() {
 
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
+    if (item.target.kind === 'file_change') {
+      if (!await openFileChangeReviewNotification(item)) {
+        toast.error(t('fileChanges.openFailed'));
+      }
+      return;
+    }
     if (shouldMarkNotificationReadOnOpen(item)) {
       try {
         await markItemRead(item);
@@ -200,7 +210,7 @@ export function NotificationBell() {
     }
     if (dispatchOpenChatSession(item.target.sessionId, 'notification', item.workspaceId)) return;
     window.location.assign(notificationHref(item));
-  }, [markItemRead]);
+  }, [markItemRead, t]);
 
   const notificationItems = summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [];
   const todoItems = summary?.sections.todoAttention ?? summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
@@ -209,6 +219,12 @@ export function NotificationBell() {
   const renderItem = (item: NotificationItem) => {
     const Icon = notificationIcon(item);
     const isTodo = item.target.kind === 'todo';
+    const title = item.target.kind === 'file_change'
+      ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.title`)
+      : item.title;
+    const detail = item.target.kind === 'file_change'
+      ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.detail`)
+      : item.detail || t(`types.${item.target.kind}`);
     return (
       <div key={`${item.workspaceId}:${item.id}`} className="group flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
         <button
@@ -225,11 +241,11 @@ export function NotificationBell() {
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5">
               {item.unread ? <Circle className="h-2 w-2 shrink-0 fill-primary text-primary" aria-label={t('unread')} /> : null}
-              <span className="truncate text-sm font-medium">{item.title}</span>
+              <span className="truncate text-sm font-medium">{title}</span>
               {item.priority === 'high' ? <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
             </span>
             <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-              {item.detail || t(`types.${item.target.kind}`)}
+              {detail}
             </span>
             <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
               <FolderKanban className="h-3 w-3 shrink-0" />

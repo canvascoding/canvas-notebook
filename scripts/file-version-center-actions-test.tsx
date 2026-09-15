@@ -270,6 +270,18 @@ async function componentCase(): Promise<void> {
   assert.deepEqual(accessInvalidations, [undefined]);
   await act(async () => root.unmount());
 
+  root = await mount(new FileVersionActionController(), [], {
+    ...agentEntry,
+    id: 'operation-direct-failed',
+    operationId: 'operation-direct-failed',
+    status: 'failed',
+    actionsAllowed: false,
+  });
+  assert.equal([...document.querySelectorAll('button')].some((candidate) => /Accept change|^Reject$/u.test(candidate.textContent ?? '')), false,
+    'a failed direct application is inspectable without accept/reject proposal actions');
+  assert.ok(button(/Continue editing/u));
+  await act(async () => root.unmount());
+
   let retryAttempt = 0;
   const rejectBodies: Array<{ idempotencyKey: string }> = [];
   const retryController = new FileVersionActionController((async (_input, init) => {

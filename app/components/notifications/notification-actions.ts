@@ -1,5 +1,10 @@
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import {
+  buildFileChangeReviewCenterHref,
+} from '@/app/lib/file-version-center/notification-contract';
 import { mcpConnectionSettingsHref } from '@/app/lib/mcp/connection-health-types';
+import { openVersionCenterFromNotification } from '@/app/store/file-version-center-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { NotificationItem, NotificationSummary } from './notification-summary';
 
 export type NotificationMutation = {
@@ -8,6 +13,8 @@ export type NotificationMutation = {
   workspaceId?: string;
   read?: boolean;
 };
+
+let fileChangeOpenGeneration = 0;
 
 export function shouldMarkNotificationReadOnOpen(item: NotificationItem): boolean {
   return item.target.kind !== 'file_change';
@@ -42,8 +49,40 @@ export function notificationHref(item: NotificationItem): string {
     }
     case 'mcp':
       return mcpConnectionSettingsHref(item.target.connectionId);
+    case 'file_change':
+      return item.workspaceId === item.target.workspaceId
+        ? buildFileChangeReviewCenterHref(item.target)
+        : `/notebook?workspaceId=${encodeURIComponent(item.workspaceId)}`;
   }
   return '/notebook';
+}
+
+export async function openFileChangeReviewNotification(item: NotificationItem): Promise<boolean> {
+  if (item.target.kind !== 'file_change' || item.workspaceId !== item.target.workspaceId) return false;
+  const generation = ++fileChangeOpenGeneration;
+  const baselineHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  let preparedHref: string | null = null;
+  try {
+    await useWorkspaceStore.getState().hydrateWorkspaces();
+    if (generation !== fileChangeOpenGeneration) return true;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== item.target.workspaceId) {
+      await useWorkspaceStore.getState().setActiveWorkspace(item.target.workspaceId, 'system');
+    }
+    if (generation !== fileChangeOpenGeneration) return true;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== item.target.workspaceId) {
+      throw new Error('The notification workspace is unavailable.');
+    }
+    preparedHref = buildFileChangeReviewCenterHref(item.target, baselineHref);
+    window.history.replaceState(window.history.state, '', preparedHref);
+    openVersionCenterFromNotification(item.target, { syncLocation: false });
+    return true;
+  } catch {
+    const activeHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    if (generation === fileChangeOpenGeneration && preparedHref && activeHref === preparedHref) {
+      window.history.replaceState(window.history.state, '', baselineHref);
+    }
+    return false;
+  }
 }
 
 export async function updateNotification(payload: NotificationMutation): Promise<void> {

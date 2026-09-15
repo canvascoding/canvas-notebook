@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       target: body.target,
       access: authorization.access,
       workspace: authorization.workspace,
+      ...(body.selectedEntry ? { selectedEntry: body.selectedEntry } : {}),
       limit: 25,
     });
     observeFileVersionCenter({

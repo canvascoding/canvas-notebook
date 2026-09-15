@@ -26,6 +26,7 @@ async function main() {
       kind: 'file_change', workspaceId: 'workspace-a', lineageId: 'lineage-1', operationId: 'operation-1',
     }),
     type: 'file.change_review_required' as const,
+    fileChangeReason: 'needs_review' as const,
   };
   const summary = {
     items: [chat, todo, email, studio, automation, memory, mcp],
@@ -51,7 +52,16 @@ async function main() {
   assert.equal(mcpLink.searchParams.get('tab'), 'mcp');
   assert.equal(mcpLink.searchParams.get('section'), 'mcpConfig');
   assert.equal(mcpLink.searchParams.get('connection'), 'connection & 1');
-  assert.equal(notificationHref(fileChange), '/notebook');
+  const fileChangeLink = new URL(notificationHref(fileChange), 'http://localhost');
+  assert.equal(fileChangeLink.pathname, '/notebook');
+  assert.equal(fileChangeLink.searchParams.get('fvrcSource'), null);
+  assert.equal(fileChangeLink.searchParams.get('workspaceId'), 'workspace-a');
+  assert.equal(fileChangeLink.searchParams.get('fvrcWorkspace'), 'workspace-a');
+  assert.equal(fileChangeLink.searchParams.get('fvrcRef'), 'lineage-1');
+  assert.equal(fileChangeLink.searchParams.get('fvrcSelectedKind'), 'agent_operation');
+  assert.equal(fileChangeLink.searchParams.get('fvrcSelectedId'), 'operation-1');
+  assert.equal(notificationHref({ ...fileChange, workspaceId: 'workspace-b', deepLink: '/notebook?workspaceId=workspace-a&fvrcSelectedId=forged' }),
+    '/notebook?workspaceId=workspace-b', 'mismatched or server-provided links cannot select a review');
   assert.equal(shouldMarkNotificationReadOnOpen(fileChange), false, 'generic fallback must not preemptively mark a file review read');
   assert.equal(shouldMarkNotificationReadOnOpen(chat), true);
   const originalFetch = globalThis.fetch;

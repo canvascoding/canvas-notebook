@@ -1,5 +1,7 @@
 'use client';
 
+import type { FileChangeReviewNotificationReason } from '@/app/lib/file-version-center/notification-contract';
+
 export type NotificationItem = {
   id: string;
   type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required';
@@ -8,6 +10,8 @@ export type NotificationItem = {
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
+  deepLink?: string;
+  fileChangeReason?: FileChangeReviewNotificationReason;
   todoStatus?: 'open' | 'done' | 'archived';
   todoAttentionReason?: 'overdue' | 'due_today' | 'high_priority' | 'unread' | 'due_soon';
   workspaceId: string;

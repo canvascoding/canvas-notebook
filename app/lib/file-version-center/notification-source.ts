@@ -10,16 +10,14 @@ import {
   FILE_VERSION_CENTER_ROLLOUT_ENV_V1,
   resolveFileVersionRolloutV1,
 } from './policy-v1';
+import {
+  buildFileChangeReviewCenterHref,
+  fileChangeReviewNotificationItemId,
+  FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX,
+  type FileChangeReviewNotificationReason,
+} from './notification-contract';
 
 const MAX_NOTIFICATION_ITEMS = 200;
-
-export const FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX = 'file-change:';
-
-export type FileChangeReviewNotificationReason =
-  | 'needs_review'
-  | 'partially_applied'
-  | 'semantic_conflict'
-  | 'direct_apply_failed';
 
 export type FileChangeReviewNotificationItem = {
   id: string;
@@ -27,6 +25,8 @@ export type FileChangeReviewNotificationItem = {
   title: string;
   detail: string;
   previewUrl: null;
+  deepLink: string;
+  fileChangeReason: FileChangeReviewNotificationReason;
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
@@ -159,10 +159,17 @@ function notificationFromRow(row: NotificationRow): FileChangeReviewNotification
   ) return null;
   const reason = reasonFor(row);
   return {
-    id: `${FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX}${row.operation_id}`,
+    id: fileChangeReviewNotificationItemId(row.operation_id),
     type: 'file.change_review_required',
     ...presentation(reason),
     previewUrl: null,
+    deepLink: buildFileChangeReviewCenterHref({
+      kind: 'file_change',
+      workspaceId: row.workspace_id,
+      lineageId: row.lineage_id,
+      operationId: row.operation_id,
+    }),
+    fileChangeReason: reason,
     occurredAt: new Date(updatedAt).toISOString(),
     unread: readBoolean(row.unread),
     target: {

@@ -99,12 +99,14 @@ async function setup(postgres: PGlite): Promise<void> {
       operation_id, document_id, document_path, document_representation,
       workspace_id, organization_id, document_lifecycle_generation, schema_version,
       initiated_by_user_id, actor_id, idempotency_key, payload_hash, status,
-      base_state_vector, created_at, updated_at
+      base_state_vector, operation_type, requested_mode, error_code, created_at, updated_at
     ) VALUES
       ('operation-new', 'document-a', 'renamed.md', 'plain_text', 'workspace-a', 'org', 1, 1,
-       'owner', 'agent-new', 'operation-new-key', repeat('a', 64), 'needs_review', '\\x00', 40, 50),
+       'owner', 'agent-new', 'operation-new-key', repeat('a', 64), 'needs_review', '\\x00', 'apply', 'review', NULL, 40, 50),
       ('operation-old', 'document-a', 'renamed.md', 'plain_text', 'workspace-a', 'org', 1, 1,
-       'owner', 'agent-old', 'operation-old-key', repeat('b', 64), 'semantic_conflict', '\\x00', 35, 40);
+       'owner', 'agent-old', 'operation-old-key', repeat('b', 64), 'semantic_conflict', '\\x00', 'apply', 'review', NULL, 35, 40),
+      ('operation-direct-failed', 'document-a', 'renamed.md', 'plain_text', 'workspace-a', 'org', 1, 1,
+       'owner', 'agent-failed', 'operation-direct-failed-key', repeat('c', 64), 'failed', '\\x00', 'apply', 'direct_apply', 'apply_failed', 25, 30);
     INSERT INTO pi_sessions (
       session_id, user_id, agent_id, provider, model, workspace_id,
       workspace_type, created_at, updated_at
@@ -213,6 +215,118 @@ async function main(): Promise<void> {
       ['current', 'revision-3']);
     assert.equal(second.page.hasMore, true);
 
+    const pinned = await service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-old' },
+      access: access(),
+      workspace: workspace(),
+      limit: 1,
+    });
+    assert.deepEqual(pinned.entries.map((entry) => entry.kind === 'agent_operation' ? entry.operationId : entry.kind),
+      ['operation-old'], 'the exact requested review is pinned even when the page has no spare slot');
+    const afterPinned = await service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      access: access(),
+      workspace: workspace(),
+      cursor: pinned.page.nextCursor!,
+      limit: 2,
+    });
+    assert.equal(afterPinned.entries.some((entry) => entry.kind === 'agent_operation' && entry.operationId === 'operation-old'), false,
+      'the pinned review is not duplicated on later pages');
+
+    const directApplyFailure = await service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-direct-failed' },
+      access: access(),
+      workspace: workspace(),
+      limit: 2,
+    });
+    assert.equal(directApplyFailure.entries[0]?.kind, 'agent_operation');
+    assert.equal(directApplyFailure.entries[0]?.id, 'operation-direct-failed');
+    assert.equal(directApplyFailure.entries[0]?.kind === 'agent_operation'
+      ? directApplyFailure.entries[0].actionsAllowed : true, false,
+    'a failed direct application is inspectable but cannot call review mutations');
+    await postgres.exec("UPDATE collaboration_agent_operations SET status = 'checkpointed_file' WHERE operation_id = 'operation-direct-failed'");
+    await assert.rejects(service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-direct-failed' },
+      access: access(),
+      workspace: workspace(),
+      limit: 2,
+    }), (error: unknown) => error instanceof FileVersionCenterContractError
+      && error.code === 'FVRC_STALE_SELECTION');
+
+    const exactSelection = async (overrides: {
+      lineageId?: string;
+      operationId?: string;
+      access?: ReturnType<typeof access>;
+    } = {}) => service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: overrides.lineageId ?? 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: overrides.operationId ?? 'operation-old' },
+      access: overrides.access ?? access(),
+      workspace: workspace(),
+      limit: 2,
+    });
+    const staleExactSelection = (promise: Promise<unknown>) => assert.rejects(
+      promise,
+      (error: unknown) => error instanceof FileVersionCenterContractError
+        && error.code === 'FVRC_STALE_SELECTION',
+    );
+    await staleExactSelection(exactSelection({
+      access: { ...access(), userId: 'other', canManageWorkspace: false },
+    }));
+    await staleExactSelection(exactSelection({ lineageId: 'lineage-reused' }));
+    await postgres.exec("UPDATE collaboration_agent_operations SET status = 'partially_applied', error_code = 'persistence_degraded' WHERE operation_id = 'operation-old'");
+    await staleExactSelection(exactSelection());
+    await postgres.exec("UPDATE collaboration_agent_operations SET status = 'semantic_conflict', error_code = NULL WHERE operation_id = 'operation-old'");
+    await postgres.exec("UPDATE collaboration_agent_operations SET operation_type = 'revert', status = 'checkpointed_file', supersedes_operation_id = 'operation-old' WHERE operation_id = 'operation-direct-failed'");
+    await staleExactSelection(exactSelection());
+    await postgres.exec("UPDATE collaboration_agent_operations SET operation_type = 'apply', requested_mode = 'direct_apply', status = 'failed', error_code = 'apply_failed', supersedes_operation_id = NULL WHERE operation_id = 'operation-direct-failed'");
+    await postgres.exec("UPDATE collaboration_documents SET status = 'archived' WHERE id = 'document-a'");
+    await staleExactSelection(exactSelection());
+    await postgres.exec("UPDATE collaboration_documents SET status = 'active' WHERE id = 'document-a'");
+
+    for (let index = 0; index < 30; index += 1) {
+      const id = `operation-page-${String(index).padStart(2, '0')}`;
+      await postgres.query(`
+        INSERT INTO collaboration_agent_operations (
+          operation_id, document_id, document_path, document_representation,
+          workspace_id, organization_id, document_lifecycle_generation, schema_version,
+          initiated_by_user_id, actor_id, idempotency_key, payload_hash, status,
+          base_state_vector, operation_type, requested_mode, created_at, updated_at
+        ) VALUES ($1, 'document-a', 'renamed.md', 'plain_text', 'workspace-a', 'org', 1, 1,
+          'owner', 'agent-page', $1 || '-key', repeat('d', 64), 'needs_review',
+          '\\x00', 'apply', 'review', $2, $2)
+      `, [id, 1_000 - index]);
+    }
+    const pagedOperationIds: string[] = [];
+    let pageCursor: string | undefined;
+    let pageNumber = 0;
+    do {
+      const page = await service.timeline({
+        target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+        ...(pageNumber === 0 ? { selectedEntry: { kind: 'agent_operation' as const, id: 'operation-old' } } : {}),
+        access: access(),
+        workspace: workspace(),
+        ...(pageCursor ? { cursor: pageCursor } : {}),
+        limit: 25,
+      });
+      pagedOperationIds.push(...page.entries.flatMap((entry) => (
+        entry.kind === 'agent_operation' ? [entry.operationId] : []
+      )));
+      pageCursor = page.page.nextCursor ?? undefined;
+      pageNumber += 1;
+      if (!page.page.hasMore) break;
+      assert.ok(pageCursor);
+      assert.ok(pageNumber < 10, 'timeline pagination terminates');
+    } while (pageCursor);
+    assert.deepEqual(pagedOperationIds, [
+      'operation-old',
+      ...Array.from({ length: 30 }, (_, index) => `operation-page-${String(index).padStart(2, '0')}`),
+      'operation-new',
+    ], 'pinning an old exact review preserves ordering without loss or duplication across pages');
+    assert.equal(new Set(pagedOperationIds).size, pagedOperationIds.length);
+
     await postgres.exec(`
       INSERT INTO file_revisions (
         id, organization_id, workspace_id, workspace_type, path, content_hash,
@@ -248,6 +362,15 @@ async function main(): Promise<void> {
       access: access(),
       workspace: workspace(),
       cursor: 'v1.not-json',
+    }), (error: unknown) => error instanceof FileVersionCenterContractError && error.code === 'FVRC_INVALID_REQUEST');
+    const tamperedCursor = `v1.${Buffer.from(JSON.stringify({
+      version: 1, phase: 'reviews', updatedAt: 1, id: 'operation-new', selectedOperationId: '../forged',
+    })).toString('base64url')}`;
+    await assert.rejects(service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      access: access(),
+      workspace: workspace(),
+      cursor: tamperedCursor,
     }), (error: unknown) => error instanceof FileVersionCenterContractError && error.code === 'FVRC_INVALID_REQUEST');
     console.log('file-version-center-query-test: ok');
   } finally {

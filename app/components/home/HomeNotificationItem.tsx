@@ -1,12 +1,14 @@
 'use client';
 
-import { BrainCircuit, Check, CircleAlert, ImageIcon, ListTodo, Mail, MessageSquare, PlugZap, Workflow, X } from 'lucide-react';
+import { BrainCircuit, Check, CircleAlert, FileClock, ImageIcon, ListTodo, Mail, MessageSquare, PlugZap, Workflow, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import type { NotificationItem } from '@/app/components/notifications/notification-summary';
 import {
   notificationHref,
+  openFileChangeReviewNotification,
   shouldMarkNotificationReadOnOpen,
 } from '@/app/components/notifications/notification-actions';
 
@@ -18,29 +20,44 @@ const ICONS = {
   automation: Workflow,
   memory: BrainCircuit,
   mcp: PlugZap,
-  file_change: Workflow,
+  file_change: FileClock,
 };
 
-export function HomeNotificationItem({ item, showActions, pending, onRead, onDismiss }: {
+export function HomeNotificationItem({ item, showActions, pending, onRead, onDismiss, onOpenFileChange }: {
   item: NotificationItem;
   showActions: boolean;
   pending: boolean;
   onRead: () => void;
   onDismiss: () => void;
+  onOpenFileChange?: () => void;
 }) {
   const t = useTranslations('notifications');
   const Icon = ICONS[item.target.kind];
   const dismissible = item.target.kind === 'studio' || item.target.kind === 'automation';
+  const title = item.target.kind === 'file_change'
+    ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.title`)
+    : item.title;
+  const typeLabel = item.target.kind === 'file_change'
+    ? `${t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
+    : `${t(`types.${item.target.kind}`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`;
   return (
     <li className="border-b border-border/60 last:border-0">
-      <Link href={notificationHref(item)} onClick={() => {
+      <Link href={notificationHref(item)} onClick={(event) => {
+        if (item.target.kind === 'file_change') {
+          event.preventDefault();
+          onOpenFileChange?.();
+          void openFileChangeReviewNotification(item).then((opened) => {
+            if (!opened) toast.error(t('fileChanges.openFailed'));
+          });
+          return;
+        }
         if (item.unread && shouldMarkNotificationReadOnOpen(item)) onRead();
       }} className="flex min-h-[111px] items-start gap-2.5 rounded-lg px-2 py-5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${item.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`} />
         <span className="min-w-0 flex-1">
-          <span className={`${showActions ? '' : 'line-clamp-2'} text-sm font-medium`}>{item.title}</span>
-          <span className="mt-1 block truncate text-xs text-muted-foreground">{t(`types.${item.target.kind}`)}{item.workspaceName ? ` · ${item.workspaceName}` : ''}</span>
-          {showActions && item.detail ? <span className="mt-2 block text-sm text-muted-foreground">{item.detail}</span> : null}
+          <span className={`${showActions ? '' : 'line-clamp-2'} text-sm font-medium`}>{title}</span>
+          <span className="mt-1 block truncate text-xs text-muted-foreground">{typeLabel}</span>
+          {showActions && item.detail && item.target.kind !== 'file_change' ? <span className="mt-2 block text-sm text-muted-foreground">{item.detail}</span> : null}
         </span>
         {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
       </Link>

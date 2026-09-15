@@ -5,6 +5,7 @@ import type { ClientWorkspaceSummary } from '../app/lib/workspaces/client-types'
 import de from '../messages/de.json';
 import { NextIntlClientProvider } from 'next-intl';
 import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import type { NotificationSummary } from '../app/components/notifications/notification-summary';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement', 'HTMLTextAreaElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'MutationObserver', 'CustomEvent', 'Event', 'KeyboardEvent', 'getComputedStyle'] as const) {
@@ -144,6 +145,32 @@ async function main() {
   assert.ok(!screen.queryByText('Gerade braucht nichts deine Aufmerksamkeit.'));
   fireEvent.click(screen.getByRole('button', { name: 'Benachrichtigungen anzeigen' }));
   assert.ok(screen.getByRole('dialog', { name: 'Benachrichtigungen' }));
+  cleanup();
+
+  useWorkspaceStore.setState({ activeWorkspaceId: 'one', workspaces: [workspace], initialized: true });
+  const fileChange = {
+    id: 'file-change:operation-one', type: 'file.change_review_required' as const,
+    title: 'Server fallback', detail: null, occurredAt: '2026-09-15T10:00:00.000Z', unread: true,
+    priority: 'normal' as const, workspaceId: 'one', workspaceName: 'Review Workspace',
+    fileChangeReason: 'needs_review' as const,
+    target: { kind: 'file_change' as const, workspaceId: 'one', lineageId: 'lineage-one', operationId: 'operation-one' },
+  };
+  const fileSummary = {
+    unreadCount: 1,
+    counts: { unread: 1, chat: 0, todos: 0, todoUnread: 0, todoAttention: 0, emailAttention: 0, studio: 0, automation: 0, memoryApprovals: 0 },
+    items: [fileChange],
+    sections: { notifications: [fileChange], todos: [], todoUnread: [], todoAttention: [], emailAttention: [] },
+  } satisfies NotificationSummary;
+  screen = render(wrap(<HomeAttentionPanel summary={fileSummary} isLoading={false} />));
+  assert.ok(screen.getByText(/Review Workspace/u), 'file-change status copy preserves the workspace name');
+  fireEvent.click(screen.getByRole('button', { name: 'Benachrichtigungen anzeigen' }));
+  const notificationSheet = screen.getByRole('dialog', { name: 'Benachrichtigungen' });
+  const fileLink = notificationSheet.querySelector<HTMLAnchorElement>('a[href*="fvrcSelectedId=operation-one"]');
+  assert.ok(fileLink, 'the mobile sheet exposes the exact review deep link');
+  fireEvent.click(fileLink);
+  await settle();
+  assert.equal(screen.queryByRole('dialog', { name: 'Benachrichtigungen' }), null,
+    'the mobile notification sheet closes before the global version center opens');
   cleanup();
   assert.ok(fetches.length > 0);
   console.log('Home components: direct file access, disclosure, search, errors, empty/read-only states, note creation and notification disclosure passed');

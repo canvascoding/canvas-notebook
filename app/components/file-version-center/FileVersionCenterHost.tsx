@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { resolveFileVersionCenter } from '@/app/lib/file-version-center/client';
+import { FileVersionCenterClientError, resolveFileVersionCenter } from '@/app/lib/file-version-center/client';
 import { FILE_VERSION_CENTER_CONTRACT_VERSION } from '@/app/lib/file-version-center/contracts/v1';
 import type {
   FileVersionCenterRequestV1,
@@ -29,11 +29,14 @@ import {
   reconcileFileVersionTimelineSelection,
 } from '@/app/lib/file-version-center/timeline-state';
 import {
+  claimFileChangeReviewAcknowledgement,
   closeVersionCenter,
+  releaseFileChangeReviewAcknowledgement,
   selectVersionCenterEntry,
   syncVersionCenterFromLocation,
   useFileVersionCenterStore,
 } from '@/app/store/file-version-center-store';
+import { updateNotification } from '@/app/components/notifications/notification-actions';
 
 import { FileVersionComparison } from './FileVersionComparison';
 import { FileVersionTimeline } from './FileVersionTimeline';
@@ -73,6 +76,10 @@ export function FileVersionCenterHost() {
     } catch (loadError) {
       if (generation !== requestGenerationRef.current
         || (loadError instanceof DOMException && loadError.name === 'AbortError')) return;
+      if (loadError instanceof FileVersionCenterClientError
+        && loadError.code === 'FVRC_STALE_SELECTION') {
+        window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+      }
       setError(loadError instanceof Error ? loadError.message : t('loadFailed'));
     } finally {
       if (generation === requestGenerationRef.current) setLoading(false);
@@ -81,12 +88,11 @@ export function FileVersionCenterHost() {
 
   const requestTarget = request?.target;
   const requestSource = request?.source;
-  const resolutionRequest = useMemo<FileVersionCenterRequestV1 | null>(() => requestTarget && requestSource ? ({
-    contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
-    target: requestTarget,
-    initialView: 'history',
-    source: requestSource,
-  }) : null, [requestSource, requestTarget]);
+  const resolutionRequest = useMemo<FileVersionCenterRequestV1 | null>(() => {
+    if (!requestTarget || !requestSource) return null;
+    const active = useFileVersionCenterStore.getState().request;
+    return active?.target === requestTarget && active.source === requestSource ? active : null;
+  }, [requestSource, requestTarget]);
 
   useEffect(() => {
     try {
@@ -126,6 +132,32 @@ export function FileVersionCenterHost() {
   const selection = useMemo(() => request && timeline
     ? reconcileFileVersionTimelineSelection({ request, timeline })
     : null, [request, timeline]);
+
+  useEffect(() => {
+    if (
+      request?.target.kind !== 'lineage'
+      || request.selectedEntry?.kind !== 'agent_operation'
+      || timeline?.document.workspaceId !== request.target.workspaceId
+      || timeline.document.lineageId !== request.target.lineageId
+      || selection?.state !== 'selected'
+      || selection.entry?.kind !== 'agent_operation'
+      || selection.entry.operationId !== request.selectedEntry.id
+    ) return;
+    const acknowledgement = claimFileChangeReviewAcknowledgement({
+      request,
+      workspaceId: timeline.document.workspaceId,
+      lineageId: timeline.document.lineageId,
+      operationId: selection.entry.operationId,
+    });
+    if (!acknowledgement) return;
+    void updateNotification({
+      action: 'mark_item_read',
+      itemId: acknowledgement.itemId,
+      workspaceId: acknowledgement.workspaceId,
+    }).catch(() => {
+      releaseFileChangeReviewAcknowledgement(acknowledgement.generation);
+    });
+  }, [request, selection, timeline]);
 
   const selectEntry = useCallback((entry: FileVersionTimelineEntryV1) => {
     selectVersionCenterEntry(entry.kind === 'current' ? null : { kind: entry.kind, id: entry.id });

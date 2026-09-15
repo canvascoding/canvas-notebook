@@ -34,9 +34,10 @@ import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
 import { getTodo, listTodos, type TodoWithRelations } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
-  FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX,
   fileChangeReviewNotificationSource,
 } from '@/app/lib/file-version-center/notification-source';
+import { FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX } from '@/app/lib/file-version-center/notification-contract';
+import type { FileChangeReviewNotificationReason } from '@/app/lib/file-version-center/notification-contract';
 
 const BASELINE_KEY = '__baseline__';
 const MAX_SOURCE_ITEMS = 200;
@@ -52,6 +53,8 @@ export type MobileInboxItem = {
   title: string;
   detail: string | null;
   previewUrl: string | null;
+  deepLink?: string;
+  fileChangeReason?: FileChangeReviewNotificationReason;
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
