@@ -4,11 +4,16 @@ import path from 'node:path';
 
 import {
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_ASPECT_RATIOS,
+  OPENAI_IMAGE_FORMAT_PRESETS,
   OPENAI_MODELS,
   QUALITY_OPTIONS,
   getMaxImageCountForProvider,
   getOpenAIImageRequestValidationError,
+  getOpenAIImageAspectRatio,
+  getOpenAIImageFormatPreset,
   getOpenAIImageSizeValidationError,
+  normalizeOpenAIImageSizeInput,
   normalizeOpenAIImageModelId,
   normalizeOpenAIImageOutputFormat,
 } from '../app/lib/integrations/image-generation-constants';
@@ -19,6 +24,13 @@ assert.equal(normalizeOpenAIImageModelId('gpt-image-2'), OPENAI_IMAGE_MODEL_ID);
 assert.equal(normalizeOpenAIImageModelId('gpt-image-2-2026-04-21'), OPENAI_IMAGE_MODEL_ID);
 assert.deepEqual(QUALITY_OPTIONS, ['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
 assert.equal(getMaxImageCountForProvider('image', 'openai'), 10);
+assert.deepEqual(OPENAI_ASPECT_RATIOS, ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4', '4:5', 'auto']);
+assert.equal(OPENAI_IMAGE_FORMAT_PRESETS.length, 9);
+assert.equal(getOpenAIImageFormatPreset('1536 × 1024')?.aspectRatio, '3:2');
+assert.equal(getOpenAIImageAspectRatio('1280x1024'), '5:4');
+assert.equal(getOpenAIImageAspectRatio('auto'), 'auto');
+assert.equal(normalizeOpenAIImageSizeInput(' 1536 × 864 '), '1536x864');
+assert.equal(normalizeOpenAIImageSizeInput('01024 X 01536'), '1024x1536');
 
 assert.equal(normalizeOpenAIImageOutputFormat('transparent', 'jpeg'), 'png');
 assert.equal(normalizeOpenAIImageOutputFormat('transparent', 'png'), 'png');
@@ -28,6 +40,7 @@ assert.equal(normalizeOpenAIImageOutputFormat('auto', undefined), undefined);
 
 assert.equal(getOpenAIImageSizeValidationError('auto'), null);
 assert.equal(getOpenAIImageSizeValidationError('1536x864'), null);
+assert.equal(getOpenAIImageSizeValidationError('1536 × 864'), null);
 assert.equal(getOpenAIImageSizeValidationError('2160x3840'), null);
 assert.match(getOpenAIImageSizeValidationError('1537x864') || '', /divisible by 16/);
 assert.match(getOpenAIImageSizeValidationError('4096x1024') || '', /3840/);
@@ -82,10 +95,15 @@ for (const apiParameter of [
   assert.match(providerSource, new RegExp(apiParameter), `Provider must pass ${apiParameter}`);
 }
 
+const studioGenerationHookSource = readFileSync(path.join(process.cwd(), 'app/apps/studio/hooks/useStudioGeneration.ts'), 'utf8');
+assert.match(studioGenerationHookSource, /image_size: imageFormat\.imageSize/u);
+
 const generationServiceSource = readFileSync(path.join(process.cwd(), 'app/lib/integrations/studio-generation-service.ts'), 'utf8');
 const validationPosition = generationServiceSource.indexOf('getOpenAIImageRequestValidationError({');
 const persistencePosition = generationServiceSource.indexOf('const requestMetadata = JSON.stringify({');
 assert.ok(validationPosition >= 0 && validationPosition < persistencePosition, 'OpenAI options must be validated before persistence');
+assert.match(generationServiceSource, /getOpenAIImageAspectRatio\(openAIImageSize, requestedAspectRatio\)/u);
+assert.match(generationServiceSource, /!provider\.supportedAspectRatios\.includes\(aspectRatio\) && !hasValidOpenAIImageSize/u);
 
 class MemoryStorage {
   private values = new Map<string, string>();
@@ -116,6 +134,22 @@ async function testPersistedOpenAIMigration() {
   const migratedState = createStudioGenerationStore().getState();
   assert.equal(migratedState.model, OPENAI_IMAGE_MODEL_ID);
   assert.equal(migratedState.imageSize, '1536x864');
+
+  localStorage.setItem('studio-generation-options', JSON.stringify({
+    mode: 'image',
+    provider: 'openai',
+    model: OPENAI_IMAGE_MODEL_ID,
+    aspectRatio: '1:1',
+    imageSize: '1280 × 1024',
+  }));
+  const restoredCustomState = createStudioGenerationStore().getState();
+  assert.equal(restoredCustomState.imageSize, '1280x1024');
+  assert.equal(restoredCustomState.aspectRatio, '5:4');
+
+  restoredCustomState.setOpenAIImageFormat({ aspectRatio: '4:5', imageSize: '1024x1280' });
+  const updatedCustomState = createStudioGenerationStore().getState();
+  assert.equal(updatedCustomState.imageSize, '1024x1280');
+  assert.equal(updatedCustomState.aspectRatio, '4:5');
 }
 
 testPersistedOpenAIMigration()

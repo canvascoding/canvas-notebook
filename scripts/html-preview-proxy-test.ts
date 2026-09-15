@@ -33,6 +33,20 @@ async function main(): Promise<void> {
   ));
   assert.equal(isolatedPreview.headers.get('x-middleware-next'), '1');
 
+  const sameOriginDocument = await middleware(new NextRequest(
+    `https://app.example.test/__document-preview/${ticket}/index.html`,
+    { headers: { host: 'app.example.test' } },
+  ));
+  assert.equal(sameOriginDocument.headers.get('x-middleware-next'), '1');
+
+  for (const [method, host] of [['POST', 'app.example.test'], ['GET', 'preview.app.example.test']] as const) {
+    const response = await middleware(new NextRequest(
+      `https://${host}/__document-preview/${ticket}/index.html`,
+      { method, headers: { host } },
+    ));
+    assert.equal(response.status, 404, `${method} same-origin document preview must be restricted to app-host GET/HEAD`);
+  }
+
   console.log('HTML preview proxy boundary tests passed');
 }
 

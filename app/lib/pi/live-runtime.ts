@@ -31,7 +31,6 @@ import {
   type PiSessionSummaryState,
 } from '@/app/lib/pi/history-budget';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
-import { projectToolOutputBlocks } from '@/app/lib/pi/tool-output-block-budget';
 import { finalizeToolOutputBlocks } from '@/app/lib/pi/tool-output-block-storage';
 import { createPiRuntimeContextStatusProjection } from '@/app/lib/pi/runtime-context-status';
 import { ContextStatusMeasurementCache, measurePiContextStatus } from '@/app/lib/pi/context-status-measurement';
@@ -628,19 +627,19 @@ export class LivePiRuntime {
       // Agent message objects mutate while streaming. Take an immutable input
       // at a durable boundary; never count individual text/thinking deltas.
       const messages = structuredClone(this.agent.state.messages);
-      // Match live preflight (and persisted-context loading) before the byte
-      // guard, so huge raw tool text cannot masquerade as a current overflow.
-      const composition = this.composeHistory(
-        projectToolOutputBlocks(messages, this.model),
-        this.getBrowserRuntimeContextTokenEstimate(),
-        'full',
-      );
       const systemPrompt = this.getEffectiveSystemPrompt();
       const tools = this.getEffectiveTools();
       const latestUser = messages.findLast(isUserMessage);
       const runtimeContext = await this.getRuntimeContextBlock(
         latestUser ? extractUserMessageText(latestUser) : '',
         latestUser ? this.messageContextSnapshots?.get(getMessageSignature(latestUser)) : undefined,
+      );
+      // Use the same fixed-context allowance and history projection as send
+      // preflight, including the protected-tail budget for tool pruning.
+      const composition = this.composeHistory(
+        messages,
+        runtimeContext ? estimateTextTokens(runtimeContext) : 0,
+        'full',
       );
       const injectedMessages = await this.injectRuntimeContext(composition.llmMessages, runtimeContext);
       return measurePiContextStatus(composition, {
@@ -652,7 +651,7 @@ export class LivePiRuntime {
         runtimeContractRevision: 'canvas-pi-runtime-v1',
       }, this.imageNormalizationOptions);
     }, (accepted) => {
-      console.info('[ContextStatus] measurement', {
+      console.info('[ContextStatus] measurement', JSON.stringify({
         sessionId: this.sessionId,
         ...cache.metadata,
         accepted,
@@ -664,7 +663,7 @@ export class LivePiRuntime {
         deltaTokens: previousPressure == null ? null
           : (cache.current?.contextPressure.pressureTokens ?? previousPressure) - previousPressure,
         components: cache.current?.components,
-      });
+      }));
       this.publishStatus();
     });
   }
@@ -732,6 +731,7 @@ export class LivePiRuntime {
     runtimeContext: string | null;
     signal?: AbortSignal;
     selectionMode?: 'automatic' | 'force';
+    triggerSnapshot?: PiContextBudgetSnapshot;
     focusTopic?: string | null;
     onStarted?: () => void;
   }): Promise<PiCompactionCoordinatorResult> {
@@ -827,6 +827,7 @@ export class LivePiRuntime {
           signal: candidateSignal,
           streamFn: this.options.summaryStreamFn,
           selectionMode: input.selectionMode ?? 'automatic',
+          triggerSnapshot: input.triggerSnapshot,
           focusTopic: input.focusTopic,
           onSummaryProgress: (progress) => {
             reportProgress(progress);
@@ -1371,14 +1372,17 @@ export class LivePiRuntime {
   }
 
   async refreshMemoryPrompt(): Promise<void> {
-    this.memoryPromptBlock = await buildMemoryPromptProjection({
+    const memoryPromptBlock = await buildMemoryPromptProjection({
       userId: this.userId,
       agentId: this.agentId,
       workspaceId: this.executionContext.workspaceId,
       organizationId: this.executionContext.organizationId,
       usableContextTokens: this.model.contextWindow,
     });
-    this.lastComposition = null;
+    if (memoryPromptBlock !== this.memoryPromptBlock) {
+      this.memoryPromptBlock = memoryPromptBlock;
+      this.invalidateContextBudget();
+    }
   }
 
   async prepareNextTurnContext(
@@ -2242,12 +2246,17 @@ export class LivePiRuntime {
       && this.isFinalPayloadSendable(exactPreflight.budgetSnapshot)
       && isPiHistoryCompositionSendable(preflight, this.summary);
     const projectedMessageCount = contextMessages.filter((message, index) => message !== messages[index]).length;
-    if (projectedMessageCount > 0 || !canSendWithoutCompaction) {
+    if (projectedMessageCount > 0 || projection.pruning.changed || !canSendWithoutCompaction) {
       logPiCompactionDiagnostic('info', 'normalized_preflight', {
         sessionId: this.sessionId,
+        contextRevision: this.getContextMeasurementCache().metadata.revision,
+        contractFingerprint: exactPreflight.budgetSnapshot.contractFingerprint,
         messageCount: messages.length,
         projectedMessageCount,
         rawHistoryTokens: messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
+        prunedHistoryTokens: projection.pruning.afterTokens,
+        reclaimedTokens: projection.pruning.reclaimedTokens,
+        prunedResultCount: projection.pruning.prunedResultCount,
         effectiveHistoryTokens: preflight.minimumRequiredTokens,
         completeHistoryMeasured: !preflight.contextBudgetExceeded,
         normalizedHistoryTokens: preflight.contextBudgetExceeded ? null : exactInspection.pressure.authoritativeHistoryTokens,
@@ -2272,11 +2281,12 @@ export class LivePiRuntime {
 
     const result = await this.coordinateCompaction({
       kind: 'automatic',
-      cause: 'threshold',
+      cause: exactInspection.pressure.hardRequestLimitExceeded ? 'hard_limit' : 'threshold',
       messages,
       additionalContextTokens,
       runtimeContext,
       signal,
+      triggerSnapshot: exactPreflight.budgetSnapshot,
     });
 
     if (this.applyAutomaticCompactionResult(result) && result.composition) {

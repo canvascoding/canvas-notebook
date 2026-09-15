@@ -9,6 +9,7 @@ import {
   getDefaultModelForProvider,
   getImageSizesForModel,
   getMaxImageCountForProvider,
+  isValidOpenAIImageSize,
   getVideoDurationsForModel,
   getVideoResolutionsForModel,
   type StudioVideoDuration,
@@ -283,10 +284,8 @@ export function StudioPromptComposer({
         aspectRatio={state.aspectRatio}
         onAspectRatioChange={(nextAspectRatio) => {
           state.setAspectRatio(nextAspectRatio);
-          if (state.mode === 'image' && state.provider === 'openai') {
-            state.setImageSize(getDefaultOpenAIImageSize(nextAspectRatio));
-          }
         }}
+        onOpenAIImageFormatChange={state.setOpenAIImageFormat}
         count={state.count}
         onCountChange={state.setCount}
         provider={state.provider}
@@ -306,7 +305,10 @@ export function StudioPromptComposer({
           }
           if (state.mode === 'image') {
             if (nextProvider === 'openai') {
-              state.setImageSize(getDefaultOpenAIImageSize(nextAspectRatio));
+              state.setOpenAIImageFormat({
+                aspectRatio: nextAspectRatio,
+                imageSize: getDefaultOpenAIImageSize(nextAspectRatio),
+              });
             } else {
               state.setImageSize(getImageSizesForModel(nextModel)[0] || '1K');
             }
@@ -326,7 +328,12 @@ export function StudioPromptComposer({
         onModelChange={(nextModel) => {
           state.setModel(nextModel);
           if (state.mode === 'image' && state.provider === 'openai') {
-            state.setImageSize(getDefaultOpenAIImageSize(state.aspectRatio));
+            if (!isValidOpenAIImageSize(state.imageSize)) {
+              state.setOpenAIImageFormat({
+                aspectRatio: state.aspectRatio,
+                imageSize: getDefaultOpenAIImageSize(state.aspectRatio),
+              });
+            }
           } else {
             const validSizes = getImageSizesForModel(nextModel);
             if (validSizes.length > 0 && !validSizes.includes(state.imageSize)) {

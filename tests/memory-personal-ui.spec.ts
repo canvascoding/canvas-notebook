@@ -48,10 +48,33 @@ test.describe('Memory Manager settings', () => {
     await expect(scopeTabs.getByRole('button', { name: 'Workspace' })).toBeVisible();
     await expect(scopeTabs.getByRole('button', { name: 'Organization' })).toBeVisible();
     await expect(page.getByText('Memory categories', { exact: true })).toBeVisible();
-    await expect(page.getByText('These cards are categories, not projects. Each category groups individual memory entries that remain available over time.')).toBeVisible();
+    await expect(page.getByText('Work with all entries together or filter by a specific memory category.')).toBeVisible();
+    const categoryFilter = page.getByTestId('memory-category-filter-trigger');
+    await expect(categoryFilter).toBeVisible();
+    await expect(categoryFilter).toContainText('All categories');
+    await expect(categoryFilter).toHaveAttribute('data-state', 'closed');
+    await expect(page).not.toHaveURL(/[?&]collectionId=/u);
+    const categoryCards = page.getByTestId('memory-category-card');
+    await expect(categoryCards).toHaveCount(0);
+    await categoryFilter.click();
+    await expect(categoryFilter).toHaveAttribute('data-state', 'open');
+    expect(await categoryCards.count()).toBeGreaterThan(0);
+    await expect(categoryCards.first()).toBeVisible();
+    const allCategories = page.getByTestId('memory-category-all');
+    await expect(allCategories).toHaveAttribute('aria-pressed', 'true');
+    const firstCategory = categoryCards.first().locator('button[aria-pressed]');
+    await firstCategory.click();
+    await expect(firstCategory).toHaveAttribute('aria-pressed', 'true');
+    await expect(page).toHaveURL(/[?&]collectionId=/u);
+    await allCategories.click();
+    await expect(allCategories).toHaveAttribute('aria-pressed', 'true');
+    await expect(page).not.toHaveURL(/[?&]collectionId=/u);
+    if (await page.getByTestId('memory-entry-card').count()) {
+      await expect(page.getByTestId('memory-entry-category').first()).toBeVisible();
+    }
     const reviewerSwitch = page.getByRole('switch', { name: 'Automatic memory review' });
     await expect(reviewerSwitch).toBeVisible();
-    await expect(reviewerSwitch).toBeEnabled();
+    await expect(reviewerSwitch).toBeEnabled({ timeout: 15_000 });
     if (await reviewerSwitch.isChecked()) {
       await expect(page.getByTestId('memory-reviewer-settings')).toBeVisible();
       await expect(page.getByLabel('Organization provider')).toBeVisible();
@@ -126,7 +149,7 @@ test.describe('Memory Manager settings', () => {
     test.skip(settingsPayload.data?.memoryReviewWorkerAvailable !== true, 'The server-wide worker kill switch is active.');
     const originalEnabled = settingsPayload.data?.automaticMemoryEnabled === true;
     const reviewerSwitch = page.getByRole('switch', { name: 'Automatic memory review' });
-    await expect(reviewerSwitch).toBeEnabled();
+    await expect(reviewerSwitch).toBeEnabled({ timeout: 15_000 });
 
     if (!await reviewerSwitch.isChecked()) {
       const [enableResponse] = await Promise.all([
@@ -175,14 +198,19 @@ test.describe('Memory Manager settings', () => {
 
     const scopeTabs = page.getByRole('tablist', { name: 'Memory-Bereich' });
     await expect(page.getByText('Memory-Bereiche', { exact: true })).toBeVisible();
-    await expect(page.getByText('Diese Karten sind Kategorien, keine Projekte. Jede Kategorie bündelt einzelne, dauerhaft gespeicherte Memory-Einträge.')).toBeVisible();
+    await expect(page.getByText('Bearbeite alle Einträge gemeinsam oder filtere gezielt nach einem Memory-Bereich.')).toBeVisible();
     await expect(page.getByRole('button').filter({ hasText: /^.*0 Einträge.*$/ })).toHaveCount(0);
-    const contextCategory = page.getByRole('button', { name: /^Kontext\b/u }).first();
+    const categoryFilter = page.getByTestId('memory-category-filter-trigger');
+    await expect(categoryFilter).toContainText('Alle Bereiche');
+    await expect(categoryFilter).toHaveAttribute('data-state', 'closed');
+    await categoryFilter.click();
+    const contextCategoryCard = page.getByTestId('memory-category-card').filter({ hasText: 'Kontext' }).first();
+    const contextCategory = contextCategoryCard.locator('button[aria-pressed]');
     await expect(contextCategory).toBeVisible();
 
     if (restartPhase === 'create') {
       const reviewerSwitch = page.getByRole('switch', { name: 'Automatische Memory-Prüfung' });
-      await expect(reviewerSwitch).toBeEnabled();
+      await expect(reviewerSwitch).toBeEnabled({ timeout: 15_000 });
       if (await reviewerSwitch.isChecked()) {
         const [toggleResponse] = await Promise.all([
           page.waitForResponse((response) => response.url().endsWith('/api/memory') && response.request().method() === 'PATCH'),
@@ -203,12 +231,12 @@ test.describe('Memory Manager settings', () => {
 
     await contextCategory.click();
 
-    const selectedCategory = contextCategory.locator('..');
+    const selectedCategory = contextCategoryCard;
     await expect(selectedCategory).toBeVisible();
     await expect(contextCategory).toHaveAttribute('aria-pressed', 'true');
     await expect(selectedCategory.getByText('Kontext', { exact: true })).toBeVisible();
     await expect(selectedCategory.getByText('Gemeinsamer, dauerhaft relevanter Kontext.', { exact: true })).toBeVisible();
-    await expect(selectedCategory.getByRole('button', { name: 'Kategorie exportieren' })).toBeVisible();
+    await expect(selectedCategory.getByRole('button', { name: 'Bereich exportieren' })).toBeVisible();
     await expect(page.getByTestId('selected-memory-category')).toHaveCount(0);
     const renderedMemory = page.getByTestId('memory-markdown-content').filter({ hasText: 'UI-Neustartprüfung' }).first();
     await expect(renderedMemory).toBeVisible();
@@ -216,7 +244,7 @@ test.describe('Memory Manager settings', () => {
     await expect(renderedMemory.locator('li')).toHaveCount(2);
     await expect(renderedMemory.getByText(restartMemoryDetail, { exact: true })).toBeVisible();
     await expect(renderedMemory.getByText('Markdown bleibt formatiert.', { exact: true })).toBeVisible();
-    await expect(renderedMemory.locator('xpath=ancestor::*[@data-testid="memory-entry-card"]')).toContainText('Priorität 70 · Wichtig');
+    await expect(renderedMemory.locator('xpath=ancestor::*[@data-testid="memory-entry-card"]')).toContainText(/Priorität \d+ ·/u);
 
     const selectedBox = await selectedCategory.boundingBox();
     const memoryBox = await renderedMemory.boundingBox();

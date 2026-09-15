@@ -13,6 +13,7 @@ import type {
   StudioGenerationStatus,
 } from '../types/generation';
 import { getStudioUserPrompt } from '../utils/studio-generation-prompt';
+import { getStudioGenerationImageFormat } from '../utils/studio-generation-settings';
 import { isStudioWorkspaceActive, studioApiFetch } from '../utils/studio-api';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 
@@ -543,13 +544,15 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
   }, [workspaceId]);
 
   const createVariation = useCallback(async (generation: StudioGeneration, output: StudioGenerationOutput) => {
+    const imageFormat = getStudioGenerationImageFormat(generation);
     return generate({
       prompt: getStudioUserPrompt(generation),
       mode: 'image',
       product_ids: generation.product_ids ?? [],
       persona_ids: generation.persona_ids ?? [],
       preset_id: generation.studioPresetId ?? undefined,
-      aspect_ratio: generation.aspectRatio,
+      aspect_ratio: imageFormat.aspectRatio,
+      image_size: imageFormat.imageSize,
       count: 4,
       provider: generation.provider,
       source_output_id: output.id,

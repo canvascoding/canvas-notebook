@@ -150,6 +150,8 @@ export type PreparePiHermesCompactionCandidateInput = Readonly<{
   signal: AbortSignal;
   streamFn?: StreamFn;
   selectionMode?: Extract<PiHistorySelectionMode, 'automatic' | 'force'>;
+  /** Full, normalized request that established automatic pressure for this candidate. */
+  triggerSnapshot?: PiContextBudgetSnapshot;
   focusTopic?: string | null;
   policy?: PiContextBudgetPolicy;
   onSummaryProgress?: (event: PiSummaryProgressEvent) => void;
@@ -208,7 +210,7 @@ export function projectPiHermesHistory(
   const pruning = prunePiSessionHistory({
     messages,
     estimateMessageTokens: estimatePiMessageTokens,
-    enabled: rollout.pruningEnabled && input.pruningMode === 'candidate',
+    enabled: rollout.pruningEnabled && input.pruningMode !== 'disabled',
     protectLastMessages: policy.protectLastMessages,
     protectedTailTokenBudget: inspection.budget.targetTailTokens,
     triggerTokens: inspection.budget.triggerTokens,
@@ -237,13 +239,28 @@ export async function preparePiHermesCompactionCandidate(
     input.policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
   );
   const rollout = getPiCompactionRolloutDecision(input.rolloutMode);
-  const projection = projectPiHermesHistory({ ...input, pruningMode: 'candidate' });
+  // The send preflight has already measured the complete pruned payload. Do
+  // not reject its decision using a second, cheaper history-token estimate.
+  const normalizedPressure = input.triggerSnapshot && inspectPiRuntimeCompactionPressure({
+    messages: input.messages,
+    model: input.model,
+    outputReserveTokens: input.requestOutputTokens,
+    fixedRequestTokens: 0,
+    finalSnapshot: input.triggerSnapshot,
+    policy,
+  });
+  const selectionMode = input.selectionMode === 'force' || normalizedPressure?.pressure.shouldCompact
+    ? 'force' : 'automatic';
+  const projection = projectPiHermesHistory({ ...input, selectionMode, pruningMode: 'candidate' });
   logPiCompactionDiagnostic('info', 'candidate_projection', {
     sessionId: input.sessionId,
     attemptId: input.compactionAttemptId ?? null,
-    selectionMode: input.selectionMode ?? 'automatic',
+    selectionMode,
     rawEstimatedTokens: input.messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
-    projectedEstimatedTokens: projection.inspection.roughHistoryTokens,
+    projectedEstimatedTokens: projection.pruning.afterTokens,
+    prunedTokens: projection.pruning.reclaimedTokens,
+    normalizedRequestTokens: input.triggerSnapshot?.estimatedTotalTokens ?? null,
+    normalizedTriggerTokens: input.triggerSnapshot?.triggerHistoryTokens ?? null,
     messageCount: input.messages.length,
     minimumRequiredTokens: projection.composition.minimumRequiredTokens,
     availableHistoryTokens: projection.composition.availableHistoryTokens,
@@ -283,7 +300,7 @@ export async function preparePiHermesCompactionCandidate(
     signal: input.signal,
     streamFn: input.streamFn,
     summaryMode: rollout.summaryMode,
-    selectionMode: input.selectionMode ?? 'automatic',
+    selectionMode,
     focusTopic: input.focusTopic,
     policy,
     authorizedSessionId: input.sessionId,

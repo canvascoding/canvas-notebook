@@ -20,8 +20,8 @@ caddy_site_block() {
     internal_key="$(config_json_read env.CANVAS_INTERNAL_API_KEY 2>/dev/null || true)"
     preview_origin="$(config_json_read env.CANVAS_HTML_PREVIEW_ORIGIN 2>/dev/null || true)"
   fi
-  preview_origin="${preview_origin:-https://preview.$domain}"
-  preview_origin="$(CANVAS_PREVIEW_SITE="$preview_origin" CANVAS_PREVIEW_APP_HOST="$domain" python3 - <<'PY'
+  if [[ -n "$preview_origin" ]]; then
+    preview_origin="$(CANVAS_PREVIEW_SITE="$preview_origin" CANVAS_PREVIEW_APP_HOST="$domain" python3 - <<'PY'
 import os,re,urllib.parse
 value=urllib.parse.urlsplit(os.environ['CANVAS_PREVIEW_SITE'])
 host=value.hostname or ''
@@ -33,7 +33,8 @@ port=value.port
 assert port is None or 1<=port<=65535
 print('https://'+host+(':'+str(port) if port and port!=443 else ''))
 PY
-  )" || return 1
+    )" || return 1
+  fi
   if [[ ${#internal_key} -ge 32 ]]; then
     proxy_token="$(CANVAS_PROXY_DERIVATION_KEY="$internal_key" python3 -c 'import hashlib,hmac,os; print(hmac.new(os.environ["CANVAS_PROXY_DERIVATION_KEY"].strip().encode(), b"canvas-notebook/proxy-client-address/v1", hashlib.sha256).hexdigest())')" || return 1
   fi
@@ -44,13 +45,15 @@ PY
     printf '            header_up -X-Canvas-Proxy-Token\n            header_up -X-Canvas-Proxy-Client-IP\n'
   fi
   printf '        }\n    }\n}\n'
-  printf '\n%s {\n    @preview {\n        method GET HEAD\n        path /__preview/*\n    }\n    handle @preview {\n        reverse_proxy localhost:3456 {\n            header_up -Cookie\n            header_up -Authorization\n            header_up -Proxy-Authorization\n            header_down -Set-Cookie\n            header_down -X-Frame-Options\n' "$preview_origin"
-  if [[ -n "$proxy_token" ]]; then
-    printf '            header_up X-Canvas-Proxy-Token %s\n            header_up X-Canvas-Proxy-Client-IP {remote_host}\n' "$proxy_token"
-  else
-    printf '            header_up -X-Canvas-Proxy-Token\n            header_up -X-Canvas-Proxy-Client-IP\n'
+  if [[ -n "$preview_origin" ]]; then
+    printf '\n%s {\n    @preview {\n        method GET HEAD\n        path /__preview/*\n    }\n    handle @preview {\n        reverse_proxy localhost:3456 {\n            header_up -Cookie\n            header_up -Authorization\n            header_up -Proxy-Authorization\n            header_down -Set-Cookie\n            header_down -X-Frame-Options\n' "$preview_origin"
+    if [[ -n "$proxy_token" ]]; then
+      printf '            header_up X-Canvas-Proxy-Token %s\n            header_up X-Canvas-Proxy-Client-IP {remote_host}\n' "$proxy_token"
+    else
+      printf '            header_up -X-Canvas-Proxy-Token\n            header_up -X-Canvas-Proxy-Client-IP\n'
+    fi
+    printf '        }\n    }\n    handle {\n        respond 404\n    }\n}\n'
   fi
-  printf '        }\n    }\n    handle {\n        respond 404\n    }\n}\n'
 }
 
 write_caddy_config() {

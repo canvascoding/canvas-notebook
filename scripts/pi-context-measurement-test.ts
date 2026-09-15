@@ -96,11 +96,18 @@ async function main() {
   assert.deepEqual(getContextStatusPresentation(base), getContextStatusPresentation({ ...base, phase: 'idle' }));
   assert.equal(getContextStatusPresentation(base).severity, 'warning');
   const required = getContextStatusPresentation({ ...base,
-    contextPressure: { ...base.contextPressure!, percentOfTrigger: 110 } });
+    contextPressure: { ...base.contextPressure!, pressureTokens: 190_300, percentOfTrigger: 110 } });
   assert.equal(required.severity, 'warning');
   assert.equal(required.needsCompaction, true);
   assert.equal(required.percent, 110);
   assert.equal(required.progressPercent, 100);
+  assert.equal(getContextStatusPresentation({ ...base,
+    contextPressure: { ...base.contextPressure!, pressureTokens: 172_999, percentOfTrigger: 100 },
+  }).needsCompaction, false, 'rounded 100% must not announce a threshold that has not been reached');
+  assert.equal(getContextStatusPresentation({ ...base,
+    contextPressure: { ...base.contextPressure!, pressureTokens: 190_300, percentOfTrigger: 110 },
+    contextMeasurement: { revision: 2, measuredRevision: 1, measuredAt: null, state: 'updating' },
+  }).needsCompaction, false, 'stale pressure must not request compaction');
   assert.equal(getContextStatusPresentation({ ...base, nextRequestBudgetExceeded: true }).severity, 'critical');
   assert.equal(getContextStatusPresentation({ ...base, nextRequestBudgetExceeded: true,
     contextMeasurement: { revision: 2, measuredRevision: 1, measuredAt: null, state: 'updating' },

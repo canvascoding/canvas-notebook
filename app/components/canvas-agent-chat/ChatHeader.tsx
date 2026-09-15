@@ -114,7 +114,9 @@ export function ChatHeader({
   const showWorkspaceSwitcher = showWorkspaceSwitcherEnabled && canShowWorkspaceSwitcher;
   const compactionStatus = runtimeStatus?.compactionStatus;
   const compactionTranslationKey = getRuntimeCompactionStatusTranslationKey(compactionStatus);
-  const compactionLabel = compactionTranslationKey ? t(compactionTranslationKey) : null;
+  const compactionLabel = compactionStatus?.state === 'no_op'
+    && compactionStatus.reasonCode === 'soft_threshold_not_reached'
+    ? null : compactionTranslationKey ? t(compactionTranslationKey) : null;
   const compactionCauseKey = getRuntimeCompactionCauseTranslationKey(compactionStatus?.cause);
   const compactionCauseLabel = compactionCauseKey ? t(compactionCauseKey) : null;
   const hasAppliedCompaction = compactionStatus?.state === 'succeeded';
@@ -361,7 +363,9 @@ export function ChatHeader({
                 <span>{t('compact')}</span>
                 {!canCompact ? (
                   <span className="ml-auto text-[10px] text-muted-foreground">
-                    {!sessionId ? t('noSessionYet') : compactionLabel || t('working')}
+                    {!sessionId ? t('noSessionYet')
+                      : compactionStatus?.state === 'running' ? t('compactionStatusRunning')
+                        : t('compactAfterResponse')}
                   </span>
                 ) : null}
               </DropdownMenuItem>

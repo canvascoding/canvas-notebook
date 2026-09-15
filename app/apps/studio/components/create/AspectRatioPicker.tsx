@@ -21,7 +21,6 @@ interface AspectRatioPickerProps {
   aspectRatio: string;
   onAspectRatioChange: (value: string) => void;
   aspectRatios: readonly string[];
-  isOpenAI: boolean;
 }
 
 function AspectRatioShape({ ratio }: { ratio: string }) {
@@ -62,7 +61,6 @@ export function AspectRatioPicker({
   aspectRatio,
   onAspectRatioChange,
   aspectRatios,
-  isOpenAI,
 }: AspectRatioPickerProps) {
   const t = useTranslations('studio.aspectRatio');
 
@@ -83,14 +81,7 @@ export function AspectRatioPicker({
         <DropdownMenuContent align="start" className="w-52">
           {aspectRatios.map((ratio) => {
             const tipKey = ratioTipKeys[ratio];
-            const label =
-              ratio === '4:3' && isOpenAI
-                ? `4:3 (1536×1024)`
-                : ratio === '3:4' && isOpenAI
-                  ? `3:4 (1024×1536)`
-                  : ratio === 'auto'
-                    ? t('auto')
-                    : ratio;
+            const label = ratio === 'auto' ? t('auto') : ratio;
 
             return (
               <Tooltip key={ratio}>

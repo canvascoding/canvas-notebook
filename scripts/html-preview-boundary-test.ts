@@ -50,6 +50,13 @@ async function main() {
     assert.equal(sameOriginMcpPost.status,404);await sameOriginMcpPost.arrayBuffer();
     const sameOriginGeneric=await send(base+'/__preview/'+token+'/index.html',{headers:{host:'app.example.test'}});
     assert.equal(sameOriginGeneric.status,404);await sameOriginGeneric.arrayBuffer();
+    const sameOriginDocument=await send(base+'/__document-preview/'+token+'/index.html',{headers:{host:'app.example.test',cookie:'fixture','authorization':'Bearer fixture','x-canvas-internal-token':'fixture'}});
+    assert.equal(sameOriginDocument.status,200);
+    assert.deepEqual(await sameOriginDocument.json(),{cookie:null,authorization:null,internal:null});
+    const sameOriginDocumentPost=await send(base+'/__document-preview/'+token+'/index.html',{method:'POST',headers:{host:'app.example.test'}});
+    assert.equal(sameOriginDocumentPost.status,404);await sameOriginDocumentPost.arrayBuffer();
+    const externalDocument=await send(base+'/__document-preview/'+token+'/index.html',{headers:{host:previewHost}});
+    assert.equal(externalDocument.status,404);await externalDocument.arrayBuffer();
     for(const headers of [{origin:'https://'+previewHost},{origin:'null'},{cookie:'fixture','sec-fetch-site':'same-site'},{cookie:'fixture','sec-fetch-site':'cross-site'}]) {
       const response=await send(base+'/api/files/write',{method:'POST',headers:{host:'app.example.test',...headers}});
       assert.equal(response.status,403);await response.arrayBuffer();

@@ -11,8 +11,8 @@ import {
 } from '@/app/lib/html-preview';
 import { canReadStudioMediaPath } from '@/app/lib/integrations/studio-media-access';
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
-import { htmlPreviewTicketPath, issueHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
-import { htmlPreviewUrl } from '@/app/lib/html-preview-origin';
+import { deliverHtmlPreviewTicket } from '@/app/lib/html-preview-delivery';
+import { issueHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
 
 function resolveStudioPath(encodedFilePath: string): string | null {
   return encodedFilePath.startsWith('studio/')
@@ -66,9 +66,7 @@ export async function GET(
     const issued = await issueHtmlPreviewTicket({
       session,workspace:studioRequest.workspace,rootHtmlPath:encodedPath,kind:'studio',
     });
-    return NextResponse.redirect(htmlPreviewUrl(htmlPreviewTicketPath(issued.ticket,encodedPath)),{
-      status:302,headers:{'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'},
-    });
+    return deliverHtmlPreviewTicket(issued.ticket,encodedPath,{sameOrigin:true});
   } catch {
     return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
   }

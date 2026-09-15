@@ -9,6 +9,7 @@ import {
   BACKGROUND_OPTIONS,
   OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_ASPECT_RATIOS,
   OPENAI_MODERATION_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   QUALITY_OPTIONS,
@@ -16,6 +17,7 @@ import {
   getOpenAIImageSizeValidationError,
   normalizeGeminiImageModelId,
   normalizeOpenAIImageOutputFormat,
+  normalizeOpenAIImageSizeInput,
   type OpenAIImageBackground,
   type OpenAIImageInputFidelity,
   type OpenAIImageModeration,
@@ -109,8 +111,6 @@ const OPENAI_MODELS: ImageModelOption[] = [
 ];
 
 const GEMINI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'];
-const OPENAI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', 'auto'];
-
 function extractUsage(usage: unknown): ProviderGenerateResult['usage'] {
   if (!usage || typeof usage !== 'object') return undefined;
   const u = usage as unknown as Record<string, unknown>;
@@ -300,7 +300,7 @@ class OpenAIImageProvider implements ImageGenerationProvider {
   name = 'OpenAI GPT Image';
   requiredApiKey = 'OPENAI_API_KEY';
   models = OPENAI_MODELS;
-  supportedAspectRatios = OPENAI_ASPECT_RATIOS;
+  supportedAspectRatios = [...OPENAI_ASPECT_RATIOS];
   maxReferenceImages = 16;
   maxImageCount = 10;
   supportsQuality = true;
@@ -329,7 +329,9 @@ class OpenAIImageProvider implements ImageGenerationProvider {
       throw new Error('Unsupported OpenAI input fidelity.');
     }
     const outputFormat = normalizeOpenAIImageOutputFormat(params.background, params.outputFormat) || 'png';
-    const size = (params.imageSize || getDefaultOpenAIImageSize(params.aspectRatio)).trim().toLowerCase();
+    const size = normalizeOpenAIImageSizeInput(
+      params.imageSize || getDefaultOpenAIImageSize(params.aspectRatio),
+    );
     const sizeError = getOpenAIImageSizeValidationError(size);
     if (sizeError) {
       throw new Error(`Invalid OpenAI image size "${size}": ${sizeError}`);

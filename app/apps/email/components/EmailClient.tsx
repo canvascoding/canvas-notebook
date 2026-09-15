@@ -656,6 +656,17 @@ export function EmailClient({
         && contextIntent.toolName !== 'email_list_mailboxes'
       ) return;
 
+      const opensMessage = (
+        contextIntent.view === 'message'
+        || contextIntent.toolName === 'email_read'
+        || contextIntent.toolName === 'email_read_message'
+      ) && Boolean(contextIntent.messageId);
+      // Account changes clear the reader and load the target account's folders in
+      // a separate effect. Wait for that reset to finish before opening a deep
+      // link; otherwise the reset aborts this detail request and the intent is
+      // already marked as applied.
+      if (opensMessage && foldersAccountId !== activeAccount.id) return;
+
       if (contextIntent.folder && activeFolder !== contextIntent.folder) {
         clearReader();
         setActiveFolder(contextIntent.folder);
@@ -682,13 +693,7 @@ export function EmailClient({
       }
 
       appliedContextIntentRef.current = intentKey;
-      if (
-        (contextIntent.view === 'message'
-          || contextIntent.toolName === 'email_read'
-          || contextIntent.toolName === 'email_read_message')
-        && contextIntent.messageId
-        && selectedMessage?.id !== contextIntent.messageId
-      ) {
+      if (opensMessage && contextIntent.messageId && selectedMessage?.id !== contextIntent.messageId) {
         const matchingMessage = messages.find((message) => message.id === contextIntent.messageId);
         void loadMessage(matchingMessage || {
           id: contextIntent.messageId,
@@ -709,6 +714,7 @@ export function EmailClient({
     activeFolder,
     clearReader,
     contextIntent,
+    foldersAccountId,
     isLoadingAccounts,
     loadMessage,
     messages,

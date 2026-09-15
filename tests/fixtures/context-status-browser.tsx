@@ -52,6 +52,13 @@ function Fixture() {
       <button onClick={() => setStatus({ ...status, contextMeasurement: { ...status.contextMeasurement!, state: 'unavailable' } })}>Unavailable</button>
       <button onClick={() => updatePercent(63)}>New 63%</button>
       <button onClick={() => updatePercent(110)}>Trigger reached</button>
+      <button onClick={() => setStatus({ ...initial,
+        contextPressure: { ...initial.contextPressure!, percentOfTrigger: 114, pressureTokens: 197_220 },
+        compactionStatus: { ...IDLE_RUNTIME_COMPACTION_STATUS, state: 'no_op', reasonCode: 'soft_threshold_not_reached' },
+      })}>Previous no-op</button>
+      <button onClick={() => setStatus({ ...initial,
+        compactionStatus: { ...IDLE_RUNTIME_COMPACTION_STATUS, state: 'running' },
+      })}>Compacting</button>
       <button onClick={() => setStatus({ ...initial, nextRequestBudgetExceeded: true })}>Overflow</button>
       <button onClick={() => setStatus({ ...initial, phase: 'idle', nextRequestBudgetExceeded: true,
         contextPressure: { ...initial.contextPressure!, percentOfTrigger: 174, pressureTokens: 301_020 },

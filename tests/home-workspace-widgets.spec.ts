@@ -112,7 +112,8 @@ test('workspace widgets fill page two with stable, directly actionable previews'
 
   const automationCard = page.getByTestId('workspace-widget-automation');
   await expect(automationCard.getByRole('link', { name: /Kampagnen-Report/ })).toHaveAttribute('href', '/de/automations/job-latest');
-  await expect(automationCard.getByRole('link', { name: 'Automationen öffnen', exact: true }).last()).toHaveAttribute('href', '/de/automations/job-latest');
+  await expect(automationCard.getByRole('link', { name: 'Automationen öffnen', exact: true }).first()).toHaveAttribute('href', '/de/automations');
+  await expect(automationCard.getByRole('link', { name: 'Automationen öffnen', exact: true }).last()).toHaveAttribute('href', '/de/automations');
 
   const studioCard = page.getByTestId('workspace-widget-studio');
   const studioPreviewHref = await studioCard.getByRole('link', { name: /Editoriales Produktbild für den Launch/ }).getAttribute('href');
@@ -128,6 +129,79 @@ test('workspace widgets fill page two with stable, directly actionable previews'
   expect(Math.abs((firstBox?.height ?? 0) - (secondBox?.height ?? 0))).toBeLessThan(2);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('workspace-widgets-desktop.png'), animations: 'disabled' });
+});
+
+test('email quick selection waits for the target account before opening its message preview', async ({ page }) => {
+  const workspace = await prepare(page);
+  await mockWidgets(page, workspace.id);
+  let releaseFolders: () => void = () => undefined;
+  const foldersReady = new Promise<void>((resolve) => {
+    releaseFolders = resolve;
+  });
+  let foldersRequested = false;
+  const detailRequests: string[] = [];
+
+  await page.route('**/api/email/accounts', route => route.fulfill({ json: {
+    success: true,
+    data: {
+      accounts: [{
+        id: 'sales',
+        provider: 'gmail',
+        authType: 'oauth',
+        emailAddress: 'sales@example.com',
+        displayName: 'Sales',
+        isPrimary: true,
+        status: 'connected',
+        imapHost: null,
+        policy: { readFrom: [], sendTo: [] },
+      }],
+    },
+  } }));
+  await page.route('**/api/email/folders?accountId=sales', async route => {
+    foldersRequested = true;
+    await foldersReady;
+    await route.fulfill({ json: {
+      success: true,
+      data: { folders: [{ id: 'inbox', name: 'Inbox', path: 'INBOX', role: 'inbox', selectable: true, messageCount: 1, unseenCount: 1 }] },
+    } });
+  });
+  await page.route('**/api/email/accounts/sales/messages/mail-sales?*', route => {
+    detailRequests.push(route.request().url());
+    return route.fulfill({ json: {
+      success: true,
+      data: { message: {
+        id: 'mail-sales',
+        folder: 'INBOX',
+        from: 'Mara <mara@example.com>',
+        to: ['sales@example.com'],
+        subject: 'Launch-Freigabe',
+        date: '2026-09-07T12:00:00Z',
+        snippet: 'Freigabe liegt vor.',
+        body: 'Die angeklickte Nachricht ist im Preview geöffnet.',
+        isRead: true,
+      } },
+    } });
+  });
+  await page.route('**/api/email/accounts/sales/messages?*', route => route.fulfill({ json: {
+    success: true,
+    data: { messages: [], total: 0 },
+  } }));
+  await page.route('**/api/user-preferences', route => route.fulfill({ json: {
+    success: true,
+    data: { emailAllowRemoteImages: false, emailRemoteImageAllowedSenders: [] },
+  } }));
+
+  await page.goto('/de');
+  await page.getByRole('button', { name: 'Zum Workspace', exact: true }).click();
+  await page.getByTestId('workspace-widget-email').getByRole('link', { name: /Launch-Freigabe/ }).click();
+
+  await expect.poll(() => foldersRequested).toBe(true);
+  await expect.poll(() => detailRequests).toHaveLength(0);
+  releaseFolders();
+
+  await expect(page).toHaveURL(/\/de\/emails\?accountId=sales&messageId=mail-sales&folder=INBOX/);
+  await expect(page.getByText('Die angeklickte Nachricht ist im Preview geöffnet.')).toBeVisible();
+  expect(detailRequests).toHaveLength(1);
 });
 
 test('studio widget link switches workspace before opening the requested output', async ({ page }) => {

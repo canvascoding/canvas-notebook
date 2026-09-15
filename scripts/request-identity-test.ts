@@ -26,10 +26,12 @@ async function main() {
   assert.ok(config.includes(`header_up X-Canvas-Proxy-Token ${token}`));
   assert.ok(config.includes('header_up X-Canvas-Proxy-Client-IP {remote_host}'));
   assert.ok(!config.includes(internalKey), 'proxy must not receive the internal API credential');
+  assert.ok(!config.includes('preview.notebook.example.com'), 'the default Caddy configuration must not create a preview hostname');
   const shellConfig = execFileSync('bash', ['-c', 'source install/lib/shared/caddy.sh\nconfig_json_read() { [[ "$1" == env.CANVAS_INTERNAL_API_KEY ]] && printf "%s" "$TEST_INTERNAL_KEY"; }\ncaddy_site_block notebook.example.com'], {
     encoding: 'utf8', env: { ...process.env, TEST_INTERNAL_KEY: internalKey },
   });
   assert.ok(shellConfig.includes(`header_up X-Canvas-Proxy-Token ${token}`), 'shell and portable CLI must agree on proxy attestation');
+  assert.ok(!shellConfig.includes('preview.notebook.example.com'), 'the legacy Caddy helper must not create a preview hostname by default');
 
   const server = createServer((request, response) => runWithRequestIdentity(request, async () => {
     if (request.url === '/verified') rememberVerifiedRateLimitUser('fixture-user');

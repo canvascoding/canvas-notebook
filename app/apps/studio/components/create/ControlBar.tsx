@@ -17,12 +17,12 @@ import type { StudioPreset } from '../../types/presets';
 import { ModeToggle } from './ModeToggle';
 import { StudioPicker } from './StudioPicker';
 import { AspectRatioPicker } from './AspectRatioPicker';
+import { OpenAIImageFormatPicker } from './OpenAIImageFormatPicker';
 import {
   PROVIDERS,
   OPENAI_IMAGE_MODEL_ID,
   OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_MODERATION_OPTIONS,
-  OPENAI_RECOMMENDED_IMAGE_SIZES,
   QUALITY_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   BACKGROUND_OPTIONS,
@@ -102,6 +102,7 @@ interface ControlBarProps {
   onInputFidelityChange: (value: OpenAIImageInputFidelity) => void;
   imageSize: string;
   onImageSizeChange: (value: string) => void;
+  onOpenAIImageFormatChange: (format: { aspectRatio: string; imageSize: string }) => void;
   videoResolution: VideoResolution;
   onVideoResolutionChange: (value: VideoResolution) => void;
   videoDuration: StudioVideoDuration;
@@ -164,6 +165,7 @@ export function ControlBar({
   onInputFidelityChange,
   imageSize,
   onImageSizeChange,
+  onOpenAIImageFormatChange,
   videoResolution,
   onVideoResolutionChange,
   videoDuration,
@@ -220,12 +222,17 @@ export function ControlBar({
         <ModeToggle value={mode} onChange={onModeChange} />
         <StudioPicker presets={presets} value={selectedPreset} onChange={onPresetChange} disabled={isSound} />
 
-        {!isSound ? (
+        {isOpenAI && mode === 'image' ? (
+          <OpenAIImageFormatPicker
+            aspectRatio={aspectRatio}
+            imageSize={imageSize}
+            onChange={onOpenAIImageFormatChange}
+          />
+        ) : !isSound ? (
           <AspectRatioPicker
             aspectRatio={aspectRatio}
             onAspectRatioChange={onAspectRatioChange}
             aspectRatios={aspectRatios}
-            isOpenAI={isOpenAI}
           />
         ) : null}
 
@@ -357,27 +364,6 @@ export function ControlBar({
                     </option>
                   ))}
                 </SelectField>
-
-                <label className="flex min-w-0 flex-col gap-1 text-sm">
-                  <span className="truncate text-[11px] text-muted-foreground sm:text-xs">Resolution</span>
-                  <input
-                    className={cn(
-                      'h-8 w-full min-w-0 rounded-lg border bg-background px-2 text-xs sm:h-9 sm:rounded-xl sm:text-sm',
-                      openAIImageSizeError ? 'border-destructive' : 'border-input',
-                    )}
-                    value={imageSize}
-                    list="openai-image-size-options"
-                    onChange={(event) => onImageSizeChange(event.target.value)}
-                    placeholder="1536x864 or auto"
-                    aria-invalid={Boolean(openAIImageSizeError)}
-                  />
-                  <datalist id="openai-image-size-options">
-                    {OPENAI_RECOMMENDED_IMAGE_SIZES.map((size) => <option key={size} value={size} />)}
-                  </datalist>
-                  {openAIImageSizeError ? (
-                    <span className="text-[10px] leading-tight text-destructive">{openAIImageSizeError}</span>
-                  ) : null}
-                </label>
 
                 <SelectField label="Moderation" value={moderation} onChange={(value) => onModerationChange(value as OpenAIImageModeration)}>
                   {OPENAI_MODERATION_OPTIONS.map((option) => (

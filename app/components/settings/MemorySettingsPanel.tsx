@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowRightLeft, BookOpenText, BrainCircuit, Check, ChevronRight, Download, Loader2, MoreHorizontal, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
+import { Archive, ArrowRightLeft, BookOpenText, BrainCircuit, Check, ChevronDown, ChevronRight, Download, LayoutGrid, Loader2, MoreHorizontal, Pencil, Plus, RotateCcw, Save, Send, Sparkles, Trash2, Upload } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import Link from 'next/link';
@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -189,6 +190,7 @@ export function MemorySettingsPanel() {
   const initialCollectionIdRef = useRef(searchParams.get('collectionId'));
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
+  const [categoriesOpen, setCategoriesOpen] = useState(() => Boolean(searchParams.get('collectionId')));
   const [entries, setEntries] = useState<Entry[]>([]);
   const [exportingCollectionId, setExportingCollectionId] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<MemoryPermissions | null>(null);
@@ -252,6 +254,15 @@ export function MemorySettingsPanel() {
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
   );
+  const entryViewCounts = useMemo(() => {
+    if (selectedCollection) return selectedCollection;
+    return collections.reduce((counts, collection) => ({
+      publishedCount: counts.publishedCount + collection.publishedCount,
+      pendingCount: counts.pendingCount + collection.pendingCount,
+      archivedCount: counts.archivedCount + collection.archivedCount,
+      totalCount: counts.totalCount + collection.totalCount,
+    }), { publishedCount: 0, pendingCount: 0, archivedCount: 0, totalCount: 0 });
+  }, [collections, selectedCollection]);
   const activeTransferTargets = useMemo(() => agentOwners.filter((owner) => owner.status === 'active' && owner.agentId !== agentId), [agentId, agentOwners]);
   const agentMemoryReadOnly = scope === 'agent' && selectedAgentOwner?.status === 'deleted';
   const canUseScope = scope === 'agent'
@@ -281,6 +292,7 @@ export function MemorySettingsPanel() {
     entryLoadVersionRef.current += 1;
     setAgentId(nextAgentId);
     setSelectedCollectionId(null);
+    setCategoriesOpen(false);
     setEntries([]);
     setHighlightedEntryId(null);
     setEntryView('published');
@@ -302,6 +314,7 @@ export function MemorySettingsPanel() {
     entryLoadVersionRef.current += 1;
     setWorkspaceId(nextWorkspaceId);
     setSelectedCollectionId(null);
+    setCategoriesOpen(false);
     setEntries([]);
     setEntryView('published');
     setEntryQuery('');
@@ -387,6 +400,7 @@ export function MemorySettingsPanel() {
       if (scopeChanged || workspaceChanged || agentChanged) {
         setCollections([]);
         setSelectedCollectionId(nextCollectionId);
+        setCategoriesOpen(Boolean(nextCollectionId));
         setEntries([]);
         setEntryQuery('');
         setHistoryForEntryId(null);
@@ -442,30 +456,38 @@ export function MemorySettingsPanel() {
         setEntries([]);
         setSelectedCollectionId(null);
       }
-      return;
+      return [];
     }
     const data = await readJson<{ collections: Collection[]; entries: Entry[]; permissions: MemoryPermissions }>(`/api/memory?${query.toString()}`);
-    if (loadVersion !== collectionLoadVersionRef.current) return;
+    if (loadVersion !== collectionLoadVersionRef.current) return [];
     setCollections(data.collections);
     setPermissions(data.permissions);
-    const requestedCollectionId = preferredCollectionId ?? initialCollectionIdRef.current;
+    const requestedCollectionId = preferredCollectionId === undefined ? initialCollectionIdRef.current : preferredCollectionId;
     initialCollectionIdRef.current = null;
     const selected = requestedCollectionId && data.collections.some((collection) => collection.id === requestedCollectionId)
       ? requestedCollectionId
-      : data.collections[0]?.id ?? null;
+      : null;
     setSelectedCollectionId(selected);
+    return data.collections;
   }, [canUseScope, query]);
 
-  const loadEntries = useCallback(async (collectionId: string | null, requestedView = entryView) => {
+  const loadEntries = useCallback(async (collectionId: string | null, requestedView = entryView, availableCollections = collections) => {
     const loadVersion = ++entryLoadVersionRef.current;
-    if (!collectionId || !canUseScope) {
+    if (!canUseScope) {
       if (loadVersion === entryLoadVersionRef.current) setEntries([]);
       return;
     }
-    const data = await readJson<{ entries: Entry[] }>(`/api/memory?${queryForScope(scope, agentId, workspaceId, collectionId, requestedView).toString()}`);
+    const collectionIds = collectionId ? [collectionId] : availableCollections.map((collection) => collection.id);
+    if (collectionIds.length === 0) {
+      if (loadVersion === entryLoadVersionRef.current) setEntries([]);
+      return;
+    }
+    const data = await Promise.all(collectionIds.map((id) => readJson<{ entries: Entry[] }>(
+      `/api/memory?${queryForScope(scope, agentId, workspaceId, id, requestedView).toString()}`,
+    )));
     if (loadVersion !== entryLoadVersionRef.current) return;
-    setEntries(data.entries);
-  }, [agentId, canUseScope, entryView, scope, workspaceId]);
+    setEntries(data.flatMap((payload) => payload.entries));
+  }, [agentId, canUseScope, collections, entryView, scope, workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -502,6 +524,7 @@ export function MemorySettingsPanel() {
     setCollections([]);
     setEntries([]);
     setSelectedCollectionId(null);
+    setCategoriesOpen(false);
     setHistoryForEntryId(null);
     setEntryHistory([]);
     setEditingId(null);
@@ -590,8 +613,8 @@ export function MemorySettingsPanel() {
   };
 
   const refreshScope = async (requestedView = entryView) => {
-    await loadCollections(selectedCollectionId);
-    await loadEntries(selectedCollectionId, requestedView);
+    const refreshedCollections = await loadCollections(selectedCollectionId);
+    await loadEntries(selectedCollectionId, requestedView, refreshedCollections);
   };
 
   const selectEntryView = (nextView: MemoryEntryView) => {
@@ -607,11 +630,12 @@ export function MemorySettingsPanel() {
     url.searchParams.set('scope', scope);
     url.searchParams.set('status', nextView);
     if (selectedCollectionId) url.searchParams.set('collectionId', selectedCollectionId);
+    else url.searchParams.delete('collectionId');
     url.searchParams.delete('entryId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
-  const selectCollection = (collectionId: string) => {
+  const selectCollection = (collectionId: string | null) => {
     collectionLoadVersionRef.current += 1;
     entryLoadVersionRef.current += 1;
     setSelectedCollectionId(collectionId);
@@ -623,7 +647,8 @@ export function MemorySettingsPanel() {
     const url = new URL(window.location.href);
     url.searchParams.set('tab', 'memory');
     url.searchParams.set('scope', scope);
-    url.searchParams.set('collectionId', collectionId);
+    if (collectionId) url.searchParams.set('collectionId', collectionId);
+    else url.searchParams.delete('collectionId');
     url.searchParams.set('status', entryView);
     url.searchParams.delete('entryId');
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
@@ -641,10 +666,11 @@ export function MemorySettingsPanel() {
       setDraft('');
       setNotice(result.entry?.status === 'pending' ? t('notices.suggestionCreated') : t('notices.memorySaved'));
       setHighlightedEntryId(result.entry?.id ?? null);
-      if (result.entry?.collectionId) setSelectedCollectionId(result.entry.collectionId);
+      const nextCollectionId = selectedCollectionId ? result.entry?.collectionId ?? selectedCollectionId : null;
+      if (nextCollectionId) setSelectedCollectionId(nextCollectionId);
       selectEntryView(nextView);
-      await loadCollections(result.entry?.collectionId ?? selectedCollectionId);
-      await loadEntries(result.entry?.collectionId ?? selectedCollectionId, nextView);
+      const refreshedCollections = await loadCollections(nextCollectionId);
+      await loadEntries(nextCollectionId, nextView, refreshedCollections);
       window.dispatchEvent(new CustomEvent('notification_summary_updated'));
     } catch (addError) { setError(addError instanceof Error ? addError.message : t('errors.addMemory')); }
     finally { setAdding(false); }
@@ -1005,85 +1031,136 @@ export function MemorySettingsPanel() {
                 </p>
               ) : null}
               {collections.length > 0 ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {collections.map((collection) => {
-                    const categoryLabel = memoryCategoryLabel(collection.category, locale);
-                    const categoryDescription = memoryCategoryDescription(collection.category, locale);
-                    const selected = selectedCollectionId === collection.id;
-                    return (
-                      <div
-                        key={collection.id}
-                        data-testid="memory-category-card"
-                        data-collection-id={collection.id}
+                <Collapsible open={categoriesOpen} onOpenChange={setCategoriesOpen} className="overflow-hidden rounded-xl border bg-muted/20">
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      data-testid="memory-category-filter-trigger"
+                      className="flex w-full items-center gap-3 p-4 text-left outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    >
+                      <span className="grid size-10 shrink-0 place-items-center rounded-lg border bg-background text-muted-foreground">
+                        {selectedCollection ? <BookOpenText className="size-4" /> : <LayoutGrid className="size-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-xs font-medium text-muted-foreground">{t('categories.filterLabel')}</span>
+                        <span className="mt-0.5 block font-semibold tracking-tight">
+                          {selectedCollection ? memoryCategoryLabel(selectedCollection.category, locale) : t('categories.all')}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {selectedCollection ? memoryCategoryDescription(selectedCollection.category, locale) : t('categories.allDescription')}
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <Badge variant="secondary">{t('categories.entries', { count: entryViewCounts.totalCount })}</Badge>
+                        <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', categoriesOpen && 'rotate-180')} />
+                      </span>
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="space-y-3 border-t p-3">
+                      <button
+                        type="button"
+                        data-testid="memory-category-all"
+                        aria-pressed={!selectedCollectionId}
+                        onClick={() => selectCollection(null)}
                         className={cn(
-                          'group flex min-h-36 flex-col overflow-hidden rounded-xl border bg-card transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
-                          selected && 'border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/15',
+                          'flex w-full items-center gap-3 rounded-lg border bg-background p-3 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-primary/40 hover:bg-muted/30 focus-visible:ring-2 focus-visible:ring-ring',
+                          !selectedCollectionId && 'border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/15',
                         )}
                       >
-                        <button
-                          type="button"
-                          aria-pressed={selected}
-                          onClick={() => selectCollection(collection.id)}
-                          className="flex flex-1 flex-col p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <span className={cn('grid size-9 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', selected && 'border-primary/25 bg-primary/10 text-primary')}>
-                              <BookOpenText className="size-4" />
-                            </span>
-                            <div className="flex items-center gap-2">
-                              {collection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: collection.pendingCount })}</Badge> : null}
-                              {collection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: collection.archivedCount })}</Badge> : null}
-                              <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
-                            </div>
-                          </div>
-                          <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
-                          <p className="mt-auto pt-3 text-xs text-muted-foreground">
-                            {t('categories.entries', { count: collection.totalCount })} · {formatDate(collection.updatedAt, locale)}
-                          </p>
-                        </button>
-                        {selected ? (
-                          <div className="border-t border-primary/15 p-3">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="w-full bg-background/80"
-                              onClick={() => void exportCurrentCollection()}
-                              disabled={exportingCollectionId !== null || collection.totalCount === 0}
+                        <span className={cn('grid size-9 shrink-0 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', !selectedCollectionId && 'border-primary/25 bg-primary/10 text-primary')}>
+                          <LayoutGrid className="size-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-medium">{t('categories.all')}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">{t('categories.allDescription')}</span>
+                        </span>
+                        {!selectedCollectionId ? <Check className="size-4 shrink-0 text-primary" /> : <ChevronRight className="size-4 shrink-0 text-muted-foreground" />}
+                      </button>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {collections.map((collection) => {
+                          const categoryLabel = memoryCategoryLabel(collection.category, locale);
+                          const categoryDescription = memoryCategoryDescription(collection.category, locale);
+                          const selected = selectedCollectionId === collection.id;
+                          return (
+                            <div
+                              key={collection.id}
+                              data-testid="memory-category-card"
+                              data-collection-id={collection.id}
+                              className={cn(
+                                'group flex min-h-36 flex-col overflow-hidden rounded-xl border bg-card transition-[border-color,box-shadow,background-color] hover:border-primary/40 hover:bg-muted/20',
+                                selected && 'border-primary bg-primary/[0.04] shadow-sm ring-1 ring-primary/15',
+                              )}
                             >
-                              {exportingCollectionId === collection.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}
-                              {t('categories.export')}
-                            </Button>
-                          </div>
-                        ) : null}
+                              <button
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => selectCollection(collection.id)}
+                                className="flex flex-1 flex-col p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <span className={cn('grid size-9 place-items-center rounded-lg border bg-muted/40 text-muted-foreground', selected && 'border-primary/25 bg-primary/10 text-primary')}>
+                                    <BookOpenText className="size-4" />
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    {collection.pendingCount > 0 ? <Badge variant="outline">{t('categories.pending', { count: collection.pendingCount })}</Badge> : null}
+                                    {collection.archivedCount > 0 ? <Badge variant="outline">{t('categories.archived', { count: collection.archivedCount })}</Badge> : null}
+                                    <ChevronRight className={cn('size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5', selected && 'text-primary')} />
+                                  </div>
+                                </div>
+                                <p className="mt-3 font-semibold tracking-tight">{categoryLabel}</p>
+                                <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{categoryDescription}</p>
+                                <p className="mt-auto pt-3 text-xs text-muted-foreground">
+                                  {t('categories.entries', { count: collection.totalCount })} · {formatDate(collection.updatedAt, locale)}
+                                </p>
+                              </button>
+                              {selected ? (
+                                <div className="border-t border-primary/15 p-3">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full bg-background/80"
+                                    onClick={() => void exportCurrentCollection()}
+                                    disabled={exportingCollectionId !== null || collection.totalCount === 0}
+                                  >
+                                    {exportingCollectionId === collection.id ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Download className="mr-2 size-4" />}
+                                    {t('categories.export')}
+                                  </Button>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
-                </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               ) : null}
             </CardContent>
           </Card>
 
           <div className="space-y-2">
-            {selectedCollection ? (
+            {collections.length > 0 ? (
               <div className="flex flex-wrap gap-2 rounded-lg border bg-muted/20 p-2" role="tablist" aria-label={t('entries.statusAriaLabel')}>
                 <Button data-testid="memory-status-published" size="sm" variant={entryView === 'published' ? 'default' : 'ghost'} onClick={() => selectEntryView('published')}>
-                  {t('entries.views.published', { count: selectedCollection.publishedCount })}
+                  {t('entries.views.published', { count: entryViewCounts.publishedCount })}
                 </Button>
-                {(selectedCollection.pendingCount > 0 || entryView === 'pending') ? (
+                {(entryViewCounts.pendingCount > 0 || entryView === 'pending') ? (
                   <Button data-testid="memory-status-pending" size="sm" variant={entryView === 'pending' ? 'default' : 'ghost'} onClick={() => selectEntryView('pending')}>
-                    {t('entries.views.pending', { count: selectedCollection.pendingCount })}
+                    {t('entries.views.pending', { count: entryViewCounts.pendingCount })}
                   </Button>
                 ) : null}
-                {(selectedCollection.archivedCount > 0 || entryView === 'archived') && permissions?.canArchive ? (
+                {(entryViewCounts.archivedCount > 0 || entryView === 'archived') && permissions?.canArchive ? (
                   <Button data-testid="memory-status-archived" size="sm" variant={entryView === 'archived' ? 'default' : 'ghost'} onClick={() => selectEntryView('archived')}>
-                    {t('entries.views.archived', { count: selectedCollection.archivedCount })}
+                    {t('entries.views.archived', { count: entryViewCounts.archivedCount })}
                   </Button>
                 ) : null}
               </div>
             ) : null}
-            <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label={t('entries.searchLabel')} value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder={t('entries.searchPlaceholder')} className="max-w-sm" /> : null}{entries.length > 0 ? <select aria-label={t('entries.sortLabel')} className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">{t('entries.sortPriority')}</option><option value="updated">{t('entries.sortUpdated')}</option><option value="lastUsed">{t('entries.sortLastUsed')}</option></select> : null}</div>
-            {visibleEntries.map((entry) => (
+            <div className="flex flex-wrap items-center justify-between gap-2">{entries.length > 0 ? <Input aria-label={t('entries.searchLabel')} value={entryQuery} onChange={(event) => setEntryQuery(event.target.value)} placeholder={t(selectedCollection ? 'entries.searchPlaceholder' : 'entries.searchAllPlaceholder')} className="max-w-sm" /> : null}{entries.length > 0 ? <select aria-label={t('entries.sortLabel')} className="h-9 rounded-md border border-input bg-background px-3 text-sm" value={entrySort} onChange={(event) => setEntrySort(event.target.value as 'priority' | 'updated' | 'lastUsed')}><option value="priority">{t('entries.sortPriority')}</option><option value="updated">{t('entries.sortUpdated')}</option><option value="lastUsed">{t('entries.sortLastUsed')}</option></select> : null}</div>
+            {visibleEntries.map((entry) => {
+              const entryCollection = selectedCollectionId ? null : collections.find((collection) => collection.id === entry.collectionId);
+              return (
               <Card
                 id={`memory-entry-${entry.id}`}
                 key={entry.id}
@@ -1117,6 +1194,7 @@ export function MemorySettingsPanel() {
                         </div>
                       ) : <MemoryMarkdownContent content={entry.content} />}
                       <div className="mt-2 flex flex-wrap gap-2">
+                        {entryCollection ? <Badge variant="outline" data-testid="memory-entry-category">{memoryCategoryLabel(entryCollection.category, locale)}</Badge> : null}
                         <Badge variant={entry.status === 'published' ? 'secondary' : 'outline'}>{t(`entries.status.${entry.status}`)}</Badge>
                         <span className="text-xs text-muted-foreground">{t('entries.priorityWithBand', { priority: entry.priority, band: t(`entries.priorityBands.${memoryPriorityBand(entry.priority)}`) })}</span>
                       </div>
@@ -1135,8 +1213,9 @@ export function MemorySettingsPanel() {
                   {historyForEntryId === entry.id ? <div className="mt-2 space-y-1 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">{entryHistory.map((event) => <p key={event.id}><span className="font-medium text-foreground">{event.action}</span> · {event.actorType}{event.decisionCode ? ` · ${event.decisionCode.replaceAll('_', ' ')}` : ''} · {formatDate(event.createdAt, locale)}</p>)}</div> : null}
                 </CardContent>
               </Card>
-            ))}
-            {!loading && selectedCollectionId && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t(`entries.emptyViews.${entryView}`)}</p> : null}
+              );
+            })}
+            {!loading && collections.length > 0 && entries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t(selectedCollectionId ? `entries.emptyViews.${entryView}` : `entries.emptyAllViews.${entryView}`)}</p> : null}
             {!loading && entries.length > 0 && visibleEntries.length === 0 ? <p className="rounded-lg border border-dashed px-3 py-5 text-sm text-muted-foreground">{t('entries.noSearchResults')}</p> : null}
           </div>
 
@@ -1195,8 +1274,9 @@ export function MemorySettingsPanel() {
                   <Input id="memory-budget" data-testid="memory-reviewer-budget" type="number" min={0} max={4000} value={settings.memoryPromptMaxTokens} onChange={(event) => setSettings({ ...settings, memoryPromptMaxTokens: Number(event.target.value) })} />
                   <p className="text-xs text-muted-foreground">{t('reviewer.promptBudgetHint')}</p>
                 </div>
-                <Button className="mt-4 w-full" onClick={() => void savePersonalSettings()} disabled={saving}>
-                  {saving ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}{t('reviewer.savePersonal')}
+                <Button className="mt-4 h-auto min-h-9 w-full whitespace-normal px-3 py-2 text-center leading-5" onClick={() => void savePersonalSettings()} disabled={saving}>
+                  {saving ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Save className="size-4 shrink-0" />}
+                  <span className="min-w-0">{t('reviewer.savePersonal')}</span>
                 </Button>
               </div>
               <div className="flex items-center justify-between rounded-md border px-3 py-2 text-xs">

@@ -45,7 +45,7 @@
   user-select: text;
 }
 
-.page :global(.textLayer > :not(.markedContent)),
+.page :global(.textLayer > :not(.markedContent):not(.endOfContent)),
 .page :global(.textLayer .markedContent span:not(.markedContent)) {
   z-index: 1;
   font-size: calc(var(--text-scale-factor) * var(--font-height));
@@ -97,6 +97,10 @@
   pointer-events: auto;
   transform-origin: 0 0;
   user-select: none;
+}
+
+.page :global(.textLayer.selecting ~ .annotationLayer section) {
+  pointer-events: none;
 }
 
 .page :global(.annotationLayer section:not(.linkAnnotation)) {

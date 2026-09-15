@@ -9,6 +9,7 @@ import {
   QUALITY_OPTIONS,
   getAspectRatiosForProvider,
   getDefaultOpenAIImageSize,
+  getOpenAIImageAspectRatio,
   getDefaultModelForProvider,
   getImageSizesForModel,
   getMaxImageCountForProvider,
@@ -17,6 +18,7 @@ import {
   getVideoDurationsForModel,
   getVideoResolutionsForModel,
   isValidOpenAIImageSize,
+  normalizeOpenAIImageSizeInput,
   normalizeOpenAIImageModelId,
   type OpenAIImageBackground,
   type OpenAIImageInputFidelity,
@@ -74,6 +76,7 @@ export interface StudioGenerationState {
 
   imageSize: string;
   setImageSize: (size: string) => void;
+  setOpenAIImageFormat: (format: { aspectRatio: string; imageSize: string }) => void;
 
   showMoreOptions: boolean;
   setShowMoreOptions: (show: boolean) => void;
@@ -292,7 +295,8 @@ function readStoredGenerationOptions(): StoredStudioGenerationOptions {
     if (typeof parsed.imageSize === 'string') {
       if (mode === 'image' && provider === 'openai') {
         if (isValidOpenAIImageSize(parsed.imageSize)) {
-          options.imageSize = parsed.imageSize.trim().toLowerCase();
+          options.imageSize = normalizeOpenAIImageSizeInput(parsed.imageSize);
+          options.aspectRatio = getOpenAIImageAspectRatio(options.imageSize, options.aspectRatio);
         }
       } else {
         const imageSizes = getImageSizesForModel(model);
@@ -428,6 +432,16 @@ export function createStudioGenerationStore() {
 
   imageSize: initialImageSize,
   setImageSize: (imageSize) => set((state) => persistGenerationOptionPatch(state, { imageSize })),
+  setOpenAIImageFormat: ({ aspectRatio, imageSize }) => set((state) => {
+    const normalizedImageSize = normalizeOpenAIImageSizeInput(imageSize);
+    const nextAspectRatio = isValidOpenAIImageSize(normalizedImageSize)
+      ? getOpenAIImageAspectRatio(normalizedImageSize, aspectRatio)
+      : aspectRatio;
+    return persistGenerationOptionPatch(state, {
+      aspectRatio: nextAspectRatio,
+      imageSize: normalizedImageSize,
+    });
+  }),
 
   showMoreOptions: storedOptions.showMoreOptions ?? readStoredBoolean(STUDIO_SHOW_MORE_OPTIONS_STORAGE_KEY),
   setShowMoreOptions: (showMoreOptions) => {

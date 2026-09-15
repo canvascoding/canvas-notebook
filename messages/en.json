@@ -897,7 +897,6 @@
     "noPreviewAvailable": "No preview available",
     "previewTitle": "Preview of {fileName}",
     "previewReady": "Preview ready",
-    "close": "Close",
     "generatingPdf": "Generating PDF...",
     "openAsPdf": "Open as PDF",
     "downloadPdf": "Download PDF",
@@ -1749,7 +1748,8 @@
     "contextUsagePercent": "{percent}% used",
     "contextTriggerUsagePercent": "{percent}% of trigger",
     "contextUsageWarning": "Context is at {percent}% of the automatic compaction trigger.",
-    "contextCompactionRequired": "Automatic summarization is required before continuing ({percent}% of trigger).",
+    "contextCompactionRequired": "Automatic summarization is planned ({percent}% of trigger).",
+    "compactAfterResponse": "Available after the response finishes",
     "contextBudgetWarning": "The estimated context uses {percent}% of its budget.",
     "contextBudgetExceeded": "The estimated request exceeds the available token or attachment budget.",
     "contextMeasurementSource": "Next-request context · {source}",
@@ -3457,9 +3457,12 @@
       },
       "categories": {
         "title": "Memory categories",
-        "description": "These cards are categories, not projects. Each category groups individual memory entries that remain available over time.",
+        "description": "Work with all entries together or filter by a specific memory category.",
         "loading": "Loading memories…",
         "empty": "No memory entries yet. Add a durable fact below to begin.",
+        "filterLabel": "Category filter",
+        "all": "All categories",
+        "allDescription": "Show memory entries from every category together.",
         "pending": "{count, plural, one {# pending} other {# pending}}",
         "published": "{count, plural, one {# published} other {# published}}",
         "archived": "{count, plural, one {# archived} other {# archived}}",
@@ -3476,6 +3479,7 @@
         },
         "searchLabel": "Search memory",
         "searchPlaceholder": "Search this category",
+        "searchAllPlaceholder": "Search all categories",
         "sortLabel": "Sort memory",
         "sortPriority": "Priority",
         "sortUpdated": "Last updated",
@@ -3506,6 +3510,11 @@
           "published": "This category has no published entries you can view.",
           "pending": "There are no suggestions awaiting approval in this category.",
           "archived": "There are no archived entries in this category."
+        },
+        "emptyAllViews": {
+          "published": "There are no published entries you can view across these categories.",
+          "pending": "There are no suggestions awaiting approval across these categories.",
+          "archived": "There are no archived entries across these categories."
         },
         "noSearchResults": "No memory entries match this search."
       },
@@ -7805,6 +7814,24 @@
         "standardLandscape": "Classic for presentations, monitors",
         "standardPortrait": "Great for Pinterest, portrait products",
         "adapt": "Adapts to input image (OpenAI)"
+      }
+    },
+    "imageFormat": {
+      "title": "Image format",
+      "description": "Choose a visual preset or enter an exact OpenAI image size.",
+      "triggerLabel": "Image format {ratio}, {size}",
+      "auto": "Auto",
+      "automatic": "Prompt based",
+      "custom": "Custom",
+      "width": "Width",
+      "height": "Height",
+      "requirements": "Both values must be multiples of 16. Ratio 1:3–3:1, maximum edge 3840 px.",
+      "errors": {
+        "format": "Enter width and height.",
+        "multipleOf": "Width and height must be divisible by 16.",
+        "maximumEdge": "Neither edge may exceed 3840 px.",
+        "aspectRatio": "The aspect ratio must be between 1:3 and 3:1.",
+        "pixelCount": "The total size must be between 655,360 and 8,294,400 pixels."
       }
     },
     "sections": {

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { htmlPreviewTicketPath, resolveHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
-import { htmlPreviewUrl } from '@/app/lib/html-preview-origin';
+import { sameOriginHtmlPreviewTicketPath, resolveHtmlPreviewTicket } from '@/app/lib/html-preview-ticket';
 import { normalizeMobileFilePath } from '@/app/lib/mobile/files';
 
 export const dynamic = 'force-dynamic';
@@ -27,7 +26,7 @@ export async function GET(
     const filePath = normalizeMobileFilePath(pathParts.join('/'), false);
     const identity = await resolveHtmlPreviewTicket(ticket,filePath);
     if (!identity) return unavailable();
-    return NextResponse.redirect(htmlPreviewUrl(htmlPreviewTicketPath(ticket,filePath)),{
+    return NextResponse.redirect(new URL(sameOriginHtmlPreviewTicketPath(ticket,filePath), _request.url),{
       status:302,headers:{'Cache-Control':'private, no-store','Referrer-Policy':'no-referrer'},
     });
   } catch {

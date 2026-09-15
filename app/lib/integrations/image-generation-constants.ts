@@ -1,3 +1,26 @@
+import {
+  OPENAI_ASPECT_RATIOS,
+  getOpenAIImageSizeValidationError,
+} from './openai-image-formats';
+
+export {
+  OPENAI_ASPECT_RATIOS,
+  OPENAI_IMAGE_FORMAT_PRESETS,
+  OPENAI_IMAGE_SIZE_LIMITS,
+  OPENAI_RECOMMENDED_IMAGE_SIZES,
+  getDefaultOpenAIImageSize,
+  getOpenAIImageAspectRatio,
+  getOpenAIImageFormatPreset,
+  getOpenAIImageSizeValidationCode,
+  getOpenAIImageSizeValidationError,
+  isValidOpenAIImageSize,
+  normalizeOpenAIImageSizeInput,
+  parseOpenAIImageSize,
+  type OpenAIImageFormatPreset,
+  type OpenAIImageFormatPresetId,
+  type OpenAIImageSizeValidationCode,
+} from './openai-image-formats';
+
 export const PROVIDERS = [
   { id: 'gemini', labelKey: 'providerOptions.gemini.label' as const },
   { id: 'openai', labelKey: 'providerOptions.openai.label' as const },
@@ -148,15 +171,12 @@ export function getVideoDurationsForModel(modelId: string): readonly StudioVideo
 }
 
 export const GEMINI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4'] as const;
-export const OPENAI_ASPECT_RATIOS = ['1:1', '16:9', '9:16', '4:3', '3:4', 'auto'] as const;
 
 export const QUALITY_OPTIONS = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 export const OUTPUT_FORMAT_OPTIONS = ['png', 'jpeg', 'webp'] as const;
 export const BACKGROUND_OPTIONS = ['auto', 'opaque', 'transparent'] as const;
 export const OPENAI_MODERATION_OPTIONS = ['auto', 'low'] as const;
 export const OPENAI_INPUT_FIDELITY_OPTIONS = ['low', 'high'] as const;
-export const OPENAI_RECOMMENDED_IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536'] as const;
-
 export type OpenAIImageQuality = (typeof QUALITY_OPTIONS)[number];
 export type OpenAIImageOutputFormat = (typeof OUTPUT_FORMAT_OPTIONS)[number];
 export type OpenAIImageBackground = (typeof BACKGROUND_OPTIONS)[number];
@@ -175,54 +195,6 @@ export interface OpenAIImageRequestOptions {
   imageSize?: unknown;
   stream?: unknown;
   partialImages?: unknown;
-}
-
-const OPENAI_IMAGE_SIZE_BY_ASPECT_RATIO: Record<string, string> = {
-  '1:1': '1024x1024',
-  '16:9': '1536x864',
-  '9:16': '864x1536',
-  '4:3': '1344x1008',
-  '3:4': '1008x1344',
-  auto: 'auto',
-};
-
-export function getDefaultOpenAIImageSize(aspectRatio: string): string {
-  return OPENAI_IMAGE_SIZE_BY_ASPECT_RATIO[aspectRatio] ?? '1024x1024';
-}
-
-export function getOpenAIImageSizeValidationError(size: string): string | null {
-  const normalized = size.trim().toLowerCase();
-  if (normalized === 'auto') return null;
-
-  const match = /^(\d+)x(\d+)$/.exec(normalized);
-  if (!match) {
-    return 'Use auto or WIDTHxHEIGHT, for example 1536x864.';
-  }
-
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (width % 16 !== 0 || height % 16 !== 0) {
-    return 'Width and height must be divisible by 16.';
-  }
-  if (width > 3840 || height > 3840) {
-    return 'Neither edge may exceed 3840 pixels.';
-  }
-
-  const ratio = Math.max(width, height) / Math.min(width, height);
-  if (ratio > 3) {
-    return 'The aspect ratio must be between 1:3 and 3:1.';
-  }
-
-  const pixels = width * height;
-  if (pixels < 655_360 || pixels > 8_294_400) {
-    return 'The total pixel count must be between 655,360 and 8,294,400.';
-  }
-
-  return null;
-}
-
-export function isValidOpenAIImageSize(size: string): boolean {
-  return getOpenAIImageSizeValidationError(size) === null;
 }
 
 function includesStringOption(options: readonly string[], value: unknown): boolean {

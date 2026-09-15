@@ -37,6 +37,7 @@ const PUBLIC_SHARE_PREFIX_ROUTES = [
   '/public/marp-preview/',
 ];
 const MCP_APP_TICKET_ROUTE = /^\/__preview\/[A-Za-z0-9_-]{43}\/mcp-app\/(?:frame|document)$/u;
+const SAME_ORIGIN_HTML_PREVIEW_ROUTE = /^\/__document-preview\/[A-Za-z0-9_-]{43}\//u;
 
 function isWebSocketRoute(pathname: string) {
   return pathname === '/ws/chat' || /^\/[a-z]{2}(?:-[A-Z]{2})?\/ws\/chat$/u.test(pathname);
@@ -142,6 +143,10 @@ export default async function middleware(request: NextRequest) {
 
   if (isHtmlPreviewHost(request.headers.get('host'))) {
     if (['GET','HEAD'].includes(request.method) && /^\/__preview\/[A-Za-z0-9_-]{43}\//u.test(pathname)) return NextResponse.next();
+    return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
+  }
+  if (SAME_ORIGIN_HTML_PREVIEW_ROUTE.test(pathname)) {
+    if (['GET','HEAD'].includes(request.method)) return NextResponse.next();
     return new NextResponse(null,{status:404,headers:{'Cache-Control':'no-store'}});
   }
   if (['GET','HEAD'].includes(request.method) && MCP_APP_TICKET_ROUTE.test(pathname)) return NextResponse.next();
