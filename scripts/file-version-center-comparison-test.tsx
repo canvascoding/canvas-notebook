@@ -245,15 +245,21 @@ async function main() {
   const staleEntry = {
     kind: 'agent_operation' as const,
     id: 'operation-stale', operationId: 'operation-stale', createdAt: '2026-09-14T10:00:00.000Z',
-    actor: { type: 'agent' as const }, status: 'semantic_conflict' as const, actionsAllowed: false,
+    actor: { type: 'agent' as const }, status: 'needs_review' as const, actionsAllowed: true,
   };
+  let refreshCalls = 0;
+  let releaseRefresh!: () => void;
+  const pendingRefresh = new Promise<void>((resolve) => { releaseRefresh = resolve; });
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
       <FileVersionComparison
         request={staleRequest}
         timeline={{ ...timeline, entries: [staleEntry, currentEntry, revisionEntry] }}
         selection={{ key: 'agent_operation:operation-stale', entry: staleEntry, state: 'selected' }}
-        onTimelineInvalidate={() => {}}
+        onTimelineInvalidate={() => {
+          refreshCalls += 1;
+          return pendingRefresh;
+        }}
         onContinue={() => {}}
       />
     </NextIntlClientProvider>,
@@ -261,6 +267,28 @@ async function main() {
   await settle();
   assert.match(document.body.textContent ?? '', /comparison is no longer current/iu,
     'stale or conflicted candidates receive a visible non-color-only warning');
+  assert.equal([...document.querySelectorAll('button')].some((candidate) => /Accept change/u.test(candidate.textContent ?? '')), false,
+    'stale candidates never expose the accepting mutation');
+  assert.ok([...document.querySelectorAll('button')].some((candidate) => /Reject proposal/u.test(candidate.textContent ?? '')),
+    'the safe discard decision remains explicit');
+  const refreshTimeline = [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find((candidate) => /Refresh timeline/u.test(candidate.textContent ?? ''))!;
+  await act(async () => {
+    refreshTimeline.click();
+    refreshTimeline.click();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  });
+  assert.equal(refreshCalls, 1, 'the timeline refresh remains single-flight under a same-frame double click');
+  assert.equal(refreshTimeline.disabled, true);
+  assert.match(refreshTimeline.textContent ?? '', /Refreshing timeline/u);
+  await act(async () => {
+    releaseRefresh();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+  assert.match(document.body.textContent ?? '', /timeline is current[\s\S]*cannot be compared safely/iu,
+    'a still-stale proposal gets a clear post-refresh decision state');
+  assert.ok([...document.querySelectorAll('button')].some((candidate) => /Refresh timeline/u.test(candidate.textContent ?? '')),
+    'the authoritative refresh remains available for another explicit check');
 
   await act(async () => root.unmount());
   const compatibilityRoot = createRoot(document.getElementById('root')!);

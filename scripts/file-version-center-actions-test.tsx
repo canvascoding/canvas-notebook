@@ -264,7 +264,7 @@ async function componentCase(): Promise<void> {
     Response.json({ success: false, error: 'Forbidden' }, { status: 403 })
   )) as typeof fetch);
   root = await mount(accessController, accessInvalidations);
-  await act(async () => { button(/^Reject$/u).click(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+  await act(async () => { button(/^Reject proposal$/u).click(); await new Promise((resolve) => setTimeout(resolve, 20)); });
   assert.match(document.body.textContent ?? '', /Write access is no longer available/u,
     'permission loss is visible and keeps mutation controls fail-closed');
   assert.deepEqual(accessInvalidations, [undefined]);
@@ -277,7 +277,7 @@ async function componentCase(): Promise<void> {
     status: 'failed',
     actionsAllowed: false,
   });
-  assert.equal([...document.querySelectorAll('button')].some((candidate) => /Accept change|^Reject$/u.test(candidate.textContent ?? '')), false,
+  assert.equal([...document.querySelectorAll('button')].some((candidate) => /Accept change|^Reject proposal$/u.test(candidate.textContent ?? '')), false,
     'a failed direct application is inspectable without accept/reject proposal actions');
   assert.ok(button(/Continue editing/u));
   await act(async () => root.unmount());
@@ -293,7 +293,7 @@ async function componentCase(): Promise<void> {
   }) as typeof fetch, () => 'reject-key-000001');
   const retryInvalidations: Array<string | undefined> = [];
   root = await mount(retryController, retryInvalidations);
-  await act(async () => { button(/^Reject$/u).click(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+  await act(async () => { button(/^Reject proposal$/u).click(); await new Promise((resolve) => setTimeout(resolve, 20)); });
   assert.match(document.body.textContent ?? '', /Retry action/u, 'retryable action failures expose an explicit retry control');
   await act(async () => { button(/Retry action/u).click(); await new Promise((resolve) => setTimeout(resolve, 20)); });
   assert.deepEqual(rejectBodies, [{ idempotencyKey: 'reject-key-000001' }, { idempotencyKey: 'reject-key-000001' }]);
@@ -373,7 +373,7 @@ async function componentCase(): Promise<void> {
     });
     await new Promise((resolve) => setTimeout(resolve, 40));
   });
-  await act(async () => { button(/^Reject$/u).click(); await new Promise((resolve) => setTimeout(resolve, 50)); });
+  await act(async () => { button(/^Reject proposal$/u).click(); await new Promise((resolve) => setTimeout(resolve, 50)); });
   assert.equal(resolveCount, 2, 'the global host resolves a fresh authoritative timeline after mutation');
   assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), null,
     'a completed mutation clears the obsolete selected action from its reload URL');

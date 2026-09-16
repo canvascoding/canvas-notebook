@@ -41,6 +41,7 @@ import { cn } from '@/lib/utils';
 import { FileVersionActions } from './FileVersionActions';
 
 type CandidateEntry = Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' | 'revision' }>;
+type TimelineRefreshState = 'idle' | 'refreshing' | 'confirmed_stale' | 'failed';
 
 function selectionFor(entry: CandidateEntry) {
   return { kind: entry.kind, id: entry.id } as const;
@@ -214,6 +215,8 @@ function LoadedComparison({
   const [retryVersion, setRetryVersion] = useState(0);
   const [loadingHunks, setLoadingHunks] = useState(false);
   const [hunkError, setHunkError] = useState<string | null>(null);
+  const [timelineRefreshState, setTimelineRefreshState] = useState<TimelineRefreshState>('idle');
+  const timelineRefreshInFlightRef = useRef(false);
   const fence = useMemo(() => currentFence(current), [current]);
   const candidate = useMemo(() => selectionFor(entry), [entry]);
 
@@ -228,8 +231,19 @@ function LoadedComparison({
     }, controller.signal).then((result) => {
       setPayload(result);
       setLoading(false);
+      if (timelineRefreshInFlightRef.current) {
+        const remainsUnavailable = result.response.candidate.stale
+          || !result.response.candidate.contentAvailable
+          || result.preview.candidate === null;
+        timelineRefreshInFlightRef.current = false;
+        setTimelineRefreshState(remainsUnavailable ? 'confirmed_stale' : 'idle');
+      } else setTimelineRefreshState('idle');
     }).catch((loadError: unknown) => {
       if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
+      if (timelineRefreshInFlightRef.current) {
+        timelineRefreshInFlightRef.current = false;
+        setTimelineRefreshState('failed');
+      }
       setError(loadError instanceof Error ? loadError : new Error(t('compareFailed')));
       setLoading(false);
     });
@@ -241,6 +255,19 @@ function LoadedComparison({
     setLoading(true);
     setRetryVersion((value) => value + 1);
   };
+
+  const refreshTimeline = useCallback(async () => {
+    if (timelineRefreshInFlightRef.current) return;
+    timelineRefreshInFlightRef.current = true;
+    setTimelineRefreshState('refreshing');
+    try {
+      await onTimelineInvalidate();
+      setRetryVersion((value) => value + 1);
+    } catch {
+      timelineRefreshInFlightRef.current = false;
+      setTimelineRefreshState('failed');
+    }
+  }, [onTimelineInvalidate]);
 
   const loadMoreHunks = async () => {
     const cursor = payload?.response.page.nextCursor;
@@ -319,7 +346,29 @@ function LoadedComparison({
           <Alert className="m-4 rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
             <AlertTriangle className="text-amber-700 dark:text-amber-300" aria-hidden="true" />
             <AlertTitle>{t('candidateUnavailable')}</AlertTitle>
-            <AlertDescription>{t('candidateUnavailableDescription')}</AlertDescription>
+            <AlertDescription className="space-y-3">
+              <p>{timelineRefreshState === 'confirmed_stale'
+                ? t('candidateUnavailableAfterRefresh')
+                : timelineRefreshState === 'failed'
+                  ? t('candidateUnavailableRefreshFailed')
+                  : t('candidateUnavailableDescription')}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={timelineRefreshState === 'refreshing'}
+                onClick={() => { void refreshTimeline(); }}
+              >
+                {timelineRefreshState === 'refreshing'
+                  ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  : <RefreshCw className="size-4" aria-hidden="true" />}
+                {timelineRefreshState === 'refreshing'
+                  ? t('refreshingTimeline')
+                  : timelineRefreshState === 'failed'
+                    ? t('retryTimeline')
+                    : t('refreshTimeline')}
+              </Button>
+            </AlertDescription>
           </Alert>
         </div>
       ) : (
