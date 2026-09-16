@@ -9,12 +9,13 @@ database migration.
 
 | Value | Capture | Center/history/compare | Restore/policy | Intended use |
 | --- | ---: | ---: | ---: | --- |
-| absent, unknown, `off` | no | no | no | immediate feature rollback |
+| absent or empty | yes | yes | yes | standard behavior for new and updated installations |
+| unknown or `off` | no | no | no | explicit rollback or fail-closed invalid configuration |
 | `shadow` | yes | no | no | content-free storage and latency measurement |
 | `read_only` | yes | yes | no | authorized read-only canary |
 | `full` | yes | yes | yes | mutation canary and general release |
 
-Notifications are excluded until FVRC-P08. Existing collaboration-agent
+Notifications are enabled in `full` mode. Existing collaboration-agent
 accept/reject routes and normal file read/write routes do not depend on this
 switch. A core rollback therefore does not block document access or the legacy
 review API.
@@ -23,8 +24,9 @@ review API.
 
 Use one deployment ring at a time. Do not skip a stage.
 
-1. Start from `off`; verify Notebook health, ordinary document read/write and
-   existing collaboration-agent review actions.
+1. For a staged rollout, explicitly set `off`; verify Notebook health, ordinary
+   document read/write and existing collaboration-agent review actions. With no
+   value configured, the standard runtime mode is `full`.
 2. Set `shadow`; recreate the Notebook process and collect a non-empty report.
    The report must pass every FVRC-002 storage boundary and the canary p95
    latency guard.

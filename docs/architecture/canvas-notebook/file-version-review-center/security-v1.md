@@ -185,14 +185,14 @@ Einziger V1-Kernschalter ist `FILE_VERSION_CENTER_MODE`:
 
 | Modus | Capture | sichtbare UI | History/Compare | Restore/Policy-Aenderung |
 | --- | ---: | ---: | ---: | ---: |
-| fehlt, unbekannt oder `off` | nein | nein | nein | nein |
+| fehlt oder leer | ja | ja | ja | ja, jeweils nur bei bereitem Backend |
+| unbekannt oder `off` | nein | nein | nein | nein |
 | `shadow` | ja | nein | nein | nein |
 | `read_only` | ja | ja | ja | nein |
 | `full` | ja | ja | ja | ja, jeweils nur bei bereitem Backend |
 
-Notifications bleiben in allen V1-Modi aus und werden erst in `FVRC-P08`
-separat aktiviert. Das verhindert, dass der Kernrollout unbemerkt einen zweiten
-Benachrichtigungskanal oeffnet.
+Notifications sind ausschliesslich in `full` aktiv. Ein explizites
+`read_only`, `shadow` oder `off` oeffnet keinen Benachrichtigungskanal.
 
 Der Schalter wird ausschliesslich serverseitig gelesen. Es gibt bewusst kein
 `NEXT_PUBLIC_FILE_VERSION_CENTER_MODE`; ein Clientwert kann keine serverseitige
@@ -210,7 +210,8 @@ Rollback ist datenbewahrend:
    `full`. Jeder Schritt benoetigt Backend-Health und negative Autorisierungstests.
 
 Ein Flagwechsel aendert weder gespeicherte Review-Praeferenzen noch akzeptiert er
-ausstehende Vorschlaege. Unbekannte Flagwerte fallen auf `off` zurueck.
+ausstehende Vorschlaege. Fehlt der Wert, gilt `full`; nur `off` deaktiviert die
+Funktion bewusst. Unbekannte Flagwerte fallen weiterhin sicher auf `off` zurueck.
 
 ## 9. Gate-Evidenz
 

@@ -100,9 +100,14 @@ async function main() {
   for (const testCase of fixtures.rolloutCases) {
     assert.deepEqual(resolveFileVersionRolloutV1(testCase.value), testCase.expected, testCase.name);
   }
-  assert.deepEqual(resolveFileVersionRolloutV1(undefined), fixtures.rolloutCases[0]?.expected);
   assert.deepEqual(
-    fixtures.rolloutCases.filter((testCase) => testCase.expected.notifications).map((testCase) => testCase.expected.mode),
+    resolveFileVersionRolloutV1(undefined),
+    fixtures.rolloutCases.find((testCase) => testCase.expected.mode === 'full')?.expected,
+  );
+  assert.deepEqual(
+    [...new Set(fixtures.rolloutCases
+      .filter((testCase) => testCase.expected.notifications)
+      .map((testCase) => testCase.expected.mode))],
     ['full'],
   );
 

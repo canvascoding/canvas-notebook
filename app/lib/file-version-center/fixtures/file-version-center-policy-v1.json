@@ -3,9 +3,9 @@
   "contractVersion": 1,
   "rolloutCases": [
     {
-      "name": "missing flag fails closed",
+      "name": "missing flag enables the standard experience",
       "value": null,
-      "expected": { "mode": "off", "capture": false, "visibleUi": false, "history": false, "compare": false, "restore": false, "policyMutation": false, "notifications": false }
+      "expected": { "mode": "full", "capture": true, "visibleUi": true, "history": true, "compare": true, "restore": true, "policyMutation": true, "notifications": true }
     },
     {
       "name": "unknown flag fails closed",

@@ -48,7 +48,6 @@ async function main(): Promise<void> {
 
   const off = resolveFileVersionRolloutV1('unexpected');
   assert.deepEqual(off, resolveFileVersionRolloutV1('off'));
-  assert.deepEqual(off, resolveFileVersionRolloutV1(undefined));
   assert.equal(off.capture, false);
   assert.equal(off.visibleUi, false);
   assert.equal(off.notifications, false);
@@ -73,6 +72,9 @@ async function main(): Promise<void> {
   assert.equal(capabilities('read_only').restore, false);
 
   const full = resolveFileVersionRolloutV1('full');
+  assert.deepEqual(resolveFileVersionRolloutV1(undefined), full);
+  assert.deepEqual(resolveFileVersionRolloutV1(null), full);
+  assert.deepEqual(resolveFileVersionRolloutV1('  '), full);
   assert.equal(full.restore, true);
   assert.equal(full.policyMutation, true);
   assert.equal(full.notifications, true);

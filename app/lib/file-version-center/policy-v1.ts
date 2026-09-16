@@ -65,7 +65,14 @@ export type FileVersionRolloutDecisionV1 = {
 export function resolveFileVersionRolloutModeV1(
   value: string | null | undefined,
 ): FileVersionRolloutModeV1 {
-  if (value === 'shadow' || value === 'read_only' || value === 'full') return value;
+  const normalized = value?.trim();
+  if (!normalized) return 'full';
+  if (
+    normalized === 'off'
+    || normalized === 'shadow'
+    || normalized === 'read_only'
+    || normalized === 'full'
+  ) return normalized;
   return 'off';
 }
 
