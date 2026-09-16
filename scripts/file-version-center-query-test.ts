@@ -357,6 +357,27 @@ async function main(): Promise<void> {
     assert.equal(readOnly.entries.filter((entry) => entry.kind === 'agent_operation')
       .every((entry) => !entry.actionsAllowed), true);
 
+    const disabledService = createFileVersionCenterQueryService({
+      database: database(postgres),
+      rolloutMode: () => 'off',
+      current: async (target) => ({
+        fence: { revisionId: target.latestRevisionId, sha256: target.latestRevisionHash! },
+        sizeBytes: target.latestRevisionSize,
+        observedAt: 60,
+      }),
+    });
+    const disabled = await disabledService.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-old' },
+      access: access(),
+      workspace: workspace(),
+      limit: 5,
+    });
+    assert.equal(disabled.capabilities.reason, 'rollout_disabled');
+    assert.deepEqual(disabled.entries, [],
+      'disabled modes never reveal reviews or revisions through a direct timeline request');
+    assert.deepEqual(disabled.page, { hasMore: false, nextCursor: null });
+
     await assert.rejects(service.timeline({
       target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
       access: access(),

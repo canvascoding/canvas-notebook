@@ -60,6 +60,14 @@ const revisionEntry = {
   content: { availability: 'available' as const, format: 'markdown' as const, sha256: 'b'.repeat(64), sizeBytes: 620 },
   restorable: true,
 };
+const metadataRevisionEntry = {
+  ...revisionEntry,
+  id: 'revision-metadata-only',
+  revisionId: 'revision-metadata-only',
+  revisionNumber: 1,
+  content: { ...revisionEntry.content, availability: 'metadata_only' as const },
+  restorable: false,
+};
 const timeline: FileVersionTimelineResponseV1 = {
   contractVersion: 1,
   document: { workspaceId: 'workspace-one', lineageId: 'lineage-one', documentId: 'document-one', path: 'Notes/roadmap.md' },
@@ -227,6 +235,33 @@ async function main() {
   await settle();
   assert.equal(tab('Details').getAttribute('aria-selected'), 'true',
     'an authoritative current refresh keeps the selected comparison mounted so action feedback remains visible');
+
+  const requestsBeforeMetadata = requestedCursors.length;
+  await act(async () => root.render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <FileVersionComparison
+        request={{ ...request, selectedEntry: { kind: 'revision', id: metadataRevisionEntry.id } }}
+        timeline={{ ...timeline, entries: [currentEntry, metadataRevisionEntry] }}
+        selection={{ key: `revision:${metadataRevisionEntry.id}`, entry: metadataRevisionEntry, state: 'selected' }}
+        onTimelineInvalidate={() => {}}
+        onContinue={() => {}}
+      />
+    </NextIntlClientProvider>,
+  ));
+  await settle();
+  assert.ok(document.querySelector('[data-testid="file-version-metadata-only"]'));
+  assert.match(document.body.textContent ?? '', /content was not archived[\s\S]*cannot be compared or restored/iu,
+    'legacy metadata-only revisions explain exactly why comparison and restore are unavailable');
+  assert.equal(requestedCursors.length, requestsBeforeMetadata,
+    'metadata-only revisions never make a comparison request that cannot succeed');
+  assert.equal(document.querySelectorAll('[role="tab"]').length, 0,
+    'metadata-only revisions do not expose empty comparison views');
+  assert.equal([...document.querySelectorAll('button')].some((candidate) => /Restore version/u.test(candidate.textContent ?? '')), false,
+    'metadata-only revisions never expose a restore action');
+  assert.equal([...document.querySelectorAll('button')].some((candidate) => /Refresh timeline|Retry/iu.test(candidate.textContent ?? '')), false,
+    'metadata-only revisions do not enter the stale-refresh error path');
+  assert.ok([...document.querySelectorAll('button')].some((candidate) => /Continue editing/u.test(candidate.textContent ?? '')),
+    'the safe route back to the document remains available');
 
   assert.throws(() => mergeFileVersionComparePayload(
     comparison([firstHunk], true) as never,

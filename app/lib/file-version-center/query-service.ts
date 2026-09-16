@@ -436,6 +436,20 @@ export function createFileVersionCenterQueryService(options: {
         rolloutMode: rolloutMode(),
         backends: backends(),
       });
+      if (!capabilities.history) {
+        return parseFileVersionTimelineResponseV1({
+          contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
+          document: {
+            workspaceId: target.workspaceId,
+            lineageId: target.lineageId,
+            documentId: target.documentId,
+            path: target.path,
+          },
+          capabilities,
+          entries: [],
+          page: { hasMore: false, nextCursor: null },
+        });
+      }
       const policy = capabilities.agentReviewPolicy
         ? await readPolicy({
             access: input.access,

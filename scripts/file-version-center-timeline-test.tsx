@@ -172,10 +172,13 @@ async function main() {
     'the stacked mobile timeline keeps enough intrinsic height for its scroll viewport');
   assert.equal(document.querySelector('nav[aria-label]')?.className.includes('border-b'), false,
     'the mobile timeline shell has no fixed horizontal divider');
+  assert.ok(document.querySelector('nav[aria-label]')?.className.includes('md:border-r'),
+    'the desktop master-detail divider remains intact');
   assert.equal(document.querySelectorAll('section[aria-labelledby]').length, 3,
     'review, current and history sections expose named landmarks');
   const historySection = document.querySelector('[data-testid="file-version-history-section"]');
-  assert.ok(historySection?.className.includes('border-t') && historySection.closest('[data-slot="scroll-area"]'),
+  assert.ok(historySection?.className.includes('border-t')
+    && historySection.closest('[data-slot="scroll-area-viewport"]'),
     'the current/history divider lives inside the scrolling timeline content');
   const animated = [...document.querySelectorAll('[class*="animate-spin"]')];
   assert.ok(animated.length > 0 && animated.every((element) => (
@@ -259,6 +262,31 @@ async function main() {
   assert.match(document.body.textContent ?? '', /No agent changes need review/iu);
   assert.match(document.body.textContent ?? '', /No saved versions yet/iu,
     'empty review and history states remain explicit around Current');
+
+  const disabledTimeline: FileVersionTimelineResponseV1 = {
+    ...response([agentEntry, currentEntry, revisionEntry], { hasMore: false, nextCursor: null }),
+    capabilities: {
+      contractVersion: 1,
+      history: false,
+      compare: false,
+      restore: false,
+      agentReviewPolicy: false,
+      preview: 'markdown',
+      reason: 'rollout_disabled',
+    },
+  };
+  globalThis.fetch = async () => Response.json(disabledTimeline);
+  await act(async () => {
+    openVersionCenter({ ...request, selectedEntry: undefined, target: { ...request.target, lineageId: 'disabled' } });
+  });
+  await settle();
+  assert.ok(document.querySelector('[data-testid="file-version-center-unavailable"]'));
+  assert.match(document.body.textContent ?? '', /Version history unavailable[\s\S]*explicitly disabled/iu,
+    'alternate entry points surface an explicit disabled state');
+  assert.equal(document.querySelector('nav[aria-label]'), null,
+    'a disabled rollout cannot reveal timeline entries through an alternate entry point');
+  assert.equal(document.querySelector('[data-testid="file-version-center-responsive-layout"]'), null,
+    'a disabled rollout cannot mount the master-detail review UI');
 
   await act(async () => root.unmount());
   console.log('file-version-center-timeline-test: ok');

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileClock, RefreshCw } from 'lucide-react';
+import { FileClock, FileQuestion, RefreshCw } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
@@ -263,6 +263,18 @@ export function FileVersionCenterHost() {
                   <RefreshCw className="size-4" aria-hidden="true" />
                   {t('retry')}
                 </Button>
+              </div>
+            ) : timeline && !timeline.capabilities.history ? (
+              <div data-testid="file-version-center-unavailable" className="flex max-w-md flex-col items-center p-6 text-center">
+                <span className="flex size-10 items-center justify-center rounded-lg border bg-muted/35 text-muted-foreground">
+                  <FileQuestion className="size-4" aria-hidden="true" />
+                </span>
+                <p className="mt-3 text-sm font-semibold">{t('historyUnavailable')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {timeline.capabilities.reason === 'rollout_disabled'
+                    ? t('historyDisabledDescription')
+                    : t('historyUnavailableDescription')}
+                </p>
               </div>
             ) : timeline && selection ? (
               <div

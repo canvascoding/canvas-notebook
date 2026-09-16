@@ -171,6 +171,8 @@ async function offChecks(cookie, workspaceId, headers) {
   assert.equal(timeline.payload.capabilities.restore, false);
   assert.equal(timeline.payload.capabilities.agentReviewPolicy, false);
   assert.equal(timeline.payload.capabilities.reason, 'rollout_disabled');
+  assert.deepEqual(timeline.payload.entries, []);
+  assert.deepEqual(timeline.payload.page, { hasMore: false, nextCursor: null });
   const ioDeletion = await jsonRequest('/api/files/delete', {
     method: 'DELETE', headers, body: JSON.stringify({ path: offIoPath }),
   });

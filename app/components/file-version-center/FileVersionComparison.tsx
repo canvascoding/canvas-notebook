@@ -456,13 +456,26 @@ function LoadedComparison({
   );
 }
 
-function EmptyComparison({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
+function EmptyComparison({
+  icon,
+  title,
+  description,
+  action,
+  testId,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  action?: ReactNode;
+  testId?: string;
+}) {
   return (
-    <div className="flex flex-1 items-center justify-center p-6 text-center">
+    <div data-testid={testId} className="flex flex-1 items-center justify-center p-6 text-center">
       <div className="max-w-md">
         <span className="mx-auto flex size-10 items-center justify-center rounded-lg border bg-muted/35 text-muted-foreground">{icon}</span>
         <h2 className="mt-3 text-sm font-semibold">{title}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
       </div>
     </div>
   );
@@ -484,13 +497,26 @@ export function FileVersionComparison({
   const t = useTranslations('fileVersionCenter');
   const current = timeline.entries.find((entry) => entry.kind === 'current');
   const selected = selection.entry;
+  const metadataOnly = selected?.kind === 'revision' && selected.content.availability === 'metadata_only';
   const identity = selected && selected.kind !== 'current'
     ? `${selected.kind}:${selected.id}`
     : 'empty';
 
   return (
     <main className="flex min-h-[24rem] min-w-0 flex-col bg-background md:min-h-0">
-      {!timeline.capabilities.compare ? (
+      {metadataOnly ? (
+        <EmptyComparison
+          testId="file-version-metadata-only"
+          icon={<FileQuestion className="size-4" aria-hidden="true" />}
+          title={t('metadataOnlyTitle')}
+          description={t('metadataOnlyDescription')}
+          action={(
+            <Button type="button" variant="outline" size="sm" onClick={onContinue}>
+              {t('actions.continue')}
+            </Button>
+          )}
+        />
+      ) : !timeline.capabilities.compare ? (
         <EmptyComparison
           icon={<FileQuestion className="size-4" aria-hidden="true" />}
           title={t('comparisonUnavailable')}

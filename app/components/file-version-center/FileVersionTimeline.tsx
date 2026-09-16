@@ -61,11 +61,12 @@ function TimelineRow({
   const failed = entry.kind === 'agent_operation' && FAILED_STATUSES.has(entry.status);
   const isAgent = entry.kind === 'agent_operation';
   const isCurrent = entry.kind === 'current';
+  const metadataOnly = entry.kind === 'revision' && entry.content.availability === 'metadata_only';
   const timestamp = new Intl.DateTimeFormat(locale, {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(entryTimestamp(entry)));
-  const status = isAgent ? t(`status.${entry.status}`) : isCurrent
+  const status = metadataOnly ? t('metadataOnlyBadge') : isAgent ? t(`status.${entry.status}`) : isCurrent
     ? t('status.current')
     : t(`source.${entry.source}`);
   const title = isAgent ? t('agentProposal') : isCurrent
@@ -120,6 +121,7 @@ function TimelineRow({
                   isCurrent && 'border-emerald-500/30 text-emerald-700 dark:text-emerald-200',
                   conflict && 'border-amber-500/45 text-amber-800 dark:text-amber-200',
                   failed && 'border-destructive/40 text-destructive',
+                  metadataOnly && 'border-amber-500/45 text-amber-800 dark:text-amber-200',
                 )}
               >
                 {status}
