@@ -160,8 +160,13 @@ export function FileVersionTimeline({
     title: string,
     entries: FileVersionTimelineEntryV1[],
     emptyText?: string,
+    className?: string,
   ) => (
-    <section aria-labelledby={id} className="space-y-2">
+    <section
+      aria-labelledby={id}
+      data-testid={id === 'version-center-history' ? 'file-version-history-section' : undefined}
+      className={cn('space-y-2', className)}
+    >
       <div className="flex items-center justify-between gap-3 px-1">
         <h3 id={id} className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           {title}
@@ -186,7 +191,7 @@ export function FileVersionTimeline({
   );
 
   return (
-    <nav aria-label={t('timelineLabel')} className="flex min-h-[18rem] flex-col border-b bg-muted/[0.12] md:min-h-0 md:border-r md:border-b-0">
+    <nav aria-label={t('timelineLabel')} className="flex min-h-[18rem] flex-col bg-muted/[0.12] md:min-h-0 md:border-r">
       {readOnly ? (
         <div role="status" className="m-4 mb-0 flex gap-2 rounded-lg border bg-background/80 px-3 py-2.5 text-xs text-muted-foreground">
           <LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -208,7 +213,13 @@ export function FileVersionTimeline({
         <div className="w-full space-y-6 p-4 pb-6">
           {section('version-center-reviews', t('reviewsHeading'), groups.reviews, t('noReviews'))}
           {section('version-center-current', t('currentHeading'), groups.current ? [groups.current] : [], t('currentUnavailable'))}
-          {section('version-center-history', t('historyHeading'), groups.revisions, t('noHistory'))}
+          {section(
+            'version-center-history',
+            t('historyHeading'),
+            groups.revisions,
+            t('noHistory'),
+            'border-t border-border/70 pt-5',
+          )}
           {timeline.page.hasMore || loadMoreError ? (
             <div className="space-y-2 border-t pt-4">
               {loadMoreError ? <p role="alert" className="text-xs text-destructive">{loadMoreError}</p> : null}

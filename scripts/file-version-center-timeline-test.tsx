@@ -170,8 +170,13 @@ async function main() {
   assert.ok(document.querySelector('nav[aria-label]'), 'the timeline landmark has an accessible name');
   assert.ok(document.querySelector('nav[aria-label]')?.className.includes('min-h-[18rem]'),
     'the stacked mobile timeline keeps enough intrinsic height for its scroll viewport');
+  assert.equal(document.querySelector('nav[aria-label]')?.className.includes('border-b'), false,
+    'the mobile timeline shell has no fixed horizontal divider');
   assert.equal(document.querySelectorAll('section[aria-labelledby]').length, 3,
     'review, current and history sections expose named landmarks');
+  const historySection = document.querySelector('[data-testid="file-version-history-section"]');
+  assert.ok(historySection?.className.includes('border-t') && historySection.closest('[data-slot="scroll-area"]'),
+    'the current/history divider lives inside the scrolling timeline content');
   const animated = [...document.querySelectorAll('[class*="animate-spin"]')];
   assert.ok(animated.length > 0 && animated.every((element) => (
     element.getAttribute('class')?.includes('motion-reduce:animate-none')
