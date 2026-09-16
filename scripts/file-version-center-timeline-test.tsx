@@ -252,10 +252,10 @@ async function main() {
     { ...completed, document: { ...completed.document, lineageId: 'another-lineage' } },
   ), /another document/iu, 'cross-document pages cannot be merged');
 
+  globalThis.fetch = async () => Response.json(response([currentEntry], { hasMore: false, nextCursor: null }, false));
   await act(async () => {
     openVersionCenter({ ...request, selectedEntry: undefined, target: { ...request.target, lineageId: 'read-only' } });
   });
-  globalThis.fetch = async () => Response.json(response([currentEntry], { hasMore: false, nextCursor: null }, false));
   await settle();
   assert.match(document.body.textContent ?? '', /Review only[\s\S]*restoring is not available/iu,
     'read-only capability is announced with text and an icon');
