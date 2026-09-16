@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.16.1] - 2026-09-16
+
+### Added
+
+- Added the File Version Review Center with durable version capture, timelines, comparisons, restore actions, scoped review policies, and agent change-review batches.
+- Added file-change review notifications that open the exact workspace and version-center context.
+- Added visual and custom OpenAI image-format selection in Studio.
+
+### Changed
+
+- Improved Markdown sharing, HTML preview delivery, memory filtering, context measurement, and collaboration review workflows.
+
+### Fixed
+
+- Fixed notification workspace handoffs, stale proposal refresh guidance, file-browser status behavior, and document review-policy edge cases.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.14.1] - 2026-09-14
 
 ### Added
