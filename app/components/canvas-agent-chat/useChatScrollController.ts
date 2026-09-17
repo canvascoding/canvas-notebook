@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { ChatMessage } from '@/app/lib/chat/types';
+import {
+  captureChatScrollAnchor,
+  restoreChatScrollAnchor,
+  type ChatScrollAnchor,
+} from '@/app/lib/chat/scroll-anchor';
 
 const BOTTOM_LOCK_THRESHOLD_PX = 12;
 const SCROLL_BUTTON_THRESHOLD_PX = 160;
@@ -16,46 +21,44 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
   const scrollContentRef = useRef<HTMLDivElement>(null);
   const previousMessageCountRef = useRef(0);
   const isAtBottomRef = useRef(true);
-  const autoScrollRef = useRef<{ top: number; time: number } | null>(null);
-  const autoScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const programmaticScrollUntilRef = useRef(0);
+  const bottomSyncFrameRef = useRef<number | null>(null);
+  const anchorCaptureFrameRef = useRef<number | null>(null);
+  const scrollAnchorRef = useRef<ChatScrollAnchor | null>(null);
   const touchScrollStartYRef = useRef<number | null>(null);
-  const resizeObserverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const markAutoScroll = useCallback((container: HTMLElement) => {
-    autoScrollRef.current = {
-      top: Math.max(0, container.scrollHeight - container.clientHeight),
-      time: Date.now(),
-    };
-
-    if (autoScrollTimerRef.current) {
-      clearTimeout(autoScrollTimerRef.current);
-    }
-
-    autoScrollTimerRef.current = setTimeout(() => {
-      autoScrollRef.current = null;
-      autoScrollTimerRef.current = null;
-    }, 1500);
+  const markAutoScroll = useCallback((behavior: ScrollBehavior) => {
+    programmaticScrollUntilRef.current = Date.now() + (behavior === 'smooth' ? 1500 : 100);
   }, []);
 
-  const isProgrammaticScroll = useCallback((container: HTMLElement) => {
-    const marker = autoScrollRef.current;
-    if (!marker) {
-      return false;
-    }
-
-    if (Date.now() - marker.time > 1500) {
-      autoScrollRef.current = null;
-      return false;
-    }
-
-    return Math.abs(container.scrollTop - marker.top) < 2;
+  const isProgrammaticScroll = useCallback(() => {
+    return Date.now() <= programmaticScrollUntilRef.current;
   }, []);
+
+  const captureAnchor = useCallback(() => {
+    const container = scrollContainerRef.current;
+    const content = scrollContentRef.current;
+    if (!container || !content || isAtBottomRef.current) {
+      scrollAnchorRef.current = null;
+      return;
+    }
+    scrollAnchorRef.current = captureChatScrollAnchor(container, content);
+  }, []);
+
+  const scheduleAnchorCapture = useCallback(() => {
+    if (anchorCaptureFrameRef.current !== null) return;
+    anchorCaptureFrameRef.current = requestAnimationFrame(() => {
+      anchorCaptureFrameRef.current = null;
+      captureAnchor();
+    });
+  }, [captureAnchor]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const container = scrollContainerRef.current;
     if (!container) return;
-    markAutoScroll(container);
+    markAutoScroll(behavior);
     isAtBottomRef.current = true;
+    scrollAnchorRef.current = null;
     setIsAtBottom(true);
     setShowScrollButton(false);
     if (behavior === 'auto') {
@@ -65,19 +68,23 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
     }
   }, [markAutoScroll]);
 
+  const scheduleBottomSync = useCallback(() => {
+    if (bottomSyncFrameRef.current !== null) return;
+    bottomSyncFrameRef.current = requestAnimationFrame(() => {
+      bottomSyncFrameRef.current = null;
+      if (isAtBottomRef.current) scrollToBottom('auto');
+    });
+  }, [scrollToBottom]);
+
   const cancelAutoScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (container) {
       container.scrollTo({ top: container.scrollTop, behavior: 'auto' });
     }
-    autoScrollRef.current = null;
-    if (autoScrollTimerRef.current) {
-      clearTimeout(autoScrollTimerRef.current);
-      autoScrollTimerRef.current = null;
-    }
-    if (resizeObserverTimerRef.current) {
-      clearTimeout(resizeObserverTimerRef.current);
-      resizeObserverTimerRef.current = null;
+    programmaticScrollUntilRef.current = 0;
+    if (bottomSyncFrameRef.current !== null) {
+      cancelAnimationFrame(bottomSyncFrameRef.current);
+      bottomSyncFrameRef.current = null;
     }
   }, []);
 
@@ -89,7 +96,8 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
 
     isAtBottomRef.current = false;
     setIsAtBottom(false);
-  }, [cancelAutoScroll]);
+    scheduleAnchorCapture();
+  }, [cancelAutoScroll, scheduleAnchorCapture]);
 
   const syncBottomLockState = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -114,16 +122,24 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
 
   const handleScroll = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
-    if (scrollContainer && isAtBottomRef.current && isProgrammaticScroll(scrollContainer)) {
-      scrollToBottom('auto');
+    if (scrollContainer && isAtBottomRef.current && isProgrammaticScroll()) {
       return;
     }
 
-    syncBottomLockState();
-  }, [isProgrammaticScroll, scrollToBottom, syncBottomLockState]);
+    const atBottom = syncBottomLockState();
+    if (atBottom) scrollAnchorRef.current = null;
+    else scheduleAnchorCapture();
+  }, [isProgrammaticScroll, scheduleAnchorCapture, syncBottomLockState]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     if (event.deltaY < 0) {
+      releaseBottomLock();
+    }
+  }, [releaseBottomLock]);
+
+  const handleKeyDown = useCallback((event: KeyboardEvent) => {
+    if (event.key === 'ArrowUp' || event.key === 'PageUp' || event.key === 'Home'
+      || (event.key === ' ' && event.shiftKey)) {
       releaseBottomLock();
     }
   }, [releaseBottomLock]);
@@ -154,6 +170,7 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
     syncBottomLockState();
     scrollContainer.addEventListener('scroll', handleScroll);
     scrollContainer.addEventListener('wheel', handleWheel, { passive: true });
+    scrollContainer.addEventListener('keydown', handleKeyDown);
     scrollContainer.addEventListener('touchstart', handleTouchStart, { passive: true });
     scrollContainer.addEventListener('touchmove', handleTouchMove, { passive: true });
     scrollContainer.addEventListener('touchend', handleTouchEnd);
@@ -161,41 +178,36 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
     return () => {
       scrollContainer.removeEventListener('scroll', handleScroll);
       scrollContainer.removeEventListener('wheel', handleWheel);
+      scrollContainer.removeEventListener('keydown', handleKeyDown);
       scrollContainer.removeEventListener('touchstart', handleTouchStart);
       scrollContainer.removeEventListener('touchmove', handleTouchMove);
       scrollContainer.removeEventListener('touchend', handleTouchEnd);
       scrollContainer.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [handleScroll, handleTouchEnd, handleTouchMove, handleTouchStart, handleWheel, syncBottomLockState]);
+  }, [handleKeyDown, handleScroll, handleTouchEnd, handleTouchMove, handleTouchStart, handleWheel, syncBottomLockState]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
     const scrollContent = scrollContentRef.current;
     if (!scrollContainer || !scrollContent) return;
 
+    captureAnchor();
     const resizeObserver = new ResizeObserver(() => {
-      if (!isAtBottomRef.current) return;
-
-      if (resizeObserverTimerRef.current) {
-        clearTimeout(resizeObserverTimerRef.current);
+      if (isAtBottomRef.current) {
+        scheduleBottomSync();
+        return;
       }
 
-      resizeObserverTimerRef.current = setTimeout(() => {
-        resizeObserverTimerRef.current = null;
-        if (!isAtBottomRef.current) return;
-        scrollToBottom('auto');
-      }, 200);
+      restoreChatScrollAnchor(scrollContainer, scrollContent, scrollAnchorRef.current);
+      scheduleAnchorCapture();
     });
 
     resizeObserver.observe(scrollContent);
+    resizeObserver.observe(scrollContainer);
     return () => {
       resizeObserver.disconnect();
-      if (resizeObserverTimerRef.current) {
-        clearTimeout(resizeObserverTimerRef.current);
-        resizeObserverTimerRef.current = null;
-      }
     };
-  }, [scrollToBottom]);
+  }, [captureAnchor, scheduleAnchorCapture, scheduleBottomSync]);
 
   useLayoutEffect(() => {
     if (messages.length === 0) {
@@ -225,10 +237,8 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
   }, [messages.length, scrollToBottom]);
 
   useEffect(() => () => {
-    if (autoScrollTimerRef.current) {
-      clearTimeout(autoScrollTimerRef.current);
-      autoScrollTimerRef.current = null;
-    }
+    if (bottomSyncFrameRef.current !== null) cancelAnimationFrame(bottomSyncFrameRef.current);
+    if (anchorCaptureFrameRef.current !== null) cancelAnimationFrame(anchorCaptureFrameRef.current);
   }, []);
 
   return {
