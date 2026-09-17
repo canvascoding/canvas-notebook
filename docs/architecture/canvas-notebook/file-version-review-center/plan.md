@@ -12,6 +12,8 @@ Die maschinenlesbare, strikt sequenzielle Umsetzungsliste liegt in
 Die Erweiterung fuer parallele, abhaengige, ersetzende und alternative
 Agentenvorschlaege ist in
 [`proposal-graph.md`](./proposal-graph.md) spezifiziert.
+Die nachgeprueften Randfaelle und 46 zugeordnete Tests stehen in
+[`proposal-graph-scenarios.md`](./proposal-graph-scenarios.md).
 
 ## 1. Zielbild
 
@@ -622,13 +624,29 @@ Beziehungen sind:
 - `replaces`: neue Fassung macht den alten Vorschlag nicht mehr annehmbar,
 - `alternative`: bewusst konkurrierende Auswahl fuer dasselbe Ziel.
 
+Voraussetzung, Ersetzung und Alternativgruppe sind getrennte Beziehungen: Ein
+Kind kann von P1 abhaengen und gleichzeitig Alternative zu einem anderen Kind
+sein. Bereits angenommene Voraussetzungen werden auf ihre heute noch
+vorhandene Wirkung geprueft, insbesondere nach Revert, Restore und Nutzeredits.
+
 Jede Annahme bestimmt zuerst die erforderliche Dependency-Closure, komponiert
 den effektiven Kandidaten, revalidiert ihn gegen den aktuellen Stand und erzeugt
-bei Erfolg genau eine neue autoritative Version. Alle noch offenen Vorschlaege
+bei dauerhaftem, inhaltsaenderndem Erfolg genau eine neue autoritative Version.
+No-ops und Retries erzeugen keine leeren oder doppelten Versionen. Eine seit
+der Anzeige geaenderte Vorschau erfordert vor Apply einen neuen Review-Klick.
+Alle noch offenen Vorschlaege
 verlieren ihren alten Action-Fence und werden neu bewertet. Ablehnung,
-Ersetzung, Detach, Batch-Annahme, Teilgruppen, Races, Retention, UI und
-Notification-Gruppierung sind vollstaendig in
+Ersetzung, Detach, dokumentweise Batch-Annahme, Legacy-Teiloperationen, Races,
+Recovery, Retention, UI und Notification-Gruppierung sind in
 [`proposal-graph.md`](./proposal-graph.md) festgelegt.
+
+Die UI-Arbeiten sind Teil von P10: Beziehungen und betroffene Vorschlaege
+anzeigen, Konflikte und verlorene Voraussetzungen erklaeren, Auswahl/Fokus bei
+Refresh erhalten und dauerhafte Speicherung gesondert darstellen. Alte Links
+behalten ihre exakte Proposal-Referenz. Der mitscrollende Historientrenner,
+mobile Kartenbreiten und gleiche Verfuegbarkeit bei gleichen Capabilities in
+Personal-/Team-Workspaces besitzen konkrete Browserfaelle im
+[`Szenario- und Testplan`](./proposal-graph-scenarios.md).
 
 Die Umsetzung erfolgt als neues Paket `FVRC-P10` vor dem weiterhin
 zurueckgestellten Text-/Codeadapter-Paket `FVRC-P09`. Die vorhandenen IDs von

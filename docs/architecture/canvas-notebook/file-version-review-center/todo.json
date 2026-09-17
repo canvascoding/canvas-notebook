@@ -11,6 +11,7 @@
     "docs/architecture/canvas-notebook/file-version-review-center/contracts-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/security-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -84,7 +85,7 @@
     {
       "id": "FVRC-G10-PROPOSAL-GRAPH",
       "packageId": "FVRC-P10",
-      "evidence": "Parallel, dependent, replacement and alternative proposals use one permission-safe graph model, current-state compare, atomic apply and deterministic revalidation across UI, chat and notifications."
+      "evidence": "All PG-S01..PG-S34 and PG-U01..PG-U12 scenarios pass: orthogonal dependency/replacement/choice relations, current-state preview, prerequisite checks, durable document-wide apply/recovery, legacy-route guards and exact UI/chat/notification selections."
     },
     {
       "id": "FVRC-G09-TEXT-ADAPTERS",
@@ -1065,6 +1066,7 @@
       "status": "planned",
       "dependsOn": ["FVRC-P08"],
       "exitGate": "FVRC-G10-PROPOSAL-GRAPH",
+      "testPlan": "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
       "tasks": [
         {
           "id": "FVRC-1000",
@@ -1073,17 +1075,20 @@
           "status": "planned",
           "area": "architecture-contracts",
           "dependsOn": ["FVRC-801"],
+          "verificationScenarios": ["PG-S03", "PG-S05", "PG-S08", "PG-S09", "PG-S10", "PG-S11", "PG-S12", "PG-S23", "PG-S33"],
           "deliverables": [
-            "Versionierte Contracts fuer independent, extends, replaces und alternative",
+            "Versionierte Contracts mit getrennten Dependency-, Replacement- und Choice-Beziehungen",
             "Zustands- und Aktionsmatrix fuer Accept, Reject, Include, Supersede, Detach, Rebase und Batch",
             "Graph-gebundener Action-Fence und stabile Fehlercodes",
-            "Kompatibilitaetsprojektion bestehender offener Operationen als unabhaengige Root-Vorschlaege"
+            "Getrennte Lifecycle- und Auswertungszustaende inklusive prerequisite_lost, satisfied_elsewhere und Recovery",
+            "Kompatibilitaetsprojektion mit Herkunfts- und Restumfangsnachweis fuer Legacy-Operationen"
           ],
           "acceptanceCriteria": [
             "Jede Nutzeraktion besitzt fuer alle Beziehungstypen genau eine dokumentierte Wirkung.",
             "Pending Vorschlaege werden nicht als autoritative Versionen bezeichnet oder nummeriert.",
             "Ein technisch nicht ueberlappender Diff wird ohne explizite Herkunft nicht als semantisch unabhaengig behandelt.",
-            "Bestehende Einzelreviews bleiben ohne Inhaltsmigration lesbar und annehmbar."
+            "Nachweislich eigenstaendige Einzelreviews bleiben ohne Inhaltsmigration nutzbar; partielle oder ungeklaerte Herkunft wird nicht freigegeben.",
+            "Replacement-Zeitpunkt, blockierte Kinder, Auswahlgruppen und No-op-Verhalten sind eindeutig; neue Hunk-/Teilgruppenannahme und Cross-Document-Atomaritaet sind keine P10-Leistung."
           ],
           "verification": [
             "Contract- und Fixture-Tests fuer gueltige und ungueltige Graphen",
@@ -1098,17 +1103,20 @@
           "status": "planned",
           "area": "database",
           "dependsOn": ["FVRC-1000"],
+          "verificationScenarios": ["PG-S13", "PG-S19", "PG-S25", "PG-S27", "PG-S28", "PG-S29", "PG-S30"],
           "deliverables": [
             "Reversible Migration fuer Proposal-Metadaten und Revision-Proposal-Bindungen",
             "Referenz auf bestehende collaboration_agent_operations statt duplizierter Apply-Receipts",
             "CAS-, Scope-, Parent-, Alternative-Group- und Statusindizes",
-            "Retention-Pins fuer offene Nachfahren und sichere terminale Bereinigung"
+            "Retention-Pins fuer Basis-, Kandidaten- und Ankerbelege sowie sichere terminale Bereinigung",
+            "Auswertungs- und Action-Receipts mit Request-Digest, Resultatbindung und eindeutiger Revisionszuordnung"
           ],
           "acceptanceCriteria": [
             "Zyklen, Cross-Workspace-, Cross-Lineage-, fremde Lifecycle- und unzulaessige Parent-Kanten werden serverseitig abgewiesen.",
             "Eine neue Revision kann alle enthaltenen Proposal-IDs in stabiler Reihenfolge auditieren.",
             "Offene Nachfahren verlieren keine erforderlichen Parent-Payloads durch Retention.",
-            "Migration und Rollback loeschen keine vorhandenen Reviews oder Versionen."
+            "Migration und Rollback loeschen keine vorhandenen Reviews oder Versionen.",
+            "Kandidatenidentitaeten sind nach Restart rekonstruierbar; offene Apply-Aktionen verlieren waehrend Retention keine benoetigten Belege."
           ],
           "verification": [
             "Reale PostgreSQL-Migrations- und Rollbacktests",
@@ -1123,17 +1131,20 @@
           "status": "planned",
           "area": "domain-services",
           "dependsOn": ["FVRC-1001"],
+          "verificationScenarios": ["PG-S01", "PG-S02", "PG-S03", "PG-S04", "PG-S06", "PG-S07", "PG-S08", "PG-S10", "PG-S11", "PG-S12", "PG-S13", "PG-S14", "PG-S20", "PG-S21", "PG-S23", "PG-S30", "PG-S34"],
           "deliverables": [
             "validateProposalGraph und resolveProposalClosure",
             "composeProposalCandidate und deterministische Reihenfolge",
             "rebaseProposalCandidate mit strukturierten clean, blocked, conflict und stale Ergebnissen",
-            "buildProposalActionFence mit Graph-, Current-, Scope- und Batch-Bindung"
+            "buildProposalActionFence mit Graph-, Current-, Ergebnis-, Aktions-, Scope- und Batch-Bindung",
+            "Heutige Wirkung angenommener Voraussetzungen, Loeschnachweise, No-ops und gemeinsame Vorfahren deterministisch auswerten"
           ],
           "acceptanceCriteria": [
             "Services erhalten alle Daten explizit und mutieren keine Domain-Tabellen verdeckt.",
             "Accept, Compare, Timeline, Chat und Notifications koennen dieselben strukturierten Ergebnisse verwenden.",
             "Komposition oder Rebase verwendet keinen freien LLM-Merge und kein Last-Writer-Wins.",
-            "Grenzen fuer Tiefe, Knoten, Roots und Batchgroesse sind zentral erzwungen."
+            "Grenzen fuer Tiefe, Knoten, Roots, Bytes und expandierte Batch-Closure sind vor teuren Allokationen zentral erzwungen.",
+            "Ein historischer Apply-Beleg ersetzt keine aktuelle Voraussetzung; zwei Alternativen derselben Gruppe sind auch indirekt in der Closure ausgeschlossen."
           ],
           "verification": [
             "Property- und Tabellen-Tests fuer Graphclosure und topologische Reihenfolge",
@@ -1148,17 +1159,20 @@
           "status": "planned",
           "area": "agent-tools",
           "dependsOn": ["FVRC-1002"],
+          "verificationScenarios": ["PG-S13", "PG-S14", "PG-S22", "PG-S31", "PG-S32"],
           "deliverables": [
-            "Tool-Eingaben fuer basedOnProposalId, Relation und erwarteten Parent-Kandidaten-Hash",
+            "Tool-Eingaben fuer Basisnachweis, Dependency, Replacement, Choice und erwarteten Kandidaten-Hash",
             "Tool-Result mit Proposal-ID, Beziehung und kandidatengebundener Referenz",
             "Serverpruefung, dass Kindkandidaten wirklich zum referenzierten Parent passen",
-            "Standalone-Fallback ausschliesslich gegen den autoritativen Dokumentstand"
+            "Expliziter Proposal-Read mit Basis-/Ankerbeleg; eigenstaendige Writes mit autoritativem Herkunftsnachweis",
+            "Fehlende oder ungueltige Weiterbearbeitungsreferenz ablehnen und graphgebundene Legacy-Mutationen erkennen"
           ],
           "acceptanceCriteria": [
             "Ein Agent kann einen offenen Vorschlag nur mit expliziter, serververifizierter Referenz weiterbearbeiten.",
             "Chattext, Diff-Aehnlichkeit oder nicht ueberlappende Ziele erzeugen keine implizite Abhaengigkeit.",
             "Eine geaenderte oder ersetzte Parent-Kandidaten-Hash erzeugt einen stabilen Konflikt statt eines neuen Zweigs mit falscher Basis.",
-            "Idempotente Tool-Retries erzeugen weder doppelte Knoten noch doppelte Operationen."
+            "Idempotente Tool-Retries erzeugen weder doppelte Knoten noch doppelte Operationen.",
+            "Safe-Direct autorisiert keine offenen Vorfahren; ein Fehler im Proposal-Bezug faellt nie still auf independent zurueck."
           ],
           "verification": [
             "write-, edit_file- und apply_patch-Integrationstests",
@@ -1173,19 +1187,24 @@
           "status": "planned",
           "area": "review-actions",
           "dependsOn": ["FVRC-1003"],
+          "verificationScenarios": ["PG-S01", "PG-S02", "PG-S03", "PG-S04", "PG-S05", "PG-S06", "PG-S07", "PG-S08", "PG-S09", "PG-S10", "PG-S11", "PG-S12", "PG-S15", "PG-S16", "PG-S17", "PG-S18", "PG-S19", "PG-S20", "PG-S21", "PG-S22", "PG-S23", "PG-S24", "PG-S25", "PG-S26"],
           "deliverables": [
             "Domain-Orchestrator fuer Beziehung, Berechtigung, Status und CAS",
-            "Atomare Chain- und Batch-Annahme mit genau einer neuen Revision",
+            "Gemeinsamer dokumentweiter Chain-/Batch-Apply mit durable Receipt, Recovery und genau einer Revision pro inhaltsaenderndem Erfolg",
             "Deterministische Reject-, Include-, Supersede- und Alternative-Propagation",
             "Detach als neue unabhaengige Proposal-Erstellung",
-            "Neubewertung und Fence-Invalidierung aller verbleibenden offenen Vorschlaege"
+            "Neubewertung und Fence-Invalidierung aller verbleibenden offenen Vorschlaege",
+            "Gemeinsame Serialisierung fuer Accept, Reject, Replace und Auswahlgruppen plus Schutz aller Legacy-Aktionspfade"
           ],
           "acceptanceCriteria": [
             "Die Annahme eines extends-Kindes umfasst alle erforderlichen offenen Vorgaenger genau einmal.",
             "Die Annahme nur des Elternteils behaelt Kinder fail-closed bis zu deren neuer Auswertung.",
             "Die Ablehnung eines Elternteils blockiert extends-Nachfahren, aber keine unabhaengigen Geschwister.",
             "Batch-Konflikte schreiben weder Teilversion noch Teilstatus.",
-            "Zwei gleichzeitige Nutzeraktionen werden pro Dokument serialisiert; die zweite verwendet niemals einen alten Fence."
+            "Zwei gleichzeitige Nutzeraktionen werden auch bei getrennten Prozessen pro Dokument serialisiert; die zweite verwendet niemals einen alten Fence.",
+            "Rebase nach angezeigter Vorschau verlangt eine neue Vorschau und Aktion; ungezeigte Ergebnisse werden nicht angewendet.",
+            "Nach Live-Apply und Absturz entscheidet Recovery anhand dauerhafter Receipts, ohne doppelte Mutation oder falschen Erfolg.",
+            "Rechte gelten fuer die gesamte Wirkungsmenge; reine Loeschungen, gleiche Idempotency-Keys mit fremdem Body und No-ops sind gesondert abgesichert."
           ],
           "verification": [
             "Reale PostgreSQL- und Yjs-Integration fuer alle Beziehungstypen",
@@ -1201,17 +1220,20 @@
           "status": "planned",
           "area": "file-version-center-services",
           "dependsOn": ["FVRC-1004"],
+          "verificationScenarios": ["PG-S26", "PG-S29", "PG-U02", "PG-U04", "PG-U05", "PG-U08", "PG-U11", "PG-U12"],
           "deliverables": [
             "Permission-aware Graphprojektion mit Root, Parent, Relation und Actionability",
             "Vergleich aktueller Stand gegen effektiven Einzel- oder Batch-Kandidaten",
             "Paginierung ohne doppelte Ancestor- oder Deep-Link-Eintraege",
-            "Aktualisierte Action-Fences und stabile stale-/blocked-/conflict-Antworten"
+            "Aktualisierte Action-Fences und stabile stale-/blocked-/conflict-Antworten",
+            "Exakte Aufloesung terminaler Referenzen, getrennte Lese-/Aktionsrechte und an eine Auswertung gebundene Diff-Folgeseiten"
           ],
           "acceptanceCriteria": [
             "Der sichtbare Vergleich verwendet weiterhin immer den aktuellen autoritativen Stand.",
             "Ein Kind zeigt vor Parent-Annahme den kumulativen und danach den verbleibenden Vergleich.",
             "Read-only Nutzer koennen zulaessige Beziehungen und Vergleiche sehen, aber keine Graphmutation ausloesen.",
-            "Fremde Initiatoren ohne Managerrecht und Cross-Workspace-Deep-Links bleiben fail-closed."
+            "Fremde Initiatoren ohne Managerrecht und Cross-Workspace-Deep-Links bleiben fail-closed.",
+            "Fehlendes Restore-Recht sperrt nicht pauschal Vergleich/Review; verspätete Antworten und ungezeigte Closure-Mitglieder erzeugen keine Aktionsfreigabe."
           ],
           "verification": [
             "Query-, Compare-, Pagination- und Deep-Link-Contracttests",
@@ -1226,23 +1248,28 @@
           "status": "planned",
           "area": "frontend",
           "dependsOn": ["FVRC-1005"],
+          "verificationScenarios": ["PG-U01", "PG-U02", "PG-U03", "PG-U04", "PG-U05", "PG-U06", "PG-U07", "PG-U08", "PG-U09", "PG-U10", "PG-U11"],
           "deliverables": [
             "Gruppierte Root-, Kind-, Ersatz- und Alternativkarten in der Review-Sektion",
             "Beziehungs-, Include-, Rebase-, Blockierungs- und Konflikttexte unabhaengig von Farbe",
             "Explizite Aktionen inklusive Parent, nur Parent, Detach, Replace, Alternative und Zweig ablehnen",
             "Desktop-, Tablet- und Mobile-Darstellung im bestehenden Canvas-Stil",
-            "Batch-Auswahl mit Dependency-Closure-Vorschau"
+            "Batch-Auswahl mit Dependency-Closure und sichtbaren Schliessungsfolgen fuer Alternativen",
+            "Eigene Zustandsansichten fuer Konflikt, verlorene Voraussetzung, fehlenden Inhalt, No-op, Sync und dauerhafte Speicherung",
+            "Stabile Auswahl/Fokus/Scrollposition, scrollender Historientrenner und getrennte Rechte je Aktion"
           ],
           "acceptanceCriteria": [
             "Der Nutzer erkennt vor jedem Klick, welche Vorschlaege und Aenderungen angewendet oder geschlossen werden.",
             "Kein offener Vorschlag wird als Version nummeriert.",
             "Ein terminal enthaltener oder ersetzter Vorschlag besitzt keinen aktiven Annehmen-Button.",
-            "Tastatur, Screenreader, Touch, Focus, Reduced Motion sowie Light/Dark funktionieren ohne horizontales Ueberlaufen."
+            "Tastatur, Screenreader, Touch, Focus, Reduced Motion sowie Light/Dark funktionieren ohne horizontales Ueberlaufen.",
+            "Nach Current-/Graph-Wechsel wird vor einem neuen Accept der neue Diff gezeigt; lokale unsynchronisierte Aenderungen werden erhalten und abgeglichen.",
+            "HTTP 200, Timeout und Dialogschliessen werden nicht als dauerhafter Erfolg oder sichere Cancellation fehlinterpretiert."
           ],
           "verification": [
             "Komponenten- und Interaktionstests fuer jede Beziehung und Aktion",
-            "Responsive Layout- und Accessibility-Tests",
-            "Playwright oder Chrome nur nach erneuter ausdruecklicher Nutzerfreigabe"
+            "Responsive Layout- und Accessibility-Tests mit echten Scroll-/Clipping-Messungen gemaess PG-U09",
+            "Playwright oder Chrome gemaess vorliegender Nutzerfreigabe und Repository-Regeln"
           ]
         },
         {
@@ -1252,15 +1279,17 @@
           "status": "planned",
           "area": "entrypoints-notifications",
           "dependsOn": ["FVRC-1006"],
+          "verificationScenarios": ["PG-S24", "PG-U01", "PG-U05", "PG-U06", "PG-U12"],
           "deliverables": [
-            "Widget-Aufloesung auf den aktuellen annehmbaren Blattknoten",
+            "Exakte historische Widget-Referenz mit aktuellem Status und explizitem Nachfolger-Link",
             "Eine gruppierte Notification pro Root oder aktionsbeduerftigem Zweig",
             "Status fuer included, superseded, alternative_not_selected und blocked_by_parent",
-            "Inhaltsfreie Deep-Links mit serverseitiger Neuauthorisierung und exakter Auswahl"
+            "Inhaltsfreie Deep-Links mit serverseitiger Neuauthorisierung und exakter Auswahl",
+            "Zweigauswahl bei mehreren Blaettern statt stillem Wechsel zum neuesten Vorschlag"
           ],
           "acceptanceCriteria": [
             "P1 und ein P1 einschliessendes P2 erscheinen nicht als zwei unabhaengige Aufgaben.",
-            "Ersetzung und neue Graphrevision reaktivieren oder aktualisieren Widgets und Read-State deterministisch.",
+            "Ersetzung und neue Graphrevision aktualisieren Status sichtbar; alte Links wechseln nicht unbemerkt die Proposal-ID.",
             "Blockierte Nachfahren erzeugen keine wiederholten Annahmeaufforderungen.",
             "Reload, Workspace-Wechsel und fehlender Zugriff fuehren nicht zu falschem Gelesen- oder Aktionsstatus."
           ],
@@ -1277,10 +1306,11 @@
           "status": "planned",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
+          "verificationScenarios": ["PG-S16", "PG-S17", "PG-S18", "PG-S19", "PG-S20", "PG-S21", "PG-S24", "PG-S27", "PG-S28", "PG-S29", "PG-S30", "PG-S32", "PG-S33", "PG-S34", "PG-U09", "PG-U10", "PG-U11", "PG-U12"],
           "deliverables": [
-            "Komplette Szenario- und Race-Testmatrix aus proposal-graph.md",
+            "Komplette 46-Faelle-Testmatrix aus proposal-graph-scenarios.md mit Commit-bezogener Evidence",
             "Metriken und inhaltsfreie Logs fuer Graphgroesse, Rebase, Blockierung, Konflikt und Apply",
-            "Feature-Flag-Ringe fuer read-only Projektion, Beziehungserstellung, Chain- und Batch-Aktionen",
+            "Feature-Flag-Ringe mit Legacy-Routenschutz vor Beziehungserstellung und gemeinsamer Aktivierung von Closure, Recovery und Propagation",
             "Datenbewahrender Rollback auf sicheren Einzelreview",
             "Aktualisierte Betriebs- und Supportdiagnose"
           ],
@@ -1288,14 +1318,15 @@
             "Alle bestehenden Einzelreview-, Restore-, Chat- und Notification-Regressionen bleiben gruen.",
             "Abhaengige Vorschlaege fallen bei Rollback fail-closed und werden nie still als unabhaengig angewendet.",
             "Keine offenen Referenzen, Inhalte oder Auditbindungen gehen bei Migration, Restart oder Rollback verloren.",
-            "Produktionsbuild und alle genehmigten UI/E2E-Gates bestehen."
+            "Produktionsbuild und alle genehmigten UI/E2E-Gates bestehen.",
+            "PG-S01 bis PG-S34 und PG-U01 bis PG-U12 sind bestanden oder eine explizite begruendete Produktaenderung ist dokumentiert."
           ],
           "verification": [
             "Fokussierte Unit-, Contract-, PostgreSQL-, Yjs-, Security- und Concurrency-Suites",
             "npm run lint, npx tsc --noEmit, git diff --check und npm run build",
             "GitNexus detect_changes gegen main vor jedem Implementierungscommit",
             "Frisch recreateter einzelner Team-Seat-Teststack nur bei ausdruecklicher Containerfreigabe",
-            "Playwright oder Chrome nur nach erneuter ausdruecklicher Nutzerfreigabe"
+            "Playwright oder Chrome gemaess vorliegender Nutzerfreigabe und Repository-Regeln"
           ]
         }
       ]
