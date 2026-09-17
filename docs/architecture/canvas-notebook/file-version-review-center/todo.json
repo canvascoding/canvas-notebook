@@ -14,6 +14,7 @@
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-contracts-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-storage-v1.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-mechanics-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -1148,7 +1149,8 @@
           "id": "FVRC-1002",
           "order": 2,
           "title": "Pure Proposal-Graph- und Kandidatenmechaniken als gemeinsame Services bauen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-17",
           "area": "domain-services",
           "dependsOn": ["FVRC-1001"],
           "verificationScenarios": ["PG-S01", "PG-S02", "PG-S03", "PG-S04", "PG-S06", "PG-S07", "PG-S08", "PG-S10", "PG-S11", "PG-S12", "PG-S13", "PG-S14", "PG-S20", "PG-S21", "PG-S23", "PG-S30", "PG-S34"],
@@ -1170,6 +1172,14 @@
             "Property- und Tabellen-Tests fuer Graphclosure und topologische Reihenfolge",
             "Fuzz-/Grenztests fuer Zyklen, Tiefe, Knoten und ungueltige Beziehungen",
             "Clone-Preflight-Tests fuer Text-, Markdown- und Blockoperationen"
+          ],
+          "completionEvidence": [
+            "Gemeinsame pure Services fuer strukturelle Closure/Choices/Reject, identitaetserhaltende Yjs-Kandidaten/Netto-Voraussetzungen und signierte Action-Fences; noch keine Runtime-Aktivierung.",
+            "Modellsuite besteht mit21 unabhaengigen Testgruppen und80 deterministischen DAGs; Fencesuite besteht mit13 Gruppen inklusive Delete-only, CAS, Rechte-/Scopewechsel, Replace/Detach-Payloadbindung und Ablauf.",
+            "Kandidatensuite besteht mit17 echten Yjs-Szenariogruppen fuer Plaintext, Markdown XML und Blockstruktur; Parent-first/Child-first, Netto-P1=100/P2=150, manuell verlorene Wirkung, fremde Zweig-Snapshots, No-op, gleiche Einfuegestelle, Markierungen und Restart-Identitaeten sind abgesichert.",
+            "Authored Deltas enthalten nur tatsaechliche Authoring-Transaktionen; die Netto-Pruefung importiert niemals fremde Source-Loeschungen. Historische Legacy-Ganzdokumentpatches ohne ausreichenden lokalen Nachweis bleiben explizit upgrade_required statt unsicherer Merge.",
+            "Bestehende Agent-, Struktur- und Durability-Suites bestehen. Eine schon auf Baseline96310a52 vorhandene History-Service-Testisolationsluecke wurde ausschliesslich im Harness mit Scope-/Bytes-/Actor-Assertions behoben; die gesamte Approval-Suite besteht mit98 Tests.",
+            "Contract-Suite, fokussiertes ESLint, vollstaendiger TypeScript-Check, git diff --check und Produktionsbuild mit NODE_ENV=production bestehen. GitNexus staged/compare ist low; neue noch nicht indizierte Mechaniken wurden manuell und durch unabhaengige Tests geprueft. Die spaetere reale Live-Apply/Recovery- und UI-Abnahme bleibt ausdruecklich offen."
           ]
         },
         {

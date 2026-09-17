@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import ts from 'typescript';
 import * as Y from 'yjs';
 import type * as Agent from '../app/lib/collaboration/agent-operations';
+import type { fileVersionHistoryService } from '../app/lib/file-version-center/history-service';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { readAgentBlockStructure } from '../app/lib/collaboration/agent-block-structure';
@@ -34,6 +35,7 @@ function harness(markdown?: string) {
     lifecycleGeneration: 1, schemaVersion: 1, degraded: false, documentSequence: 1, checkpointSequence: 0,
     persistedAt: Date.now(), yjsState: Y.encodeStateAsUpdate(doc), stateVector: Y.encodeStateVector(doc) };
   let directCalls = 0;
+  let historyCaptures = 0;
   let beforeApply = () => {};
   let reads = 0;
   let newDelivery = false;
@@ -81,6 +83,26 @@ function harness(markdown?: string) {
   const exports = {};
   const mock = (name: string) => {
     if (name === '@/app/lib/db') return { openDb: async () => database };
+    if (name === '@/app/lib/file-version-center/history-service') return { fileVersionHistoryService: {
+      capturePersistedCollaboration: async (input: Parameters<typeof fileVersionHistoryService.capturePersistedCollaboration>[0]) => {
+        assert.deepEqual(input.workspace, workspace);
+        assert.equal(input.state.documentId, row.document_id);
+        assert.equal(input.state.workspaceId, row.workspace_id);
+        assert.equal(input.state.organizationId, row.organization_id);
+        assert.equal(input.state.path, row.document_path);
+        assert.equal(input.state.representation, row.document_representation);
+        assert.equal(input.state.lifecycleGeneration, Number(row.document_lifecycle_generation));
+        assert.equal(input.state.schemaVersion, Number(row.schema_version));
+        assert.deepEqual(input.state.yjsState, state.yjsState);
+        assert.equal(input.source, 'agent_apply');
+        assert.equal(input.actorUserId, row.initiated_by_user_id);
+        assert.equal(input.actorType, 'agent');
+        assert.equal(input.sourceSessionId, row.actor_session_id);
+        assert.equal(input.baseRevisionId, row.checkpoint_revision_id);
+        historyCaptures++;
+        return null;
+      },
+    } };
     if (name === './persistence') return { loadCollaborationState: async () => ({ ...state }) };
     if (name === './document-access') return { readCurrentCollaborationDocument: async (input: { read: (doc: Y.Doc) => unknown }) => {
       reads++; return input.read(doc);
@@ -175,6 +197,7 @@ function harness(markdown?: string) {
     denyGrant: () => { denyGrantLock = true; },
     failGrantCommit: () => { failGrantCommit = true; },
     beforeGrantLock: (value: () => void) => { beforeGrantLock = value; }, directCalls: () => directCalls, reads: () => reads,
+    historyCaptures: () => historyCaptures,
     beforeApply: (value: () => void) => { beforeApply = value; }, close: () => doc.destroy() };
 }
 
@@ -209,6 +232,7 @@ test('independent paragraph edits preserve the exact approval and are not overwr
     assert.equal(h.preview().proposalVersion, token);
     const result = await h.accept(token);
     assert.equal(result.durability, 'persisted_yjs'); assert.equal(result.appliedTargetIds.length, 1);
+    assert.equal(h.historyCaptures(), 1, 'the exact durable document is captured in version history');
     assert.equal(h.doc.getText('content').toString(), 'Revised.\n\nOther. Human.');
   } finally { h.close(); }
 });
@@ -220,6 +244,7 @@ test('same key and token after a lost response returns the original result once'
     const [first, second] = await Promise.all([h.accept(token), h.accept(token)]);
     assert.equal(first.operationId, second.operationId); assert.equal(second.durability, 'persisted_yjs');
     assert.equal(h.directCalls(), 1);
+    assert.equal(h.historyCaptures(), 1, 'the lost-response retry does not capture a second revision');
     await assert.rejects(h.accept(`v1.${'0'.repeat(64)}`), { code: 'AGENT_PROPOSAL_CHANGED' });
     assert.equal(h.directCalls(), 1);
   } finally { h.close(); }
@@ -299,6 +324,7 @@ test('default is a proposal even when the caller sets explicitUserRequest or dir
       assert.equal(result.operationStatus, 'needs_review'); assert.equal(result.appliedTargetIds.length, 0);
       assert.equal(h.directCalls(), 0); assert.deepEqual(Y.encodeStateAsUpdate(h.doc), bytes);
       assert.equal(h.row.requested_mode, 'review'); assert.equal(h.row.direct_edit_grant_id, null);
+      assert.equal(h.historyCaptures(), 0, 'an unaccepted proposal is not authoritative version history');
     } finally { h.close(); }
   }
 });

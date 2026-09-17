@@ -665,7 +665,7 @@ function replaceRichMarkdownDocument(
   }
 }
 
-function applyRichMarkdownPatchTargets(input: {
+export function applyRichMarkdownPatchTargets(input: {
   doc: YTypes.Doc;
   targets: AgentTextTarget[];
   origin: { actorType: 'agent'; actorId: string; initiatedByUserId: string; operationId: string };

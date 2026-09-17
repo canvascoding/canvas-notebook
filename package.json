@@ -536,7 +536,10 @@
     "test:proposal-graph:contracts": "tsx scripts/proposal-graph-contract-test.ts",
     "test:proposal-graph:storage": "tsx --conditions react-server scripts/proposal-graph-storage-test.ts",
     "test:proposal-graph:projection": "tsx --conditions react-server scripts/proposal-graph-storage-projection-test.ts",
-    "test:proposal-graph:storage-concurrency": "tsx --conditions react-server scripts/proposal-graph-storage-concurrency-test.ts"
+    "test:proposal-graph:storage-concurrency": "tsx --conditions react-server scripts/proposal-graph-storage-concurrency-test.ts",
+    "test:proposal-graph:model": "tsx --conditions react-server scripts/proposal-graph-model-test.ts",
+    "test:proposal-graph:fences": "tsx --conditions react-server scripts/proposal-graph-fence-test.ts",
+    "test:proposal-graph:candidates": "tsx --conditions react-server scripts/proposal-graph-candidate-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
