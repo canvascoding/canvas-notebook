@@ -27,6 +27,7 @@ import { rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-
 import type { AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
 import { contentToString, isAbortedAssistantPiMessage } from '@/app/lib/chat/message-content';
 import { getChatMessageSequence } from '@/app/lib/chat/message-metadata';
+import { getChatMessageRenderKey } from '@/app/lib/chat/message-render-key';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
@@ -442,6 +443,7 @@ export function ChatMessageList({
   return (
     <TooltipProvider delayDuration={300}>
       {messages.map((message, messageIndex) => {
+        const messageRenderKey = getChatMessageRenderKey(message);
         const runtimeChange = runtimeChanges.get(message.id);
         const isUser = message.role === 'user';
         const isAssistant = message.role === 'assistant';
@@ -473,7 +475,7 @@ export function ChatMessageList({
 
         if (hiddenToolMessageIds.has(message.id)) {
           return (
-            <Fragment key={message.id}>
+            <Fragment key={messageRenderKey}>
               {batchDisclosure}
             </Fragment>
           );
@@ -481,7 +483,7 @@ export function ChatMessageList({
 
         if (isCompactBreak) {
           return (
-            <div key={message.id} data-testid="chat-compaction-break" className="flex items-center gap-3 py-1">
+            <div key={messageRenderKey} data-testid="chat-compaction-break" className="flex items-center gap-3 py-1">
               <div className="h-px flex-1 bg-border/80" />
               <div className="border border-border/70 bg-background/90 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 {getCompactBreakLabel(message, t)}
@@ -494,7 +496,7 @@ export function ChatMessageList({
         if (message.type === 'composio_auth_required' && message.composioAuthMeta) {
           const meta = message.composioAuthMeta;
           return (
-            <div key={message.id} className="flex justify-start">
+            <div key={messageRenderKey} className="flex justify-start">
               <div className="max-w-[90%] rounded-lg border border-blue-500/30 bg-blue-500/5 p-4">
                 <div className="flex items-start gap-3">
                   <Lock className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
@@ -533,7 +535,7 @@ export function ChatMessageList({
         }
 
         if (isAssistant && !isStreamingAssistant && !hasVisibleAssistantContent && message.status !== 'error' && !isAbortedAssistant) {
-          return batchDisclosure ? <Fragment key={message.id}>{batchDisclosure}</Fragment> : null;
+          return batchDisclosure ? <Fragment key={messageRenderKey}>{batchDisclosure}</Fragment> : null;
         }
 
         const bubbleClass = isUser
@@ -683,7 +685,7 @@ export function ChatMessageList({
 
         if (batchDisclosure) {
           return (
-            <Fragment key={message.id}>
+            <Fragment key={messageRenderKey}>
               {runtimeChange ? <RuntimeChangeSeparator change={runtimeChange} /> : null}
               {renderedMessage}
               {batchDisclosure}
@@ -692,7 +694,7 @@ export function ChatMessageList({
         }
 
         return (
-          <Fragment key={message.id}>
+          <Fragment key={messageRenderKey}>
             {runtimeChange ? <RuntimeChangeSeparator change={runtimeChange} /> : null}
             {renderedMessage}
           </Fragment>
