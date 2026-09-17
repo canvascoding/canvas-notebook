@@ -243,7 +243,7 @@ export type ResolveFileReviewPolicyInputV1 = {
 export function resolveEffectiveFileReviewPolicyV1(
   input: ResolveFileReviewPolicyInputV1,
 ): FileReviewPolicyV1 {
-  const requestedMode = input.requestedMode ?? 'review_required';
+  const requestedMode = input.requestedMode ?? 'safe_direct';
   const revision = input.policyRevision ?? 0;
 
   if (input.hardSafetyRequiresReview) {
@@ -302,11 +302,11 @@ export function resolveEffectiveFileReviewPolicyV1(
   }
   return {
     contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
-    requestedMode: 'review_required',
-    effectiveMode: 'review_required',
+    requestedMode: 'safe_direct',
+    effectiveMode: 'safe_direct',
     revision,
     locked: false,
-    reason: 'default_review_required',
+    reason: 'default_safe_direct',
   };
 }
 

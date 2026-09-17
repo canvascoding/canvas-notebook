@@ -1101,7 +1101,8 @@
           "id": "FVRC-1101",
           "order": 1,
           "title": "Neue Dokumente mit ausgeschaltetem Review-Modus starten",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-17",
           "area": "review-policy",
           "dependsOn": ["FVRC-1100"],
           "deliverables": [
@@ -1118,6 +1119,12 @@
             "Policy-Contract- und Service-Suites",
             "Toggle-Komponententest fuer missing, stored, forced und error",
             "Produktionsbuild"
+          ],
+          "completionEvidence": [
+            "Der versionierte Policy-Resolver liefert bei fehlender Praeferenz safe_direct/default_safe_direct; der V1-Parser akzeptiert fuer rollierende Deployments weiterhin den alten Reason-Wert.",
+            "Persistenzfehler, unbekannte Workspace-Policy, Hard-Safety, Force-Review und explizite Review-Operationen bleiben gesperrt review_required; bestehende gespeicherte Werte werden nicht migriert.",
+            "Policy-, Service-, Control-, Query-, Open-, Agent-Adapter- und Approval-Suites bestehen. Der operationsgebundene Direct-Edit-Grant wird weiterhin erst unmittelbar vor einer sicheren direkten Anwendung erzeugt.",
+            "Fokussiertes ESLint, TypeScript nach Entfernung eines korrupten ignorierten .next/dev-Artefakts, git diff --check und der Produktionsbuild bestehen."
           ]
         },
         {

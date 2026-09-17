@@ -1,5 +1,5 @@
 {
-  "fixtureVersion": "1.0.0",
+  "fixtureVersion": "1.1.0",
   "contractVersion": 1,
   "rolloutCases": [
     {
@@ -124,9 +124,9 @@
       "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "safe_direct", "revision": 7, "locked": false, "reason": "user_preference" }
     },
     {
-      "name": "missing preference defaults review",
+      "name": "missing preference defaults to safe direct",
       "input": { "requestedMode": null, "policyRevision": null, "preferenceState": "missing", "persistenceState": "ready", "hardSafetyRequiresReview": false, "workspacePolicy": "allow_user_choice", "operationExplicitlyRequiresReview": false },
-      "expected": { "contractVersion": 1, "requestedMode": "review_required", "effectiveMode": "review_required", "revision": 0, "locked": false, "reason": "default_review_required" }
+      "expected": { "contractVersion": 1, "requestedMode": "safe_direct", "effectiveMode": "safe_direct", "revision": 0, "locked": false, "reason": "default_safe_direct" }
     },
     {
       "name": "policy read error fails closed",

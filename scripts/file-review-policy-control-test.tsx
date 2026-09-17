@@ -17,7 +17,7 @@ type Policy = {
   effectiveMode: 'review_required' | 'safe_direct';
   revision: number;
   locked: boolean;
-  reason: 'user_preference' | 'default_review_required' | 'explicit_review' | 'hard_safety'
+  reason: 'user_preference' | 'default_review_required' | 'default_safe_direct' | 'explicit_review' | 'hard_safety'
     | 'workspace_policy' | 'persistence_unavailable';
 };
 
@@ -121,6 +121,11 @@ test('the pure control states remain fail-closed for loading, errors and forced 
   assert.deepEqual(ui.fileReviewPolicyControlState({ state: 'error', busy: false }), {
     checked: true, disabled: true, visualState: 'error',
   });
+  assert.deepEqual(ui.fileReviewPolicyControlState({
+    state: 'ready', available: true, policy: policy('safe_direct', 0, {
+      requestedMode: 'safe_direct', reason: 'default_safe_direct',
+    }), busy: false,
+  }), { checked: false, disabled: false, visualState: 'safe_direct' });
   assert.deepEqual(ui.fileReviewPolicyControlState({
     state: 'ready', available: true, policy: policy('safe_direct', 2, {
       effectiveMode: 'review_required', locked: true, reason: 'hard_safety',

@@ -73,7 +73,7 @@ async function main() {
       contractVersion: 1,
       document: { workspaceId: body.target.workspaceId, lineageId: body.target.kind === 'lineage' ? body.target.lineageId : 'lineage-one', documentId: 'document-one', path: 'Notes/current.md' },
       capabilities: { contractVersion: 1, history: true, compare: body.selectedEntry?.kind !== 'agent_operation', restore: true, agentReviewPolicy: true, preview: 'markdown' },
-      policy: { contractVersion: 1, requestedMode: 'review_required', effectiveMode: 'review_required', revision: 0, locked: false, reason: 'default_review_required' },
+      policy: { contractVersion: 1, requestedMode: 'safe_direct', effectiveMode: 'safe_direct', revision: 0, locked: false, reason: 'default_safe_direct' },
       entries: [
         ...(body.selectedEntry?.kind === 'agent_operation' ? [{
           kind: 'agent_operation', id: body.selectedEntry.id, operationId: body.selectedEntry.id,

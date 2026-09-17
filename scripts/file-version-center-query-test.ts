@@ -154,11 +154,11 @@ async function main(): Promise<void> {
       }),
       readPolicy: async () => ({
         contractVersion: 1,
-        requestedMode: 'review_required',
-        effectiveMode: 'review_required',
+        requestedMode: 'safe_direct',
+        effectiveMode: 'safe_direct',
         revision: 0,
         locked: false,
-        reason: 'default_review_required',
+        reason: 'default_safe_direct',
       }),
     });
 

@@ -157,6 +157,7 @@ export const FileReviewPolicySchemaV1 = Type.Object({
   reason: Type.Union([
     Type.Literal('user_preference'),
     Type.Literal('default_review_required'),
+    Type.Literal('default_safe_direct'),
     Type.Literal('explicit_review'),
     Type.Literal('hard_safety'),
     Type.Literal('workspace_policy'),

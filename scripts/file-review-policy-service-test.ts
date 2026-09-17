@@ -112,7 +112,7 @@ async function main(): Promise<void> {
     const missing = await service.readAuthorized({ access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice });
     assert.deepEqual(
       [missing.requestedMode, missing.effectiveMode, missing.revision, missing.locked, missing.reason],
-      ['review_required', 'review_required', 0, false, 'default_review_required'],
+      ['safe_direct', 'safe_direct', 0, false, 'default_safe_direct'],
     );
 
     const created = await service.writeAuthorized({

@@ -94,7 +94,7 @@ function assertScopeDenied(input: FileVersionScopeInputV1, name: string): void {
 
 async function main() {
   const fixtures = JSON.parse(await readFile(fixturePath, 'utf8')) as Fixtures;
-  assert.equal(fixtures.fixtureVersion, '1.0.0');
+  assert.equal(fixtures.fixtureVersion, '1.1.0');
   assert.equal(fixtures.contractVersion, FILE_VERSION_CENTER_CONTRACT_VERSION);
 
   for (const testCase of fixtures.rolloutCases) {
@@ -144,7 +144,10 @@ async function main() {
     workspacePolicy: 'allow_user_choice',
     operationExplicitlyRequiresReview: false,
   });
-  assert.equal(missingPolicy.effectiveMode, 'review_required');
+  assert.equal(missingPolicy.requestedMode, 'safe_direct');
+  assert.equal(missingPolicy.effectiveMode, 'safe_direct');
+  assert.equal(missingPolicy.locked, false);
+  assert.equal(missingPolicy.reason, 'default_safe_direct');
   const failedPolicy = resolveEffectiveFileReviewPolicyV1({
     requestedMode: 'safe_direct',
     policyRevision: 9,
