@@ -77,6 +77,12 @@ auf direkte Bearbeitung umstellen. Spaetere Workspace- oder
 Organisationsrichtlinien duerfen Review erzwingen, aber niemals durch eine
 schwaechere Nutzereinstellung aufgehoben werden.
 
+Fehlt fuer diese Kombination eine gespeicherte Praeferenz, wird
+`safe_direct` verwendet: Ein neues Dokument startet mit ausgeschaltetem
+Review-Toggle. Das erste bewusste Einschalten speichert `review_required`.
+Unbekannte oder fehlerhaft geladene Zustaende zaehlen nicht als fehlende
+Praeferenz und bleiben fail-closed.
+
 ### 2.5 "Direkt bearbeiten" bleibt fail-safe
 
 Bei ausgeschaltetem Review-Toggle duerfen neue Aenderungen direkt angewendet
@@ -220,6 +226,7 @@ Zustaende:
 
 - an: `review_required`,
 - aus: `safe_direct`,
+- neue oder bisher nicht konfigurierte Lineage: aus (`safe_direct`),
 - gesperrt an: durch uebergeordnete Richtlinie erzwungen,
 - lade-/fehlerhaft: fail-closed als `review_required`.
 
@@ -598,6 +605,8 @@ Das Kernfeature ist fertig, wenn:
   Berechtigungsregeln einhalten,
 - Restore immer eine neue Version erzeugt,
 - der Review-Toggle nur zukuenftige eigene Agentenoperationen beeinflusst,
+- neue Dokumente ohne gespeicherte Praeferenz mit ausgeschaltetem
+  Review-Toggle starten,
 - direkte Bearbeitung Konflikt- und Sicherheitspruefungen nie umgeht,
 - Versionen Rename, Move und App-Neustart ueberstehen,
 - Chat-Widgets nach Reload den aktuellen Status zeigen,
@@ -652,3 +661,100 @@ Die Umsetzung erfolgt als neues Paket `FVRC-P10` vor dem weiterhin
 zurueckgestellten Text-/Codeadapter-Paket `FVRC-P09`. Die vorhandenen IDs von
 `FVRC-P09` bleiben fuer bestehende Referenzen stabil; die Ausfuehrungsreihenfolge
 wird durch das explizite `order`-Feld in `todo.json` bestimmt.
+
+## 19. Remediation: Default, Lifecycle und Browser-Abnahme
+
+Die produktionsnahe Browser-Abnahme vom 17. September 2026 hat vier getrennte
+Fehlerklassen sichtbar gemacht. Sie werden als vorgeschaltetes Paket
+`FVRC-P11` abgeschlossen, bevor die noch offenen Laufzeit- und UI-Arbeiten des
+Proposal-Graphen weitergehen.
+
+### 19.1 Produktdefault fuer neue Dokumente
+
+Fuer eine noch nicht gespeicherte Review-Praferenz gilt kuenftig
+`safe_direct`. Damit ist der Toggle bei einem neu angelegten Dokument
+standardmaessig aus. Der Nutzer aktiviert `review_required` bewusst ueber den
+Agenten-Toggle. Die Einstellung bleibt weiterhin
+nutzer-, workspace- und lineage-bezogen und beeinflusst nur zukuenftige eigene
+Agentenoperationen.
+
+Die Aenderung ist keine globale Datenmigration:
+
+- bereits explizit gespeicherte Werte bleiben unveraendert,
+- ein erzwungener Workspace-Modus bleibt `review_required`,
+- ein Lade-, Berechtigungs-, Capability- oder Integritaetsfehler bleibt
+  fail-closed `review_required`,
+- eine Operation mit explizitem Force-Review bleibt reviewpflichtig,
+- der Toggle zeigt erst nach erfolgreicher Policy-Aufloesung den gespeicherten
+  oder den neuen Defaultzustand.
+
+Damit bedeutet "aus" ausschliesslich einen erfolgreich aufgeloesten
+`safe_direct`-Zustand und niemals einen unbekannten oder fehlerhaften Zustand.
+
+### 19.2 Session-Loeschung und dauerhafte Review-Belege
+
+Das Loeschen einer Chat-/Agentensession darf nicht an der referenziellen
+Integritaet von `file_change_groups` scheitern. Vor der Implementierung wird
+festgelegt, welche Review- und Auditbelege dauerhaft erhalten bleiben muessen.
+Der gemeinsame Session-Loeschservice loest danach alle abhaengigen Datensaetze
+in einer Transaktion in der fachlich richtigen Reihenfolge auf oder
+anonymisiert die Session-Referenz. Ein partieller Erfolg ist unzulaessig.
+
+Verifiziert werden mindestens: Session ohne Aenderung, Session mit offener
+Review-Gruppe, Session mit abgeschlossener Gruppe, wiederholtes Loeschen,
+fremder Workspace, Rollback nach provoziertem Fehler und echte PostgreSQL-
+Constraints.
+
+### 19.3 Testdaten und Authentifizierung
+
+Browser-Fixtures duerfen aktive kollaborative Dokumente nicht ueber den
+geschuetzten Whole-File-Write-Endpunkt ueberschreiben. Markdown-Testdateien
+werden deshalb atomar mit ihrem Anfangsinhalt angelegt; spaetere Aenderungen
+laufen ueber die produktiven Editor-/Yjs-Pfade.
+
+Produktionsnahe Browserlaeufe verwenden ausserdem einmalig erzeugte,
+rollenbezogene Playwright-Storage-States. Tests, die Anmeldung, Abmeldung oder
+Berechtigungswechsel selbst pruefen, bleiben explizit unauthentifiziert. Die
+produktive Rate-Limitierung wird weder deaktiviert noch fuer Tests aufgeweicht.
+
+### 19.4 Globaler Center statt veralteter Kleinpanel-Annahmen
+
+Alle Einstiege muessen denselben globalen Dialog oeffnen. Vorhandene
+Playwright-Helfer duerfen deshalb nicht mehr auf ein entferntes oder verborgenes
+kleines Agenten-Review-Panel warten. Ein eigener Center-Test prueft:
+
+1. Agentenvorschlag anlegen und Zaehler sichtbar aktualisieren.
+2. Center ueber Editor-Button oeffnen und exakten Vorschlag auswaehlen.
+3. Aktuellen Stand gegen den Vorschlagskandidaten vergleichen.
+4. Annehmen und Ablehnen einschliesslich stale-/konfliktbehafteter Antwort.
+5. Center ueber Dateimenue und Chat-Widget mit derselben Auswahl oeffnen.
+6. Personal- und Team-Workspace nach identischen Capabilities behandeln.
+7. Mobile Scrollverhalten: Der Trenner zwischen "Aktuell" und
+   "Versionshistorie" scrollt mit seiner Liste; Karten haben symmetrische
+   Innenabstaende und keinen horizontalen Overflow.
+
+Falls ein bestehender Test noch die alte Region anspricht, wird der Test auf
+den globalen Dialog migriert. Falls der produktive Einstieg den Dialog dagegen
+tatsaechlich nicht oeffnet, wird der gemeinsame Open-Contract behoben; ein
+test-only Workaround ist nicht zulaessig.
+
+### 19.5 Ausfuehrungs- und Exit-Reihenfolge
+
+`FVRC-P11` wird streng in dieser Reihenfolge umgesetzt:
+
+1. Defaultvertrag und Policy-Fixtures auf `safe_direct` umstellen.
+2. Session-Loeschung gegen echte FK-Abhaengigkeiten haerten.
+3. Atomare Markdown-Fixtures und wiederverwendbare Browser-Authentifizierung
+   einfuehren.
+4. Editor-, Datei- und Chat-Einstiege auf den globalen Center pruefen und den
+   haengenden Interaktionspfad beheben.
+5. Fokussierte Unit-/Contract-/PostgreSQL-Tests, Produktionsbuild und die
+   freigegebene Playwright-Matrix im einzelnen verwalteten Team-Seat-Stack
+   durchlaufen lassen.
+
+Jeder Punkt erhaelt einen fokussierten Commit und beginnt erst nach bestandenem
+Gate des vorherigen Punkts. Vor Symbolaenderungen wird der Upstream-Impact
+geprueft; vor jedem Commit wird der Gesamtdiff gegen `main` analysiert. Der
+Stack wird nicht parallel dupliziert. Ein Container-Rebuild erfolgt nur nach
+erneuter ausdruecklicher Anforderung; ansonsten wird gegen den vorhandenen
+gesunden Stack getestet.

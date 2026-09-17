@@ -22,7 +22,7 @@
     "laterTextFileTypes": ["mdx", "json", "yaml", "yml", "source-code"],
     "deferred": ["office-structured-diff", "binary-content-diff"],
     "reviewPolicyScope": "per-user-per-workspace-lineage",
-    "defaultReviewPolicy": "review_required",
+    "defaultReviewPolicy": "safe_direct",
     "comparisonBase": "current-authoritative-document-state",
     "restorePolicy": "create-new-version",
     "proposalModel": "linear-authoritative-history-with-explicit-pending-proposal-graph"
@@ -84,6 +84,11 @@
       "id": "FVRC-G08-NOTIFICATIONS",
       "packageId": "FVRC-P08",
       "evidence": "Action-needed notifications are deduplicated, permission-safe and open the exact review without storing content."
+    },
+    {
+      "id": "FVRC-G11-REMEDIATION",
+      "packageId": "FVRC-P11",
+      "evidence": "Missing review preferences resolve to safe_direct while failures remain fail-closed; session deletion preserves database integrity; atomic fixtures, reusable auth and all global Center entrypoints pass the approved production-like browser matrix."
     },
     {
       "id": "FVRC-G10-PROPOSAL-GRAPH",
@@ -1063,11 +1068,159 @@
       ]
     },
     {
-      "id": "FVRC-P10",
+      "id": "FVRC-P11",
       "order": 9,
-      "title": "Proposal-Graph fuer mehrere offene Agentenvorschlaege",
+      "title": "Review-Default, Lifecycle und Browser-Regressionen haerten",
       "status": "in_progress",
       "dependsOn": ["FVRC-P08"],
+      "exitGate": "FVRC-G11-REMEDIATION",
+      "tasks": [
+        {
+          "id": "FVRC-1100",
+          "order": 0,
+          "title": "Remediation-Entscheidungen und pruefbare Reihenfolge dokumentieren",
+          "status": "completed",
+          "completedAt": "2026-09-17",
+          "area": "architecture",
+          "dependsOn": ["FVRC-801"],
+          "deliverables": [
+            "Defaultvertrag safe_direct bei fehlender gespeicherter Praeferenz",
+            "Fail-closed Grenzen fuer Fehler, Force-Review und Workspace-Zwang",
+            "Getrennte Arbeitspakete fuer Session-Lifecycle, Fixtures/Auth und globalen Center"
+          ],
+          "acceptanceCriteria": [
+            "Bestehende explizite Praeferenzen werden nicht migriert oder ueberschrieben.",
+            "Jeder beobachtete Browserfehler besitzt einen Owner, ein Exit-Gate und konkrete Regressionstests."
+          ],
+          "verification": [
+            "todo.json per jq validieren",
+            "Plan und Taskabhaengigkeiten gegen die vorhandenen Contracts pruefen"
+          ]
+        },
+        {
+          "id": "FVRC-1101",
+          "order": 1,
+          "title": "Neue Dokumente mit ausgeschaltetem Review-Modus starten",
+          "status": "planned",
+          "area": "review-policy",
+          "dependsOn": ["FVRC-1100"],
+          "deliverables": [
+            "Fehlende Policy wird als safe_direct aufgeloest",
+            "Explizites Aktivieren speichert review_required",
+            "Contract-, Service-, Control- und Fixture-Tests fuer Default und Fail-closed"
+          ],
+          "acceptanceCriteria": [
+            "Der Agenten-Toggle ist fuer neue Dokumente nach erfolgreichem Laden aus.",
+            "Fehler, unbekannte Capabilities, Force-Review und Workspace-Zwang bleiben review_required.",
+            "Gespeicherte Werte bleiben ueber Reload, Rename und Move erhalten."
+          ],
+          "verification": [
+            "Policy-Contract- und Service-Suites",
+            "Toggle-Komponententest fuer missing, stored, forced und error",
+            "Produktionsbuild"
+          ]
+        },
+        {
+          "id": "FVRC-1102",
+          "order": 2,
+          "title": "Session-Loeschung mit File-Change-Groups transaktional reparieren",
+          "status": "planned",
+          "area": "session-lifecycle",
+          "dependsOn": ["FVRC-1101"],
+          "deliverables": [
+            "Explizite Retentionentscheidung fuer Review- und Auditbelege",
+            "FK-sichere gemeinsame Loesch- oder Anonymisierungsreihenfolge",
+            "Idempotente PostgreSQL-Regressionstests"
+          ],
+          "acceptanceCriteria": [
+            "DELETE /api/sessions liefert fuer eine Session mit Change Groups keinen 500-Fehler.",
+            "Offene Reviews und dauerhafte Auditbelege werden entsprechend der dokumentierten Retentionregel behandelt.",
+            "Fremde Workspace-Daten und nicht angeforderte Sessions bleiben unveraendert."
+          ],
+          "verification": [
+            "Echte PostgreSQL-FK-, Rollback- und Retry-Tests",
+            "API-Integration fuer offene und abgeschlossene Change Groups",
+            "Produktionsbuild"
+          ]
+        },
+        {
+          "id": "FVRC-1103",
+          "order": 3,
+          "title": "Browser-Fixtures atomar anlegen und Login-Ratelimits vermeiden",
+          "status": "planned",
+          "area": "test-infrastructure",
+          "dependsOn": ["FVRC-1102"],
+          "deliverables": [
+            "Gemeinsamer atomarer Datei-Fixture-Helper",
+            "Rollenbezogene Playwright-Storage-States fuer produktionsnahe Tests",
+            "Explizite unauthentifizierte Ausnahmen fuer Auth-Tests"
+          ],
+          "acceptanceCriteria": [
+            "Markdown-Roundtrip-, Properties- und Rich-Block-Tests umgehen nie den Collaboration-Write-Guard.",
+            "Wiederholte oder parallele Browserfaelle erzeugen keine Login-429-Serie.",
+            "Produktive Auth- und Rate-Limit-Regeln bleiben unveraendert."
+          ],
+          "verification": [
+            "Drei Markdown-Regressionen gegen den verwalteten Stack",
+            "Mehrere authentifizierte Kontexte mit Admin- und Member-Rolle",
+            "Unauthentifizierter Login-/Logout-Test"
+          ]
+        },
+        {
+          "id": "FVRC-1104",
+          "order": 4,
+          "title": "Globalen Versions-Center aus allen Einstiegen robust bedienen",
+          "status": "planned",
+          "area": "frontend-e2e",
+          "dependsOn": ["FVRC-1103"],
+          "deliverables": [
+            "Ein gemeinsamer Open-Contract fuer Editor, Dateimenue und Chat-Widget",
+            "Auf globalen Dialog migrierte Review-Helfer",
+            "Eigener File-Version-Center-Playwright-Test fuer Desktop und Mobile"
+          ],
+          "acceptanceCriteria": [
+            "Der Editor-Zaehler oeffnet den globalen Dialog und selektiert den exakten Vorschlag.",
+            "Personal und Team zeigen bei gleichen Capabilities dieselbe verfuegbare Aktion.",
+            "Aktuell-/Historie-Trenner scrollt mit; Karten besitzen symmetrische Abstaende und keinen Overflow.",
+            "Historische Markdown-Versionen liefern einen Vergleich ohne Abhaengigkeit von einem AI-Modell-Key."
+          ],
+          "verification": [
+            "Accept-, Reject-, stale- und conflict-Flows mit realem Agentenruntime-Pfad",
+            "Editor-, FileActions- und Chat-Deep-Link-Einstiege",
+            "1600-, 760- und 390-px-Viewports sowie Touch, Light, Dark und Reduced Motion"
+          ]
+        },
+        {
+          "id": "FVRC-1105",
+          "order": 5,
+          "title": "Gesamte Remediation-Matrix abnehmen",
+          "status": "planned",
+          "area": "hardening",
+          "dependsOn": ["FVRC-1104"],
+          "deliverables": [
+            "Fokussierte Unit-, Contract-, PostgreSQL- und UI-Evidence",
+            "Produktionsbuild und GitNexus-Change-Review",
+            "Playwright-Bericht aus genau einem verwalteten Team-Seat-Stack"
+          ],
+          "acceptanceCriteria": [
+            "Alle P11-Regressionen bestehen reproduzierbar.",
+            "Keine Produktionsschutzregel wurde fuer den Testlauf abgeschwaecht.",
+            "Bekannte Restfehler sind mit reproduzierbarem Szenario und Owner dokumentiert."
+          ],
+          "verification": [
+            "git diff --check, fokussiertes ESLint, TypeScript und npm run build",
+            "Freigegebene Playwright-Matrix gegen den gesunden verwalteten Stack",
+            "detect_changes gegen main vor Abschlusscommit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P10",
+      "order": 10,
+      "title": "Proposal-Graph fuer mehrere offene Agentenvorschlaege",
+      "status": "in_progress",
+      "dependsOn": ["FVRC-P08", "FVRC-P11"],
       "exitGate": "FVRC-G10-PROPOSAL-GRAPH",
       "testPlan": "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
       "tasks": [
@@ -1371,7 +1524,7 @@
     },
     {
       "id": "FVRC-P09",
-      "order": 10,
+      "order": 11,
       "title": "Weitere Text- und Codeformate ueber Adapter erweitern",
       "status": "planned",
       "phase": "deferred",
