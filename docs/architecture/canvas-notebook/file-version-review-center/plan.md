@@ -700,6 +700,16 @@ Der gemeinsame Session-Loeschservice loest danach alle abhaengigen Datensaetze
 in einer Transaktion in der fachlich richtigen Reihenfolge auf oder
 anonymisiert die Session-Referenz. Ein partieller Erfolg ist unzulaessig.
 
+Die verbindliche Retentionentscheidung lautet: Change Group und Entries bleiben
+als dauerhafte Dokument-, Review- und Auditbelege erhalten. Nur die interne,
+numerische `pi_session_db_id` wird vor der Session-Loeschung auf `NULL` gesetzt;
+die stabile fachliche `source_session_id` im bereits erzeugten Beleg bleibt fuer
+Idempotenz und bestehende Links erhalten. Der Foreign Key bleibt `RESTRICT`,
+damit ein Loeschpfad ausserhalb des gemeinsamen Services nicht still Daten
+abtrennt. Detach, Nachrichten-, Channel- und Session-Loeschung bilden eine
+Datenbanktransaktion. Dateibasierte Tool-Outputs werden erst nach erfolgreichem
+Commit entfernt.
+
 Verifiziert werden mindestens: Session ohne Aenderung, Session mit offener
 Review-Gruppe, Session mit abgeschlossener Gruppe, wiederholtes Loeschen,
 fremder Workspace, Rollback nach provoziertem Fehler und echte PostgreSQL-

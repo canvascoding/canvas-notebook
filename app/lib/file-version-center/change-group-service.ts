@@ -57,7 +57,7 @@ type GroupRow = {
   workspace_id: string;
   user_id: string;
   source_session_id: string;
-  pi_session_db_id: number | string;
+  pi_session_db_id: number | string | null;
   tool_call_id: string;
   payload_hash: string;
   operation: FileChangeGroupOperation;

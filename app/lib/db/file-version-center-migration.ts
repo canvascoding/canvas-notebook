@@ -80,7 +80,7 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
     workspace_id text NOT NULL REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
     user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     source_session_id text NOT NULL,
-    pi_session_db_id bigint NOT NULL,
+    pi_session_db_id bigint,
     tool_call_id text NOT NULL,
     payload_hash text NOT NULL,
     operation text NOT NULL,
@@ -102,6 +102,7 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
     CONSTRAINT file_change_groups_tool_call_length_check CHECK (char_length(tool_call_id) BETWEEN 1 AND 128),
     CONSTRAINT file_change_groups_payload_hash_check CHECK (payload_hash ~ '^[a-f0-9]{64}$')
   );
+  ALTER TABLE file_change_groups ALTER COLUMN pi_session_db_id DROP NOT NULL;
   ALTER TABLE file_change_groups ADD COLUMN IF NOT EXISTS payload_hash text;
   UPDATE file_change_groups
     SET payload_hash = md5(group_id || ':' || tool_call_id) || md5(tool_call_id || ':' || group_id)

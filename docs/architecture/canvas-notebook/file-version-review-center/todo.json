@@ -1131,7 +1131,8 @@
           "id": "FVRC-1102",
           "order": 2,
           "title": "Session-Loeschung mit File-Change-Groups transaktional reparieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-17",
           "area": "session-lifecycle",
           "dependsOn": ["FVRC-1101"],
           "deliverables": [
@@ -1148,6 +1149,12 @@
             "Echte PostgreSQL-FK-, Rollback- und Retry-Tests",
             "API-Integration fuer offene und abgeschlossene Change Groups",
             "Produktionsbuild"
+          ],
+          "completionEvidence": [
+            "Change Groups und Entries bleiben als dauerhafte Review-/Auditbelege erhalten; nur pi_session_db_id wird im gemeinsamen Service vor dem Session-Delete geloest. Der FK bleibt fuer fremde Loeschpfade RESTRICT.",
+            "Detach, Messages, Channel-Links, aktive Channel-Sessions und PI-Session werden in einer Drizzle-Transaktion mutiert. Tool-Output-Dateien werden erst nach dem Commit entfernt.",
+            "Der neue Test besteht sowohl mit PGlite als auch gegen eine isolierte echte PostgreSQL-18-Datenbank des verwalteten Team-Seat-Stacks. Er provoziert einen RESTRICT-Fehler und beweist vollstaendigen Rollback; der Retry loescht danach genau einmal und erhaelt Group sowie Entry. Migration-, Change-Group- und Tool-Output-Lifecycle-Tests bestehen.",
+            "Fokussiertes ESLint, TypeScript, git diff --check und der Produktionsbuild bestehen. Zwei weiter gefasste Agent-Registry-Suites sind unabhaengig davon bereits beim Laden an einem nicht exportierten @earendil-works/pi-ai/compat-Unterpfad blockiert."
           ]
         },
         {

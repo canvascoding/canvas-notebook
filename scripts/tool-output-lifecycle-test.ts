@@ -6,7 +6,7 @@ import path from 'node:path';
 
 type Row = { id: number; sessionId: string; userId: string; agentId: string; title: string; organizationId: string | null; workspaceId: string };
 type Message = { role: string; content: string; timestamp: number; sequence: number };
-type State = { target: Row | null; requestId: string | null; sourcePresent: boolean; targetMessages: Message[]; snapshot: { target: Row | null; messages: Message[] } | null; deleteStep: number; sourceMessages: Message[] };
+type State = { target: Row | null; requestId: string | null; sourcePresent: boolean; targetMessages: Message[]; snapshot: { target: Row | null; messages: Message[] } | null; deleteStep: number; changeGroupsDetached: boolean; sourceMessages: Message[] };
 
 const userId = 'tool-output-lifecycle-user';
 const agentId = 'tool-output-lifecycle-agent';
@@ -16,7 +16,7 @@ const source: Row = { id: 11, sessionId: sourceSessionId, userId, agentId, title
 
 function createState(reference: string, laterReference: string): State {
   return {
-    target: null, requestId: null, sourcePresent: true, targetMessages: [], snapshot: null, deleteStep: 0,
+    target: null, requestId: null, sourcePresent: true, targetMessages: [], snapshot: null, deleteStep: 0, changeGroupsDetached: false,
     sourceMessages: [
       { role: 'toolResult', content: JSON.stringify({ role: 'toolResult', details: { toolOutput: { version: 1, policyVersion: 'phase2-v1', references: [{ reference }] } } }), timestamp: 1, sequence: 1 },
       { role: 'assistant', content: JSON.stringify({ content: [{ type: 'text', text: 'done' }], stopReason: 'stop' }), timestamp: 2, sequence: 2 },
@@ -26,7 +26,8 @@ function createState(reference: string, laterReference: string): State {
 }
 
 function createMocks(getState: () => State) {
-  const db = {
+  const db: Record<string, unknown> = {
+    transaction: async (action: (transaction: unknown) => Promise<unknown>) => action(db),
     query: { piSessions: { findFirst: async () => {
       const target = getState().target;
       return target && { id: target.id, sessionId: target.sessionId, userId: target.userId, agentId: target.agentId };
@@ -35,12 +36,17 @@ function createMocks(getState: () => State) {
       const state = getState(); state.deleteStep = 0;
       return state.sourcePresent ? [{ id: source.id, sessionId: source.sessionId, userId, organizationId: null, workspaceId }] : [];
     } }) }),
+    execute: async () => {
+      getState().changeGroupsDetached = true;
+      return [];
+    },
     delete: () => ({ where: () => ({ returning: async () => {
       const state = getState(); state.deleteStep += 1;
       if (state.deleteStep === 1) return [];
       if (state.deleteStep === 2 || state.deleteStep === 3) return [];
       if (state.deleteStep === 4) {
         if (!state.sourcePresent) return [];
+        if (!state.changeGroupsDetached) throw new Error('Change groups must be detached before session deletion');
         state.sourcePresent = false;
         return [{ id: source.id }];
       }

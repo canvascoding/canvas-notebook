@@ -119,6 +119,15 @@ async function main(): Promise<void> {
     await assert.rejects(postgres.exec(`DELETE FROM file_collaboration_lineages WHERE id = 'lineage-a'`));
     await postgres.exec(`UPDATE file_collaboration_lineages SET status = 'archived', archived_at = 3 WHERE id = 'lineage-a'`);
     assert.equal((await reloadedService.readAuthorized({ access: ownerAccess, groupId: created.id })).entries[0]?.lineageId, 'lineage-a');
+    await assert.rejects(postgres.exec(`DELETE FROM pi_sessions WHERE session_id = 'session-a'`));
+    await postgres.exec(`UPDATE file_change_groups SET pi_session_db_id = NULL WHERE group_id = '${created.id}'`);
+    await postgres.exec(`DELETE FROM pi_sessions WHERE session_id = 'session-a'`);
+    assert.equal((await postgres.query<{ pi_session_db_id: number | null }>(
+      `SELECT pi_session_db_id FROM file_change_groups WHERE group_id = '${created.id}'`,
+    )).rows[0]?.pi_session_db_id, null);
+    assert.deepEqual(await reloadedService.readAuthorized({ access: ownerAccess, groupId: created.id }), created);
+    assert.equal((await service.create(request)).id, created.id, 'a stored result remains idempotent after session deletion');
+    await assert.rejects(service.create({ ...request, toolCallId: 'tool-after-delete' }), errorCode('access_denied'));
     assert.ok(!JSON.stringify(created).includes('# Notes'), 'change groups must never store document content');
     console.log('file-change-group-service-test: ok');
   } finally {
