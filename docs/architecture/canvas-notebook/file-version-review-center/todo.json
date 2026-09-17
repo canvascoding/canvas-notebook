@@ -13,6 +13,7 @@
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-contracts-v1.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-storage-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -1109,7 +1110,8 @@
           "id": "FVRC-1001",
           "order": 1,
           "title": "PostgreSQL-Schema, Graphintegritaet und Retention-Pins implementieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-17",
           "area": "database",
           "dependsOn": ["FVRC-1000"],
           "verificationScenarios": ["PG-S13", "PG-S19", "PG-S25", "PG-S27", "PG-S28", "PG-S29", "PG-S30"],
@@ -1131,6 +1133,15 @@
             "Reale PostgreSQL-Migrations- und Rollbacktests",
             "Parallel-Insert-, Zyklus-, Scope- und CAS-Tests",
             "Retention- und Restart-Tests mit offenen Nachfahren"
+          ],
+          "completionEvidence": [
+            "Additive Migration mit neun Tabellen, scope-gebundenen Foreign Keys, unveraenderlichen Kandidaten/Requests, CAS, einmaligen Gruppenwahlen und dokumentweiter persistenter Aktionsreservierung.",
+            "proposal-storage.ts validiert echte Artefakt-Hashes, Formate, Parent-/Evaluation-Herkunft und vollstaendige atomare Erfolgsbindungen; gleiche Action-Keys mit anderem Scope/Payload werden abgewiesen.",
+            "Storage-Suite besteht mit PGlite und echtem PostgreSQL18 im isolierten proposal_graph_test_*-Datenbestand; wiederholte Migration und Rollback erhalten bestehende Reviews/Versionen. Vollstaendige Yjs-Updates sind nach Restart rekonstruierbar.",
+            "Reale Zwei-Verbindungs-Suite bestaetigt getrennte PostgreSQL-Backends, deterministische Zeilensperre55P03, stale CAS, Reservierung nach Verbindungsneustart/Tokenablauf und idempotente Retries.",
+            "Projektionssuite bestaetigt begrenzte aktive Kontexte trotz400 historischer Vorschlaege und300 archivierter Alternativen; exakte historische IDs und fehlende Referenzen werden korrekt behandelt.",
+            "Offene Nachfahren, gepinnte Auswertungen und vorbereitete Neuerstellungen ueberstehen Retention; unvollstaendige oder vom freigegebenen Inhalt abweichende Finalisierung rollt zurueck.",
+            "Contract-Suite, bestehende FVRC-Migrationssuite, fokussiertes ESLint, vollstaendiger TypeScript-Check, git diff --check und Produktionsbuild bestehen. Neue Live-Schreibpfade bleiben bis zu den folgenden Gates inaktiv."
           ]
         },
         {

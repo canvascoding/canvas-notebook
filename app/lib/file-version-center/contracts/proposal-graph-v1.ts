@@ -7,6 +7,8 @@ export const PROPOSAL_GRAPH_CONTRACT_VERSION = 1 as const;
 export const PROPOSAL_GRAPH_LIMITS = Object.freeze({
   payloadBytes: 1_024 * 1_024,
   candidateBytes: 8 * 1_024 * 1_024,
+  artifactBytesPerGraph: 128 * 1_024 * 1_024,
+  artifactsPerGraph: 4_096,
   nodesPerSnapshot: 256,
   nodesPerRoot: 128,
   dependencyDepth: 16,
@@ -61,7 +63,33 @@ const NullableId = Type.Union([Id, Type.Null()]);
 const Counter = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 const Generation = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
 const Timestamp = Counter;
-const ErrorCode = Type.Union(Object.values(PROPOSAL_GRAPH_ERROR_CODES).map((code) => Type.Literal(code)));
+// Preserve a literal tuple: a mapped array erases TypeBox's static union to never.
+const ErrorCode = Type.Union([
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.invalidRequest),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.unsupportedVersion),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.limitExceeded),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.scopeMismatch),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.sourceInvalid),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.parentChanged),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.cycle),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.dependencyBlocked),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.prerequisiteLost),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.graphChanged),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.currentChanged),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.candidateChanged),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.choiceConflict),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.batchConflict),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.staleLifecycle),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.contentUnavailable),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.accessDenied),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.fenceExpired),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.invalidTransition),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.idempotencyMismatch),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.recoveryRequired),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.noEffect),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.legacyBlocked),
+  Type.Literal(PROPOSAL_GRAPH_ERROR_CODES.upgradeRequired),
+]);
 const closed = { additionalProperties: false } as const;
 
 /** Path is intentionally absent: rename cannot retarget a proposal to another file. */
@@ -327,7 +355,8 @@ export const ProposalChoiceGroupSchemaV1 = Type.Object({
   groupId: Id,
   groupRevision: Counter,
   dependencyProposalId: NullableId,
-  memberProposalIds: Type.Array(Id, { minItems: 2, maxItems: PROPOSAL_GRAPH_LIMITS.nodesPerRoot, uniqueItems: true }),
+  memberProposalIds: Type.Array(Id, { minItems: 1, maxItems: PROPOSAL_GRAPH_LIMITS.nodesPerRoot, uniqueItems: true }),
+  archivedMemberCount: Type.Optional(Counter),
   chosenProposalId: NullableId,
 }, closed);
 export type ProposalChoiceGroupV1 = Static<typeof ProposalChoiceGroupSchemaV1>;
@@ -339,6 +368,7 @@ export const ProposalGraphSnapshotSchemaV1 = Type.Object({
   graphRevision: Counter,
   nodes: Type.Array(ProposalNodeSchemaV1, { maxItems: PROPOSAL_GRAPH_LIMITS.nodesPerSnapshot }),
   choiceGroups: Type.Array(ProposalChoiceGroupSchemaV1, { maxItems: PROPOSAL_GRAPH_LIMITS.choiceGroups }),
+  archivedReplacementProposalIds: Type.Optional(Type.Array(Id, { maxItems: PROPOSAL_GRAPH_LIMITS.nodesPerSnapshot, uniqueItems: true })),
 }, closed);
 export type ProposalGraphSnapshotV1 = Static<typeof ProposalGraphSnapshotSchemaV1>;
 
@@ -531,6 +561,16 @@ export function parseProposalEvaluationV1(value: unknown): ProposalEvaluationV1 
 
 export function parseProposalActionRequestV1(value: unknown): ProposalActionRequestV1 {
   assertProposalGraphContractV1(ProposalActionRequestSchemaV1, value);
+  parseProposalPreparedActionV1({ fence: value.fence, creation: value.creation });
+  return value;
+}
+
+/** Shared persistence boundary without transport secrets or a fabricated token. */
+export function parseProposalPreparedActionV1(value: unknown): Pick<ProposalActionRequestV1, 'fence' | 'creation'> {
+  assertProposalGraphContractV1(Type.Object({
+    fence: ProposalActionFenceSchemaV1,
+    creation: Type.Union([ProposalCreateRequestSchemaV1, Type.Null()]),
+  }, closed), value);
   parseProposalActionFenceV1(value.fence);
   const creates = PROPOSAL_ACTION_RULES_V1[value.fence.actionType].createsProposal;
   if (creates !== (value.creation !== null)) fail(PROPOSAL_GRAPH_ERROR_CODES.invalidRequest, 'This action requires exactly its own prepared creation.');
@@ -613,6 +653,8 @@ export function parseProposalGraphSnapshotV1(value: unknown): ProposalGraphSnaps
   assertUniqueIds(value.nodes.map((node) => node.proposalId), 'Proposal IDs must be unique.');
   assertUniqueIds(value.choiceGroups.map((group) => group.groupId), 'Choice group IDs must be unique.');
   const nodes = new Map(value.nodes.map((node) => [node.proposalId, node]));
+  const archivedReplacements = new Set(value.archivedReplacementProposalIds ?? []);
+  if ([...archivedReplacements].some((id) => nodes.has(id))) fail(PROPOSAL_GRAPH_ERROR_CODES.invalidRequest, 'Archived replacements cannot duplicate projected nodes.');
   const groups = new Map(value.choiceGroups.map((group) => [group.groupId, group]));
   const rootCounts = new Map<string, number>();
   for (const node of value.nodes) {
@@ -623,7 +665,10 @@ export function parseProposalGraphSnapshotV1(value: unknown): ProposalGraphSnaps
       fail(PROPOSAL_GRAPH_ERROR_CODES.parentChanged, 'Dependency candidate is absent or changed.');
     }
     const replaced = node.relationships.replacesProposalId ? nodes.get(node.relationships.replacesProposalId) : null;
-    if (node.relationships.replacesProposalId && !replaced) fail(PROPOSAL_GRAPH_ERROR_CODES.sourceInvalid, 'Replacement target is missing.');
+    if (node.relationships.replacesProposalId && !replaced
+      && (node.lifecycle === 'open' || !archivedReplacements.has(node.relationships.replacesProposalId))) {
+      fail(PROPOSAL_GRAPH_ERROR_CODES.sourceInvalid, 'Replacement target is missing.');
+    }
     if (replaced && (replaced.relationships.dependency?.proposalId !== dependency?.proposalId
       || replaced.relationships.choiceGroupId !== node.relationships.choiceGroupId)) {
       fail(PROPOSAL_GRAPH_ERROR_CODES.sourceInvalid, 'Replacement must retain dependency and choice group.');
@@ -638,7 +683,10 @@ export function parseProposalGraphSnapshotV1(value: unknown): ProposalGraphSnaps
         if (seen.has(nextId)) fail(PROPOSAL_GRAPH_ERROR_CODES.cycle, 'Proposal relationship cycle.');
         seen.add(nextId);
         const next = nodes.get(nextId);
-        if (!next) fail(PROPOSAL_GRAPH_ERROR_CODES.sourceInvalid, 'Relationship target is missing.');
+        if (!next) {
+          if (edge === 'replacement' && cursor.lifecycle !== 'open' && archivedReplacements.has(nextId)) break;
+          fail(PROPOSAL_GRAPH_ERROR_CODES.sourceInvalid, 'Relationship target is missing.');
+        }
         cursor = next;
         depth++;
         if (depth > PROPOSAL_GRAPH_LIMITS.dependencyDepth) fail(PROPOSAL_GRAPH_ERROR_CODES.limitExceeded, 'Proposal relationship depth exceeded.');
@@ -655,6 +703,9 @@ export function parseProposalGraphSnapshotV1(value: unknown): ProposalGraphSnaps
     fail(PROPOSAL_GRAPH_ERROR_CODES.limitExceeded, 'Proposal root limit exceeded.');
   }
   for (const group of value.choiceGroups) {
+    if (group.memberProposalIds.length + (group.archivedMemberCount ?? 0) < 2) {
+      fail(PROPOSAL_GRAPH_ERROR_CODES.choiceConflict, 'A choice group requires at least two historical members.');
+    }
     for (const id of group.memberProposalIds) {
       const node = nodes.get(id);
       if (!node || node.relationships.choiceGroupId !== group.groupId

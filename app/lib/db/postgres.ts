@@ -11,6 +11,7 @@ import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-migration';
 import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from './mobile-notebook-operation-migration';
 import { runFileVersionCenterStorageMigration } from './file-version-center-migration';
+import { runProposalGraphStorageMigration } from './proposal-graph-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
@@ -1485,6 +1486,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
 
   await ensurePostgresFileCollaborationSchema(pool);
   await runFileVersionCenterStorageMigration(pool);
+  await runProposalGraphStorageMigration(pool);
 
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);

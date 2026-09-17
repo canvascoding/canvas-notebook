@@ -7,6 +7,7 @@ import {
   rollbackFileVersionCenterStorageMigration,
 } from '../app/lib/db/file-version-center-migration';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
+import { rollbackProposalGraphStorageMigration } from '../app/lib/db/proposal-graph-migration';
 
 type PgQueryable = Parameters<typeof runPostgresMigrations>[0];
 
@@ -169,6 +170,7 @@ async function assertRollbackAndAtomicFailure(): Promise<void> {
   try {
     const target = postgres as unknown as PgQueryable;
     await runPostgresMigrations(target);
+    await rollbackProposalGraphStorageMigration(postgres);
     await rollbackFileVersionCenterStorageMigration(postgres);
     assert.deepEqual(await tableNames(postgres), []);
 

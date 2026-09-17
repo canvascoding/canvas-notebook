@@ -533,7 +533,10 @@
     "test:editor:input-syntax": "tsx --conditions react-server scripts/markdown-input-syntax-test.ts",
     "test:collaboration:agent-capacity": "tsx scripts/collaboration-agent-database-capacity-test.ts && tsx --conditions react-server scripts/collaboration-agent-operation-pool-test.ts",
     "test:collaboration:agent-preview": "tsx --conditions react-server scripts/collaboration-agent-proposal-context-test.ts && tsx scripts/collaboration-agent-proposal-preview-client-test.tsx",
-    "test:proposal-graph:contracts": "tsx scripts/proposal-graph-contract-test.ts"
+    "test:proposal-graph:contracts": "tsx scripts/proposal-graph-contract-test.ts",
+    "test:proposal-graph:storage": "tsx --conditions react-server scripts/proposal-graph-storage-test.ts",
+    "test:proposal-graph:projection": "tsx --conditions react-server scripts/proposal-graph-storage-projection-test.ts",
+    "test:proposal-graph:storage-concurrency": "tsx --conditions react-server scripts/proposal-graph-storage-concurrency-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

@@ -2,8 +2,9 @@
 
 Stand: 2026-09-17
 
-Status: Spezifikation geprueft und erweitert; Tests fuer P10 geplant, nicht
-implementiert oder ausgefuehrt. Dieses Dokument ist keine UI-Abnahme.
+Status: in Umsetzung. Contract- und Speichertests fuer P10 sind implementiert;
+die vollstaendige Merge-/API-/UI-Abnahme steht noch aus. Die aktuelle Evidence
+steht je abgeschlossenem Task in `todo.json`. Dieses Dokument ist keine UI-Abnahme.
 
 Verbindliches Modell: [`proposal-graph.md`](./proposal-graph.md).
 Umsetzung: [`todo.json`](./todo.json), `FVRC-1000` bis `FVRC-1008`.
@@ -158,10 +159,12 @@ Graphen und pruefen Closure-Eindeutigkeit, No-write-bei-Konflikt und
 Reihenfolgeunabhaengigkeit nur fuer explizit kompatible, disjunkte Operationen.
 Snapshot-/Anker-Tests verwenden echte Yjs-Dokumente, keine String-Mocks.
 
-Geplante neue Suites: `scripts/proposal-graph-contract-test.ts`,
-`scripts/proposal-graph-model-test.ts` und
-`scripts/proposal-graph-integration-test.ts`. Diese Dateien existieren noch
-nicht; die Implementierung darf ihre Namen an die Repo-Konvention anpassen.
+Implementiert sind `scripts/proposal-graph-contract-test.ts`,
+`scripts/proposal-graph-storage-test.ts`,
+`scripts/proposal-graph-storage-projection-test.ts` und
+`scripts/proposal-graph-storage-concurrency-test.ts`. Sie pruefen ihre jeweilige
+Vertrags-/Speichergrenze, nicht bereits die gesamte Anwendungskette.
+Die Model- und Live-Integrationstests folgen in den nachgelagerten Tasks.
 
 ### 7.2 Integration mit kontrollierbaren Haltepunkten
 
