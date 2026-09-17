@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "feature": "file-version-review-center",
   "title": "File Version & Review Center",
-  "updatedAt": "2026-09-15",
+  "updatedAt": "2026-09-17",
   "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "documents": [
@@ -10,16 +10,18 @@
     "docs/architecture/canvas-notebook/file-version-review-center/contract-inventory.md",
     "docs/architecture/canvas-notebook/file-version-review-center/contracts-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/security-v1.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
     "coreFileTypes": ["md", "markdown", "txt"],
     "laterTextFileTypes": ["mdx", "json", "yaml", "yml", "source-code"],
-    "deferred": ["notification-center", "office-structured-diff", "binary-content-diff"],
+    "deferred": ["office-structured-diff", "binary-content-diff"],
     "reviewPolicyScope": "per-user-per-workspace-lineage",
     "defaultReviewPolicy": "review_required",
     "comparisonBase": "current-authoritative-document-state",
-    "restorePolicy": "create-new-version"
+    "restorePolicy": "create-new-version",
+    "proposalModel": "linear-authoritative-history-with-explicit-pending-proposal-graph"
   },
   "executionPolicy": {
     "packageOrder": "strict",
@@ -78,6 +80,11 @@
       "id": "FVRC-G08-NOTIFICATIONS",
       "packageId": "FVRC-P08",
       "evidence": "Action-needed notifications are deduplicated, permission-safe and open the exact review without storing content."
+    },
+    {
+      "id": "FVRC-G10-PROPOSAL-GRAPH",
+      "packageId": "FVRC-P10",
+      "evidence": "Parallel, dependent, replacement and alternative proposals use one permission-safe graph model, current-state compare, atomic apply and deterministic revalidation across UI, chat and notifications."
     },
     {
       "id": "FVRC-G09-TEXT-ADAPTERS",
@@ -1052,12 +1059,254 @@
       ]
     },
     {
-      "id": "FVRC-P09",
+      "id": "FVRC-P10",
       "order": 9,
+      "title": "Proposal-Graph fuer mehrere offene Agentenvorschlaege",
+      "status": "planned",
+      "dependsOn": ["FVRC-P08"],
+      "exitGate": "FVRC-G10-PROPOSAL-GRAPH",
+      "tasks": [
+        {
+          "id": "FVRC-1000",
+          "order": 0,
+          "title": "Proposal-Beziehungen, Zustandsmaschine und versionierte Contracts fixieren",
+          "status": "planned",
+          "area": "architecture-contracts",
+          "dependsOn": ["FVRC-801"],
+          "deliverables": [
+            "Versionierte Contracts fuer independent, extends, replaces und alternative",
+            "Zustands- und Aktionsmatrix fuer Accept, Reject, Include, Supersede, Detach, Rebase und Batch",
+            "Graph-gebundener Action-Fence und stabile Fehlercodes",
+            "Kompatibilitaetsprojektion bestehender offener Operationen als unabhaengige Root-Vorschlaege"
+          ],
+          "acceptanceCriteria": [
+            "Jede Nutzeraktion besitzt fuer alle Beziehungstypen genau eine dokumentierte Wirkung.",
+            "Pending Vorschlaege werden nicht als autoritative Versionen bezeichnet oder nummeriert.",
+            "Ein technisch nicht ueberlappender Diff wird ohne explizite Herkunft nicht als semantisch unabhaengig behandelt.",
+            "Bestehende Einzelreviews bleiben ohne Inhaltsmigration lesbar und annehmbar."
+          ],
+          "verification": [
+            "Contract- und Fixture-Tests fuer gueltige und ungueltige Graphen",
+            "Produktreview der Aktions- und Statustexte",
+            "Security-Review von IDs, Fences, Cross-Workspace- und Lifecycle-Grenzen"
+          ]
+        },
+        {
+          "id": "FVRC-1001",
+          "order": 1,
+          "title": "PostgreSQL-Schema, Graphintegritaet und Retention-Pins implementieren",
+          "status": "planned",
+          "area": "database",
+          "dependsOn": ["FVRC-1000"],
+          "deliverables": [
+            "Reversible Migration fuer Proposal-Metadaten und Revision-Proposal-Bindungen",
+            "Referenz auf bestehende collaboration_agent_operations statt duplizierter Apply-Receipts",
+            "CAS-, Scope-, Parent-, Alternative-Group- und Statusindizes",
+            "Retention-Pins fuer offene Nachfahren und sichere terminale Bereinigung"
+          ],
+          "acceptanceCriteria": [
+            "Zyklen, Cross-Workspace-, Cross-Lineage-, fremde Lifecycle- und unzulaessige Parent-Kanten werden serverseitig abgewiesen.",
+            "Eine neue Revision kann alle enthaltenen Proposal-IDs in stabiler Reihenfolge auditieren.",
+            "Offene Nachfahren verlieren keine erforderlichen Parent-Payloads durch Retention.",
+            "Migration und Rollback loeschen keine vorhandenen Reviews oder Versionen."
+          ],
+          "verification": [
+            "Reale PostgreSQL-Migrations- und Rollbacktests",
+            "Parallel-Insert-, Zyklus-, Scope- und CAS-Tests",
+            "Retention- und Restart-Tests mit offenen Nachfahren"
+          ]
+        },
+        {
+          "id": "FVRC-1002",
+          "order": 2,
+          "title": "Pure Proposal-Graph- und Kandidatenmechaniken als gemeinsame Services bauen",
+          "status": "planned",
+          "area": "domain-services",
+          "dependsOn": ["FVRC-1001"],
+          "deliverables": [
+            "validateProposalGraph und resolveProposalClosure",
+            "composeProposalCandidate und deterministische Reihenfolge",
+            "rebaseProposalCandidate mit strukturierten clean, blocked, conflict und stale Ergebnissen",
+            "buildProposalActionFence mit Graph-, Current-, Scope- und Batch-Bindung"
+          ],
+          "acceptanceCriteria": [
+            "Services erhalten alle Daten explizit und mutieren keine Domain-Tabellen verdeckt.",
+            "Accept, Compare, Timeline, Chat und Notifications koennen dieselben strukturierten Ergebnisse verwenden.",
+            "Komposition oder Rebase verwendet keinen freien LLM-Merge und kein Last-Writer-Wins.",
+            "Grenzen fuer Tiefe, Knoten, Roots und Batchgroesse sind zentral erzwungen."
+          ],
+          "verification": [
+            "Property- und Tabellen-Tests fuer Graphclosure und topologische Reihenfolge",
+            "Fuzz-/Grenztests fuer Zyklen, Tiefe, Knoten und ungueltige Beziehungen",
+            "Clone-Preflight-Tests fuer Text-, Markdown- und Blockoperationen"
+          ]
+        },
+        {
+          "id": "FVRC-1003",
+          "order": 3,
+          "title": "Agenten- und Dateiwerkzeuge an explizite Proposal-Herkunft anbinden",
+          "status": "planned",
+          "area": "agent-tools",
+          "dependsOn": ["FVRC-1002"],
+          "deliverables": [
+            "Tool-Eingaben fuer basedOnProposalId, Relation und erwarteten Parent-Kandidaten-Hash",
+            "Tool-Result mit Proposal-ID, Beziehung und kandidatengebundener Referenz",
+            "Serverpruefung, dass Kindkandidaten wirklich zum referenzierten Parent passen",
+            "Standalone-Fallback ausschliesslich gegen den autoritativen Dokumentstand"
+          ],
+          "acceptanceCriteria": [
+            "Ein Agent kann einen offenen Vorschlag nur mit expliziter, serververifizierter Referenz weiterbearbeiten.",
+            "Chattext, Diff-Aehnlichkeit oder nicht ueberlappende Ziele erzeugen keine implizite Abhaengigkeit.",
+            "Eine geaenderte oder ersetzte Parent-Kandidaten-Hash erzeugt einen stabilen Konflikt statt eines neuen Zweigs mit falscher Basis.",
+            "Idempotente Tool-Retries erzeugen weder doppelte Knoten noch doppelte Operationen."
+          ],
+          "verification": [
+            "write-, edit_file- und apply_patch-Integrationstests",
+            "Idempotenz-, Parent-Race- und stale-hash-Tests",
+            "Agenten-Tool-Contract- und Result-Widget-Fixtures"
+          ]
+        },
+        {
+          "id": "FVRC-1004",
+          "order": 4,
+          "title": "Proposal-Orchestrator fuer Accept, Reject, Replace, Detach und Batch implementieren",
+          "status": "planned",
+          "area": "review-actions",
+          "dependsOn": ["FVRC-1003"],
+          "deliverables": [
+            "Domain-Orchestrator fuer Beziehung, Berechtigung, Status und CAS",
+            "Atomare Chain- und Batch-Annahme mit genau einer neuen Revision",
+            "Deterministische Reject-, Include-, Supersede- und Alternative-Propagation",
+            "Detach als neue unabhaengige Proposal-Erstellung",
+            "Neubewertung und Fence-Invalidierung aller verbleibenden offenen Vorschlaege"
+          ],
+          "acceptanceCriteria": [
+            "Die Annahme eines extends-Kindes umfasst alle erforderlichen offenen Vorgaenger genau einmal.",
+            "Die Annahme nur des Elternteils behaelt Kinder fail-closed bis zu deren neuer Auswertung.",
+            "Die Ablehnung eines Elternteils blockiert extends-Nachfahren, aber keine unabhaengigen Geschwister.",
+            "Batch-Konflikte schreiben weder Teilversion noch Teilstatus.",
+            "Zwei gleichzeitige Nutzeraktionen werden pro Dokument serialisiert; die zweite verwendet niemals einen alten Fence."
+          ],
+          "verification": [
+            "Reale PostgreSQL- und Yjs-Integration fuer alle Beziehungstypen",
+            "Concurrent-Accept-, Lost-response-, Retry- und Restart-Tests",
+            "Audit- und Revision-Binding-Tests",
+            "Revert-, Rename/Move-, Delete/Restore- und Lifecycle-Regressionen"
+          ]
+        },
+        {
+          "id": "FVRC-1005",
+          "order": 5,
+          "title": "Timeline-, Compare- und API-Projektionen fuer den Proposal-Graph erweitern",
+          "status": "planned",
+          "area": "file-version-center-services",
+          "dependsOn": ["FVRC-1004"],
+          "deliverables": [
+            "Permission-aware Graphprojektion mit Root, Parent, Relation und Actionability",
+            "Vergleich aktueller Stand gegen effektiven Einzel- oder Batch-Kandidaten",
+            "Paginierung ohne doppelte Ancestor- oder Deep-Link-Eintraege",
+            "Aktualisierte Action-Fences und stabile stale-/blocked-/conflict-Antworten"
+          ],
+          "acceptanceCriteria": [
+            "Der sichtbare Vergleich verwendet weiterhin immer den aktuellen autoritativen Stand.",
+            "Ein Kind zeigt vor Parent-Annahme den kumulativen und danach den verbleibenden Vergleich.",
+            "Read-only Nutzer koennen zulaessige Beziehungen und Vergleiche sehen, aber keine Graphmutation ausloesen.",
+            "Fremde Initiatoren ohne Managerrecht und Cross-Workspace-Deep-Links bleiben fail-closed."
+          ],
+          "verification": [
+            "Query-, Compare-, Pagination- und Deep-Link-Contracttests",
+            "Berechtigungs-, stale-selection- und Current-Fence-Tests",
+            "Performance-Grenztests fuer breite und tiefe Graphen"
+          ]
+        },
+        {
+          "id": "FVRC-1006",
+          "order": 6,
+          "title": "Proposal-Hierarchie und eindeutige Aktionen im globalen Center umsetzen",
+          "status": "planned",
+          "area": "frontend",
+          "dependsOn": ["FVRC-1005"],
+          "deliverables": [
+            "Gruppierte Root-, Kind-, Ersatz- und Alternativkarten in der Review-Sektion",
+            "Beziehungs-, Include-, Rebase-, Blockierungs- und Konflikttexte unabhaengig von Farbe",
+            "Explizite Aktionen inklusive Parent, nur Parent, Detach, Replace, Alternative und Zweig ablehnen",
+            "Desktop-, Tablet- und Mobile-Darstellung im bestehenden Canvas-Stil",
+            "Batch-Auswahl mit Dependency-Closure-Vorschau"
+          ],
+          "acceptanceCriteria": [
+            "Der Nutzer erkennt vor jedem Klick, welche Vorschlaege und Aenderungen angewendet oder geschlossen werden.",
+            "Kein offener Vorschlag wird als Version nummeriert.",
+            "Ein terminal enthaltener oder ersetzter Vorschlag besitzt keinen aktiven Annehmen-Button.",
+            "Tastatur, Screenreader, Touch, Focus, Reduced Motion sowie Light/Dark funktionieren ohne horizontales Ueberlaufen."
+          ],
+          "verification": [
+            "Komponenten- und Interaktionstests fuer jede Beziehung und Aktion",
+            "Responsive Layout- und Accessibility-Tests",
+            "Playwright oder Chrome nur nach erneuter ausdruecklicher Nutzerfreigabe"
+          ]
+        },
+        {
+          "id": "FVRC-1007",
+          "order": 7,
+          "title": "Chat-Widgets, Notifications und Deep-Links nach Proposal-Zweigen gruppieren",
+          "status": "planned",
+          "area": "entrypoints-notifications",
+          "dependsOn": ["FVRC-1006"],
+          "deliverables": [
+            "Widget-Aufloesung auf den aktuellen annehmbaren Blattknoten",
+            "Eine gruppierte Notification pro Root oder aktionsbeduerftigem Zweig",
+            "Status fuer included, superseded, alternative_not_selected und blocked_by_parent",
+            "Inhaltsfreie Deep-Links mit serverseitiger Neuauthorisierung und exakter Auswahl"
+          ],
+          "acceptanceCriteria": [
+            "P1 und ein P1 einschliessendes P2 erscheinen nicht als zwei unabhaengige Aufgaben.",
+            "Ersetzung und neue Graphrevision reaktivieren oder aktualisieren Widgets und Read-State deterministisch.",
+            "Blockierte Nachfahren erzeugen keine wiederholten Annahmeaufforderungen.",
+            "Reload, Workspace-Wechsel und fehlender Zugriff fuehren nicht zu falschem Gelesen- oder Aktionsstatus."
+          ],
+          "verification": [
+            "Chat-Reload-, Widget-Refresh- und Notification-Dedupe-Tests",
+            "Deep-Link-, Workspace-Wechsel- und Access-loss-Tests",
+            "Desktop-, Home- und Mobile-Contracttests"
+          ]
+        },
+        {
+          "id": "FVRC-1008",
+          "order": 8,
+          "title": "Proposal-Graph haerten, migrieren und kontrolliert ausrollen",
+          "status": "planned",
+          "area": "hardening-rollout",
+          "dependsOn": ["FVRC-1007"],
+          "deliverables": [
+            "Komplette Szenario- und Race-Testmatrix aus proposal-graph.md",
+            "Metriken und inhaltsfreie Logs fuer Graphgroesse, Rebase, Blockierung, Konflikt und Apply",
+            "Feature-Flag-Ringe fuer read-only Projektion, Beziehungserstellung, Chain- und Batch-Aktionen",
+            "Datenbewahrender Rollback auf sicheren Einzelreview",
+            "Aktualisierte Betriebs- und Supportdiagnose"
+          ],
+          "acceptanceCriteria": [
+            "Alle bestehenden Einzelreview-, Restore-, Chat- und Notification-Regressionen bleiben gruen.",
+            "Abhaengige Vorschlaege fallen bei Rollback fail-closed und werden nie still als unabhaengig angewendet.",
+            "Keine offenen Referenzen, Inhalte oder Auditbindungen gehen bei Migration, Restart oder Rollback verloren.",
+            "Produktionsbuild und alle genehmigten UI/E2E-Gates bestehen."
+          ],
+          "verification": [
+            "Fokussierte Unit-, Contract-, PostgreSQL-, Yjs-, Security- und Concurrency-Suites",
+            "npm run lint, npx tsc --noEmit, git diff --check und npm run build",
+            "GitNexus detect_changes gegen main vor jedem Implementierungscommit",
+            "Frisch recreateter einzelner Team-Seat-Teststack nur bei ausdruecklicher Containerfreigabe",
+            "Playwright oder Chrome nur nach erneuter ausdruecklicher Nutzerfreigabe"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P09",
+      "order": 10,
       "title": "Weitere Text- und Codeformate ueber Adapter erweitern",
       "status": "planned",
       "phase": "deferred",
-      "dependsOn": ["FVRC-P08"],
+      "dependsOn": ["FVRC-P10"],
       "exitGate": "FVRC-G09-TEXT-ADAPTERS",
       "tasks": [
         {
@@ -1066,7 +1315,7 @@
           "title": "Revision-Check-Adapter fuer MDX, JSON, YAML und Quellcode implementieren",
           "status": "planned",
           "area": "file-adapters",
-          "dependsOn": ["FVRC-801"],
+          "dependsOn": ["FVRC-1008"],
           "deliverables": [
             "Explizite Adapter-Capabilities je Formatklasse",
             "Text-Diff und idempotenter Restore mit Expected-Revision",

@@ -1,19 +1,23 @@
 # File Version & Review Center
 
-Stand: 2026-09-14
+Stand: 2026-09-17
 
-Status: geplant
+Status: Markdown-Kernfeature umgesetzt; Proposal-Graph und weitere Adapter geplant
 
 Repository: `canvasstudios-notebook`
 
 Die maschinenlesbare, strikt sequenzielle Umsetzungsliste liegt in
 [`todo.json`](./todo.json).
 
+Die Erweiterung fuer parallele, abhaengige, ersetzende und alternative
+Agentenvorschlaege ist in
+[`proposal-graph.md`](./proposal-graph.md) spezifiziert.
+
 ## 1. Zielbild
 
 Canvas Notebook erhaelt einen globalen **Versionen-&-Aenderungen-Center** fuer
 unterstuetzte Dokumente. Derselbe grosse Dialog wird aus dem Editor, dem
-Dateibrowser, einem Chat-Widget und spaeter aus der Benachrichtigungszentrale
+Dateibrowser, einem Chat-Widget und aus der Benachrichtigungszentrale
 geoeffnet.
 
 Der Center vereint drei bisher getrennte Konzepte:
@@ -89,12 +93,13 @@ weiterhin ein Review:
 Bereits ausstehende Vorschlaege werden durch Umschalten nicht automatisch
 angenommen. Die UI erklaert deshalb: "Gilt fuer neue Agentenaenderungen".
 
-### 2.6 Benachrichtigungen folgen nach dem Kernworkflow
+### 2.6 Benachrichtigungen sind ein eigener Adapter
 
-Editor, Dateibrowser, Chat-Widget und globaler Dialog bilden den ersten
-produktiven Umfang. Die Benachrichtigungszentrale ist ein getrenntes, nach hinten
-gestelltes Arbeitspaket. Sie speichert keine Dokumentinhalte, sondern nur
-autorisierbare Referenzen auf Dokument und Operation.
+Editor, Dateibrowser, Chat-Widget und globaler Dialog bilden den Kern. Die
+Benachrichtigungszentrale wurde als getrenntes Paket `FVRC-P08` ergaenzt. Sie
+speichert keine Dokumentinhalte, sondern nur autorisierbare Referenzen auf
+Dokument und Operation. Der Proposal-Graph erweitert diese Projektion um
+gruppierte Zweige, ohne eine zweite fachliche Zustandsmaschine einzufuehren.
 
 ## 3. Bestehende Grundlagen und erkannte Luecken
 
@@ -596,5 +601,36 @@ Das Kernfeature ist fertig, wenn:
 - Chat-Widgets nach Reload den aktuellen Status zeigen,
 - alle vereinbarten Tests und der Produktionsbuild bestehen.
 
-Die Benachrichtigungszentrale und weitere Dateiformate besitzen eigene spaetere
-Exit-Gates und blockieren den Abschluss des Markdown-Kernfeatures nicht.
+Die Benachrichtigungszentrale besitzt ein eigenes, bereits abgeschlossenes
+Exit-Gate. Weitere Dateiformate und der Proposal-Graph besitzen eigene Gates und
+blockieren den Abschluss des Markdown-Kernfeatures nicht.
+
+## 18. Proposal-Graph fuer mehrere offene Agentenvorschlaege
+
+Der bestehende Einzelreview verhindert durch aktuelle Target-Pruefung,
+Proposal-Fence und serialisiertes Apply ein blindes Anwenden veralteter
+Operationen. Mehrere offene Vorschlaege benoetigen darueber hinaus eine
+explizite fachliche Beziehung. Nicht ueberlappende Textbereiche beweisen keine
+semantische Unabhaengigkeit.
+
+Der autoritative Versionsverlauf bleibt deshalb linear, waehrend offene
+Vorschlaege einen temporaeren, azyklischen Graphen bilden. Verbindliche
+Beziehungen sind:
+
+- `independent`: eigenstaendig gegen eine autoritative Basisversion,
+- `extends`: Kind setzt den kumulativen Elternkandidaten voraus,
+- `replaces`: neue Fassung macht den alten Vorschlag nicht mehr annehmbar,
+- `alternative`: bewusst konkurrierende Auswahl fuer dasselbe Ziel.
+
+Jede Annahme bestimmt zuerst die erforderliche Dependency-Closure, komponiert
+den effektiven Kandidaten, revalidiert ihn gegen den aktuellen Stand und erzeugt
+bei Erfolg genau eine neue autoritative Version. Alle noch offenen Vorschlaege
+verlieren ihren alten Action-Fence und werden neu bewertet. Ablehnung,
+Ersetzung, Detach, Batch-Annahme, Teilgruppen, Races, Retention, UI und
+Notification-Gruppierung sind vollstaendig in
+[`proposal-graph.md`](./proposal-graph.md) festgelegt.
+
+Die Umsetzung erfolgt als neues Paket `FVRC-P10` vor dem weiterhin
+zurueckgestellten Text-/Codeadapter-Paket `FVRC-P09`. Die vorhandenen IDs von
+`FVRC-P09` bleiben fuer bestehende Referenzen stabil; die Ausfuehrungsreihenfolge
+wird durch das explizite `order`-Feld in `todo.json` bestimmt.
