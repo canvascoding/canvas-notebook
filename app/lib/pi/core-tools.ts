@@ -20,6 +20,12 @@ import { readTextWindow } from '@/app/lib/pi/text-read-window';
 import { formatTextReadResult } from '@/app/lib/pi/text-read-result';
 import { TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS, TOOL_OUTPUT_READ_DEFAULT_CHARACTERS, TOOL_OUTPUT_READ_MAX_CHARACTERS } from '@/app/lib/pi/tool-output-policy';
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
+import { PROPOSAL_GRAPH_ERROR_CODES as ProposalCodes, ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
+import {
+  ProposalToolEditSchemaV1, ProposalToolReadRequestSchemaV1,
+  parseOptionalProposalToolEditV1, parseProposalToolReadRequestV1, parseProposalToolReadResultV1,
+  type ProposalToolReadResultV1,
+} from '@/app/lib/file-version-center/contracts/proposal-tools-v1';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/lib/pi/studio-tools';
@@ -82,12 +88,13 @@ import {
 import { asAgentFilePatchToolAppSuccess, asAgentFileToolAppSuccess } from '@/app/lib/pi/file-change-tool-result';
 
 function formatAgentStructureReadResult(
-  snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>>,
+  snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>> & { proposal?: ProposalToolReadResultV1 },
   maxChars: number,
 ) {
   if (!snapshot.structure) throw new Error('Structured reads require an active block collaboration document.');
   const { offset, totalBlocks } = snapshot.structure;
   const metadata = {
+    ...(snapshot.proposal ? { proposal: snapshot.proposal } : {}),
     document: { documentId: snapshot.documentId, lifecycleGeneration: snapshot.lifecycleGeneration, schemaVersion: snapshot.schemaVersion },
     representation: snapshot.representation,
     structure: { blocks: [] as typeof snapshot.structure.blocks, offset, nextOffset: snapshot.structure.nextOffset, totalBlocks },
@@ -188,9 +195,10 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. For Markdown, set source to markdown for the current canonical Markdown source or blocks for bounded live block metadata; blocks replaces includeStructure and paginates with structure.nextOffset. Active Markdown/text and Excalidraw collaboration documents return their authoritative live state instead of an older file checkpoint. Block reads include document identity, stable block IDs, hierarchy, attributes, text, and local hashes required only by low-level structured edit_file operations. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads the content of a file. For explicit proposal work, supply proposal with contractVersion 1 and the exact proposalId (null reads the authoritative source); copy the returned complete proposal.source into the next proposal edit, never infer a parent from chat. For Markdown, set source to markdown for the current canonical Markdown source or blocks for bounded live block metadata; blocks replaces includeStructure and paginates with structure.nextOffset. Active Markdown/text and Excalidraw collaboration documents return their authoritative live state instead of an older file checkpoint. Block reads include document identity, stable block IDs, hierarchy, attributes, text, and local hashes required only by low-level structured edit_file operations. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path, workspace-relative path, or tool-output:// reference returned by a tool.' }),
+      proposal: Type.Optional(ProposalToolReadRequestSchemaV1),
       source: Type.Optional(Type.Union([
         Type.Literal('markdown'), Type.Literal('blocks'),
       ], { description: 'Markdown representation to return. markdown returns canonical source; blocks returns paginated live block metadata.' })),
@@ -234,6 +242,8 @@ export const piTools: AgentTool[] = [
         maxPdfImages?: number;
       };
       try {
+        const proposal = Object.hasOwn(params as object, 'proposal')
+          ? parseProposalToolReadRequestV1((params as Record<string, unknown>).proposal) : undefined;
         if (requestedSource === 'markdown' && includeStructure) {
           throw new Error('source markdown cannot be combined with includeStructure. Use source blocks for structure metadata.');
         }
@@ -250,11 +260,12 @@ export const piTools: AgentTool[] = [
         }
         throwIfAborted(signal);
         const isStoredOutput = resolvedPath.source === 'tool-output';
+        if (proposal && isStoredOutput) throw new ProposalGraphContractError(ProposalCodes.sourceInvalid, 'Proposal sources require a workspace document, not stored tool output.');
         const readTextLimit = isStoredOutput
           ? clampPositiveInteger(maxChars, TOOL_OUTPUT_READ_DEFAULT_CHARACTERS - 400, TOOL_OUTPUT_READ_MAX_CHARACTERS - 400)
           : clampReadTextLimit(maxChars);
         const stats = await fsPromises.stat(fullPath);
-        if (isPdfPath(fullPath) && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
+        if (!proposal && isPdfPath(fullPath) && stats.size > PDF_MAX_IN_MEMORY_BYTES) {
           return {
             content: [{
               type: 'text',
@@ -263,14 +274,31 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: stats.size, type: 'pdf', error: 'pdf_too_large' },
           };
         }
-        const collaborativeScene = !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
+        const collaborativeScene = !proposal && !isStoredOutput && /\.excalidraw$/iu.test(fullPath)
           ? await readAgentCollaborativeExcalidrawFile(fullPath) : null;
-        const collaborative = !isStoredOutput && !collaborativeScene && /\.(?:md|markdown|txt)$/iu.test(fullPath)
+        const collaborative = !isStoredOutput && !collaborativeScene && (proposal || /\.(?:md|markdown|txt)$/iu.test(fullPath))
           ? await readAgentCollaborativeTextFile(fullPath, undefined, {
               includeStructure: structureRequested ? true : includeStructure,
               structureOffset,
               structureLimit,
-            }) : null;
+              ...(proposal ? { proposal } : {}),
+            }) as (NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>> & { proposal?: ProposalToolReadResultV1 }) | null : null;
+        if (proposal) {
+          if (!collaborative?.proposal) throw new ProposalGraphContractError(ProposalCodes.sourceInvalid, 'The requested proposal source is unavailable; no authoritative or file fallback is allowed.');
+          const metadata = parseProposalToolReadResultV1(collaborative.proposal);
+          if ((proposal.proposalId === null ? metadata.source.kind !== 'authoritative'
+            : metadata.source.kind !== 'proposal' || metadata.source.proposalId !== proposal.proposalId)
+            || metadata.contentSha256 !== collaborative.sha256
+            || metadata.contentSha256 !== sha256Buffer(Buffer.from(collaborative.content, 'utf8'))) {
+            throw new ProposalGraphContractError(ProposalCodes.sourceInvalid, 'The returned content proof does not match the requested proposal.');
+          }
+          if (metadata.source.scope.documentId !== collaborative.documentId
+            || metadata.source.scope.lifecycleGeneration !== collaborative.lifecycleGeneration
+            || metadata.source.scope.schemaVersion !== collaborative.schemaVersion
+            || (proposal.expectedScope && Object.entries(proposal.expectedScope).some(([key, value]) => metadata.source.scope[key as keyof typeof metadata.source.scope] !== value))) {
+            throw new ProposalGraphContractError(ProposalCodes.scopeMismatch, 'The requested proposal document scope changed.');
+          }
+        }
         if (structureRequested) {
           if (!collaborative) throw new Error('Structured reads require an active block collaboration document.');
           const details = {
@@ -279,7 +307,7 @@ export const piTools: AgentTool[] = [
             collaboration: { documentId: collaborative.documentId, lifecycleGeneration: collaborative.lifecycleGeneration,
               schemaVersion: collaborative.schemaVersion, representation: collaborative.representation,
               documentSequence: collaborative.documentSequence, checkpointSequence: collaborative.checkpointSequence,
-              stateVector: collaborative.stateVector, source: 'live_yjs' },
+              stateVector: collaborative.stateVector, source: proposal ? 'proposal_source' : 'live_yjs' },
           };
           // Keep both JSON content and details below the existing generic output
           // threshold, which would otherwise replace this page with an excerpt.
@@ -354,8 +382,14 @@ export const piTools: AgentTool[] = [
         const textSha256 = collaborativeScene
           ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))
           : collaborative?.sha256 ?? sha256;
-        const window = readTextWindow(text, offset, Math.max(2, readTextLimit));
-        const sourceLabel = collaborativeScene
+        const proposalNote = proposal ? `\nSource: ${proposal.proposalId === null ? 'authoritative document source' : 'proposal candidate (not the authoritative document)'}\nProposal source proof: ${JSON.stringify(collaborative!.proposal)}` : '';
+        // The complete proof must survive pagination and generic output resizing.
+        // Reserve room for both text metadata and its copy in details.
+        const proposalBudget = proposal ? Math.min(readTextLimit - proposalNote.length - 400,
+          TOOL_OUTPUT_LARGE_RESULT_MAX_CHARACTERS - proposalNote.length * 2 - 1600) : readTextLimit;
+        if (proposal && proposalBudget < 2) throw new ProposalGraphContractError(ProposalCodes.limitExceeded, `Proposal source metadata requires a larger maxChars (at least ${proposalNote.length + 402}).`);
+        const window = readTextWindow(text, offset, Math.max(2, proposalBudget));
+        const sourceLabel = proposal ? proposalNote : collaborativeScene
           ? '\nSource: live Excalidraw collaboration scene'
           : collaborative
             ? requestedSource === 'markdown' ? '\nSource: live canonical Markdown collaboration state' : '\nSource: live Yjs collaboration state'
@@ -379,6 +413,7 @@ export const piTools: AgentTool[] = [
             totalChars: window.totalChars,
             toolOutputReadWindow: formatted.layout,
             ...(requestedSource ? { requestedSource } : {}),
+            ...(proposal ? { proposal: collaborative!.proposal } : {}),
             ...(isStoredOutput ? { toolOutputRead: true, reference: filePath } : {}),
             collaboration: collaborativeScene
               ? {
@@ -398,7 +433,7 @@ export const piTools: AgentTool[] = [
                   documentSequence: collaborative.documentSequence,
                   checkpointSequence: collaborative.checkpointSequence,
                   stateVector: collaborative.stateVector,
-                  source: 'live_yjs',
+                  source: proposal ? 'proposal_source' : 'live_yjs',
                 }
               : undefined,
           },
@@ -407,7 +442,11 @@ export const piTools: AgentTool[] = [
         const message = getErrorMessage(error);
         return {
           content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
+          details: { error: message, ...(error instanceof ProposalGraphContractError ? {
+            contractVersion: 1, kind: 'proposal_read_error', code: error.code, outcome: 'blocked',
+            recommendedAction: 'read_then_retry', safeToAutoRetry: false,
+          } : {}) },
+          ...(error instanceof ProposalGraphContractError ? { isError: true } : {}),
         };
       }
     },
@@ -420,15 +459,18 @@ export const piTools: AgentTool[] = [
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
       expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before writing.' })),
+      proposal: Type.Optional(ProposalToolEditSchemaV1),
     }),
     execute: async (toolCallId, params) => {
       const { path: filePath, content, expectedSha256 } = params as { path: string; content: string; expectedSha256?: string };
       try {
+        const proposal = parseOptionalProposalToolEditV1(params as Record<string, unknown>);
         const result = await writeAgentTextFile({
           path: filePath,
           content,
           expectedSha256,
           operation: 'write',
+          ...(proposal ? { proposal, idempotencyKey: toolCallId } : {}),
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
@@ -450,12 +492,14 @@ export const piTools: AgentTool[] = [
     description: 'Safely edits an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Results report applied or review required; never assume a review was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
     parameters: agentEditFileParameters,
     prepareArguments: (params) => {
+      if (params && typeof params === 'object' && !Array.isArray(params)) parseOptionalProposalToolEditV1(params as Record<string, unknown>);
       if (!Value.Check(agentEditFileParameters, params)) throw new Error(formatAgentEditFileValidationError(params));
       return params as Static<typeof agentEditFileParameters>;
     },
     execute: async (toolCallId, params) => {
       const { path: filePath } = params as { path: string };
       try {
+        parseOptionalProposalToolEditV1(params as Record<string, unknown>);
         if (!Value.Check(agentEditFileParameters, params)) {
           throw new Error(formatAgentEditFileValidationError(params));
         }
@@ -485,6 +529,7 @@ export const piTools: AgentTool[] = [
       files: Type.Array(Type.Object({
         path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
         expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match this file before patching.' })),
+        proposal: Type.Optional(ProposalToolEditSchemaV1),
         edits: Type.Array(Type.Object({
           oldText: Type.String({ description: 'Exact text to replace. Must occur exactly once by default, match expectedOccurrences, or use replaceAll.' }),
           newText: Type.String({ description: 'Replacement text.' }),
@@ -495,6 +540,15 @@ export const piTools: AgentTool[] = [
     }),
     execute: async (toolCallId, params) => {
       try {
+        if (Object.hasOwn(params as object, 'proposal')) throw new ProposalGraphContractError(ProposalCodes.invalidRequest, 'apply_patch proposal belongs inside its single files[] entry.');
+        const files = (params as { files?: unknown }).files;
+        if (Array.isArray(files)) {
+          let proposalCount = 0;
+          for (const file of files) {
+            if (file && typeof file === 'object' && !Array.isArray(file) && parseOptionalProposalToolEditV1(file as Record<string, unknown>)) proposalCount++;
+          }
+          if (proposalCount && files.length !== 1) throw new ProposalGraphContractError(ProposalCodes.invalidRequest, 'Proposal apply_patch supports exactly one document per request.');
+        }
         const results = await applyAgentFilePatch({
           ...(params as { files: Parameters<typeof applyAgentFilePatch>[0]['files'] }),
           idempotencyKeyPrefix: toolCallId,

@@ -1186,7 +1186,7 @@
           "id": "FVRC-1003",
           "order": 3,
           "title": "Agenten- und Dateiwerkzeuge an explizite Proposal-Herkunft anbinden",
-          "status": "planned",
+          "status": "done",
           "area": "agent-tools",
           "dependsOn": ["FVRC-1002"],
           "verificationScenarios": ["PG-S13", "PG-S14", "PG-S22", "PG-S31", "PG-S32"],
@@ -1208,6 +1208,14 @@
             "write-, edit_file- und apply_patch-Integrationstests",
             "Idempotenz-, Parent-Race- und stale-hash-Tests",
             "Agenten-Tool-Contract- und Result-Widget-Fixtures"
+          ],
+          "evidence": [
+            "Explizite geschlossene v1-Quellvertraege fuer read/write/edit_file/apply_patch; Quellenbelege bleiben in begrenzten Text-/Strukturantworten vollstaendig. Ungueltige, fremde oder nicht unterstuetzte Referenzen fallen nie auf Legacy-Writes zurueck.",
+            "Provenance-Service prueft komplette autorisierte Vorfahren, aktuellen Loesch-/Identitaetsstand, Parent-CAS, Kandidaten-Hash und Evaluation. Reale bestehende Text-/Markdown-/Blockadapter bereiten Ziele auf dem verifizierten Kandidaten vor, ohne Current zu veraendern.",
+            "Runtime-Adapter und bestehende Operationsanlage teilen genau eine Graph-SQL-Transaktion. Review-only gilt auch bei Safe-Direct; verwaiste oder fremde Legacy-Operationen werden beim Retry nicht uebernommen. Oeffentliche Proposal-Werkzeuge bleiben bis FVRC-1008 gesperrt, Relationship-Policy und Legacy-Aktionsschutz folgen in FVRC-1004.",
+            "73 fokussierte Contract-, Preparation-, Provenance-, Bridge-, Wrapper-, Dateitool- und Runtime-SQL-Testgruppen sowie der separate Provenance/PGlite-Migrationslauf bestehen. Runtime-SQL verwendet die echten Services und Operations-INSERTs; Auth und Live-Dokumentgrenzen sind kontrolliert simuliert, kein Browser-/Mehrprozess-Live-Apply-Nachweis.",
+            "Immutable Retry-Receipts behalten die urspruengliche CAS/Relation und Vorschau; kurze Provider-IDs werden pro vertrauenswuerdiger Session stabil gehasht. Tests pruefen getrennt den aktuellen Knotenstatus, stale Parent/Current, Rechteentzug, Scope-Fehler und Rollback nach Operations-INSERT.",
+            "Bestehende Agent-Struktur-, Approval- und Live-Datei-Regressionen, vollstaendiges ESLint, TypeScript, git diff --check und Produktionsbuild mit NODE_ENV=production bestehen. GitNexus Gesamt-/Compare-Risiko HIGH wegen gemeinsamer Dateiwerkzeuge wurde vor Abschluss gemeldet; tatsaechliche Diff-Hunks und noch nicht indizierte neue Funktionen manuell geprueft. Keine Container-, Browser-, Push- oder Produktionsaktivierung."
           ]
         },
         {

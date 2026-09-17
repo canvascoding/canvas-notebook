@@ -1,5 +1,6 @@
 import { Type } from 'typebox';
 import { Value } from 'typebox/value';
+import { ProposalToolEditSchemaV1, parseProposalToolEditV1 } from '../file-version-center/contracts/proposal-tools-v1';
 
 const blockId = Type.String({ minLength: 1, description: 'Stable block ID from read(includeStructure: true).' });
 const parentId = Type.Union([blockId, Type.Null()], { description: 'Parent block ID, or null for the document root.' });
@@ -80,6 +81,7 @@ const structuredOperation = Type.Union([
 // The alternatives require exactly one public edit form, including its local guards.
 export const agentEditFileParameters = Type.Object({
   path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
+  proposal: Type.Optional(ProposalToolEditSchemaV1),
   mode: Type.Optional(Type.Union([
     Type.Literal('append'), Type.Literal('replace'), Type.Literal('insert_after_heading'),
   ], { description: 'Markdown-aware edit mode. Use only for .md, .markdown, or .mdx files.' })),
@@ -258,9 +260,15 @@ export function formatAgentEditFileValidationError(value: unknown): string {
   if (!isRecord(value)) return 'Invalid edit_file arguments: expected an object. Example: {"path":"notes.md","mode":"append","content":"New text"}';
   if (typeof value.path !== 'string') return 'Invalid edit_file arguments: path is required and must be a string.';
   const rootFields = ['path', 'mode', 'content', 'heading', 'oldText', 'newText', 'expectedOccurrences', 'replaceAll',
-    'expectedSha256', 'blockId', 'document', 'operations'];
+    'expectedSha256', 'blockId', 'document', 'operations', 'proposal'];
   const unexpected = Object.keys(value).find((key) => !rootFields.includes(key));
   if (unexpected) return `Invalid edit_file arguments: ${unexpected} is not an allowed field. Allowed fields: ${rootFields.join(', ')}.`;
+  if (owns(value, 'proposal')) {
+    try { parseProposalToolEditV1(value.proposal); }
+    catch (error) {
+      return `Invalid edit_file arguments: proposal must be an explicit valid source from a proposal read. ${error instanceof Error ? error.message : 'Invalid proposal provenance.'} Read again; do not remove the reference to bypass the conflict.`;
+    }
+  }
   if (owns(value, 'expectedOccurrences') && (!Number.isInteger(value.expectedOccurrences) || Number(value.expectedOccurrences) < 1)) {
     return 'Invalid edit_file arguments: expectedOccurrences must be an integer of at least 1.';
   }

@@ -24,7 +24,7 @@ import {
 import { readCurrentCollaborationDocument } from './document-access';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc, validateRichMarkdownYDoc } from './markdown-state';
 import { readRichDocumentJson } from './rich-document';
-import { loadCollaborationState } from './persistence';
+import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
 import { Y } from './server-runtime';
 import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
 import { readAgentBlockStructure, validateAgentBlockDocument, type AgentBlockStructure } from './agent-block-structure';
@@ -69,6 +69,8 @@ export type CollaborationStructureReadOptions = {
 };
 
 export type PreparedCollaborationTextEdit = CollaborationTextSnapshot & {
+  /** Internal authoring snapshot; never serialize into a tool result. */
+  sourceUpdate?: Uint8Array;
   proposedContent: string;
   proposedSha256: string;
   targets: AgentTextTarget[];
@@ -246,48 +248,66 @@ export async function prepareCollaborationBlockEdit(input: {
     throw new Error('The structured document reference is stale or unavailable. Read its structure again.');
   }
   if (Boolean(input.operations) === Boolean(input.textEdit)) throw new Error('Supply one structured operation group or one block text edit.');
-  return readCurrentCollaborationDocument({ documentId: state.documentId, workspaceId: state.workspaceId, read: (doc) => {
-    const content = canonicalContent(state.representation, doc);
-    const currentSha256 = sha256(content);
-    if (input.expectedSha256 && input.expectedSha256 !== currentSha256) {
-      throw new WorkspaceFileRevisionError({ code: 'FILE_REVISION_CONFLICT', status: 409, path: input.path,
-        expectedSha256: input.expectedSha256, currentSha256,
-        message: 'The live document changed. Read its current structure before retrying.' });
-    }
-    const clone = new Y.Doc({ gc: true });
-    try {
-      Y.applyUpdate(clone, Y.encodeStateAsUpdate(doc));
-      const origin = { actorType: 'agent' as const, actorId: 'preview', initiatedByUserId: 'preview', operationId: 'preview' };
-      let targets: AgentTextTarget[];
-      if (input.textEdit) {
-        const edit = input.textEdit;
-        const block = readAgentBlockStructure(doc).find((entry) => entry.id === edit.blockId);
-        if (!block) throw new Error('The requested block is no longer visible.');
-        const expectedOccurrences = resolveExactTextEditMatchCount({ content: block.text, edit, label: 'live block', editIndex: 0 });
-        targets = createRichAgentTextTargets({ doc, blockId: edit.blockId, search: edit.oldText,
-          replacement: edit.newText, expectedOccurrences, groupId: input.groupId });
-        const result = applyAgentTextTargets({ doc: clone, targets, origin,
-          validateClone: validateAgentBlockDocument });
-        if (result.status !== 'applied_to_ydoc') throw new Error('The block text edit could not be applied safely.');
-      } else {
-        const blockEdit = prepareAgentBlockEdit(doc, input.operations!);
-        const preview = previewAgentBlockEdit(doc, blockEdit);
-        targets = [{ kind: 'block_edit', targetId: `${input.groupId}:blocks`, groupId: input.groupId,
-          startAnchor: '', endAnchor: '', baseTargetHash: preview.footprintHash,
-          replacement: blockEdit.afterText, blockEdit, boundaryPolicy: 'exclude_external' }];
-        applyAgentBlockEdit(clone, blockEdit, origin);
-      }
-      const proposedContent = canonicalContent(state.representation, clone);
-      return { documentId: state.documentId, path: state.path, representation: state.representation,
-        lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
-        documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
-        content, sha256: currentSha256, stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
-        proposedContent, proposedSha256: sha256(proposedContent), targets, requestedMode: 'direct_apply' as const };
-    } finally { clone.destroy(); }
-  } });
+  return readCurrentCollaborationDocument({ documentId: state.documentId, workspaceId: state.workspaceId, read: (doc) =>
+    prepareCollaborationBlockEditInDocument({ ...input, state, doc }) });
 }
 
-type CollaborationContentEditPlan = {
+/** Shared pure block preparation on an explicit, server-verified candidate. */
+export function prepareCollaborationBlockEditInDocument(input: Parameters<typeof prepareCollaborationBlockEdit>[0] & {
+  state: CollaborationPreparationState;
+  doc: InstanceType<typeof Y.Doc>;
+}): PreparedCollaborationTextEdit {
+  const { state, doc } = input;
+  if (input.document.documentId !== state.documentId || input.document.lifecycleGeneration !== state.lifecycleGeneration
+    || input.document.schemaVersion !== state.schemaVersion || input.path !== state.path) {
+    throw new Error('The structured document reference is stale or unavailable. Read its structure again.');
+  }
+  if (state.representation !== 'tiptap_blocks') throw new Error('Structured edits require a block collaboration document.');
+  if (Boolean(input.operations) === Boolean(input.textEdit)) throw new Error('Supply one structured operation group or one block text edit.');
+  const content = canonicalContent(state.representation, doc);
+  const currentSha256 = sha256(content);
+  if (input.expectedSha256 && input.expectedSha256 !== currentSha256) {
+    throw new WorkspaceFileRevisionError({ code: 'FILE_REVISION_CONFLICT', status: 409, path: input.path,
+      expectedSha256: input.expectedSha256, currentSha256,
+      message: 'The live document changed. Read its current structure before retrying.' });
+  }
+  const clone = new Y.Doc({ gc: true });
+  try {
+    Y.applyUpdate(clone, Y.encodeStateAsUpdate(doc));
+    const origin = { actorType: 'agent' as const, actorId: 'preview', initiatedByUserId: 'preview', operationId: 'preview' };
+    let targets: AgentTextTarget[];
+    if (input.textEdit) {
+      const edit = input.textEdit;
+      const block = readAgentBlockStructure(doc).find((entry) => entry.id === edit.blockId);
+      if (!block) throw new Error('The requested block is no longer visible.');
+      const expectedOccurrences = resolveExactTextEditMatchCount({ content: block.text, edit, label: 'live block', editIndex: 0 });
+      targets = createRichAgentTextTargets({ doc, blockId: edit.blockId, search: edit.oldText,
+        replacement: edit.newText, expectedOccurrences, groupId: input.groupId });
+      const result = applyAgentTextTargets({ doc: clone, targets, origin,
+        validateClone: validateAgentBlockDocument });
+      if (result.status !== 'applied_to_ydoc') throw new Error('The block text edit could not be applied safely.');
+    } else {
+      const blockEdit = prepareAgentBlockEdit(doc, input.operations!);
+      const preview = previewAgentBlockEdit(doc, blockEdit);
+      targets = [{ kind: 'block_edit', targetId: `${input.groupId}:blocks`, groupId: input.groupId,
+        startAnchor: '', endAnchor: '', baseTargetHash: preview.footprintHash,
+        replacement: blockEdit.afterText, blockEdit, boundaryPolicy: 'exclude_external' }];
+      applyAgentBlockEdit(clone, blockEdit, origin);
+    }
+    const proposedContent = canonicalContent(state.representation, clone);
+    return { documentId: state.documentId, path: state.path, representation: state.representation,
+      lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
+      documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
+      content, sha256: currentSha256, stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
+      sourceUpdate: Y.encodeStateAsUpdate(doc),
+      proposedContent, proposedSha256: sha256(proposedContent), targets, requestedMode: 'direct_apply' as const };
+  } finally { clone.destroy(); }
+}
+
+type CollaborationPreparationState = Pick<PersistedCollaborationState,
+  'documentId' | 'path' | 'representation' | 'lifecycleGeneration' | 'schemaVersion' | 'documentSequence' | 'checkpointSequence'>;
+
+export type CollaborationContentEditPlan = {
   edits: ExactTextEdit[];
   proposedContent: string;
   richMode: 'exact_text' | 'markdown_structure';
@@ -314,91 +334,102 @@ async function prepareCollaborationContentEdit(input: {
   return readCurrentCollaborationDocument({
     documentId: state.documentId,
     workspaceId: state.workspaceId,
-    read: (doc) => {
-      const content = canonicalContent(state.representation, doc);
-      const currentSha256 = sha256(content);
-      if (input.expectedSha256 && input.expectedSha256 !== currentSha256) {
-        throw new WorkspaceFileRevisionError({
-          code: 'FILE_REVISION_CONFLICT',
-          status: 409,
-          path: input.path,
-          expectedSha256: input.expectedSha256,
-          currentSha256,
-          message: `Refusing to edit ${input.path}: expectedSha256 did not match the current live collaboration state (${currentSha256}). Read the file again before retrying.`,
-        });
-      }
-      const plan = input.plan(content);
-      const { edits, proposedContent } = plan;
-      let targets: AgentTextTarget[] = [];
-      let requestedMode: PreparedCollaborationTextEdit['requestedMode'] = 'direct_apply';
-      try {
-        targets = state.representation === 'plain_text'
-          ? createPlainTargets({
-              doc,
-              content,
-              proposedContent,
-              edits,
-              groupId: input.groupId,
-            })
-          : plan.richMode === 'exact_text'
-            ? createRichTargets({ doc, edits, groupId: input.groupId })
-            : (() => { throw new Error('Markdown-aware edits require structural block integration.'); })();
-        if (!directTargetsProduceProposedContent({
-          doc,
-          representation: state.representation,
-          targets,
-          proposedContent,
-        })) {
-          throw new Error('The exact edits require a structural collaboration review.');
-        }
-      } catch (error) {
-        if (!isRichTextCollaborationRepresentation(state.representation)) throw error;
-        if (state.representation === 'tiptap_blocks') {
-          const proposed = createRichMarkdownYDoc(proposedContent, 'tiptap_blocks');
-          try {
-            // Source metadata has its own shared roots. Never silently route
-            // changes to them through an unanchored whole-document fallback.
-            if (['frontmatter', 'bodyFinalLineEnding'].some((name) => proposed.getText(name).toString() !== doc.getText(name).toString())) {
-              throw new Error('This source edit changes document metadata or final line endings. Use a dedicated source edit instead of a live block proposal.');
-            }
-            const blockEdit = prepareAgentBlockDocumentChange(doc, readRichDocumentJson(proposed));
-            const preview = previewAgentBlockEdit(doc, blockEdit);
-            targets = [{ kind: 'block_edit', targetId: `${input.groupId}:structural`, groupId: input.groupId,
-              startAnchor: '', endAnchor: '', baseTargetHash: preview.footprintHash,
-              replacement: blockEdit.afterText, blockEdit, boundaryPolicy: 'exclude_external' }];
-          } finally { proposed.destroy(); }
-        } else {
-          targets = [createRichMarkdownReviewTarget({
-            doc,
-            currentMarkdown: content,
-            proposedMarkdown: proposedContent,
-            edits,
-            targetId: `${input.groupId}:structural`,
-            groupId: input.groupId,
-          })];
-        }
-        requestedMode = state.representation === 'tiptap_blocks' && plan.richMode === 'markdown_structure'
-          ? 'direct_apply'
-          : 'review';
-      }
-      return {
-        documentId: state.documentId,
-        path: state.path,
-        representation: state.representation,
-        lifecycleGeneration: state.lifecycleGeneration,
-        schemaVersion: state.schemaVersion,
-        documentSequence: state.documentSequence,
-        checkpointSequence: state.checkpointSequence,
-        content,
-        sha256: currentSha256,
-        stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
-        proposedContent,
-        proposedSha256: sha256(proposedContent),
-        targets,
-        requestedMode,
-      };
-    },
+    read: (doc) => prepareCollaborationContentEditInDocument({ ...input, state, doc }),
   });
+}
+
+/** Pure target preparation for a server-verified source clone; no authorization or persistence. */
+export function prepareCollaborationContentEditInDocument(input: Parameters<typeof prepareCollaborationContentEdit>[0] & {
+  state: CollaborationPreparationState;
+  doc: InstanceType<typeof Y.Doc>;
+}): PreparedCollaborationTextEdit {
+  const { state, doc } = input;
+  if (input.documentId !== state.documentId || input.path !== state.path) {
+    throw new Error('The collaborative document state is unavailable or stale.');
+  }
+  const content = canonicalContent(state.representation, doc);
+  const currentSha256 = sha256(content);
+  if (input.expectedSha256 && input.expectedSha256 !== currentSha256) {
+    throw new WorkspaceFileRevisionError({
+      code: 'FILE_REVISION_CONFLICT',
+      status: 409,
+      path: input.path,
+      expectedSha256: input.expectedSha256,
+      currentSha256,
+      message: `Refusing to edit ${input.path}: expectedSha256 did not match the current live collaboration state (${currentSha256}). Read the file again before retrying.`,
+    });
+  }
+  const plan = input.plan(content);
+  const { edits, proposedContent } = plan;
+  let targets: AgentTextTarget[] = [];
+  let requestedMode: PreparedCollaborationTextEdit['requestedMode'] = 'direct_apply';
+  try {
+    targets = state.representation === 'plain_text'
+      ? createPlainTargets({
+          doc,
+          content,
+          proposedContent,
+          edits,
+          groupId: input.groupId,
+        })
+      : plan.richMode === 'exact_text'
+        ? createRichTargets({ doc, edits, groupId: input.groupId })
+        : (() => { throw new Error('Markdown-aware edits require structural block integration.'); })();
+    if (!directTargetsProduceProposedContent({
+      doc,
+      representation: state.representation,
+      targets,
+      proposedContent,
+    })) {
+      throw new Error('The exact edits require a structural collaboration review.');
+    }
+  } catch (error) {
+    if (!isRichTextCollaborationRepresentation(state.representation)) throw error;
+    if (state.representation === 'tiptap_blocks') {
+      const proposed = createRichMarkdownYDoc(proposedContent, 'tiptap_blocks');
+      try {
+        // Source metadata has its own shared roots. Never silently route
+        // changes to them through an unanchored whole-document fallback.
+        if (['frontmatter', 'bodyFinalLineEnding'].some((name) => proposed.getText(name).toString() !== doc.getText(name).toString())) {
+          throw new Error('This source edit changes document metadata or final line endings. Use a dedicated source edit instead of a live block proposal.');
+        }
+        const blockEdit = prepareAgentBlockDocumentChange(doc, readRichDocumentJson(proposed));
+        const preview = previewAgentBlockEdit(doc, blockEdit);
+        targets = [{ kind: 'block_edit', targetId: `${input.groupId}:structural`, groupId: input.groupId,
+          startAnchor: '', endAnchor: '', baseTargetHash: preview.footprintHash,
+          replacement: blockEdit.afterText, blockEdit, boundaryPolicy: 'exclude_external' }];
+      } finally { proposed.destroy(); }
+    } else {
+      targets = [createRichMarkdownReviewTarget({
+        doc,
+        currentMarkdown: content,
+        proposedMarkdown: proposedContent,
+        edits,
+        targetId: `${input.groupId}:structural`,
+        groupId: input.groupId,
+      })];
+    }
+    requestedMode = state.representation === 'tiptap_blocks' && plan.richMode === 'markdown_structure'
+      ? 'direct_apply'
+      : 'review';
+  }
+  return {
+    documentId: state.documentId,
+    path: state.path,
+    representation: state.representation,
+    lifecycleGeneration: state.lifecycleGeneration,
+    schemaVersion: state.schemaVersion,
+    documentSequence: state.documentSequence,
+    checkpointSequence: state.checkpointSequence,
+    content,
+    sha256: currentSha256,
+    stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
+    sourceUpdate: Y.encodeStateAsUpdate(doc),
+    proposedContent,
+    proposedSha256: sha256(proposedContent),
+    targets,
+    requestedMode,
+  };
 }
 
 export async function prepareCollaborationTextEdit(input: {

@@ -2,6 +2,8 @@ import { ExactTextPatchError } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
 import { AgentBlockEditError } from '@/app/lib/collaboration/agent-block-edits';
 import { AgentFileOperationOutcomeUnavailableError, type AgentFileChangeResult } from './agent-file-operations';
+import { ProposalGraphContractError } from '../file-version-center/contracts/proposal-graph-v1';
+import { parseProposalToolCreationResultV1, type ProposalToolCreationResultV1 } from '../file-version-center/contracts/proposal-tools-v1';
 
 export type AgentFileToolOperation = 'write' | 'edit_file' | 'apply_patch';
 
@@ -13,6 +15,7 @@ export type AgentFileToolSuccess = Omit<AgentFileChangeResult, 'resolvedPath'> &
   category: 'success' | 'review_required';
   recommendedAction: 'none' | 'reuse_after_sha256_if_sequential' | 'review_in_editor';
   safeToAutoRetry: false;
+  proposal?: ProposalToolCreationResultV1;
 };
 
 export type AgentFileToolError = {
@@ -39,13 +42,17 @@ export type AgentFileToolError = {
 };
 
 export function asAgentFileToolSuccess(
-  result: AgentFileChangeResult,
+  result: AgentFileChangeResult & { proposal?: ProposalToolCreationResultV1 },
   operation: AgentFileToolOperation,
 ): AgentFileToolSuccess {
   const { resolvedPath: _resolvedPath, ...publicResult } = result;
-  const reviewRequired = result.collaboration?.reviewRequired === true;
+  if (Object.hasOwn(result, 'proposal')) parseProposalToolCreationResultV1(result.proposal);
+  const reviewRequired = result.proposal !== undefined || result.collaboration?.reviewRequired === true;
   return {
     ...publicResult,
+    // This is the immutable creation/retry receipt, not the proposal's current
+    // lifecycle. Refresh its exact ID before showing a new-review notification.
+    ...(result.proposal && result.collaboration ? { collaboration: { ...result.collaboration, reviewRequired: true } } : {}),
     contractVersion: 1,
     kind: 'file_mutation',
     operation,
@@ -66,6 +73,15 @@ export function asAgentFileToolError(
   fallbackPath?: string,
 ): AgentFileToolError {
   const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof ProposalGraphContractError) {
+    return {
+      contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked', category: 'safety_conflict',
+      code: error.code, path: fallbackPath || null, message,
+      editIndex: null, expectedOccurrences: null, actualOccurrences: null, matchMode: null, oldTextPreview: null,
+      occurrenceLines: [], expectedSha256: null, currentSha256: null,
+      recommendedAction: 'read_then_retry', safeToAutoRetry: false, error: message,
+    };
+  }
   if (error instanceof AgentBlockEditError) {
     return {
       contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked', category: 'safety_conflict',

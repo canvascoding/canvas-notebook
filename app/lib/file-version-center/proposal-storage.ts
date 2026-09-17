@@ -114,7 +114,7 @@ export function createProposalGraphStorage(input: {
     async withLockedGraph<T>(
       scope: ProposalDocumentScopeV1,
       options: { actionId?: string },
-      action: (transaction: ProposalGraphStorageTransaction) => Promise<T>,
+      action: (transaction: ProposalGraphStorageTransaction, sql: FileVersionCenterTransaction) => Promise<T>,
     ): Promise<T> {
       // Validate the scope without introducing a second schema for it.
       parseProposalGraphSnapshotV1({ contractVersion: 1, scope, graphRevision: 0, nodes: [], choiceGroups: [] });
@@ -133,7 +133,9 @@ export function createProposalGraphStorage(input: {
         const state = { graphId: row.graph_id, revision: Number(row.graph_revision), activeActionId: row.active_action_id,
           actingActionId: options.actionId ?? null, changed: false, finalizedActions: new Set<string>() };
         const tx = createGraphTransaction({ db, scope, state, now, createId });
-        const result = await action(tx);
+        // Operation creation shares this exact transaction; never commit an
+        // applicable legacy operation before its graph/provenance association.
+        const result = await action(tx, db);
         if (state.changed) parseProposalGraphSnapshotV1(await tx.loadGraph());
         for (const id of state.finalizedActions) {
           const receipt = await tx.getAction(id);

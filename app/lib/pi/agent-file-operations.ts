@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, promises as fs, realpathSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
@@ -31,6 +32,8 @@ import {
   prepareCollaborationMarkdownEdit,
   prepareCollaborationTextEdit,
   prepareCollaborationBlockEdit,
+  prepareCollaborationBlockEditInDocument,
+  prepareCollaborationContentEditInDocument,
   readCurrentCollaborationTextSnapshot,
   type CollaborationTextSnapshot,
   type PreparedCollaborationTextEdit,
@@ -73,6 +76,14 @@ import {
 } from '@/app/lib/excalidraw-collaboration/agent-operations';
 import { loadExcalidrawScene } from '@/app/lib/excalidraw-collaboration/repository';
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
+import {
+  parseOptionalProposalToolEditV1, parseProposalToolReadRequestV1,
+  type ProposalToolEditV1, type ProposalToolCreationResultV1,
+  type ProposalToolReadRequestV1, type ProposalToolReadResultV1,
+} from '@/app/lib/file-version-center/contracts/proposal-tools-v1';
+import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
+import { createRuntimeProposalAgentService, assertProposalToolsEnabled } from '@/app/lib/file-version-center/proposal-agent-runtime';
+import { Y } from '@/app/lib/collaboration/server-runtime';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -99,6 +110,7 @@ export type AgentFileSnapshotMetadata = {
 };
 
 export type AgentFileChangeResult = {
+  proposal?: ProposalToolCreationResultV1;
   path: string;
   resolvedPath: string;
   changed: boolean;
@@ -180,6 +192,7 @@ type PreparedPathOperationEntry = AgentPathOperationEntry & {
 
 export type AgentPatchFileInput = {
   path: string;
+  proposal?: ProposalToolEditV1;
   expectedSha256?: string;
   edits: Array<{
     oldText: string;
@@ -681,10 +694,42 @@ function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
 export async function readAgentCollaborativeTextFile(
   fullPath: string,
   initialBuffer?: Buffer,
-  options: CollaborationStructureReadOptions = {},
-): Promise<CollaborationTextSnapshot | null> {
+  options: CollaborationStructureReadOptions & { proposal?: ProposalToolReadRequestV1 } = {},
+): Promise<(CollaborationTextSnapshot & { proposal?: ProposalToolReadResultV1 }) | null> {
+  const proposal = Object.hasOwn(options, 'proposal') ? parseProposalToolReadRequestV1(options.proposal) : null;
+  if (proposal) assertProposalToolsEnabled();
   await assertAgentPathAllowed(fullPath);
   const collaboration = await collaborativeAgentFileContext(fullPath, initialBuffer);
+  if (proposal) {
+    if (!collaboration) throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED', 'This file does not support proposal reads.');
+    const runtime = await createRuntimeProposalAgentService({ workspace: collaboration.workspace,
+      documentId: collaboration.documentId, path: collaboration.relativePath,
+      identity: collaborationAgentIdentity(collaboration.executionContext) });
+    if (proposal.expectedScope && !isDeepStrictEqual(proposal.expectedScope, runtime.scope)) {
+      throw new ProposalGraphContractError('PROPOSAL_SCOPE_MISMATCH', 'The requested proposal belongs to another document lifecycle.');
+    }
+    const result = await runtime.service.readExact({ scope: runtime.scope, proposalId: proposal.proposalId });
+    let structure: CollaborationTextSnapshot['structure'];
+    if (options.includeStructure) {
+      if (!result.structure || !('blocks' in result.structure)) {
+        throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED', 'Structured proposal reads require a block document.');
+      }
+      const offset = options.structureOffset ?? 0; const limit = options.structureLimit ?? 25;
+      if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+        throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST', 'Structure pagination requires a nonnegative offset and 1–100 blocks.');
+      }
+      const blocks = result.structure.blocks;
+      structure = { blocks: blocks.slice(offset, offset + limit).map((block) => ({ ...block,
+        text: block.text.slice(0, 2000), textTruncated: block.text.length > 2000 })),
+      offset, nextOffset: offset + limit < blocks.length ? offset + limit : null, totalBlocks: blocks.length };
+    }
+    return { documentId: runtime.scope.documentId, path: collaboration.relativePath,
+      representation: runtime.state.representation, lifecycleGeneration: runtime.scope.lifecycleGeneration,
+      schemaVersion: runtime.scope.schemaVersion, documentSequence: runtime.state.documentSequence,
+      checkpointSequence: runtime.state.checkpointSequence, content: result.content,
+      sha256: result.metadata.contentSha256, stateVector: result.sourceStateVector,
+      proposal: result.metadata, ...(structure ? { structure } : {}) };
+  }
   if (!collaboration) return null;
   return readCurrentCollaborationTextSnapshot({
     documentId: collaboration.documentId,
@@ -1425,9 +1470,19 @@ export async function writeAgentTextFile(params: {
   content: string;
   expectedSha256?: string;
   operation?: string;
+  proposal?: ProposalToolEditV1;
+  idempotencyKey?: string;
 }): Promise<AgentFileChangeResult> {
+  const proposal = parseOptionalProposalToolEditV1(params);
+  if (proposal) assertProposalToolsEnabled();
   const fullPath = resolveAgentPath(params.path);
   await assertAgentWritablePathAllowed(fullPath);
+  if (proposal) {
+    return createProposedAgentFileChange({ inputPath: params.path, fullPath, proposal,
+      idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+      mutation: { operation: 'write', path: params.path, content: params.content, expectedSha256: params.expectedSha256 ?? null },
+      content: params.content });
+  }
   const before = await readExistingFile(fullPath);
   const beforeSha256 = before.buffer ? sha256Buffer(before.buffer) : null;
   const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
@@ -1800,11 +1855,75 @@ async function applyPreparedCollaborativeFileEdit(input: {
 
 type AgentEditFileCommonInput = {
   path: string;
+  proposal?: ProposalToolEditV1;
   expectedOccurrences?: number;
   replaceAll?: boolean;
   expectedSha256?: string;
   idempotencyKey?: string;
 };
+
+/** Explicit proposal writes never enter the file-projection or Safe-Direct path. */
+async function createProposedAgentFileChange(input: {
+  inputPath: string; fullPath: string; proposal: ProposalToolEditV1;
+  idempotencyKey?: string; expectedSha256?: string; mutation: unknown;
+  edit?: AgentEditFileInput; edits?: AgentPatchFileInput['edits']; content?: string;
+}): Promise<AgentFileChangeResult> {
+  const collaboration = await collaborativeAgentFileContext(input.fullPath);
+  if (!collaboration) throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED', 'This file does not support proposal authoring.');
+  const runtime = await createRuntimeProposalAgentService({ workspace: collaboration.workspace,
+    documentId: collaboration.documentId, path: collaboration.relativePath,
+    identity: collaborationAgentIdentity(collaboration.executionContext) });
+  const expectedSha256 = normalizeAgentExpectedSha256(input.expectedSha256);
+  const result = await runtime.service.create({ scope: runtime.scope,
+    actorId: collaborationAgentIdentity(collaboration.executionContext).actorId,
+    // Provider call IDs may be short and reused by another chat. The trusted
+    // session namespace gives each delivery a stable bounded server key.
+    idempotencyKey: input.idempotencyKey
+      ? `proposal-tool:${sha256Text(JSON.stringify({ sessionId: collaboration.executionContext.sessionId, key: input.idempotencyKey }))}`
+      : `proposal-tool:${randomUUID()}`,
+    proposal: input.proposal, mutation: input.mutation,
+    buildTargets: ({ update, representation }) => {
+      if (representation !== runtime.state.representation) throw new ProposalGraphContractError('PROPOSAL_STALE_LIFECYCLE', 'The proposal representation changed.');
+      const doc = new Y.Doc({ gc: false });
+      try {
+        Y.applyUpdate(doc, update);
+        const edit = input.edit;
+        const prepared = edit && (edit.operations !== undefined || edit.blockId !== undefined)
+          ? prepareCollaborationBlockEditInDocument({ document: edit.document!, workspace: collaboration.workspace,
+            path: collaboration.relativePath, state: runtime.state, doc, expectedSha256, groupId: 'proposal-tool',
+            operations: edit.operations, textEdit: edit.blockId ? { blockId: edit.blockId, oldText: edit.oldText!,
+              newText: edit.newText!, expectedOccurrences: edit.expectedOccurrences, replaceAll: edit.replaceAll } : undefined })
+          : prepareCollaborationContentEditInDocument({ documentId: collaboration.documentId, workspace: collaboration.workspace,
+            path: collaboration.relativePath, state: runtime.state, doc, expectedSha256, groupId: 'proposal-tool',
+            plan: (content) => {
+              if (input.content !== undefined) return { proposedContent: input.content, richMode: 'markdown_structure',
+                edits: [{ oldText: content, newText: input.content, expectedOccurrences: 1 }] };
+              if (edit?.mode !== undefined) {
+                const proposedContent = applyAgentMarkdownEdit(content, edit, input.inputPath);
+                return { proposedContent, richMode: 'markdown_structure',
+                  edits: [{ oldText: content, newText: proposedContent, expectedOccurrences: 1 }] };
+              }
+              const edits = input.edits ?? [{ oldText: edit!.oldText!, newText: edit!.newText!,
+                expectedOccurrences: edit!.expectedOccurrences, replaceAll: edit!.replaceAll }];
+              return { proposedContent: applyExactTextEdits(content, edits, input.inputPath), edits, richMode: 'exact_text' };
+            } });
+        const validation = validateAgentFileContent(input.inputPath, prepared.proposedContent);
+        if (!validation.ok) throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST',
+          `Proposal validation failed. ${validation.checks.map((check) => check.message).join(' ')}`);
+        return prepared.targets;
+      } finally { doc.destroy(); }
+    } });
+  const { beforeContent, proposedContent, beforeSha256, proposedSha256 } = result.authoringPreview;
+  // This is an immutable creation receipt, not a claim that a retry's proposal
+  // remains open or that its original base is still today's document.
+  return { path: input.inputPath, resolvedPath: input.fullPath, changed: false, snapshot: null,
+    beforeSha256, afterSha256: beforeSha256, size: Buffer.byteLength(beforeContent),
+    diff: createUnifiedDiff(beforeContent, proposedContent, `${input.inputPath} (proposal source)`, `${input.inputPath} (proposal)`),
+    validation: validateAgentFileContent(input.inputPath, proposedContent), proposal: result.proposal,
+    collaboration: { operationId: result.node.operationId,
+      operationStatus: result.node.lifecycle === 'open' ? 'needs_review' : result.node.lifecycle,
+      durability: 'not_applied', reviewRequired: true, proposedSha256 } };
+}
 
 export type AgentEditFileInput = AgentEditFileCommonInput & ({
   operations: AgentBlockEditRequest[];
@@ -1834,6 +1953,8 @@ export type AgentEditFileInput = AgentEditFileCommonInput & ({
 }));
 
 export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFileChangeResult> {
+  const proposal = parseOptionalProposalToolEditV1(params);
+  if (proposal) assertProposalToolsEnabled();
   const markdownEdit = params.mode !== undefined;
   const structured = params.operations !== undefined || params.blockId !== undefined;
   if (markdownEdit && !/\.(?:md|markdown|mdx)$/iu.test(params.path)) {
@@ -1860,6 +1981,12 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
   const fullPath = resolveAgentPath(params.path);
   await assertAgentWritablePathAllowed(fullPath);
   await assertExistingAgentFile(fullPath, params.path);
+  if (proposal) {
+    const { proposal: _proposal, idempotencyKey: _retry, ...mutation } = params;
+    return createProposedAgentFileChange({ inputPath: params.path, fullPath, proposal,
+      idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+      mutation: { operation: 'edit_file', ...mutation }, edit: params });
+  }
   const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
   if (!structured) assertAgentSharedWorkspaceRevision({
     operation: 'edit_file',
@@ -1983,6 +2110,20 @@ export async function applyAgentFilePatch(params: {
   }
   if (params.files.length > FILE_VERSION_CENTER_CONTRACT_LIMITS.changeGroupEntries) {
     throw new Error(`apply_patch supports at most ${FILE_VERSION_CENTER_CONTRACT_LIMITS.changeGroupEntries} files per call.`);
+  }
+
+  const proposals = params.files.map((file) => parseOptionalProposalToolEditV1(file));
+  if (proposals.some(Boolean)) {
+    assertProposalToolsEnabled();
+    if (params.files.length !== 1) throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST', 'Proposal patch creation is atomic for one document per call.');
+    const file = params.files[0];
+    if (!Array.isArray(file.edits) || file.edits.length === 0) throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST', 'A proposal patch requires edits.');
+    const fullPath = resolveAgentPath(file.path);
+    await assertAgentWritablePathAllowed(fullPath);
+    return [await createProposedAgentFileChange({ inputPath: file.path, fullPath, proposal: proposals[0]!,
+      idempotencyKey: params.idempotencyKeyPrefix, expectedSha256: file.expectedSha256,
+      mutation: { operation: 'apply_patch', path: file.path, edits: file.edits, expectedSha256: file.expectedSha256 ?? null },
+      edits: file.edits })];
   }
 
   const seen = new Set<string>();

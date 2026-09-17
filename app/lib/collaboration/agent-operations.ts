@@ -12,6 +12,8 @@ import {
 } from '@/app/lib/files/exact-text-patch';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
+import type { FileVersionCenterTransaction } from '@/app/lib/file-version-center/database';
+import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import {
   authorizeNewAgentDirectApply,
   readAgentReviewPolicySnapshot,
@@ -1204,6 +1206,8 @@ async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Par
 
 async function createOrLoadOperation(input: {
   database: SqlConnection;
+  /** Internal graph creation may reserve an ID in the same atomic transaction. */
+  operationId?: string;
   documentId: string;
   workspace: WorkspaceContext;
   initiatedByUserId: string;
@@ -1258,6 +1262,11 @@ async function createOrLoadOperation(input: {
     [input.documentId, input.initiatedByUserId, input.idempotencyKey],
   ) as AgentOperationRow | undefined;
   if (existing) {
+    if (input.operationId) {
+      // Graph retries are resolved by their scoped immutable receipt before
+      // preparation. Never adopt a legacy row, even for an identical payload.
+      throw new ProposalGraphContractError('PROPOSAL_IDEMPOTENCY_MISMATCH', 'The operation key is already recorded; resolve its original proposal.');
+    }
     if (input.fileEditRequest) {
       // Parallel first deliveries can prepare different anchors, block IDs and
       // snapshots. The trusted original request, rather than those derived bytes,
@@ -1292,7 +1301,7 @@ async function createOrLoadOperation(input: {
     throw new Error('Collaboration document is unavailable or stale.');
   }
   const now = Date.now();
-  const operationId = randomUUID();
+  const operationId = input.operationId ?? randomUUID();
   await input.database.run(
     `INSERT INTO collaboration_agent_operations (
       operation_id, document_id, document_path, document_representation, workspace_id,
@@ -1340,6 +1349,71 @@ async function createOrLoadOperation(input: {
   const row = await readOperation(input.database, operationId);
   if (!row) throw new Error('Failed to create collaboration agent operation.');
   return { row, created: true };
+}
+
+/**
+ * An operation facade inside the graph owner's transaction. It cannot commit or
+ * release that transaction, and retains the existing operation statement guard.
+ */
+function proposalOperationDatabase(transaction: FileVersionCenterTransaction): SqlConnection {
+  return {
+    get: async (sql, params) => {
+      assertAgentOperationQuery(sql);
+      return (await transaction.query(sql, params)).rows[0];
+    },
+    all: async (sql, params) => {
+      assertAgentOperationQuery(sql);
+      return (await transaction.query(sql, params)).rows;
+    },
+    run: async (sql, params) => {
+      assertAgentOperationQuery(sql);
+      // The shared transaction API returns rows, not guaranteed rowCount.
+      const returning = /\bRETURNING\b/iu.test(sql) ? sql : `${sql} RETURNING 1`;
+      const result = await transaction.query(returning, params);
+      return { changes: result.rows.length };
+    },
+    close: async () => {},
+  };
+}
+
+/**
+ * Internal graph preparation only: the caller must insert its proposal in this
+ * SAME transaction. This never enters the live/direct-apply pipeline or obtains
+ * a grant, even when the document's ordinary editing policy is safe_direct.
+ */
+export async function prepareProposalAgentOperation(input: {
+  transaction: FileVersionCenterTransaction;
+  operationId: string;
+  documentId: string;
+  workspace: WorkspaceContext;
+  initiatedByUserId: string;
+  actorId: string;
+  actorSessionId?: string;
+  idempotencyKey: string;
+  targets: AgentTextTarget[];
+  documentPath: string;
+  documentRepresentation: TextCollaborationRepresentation;
+  documentLifecycleGeneration: number;
+  documentSchemaVersion: number;
+  baseStateVector: string;
+  baseDocumentSequence: number;
+  fileEditRequest: AgentFileEditRequestReceipt;
+}): Promise<PersistedAgentApplyResult> {
+  if (!input.workspace.permissions.canWrite) throw new ProposalGraphContractError('PROPOSAL_ACCESS_DENIED', 'Workspace write permission is required.');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.operationId)) {
+    throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST', 'Invalid reserved operation ID.');
+  }
+  const database = proposalOperationDatabase(input.transaction);
+  const created = await createOrLoadOperation({
+    ...input, database, requestedMode: 'review', operationType: 'apply',
+    independentGroups: false, runGeneration: 1, directEditGrantId: null,
+  });
+  if (!created.created || created.row.operation_id !== input.operationId) {
+    // Retry lookup belongs before source preparation in the provenance service.
+    // Never associate a newly authored candidate with an older legacy operation.
+    throw new ProposalGraphContractError('PROPOSAL_IDEMPOTENCY_MISMATCH', 'The operation key is already recorded; resolve its original proposal.');
+  }
+  return placeAgentOperationInReview(database, created.row, 'proposal_graph_review_required');
 }
 
 function publicResult(row: AgentOperationRow, result: AgentApplyResult, durability: PersistedAgentApplyResult['durability']): PersistedAgentApplyResult {
