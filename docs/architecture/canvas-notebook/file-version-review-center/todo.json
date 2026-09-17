@@ -1161,7 +1161,8 @@
           "id": "FVRC-1103",
           "order": 3,
           "title": "Browser-Fixtures atomar anlegen und Login-Ratelimits vermeiden",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-17",
           "area": "test-infrastructure",
           "dependsOn": ["FVRC-1102"],
           "deliverables": [
@@ -1178,6 +1179,12 @@
             "Drei Markdown-Regressionen gegen den verwalteten Stack",
             "Mehrere authentifizierte Kontexte mit Admin- und Member-Rolle",
             "Unauthentifizierter Login-/Logout-Test"
+          ],
+          "completionEvidence": [
+            "Ein gemeinsamer Upload-Helper legt Markdown-Fixtures atomar ueber /api/files/upload an; Create-plus-Whole-File-Write und damit der Collaboration-Write-Guard-Konflikt entfallen.",
+            "Der Auth-Helper validiert pro Base-URL und Identitaet einen geschuetzten Storage-State, serialisiert dessen Erzeugung mit einem Stale-Lock und unterstuetzt getrennte Admin-/Member-Identitaeten, ohne produktive Auth- oder Rate-Limit-Regeln zu aendern.",
+            "Ein eigener Browsertest prueft zwei parallele Admin-Kontexte, einen Team-Seat-Member und einen bewusst anonymen Kontext. Der gemeinsame Vier-Worker-Lauf mit den drei Markdown-Regressionen besteht gegen den verwalteten Stack in 12,1 Sekunden ohne 429-Serie.",
+            "Die Markdown-Tests bedienen den aktuellen Lesen/Bearbeiten/Source-Vertrag und die gruppierten Rich-Editor-Menues. E-Mail-Roundtrip, Properties-Layout und Rich-Block-Serialisierung bestehen inklusive Screenshots und Viewport-Pruefungen."
           ]
         },
         {

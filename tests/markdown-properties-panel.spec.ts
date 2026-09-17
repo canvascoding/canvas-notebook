@@ -1,8 +1,11 @@
-import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type APIRequestContext, type BrowserContext } from '@playwright/test';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
-const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
-const ADMIN_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+import {
+  createAuthenticatedContext,
+  enterMarkdownEditMode,
+  uploadWorkspaceTextFile,
+} from './helpers/managed-test-context';
+
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
 
 type WorkspacePayload = {
@@ -13,14 +16,6 @@ type WorkspacePayload = {
   }>;
   error?: string;
 };
-
-async function login(page: Page): Promise<void> {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL },
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
-}
 
 async function writableWorkspace(request: APIRequestContext): Promise<string> {
   const response = await request.get('/api/workspaces');
@@ -42,46 +37,31 @@ async function useWorkspace(context: BrowserContext, workspaceId: string): Promi
 
 test.describe('Markdown properties layout', () => {
   test('separates properties from content and suppresses block controls during property editing', async ({ browser }, testInfo) => {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const context = await createAuthenticatedContext(browser, { viewport: { width: 1280, height: 900 } });
     const page = await context.newPage();
     const filePath = `properties-layout-${Date.now()}.md`;
     let workspaceId: string | null = null;
 
     try {
-      await login(page);
       workspaceId = await writableWorkspace(page.request);
       await useWorkspace(context, workspaceId);
 
-      const createResponse = await page.request.post('/api/files/create', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-        data: { path: filePath, type: 'file' },
+      await uploadWorkspaceTextFile({
+        request: page.request,
+        workspaceId,
+        filePath,
+        content: '# Properties layout test\n\nFirst editable paragraph\n\nSecond editable paragraph',
       });
-      expect(createResponse.ok(), await createResponse.text()).toBeTruthy();
-
-      const readResponse = await page.request.get(`/api/files/read?path=${encodeURIComponent(filePath)}`, {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-      });
-      const readPayload = await readResponse.json() as { data?: { stats?: { sha256?: string } } };
-      expect(readResponse.ok(), JSON.stringify(readPayload)).toBeTruthy();
-
-      const writeResponse = await page.request.post('/api/files/write', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-        data: {
-          path: filePath,
-          content: '# Properties layout test\n\nFirst editable paragraph\n\nSecond editable paragraph',
-          expectedSha256: readPayload.data?.stats?.sha256,
-        },
-      });
-      expect(writeResponse.ok(), await writeResponse.text()).toBeTruthy();
 
       await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
+      await enterMarkdownEditMode(page);
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       const panel = page.getByTestId('markdown-properties-panel');
       const controls = page.locator('.tiptap-block-controls');
       await expect(editor).toBeVisible({ timeout: 30_000 });
       await expect(panel).toBeVisible();
       const chatWrapper = page.locator('[data-chat-mode]').first();
-      if (await chatWrapper.evaluate((element) => (
+      if (await chatWrapper.count() > 0 && await chatWrapper.evaluate((element) => (
         getComputedStyle(element).opacity !== '0' && element.getBoundingClientRect().width > 1
       ))) {
         await page.getByRole('button', { name: /AI Chat|KI-Chat/i }).first().click();

@@ -1,8 +1,11 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
 
-const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-const adminEmail = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
-const adminPassword = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
+import {
+  createAuthenticatedContext,
+  enterMarkdownEditMode,
+  uploadWorkspaceTextFile,
+} from './helpers/managed-test-context';
+
 const workspaceIdHeader = 'x-canvas-workspace-id';
 
 type WorkspacePayload = {
@@ -12,14 +15,6 @@ type WorkspacePayload = {
   }>;
   error?: string;
 };
-
-async function login(page: Page) {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: baseUrl },
-    data: { email: adminEmail, password: adminPassword },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
-}
 
 async function writableWorkspace(request: APIRequestContext) {
   const response = await request.get('/api/workspaces');
@@ -38,39 +33,47 @@ async function useWorkspace(context: BrowserContext, workspaceId: string) {
 }
 
 async function clickToolbarButton(page: Page, name: string) {
+  if (name === 'Edit as text') {
+    await page.getByRole('group', { name: 'Document view' })
+      .getByRole('button', { name: 'Source', exact: true })
+      .click();
+    return;
+  }
+  const menuTargetByAction: Record<string, { group: string; item: string }> = {
+    Callout: { group: 'Blocks', item: 'Callout' },
+    'Collapsible section': { group: 'Blocks', item: 'Collapsible section' },
+    Footnote: { group: 'Blocks', item: 'Footnote' },
+    'Insert table': { group: 'Insert', item: 'Table' },
+    'Inline formula': { group: 'Formula', item: 'Inline formula' },
+  };
+  const menuTarget = menuTargetByAction[name];
+  if (menuTarget) {
+    await page.getByRole('toolbar', { name: 'Markdown editor toolbar' })
+      .getByRole('button', { name: menuTarget.group, exact: true })
+      .click();
+    await page.getByRole('menuitem', { name: menuTarget.item, exact: true }).click();
+    return;
+  }
   await page.getByRole('button', { name, exact: true }).first().click();
 }
 
 test.describe('Rich Markdown blocks', () => {
   test('inserts, renders, toggles, and serializes the supported rich blocks', async ({ browser }, testInfo) => {
     test.setTimeout(90_000);
-    const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+    const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 960 } });
     const page = await context.newPage();
     const filePath = `rich-blocks-${Date.now()}.md`;
     let workspaceId: string | null = null;
 
     try {
-      await login(page);
       workspaceId = await writableWorkspace(page.request);
       await useWorkspace(context, workspaceId);
 
-      const createResponse = await page.request.post('/api/files/create', {
-        headers: { [workspaceIdHeader]: workspaceId },
-        data: { path: filePath, type: 'file' },
-      });
-      expect(createResponse.ok(), await createResponse.text()).toBeTruthy();
-
-      const readResponse = await page.request.get(`/api/files/read?path=${encodeURIComponent(filePath)}`, {
-        headers: { [workspaceIdHeader]: workspaceId },
-      });
-      const readPayload = await readResponse.json() as { data?: { stats?: { sha256?: string } } };
-      expect(readResponse.ok(), JSON.stringify(readPayload)).toBeTruthy();
-
-      const writeResponse = await page.request.post('/api/files/write', {
-        headers: { [workspaceIdHeader]: workspaceId },
-        data: {
-          path: filePath,
-          content: `# Rich blocks UI test
+      await uploadWorkspaceTextFile({
+        request: page.request,
+        workspaceId,
+        filePath,
+        content: `# Rich blocks UI test
 
 Callout anchor
 
@@ -81,12 +84,10 @@ Formula anchor
 Footnote anchor
 
 Table anchor`,
-          expectedSha256: readPayload.data?.stats?.sha256,
-        },
       });
-      expect(writeResponse.ok(), await writeResponse.text()).toBeTruthy();
 
       await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
+      await enterMarkdownEditMode(page);
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       await expect(editor).toBeVisible({ timeout: 30_000 });
 
@@ -117,7 +118,7 @@ Table anchor`,
       await expect(details.locator('summary')).toHaveText('UI details');
       await expect(details).not.toHaveAttribute('open');
       await details.locator('summary').click();
-      await expect(details).toHaveAttribute('open', '');
+      await expect(details).toHaveAttribute('open', /^(?:|open)$/u);
       await details.locator('summary').click();
       await expect(details).not.toHaveAttribute('open');
 

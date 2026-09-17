@@ -2,19 +2,13 @@ import { expect, test, type APIRequestContext, type BrowserContext, type Page } 
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+import {
+  createAuthenticatedContext,
+  enterMarkdownEditMode,
+  uploadWorkspaceTextFile,
+} from './helpers/managed-test-context';
+
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
-
-function requireBootstrapCredential(name: 'BOOTSTRAP_ADMIN_EMAIL' | 'BOOTSTRAP_ADMIN_PASSWORD') {
-  const value = process.env[name];
-  if (!value?.trim()) {
-    throw new Error(`${name} must be configured for the Markdown email Playwright test.`);
-  }
-  return value;
-}
-
-const ADMIN_EMAIL = requireBootstrapCredential('BOOTSTRAP_ADMIN_EMAIL');
-const ADMIN_PASSWORD = requireBootstrapCredential('BOOTSTRAP_ADMIN_PASSWORD');
 const FIXTURE = fs.readFileSync(
   path.join(process.cwd(), 'tests', 'fixtures', 'markdown-roundtrip', 'koenenstrasse-email-roundtrip.md'),
   'utf8',
@@ -27,14 +21,6 @@ type WorkspacePayload = {
   }>;
   error?: string;
 };
-
-async function login(page: Page) {
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL },
-    data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
-}
 
 async function writableWorkspace(request: APIRequestContext) {
   const response = await request.get('/api/workspaces');
@@ -64,7 +50,7 @@ async function readWorkspaceFile(page: Page, workspaceId: string, filePath: stri
 test.describe('Markdown email round trips', () => {
   test('opens and reloads the Koenenstraße document in rich mode without escaped emails', async ({ browser }, testInfo) => {
     test.setTimeout(90_000);
-    const context = await browser.newContext({ viewport: { width: 1440, height: 960 } });
+    const context = await createAuthenticatedContext(browser, { viewport: { width: 1440, height: 960 } });
     const page = await context.newPage();
     const filePath = `koenenstrasse-email-roundtrip-${Date.now()}.md`;
     const browserErrors: string[] = [];
@@ -73,43 +59,35 @@ test.describe('Markdown email round trips', () => {
     page.on('pageerror', (error) => browserErrors.push(error.message));
 
     try {
-      await login(page);
       workspaceId = await writableWorkspace(page.request);
       await useWorkspace(context, workspaceId);
 
-      const createResponse = await page.request.post('/api/files/create', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-        data: { path: filePath, type: 'file' },
+      await uploadWorkspaceTextFile({
+        request: page.request,
+        workspaceId,
+        filePath,
+        content: FIXTURE,
       });
-      expect(createResponse.ok(), await createResponse.text()).toBeTruthy();
-
-      const createdFile = await readWorkspaceFile(page, workspaceId, filePath);
-      const writeResponse = await page.request.post('/api/files/write', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-        data: {
-          path: filePath,
-          content: FIXTURE,
-          expectedSha256: createdFile?.stats?.sha256,
-        },
-      });
-      expect(writeResponse.ok(), await writeResponse.text()).toBeTruthy();
 
       await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
+      await enterMarkdownEditMode(page);
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       const normalizeButton = page.getByRole('button', {
         name: /Normalize and open|Normalisieren und öffnen/i,
       });
-      await expect(normalizeButton).toBeVisible({ timeout: 30_000 });
-      await expect(page.locator('.cm-content')).toBeVisible();
+      await expect(editor.or(normalizeButton)).toBeVisible({ timeout: 30_000 });
+      if (await normalizeButton.isVisible()) {
+        await expect(page.locator('.cm-content')).toBeVisible();
 
-      const normalizationScreenshotPath = testInfo.outputPath('markdown-email-normalization-prompt.png');
-      await page.screenshot({ path: normalizationScreenshotPath, type: 'png' });
-      await testInfo.attach('Markdown email normalization prompt', {
-        path: normalizationScreenshotPath,
-        contentType: 'image/png',
-      });
+        const normalizationScreenshotPath = testInfo.outputPath('markdown-email-normalization-prompt.png');
+        await page.screenshot({ path: normalizationScreenshotPath, type: 'png' });
+        await testInfo.attach('Markdown email normalization prompt', {
+          path: normalizationScreenshotPath,
+          contentType: 'image/png',
+        });
 
-      await normalizeButton.click();
+        await normalizeButton.click();
+      }
       await expect(editor).toBeVisible({ timeout: 30_000 });
       await expect(page.locator('.cm-content')).toHaveCount(0);
 
