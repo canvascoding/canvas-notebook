@@ -12,6 +12,7 @@
     "docs/architecture/canvas-notebook/file-version-review-center/security-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-contracts-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -1063,7 +1064,7 @@
       "id": "FVRC-P10",
       "order": 9,
       "title": "Proposal-Graph fuer mehrere offene Agentenvorschlaege",
-      "status": "planned",
+      "status": "in_progress",
       "dependsOn": ["FVRC-P08"],
       "exitGate": "FVRC-G10-PROPOSAL-GRAPH",
       "testPlan": "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
@@ -1072,7 +1073,8 @@
           "id": "FVRC-1000",
           "order": 0,
           "title": "Proposal-Beziehungen, Zustandsmaschine und versionierte Contracts fixieren",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-17",
           "area": "architecture-contracts",
           "dependsOn": ["FVRC-801"],
           "verificationScenarios": ["PG-S03", "PG-S05", "PG-S08", "PG-S09", "PG-S10", "PG-S11", "PG-S12", "PG-S23", "PG-S33"],
@@ -1094,6 +1096,13 @@
             "Contract- und Fixture-Tests fuer gueltige und ungueltige Graphen",
             "Produktreview der Aktions- und Statustexte",
             "Security-Review von IDs, Fences, Cross-Workspace- und Lifecycle-Grenzen"
+          ],
+          "completionEvidence": [
+            "proposal-graph-v1.ts und proposal-graph-contracts-v1.md fixieren getrennte Beziehungen, Lifecycle/Auswertung/Durability, explizite Herkunft und die Aktionsmatrix; noch keine Laufzeitaktivierung.",
+            "npm run test:proposal-graph:contracts besteht mit 22 unabhaengigen Testgruppen und exakt geprueften Fehlercodes, einschliesslich Legacy-, Rebase-, No-op-, Scope- und Grenzfaellen.",
+            "Unabhaengiges Contract-Review hat Snapshot-Identitaet, effektive Parent-Basis, Reject ohne Inhalt, Replace/Detach-Resultate und Legacy-Restumfang geprueft.",
+            "Bestehende FVRC-Contract-/Policy- und Agent-Durability-Tests, TypeScript und fokussiertes ESLint bestehen. Baseline-Produktionsbuild mit NODE_ENV=production besteht; der erste Build unter Host-Dev-NODE_ENV wurde nicht als Erfolg gewertet.",
+            "Reale Graphmutation, Datenbankintegritaet, UI und die vollstaendigen PG-S/PG-U-Szenarien bleiben Gates der folgenden Tasks."
           ]
         },
         {

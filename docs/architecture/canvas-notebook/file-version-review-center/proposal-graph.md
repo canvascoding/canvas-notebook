@@ -2,13 +2,16 @@
 
 Stand: 2026-09-17
 
-Status: geplant; Szenario-Review vom 2026-09-17 eingearbeitet
+Status: in Umsetzung; Szenario-Review vom 2026-09-17 eingearbeitet.
+Die Aktivierung folgt den einzelnen verifizierten Tasks in `todo.json`.
 
 Zugehoeriger Umsetzungsplan:
 [`todo.json`](./todo.json), Paket `FVRC-P10`.
 
 Konkrete Szenarien, UI-Abnahme und Testzuordnung stehen in
 [`proposal-graph-scenarios.md`](./proposal-graph-scenarios.md).
+Der versionierte Implementierungsvertrag steht in
+[`proposal-graph-contracts-v1.md`](./proposal-graph-contracts-v1.md).
 
 ## 1. Problem und Ziel
 
