@@ -362,6 +362,24 @@ export async function readWorkspaceFile(
   return data;
 }
 
+export async function workspacePathExists(
+  path: string,
+  options: { workspaceId?: string | null } = {},
+): Promise<boolean> {
+  const url = withWorkspaceQuery(`/api/files/exists?path=${encodeURIComponent(path)}`, options.workspaceId);
+  const response = await fetch(url, {
+    credentials: 'include',
+    cache: 'no-store',
+    headers: workspaceHeaders(options.workspaceId),
+  });
+
+  if (!response.ok) throw response;
+
+  const { data } = await readApiJson<{ data: { exists: boolean } }>(response, 'Failed to check file');
+  if (typeof data.exists !== 'boolean') throw new Error('Failed to check file');
+  return data.exists;
+}
+
 export async function writeWorkspaceFile(
   path: string,
   content: string,

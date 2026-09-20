@@ -18,7 +18,7 @@ import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceFileEvent } from '@/app/lib/files/file-events';
 import { getParentDirectory, isSameOrDescendantPath } from '@/app/lib/files/path-utils';
-import { readWorkspaceFile } from '@/app/lib/files/client';
+import { workspacePathExists } from '@/app/lib/files/client';
 import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
 
 type FileEvent = WorkspaceFileEvent;
@@ -348,17 +348,16 @@ export class FileWatcherClient extends EventTarget {
       const source = this.eventSource;
       const confirmation = {};
       this.pendingDeletions.set(event.relativePath, confirmation);
-      void readWorkspaceFile(event.relativePath, { metaOnly: true, noCache: true, workspaceId })
-        .catch((error) => {
-          if (error instanceof Response && error.status === 404
-            && this.pendingDeletions.get(event.relativePath) === confirmation
+      void workspacePathExists(event.relativePath, { workspaceId })
+        .then((exists) => {
+          if (!exists && this.pendingDeletions.get(event.relativePath) === confirmation
             && this.eventSource === source
             && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
             && useFileStore.getState().treeGeneration === generation
             && useFileStore.getState().fileLoadRequestId === fileLoadRequestId) {
             useFileStore.getState().applyPathsDeleted([event.relativePath], workspaceId);
           }
-        }).finally(() => {
+        }).catch(() => undefined).finally(() => {
           if (this.pendingDeletions.get(event.relativePath) === confirmation) this.pendingDeletions.delete(event.relativePath);
         });
     }

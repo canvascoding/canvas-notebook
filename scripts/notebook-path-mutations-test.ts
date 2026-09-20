@@ -62,9 +62,19 @@ async function main() {
   useEditorStore.getState().updateDraft('keep me');
   const client = new FileWatcherClient(() => new Source());
   client.acquire();
-  globalThis.fetch = (async () => new Response('', { status: 404 })) as typeof fetch;
+  const deletionChecks: string[] = [];
+  globalThis.fetch = (async (input) => {
+    deletionChecks.push(String(input));
+    return Response.json({ success: true, data: { exists: false } });
+  }) as typeof fetch;
+  Source.latest.emit({ type: 'unlinkDir', workspaceId: 'ws-a', path: 'files', relativePath: 'files', dir: '.', timestamp: Date.now() });
   Source.latest.emit({ type: 'unlinkDir', workspaceId: 'ws-a', path: 'docs', relativePath: 'docs', dir: '.', timestamp: Date.now() });
   await tick();
+  assert.deepEqual(deletionChecks, [
+    '/api/files/exists?path=files&workspaceId=ws-a',
+    '/api/files/exists?path=docs&workspaceId=ws-a',
+  ]);
+  assert.equal(deletionChecks.some((url) => url.includes('/api/files/read')), false, 'expected deletion checks must not create browser-visible 404 reads');
   assert.equal(useFileStore.getState().currentFile?.unavailable, 'deleted');
   assert.equal(useEditorStore.getState().draft, 'keep me');
   await assert.rejects(useFileStore.getState().prepareCurrentFileForTransition(), /no longer available/);
@@ -74,7 +84,7 @@ async function main() {
   setup();
   const replacement = new FileWatcherClient(() => new Source());
   replacement.acquire();
-  globalThis.fetch = (async () => Response.json({ success: true, data: { content: '', stats: { size: 4, modified: 2, permissions: '100644' } } })) as typeof fetch;
+  globalThis.fetch = (async () => Response.json({ success: true, data: { exists: true } })) as typeof fetch;
   Source.latest.emit({ type: 'unlink', workspaceId: 'ws-a', path: 'docs/a.txt', relativePath: 'docs/a.txt', dir: 'docs', timestamp: Date.now() });
   await tick();
   assert.equal(useFileStore.getState().currentFile?.unavailable, undefined, 'atomic replacement must not detach an existing file');
@@ -85,10 +95,10 @@ async function main() {
   delayed.acquire();
   const missing = deferred<Response>();
   let missingReads = 0;
-  globalThis.fetch = (async () => ++missingReads === 1 ? missing.promise : Response.json({ success: true, data: { content: 'recreated', stats: { size: 9, modified: 2, permissions: '100644' } } })) as typeof fetch;
+  globalThis.fetch = (async () => ++missingReads === 1 ? missing.promise : Response.json({ success: true, data: { exists: true } })) as typeof fetch;
   Source.latest.emit({ type: 'unlink', workspaceId: 'ws-a', path: 'docs/a.txt', relativePath: 'docs/a.txt', dir: 'docs', timestamp: Date.now() });
   Source.latest.emit({ type: 'add', workspaceId: 'ws-a', path: 'docs/a.txt', relativePath: 'docs/a.txt', dir: 'docs', timestamp: Date.now() });
-  missing.resolve(new Response('', { status: 404 }));
+  missing.resolve(Response.json({ success: true, data: { exists: false } }));
   await tick();
   assert.equal(useFileStore.getState().currentFile?.unavailable, undefined, 'a newer creation invalidates the earlier absence check');
   delayed.disconnect();
