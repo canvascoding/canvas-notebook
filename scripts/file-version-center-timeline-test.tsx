@@ -239,6 +239,52 @@ async function main() {
   assert.equal(new URL(window.location.href).searchParams.get('panel'), 'files');
   assert.equal(new URL(window.location.href).hash, '#active-file');
 
+  const staleSelectionRequests: Array<{
+    selectedEntry?: { kind: string; id: string };
+    initialView?: string;
+  }> = [];
+  globalThis.fetch = async (input, init) => {
+    if (!String(input).endsWith('/resolve')) {
+      return Response.json(response([conflictEntry, currentEntry], { hasMore: false, nextCursor: null }));
+    }
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      selectedEntry?: { kind: string; id: string };
+      initialView?: string;
+    };
+    staleSelectionRequests.push(body);
+    if (staleSelectionRequests.length === 1) {
+      return Response.json({
+        contractVersion: 1,
+        success: false,
+        error: { code: 'FVRC_STALE_SELECTION', message: 'The selected review is already closed.', retryable: false },
+      }, { status: 409 });
+    }
+    return Response.json(response([conflictEntry, currentEntry], { hasMore: false, nextCursor: null }));
+  };
+  await act(async () => {
+    openVersionCenter({
+      ...request,
+      target: { ...request.target },
+      selectedEntry: { kind: 'agent_operation', id: 'already-closed' },
+      initialView: 'reviews',
+    });
+  });
+  await settle();
+  await settle();
+  assert.equal(staleSelectionRequests.length, 2,
+    'a stale polled editor selection reloads the authoritative timeline exactly once');
+  assert.equal(staleSelectionRequests[1]?.selectedEntry, undefined,
+    'only the stale deep-link selection is discarded during recovery');
+  assert.equal(staleSelectionRequests[1]?.initialView, 'reviews',
+    'stale selection recovery preserves the review context');
+  assert.match(document.body.textContent ?? '', /Conflict/iu,
+    'the refreshed timeline exposes the newest conflict instead of a terminal load error');
+  assert.equal(document.querySelector('[data-entry-status="semantic_conflict"]')?.getAttribute('aria-pressed'), 'true',
+    'the newest review remains selected after stale deep-link recovery');
+  assert.doesNotMatch(document.body.textContent ?? '', /Document history could not be loaded/iu);
+  assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), null,
+    'stale selection recovery also repairs the reload-safe URL');
+
   const completed = response([currentEntry], { hasMore: false, nextCursor: null });
   const invalidated = reconcileFileVersionTimelineSelection({
     request,

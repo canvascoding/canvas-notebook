@@ -2,6 +2,7 @@
 
 import {
   FILE_VERSION_CENTER_API_V1,
+  FILE_VERSION_CENTER_ERROR_CODES,
   parseFileVersionCenterErrorResponseV1,
   parseFileReviewPolicyV1,
   parseFileVersionTimelineResponseV1,
@@ -12,6 +13,10 @@ import {
   type FileReviewPolicyV1,
 } from './contracts/v1';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+
+const FILE_VERSION_CENTER_RESOLVE_RETRY_DELAYS_MS = Object.freeze([
+  150, 300, 600, 1_000, 1_500, 2_000, 2_000,
+]);
 
 export class FileVersionCenterClientError extends Error {
   constructor(
@@ -85,6 +90,44 @@ export async function resolveFileVersionCenter(
     }
   }
   return parseFileVersionTimelineResponseV1(payload);
+}
+
+function waitForResolveRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(new DOMException('The version center request was cancelled.', 'AbortError'));
+  return new Promise<void>((resolve, reject) => {
+    const timeout = globalThis.setTimeout(() => {
+      signal?.removeEventListener('abort', abort);
+      resolve();
+    }, delayMs);
+    const abort = () => {
+      globalThis.clearTimeout(timeout);
+      reject(new DOMException('The version center request was cancelled.', 'AbortError'));
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+/**
+ * Retries only the short persistence window while a newly opened collaboration
+ * document is being hydrated. Authorization, validation, rollout, and other
+ * permanent failures remain single-attempt and fail closed.
+ */
+export async function resolveFileVersionCenterWhenReady(
+  request: FileVersionCenterRequestV1,
+  signal?: AbortSignal,
+  options: { retryDelaysMs?: readonly number[] } = {},
+): Promise<FileVersionTimelineResponseV1> {
+  const retryDelaysMs = options.retryDelaysMs ?? FILE_VERSION_CENTER_RESOLVE_RETRY_DELAYS_MS;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await resolveFileVersionCenter(request, signal);
+    } catch (error) {
+      if (!(error instanceof FileVersionCenterClientError)
+        || error.code !== FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable
+        || attempt >= retryDelaysMs.length) throw error;
+      await waitForResolveRetry(retryDelaysMs[attempt], signal);
+    }
+  }
 }
 
 export async function updateFileReviewPolicy(

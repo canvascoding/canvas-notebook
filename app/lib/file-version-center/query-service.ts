@@ -268,20 +268,22 @@ async function runtimeCurrent(
 ): Promise<AuthoritativeFileVersionCurrent> {
   if (target.documentId) {
     const state = await loadCollaborationState(target.documentId);
-    if (!state || state.workspaceId !== target.workspaceId || state.path !== target.path || state.status !== 'active') {
+    if (state && (state.workspaceId !== target.workspaceId || state.path !== target.path || state.status !== 'active')) {
       throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable, 'The authoritative collaboration state is unavailable.');
     }
-    const snapshot = authoritativeCollaborationSnapshot(state);
-    const sha256 = createHash('sha256').update(snapshot.canonicalContent, 'utf8').digest('hex');
-    return {
-      fence: {
-        revisionId: target.latestRevisionHash === sha256 ? target.latestRevisionId : null,
-        sha256,
-        stateVectorHash: createHash('sha256').update(state.stateVector).digest('hex'),
-      },
-      sizeBytes: Buffer.byteLength(snapshot.canonicalContent, 'utf8'),
-      observedAt: Date.now(),
-    };
+    if (state) {
+      const snapshot = authoritativeCollaborationSnapshot(state);
+      const sha256 = createHash('sha256').update(snapshot.canonicalContent, 'utf8').digest('hex');
+      return {
+        fence: {
+          revisionId: target.latestRevisionHash === sha256 ? target.latestRevisionId : null,
+          sha256,
+          stateVectorHash: createHash('sha256').update(state.stateVector).digest('hex'),
+        },
+        sizeBytes: Buffer.byteLength(snapshot.canonicalContent, 'utf8'),
+        observedAt: Date.now(),
+      };
+    }
   }
   const content = await readFile(target.path, workspaceFileOptions(workspace));
   const sha256 = createHash('sha256').update(content).digest('hex');
@@ -484,7 +486,6 @@ export function createFileVersionCenterQueryService(options: {
             WHERE operation.workspace_id = $1 AND document.lineage_id = $2
               AND document.status = 'active'
               AND operation.operation_id = $3
-              AND operation.operation_type = 'apply'
               AND (operation.initiated_by_user_id = $4 OR $5::boolean)
               AND (
                 operation.status IN ('needs_review', 'semantic_conflict')

@@ -224,6 +224,19 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(pinned.entries.map((entry) => entry.kind === 'agent_operation' ? entry.operationId : entry.kind),
       ['operation-old'], 'the exact requested review is pinned even when the page has no spare slot');
+
+    await postgres.exec("UPDATE collaboration_agent_operations SET operation_type = 'revert' WHERE operation_id = 'operation-old'");
+    const pinnedRevertConflict = await service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-old' },
+      access: access(),
+      workspace: workspace(),
+      limit: 1,
+    });
+    assert.equal(pinnedRevertConflict.entries[0]?.id, 'operation-old',
+      'an overlapping revert conflict remains inspectable instead of becoming a stale selection');
+    await postgres.exec("UPDATE collaboration_agent_operations SET operation_type = 'apply' WHERE operation_id = 'operation-old'");
+
     const afterPinned = await service.timeline({
       target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
       access: access(),

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { FileClock, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-import { resolveFileVersionCenter } from '@/app/lib/file-version-center/client';
+import { resolveFileVersionCenterWhenReady } from '@/app/lib/file-version-center/client';
 import {
   FILE_VERSION_CENTER_CONTRACT_VERSION,
   type FileVersionCapabilitiesV1,
@@ -62,7 +62,7 @@ export function FileVersionHistoryButton({
   useEffect(() => {
     if (!target || !supported) return;
     const controller = new AbortController();
-    void resolveFileVersionCenter({
+    void resolveFileVersionCenterWhenReady({
       contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
       target,
       initialView: 'history',

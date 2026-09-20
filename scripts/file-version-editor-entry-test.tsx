@@ -62,7 +62,7 @@ async function compileUi(input: {
   const mocks: Record<string, unknown> = {
     'next-intl': { useTranslations: () => (key: string) => key },
     '@/app/lib/file-version-center/client': {
-      resolveFileVersionCenter: (request: Record<string, unknown>, signal?: AbortSignal) => {
+      resolveFileVersionCenterWhenReady: (request: Record<string, unknown>, signal?: AbortSignal) => {
         const call = { request, signal };
         input.calls.push(call);
         return input.resolve(call);

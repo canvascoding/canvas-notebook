@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import {
   FileVersionCenterClientError,
-  resolveFileVersionCenter,
+  resolveFileVersionCenterWhenReady,
 } from '@/app/lib/file-version-center/client';
 import {
   FILE_VERSION_CENTER_CONTRACT_VERSION,
@@ -72,7 +72,7 @@ export function FileVersionMenuItem({
   useEffect(() => {
     if (!requestedTarget) return;
     const controller = new AbortController();
-    void resolveFileVersionCenter({
+    void resolveFileVersionCenterWhenReady({
       contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
       target: requestedTarget,
       initialView: 'history',

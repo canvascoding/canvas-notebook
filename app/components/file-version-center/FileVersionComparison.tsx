@@ -309,9 +309,20 @@ function LoadedComparison({
           <AlertTitle>{changed ? t('comparisonChanged') : t('compareFailed')}</AlertTitle>
           <AlertDescription>
             <p>{error?.message ?? t('compareFailed')}</p>
-            <Button type="button" variant="outline" size="sm" className="mt-2" onClick={retry}>
-              <RefreshCw className="size-4" aria-hidden="true" />
-              {t('retry')}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="mt-2"
+              disabled={changed && timelineRefreshState === 'refreshing'}
+              onClick={() => { if (changed) void refreshTimeline(); else retry(); }}
+            >
+              {changed && timelineRefreshState === 'refreshing'
+                ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                : <RefreshCw className="size-4" aria-hidden="true" />}
+              {changed
+                ? timelineRefreshState === 'refreshing' ? t('refreshingTimeline') : t('refreshTimeline')
+                : t('retry')}
             </Button>
           </AlertDescription>
         </Alert>

@@ -64,7 +64,7 @@ async function compileUi(controls: {
     'next-intl': { useTranslations: () => (key: string) => key },
     '@/app/lib/file-version-center/client': {
       FileVersionCenterClientError: ClientError,
-      resolveFileVersionCenter: () => controls.resolve(),
+      resolveFileVersionCenterWhenReady: () => controls.resolve(),
       updateFileReviewPolicy: (request: Record<string, unknown>) => {
         controls.updates.push(request);
         return controls.update(request);

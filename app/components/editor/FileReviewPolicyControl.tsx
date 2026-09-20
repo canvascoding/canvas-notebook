@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import {
   FileVersionCenterClientError,
-  resolveFileVersionCenter,
+  resolveFileVersionCenterWhenReady,
   updateFileReviewPolicy,
 } from '@/app/lib/file-version-center/client';
 import {
@@ -84,7 +84,7 @@ export function FileReviewPolicyControl({
     if (!target || !supported || signal?.aborted) return;
     const sequence = ++requestSequence.current;
     try {
-      const timeline = await resolveFileVersionCenter({
+      const timeline = await resolveFileVersionCenterWhenReady({
         contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
         target,
         initialView: 'history',

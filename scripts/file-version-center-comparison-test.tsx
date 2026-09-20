@@ -97,7 +97,7 @@ const secondHunk = {
 
 function comparison(hunks: Array<typeof firstHunk | typeof secondHunk>, hasMore: boolean, stale = false) {
   return {
-    actionFence: { proposalVersion: stale ? null : null },
+    actionFence: { proposalVersion: null as string | null },
     response: {
       contractVersion: 1,
       current: { fence: { revisionId: 'revision-current', sha256: 'a'.repeat(64) }, observedAt: currentEntry.observedAt },
@@ -143,10 +143,27 @@ async function main() {
   const { CollaborationAgentProposalPreview } = await import('../app/components/editor/CollaborationAgentProposalPreview');
   const { mergeFileVersionComparePayload } = await import('../app/lib/file-version-center/compare-client');
   let hunkAttempts = 0;
+  let staleCurrentAttempts = 0;
   const requestedCursors: Array<string | undefined> = [];
   globalThis.fetch = async (_input, init) => {
-    const body = JSON.parse(String(init?.body)) as { cursor?: string; candidate: { kind: string } };
+    const body = JSON.parse(String(init?.body)) as { cursor?: string; candidate: { kind: string; id?: string } };
     requestedCursors.push(body.cursor);
+    if (body.candidate.id === 'operation-stale-current') {
+      staleCurrentAttempts += 1;
+      if (staleCurrentAttempts === 1) return Response.json({
+        contractVersion: 1,
+        success: false,
+        error: {
+          code: 'FVRC_STALE_CURRENT',
+          message: 'The current document changed. Reload its timeline before comparing.',
+          retryable: false,
+        },
+      }, { status: 409 });
+      const ready = comparison([firstHunk], false);
+      ready.actionFence.proposalVersion = `v1.${'d'.repeat(64)}`;
+      ready.response.candidate.selection = { kind: 'agent_operation', id: 'operation-stale-current' };
+      return Response.json(ready);
+    }
     if (body.candidate.kind === 'agent_operation') return Response.json(comparison([], false, true));
     if (body.cursor) {
       hunkAttempts += 1;
@@ -271,6 +288,34 @@ async function main() {
         fence: { revisionId: 'revision-current', sha256: 'c'.repeat(64) } },
     } } as never,
   ), /another document state/iu, 'hunk pages cannot cross an authoritative current fence');
+
+  const staleCurrentEntry = {
+    kind: 'agent_operation' as const,
+    id: 'operation-stale-current', operationId: 'operation-stale-current', createdAt: '2026-09-14T09:30:00.000Z',
+    actor: { type: 'agent' as const }, status: 'needs_review' as const, actionsAllowed: true,
+  };
+  let staleCurrentRefreshes = 0;
+  await act(async () => root.render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <FileVersionComparison
+        request={{ ...request, selectedEntry: { kind: 'agent_operation', id: staleCurrentEntry.id }, initialView: 'reviews' }}
+        timeline={{ ...timeline, entries: [staleCurrentEntry, currentEntry, revisionEntry] }}
+        selection={{ key: `agent_operation:${staleCurrentEntry.id}`, entry: staleCurrentEntry, state: 'selected' }}
+        onTimelineInvalidate={() => { staleCurrentRefreshes += 1; }}
+        onContinue={() => {}}
+      />
+    </NextIntlClientProvider>,
+  ));
+  await settle();
+  assert.match(document.body.textContent ?? '', /current document changed/iu);
+  const staleCurrentRefresh = [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find((candidate) => /Refresh timeline/u.test(candidate.textContent ?? ''))!;
+  await act(async () => { staleCurrentRefresh.click(); });
+  await settle();
+  assert.equal(staleCurrentRefreshes, 1,
+    'a stale-current comparison reloads the authoritative timeline instead of repeating the same fenced request');
+  assert.equal(staleCurrentAttempts, 2,
+    'the refreshed current fence starts one new comparison after the authoritative timeline reload');
 
   const staleRequest: FileVersionCenterRequestV1 = {
     ...request,

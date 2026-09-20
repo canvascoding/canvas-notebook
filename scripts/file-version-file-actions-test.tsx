@@ -74,7 +74,7 @@ async function compileUi(input: {
     },
     '@/app/lib/file-version-center/client': {
       FileVersionCenterClientError: ClientError,
-      resolveFileVersionCenter: (request: Record<string, unknown>, signal?: AbortSignal) => {
+      resolveFileVersionCenterWhenReady: (request: Record<string, unknown>, signal?: AbortSignal) => {
         const call = { request, signal };
         input.calls.push(call);
         return input.resolve(call);

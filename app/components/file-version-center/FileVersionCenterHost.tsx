@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { FileVersionCenterClientError, resolveFileVersionCenter } from '@/app/lib/file-version-center/client';
+import { FileVersionCenterClientError, resolveFileVersionCenterWhenReady } from '@/app/lib/file-version-center/client';
 import { FILE_VERSION_CENTER_CONTRACT_VERSION } from '@/app/lib/file-version-center/contracts/v1';
 import type {
   FileVersionCenterRequestV1,
@@ -31,6 +31,7 @@ import {
 import {
   claimFileChangeReviewAcknowledgement,
   closeVersionCenter,
+  openVersionCenter,
   releaseFileChangeReviewAcknowledgement,
   selectVersionCenterEntry,
   syncVersionCenterFromLocation,
@@ -66,21 +67,42 @@ export function FileVersionCenterHost() {
     setLoadMoreError(null);
     setLoadingMore(false);
     if (!options?.preserveTimeline) setTimeline(null);
+    let resolvingRequest = activeRequest;
     try {
-      const next = await resolveFileVersionCenter(activeRequest, signal);
-      if (generation !== requestGenerationRef.current) return;
-      if (next.document.workspaceId !== activeRequest.target.workspaceId) {
-        throw new Error('The resolved document belongs to another workspace.');
+      for (;;) {
+        try {
+          const next = await resolveFileVersionCenterWhenReady(resolvingRequest, signal);
+          if (generation !== requestGenerationRef.current) return;
+          if (next.document.workspaceId !== resolvingRequest.target.workspaceId) {
+            throw new Error('The resolved document belongs to another workspace.');
+          }
+          setTimeline(next);
+          return;
+        } catch (loadError) {
+          if (generation !== requestGenerationRef.current
+            || (loadError instanceof DOMException && loadError.name === 'AbortError')) return;
+          if (loadError instanceof FileVersionCenterClientError
+            && loadError.code === 'FVRC_STALE_SELECTION') {
+            window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+            const latestRequest = useFileVersionCenterStore.getState().request;
+            if (latestRequest?.target === activeRequest.target
+              && latestRequest.source === activeRequest.source
+              && latestRequest.selectedEntry?.kind === resolvingRequest.selectedEntry?.kind
+              && latestRequest.selectedEntry?.id === resolvingRequest.selectedEntry?.id) {
+              // Editor operation summaries are polled. A review can become terminal
+              // between the last poll and opening the center, so discard only that
+              // stale deep-link selection and reload the authoritative timeline.
+              resolvingRequest = openVersionCenter({
+                ...resolvingRequest,
+                selectedEntry: undefined,
+              });
+              continue;
+            }
+          }
+          setError(loadError instanceof Error ? loadError.message : t('loadFailed'));
+          return;
+        }
       }
-      setTimeline(next);
-    } catch (loadError) {
-      if (generation !== requestGenerationRef.current
-        || (loadError instanceof DOMException && loadError.name === 'AbortError')) return;
-      if (loadError instanceof FileVersionCenterClientError
-        && loadError.code === 'FVRC_STALE_SELECTION') {
-        window.dispatchEvent(new CustomEvent('notification_summary_updated'));
-      }
-      setError(loadError instanceof Error ? loadError.message : t('loadFailed'));
     } finally {
       if (generation === requestGenerationRef.current) setLoading(false);
     }
