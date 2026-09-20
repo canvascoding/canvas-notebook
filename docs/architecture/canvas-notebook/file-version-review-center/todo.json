@@ -1191,7 +1191,8 @@
           "id": "FVRC-1104",
           "order": 4,
           "title": "Globalen Versions-Center aus allen Einstiegen robust bedienen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-20",
           "area": "frontend-e2e",
           "dependsOn": ["FVRC-1103"],
           "deliverables": [
@@ -1209,13 +1210,21 @@
             "Accept-, Reject-, stale- und conflict-Flows mit realem Agentenruntime-Pfad",
             "Editor-, FileActions- und Chat-Deep-Link-Einstiege",
             "1600-, 760- und 390-px-Viewports sowie Touch, Light, Dark und Reduced Motion"
+          ],
+          "completionEvidence": [
+            "Editor-Toolbar, Dateibaum-Kontextmenue und Editor-FileActions oeffnen denselben globalen Dialog; der gemeinsame Client wiederholt ausschliesslich FVRC_PERSISTENCE_UNAVAILABLE begrenzt und bricht andere Fehler weiterhin fail-closed ab.",
+            "Der Host verwirft eine inzwischen terminale gepollte Agentenauswahl, behaelt den Review-Kontext und laedt die autoritative Timeline neu. Stale-Current-, Selection- und Conflict-Anzeigen laden auf Nutzeraktion zuerst die Timeline statt denselben alten Compare-Request zu wiederholen.",
+            "Neu hochgeladene Personal-Markdown-Dateien ohne initialisierten Yjs-Zustand verwenden den autoritativen Workspace-Dateistand; vorhandene inkonsistente Kollaborationszustaende bleiben gesperrt. Personal und Team liefern fuer dieselben Dateien History, Compare, Restore und Policy.",
+            "Der neue Playwright-Test besteht gemeinsam mit 2 Faellen in 1,8 Minuten: 1600-/760-/390-px, Touch, Dark und Reduced Motion; 16-px-Gutter, mitscrollender Trenner, kein Horizontal-Overflow, historischer Vergleich ohne AI-Request sowie alle drei Dokumenteinstiege.",
+            "Der reale Ollama-Browsertest besteht: Review-Toggle explizit an, Vorschlag im globalen Center angenommen, Toggle aus, Folge-Edit direkt angewendet und parallele Nutzerinhalte erhalten. Die vier realen Lifecycle-Browserfaelle bestehen ebenfalls."
           ]
         },
         {
           "id": "FVRC-1105",
           "order": 5,
           "title": "Gesamte Remediation-Matrix abnehmen",
-          "status": "planned",
+          "status": "completed",
+          "completedAt": "2026-09-20",
           "area": "hardening",
           "dependsOn": ["FVRC-1104"],
           "deliverables": [
@@ -1232,6 +1241,13 @@
             "git diff --check, fokussiertes ESLint, TypeScript und npm run build",
             "Freigegebene Playwright-Matrix gegen den gesunden verwalteten Stack",
             "detect_changes gegen main vor Abschlusscommit"
+          ],
+          "completionEvidence": [
+            "Sieben fokussierte Query-, Comparison-, Policy-, Editor-, FileActions- und Timeline-Suites bestehen; fokussiertes ESLint und git diff --check sind sauber. Der Produktionsbuild einschliesslich TypeScript, 344 statischen Seiten und CLI-Versionsinjektion besteht.",
+            "Die Playwright-Matrix lief mit genau einem verwalteten Stack und einem Worker: globaler Center 2/2, Agent-Review-Lifecycle 4/4 und realer Ollama-Agentenruntime 1/1. Kein Container wurde fuer die Abnahme neu gebaut.",
+            "GitNexus bewertet den gesamten Feature-Branch gegen main wegen der bereits enthaltenen Agenten-/Migrationsarbeiten als high; der isolierte uncommitted P11-Abschlussdiff ist low und betrifft keine zusaetzlichen Ausfuehrungsprozesse.",
+            "Keine Collaboration-, Auth-, Rate-Limit- oder Action-Fence-Regel wurde fuer Tests abgeschwaecht. Testrevisionen entstehen ueber echte Agentenoperationen und Review-Accept; der historische Vergleich erzeugt keinen Modellrequest.",
+            "Bekannter Infrastrukturrest: Der zweite lokale Team-Seat-Nutzer ist suspendiert und der Fixture-Reaktivierungsweg bleibt wegen eines zu alten idempotent wiederholten Control-Plane-Snapshots blockiert. Der Owner ist im Plan dokumentiert; die Produktmatrix nutzt bis dahin zwei unabhaengige Owner-Browsersessions."
           ]
         }
       ]

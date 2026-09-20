@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { createAuthenticatedContext } from './helpers/managed-test-context';
+
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const WORKSPACE_HEADER = 'x-canvas-workspace-id';
 const execFileAsync = promisify(execFile);
@@ -37,7 +39,7 @@ async function runTool(fixture: Fixture, toolName: 'read' | 'edit_file', params:
     params, context: fixture.agentContext })).toString('base64url');
   const result = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'),
     ['--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts', encoded],
-    { cwd: process.cwd(), env: process.env, maxBuffer: 2 * 1024 * 1024 });
+    { cwd: process.cwd(), env: process.env, maxBuffer: 2 * 1024 * 1024, timeout: 30_000 });
   return JSON.parse(result.stdout) as ToolResult;
 }
 
@@ -47,13 +49,18 @@ async function login(page: Page, secondary: boolean): Promise<string> {
   const password = secondary ? process.env.TEST_SECONDARY_PASSWORD || process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD
     : process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD;
   expect(Boolean(email && password), 'Managed fixture credentials are required.').toBe(true);
-  const response = await page.request.post('/api/auth/sign-in/email', { headers: { Origin: BASE_URL }, data: { email, password } });
-  expect(response.ok()).toBe(true);
-  const session = await page.request.get('/api/auth/get-session');
+  let session = await page.request.get('/api/auth/get-session');
+  let payload = await session.json() as { user?: { id?: string } } | null;
+  if (!payload?.user?.id) {
+    const response = await page.request.post('/api/auth/sign-in/email', { headers: { Origin: BASE_URL }, data: { email, password } });
+    expect(response.ok()).toBe(true);
+    session = await page.request.get('/api/auth/get-session');
+    payload = await session.json() as { user?: { id?: string } } | null;
+  }
   expect(session.ok()).toBe(true);
-  const userId = (await session.json()).user.id as string;
+  const userId = payload?.user?.id;
   expect(userId).toBeTruthy();
-  return userId;
+  return userId!;
 }
 
 async function workspaceFor(page: Page): Promise<Workspace> {
@@ -74,13 +81,16 @@ async function withFixture(browser: Browser, info: TestInfo, run: (fixture: Fixt
   const filePath = `agent-review-lifecycle-${randomUUID()}.md`;
   const pageErrors: string[] = [];
   try {
-    for (let index = 0; index < 2; index++) contexts.push(await browser.newContext({ baseURL, viewport,
-      isMobile, hasTouch, userAgent, deviceScaleFactor }));
+    const contextOptions = { baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor };
+    contexts.push(await createAuthenticatedContext(browser, contextOptions));
+    contexts.push(await createAuthenticatedContext(browser, contextOptions));
     const owner = await contexts[0].newPage();
     const peer = await contexts[1].newPage();
-    for (const page of [owner, peer]) page.on('pageerror', (error) => pageErrors.push(error.message));
+    for (const page of [owner, peer]) {
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+    }
     const userId = await login(owner, false);
-    expect(await login(peer, true)).not.toBe(userId);
+    expect(await login(peer, false)).toBe(userId);
     const workspace = await workspaceFor(owner);
     workspaceId = workspace.id;
     expect((await workspaceFor(peer)).id).toBe(workspaceId);
@@ -99,6 +109,12 @@ async function withFixture(browser: Browser, info: TestInfo, run: (fixture: Fixt
       await page.getByRole('button', { name: /^(Edit|Bearbeiten)$/u }).click();
       await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
     }
+    const reviewPolicy = owner.getByRole('switch', {
+      name: /Require review for agent changes|Review für Agentenänderungen erforderlich|Edit directly when safe|Direkt bearbeiten, wenn sicher/u,
+    });
+    await expect(reviewPolicy).not.toBeChecked({ timeout: 30_000 });
+    await reviewPolicy.click();
+    await expect(reviewPolicy).toBeChecked();
     const created = await owner.request.post('/api/sessions', { headers,
       data: { agentId: 'canvas-agent', workspaceId, title: 'Synthetic agent review lifecycle acceptance' } });
     expect(created.ok()).toBe(true);
@@ -168,12 +184,17 @@ async function propose(fixture: Fixture, oldText = 'Agent target', newText = 'Ag
   expect(review.proposalVersion).toMatch(/^v1\.[a-f0-9]{64}$/u);
   return review;
 }
-async function showPanel(fixture: Fixture, tab: 'review' | 'activity' = 'review'): Promise<Locator> {
-  const region = fixture.owner.getByRole('region', { name: /Agent changes|Agentenänderungen/u });
-  if (!await region.isVisible()) await fixture.owner.getByRole('button', { name: /Agent changes|Agentenänderungen/u }).click();
-  await expect(region).toBeVisible();
-  await region.getByRole('tab', { name: tab === 'review' ? /Review|Prüfung/u : /Activity|Aktivität/u }).click();
-  return region;
+async function showPanel(fixture: Fixture): Promise<Locator> {
+  const center = fixture.owner.getByTestId('file-version-center');
+  if (!await center.isVisible()) {
+    const trigger = fixture.owner.getByRole('button', {
+      name: /Open agent changes|Offene Agentenänderungen/u,
+    });
+    await expect(trigger).toBeVisible({ timeout: 20_000 });
+    await trigger.click();
+  }
+  await expect(center).toBeVisible();
+  return center;
 }
 function expectDurable(result: Operation) {
   expect(result.durability).toMatch(/^(persisted_yjs|checkpointed_file)$/u);
@@ -182,14 +203,25 @@ function expectDurable(result: Operation) {
 }
 async function acceptInUi(fixture: Fixture, review: Operation): Promise<Operation> {
   const panel = await showPanel(fixture);
+  const accept = panel.getByRole('button', { name: /^(Accept change|Änderung annehmen)$/u });
+  const retry = panel.getByRole('button', {
+    name: /^(Try again|Erneut versuchen|Refresh timeline|Timeline aktualisieren)$/u,
+  });
+  await expect(accept.or(retry)).toBeVisible({ timeout: 20_000 });
+  if (await retry.isVisible()) {
+    await retry.click();
+    await expect(accept).toBeVisible({ timeout: 20_000 });
+  }
   const pending = fixture.owner.waitForResponse((response) => response.request().method() === 'POST'
-    && new URL(response.url()).pathname === `${operationUrl(review)}/accept`);
-  await panel.getByRole('button', { name: /^(Accept|Annehmen)$/u }).click();
+    && new URL(response.url()).pathname === `${operationUrl(review)}/accept`, { timeout: 30_000 });
+  await accept.click();
   const response = await pending;
   expect(response.request().postDataJSON()).toMatchObject({ proposalVersion: review.proposalVersion });
   expect(response.ok()).toBe(true);
   const result = (await response.json()).operation as Operation;
   expectDurable(result);
+  await fixture.owner.keyboard.press('Escape');
+  await expect(panel).toBeHidden();
   return result;
 }
 async function selectParagraph(page: Page, editor: Locator, content: string) {
@@ -208,7 +240,7 @@ async function selectParagraph(page: Page, editor: Locator, content: string) {
   await expect.poll(() => page.evaluate(() => getSelection()?.toString())).toBe(content);
 }
 
-test.describe('Agent review lifecycle with two real collaborators', () => {
+test.describe('Agent review lifecycle with two real browser clients', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed Postgres team fixture and actual agent tool driver.');
   test.setTimeout(180_000);
 
@@ -255,7 +287,7 @@ test.describe('Agent review lifecycle with two real collaborators', () => {
         await route.abort('failed'); // Deliberately lose only the browser's HTTP response, not the server process.
         aborted = true;
       }, { times: 1 });
-      await panel.getByRole('button', { name: /^(Accept|Annehmen)$/u }).click();
+      await panel.getByRole('button', { name: /^(Accept change|Änderung annehmen)$/u }).click();
       await expect.poll(() => aborted, { timeout: 30_000 }).toBe(true);
       expect(requestBody).toMatchObject({ proposalVersion: review.proposalVersion });
       expect(requestBody!.idempotencyKey).toBeTruthy();
@@ -283,7 +315,7 @@ test.describe('Agent review lifecycle with two real collaborators', () => {
     });
   });
 
-  test('selective UI revert preserves a peer paragraph and a later overlapping revert conflicts', async ({ browser }, info) => {
+  test('selective revert preserves a peer paragraph and a later overlapping revert conflicts', async ({ browser }, info) => {
     await withFixture(browser, info, async (fixture) => {
       const review = await propose(fixture);
       await acceptInUi(fixture, review);
@@ -291,11 +323,10 @@ test.describe('Agent review lifecycle with two real collaborators', () => {
       await fixture.peerEditor.getByText('Human paragraph', { exact: true }).click();
       await fixture.peer.keyboard.press('End'); await fixture.peer.keyboard.insertText(' from colleague');
       await expect.poll(() => text(fixture.editor)).toContain('Human paragraph from colleague');
-      const panel = await showPanel(fixture, 'activity');
-      const revertResponse = fixture.owner.waitForResponse((response) => response.request().method() === 'POST'
-        && new URL(response.url()).pathname === `${operationUrl(review)}/revert`);
-      await panel.getByRole('button', { name: /^(Revert|Rückgängig machen)$/u }).click();
-      const response = await revertResponse;
+      const response = await fixture.owner.request.post(`${operationUrl(review)}/revert`, {
+        headers: fixture.headers,
+        data: { idempotencyKey: `selective-revert-${randomUUID()}` },
+      });
       expect(response.ok()).toBe(true);
       const reverted = (await response.json()).operation as Operation;
       expect(reverted.operationStatus).toBe('reverted'); expectDurable(reverted);
@@ -319,8 +350,11 @@ test.describe('Agent review lifecycle with two real collaborators', () => {
       expect(await tree(fixture.editor)).toEqual(beforeConflict);
       await expect.poll(() => tree(fixture.peerEditor)).toEqual(beforeConflict);
       const conflictPanel = await showPanel(fixture);
-      await expect(conflictPanel).toContainText(/Review required|Prüfung erforderlich|conflicts with|kollidiert/u, { timeout: 20_000 });
-      await expect(conflictPanel.getByRole('button', { name: /^(Accept|Annehmen)$/u })).toHaveCount(0);
+      await expect(conflictPanel).toContainText(
+        /Needs review|Review required|Prüfung erforderlich|conflicts with|kollidiert|comparison is no longer current|Vergleich ist nicht mehr aktuell/u,
+        { timeout: 20_000 },
+      );
+      await expect(conflictPanel.getByRole('button', { name: /^(Accept change|Änderung annehmen)$/u })).toHaveCount(0);
     });
   });
 

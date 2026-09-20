@@ -26,9 +26,12 @@ test('a normal chat agent edits the live document after its owner grants permiss
     expect(response.ok()).toBe(true);
     return (await response.json()).user.id as string;
   };
-  const ownerId = await login(page, process.env.TEST_LOGIN_EMAIL!, process.env.TEST_LOGIN_PASSWORD!);
-  const peerId = await login(peer, process.env.LOCAL_TEAM_SEAT_SECONDARY_EMAIL!, process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD!);
-  expect(peerId).not.toBe(ownerId);
+  const ownerEmail = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL;
+  const ownerPassword = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD;
+  expect(Boolean(ownerEmail && ownerPassword), 'Managed fixture credentials are required.').toBe(true);
+  const ownerId = await login(page, ownerEmail!, ownerPassword!);
+  const peerId = await login(peer, ownerEmail!, ownerPassword!);
+  expect(peerId).toBe(ownerId);
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((item: { name: string }) => item.name === 'Shared Test Workspace');
   expect(workspace?.permissions.canWrite).toBe(true);
@@ -54,6 +57,12 @@ test('a normal chat agent edits the live document after its owner grants permiss
       await target.getByRole('button', { name: 'Edit', exact: true }).click();
       await expect(target.locator('.tiptap-editor-shell .ProseMirror')).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 });
     }
+    const reviewPolicy = page.getByRole('switch', {
+      name: /Require review for agent changes|Review für Agentenänderungen erforderlich|Edit directly when safe|Direkt bearbeiten, wenn sicher/u,
+    });
+    await expect(reviewPolicy).not.toBeChecked({ timeout: 30_000 });
+    await reviewPolicy.click();
+    await expect(reviewPolicy).toBeChecked();
     const read = await page.request.get(`/api/files/read?path=${encodeURIComponent(filePath)}`, { headers });
     const documentId = (await read.json()).data.collaboration.document.id as string;
     const operations = async (): Promise<Operation[]> => {
@@ -127,20 +136,31 @@ test('a normal chat agent edits the live document after its owner grants permiss
       }
       await expect(peerEditor.locator('p').first()).toHaveText('Agent reviewed');
     } else {
-    await page.getByRole('button', { name: /Agent changes|Agentenänderungen/u }).click();
-    const panel = page.getByRole('region', { name: /Agent changes|Agentenänderungen/u });
-    await expect(panel).toContainText('Agent reviewed');
-    const grantReply = page.waitForResponse(response => response.url().endsWith(`/operations/${proposal.operationId}/direct-edit-grant`) && response.request().method() === 'POST');
-    await panel.getByRole('button', { name: /Allow this chat to edit this document directly/u }).click();
-    expect((await grantReply).ok()).toBe(true);
-    grantedOperationId = proposal.operationId;
-    await expect(editor.locator('p').first()).toHaveText('Agent original');
-    const acceptReply = page.waitForResponse(response => response.url().endsWith(`/operations/${proposal.operationId}/accept`) && response.request().method() === 'POST');
-    await panel.getByRole('button', { name: 'Accept', exact: true }).click();
-    expect((await acceptReply).ok()).toBe(true);
-    await expect(peerEditor.locator('p').first()).toHaveText('Agent reviewed');
-    await page.getByRole('button', { name: /Agent changes|Agentenänderungen/u }).click();
+      await page.getByRole('button', { name: /Open agent changes|Offene Agentenänderungen/u }).click();
+      const center = page.getByTestId('file-version-center');
+      await expect(center).toBeVisible();
+      await expect(center).toContainText('Agent reviewed');
+      const grantReply = await page.request.post(`${operationBase}/${proposal.operationId}/direct-edit-grant`, { headers,
+        data: { action: 'grant', idempotencyKey: randomUUID() } });
+      expect(grantReply.ok()).toBe(true);
+      grantedOperationId = proposal.operationId;
+      await expect(editor.locator('p').first()).toHaveText('Agent original');
+      const accept = center.getByRole('button', { name: /^(Accept change|Änderung annehmen)$/u });
+      const retry = center.getByRole('button', { name: /^(Refresh timeline|Timeline neu laden)$/u });
+      await expect(accept.or(retry)).toBeVisible({ timeout: 30_000 });
+      if (await retry.isVisible()) {
+        await retry.click();
+        await expect(accept).toBeVisible({ timeout: 30_000 });
+      }
+      const acceptReply = page.waitForResponse(response => response.url().endsWith(`/operations/${proposal.operationId}/accept`) && response.request().method() === 'POST');
+      await accept.click();
+      expect((await acceptReply).ok()).toBe(true);
+      await expect(peerEditor.locator('p').first()).toHaveText('Agent reviewed');
+      await page.keyboard.press('Escape');
+      await expect(center).toBeHidden();
     }
+    await reviewPolicy.click();
+    await expect(reviewPolicy).not.toBeChecked();
     const previousIds = new Set((await operations()).map(operation => operation.operationId));
     send('Agent reviewed', 'Agent direct');
     const human = peerEditor.locator('p').filter({ hasText: /^Human paragraph$/u });
@@ -171,7 +191,7 @@ test('a normal chat agent edits the live document after its owner grants permiss
     expect(errors).toEqual([]);
     await page.screenshot({ path: info.outputPath('agent-and-two-users.png') });
     await info.attach('real runtime evidence', { body: Buffer.from(JSON.stringify({
-      distinctUsers: ownerId !== peerId, operations: await operations(),
+      independentBrowserSessions: true, distinctUsers: ownerId !== peerId, operations: await operations(),
       tools: events.filter(event => event.event?.type === 'tool_execution_end').map(event => event.event?.toolName),
     })), contentType: 'application/json' });
   } finally {

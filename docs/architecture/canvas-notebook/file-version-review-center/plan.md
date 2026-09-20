@@ -768,3 +768,42 @@ geprueft; vor jedem Commit wird der Gesamtdiff gegen `main` analysiert. Der
 Stack wird nicht parallel dupliziert. Ein Container-Rebuild erfolgt nur nach
 erneuter ausdruecklicher Anforderung; ansonsten wird gegen den vorhandenen
 gesunden Stack getestet.
+
+### 19.6 Abnahmeergebnis vom 20. September 2026
+
+Der globale Center besitzt jetzt fuer Editor-Toolbar, Datei-Kontextmenue und
+Editor-Dateimenue denselben aufloesenden Clientpfad. Nur ein voruebergehend
+nicht verfuegbarer Persistenzstand wird begrenzt erneut geladen. Veraltete
+Deep-Link-Auswahlen und Current-Fences werden dagegen explizit neu aufgeloest;
+ein Konflikt oder eine fremde Auswahl wird nicht still wiederholt.
+
+Eine noch nie im kollaborativen Editor geoeffnete Datei darf bereits eine
+aktive Dokumentprojektion, aber noch keinen Yjs-Zustand besitzen. In diesem
+engen Fall ist der Workspace-Dateistand autoritativ und der Center bleibt auch
+im Personal-Workspace verfuegbar. Sobald ein Yjs-Zustand existiert, bleiben ein
+abweichender Workspace, Pfad, Lifecycle oder degradierter Zustand fail-closed.
+
+Die Browserabnahme umfasst:
+
+- Personal- und Team-Capabilities sowie den neuen `safe_direct`-Default,
+- explizites Ein- und Ausschalten von Review im Editor,
+- historische Markdown-Vergleiche ohne Modellrequest,
+- Editor-, Dateibaum- und FileActions-Einstiege,
+- 1600, 760 und 390 Pixel, Touch, Dark Mode und Reduced Motion,
+- symmetrische 16-Pixel-Kartengutter, fehlenden Horizontal-Overflow und einen
+  mit der Timeline scrollenden Historientrenner,
+- vier reale Lifecycle-Szenarien fuer Move, Response-Loss/Retry, selektiven
+  Revert mit Konflikt sowie einen geloeschten Zielblock,
+- einen realen `ollama/kimi-k2.6:cloud`-Lauf: Review an, Vorschlag vergleichen
+  und annehmen, Review aus, Folge-Edit direkt anwenden und eine parallele
+  menschliche Aenderung erhalten.
+
+Bekannter Restfehler der lokalen Testinfrastruktur: Der konfigurierte zweite
+Team-Seat-Nutzer ist derzeit suspendiert. `testenv:fixtures` erkennt die
+existierende Membership, versucht aber eine Neuanlage und endet mit
+`MEMBERSHIP_OPERATION_CONFLICT`. Die anschliessende Reaktivierung ist blockiert,
+weil ein idempotent wiederholter Membership-Snapshot in der Control Plane sein
+altes Empfangsdatum behaelt und deshalb als zu alt gilt. Owner ist der
+`canvas-local-team-seat-dev`-Fixture-Workflow. Die Produktabnahme verwendet bis
+zur Reparatur zwei unabhaengige Browser-Sessions des aktiven Owners; Workspace-,
+Policy-, Review- und Echtzeitgrenzen bleiben dabei produktiv aktiv.
