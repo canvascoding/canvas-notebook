@@ -163,6 +163,13 @@ async function main() {
   let requests = 0;
   globalThis.fetch = async () => { requests += 1; throw new Error('Markdown projection is unavailable'); };
   try {
+    const releaseJoiningGuard = effectFactories[0](null)();
+    const joiningGuard = getDocumentTransitionGuard('workspace', 'before.txt');
+    assert(joiningGuard);
+    assert.equal(joiningGuard.hasPendingChanges(), false, 'read-only startup is not an unsaved user change');
+    await joiningGuard.prepare();
+    releaseJoiningGuard?.();
+
     await render(); await until(() => providers.length === 1);
     await act(async () => providers[0].options.onSynced());
     const first = get(); const originalDoc = first.doc;

@@ -921,7 +921,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     return registerDocumentTransitionGuard(currentFileWorkspaceId, currentFilePath, {
       localChangeVersion: () => officeEditorRef.current?.changeVersion(),
       hasPendingChanges: () => useEditorStore.getState().isDirty || Boolean(officeEditorRef.current?.hasChanges()) || Boolean(
-        isCrdtCollaboration && !hasCurrentPersistedCollaborationDocument(activeCollaborationDocument),
+        isCrdtCollaboration && activeCollaborationDocument?.ready
+          && !hasCurrentPersistedCollaborationDocument(activeCollaborationDocument),
       ),
       prepare: async () => {
         if (activeExternalTextChangePath === currentFilePath) {
@@ -936,8 +937,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           officeEditorRef.current.markSaved(version);
           return;
         }
-        if (!isCrdtCollaboration) return;
-        if (!activeCollaborationDocument) throw new Error(t('collaboration.connecting'));
+        if (!isCrdtCollaboration || !activeCollaborationDocument?.ready) return;
         try { await prepareCollaborationDocumentTransition(activeCollaborationDocument); }
         catch { throw new Error(t('collaboration.closeRecoveryBlocked')); }
       },

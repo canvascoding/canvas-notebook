@@ -1163,7 +1163,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     try {
       const guard = getDocumentTransitionGuard(workspaceId, currentFile.path);
       if (guard) await guard.prepare();
-      else if (/\.docx$/i.test(currentFile.path) || currentFile.collaboration?.crdtCapable || currentFile.collaboration?.sceneCapable) {
+      else if (/\.docx$/i.test(currentFile.path) || currentFile.collaboration?.sceneCapable) {
         throw new Error('The editor is still connecting. Please retry when the document is saved.');
       }
       if (!isCurrent()) throw new Error('The document changed. Please retry.');

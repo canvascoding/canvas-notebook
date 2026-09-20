@@ -158,6 +158,84 @@ test.describe('Markdown live collaboration', () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the explicit Postgres team E2E profile.');
   test.setTimeout(120_000);
 
+  test('closes and switches away while collaboration is still joining', async ({ browser }) => {
+    const suffix = randomUUID();
+    const joiningPath = `collaboration-joining-${suffix}.md`;
+    const readyPath = `collaboration-ready-${suffix}.md`;
+    const context = await fixtureContext(browser);
+    const page = await context.newPage();
+    const errors = logBrowserDiagnostics(page, 'joining-navigation');
+    const joinReleases: Array<() => void> = [];
+    let joinAttempts = 0;
+    let workspaceId: string | null = null;
+    const releasePendingJoins = () => joinReleases.splice(0).forEach((release) => release());
+
+    try {
+      await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
+      workspaceId = await organizationWorkspace(page.request);
+      await useWorkspace(context, workspaceId);
+      const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+      for (const filePath of [joiningPath, readyPath]) {
+        const created = await page.request.post('/api/files/create', {
+          headers,
+          data: { path: filePath, type: 'file' },
+        });
+        expect(created.ok(), await created.text()).toBe(true);
+      }
+
+      await page.route('**/api/files/collaboration/session', async (route) => {
+        let body: { path?: string } = {};
+        try { body = route.request().postDataJSON() as { path?: string }; }
+        catch { /* Let malformed or unrelated requests reach the application. */ }
+        if (body.path !== joiningPath) {
+          await route.continue();
+          return;
+        }
+        joinAttempts += 1;
+        await new Promise<void>((resolve) => joinReleases.push(resolve));
+        await route.continue().catch(() => undefined);
+      });
+
+      await openCollaborativeMarkdown(page, readyPath);
+      const readyTab = page.getByRole('tab', { name: readyPath, exact: true });
+      await expect(readyTab).toHaveAttribute('aria-selected', 'true');
+      const joiningFile = page.locator(`[data-file-path="${joiningPath}"]`).first();
+
+      await joiningFile.dblclick();
+      await expect.poll(() => joinAttempts).toBe(1);
+      const firstJoiningTab = page.getByRole('tab', { name: joiningPath, exact: true });
+      await expect(firstJoiningTab).toHaveAttribute('aria-selected', 'true');
+      await page.getByRole('button', { name: 'Close preview' }).click();
+      await expect(firstJoiningTab).toHaveCount(0, { timeout: 3_000 });
+      await expect(readyTab).toHaveAttribute('aria-selected', 'true', { timeout: 3_000 });
+      joinReleases.shift()?.();
+
+      await joiningFile.dblclick();
+      await expect.poll(() => joinAttempts).toBe(2);
+      const secondJoiningTab = page.getByRole('tab', { name: joiningPath, exact: true });
+      await expect(secondJoiningTab).toHaveAttribute('aria-selected', 'true');
+      await readyTab.click();
+      await expect(readyTab).toHaveAttribute('aria-selected', 'true', { timeout: 3_000 });
+      await expect(secondJoiningTab).toHaveAttribute('aria-selected', 'false');
+      joinReleases.shift()?.();
+      await page.waitForTimeout(250);
+      await expect(readyTab).toHaveAttribute('aria-selected', 'true');
+      expect(errors).toEqual([]);
+    } finally {
+      releasePendingJoins();
+      if (workspaceId) {
+        const headers = { [WORKSPACE_ID_HEADER]: workspaceId };
+        for (const filePath of [joiningPath, readyPath]) {
+          await page.request.delete('/api/files/delete', {
+            headers,
+            data: { path: filePath },
+          }).catch(() => undefined);
+        }
+      }
+      await context.close();
+    }
+  });
+
   test('deletes and moves blocks across peers without save rows or layout shifts', async ({ browser }) => {
     const filePath = `collaboration-quiet-blocks-${randomUUID()}.md`;
     const ownerContext = await fixtureContext(browser);

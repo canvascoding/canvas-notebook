@@ -4,6 +4,7 @@ import { useEditorStore } from '../app/store/editor-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
 import { registerDocumentTransitionGuard } from '../app/lib/files/document-transition';
 import { handleOpenChatSessionEvent } from '../app/lib/chat/open-chat-session-event';
+import type { CurrentFile } from '../app/lib/files/types';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -77,6 +78,16 @@ async function main() {
     await assert.rejects(staleClose, /document changed/);
     assert.equal(useFileStore.getState().currentFile?.path, 'b.txt');
     unregister();
+
+    setup();
+    const joiningFile = { path: 'joining.md', content: '', collaboration: {
+      crdtCapable: true, sceneCapable: false,
+    } } as CurrentFile;
+    useFileStore.setState({ currentFile: joiningFile, currentFileWorkspaceId: 'a' });
+    useEditorStore.getState().setActiveFile(joiningFile.path, joiningFile.content);
+    assert.equal(await useFileStore.getState().closeFile(joiningFile.path), true,
+      'a read-only collaboration startup without a mounted guard closes immediately');
+    assert.equal(useFileStore.getState().currentFile, null);
 
     const switched = deferred<boolean>();
     let opened = false;
