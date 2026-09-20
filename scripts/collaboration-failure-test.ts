@@ -90,7 +90,8 @@ async function main() {
     if (name.endsWith('/runtime-state')) return { installCollaborationRoomInspector() {} };
     if (name.endsWith('/document-access')) return { installCollaborationDocumentReader() {} };
     if (name.endsWith('/direct-connection')) return { installCollaborationDirectConnection() {} };
-    if (name.endsWith('/agent-operations')) return { recoverCollaborationAgentOperations: async () => {} };
+    if (name.endsWith('/agent-operations')) return { recoverCollaborationAgentOperations: async () => {},
+      recoverProposalGraphActions: async () => ({ recovered: 0, pending: 0 }) };
     if (name.endsWith('/history-service')) return { fileVersionHistoryService: {
       capturePersistedCollaboration: async (input: Record<string, unknown>) => { versionCaptures.push(input); },
     } };

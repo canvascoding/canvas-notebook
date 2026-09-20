@@ -34,6 +34,8 @@ async function main() {
   let accessDenied = false;
   let writes = 0;
   let authCalls = 0;
+  let agentRecoveryCalls = 0;
+  let proposalRecoveryCalls = 0;
   let delayedReads: Array<(value: PersistedCollaborationState | null) => void> | null = null;
   const conflictInputs: Array<{ observedDocumentSequence: number | null; doc: Y.Doc }> = [];
   let hooks!: Record<string, (input: Record<string, unknown>) => Promise<void>>;
@@ -74,7 +76,8 @@ async function main() {
     if (name.endsWith('/document-access')) return { installCollaborationDocumentReader() {} };
     if (name.endsWith('/direct-connection')) return { installCollaborationDirectConnection() {} };
     if (name.endsWith('/agent-operations')) return {
-      recoverCollaborationAgentOperations: async () => {},
+      recoverCollaborationAgentOperations: async () => { agentRecoveryCalls++; },
+      recoverProposalGraphActions: async () => { proposalRecoveryCalls++; return { recovered: 0, pending: 0 }; },
       detectLateAgentSemanticConflicts: async (input: typeof conflictInputs[number]) => { conflictInputs.push(input); },
     };
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
@@ -178,6 +181,9 @@ async function main() {
       assert.equal(writes, 0); assert.equal(authCalls, 0);
       assert.equal(state.documentSequence, 5); assert.equal(state.checkpointSequence, 2);
       assert.deepEqual(Y.encodeStateAsUpdate(doc), state.yjsState);
+    });
+    check('server startup launches legacy and graph action recovery independently', () => {
+      assert.equal(agentRecoveryCalls, 1); assert.equal(proposalRecoveryCalls, 1);
     });
     console.log(`Durability acknowledgement server: ${checks} checks passed.`);
   } finally {

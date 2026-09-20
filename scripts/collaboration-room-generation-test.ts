@@ -89,7 +89,8 @@ async function main() {
       projections = callbacks; return { enqueue() {}, dispose() {} };
     } };
     if (name.endsWith('/access-monitor')) return { createCollaborationAccessMonitor: () => ({ dispose() {} }) };
-    if (name.endsWith('/agent-operations')) return { recoverCollaborationAgentOperations: async () => {} };
+    if (name.endsWith('/agent-operations')) return { recoverCollaborationAgentOperations: async () => {},
+      recoverProposalGraphActions: async () => ({ recovered: 0, pending: 0 }) };
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
     if (name.endsWith('/presence')) return { replaceDocumentPresence() {} };
     if (name.endsWith('/diagnostics')) return { logCollaborationDiagnostic() {} };

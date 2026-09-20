@@ -19,7 +19,7 @@ const workspace: WorkspaceContext = { workspaceId: 'workspace', workspaceType: '
   rootPath: '/unused', legacy: false, permissions: { canRead: true, canWrite: true, canRunAgent: true,
     canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false } };
 type Review = { targets: Agent.AgentOperationView['reviewTargets']; proposalVersion: string | null };
-type Row = Record<string, unknown> & { cas_version: number; status: string; action_keys_json: string; operation_payload: string };
+type Row = Record<string, unknown> & { operation_id: string; cas_version: number; status: string; action_keys_json: string; operation_payload: string };
 type Internals = typeof Agent & {
   sealPayload(value: unknown): string;
   reviewTargetsInDocument(row: Row, doc: Y.Doc, userId: string): Review;
@@ -39,6 +39,7 @@ function harness(markdown?: string) {
   let beforeApply = () => {};
   let reads = 0;
   let newDelivery = false;
+  let graphBound = false;
   let directGrant: { id: string; expiresAt: number } | null = null;
   let policyMode: 'review_required' | 'safe_direct' = 'review_required';
   let denyPolicyAuthorization = false;
@@ -48,9 +49,11 @@ function harness(markdown?: string) {
   class GrantUnavailableError extends Error {}
 
   const database = {
-    get: async (sql: string) => sql.includes('SELECT name, email') ? { name: 'User' }
+    get: async (sql: string) => sql.includes('FROM file_change_proposals') ? (graphBound ? { proposal_id: 'proposal' } : undefined)
+      : sql.includes('SELECT name, email') ? { name: 'User' }
       : newDelivery && sql.includes('WHERE document_id = $1 AND initiated_by_user_id') ? undefined : { ...row },
     close: async () => {},
+    all: async (sql: string) => sql.includes("WHERE status IN ('preparing'") ? [{ ...row }] : [],
     run: async (sql: string, params: unknown[]) => {
       if (sql.includes('INSERT INTO collaboration_agent_operations')) {
         const insert = /\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)/.exec(sql)!;
@@ -179,15 +182,18 @@ function harness(markdown?: string) {
   const preview = () => agent.reviewTargetsInDocument(row, doc, 'user');
   const accept = (proposalVersion: string, idempotencyKey = 'accept') => agent.acceptAgentOperation({
     operationId: 'operation', workspace, userId: 'user', idempotencyKey, proposalVersion });
-  const deliver = (overrides: Partial<Parameters<typeof Agent.applyPersistedAgentTextOperation>[0]> = {}) => {
-    newDelivery = true;
-    return agent.applyPersistedAgentTextOperation({ documentId: 'document', workspace, initiatedByUserId: 'user',
+  const deliveryInput = (overrides: Partial<Parameters<typeof Agent.applyPersistedAgentTextOperation>[0]> = {}) => ({ documentId: 'document', workspace, initiatedByUserId: 'user',
       actorId: 'agent', actorSessionId: 'session', actorDisplayName: 'Agent', idempotencyKey: 'delivery',
       runGeneration: 1, targets: [target], documentPath: state.path,
       documentRepresentation: state.representation as 'plain_text' | 'tiptap_blocks', documentLifecycleGeneration: 1,
       documentSchemaVersion: 1, ...overrides });
+  const deliver = (overrides: Partial<Parameters<typeof Agent.applyPersistedAgentTextOperation>[0]> = {}) => {
+    newDelivery = true;
+    return agent.applyPersistedAgentTextOperation(deliveryInput(overrides));
   };
   return { doc, state, row, agent, target, preview, accept, deliver,
+    retryDelivery: () => agent.applyPersistedAgentTextOperation(deliveryInput()),
+    setGraphBound: (value: boolean) => { graphBound = value; },
     setGrant: (value: { id: string; expiresAt: number } | null) => {
       directGrant = value;
       policyMode = value ? 'safe_direct' : 'review_required';
@@ -247,6 +253,30 @@ test('same key and token after a lost response returns the original result once'
     assert.equal(h.historyCaptures(), 1, 'the lost-response retry does not capture a second revision');
     await assert.rejects(h.accept(`v1.${'0'.repeat(64)}`), { code: 'AGENT_PROPOSAL_CHANGED' });
     assert.equal(h.directCalls(), 1);
+  } finally { h.close(); }
+});
+
+test('graph-bound operations reject every legacy action and retry without mutating content', async () => {
+  const h = harness();
+  try {
+    await h.deliver();
+    h.setGraphBound(true);
+    const token = h.preview().proposalVersion!;
+    const blocked = (error: unknown) => Boolean(error && typeof error === 'object'
+      && 'code' in error && error.code === 'PROPOSAL_LEGACY_BLOCKED');
+    await assert.rejects(h.accept(token), blocked);
+    await assert.rejects(h.agent.rejectAgentOperation({ operationId: h.row.operation_id, workspace,
+      userId: 'user', idempotencyKey: 'reject-graph' }), blocked);
+    await assert.rejects(h.agent.cancelAgentOperation({ operationId: h.row.operation_id, workspace,
+      userId: 'user', idempotencyKey: 'cancel-graph' }), blocked);
+    await assert.rejects(h.agent.revertAgentOperation({ operationId: h.row.operation_id, workspace,
+      userId: 'user', idempotencyKey: 'revert-graph' }), blocked);
+    await assert.rejects(h.retryDelivery(), blocked);
+    h.row.status = 'applying';
+    await h.agent.recoverCollaborationAgentOperations();
+    assert.equal(h.directCalls(), 0);
+    assert.equal(h.doc.getText('content').toString(), 'Original.\n\nOther.');
+    assert.equal(h.row.status, 'applying', 'legacy restart recovery must leave graph-owned operations to graph recovery');
   } finally { h.close(); }
 });
 

@@ -542,6 +542,7 @@
     "test:proposal-graph:model": "tsx --conditions react-server scripts/proposal-graph-model-test.ts",
     "test:proposal-graph:fences": "tsx --conditions react-server scripts/proposal-graph-fence-test.ts",
     "test:proposal-graph:candidates": "tsx --conditions react-server scripts/proposal-graph-candidate-test.ts",
+    "test:proposal-graph:orchestrator": "tsx --conditions react-server scripts/proposal-action-orchestrator-test.ts && tsx --conditions react-server scripts/proposal-action-orchestrator-storage-test.ts && tsx --conditions react-server scripts/proposal-graph-candidate-operation-test.ts",
     "test:proposal-graph:tools": "tsx --conditions react-server scripts/proposal-tool-contract-test.ts && tsx --conditions react-server scripts/proposal-graph-preparation-test.ts && tsx --conditions react-server scripts/proposal-graph-tools-test.ts && tsx --conditions react-server scripts/proposal-graph-operation-bridge-test.ts && tsx --conditions react-server scripts/proposal-provenance-storage-test.ts && tsx --conditions react-server scripts/proposal-graph-tool-wrappers-test.ts && tsx --conditions react-server scripts/proposal-agent-file-integration-test.ts && tsx --conditions react-server scripts/proposal-agent-runtime-test.ts"
   },
   "dependencies": {

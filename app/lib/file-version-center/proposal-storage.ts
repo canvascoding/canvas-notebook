@@ -485,10 +485,10 @@ function createGraphTransaction(input: {
       }
       if (state.activeActionId !== receipt.actionId || state.actingActionId !== receipt.actionId) fail(Codes.recoveryRequired, 'Action does not own the document reservation.');
       if (receipt.phase === 'succeeded' && receipt.result.kind === 'content_changed') {
-        const operation = (await db.query<{ persisted_at: string | number | null; checkpoint_revision_id: string | null; resulting_state_snapshot: Uint8Array | null }>(
-          `SELECT persisted_at,checkpoint_revision_id,resulting_state_snapshot FROM collaboration_agent_operations
+        const operation = (await db.query<{ persisted_at: string | number | null; version_revision_id: string | null; resulting_state_snapshot: Uint8Array | null }>(
+          `SELECT persisted_at,version_revision_id,resulting_state_snapshot FROM collaboration_agent_operations
            WHERE operation_id=$1 AND document_id=$2 AND workspace_id=$3`, [receipt.operationId, scope.documentId, scope.workspaceId])).rows[0];
-        if (operation?.persisted_at == null || !operation.resulting_state_snapshot || operation.checkpoint_revision_id !== receipt.result.revisionId) {
+        if (operation?.persisted_at == null || !operation.resulting_state_snapshot || operation.version_revision_id !== receipt.result.revisionId) {
           fail(Codes.recoveryRequired, 'Underlying document operation has not durably confirmed this revision.');
         }
       }

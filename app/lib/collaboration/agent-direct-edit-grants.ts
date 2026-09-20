@@ -45,6 +45,17 @@ type GrantRow = {
   revoked_at: number | string | null;
 };
 
+type OwnedOperationRow = {
+  document_id: string;
+  workspace_id: string;
+  initiated_by_user_id: string;
+  actor_id: string;
+  actor_session_id: string | null;
+  document_lifecycle_generation: number | string;
+  operation_type: string;
+  graph_bound?: boolean | number;
+};
+
 type OperationGrantInput = {
   operationId: string;
   userId: string;
@@ -119,13 +130,15 @@ async function currentSessionId(db: SqlConnection, scope: AgentDirectEditGrantSc
 
 async function ownedOperationScope(db: SqlConnection, input: OperationGrantInput): Promise<AgentDirectEditGrantScope> {
   const row = await db.get(`SELECT document_id, workspace_id, initiated_by_user_id,
-    actor_id, actor_session_id, document_lifecycle_generation, operation_type
-    FROM collaboration_agent_operations WHERE operation_id = $1`, [input.operationId]) as {
-      document_id: string; workspace_id: string; initiated_by_user_id: string; actor_id: string;
-      actor_session_id: string | null; document_lifecycle_generation: number | string; operation_type: string;
-    } | undefined;
+    actor_id, actor_session_id, document_lifecycle_generation, operation_type,
+    EXISTS (SELECT 1 FROM file_change_proposals proposal
+      WHERE proposal.operation_id = collaboration_agent_operations.operation_id)
+      OR EXISTS (SELECT 1 FROM file_proposal_action_receipts action
+        WHERE action.operation_id = collaboration_agent_operations.operation_id) AS graph_bound
+    FROM collaboration_agent_operations WHERE operation_id = $1`, [input.operationId]) as OwnedOperationRow | undefined;
   if (!row || row.initiated_by_user_id !== input.userId || row.workspace_id !== input.workspace.workspaceId
-    || row.operation_type !== 'apply' || !row.actor_session_id) throw new AgentDirectEditGrantUnavailableError();
+    || row.operation_type !== 'apply' || !row.actor_session_id
+    || row.graph_bound === true || row.graph_bound === 1) throw new AgentDirectEditGrantUnavailableError();
   const scope = { userId: input.userId, workspaceId: row.workspace_id, agentId: row.actor_id,
     actorSessionId: row.actor_session_id, documentId: row.document_id,
     lifecycleGeneration: Number(row.document_lifecycle_generation) };

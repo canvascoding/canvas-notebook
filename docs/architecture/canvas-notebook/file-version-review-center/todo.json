@@ -1442,7 +1442,8 @@
           "id": "FVRC-1004",
           "order": 4,
           "title": "Proposal-Orchestrator fuer Accept, Reject, Replace, Detach und Batch implementieren",
-          "status": "planned",
+          "status": "done",
+          "completedAt": "2026-09-20",
           "area": "review-actions",
           "dependsOn": ["FVRC-1003"],
           "verificationScenarios": ["PG-S01", "PG-S02", "PG-S03", "PG-S04", "PG-S05", "PG-S06", "PG-S07", "PG-S08", "PG-S09", "PG-S10", "PG-S11", "PG-S12", "PG-S15", "PG-S16", "PG-S17", "PG-S18", "PG-S19", "PG-S20", "PG-S21", "PG-S22", "PG-S23", "PG-S24", "PG-S25", "PG-S26"],
@@ -1469,6 +1470,13 @@
             "Concurrent-Accept-, Lost-response-, Retry- und Restart-Tests",
             "Audit- und Revision-Binding-Tests",
             "Revert-, Rename/Move-, Delete/Restore- und Lifecycle-Regressionen"
+          ],
+          "evidence": [
+            "Der serverinterne Domain-Orchestrator reserviert Accept-, Batch-, Reject-, Branch-Reject-, Replace-, Detach- und Satisfied-Aktionen unter dem dokumentweiten PostgreSQL-Graph-Lock. Vollstaendige Closure, Choice-Gruppen, Rechte, Current-Proof, CAS, Evaluation und signierter Fence werden unmittelbar vor der Aktion erneut geprueft; Rebase bleibt bis zu einer neu angezeigten Auswertung explizit gesperrt.",
+            "Inhaltsaenderungen verwenden genau eine synthetische Collaboration-Operation und den unveraenderlichen Yjs-Kandidaten. Operation und Action-Receipt werden in derselben SQL-Transaktion vorbereitet; Erfolg erzeugt genau eine Kandidatenrevision und bindet deren applied-/included-Proposals atomar. Alle alten Accept-, Reject-, Revert-, Cancel-, Retry-, Recovery- und Direct-Grant-Pfade blockieren graphgebundene sowie synthetische Operationen.",
+            "Restart-Recovery wertet ausschliesslich persistierte Operation-, Snapshot-, Candidate- und Revisionsbelege aus und oeffnet niemals erneut einen Collaboration-Raum. Lost responses, Absturz nach Mutation, spaetere unabhaengige Edits und idempotente History-Retries werden ohne zweite Yjs-Mutation abgeschlossen; unbeweisbare Zustaende bleiben recovery_required.",
+            "Zwei zusaetzliche Crash-Grenzen sind explizit geschlossen: Eine noch preparing Operation beweist, dass keine Mutation begonnen hat, und ein Current-Konflikt vor dem ersten Yjs-Delta wird als definitiv nicht angewendet markiert. Beide Pfade setzen die synthetische Operation terminal, fuehren das Receipt sicher ueber recovery_required nach failed und geben die Graph-Reservation frei, ohne Proposal-Status oder Revision zu veraendern.",
+            "Die fokussierten Orchestrator-, PGlite-, Candidate-, Graphmodell-, Fence-, Kandidaten-, Tool-/Runtime-, Legacy-Approval-, Direct-Grant-, Schema- und Server-Recovery-Suites bestehen. Der separate echte PostgreSQL-Concurrency-Lauf gegen die verwaltete Team-Seat-Instanz bestand und seine isolierte Testdatenbank wurde entfernt. TypeScript, fokussiertes ESLint, git diff --check und der Produktionsbuild mit 344 Seiten bestehen; kein Container wurde gebaut oder ersetzt und die oeffentlichen Proposal-Aktionswerkzeuge bleiben bis FVRC-1008 geschlossen."
           ]
         },
         {

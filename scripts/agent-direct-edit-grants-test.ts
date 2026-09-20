@@ -51,6 +51,8 @@ async function harness(t: TestContext, simulateLocks = false) {
     CREATE TABLE collaboration_agent_operations (operation_id TEXT PRIMARY KEY, document_id TEXT, workspace_id TEXT,
       initiated_by_user_id TEXT, actor_id TEXT, actor_session_id TEXT, document_lifecycle_generation INTEGER,
       operation_type TEXT, status TEXT, direct_edit_grant_id TEXT);
+    CREATE TABLE file_change_proposals (proposal_id TEXT PRIMARY KEY, operation_id TEXT);
+    CREATE TABLE file_proposal_action_receipts (action_id TEXT PRIMARY KEY, operation_id TEXT);
     INSERT INTO pi_sessions VALUES (11, 'owner', 'session', 'agent', NULL);
     INSERT INTO collaboration_yjs_states VALUES ('document', 'workspace', 3, 'active');
     INSERT INTO collaboration_agent_operations VALUES ('operation', 'document', 'workspace', 'owner', 'agent', 'session', 3,
@@ -177,6 +179,24 @@ test('review-only or reverted operations cannot be used to forge another scope',
   const h = await harness(t);
   h.sqlite.exec("UPDATE collaboration_agent_operations SET operation_type = 'revert'");
   await assert.rejects(h.grant(), h.service.AgentDirectEditGrantUnavailableError);
+});
+
+test('graph-bound operations cannot receive or expose direct-edit grants', async (t) => {
+  const h = await harness(t);
+  h.sqlite.exec("INSERT INTO file_change_proposals VALUES ('proposal', 'operation')");
+  await assert.rejects(h.grant(), h.service.AgentDirectEditGrantUnavailableError);
+  await assert.rejects(h.revoke(), h.service.AgentDirectEditGrantUnavailableError);
+  await assert.rejects(h.service.getAgentDirectEditGrantForOperation(h.input), h.service.AgentDirectEditGrantUnavailableError);
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grants').get()?.count, 0);
+});
+
+test('synthetic graph-action operations cannot receive direct-edit grants', async (t) => {
+  const h = await harness(t);
+  h.sqlite.exec("INSERT INTO file_proposal_action_receipts VALUES ('action', 'operation')");
+  await assert.rejects(h.grant(), h.service.AgentDirectEditGrantUnavailableError);
+  await assert.rejects(h.revoke(), h.service.AgentDirectEditGrantUnavailableError);
+  await assert.rejects(h.service.getAgentDirectEditGrantForOperation(h.input), h.service.AgentDirectEditGrantUnavailableError);
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grants').get()?.count, 0);
 });
 
 test('new clicks and idempotent replay do not extend an active grant', async (t) => {

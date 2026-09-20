@@ -131,7 +131,7 @@ function operationBridgeHarness() {
     try { return await action(); } catch (error) { rows = before; throw error; }
     finally { transactionActive = false; }
   };
-  return { doc, state, rows: () => rows, sqlTrace, forbiddenCalls, loads: () => loads, prepare, atomic,
+  return { agent, doc, state, transaction, rows: () => rows, sqlTrace, forbiddenCalls, loads: () => loads, prepare, atomic,
     failReviewTransition: () => { failReviewTransition = true; }, close: () => doc.destroy() };
 }
 
@@ -158,6 +158,33 @@ test('graph operation bridge stores only a durable review operation and never ob
     assert.equal(h.loads(), 1);
     assert.deepEqual(h.forbiddenCalls, []);
     assert.equal(h.doc.getText('content').toString(), 'Original');
+  } finally { h.close(); }
+});
+
+test('graph action bridge reserves a synthetic action operation in the graph transaction without a review payload', async () => {
+  const h = operationBridgeHarness();
+  try {
+    await h.atomic(() => h.agent.prepareProposalGraphActionOperation({
+      transaction: h.transaction,
+      actionId: 'graph-action-1',
+      scope: { workspaceId: 'workspace', lineageId: 'lineage', documentId: 'document', lifecycleGeneration: 1, schemaVersion: 1 },
+      workspace,
+      initiatedByUserId: 'user',
+      actorId: 'agent',
+      actorSessionId: 'session',
+      documentPath: 'document.txt',
+      documentRepresentation: 'plain_text',
+      baseStateVector: Buffer.from(h.state.stateVector).toString('base64'),
+      baseDocumentSequence: 7,
+    }));
+    const row = h.rows().get('graph-action-1')!;
+    assert.equal(row.status, 'preparing');
+    assert.equal(row.requested_mode, 'review');
+    assert.equal(row.direct_edit_grant_id, null);
+    assert.equal(row.document_id, 'document');
+    assert.equal(row.document_lifecycle_generation, 1);
+    assert.equal(row.schema_version, 1);
+    assert.deepEqual(h.forbiddenCalls, []);
   } finally { h.close(); }
 });
 

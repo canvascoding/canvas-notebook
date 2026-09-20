@@ -87,7 +87,8 @@ async function harness() {
     };
     if (name.endsWith('/projection-runtime')) return { createCollaborationProjectionRuntime: () => ({ enqueue() {}, dispose() {} }) };
     if (name.endsWith('/access-monitor')) return { createCollaborationAccessMonitor: () => ({ dispose() {} }) };
-    if (name.endsWith('/agent-operations')) return { recoverCollaborationAgentOperations: async () => {} };
+    if (name.endsWith('/agent-operations')) return { recoverCollaborationAgentOperations: async () => {},
+      recoverProposalGraphActions: async () => ({ recovered: 0, pending: 0 }) };
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
     if (name.endsWith('/document-access')) return { installCollaborationDocumentReader() {} };
     if (name.endsWith('/server-runtime')) return { Y };

@@ -65,7 +65,7 @@ function code(expected: string): (error: unknown) => boolean {
   };
 }
 
-async function prepareStoredChain(transaction: ProposalStorageTransaction): Promise<{
+export async function prepareStoredChain(transaction: ProposalStorageTransaction): Promise<{
   parent: ProposalNodeV1;
   child: ProposalNodeV1;
   independent: ProposalNodeV1;
@@ -557,7 +557,7 @@ async function runStorageBehaviorScenarios(database: ProposalGraphStorageTestDat
   const durableSnapshot = Y.encodeSnapshot(Y.snapshot(durableDocument));
   durableDocument.destroy();
   await database.query(`
-    UPDATE collaboration_agent_operations SET persisted_at = 300, checkpoint_revision_id = 'proposal-v1',
+    UPDATE collaboration_agent_operations SET persisted_at = 300, version_revision_id = 'proposal-v1',
       resulting_state_snapshot = $1 WHERE operation_id = 'proposal-operation-chain'
   `, [Buffer.from(durableSnapshot)]);
   await assert.rejects(storage.withLockedGraph(scope, actionContext, (transaction) => transaction.advanceAction(succeeded)),

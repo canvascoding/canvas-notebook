@@ -30,6 +30,7 @@ import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import {
   detectLateAgentSemanticConflicts,
   recoverCollaborationAgentOperations,
+  recoverProposalGraphActions,
 } from '@/app/lib/collaboration/agent-operations';
 import {
   CollaborationStateInactiveError,
@@ -639,6 +640,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   });
   void recoverCollaborationAgentOperations().catch((error) => {
     console.error('[Collaboration] Agent operation recovery failed:', error);
+  });
+  void recoverProposalGraphActions().catch((error) => {
+    console.error('[Collaboration] Proposal action recovery failed:', error);
   });
   setCollaborationRuntimeHealth({ websocketReady: true, persistenceReady: true });
   installCollaborationDirectConnection(async (input, apply, onApplied) => {

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import crypto, { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type * as YTypes from 'yjs';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
@@ -12,14 +13,32 @@ import {
 } from '@/app/lib/files/exact-text-patch';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
-import type { FileVersionCenterTransaction } from '@/app/lib/file-version-center/database';
-import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
+import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterTransaction } from '@/app/lib/file-version-center/database';
+import {
+  ProposalActionDefinitelyUnappliedError,
+  recoverProposalAction,
+} from '@/app/lib/file-version-center/proposal-action-orchestrator';
+import { createProposalGraphStorage } from '@/app/lib/file-version-center/proposal-storage';
+import {
+  parseProposalActionReceiptV1,
+  parseProposalPreparedActionV1,
+  ProposalGraphContractError,
+} from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
+import {
+  proposalYjsCurrentProof,
+  type ProposalYjsRepresentation,
+} from '@/app/lib/file-version-center/proposal-yjs-candidate';
+import type {
+  ProposalCurrentProofV1,
+  ProposalDocumentScopeV1,
+} from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import {
   authorizeNewAgentDirectApply,
   readAgentReviewPolicySnapshot,
   type AgentReviewPolicySnapshot,
 } from '@/app/lib/file-version-center/agent-review-policy-adapter';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import {
   AgentDirectConnectionAuthorizationError,
   runCollaborationDirectConnection,
@@ -69,7 +88,7 @@ function assertAgentOperationQuery(sql: string): void {
     || /;|--|\/\*|\*\/|"|\$(?!\d+\b)/u.test(code)
     || /\b(?:FOR\s+(?:UPDATE|SHARE|NO\s+KEY\s+UPDATE|KEY\s+SHARE)|CURRENT_USER|SESSION_USER|CURRENT_ROLE|CURRENT_SCHEMA)\b/iu.test(code)
     || (/^SELECT\b/iu.test(code) && /\bINTO\b/iu.test(code))
-    || calls.some((name) => !['COALESCE', 'IN', 'VALUES', 'AND', 'OR', 'NOT', 'COLLABORATION_AGENT_OPERATIONS'].includes(name))) {
+    || calls.some((name) => !['COALESCE', 'IN', 'VALUES', 'AND', 'OR', 'NOT', 'COLLABORATION_AGENT_OPERATIONS', 'FILE_CHANGE_PROPOSALS'].includes(name))) {
     throw new Error('Agent operation queries must be standalone statements without transaction or session state.');
   }
 }
@@ -254,6 +273,8 @@ type AgentOperationRow = {
   resulting_state_snapshot: Buffer | Uint8Array | null;
   file_edit_request_json: string | null;
   checkpoint_revision_id: string | null;
+  /** Immutable history revision for a graph-composed candidate, not the mutable file checkpoint. */
+  version_revision_id: string | null;
   result_json: string | null;
   cas_version: number;
   cancel_requested_at: number | null;
@@ -1275,6 +1296,7 @@ async function createOrLoadOperation(input: {
     } else if (existing.payload_hash !== payloadHash || (existing.file_edit_request_json ?? null) !== fileEditRequestJson) {
       throw new Error('Idempotency key was already used with a different agent payload.');
     }
+    await assertLegacyActionIsIndependent(input.database, existing.operation_id);
     return { row: existing, created: false };
   }
   if (input.correlationId && triggerDepth > 0) {
@@ -1287,6 +1309,7 @@ async function createOrLoadOperation(input: {
     ) as AgentOperationRow | undefined;
     if (chainDuplicate) {
       if (input.fileEditRequest) await assertMatchingAgentFileRequest(chainDuplicate, input);
+      await assertLegacyActionIsIndependent(input.database, chainDuplicate.operation_id);
       return { row: chainDuplicate, created: false };
     }
   }
@@ -1414,6 +1437,412 @@ export async function prepareProposalAgentOperation(input: {
     throw new ProposalGraphContractError('PROPOSAL_IDEMPOTENCY_MISMATCH', 'The operation key is already recorded; resolve its original proposal.');
   }
   return placeAgentOperationInReview(database, created.row, 'proposal_graph_review_required');
+}
+
+/**
+ * Reserves the one synthetic collaboration operation which represents a
+ * graph-wide candidate application. It is deliberately not a review target:
+ * graph action receipts own its authorization, closure and lifecycle.
+ *
+ * The caller inserts this row and advances its action receipt in the same
+ * graph-owner transaction. A restart therefore sees either neither record or
+ * both records, never an orphan operation that a legacy endpoint can adopt.
+ */
+export async function prepareProposalGraphActionOperation(input: {
+  transaction: FileVersionCenterTransaction;
+  actionId: string;
+  scope: ProposalDocumentScopeV1;
+  workspace: WorkspaceContext;
+  initiatedByUserId: string;
+  actorId: string;
+  actorSessionId?: string;
+  documentPath: string;
+  documentRepresentation: ProposalYjsRepresentation;
+  baseStateVector: string;
+  baseDocumentSequence: number;
+}): Promise<void> {
+  if (!input.workspace.permissions.canWrite || input.workspace.workspaceId !== input.scope.workspaceId) {
+    throw new ProposalGraphContractError('PROPOSAL_ACCESS_DENIED', 'Workspace write permission is required.');
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.actionId)) {
+    throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST', 'Invalid proposal action identity.');
+  }
+  const database = proposalOperationDatabase(input.transaction);
+  const created = await createOrLoadOperation({
+    database,
+    operationId: input.actionId,
+    documentId: input.scope.documentId,
+    workspace: input.workspace,
+    initiatedByUserId: input.initiatedByUserId,
+    actorId: input.actorId,
+    actorSessionId: input.actorSessionId,
+    idempotencyKey: `proposal-action:${input.actionId}`,
+    runGeneration: 1,
+    // The composed candidate is an immutable artifact pinned by the receipt;
+    // it must never be decoded by normal target-review endpoints.
+    targets: [],
+    independentGroups: false,
+    requestedMode: 'review',
+    operationType: 'apply',
+    documentPath: input.documentPath,
+    documentRepresentation: input.documentRepresentation,
+    documentLifecycleGeneration: input.scope.lifecycleGeneration,
+    documentSchemaVersion: input.scope.schemaVersion,
+    baseStateVector: input.baseStateVector,
+    baseDocumentSequence: input.baseDocumentSequence,
+  });
+  if (!created.created || created.row.operation_id !== input.actionId || created.row.status !== 'preparing') {
+    throw new ProposalGraphContractError('PROPOSAL_IDEMPOTENCY_MISMATCH', 'The action operation identity is already in use.');
+  }
+}
+
+export type ProposalGraphCandidateApplyInput = {
+  actionId: string;
+  scope: ProposalDocumentScopeV1;
+  workspace: WorkspaceContext;
+  initiatedByUserId: string;
+  actorId: string;
+  actorDisplayName: string;
+  actorSessionId?: string;
+  representation: ProposalYjsRepresentation;
+  expectedCurrent: ProposalCurrentProofV1;
+  candidateUpdate: Uint8Array;
+  candidateSha256: string;
+  baseRevisionId?: string | null;
+};
+
+export type ProposalGraphCandidateApplyResult = {
+  operationId: string;
+  revisionId: string;
+  current: ProposalCurrentProofV1;
+};
+
+type PreparedProposalCandidate = {
+  content: string;
+  current: ProposalCurrentProofV1;
+  stateVector: Uint8Array;
+};
+
+type ProposalActionOperationReceiptRow = {
+  receipt_json: unknown;
+  request_json: unknown;
+};
+
+async function assertProposalGraphActionReceipt(input: {
+  database: SqlConnection;
+  actionId: string;
+  scope: ProposalDocumentScopeV1;
+  candidateSha256: string;
+  expectedCurrent: ProposalCurrentProofV1;
+}): Promise<void> {
+  const stored = await input.database.get(
+    'SELECT receipt_json,request_json FROM file_proposal_action_receipts WHERE action_id=$1 AND operation_id=$1 LIMIT 1',
+    [input.actionId],
+  ) as ProposalActionOperationReceiptRow | undefined;
+  if (!stored) throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The graph action receipt is unavailable.');
+  const receipt = parseProposalActionReceiptV1(typeof stored.receipt_json === 'string' ? JSON.parse(stored.receipt_json) : stored.receipt_json);
+  const request = parseProposalPreparedActionV1(typeof stored.request_json === 'string' ? JSON.parse(stored.request_json) : stored.request_json);
+  if (receipt.actionId !== input.actionId || receipt.operationId !== input.actionId
+    || !['applying', 'awaiting_durability', 'recovery_required'].includes(receipt.phase)
+    || !isDeepStrictEqual(receipt.scope, input.scope) || !isDeepStrictEqual(request.fence.scope, input.scope)
+    || request.fence.effectiveCandidateHash !== input.candidateSha256
+    || !isDeepStrictEqual(request.fence.current, input.expectedCurrent)) {
+    throw new ProposalGraphContractError('PROPOSAL_CANDIDATE_CHANGED', 'The action receipt does not authorize this candidate.');
+  }
+}
+
+function prepareProposalCandidate(input: Pick<ProposalGraphCandidateApplyInput, 'candidateUpdate' | 'candidateSha256' | 'representation'>): PreparedProposalCandidate {
+  if (!/^[a-f0-9]{64}$/u.test(input.candidateSha256) || hash(input.candidateUpdate) !== input.candidateSha256) {
+    throw new ProposalGraphContractError('PROPOSAL_CANDIDATE_CHANGED', 'The pinned candidate artifact identity is invalid.');
+  }
+  const current = proposalYjsCurrentProof({ update: input.candidateUpdate, representation: input.representation, revisionId: null });
+  const doc = new Y.Doc({ gc: false });
+  try {
+    Y.applyUpdate(doc, input.candidateUpdate);
+    return {
+      content: input.representation === 'plain_text' ? doc.getText('content').toString() : richMarkdownFromYDoc(doc),
+      current,
+      stateVector: Y.encodeStateVector(doc),
+    };
+  } finally {
+    doc.destroy();
+  }
+}
+
+/**
+ * Applies one graph-composed Yjs candidate. The graph orchestrator has already
+ * pinned, authorized and fenced the candidate; this capability only owns
+ * serialized room mutation, binary durability and exact history capture.
+ */
+export async function applyProposalGraphCandidateOperation(input: ProposalGraphCandidateApplyInput): Promise<ProposalGraphCandidateApplyResult> {
+  if (!input.workspace.permissions.canWrite || input.workspace.workspaceId !== input.scope.workspaceId) {
+    throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_ACCESS_DENIED', 'Workspace write permission is required.');
+  }
+  const candidate = prepareProposalCandidate(input);
+  return serialized(input.scope.documentId, async () => {
+    const database = createAgentOperationDatabase();
+    let row: AgentOperationRow | null = null;
+    try {
+      row = await readOperation(database, input.actionId);
+      if (!row || row.document_id !== input.scope.documentId || row.workspace_id !== input.scope.workspaceId
+        || Number(row.document_lifecycle_generation) !== input.scope.lifecycleGeneration
+        || Number(row.schema_version) !== input.scope.schemaVersion || row.actor_id !== input.actorId
+        || row.initiated_by_user_id !== input.initiatedByUserId || row.document_representation !== input.representation) {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The prepared action operation is unavailable.');
+      }
+      await assertProposalGraphActionReceipt({ database, actionId: input.actionId, scope: input.scope,
+        candidateSha256: input.candidateSha256, expectedCurrent: input.expectedCurrent });
+      if (row.status === 'persisted_yjs' && row.version_revision_id) {
+        return { operationId: row.operation_id, revisionId: row.version_revision_id,
+          current: { ...candidate.current, revisionId: row.version_revision_id } };
+      }
+      if (row.status !== 'preparing') {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The action operation requires durable recovery.');
+      }
+      const state = await loadCollaborationState(row.document_id);
+      if (!state || state.status !== 'active' || state.degraded || state.workspaceId !== input.scope.workspaceId
+        || state.organizationId !== (input.workspace.organizationId ?? null) || state.path !== row.document_path
+        || state.representation !== input.representation || state.lifecycleGeneration !== input.scope.lifecycleGeneration
+        || state.schemaVersion !== input.scope.schemaVersion) {
+        throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_STALE_LIFECYCLE', 'The collaborative document is unavailable or stale.');
+      }
+      row = await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'applying' });
+      let resultingSnapshot: Uint8Array | null = null;
+      let appliedCurrent: ProposalCurrentProofV1 | null = null;
+      try {
+        await runCollaborationDirectConnection({
+          documentId: row.document_id,
+          documentPath: row.document_path || state.path,
+          documentRepresentation: input.representation,
+          documentLifecycleGeneration: input.scope.lifecycleGeneration,
+          documentSchemaVersion: input.scope.schemaVersion,
+          requiresFileCheckpointIdentity: true,
+          workspace: input.workspace,
+          actorId: input.actorId,
+          actorDisplayName: input.actorDisplayName,
+          initiatedByUserId: input.initiatedByUserId,
+          operationId: input.actionId,
+          actorSessionId: input.actorSessionId,
+        }, (doc) => {
+          const live = proposalYjsCurrentProof({
+            update: Y.encodeStateAsUpdate(doc), representation: input.representation, revisionId: input.expectedCurrent.revisionId,
+          });
+          if (!isDeepStrictEqual(live, input.expectedCurrent)) {
+            throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_CURRENT_CHANGED', 'The document changed after the action was approved.');
+          }
+          const candidateDoc = new Y.Doc({ gc: false });
+          try {
+            Y.applyUpdate(candidateDoc, input.candidateUpdate);
+            const delta = Y.encodeStateAsUpdate(candidateDoc, Y.encodeStateVector(doc));
+            doc.transact(() => Y.applyUpdate(doc, delta), {
+              actorType: 'agent', actorId: input.actorId, initiatedByUserId: input.initiatedByUserId, operationId: input.actionId,
+            });
+          } finally {
+            candidateDoc.destroy();
+          }
+          appliedCurrent = proposalYjsCurrentProof({
+            update: Y.encodeStateAsUpdate(doc), representation: input.representation, revisionId: null,
+          });
+          if (!isDeepStrictEqual(appliedCurrent, candidate.current)) {
+            throw new ProposalGraphContractError('PROPOSAL_CANDIDATE_CHANGED', 'The applied Yjs state does not match the approved candidate.');
+          }
+          resultingSnapshot = captureAgentStateSnapshot(doc, Y);
+          if (!resultingSnapshot) throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate has no durable Yjs snapshot.');
+          return Buffer.from(Y.encodeStateVector(doc)).toString('base64');
+        }, async (stateVector) => {
+          if (!row || !resultingSnapshot || !appliedCurrent) {
+            throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate apply acknowledgement is incomplete.');
+          }
+          const applied = publicResult(row, {
+            status: 'applied_to_ydoc', appliedTargetIds: [`proposal-action:${input.actionId}`], conflicts: [], stateVector,
+          }, 'applied_to_ydoc');
+          row = await transitionOperation({ database, row, expectedStatuses: ['applying'], status: 'applied_to_ydoc', fields: {
+            result_json: JSON.stringify(applied),
+            resulting_state_vector_hash: stateVectorHash(stateVector),
+            resulting_state_snapshot: Buffer.from(resultingSnapshot),
+            applied_at: Date.now(),
+          } });
+        });
+      } catch (error) {
+        if (error instanceof ProposalActionDefinitelyUnappliedError) {
+          row = await transitionOperation({ database, row, expectedStatuses: ['applying'], status: 'cancelled',
+            fields: { error_code: 'proposal_action_not_applied' } }).catch(() => row);
+        }
+        throw error;
+      }
+      const durable = await waitForProposalCandidateDurability({ database, row, workspace: input.workspace, candidate,
+        baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });
+      return durable;
+    } finally {
+      await database.close();
+    }
+  });
+}
+
+/**
+ * Reconciles a graph action after a process interruption without ever opening
+ * a room connection or replaying its candidate delta. A persisted current
+ * state can only advance an `applying` operation when it is exactly the
+ * candidate pinned by the graph action receipt.
+ */
+export async function recoverProposalGraphCandidateOperation(input: ProposalGraphCandidateApplyInput): Promise<ProposalGraphCandidateApplyResult> {
+  if (input.workspace.workspaceId !== input.scope.workspaceId) {
+    throw new ProposalGraphContractError('PROPOSAL_ACCESS_DENIED', 'The recovery scope does not match the workspace.');
+  }
+  const candidate = prepareProposalCandidate(input);
+  return serialized(input.scope.documentId, async () => {
+    const database = createAgentOperationDatabase();
+    try {
+      let row = await readOperation(database, input.actionId);
+      if (!row || row.document_id !== input.scope.documentId || row.workspace_id !== input.scope.workspaceId
+        || Number(row.document_lifecycle_generation) !== input.scope.lifecycleGeneration
+        || Number(row.schema_version) !== input.scope.schemaVersion || row.actor_id !== input.actorId
+        || row.initiated_by_user_id !== input.initiatedByUserId || row.document_representation !== input.representation) {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The prepared action operation is unavailable.');
+      }
+      try {
+        await assertProposalGraphActionReceipt({ database, actionId: input.actionId, scope: input.scope,
+          candidateSha256: input.candidateSha256, expectedCurrent: input.expectedCurrent });
+      } catch (error) {
+        if (error instanceof ProposalGraphContractError && error.code === 'PROPOSAL_CANDIDATE_CHANGED') throw error;
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The graph action receipt cannot be recovered safely.');
+      }
+      if (row.status === 'persisted_yjs' && row.version_revision_id) {
+        return { operationId: row.operation_id, revisionId: row.version_revision_id,
+          current: { ...candidate.current, revisionId: row.version_revision_id } };
+      }
+      if (row.status === 'preparing') {
+        row = await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'cancelled',
+          fields: { error_code: 'proposal_action_not_applied' } });
+        throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_NO_EFFECT', 'The proposal action stopped before document mutation began.');
+      }
+      if (row.status === 'cancelled' && row.error_code === 'proposal_action_not_applied') {
+        throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_NO_EFFECT', 'The proposal action stopped before document mutation began.');
+      }
+      if (row.status !== 'applying' && row.status !== 'applied_to_ydoc') {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The action operation has no recoverable durable state.');
+      }
+      const state = await loadCollaborationState(row.document_id);
+      if (!state || !proposalRecoveryStateIsAvailable({ row, state, input })) {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The persisted Yjs state is unavailable for recovery.');
+      }
+      if (row.status === 'applying') {
+        if (!proposalRecoveryCurrentMatches({ state, input, candidate })) {
+          throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The persisted Yjs state cannot prove the approved candidate.');
+        }
+        const snapshot = proposalRecoverySnapshot(state.yjsState);
+        if (!snapshot) throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The persisted Yjs state has no recoverable snapshot.');
+        const applied = publicResult(row, {
+          status: 'applied_to_ydoc', appliedTargetIds: [`proposal-action:${input.actionId}`], conflicts: [],
+          stateVector: Buffer.from(candidate.stateVector).toString('base64'),
+        }, 'applied_to_ydoc');
+        row = await transitionOperation({ database, row, expectedStatuses: ['applying'], status: 'applied_to_ydoc', fields: {
+          result_json: JSON.stringify(applied),
+          resulting_state_vector_hash: stateVectorHash(Buffer.from(candidate.stateVector).toString('base64')),
+          resulting_state_snapshot: Buffer.from(snapshot),
+          applied_at: Math.max(state.persistedAt, Number(row.applied_at || 0)),
+        } });
+      }
+      if (!stateConfirmsAgentOperation(row, state)) {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The applied action lacks its persisted Yjs receipt.');
+      }
+      return await waitForProposalCandidateDurability({ database, row, workspace: input.workspace, candidate,
+        baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });
+    } finally {
+      await database.close();
+    }
+  });
+}
+
+function proposalRecoveryStateIsAvailable(input: {
+  row: AgentOperationRow;
+  state: PersistedCollaborationState | null;
+  input: ProposalGraphCandidateApplyInput;
+}): boolean {
+  const { row, state, input: operation } = input;
+  if (!state || state.status !== 'active' || state.degraded || state.workspaceId !== operation.scope.workspaceId
+    || state.organizationId !== (operation.workspace.organizationId ?? null) || state.path !== row.document_path
+    || state.representation !== operation.representation || state.lifecycleGeneration !== operation.scope.lifecycleGeneration
+    || state.schemaVersion !== operation.scope.schemaVersion) return false;
+  return true;
+}
+
+function proposalRecoveryCurrentMatches(input: {
+  state: PersistedCollaborationState;
+  input: ProposalGraphCandidateApplyInput;
+  candidate: PreparedProposalCandidate;
+}): boolean {
+  try {
+    return isDeepStrictEqual(proposalYjsCurrentProof({ update: input.state.yjsState,
+      representation: input.input.representation, revisionId: null }), input.candidate.current);
+  } catch {
+    return false;
+  }
+}
+
+function proposalRecoverySnapshot(update: Uint8Array): Uint8Array | null {
+  const doc = new Y.Doc({ gc: false });
+  try {
+    Y.applyUpdate(doc, update);
+    return captureAgentStateSnapshot(doc, Y);
+  } catch {
+    return null;
+  } finally {
+    doc.destroy();
+  }
+}
+
+async function waitForProposalCandidateDurability(input: {
+  database: SqlConnection;
+  row: AgentOperationRow;
+  workspace: WorkspaceContext;
+  candidate: PreparedProposalCandidate;
+  baseRevisionId: string | null | undefined;
+}): Promise<ProposalGraphCandidateApplyResult> {
+  const deadline = Date.now() + PERSISTENCE_CONFIRMATION_TIMEOUT_MS;
+  do {
+    const state = await loadCollaborationState(input.row.document_id);
+    if (stateConfirmsAgentOperation(input.row, state)) {
+      const captured = await fileVersionHistoryService.capture({
+        workspace: input.workspace,
+        path: state.path,
+        content: input.candidate.content,
+        source: 'agent_apply',
+        actorUserId: input.row.initiated_by_user_id,
+        actorType: 'agent',
+        sourceSessionId: input.row.actor_session_id,
+        baseRevisionId: input.baseRevisionId ?? null,
+        stateVector: input.candidate.stateVector,
+      });
+      if (!captured.revision) {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate version history is not available.');
+      }
+      const result = publicResult(input.row, {
+        status: 'applied_to_ydoc', appliedTargetIds: [`proposal-action:${input.row.operation_id}`], conflicts: [],
+        stateVector: Buffer.from(input.candidate.stateVector).toString('base64'),
+      }, 'persisted_yjs');
+      const confirmed = await transitionOperation({
+        database: input.database,
+        row: input.row,
+        expectedStatuses: ['applied_to_ydoc'],
+        status: 'persisted_yjs',
+        fields: {
+          result_json: JSON.stringify(result),
+          persisted_at: Math.max(state.persistedAt, Number(input.row.applied_at || 0)),
+          applied_document_sequence: state.documentSequence,
+          version_revision_id: captured.revision.id,
+          error_code: null,
+        },
+      });
+      return {
+        operationId: confirmed.operation_id,
+        revisionId: captured.revision.id,
+        current: { ...input.candidate.current, revisionId: captured.revision.id },
+      };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  } while (Date.now() < deadline);
+  throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate has no confirmed durable Yjs receipt yet.');
 }
 
 function publicResult(row: AgentOperationRow, result: AgentApplyResult, durability: PersistedAgentApplyResult['durability']): PersistedAgentApplyResult {
@@ -2489,6 +2918,18 @@ async function authorizedActionRow(database: SqlConnection, input: {
   return row;
 }
 
+/** Graph-owned operations carry closure/fence semantics that legacy endpoints cannot recreate. */
+async function assertLegacyActionIsIndependent(database: SqlConnection, operationId: string): Promise<void> {
+  const graphBound = await database.get('SELECT proposal_id FROM file_change_proposals WHERE operation_id=$1 LIMIT 1', [operationId]) as { proposal_id?: string } | undefined;
+  const graphAction = graphBound ? null : await database.get(
+    'SELECT action_id FROM file_proposal_action_receipts WHERE operation_id=$1 LIMIT 1',
+    [operationId],
+  ) as { action_id?: string } | undefined;
+  if (graphBound?.proposal_id || graphAction?.action_id) {
+    throw new ProposalGraphContractError('PROPOSAL_LEGACY_BLOCKED', 'Graph-bound proposals must be resolved through the proposal action orchestrator.');
+  }
+}
+
 export async function acceptAgentOperation(input: {
   operationId: string;
   workspace: WorkspaceContext;
@@ -2509,6 +2950,7 @@ export async function acceptAgentOperation(input: {
     const database = createAgentOperationDatabase();
     try {
       const row = await authorizedActionRow(database, input);
+      await assertLegacyActionIsIndependent(database, row.operation_id);
       if (typeof input.proposalVersion !== 'string' || !/^v1\.[a-f0-9]{64}$/.test(input.proposalVersion)) {
         throw new AgentProposalChangedError();
       }
@@ -2539,6 +2981,7 @@ export async function rejectAgentOperation(input: {
   const database = createAgentOperationDatabase();
   try {
     let row = await authorizedActionRow(database, input);
+    await assertLegacyActionIsIndependent(database, row.operation_id);
     if (actionWasHandled(row, 'reject', input.idempotencyKey)) return parseResult(row);
     if (row.status === 'rejected' || row.status === 'cancelled') return parseResult(row);
     if (!['needs_review', 'semantic_conflict'].includes(row.status)) return parseResult(row);
@@ -2568,6 +3011,7 @@ export async function revertAgentOperation(input: {
   let row: AgentOperationRow;
   try {
     row = await authorizedActionRow(database, input);
+    await assertLegacyActionIsIndependent(database, row.operation_id);
   } finally {
     await database.close();
   }
@@ -2600,11 +3044,12 @@ export async function cancelAgentOperation(input: {
   userId: string;
   idempotencyKey: string;
 }): Promise<PersistedAgentApplyResult> {
-  cancelRequests.add(input.operationId);
   const database = createAgentOperationDatabase();
   let row: AgentOperationRow;
   try {
     row = await authorizedActionRow(database, input);
+    await assertLegacyActionIsIndependent(database, row.operation_id);
+    cancelRequests.add(input.operationId);
     if (actionWasHandled(row, 'cancel', input.idempotencyKey)) return parseResult(row);
     row = await rememberAction(database, row, 'cancel', input.idempotencyKey);
     if (['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file', 'partially_applied', 'semantic_conflict'].includes(row.status)) {
@@ -2732,6 +3177,12 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
          OR (status = 'partially_applied' AND error_code = 'persistence_degraded')`,
     ) as AgentOperationRow[];
     for (const row of rows) {
+      try {
+        await assertLegacyActionIsIndependent(database, row.operation_id);
+      } catch (error) {
+        if (error instanceof ProposalGraphContractError && error.code === 'PROPOSAL_LEGACY_BLOCKED') continue;
+        throw error;
+      }
       if (row.status === 'cancel_requested') {
         await transitionOperation({
           database,
@@ -2784,4 +3235,118 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
   } finally {
     await database.close();
   }
+}
+
+type RecoverableProposalGraphActionRow = {
+  action_id: string;
+  receipt_json: unknown;
+  initiated_by_user_id: string;
+  actor_id: string;
+  actor_session_id: string | null;
+  document_path: string | null;
+  document_representation: string | null;
+  operation_organization_id: string | null;
+  workspace_type: string;
+  root_relative_path: string;
+  display_name: string | null;
+  workspace_status: string;
+  owner_user_id: string | null;
+  lineage_workspace_type: string;
+  lineage_organization_id: string | null;
+  lineage_customer_id: string | null;
+  lineage_project_id: string | null;
+  lineage_path: string;
+  lineage_status: string;
+};
+
+function proposalRecoveryWorkspace(row: RecoverableProposalGraphActionRow, workspaceId: string): WorkspaceContext {
+  if (!['personal', 'organization', 'team', 'project'].includes(row.workspace_type)
+    || !['active', 'archived', 'disabled', 'recovery_locked'].includes(row.workspace_status)
+    || row.lineage_workspace_type !== row.workspace_type || row.lineage_status !== 'active'
+    || row.document_path !== row.lineage_path || !row.root_relative_path) {
+    throw new ProposalGraphContractError('PROPOSAL_STALE_LIFECYCLE', 'Proposal recovery workspace metadata is stale.');
+  }
+  return {
+    workspaceId,
+    workspaceType: row.workspace_type as WorkspaceContext['workspaceType'],
+    rootPath: workspaceAbsoluteRoot(row.root_relative_path),
+    rootRelativePath: row.root_relative_path,
+    displayName: row.display_name ?? undefined,
+    status: row.workspace_status as WorkspaceContext['status'],
+    organizationId: row.lineage_organization_id,
+    customerId: row.lineage_customer_id,
+    projectId: row.lineage_project_id,
+    ownerUserId: row.owner_user_id,
+    // Recovery is not a new authority. These capabilities remain disabled;
+    // only immutable receipt and persisted-state proofs may advance the action.
+    permissions: { canRead: false, canWrite: false, canDelete: false,
+      canCreatePublicLinks: false, canManageWorkspace: false, canRunAgent: false },
+    legacy: false,
+  };
+}
+
+/**
+ * Startup recovery for graph-owned actions. Each row is isolated so one
+ * corrupted or still-unprovable action cannot block recovery of other files.
+ * The durable adapter below never opens a collaboration room.
+ */
+export async function recoverProposalGraphActions(): Promise<{ recovered: number; pending: number }> {
+  const database = createRuntimeFileVersionCenterDatabase();
+  const storage = createProposalGraphStorage({ database });
+  const rows = await database.transaction(async (transaction) => (await transaction.query<RecoverableProposalGraphActionRow>(`
+    SELECT action.action_id,action.receipt_json,
+      operation.initiated_by_user_id,operation.actor_id,operation.actor_session_id,
+      operation.document_path,operation.document_representation,
+      operation.organization_id AS operation_organization_id,
+      workspace.type AS workspace_type,workspace.root_relative_path,workspace.display_name,
+      workspace.status AS workspace_status,workspace.owner_user_id,
+      lineage.workspace_type AS lineage_workspace_type,lineage.organization_id AS lineage_organization_id,
+      lineage.customer_id AS lineage_customer_id,lineage.project_id AS lineage_project_id,
+      lineage.path AS lineage_path,lineage.status AS lineage_status
+    FROM file_proposal_action_receipts action
+    JOIN collaboration_agent_operations operation ON operation.operation_id=action.operation_id
+    JOIN file_collaboration_lineages lineage
+      ON lineage.id=action.lineage_id AND lineage.workspace_id=action.workspace_id
+    JOIN canvas_workspaces workspace ON workspace.id=action.workspace_id
+    WHERE action.phase IN ('applying','awaiting_durability','recovery_required')
+    ORDER BY action.updated_at,action.action_id
+  `)).rows);
+  let recovered = 0;
+  let pending = 0;
+  for (const row of rows) {
+    try {
+      const receipt = parseProposalActionReceiptV1(typeof row.receipt_json === 'string'
+        ? JSON.parse(row.receipt_json) : row.receipt_json);
+      const workspace = proposalRecoveryWorkspace(row, receipt.scope.workspaceId);
+      if (row.operation_organization_id !== (workspace.organizationId ?? null)
+        || !row.document_path || !['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(row.document_representation ?? '')) {
+        throw new ProposalGraphContractError('PROPOSAL_STALE_LIFECYCLE', 'Proposal recovery operation scope is stale.');
+      }
+      await recoverProposalAction({
+        withLockedGraph: storage.withLockedGraph,
+        recoverDurably: ({ scope, actionId, current, candidate }) => recoverProposalGraphCandidateOperation({
+          actionId,
+          scope,
+          workspace,
+          initiatedByUserId: row.initiated_by_user_id,
+          actorId: row.actor_id,
+          actorDisplayName: row.actor_id,
+          actorSessionId: row.actor_session_id ?? undefined,
+          representation: row.document_representation as ProposalYjsRepresentation,
+          expectedCurrent: current,
+          candidateUpdate: candidate.update,
+          candidateSha256: candidate.evaluation.effectiveCandidate!.sha256,
+          baseRevisionId: current.revisionId,
+        }),
+      }, receipt.scope, row.action_id);
+      recovered++;
+    } catch (error) {
+      pending++;
+      console.warn('[Collaboration] Proposal action remains pending recovery.', {
+        actionId: row.action_id,
+        code: error instanceof ProposalGraphContractError ? error.code : 'PROPOSAL_RECOVERY_REQUIRED',
+      });
+    }
+  }
+  return { recovered, pending };
 }

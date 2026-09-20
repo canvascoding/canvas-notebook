@@ -39,6 +39,7 @@ async function main(): Promise<void> {
     assert.deepEqual((await columnNames(postgres, 'file_revisions')).includes('revision_number'), true);
     assert.deepEqual((await columnNames(postgres, 'file_locks')).includes('lineage_id'), true);
     assert.deepEqual((await columnNames(postgres, 'collaboration_documents')).includes('lineage_id'), true);
+    assert.deepEqual((await columnNames(postgres, 'collaboration_agent_operations')).includes('version_revision_id'), true);
 
     const lineageIndexes = await indexDefinitions(postgres, 'file_collaboration_lineages');
     assert.match(lineageIndexes.get('idx_file_collaboration_lineages_active_path') || '', /WHERE \(status = 'active'/u);
