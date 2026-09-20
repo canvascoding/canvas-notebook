@@ -120,6 +120,9 @@ function logBrowserDiagnostics(page: Page, label: string): string[] {
     websocket.on('socketerror', (error) => console.error(`[${label}] websocket error:`, error));
     websocket.on('close', () => console.info(`[${label}] websocket closed: ${websocket.url()}`));
   });
+  page.on('response', (response) => {
+    if (response.status() === 404) console.info(`[${label}] 404 response: ${response.url()}`);
+  });
   return browserErrors;
 }
 
@@ -670,10 +673,20 @@ test.describe('Markdown live collaboration', () => {
       const agentActivityButton = page.getByRole('button', { name: /Agent changes|Agentenänderungen/i });
       await expect(agentActivityButton).toBeVisible({ timeout: 20_000 });
       await agentActivityButton.click();
-      const reviewRegion = page.getByRole('region', { name: /Agent changes|Agentenänderungen/i });
-      await expect(reviewRegion).toBeVisible({ timeout: 20_000 });
-      await expect(reviewRegion).toContainText(/Review required|Prüfung erforderlich/i);
-      await expect(reviewRegion).toContainText('Remove this paragraph');
+      const reviewCenter = page.getByTestId('file-version-center');
+      const acceptChange = reviewCenter.getByRole('button', {
+        name: /^(Accept change|Änderung annehmen)$/u,
+      });
+      const rejectProposal = reviewCenter.getByRole('button', {
+        name: /^(Reject proposal|Vorschlag ablehnen)$/u,
+      });
+      const agentReviews = reviewCenter.getByRole('region', { name: /Agent reviews|Agenten-Reviews/i });
+      const agentProposal = agentReviews.getByRole('button', { name: /Agent proposal|Agentenvorschlag/i }).first();
+      await expect(reviewCenter).toBeVisible({ timeout: 20_000 });
+      await expect(agentReviews).toContainText('1');
+      await agentProposal.click();
+      await expect(reviewCenter).toContainText(/Needs review|Review required|Prüfung erforderlich/i);
+      await expect(reviewCenter).toContainText('Remove this paragraph');
 
       const editor = page.locator('.tiptap-editor-shell .ProseMirror');
       await expect(editor.locator('.collaboration-agent-target').first()).toBeVisible();
@@ -684,13 +697,13 @@ test.describe('Markdown live collaboration', () => {
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
       const independentEditReview = await page.request.get(operationUrl, { headers: { [WORKSPACE_ID_HEADER]: workspaceId } });
       expect((await independentEditReview.json()).operation.proposalVersion).toBe(initialProposalVersion);
-      await expect(reviewRegion).toBeVisible();
+      await expect(reviewCenter).toBeVisible();
 
       const acceptResponse = page.waitForResponse((response) => (
         response.request().method() === 'POST'
         && /\/api\/files\/collaboration\/operations\/[^/]+\/accept$/u.test(response.url())
       ));
-      await reviewRegion.getByRole('button', { name: /Accept|Annehmen/i }).click();
+      await acceptChange.click();
       const acceptedOperationResponse = await acceptResponse;
       expect(acceptedOperationResponse.request().postDataJSON()).toMatchObject({ proposalVersion: initialProposalVersion });
       expect(acceptedOperationResponse.ok(), await acceptedOperationResponse.text()).toBeTruthy();
@@ -707,7 +720,7 @@ test.describe('Markdown live collaboration', () => {
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
       await expect.poll(() => collaborativeEditorText(peerEditor)).toBe(await collaborativeEditorText(editor));
       await expect(editor.locator('.collaboration-agent-target')).toHaveCount(0, { timeout: 20_000 });
-      await expect(reviewRegion.getByRole('button', { name: /Accept|Annehmen/i })).toHaveCount(0, { timeout: 20_000 });
+      await expect(acceptChange).toHaveCount(0, { timeout: 20_000 });
 
       const acceptedRead = await runAgentTool({
         toolName: 'read',
@@ -737,7 +750,14 @@ test.describe('Markdown live collaboration', () => {
       expect(patchDetails.results?.[0]?.collaboration?.reviewRequired).toBe(true);
       expect(patchDetails.results?.[0]?.collaboration?.operationStatus).toBe('needs_review');
       expect(patchResult.content?.[0]?.text).toContain('Review ready');
-      await expect(reviewRegion).toContainText('Combined paragraph', { timeout: 20_000 });
+      await page.keyboard.press('Escape');
+      await expect(reviewCenter).toBeHidden();
+      await expect(agentActivityButton).toBeVisible({ timeout: 20_000 });
+      await agentActivityButton.click();
+      await expect(reviewCenter).toBeVisible({ timeout: 20_000 });
+      await expect(agentProposal).toBeVisible({ timeout: 20_000 });
+      await agentProposal.click();
+      await expect(reviewCenter).toContainText('Combined paragraph', { timeout: 20_000 });
 
       const screenshotPath = testInfo.outputPath('agent-review.png');
       await page.screenshot({ path: screenshotPath, type: 'png' });
@@ -764,15 +784,26 @@ test.describe('Markdown live collaboration', () => {
       });
       expect(staleAcceptance.status()).toBe(409);
       expect(await staleAcceptance.json()).toMatchObject({ code: 'AGENT_PROPOSAL_CHANGED' });
+      await acceptChange.click();
       expect(await collaborativeEditorText(editor)).toBe(contentAfterHumanEdit);
-      await expect(reviewRegion).toBeVisible();
-      await expect(reviewRegion.getByRole('button', { name: /Accept|Annehmen/i })).toHaveCount(0, { timeout: 20_000 });
+      await expect(reviewCenter).toBeVisible();
+      await expect(reviewCenter).toContainText(
+        /The (?:agent proposal|document) changed|Der Agentenvorschlag wurde geändert|Das Dokument hat sich geändert/i,
+      );
+      await page.keyboard.press('Escape');
+      await expect(reviewCenter).toBeHidden();
+      await expect(agentActivityButton).toBeVisible({ timeout: 20_000 });
+      await agentActivityButton.click();
+      await expect(reviewCenter).toBeVisible({ timeout: 20_000 });
+      await expect(agentProposal).toBeVisible({ timeout: 20_000 });
+      await agentProposal.click();
+      await expect(acceptChange).toHaveCount(0, { timeout: 20_000 });
 
-      await reviewRegion.getByRole('button', { name: /Reject|Ablehnen/i }).click();
+      await expect(rejectProposal).toBeVisible({ timeout: 20_000 });
+      await rejectProposal.click();
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
       await expect.poll(() => collaborativeEditorText(editor)).not.toContain('Combined paragraph');
-      await expect(reviewRegion.getByRole('button', { name: /Reject|Ablehnen/i }))
-        .toHaveCount(0, { timeout: 20_000 });
+      await expect(rejectProposal).toHaveCount(0, { timeout: 20_000 });
 
       // A rich Y.Doc can validly retain Markdown that the conservative source
       // codec classifies as source-only. This models an agent review that adds
@@ -803,11 +834,19 @@ test.describe('Markdown live collaboration', () => {
         results?: Array<{ collaboration?: { operationStatus?: string } }>;
       };
       expect(sourceOnlyDetails.results?.[0]?.collaboration?.operationStatus).toBe('needs_review');
+      await page.keyboard.press('Escape');
+      await expect(reviewCenter).toBeHidden();
+      await expect(agentActivityButton).toBeVisible({ timeout: 20_000 });
+      await agentActivityButton.click();
+      await expect(reviewCenter).toBeVisible({ timeout: 20_000 });
+      await expect(agentProposal).toBeVisible({ timeout: 20_000 });
+      await agentProposal.click();
       const sourceOnlyAccept = page.waitForResponse((response) => (
         response.request().method() === 'POST'
         && /\/api\/files\/collaboration\/operations\/[^/]+\/accept$/u.test(response.url())
       ));
-      await reviewRegion.getByRole('button', { name: /Accept|Annehmen/i }).click();
+      await expect(acceptChange).toBeVisible({ timeout: 20_000 });
+      await acceptChange.click();
       expect((await sourceOnlyAccept).ok()).toBeTruthy();
       await expect.poll(() => collaborativeEditorText(editor), { timeout: 20_000 })
         .toContain('agent-generated note');
@@ -827,7 +866,9 @@ test.describe('Markdown live collaboration', () => {
         .toEqual(reopenedDocument);
       await expect.poll(() => collaborativeEditorText(peerEditor), { timeout: 20_000 })
         .toBe(await collaborativeEditorText(reopenedEditor));
-      expect([...browserErrors, ...peerErrors], 'Agent review UI must not emit browser errors.').toEqual([]);
+      const unexpectedBrowserErrors = [...browserErrors, ...peerErrors]
+        .filter((message) => !/Failed to load resource:.*409 \(Conflict\)/u.test(message));
+      expect(unexpectedBrowserErrors, 'Agent review UI must not emit unexpected browser errors.').toEqual([]);
     } finally {
       await peerContext.close();
       await page.close().catch(() => undefined);

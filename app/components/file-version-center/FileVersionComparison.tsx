@@ -303,29 +303,43 @@ function LoadedComparison({
     const changed = error instanceof FileVersionCenterClientError
       && ['FVRC_STALE_CURRENT', 'FVRC_STALE_SELECTION', 'FVRC_CONFLICT'].includes(error.code);
     return (
-      <div className="flex flex-1 items-center justify-center p-5">
-        <Alert variant={changed ? 'default' : 'destructive'} className="max-w-xl rounded-lg">
-          {changed ? <AlertTriangle aria-hidden="true" /> : <ShieldAlert aria-hidden="true" />}
-          <AlertTitle>{changed ? t('comparisonChanged') : t('compareFailed')}</AlertTitle>
-          <AlertDescription>
-            <p>{error?.message ?? t('compareFailed')}</p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="mt-2"
-              disabled={changed && timelineRefreshState === 'refreshing'}
-              onClick={() => { if (changed) void refreshTimeline(); else retry(); }}
-            >
-              {changed && timelineRefreshState === 'refreshing'
-                ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                : <RefreshCw className="size-4" aria-hidden="true" />}
-              {changed
-                ? timelineRefreshState === 'refreshing' ? t('refreshingTimeline') : t('refreshTimeline')
-                : t('retry')}
-            </Button>
-          </AlertDescription>
-        </Alert>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 items-center justify-center p-5">
+          <Alert variant={changed ? 'default' : 'destructive'} className="max-w-xl rounded-lg">
+            {changed ? <AlertTriangle aria-hidden="true" /> : <ShieldAlert aria-hidden="true" />}
+            <AlertTitle>{changed ? t('comparisonChanged') : t('compareFailed')}</AlertTitle>
+            <AlertDescription>
+              <p>{error?.message ?? t('compareFailed')}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                disabled={changed && timelineRefreshState === 'refreshing'}
+                onClick={() => { if (changed) void refreshTimeline(); else retry(); }}
+              >
+                {changed && timelineRefreshState === 'refreshing'
+                  ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  : <RefreshCw className="size-4" aria-hidden="true" />}
+                {changed
+                  ? timelineRefreshState === 'refreshing' ? t('refreshingTimeline') : t('refreshTimeline')
+                  : t('retry')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+        {entry.kind === 'agent_operation' ? (
+          <FileVersionActions
+            request={request}
+            current={current}
+            entry={entry}
+            reviewedProposalVersion={null}
+            candidateAvailable={false}
+            restoreAllowed={restoreAllowed}
+            onTimelineInvalidate={onTimelineInvalidate}
+            onContinue={onContinue}
+          />
+        ) : null}
       </div>
     );
   }
