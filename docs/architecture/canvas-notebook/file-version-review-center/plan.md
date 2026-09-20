@@ -798,12 +798,14 @@ Die Browserabnahme umfasst:
   und annehmen, Review aus, Folge-Edit direkt anwenden und eine parallele
   menschliche Aenderung erhalten.
 
-Bekannter Restfehler der lokalen Testinfrastruktur: Der konfigurierte zweite
-Team-Seat-Nutzer ist derzeit suspendiert. `testenv:fixtures` erkennt die
-existierende Membership, versucht aber eine Neuanlage und endet mit
-`MEMBERSHIP_OPERATION_CONFLICT`. Die anschliessende Reaktivierung ist blockiert,
-weil ein idempotent wiederholter Membership-Snapshot in der Control Plane sein
-altes Empfangsdatum behaelt und deshalb als zu alt gilt. Owner ist der
-`canvas-local-team-seat-dev`-Fixture-Workflow. Die Produktabnahme verwendet bis
-zur Reparatur zwei unabhaengige Browser-Sessions des aktiven Owners; Workspace-,
-Policy-, Review- und Echtzeitgrenzen bleiben dabei produktiv aktiv.
+Der lokale Infrastrukturrest ist behoben. Ein erzwungener oder faelliger
+Membership-Report erzeugt jetzt eine neue monotone Revision mit neuem
+Empfangszeitpunkt; nur ein echter Transport-Retry wiederholt dieselbe
+idempotente Operation. Der `canvas-local-team-seat-dev`-Fixture-Workflow sucht
+einen vorhandenen suspendierten Zweitnutzer, fordert zuerst einen frischen
+Snapshot an und verwendet danach den produktiven Reaktivierungspfad, statt eine
+zweite Membership anzulegen. Der PostgreSQL-kompatible PGlite-Test prueft neue
+Reports, unveraenderte Content-Hashes, Retry-Identitaet und terminale Recovery.
+Produktionsbuild sowie zwei aufeinanderfolgende Fixture-Laeufe gegen denselben
+einzelnen verwalteten Stack bestanden ohne Container-Rebuild. Damit ist
+`FVRC-P11` abgeschlossen.

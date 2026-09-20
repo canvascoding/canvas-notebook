@@ -1071,7 +1071,8 @@
       "id": "FVRC-P11",
       "order": 9,
       "title": "Review-Default, Lifecycle und Browser-Regressionen haerten",
-      "status": "in_progress",
+      "status": "completed",
+      "completedAt": "2026-09-20",
       "dependsOn": ["FVRC-P08"],
       "exitGate": "FVRC-G11-REMEDIATION",
       "tasks": [
@@ -1247,7 +1248,36 @@
             "Die Playwright-Matrix lief mit genau einem verwalteten Stack und einem Worker: globaler Center 2/2, Agent-Review-Lifecycle 4/4 und realer Ollama-Agentenruntime 1/1. Kein Container wurde fuer die Abnahme neu gebaut.",
             "GitNexus bewertet den gesamten Feature-Branch gegen main wegen der bereits enthaltenen Agenten-/Migrationsarbeiten als high; der isolierte uncommitted P11-Abschlussdiff ist low und betrifft keine zusaetzlichen Ausfuehrungsprozesse.",
             "Keine Collaboration-, Auth-, Rate-Limit- oder Action-Fence-Regel wurde fuer Tests abgeschwaecht. Testrevisionen entstehen ueber echte Agentenoperationen und Review-Accept; der historische Vergleich erzeugt keinen Modellrequest.",
-            "Bekannter Infrastrukturrest: Der zweite lokale Team-Seat-Nutzer ist suspendiert und der Fixture-Reaktivierungsweg bleibt wegen eines zu alten idempotent wiederholten Control-Plane-Snapshots blockiert. Der Owner ist im Plan dokumentiert; die Produktmatrix nutzt bis dahin zwei unabhaengige Owner-Browsersessions."
+            "Der zuvor dokumentierte Team-Seat-Fixture-Blocker ist in FVRC-1106 behoben; die produktive Matrix und der Fixture-Wiederholungslauf koennen wieder den eigenstaendigen Zweitnutzer verwenden."
+          ]
+        },
+        {
+          "id": "FVRC-1106",
+          "order": 6,
+          "title": "Team-Seat-Fixture reaktivierbar und idempotent machen",
+          "status": "completed",
+          "completedAt": "2026-09-20",
+          "area": "test-infrastructure",
+          "dependsOn": ["FVRC-1105"],
+          "deliverables": [
+            "Frischer monotoner Membership-Snapshot fuer erzwungene und faellige Reports",
+            "Reaktivierung einer vorhandenen suspendierten Secondary Membership",
+            "PostgreSQL-kompatible Regression fuer Report- und Retry-Semantik"
+          ],
+          "acceptanceCriteria": [
+            "Ein suspendierter Fixture-Nutzer wird ohne doppelte Membership reaktiviert.",
+            "Ein frischer Report besitzt eine neue Revision, waehrend Transport-Retries dieselbe Operation behalten.",
+            "Zwei aufeinanderfolgende Fixture-Laeufe bestehen gegen denselben einzelnen verwalteten Stack."
+          ],
+          "verification": [
+            "npm run test:team-membership-sync",
+            "npm run build",
+            "testenv:fixtures mit Reaktivierung und anschliessendem Idempotenzlauf"
+          ],
+          "completionEvidence": [
+            "Der PGlite-Test deckt neue monotone Report-Revisionen bei stabilem Content-Hash, unveraenderte Operationen bei Netzwerk-Retry und neue Revisionen nach terminaler Recovery ab.",
+            "Der Fixture-Workflow sucht die exakte Better-Auth-Identitaet, fordert einen frischen Team-Seat-Snapshot an und nutzt POST/PATCH des produktiven Reaktivierungsendpunkts.",
+            "Produktionsbuild, Reaktivierungslauf und Wiederholungslauf bestanden ohne Container-Rebuild; der zusaetzliche Host-Prozess wurde danach beendet."
           ]
         }
       ]
