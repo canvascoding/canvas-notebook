@@ -16,7 +16,6 @@ import {
   recordTeamMembershipProjectionChange,
   recordTeamSeatOutboxOperationFailure,
   recordTeamSeatSnapshotAcknowledgement,
-  requeueTeamMembershipSnapshotOperation,
   scheduleTeamSeatOutboxRetry,
   teamSeatMemberHash,
   teamSeatSnapshotHash,
@@ -160,7 +159,7 @@ async function ensureSnapshotOperation(
     now: number;
     forceReport: boolean;
   },
-): Promise<'unchanged' | 'generated' | 'requeued'> {
+): Promise<'unchanged' | 'generated'> {
   return withSyncTransaction(database, async () => {
     const projection = await getActiveTeamMembershipProjection(
       database,
@@ -216,11 +215,14 @@ async function ensureSnapshotOperation(
       )
       || (reportDue && latest.status === 'succeeded')
     ) {
-      await requeueTeamMembershipSnapshotOperation(database, {
-        operationId: latest.operationId,
+      await recordTeamMembershipProjectionChange(database, {
+        organizationId: input.organizationId,
+        membershipId: projection.members[0].membershipId,
+        operationType: 'reconcile',
+        projection,
         now: input.now,
       });
-      return 'requeued';
+      return 'generated';
     }
     return 'unchanged';
   });
@@ -277,7 +279,6 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
         forceReport: options.forceReport === true,
       });
       if (ensured === 'generated') result.generated += 1;
-      if (ensured === 'requeued') result.requeued += 1;
     }
 
     const operations = await claimDueTeamMembershipSnapshotOperations(database, {
