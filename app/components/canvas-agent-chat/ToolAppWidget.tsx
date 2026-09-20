@@ -17,11 +17,13 @@ type Frame = { url: string; origin: string; result?: CallToolResult };
 type Props = {
   invocation: ToolAppInvocation; sessionId: string; agentId: string;
   actions?: (data: unknown, update: (data: Record<string, unknown>) => void, refresh: () => void) => ReactNode;
+  reservedHeight?: number;
 };
 const failedResult = (message: string): CallToolResult => ({ content: [{ type: 'text', text: message }], isError: true });
+const DEFAULT_RESERVED_HEIGHT = 240;
 
 /** One bridge lifecycle for Canvas resources and external MCP Apps. */
-export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props) {
+export function ToolAppWidget({ invocation, sessionId, agentId, actions, reservedHeight = DEFAULT_RESERVED_HEIGHT }: Props) {
   const t = useTranslations(invocation.kind === 'builtin' ? 'chat.toolApp' : 'chat.mcpApp');
   const locale = useLocale();
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -32,6 +34,7 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
   const [approval, setApproval] = useState<Approval | null>(null);
   const [busy, setBusy] = useState(false);
   const [height, setHeight] = useState(240);
+  const [hasMeasuredHeight, setHasMeasuredHeight] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<'unavailable' | 'disabled' | 'waitingForSave' | null>(null);
   const [callFailed, setCallFailed] = useState(false);
@@ -96,6 +99,7 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
     if (!frameUrl || !frameOrigin || !iframe?.contentWindow || error) return;
     let active = true;
     let initialized = false;
+    let sizeFallbackTimer: number | undefined;
     const bridge = new AppBridge(null, { name: 'Canvas Notebook', version: '1' }, builtin ? {} : { serverTools: {} }, {
       hostContext: readToolAppHostContext(localeRef.current),
     });
@@ -103,7 +107,13 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
     const timer = window.setTimeout(() => { if (active && !initialized) setError('unavailable'); }, 20_000);
     bridge.onerror = () => { if (active) setError('unavailable'); };
     bridge.onsizechange = ({ height: next }) => {
-      if (active && typeof next === 'number' && Number.isFinite(next)) setHeight(Math.max(120, Math.min(900, Math.ceil(next))));
+      if (active && typeof next === 'number' && Number.isFinite(next)) {
+        window.clearTimeout(sizeFallbackTimer);
+        sizeFallbackTimer = undefined;
+        const measuredHeight = Math.max(120, Math.min(900, Math.ceil(next)));
+        setHeight((current) => current === measuredHeight ? current : measuredHeight);
+        setHasMeasuredHeight(true);
+      }
     };
     if (!builtin) bridge.oncalltool = async (params) => {
       if (!active || approvalRef.current || activeCallRef.current) return failedResult('Another approval or tool call is in progress.');
@@ -113,13 +123,21 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
         approvalRef.current = request; setApproval(request);
       });
     };
-    bridge.oninitialized = () => { if (active) { initialized = true; window.clearTimeout(timer); setReady(true); } };
+    bridge.oninitialized = () => {
+      if (!active) return;
+      initialized = true;
+      window.clearTimeout(timer);
+      setReady(true);
+      sizeFallbackTimer = window.setTimeout(() => {
+        if (active) setHasMeasuredHeight(true);
+      }, 250);
+    };
     const observer = new MutationObserver(() => { if (active) bridge.setHostContext(readToolAppHostContext(localeRef.current)); });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
     void bridge.connect(new McpAppFrameTransport(iframe.contentWindow, frameOrigin))
       .then(() => { if (active) iframe.src = frameUrl; }).catch(() => { if (active) setError('unavailable'); });
     return () => {
-      active = false; window.clearTimeout(timer); observer.disconnect();
+      active = false; window.clearTimeout(timer); window.clearTimeout(sizeFallbackTimer); observer.disconnect();
       bridgeRef.current = null; setReady(false);
       approvalRef.current?.resolve(failedResult('The widget was closed.')); approvalRef.current = null; setApproval(null);
       activeCallRef.current?.abort(); activeCallRef.current = null; setBusy(false);
@@ -158,18 +176,23 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions }: Props
     finally { if (activeCallRef.current === abort) { activeCallRef.current = null; setBusy(false); } }
   };
   const data = builtin ? payload?.result.structuredContent : null;
+  const presentationReady = ready && hasMeasuredHeight;
   const refresh = () => {
-    setFrame(null); setError(null); setReady(false); setReconnect(null); setCallFailed(false); setReload((n) => n + 1);
+    setFrame(null); setError(null); setReady(false); setHasMeasuredHeight(false); setReconnect(null); setCallFailed(false); setReload((n) => n + 1);
   };
-  return <section data-testid={builtin ? 'canvas-tool-app-widget' : 'mcp-app-widget'} className="my-2 w-full max-w-3xl overflow-hidden rounded-[var(--radius)] border bg-background">
+  return <section data-testid={builtin ? 'canvas-tool-app-widget' : 'mcp-app-widget'}
+    className="relative my-2 w-full max-w-3xl overflow-hidden rounded-[var(--radius)] border bg-background"
+    style={{ minHeight: payloadUnavailable || error || presentationReady ? undefined : reservedHeight }}>
     {payloadUnavailable || error ? <div className="space-y-2 p-3 text-xs text-muted-foreground" role="status">
       <p>{t(payloadUnavailable ? 'oversized' : error!)}</p>
       {!payloadUnavailable ? <Button size="xs" variant="outline" onClick={refresh}>{t('reload')}</Button> : null}
     </div> : <>
-      {!ready ? <p className="p-3 text-xs text-muted-foreground" role="status">{t('loading')}</p> : null}
+      {!presentationReady ? <p className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-background/90 p-3 text-xs text-muted-foreground" role="status">{t('loading')}</p> : null}
       {frame ? <iframe ref={frameRef} title={builtin ? t('frameTitle') : invocation.descriptor.toolName}
-        sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" style={{ height }} className="block w-full border-0" /> : null}
-      {ready && data && actions ? actions(data, (next) => setFrame((current) => current ? {
+        sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" tabIndex={builtin ? -1 : undefined}
+        style={{ height, visibility: presentationReady ? 'visible' : 'hidden' }}
+        className={`block w-full border-0 ${builtin ? 'pointer-events-none select-none' : ''}`} /> : null}
+      {presentationReady && data && actions ? actions(data, (next) => setFrame((current) => current ? {
         ...current, result: { content: [], structuredContent: next },
       } : current), refresh) : null}
       {approval ? <div className="space-y-2 border-t p-3 text-sm" role="group" aria-label={t('requestApproval', { tool: approval.tool })}>

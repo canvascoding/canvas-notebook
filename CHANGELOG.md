@@ -11,6 +11,24 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.16.2] - 2026-09-16
+
+### Added
+
+- Enabled the File Version Review Center by default, including its timeline, comparisons, review policies, and restored-version workflows.
+
+### Changed
+
+- Improved version-center availability handling, capability coverage, query results, and mobile timeline presentation.
+
+### Fixed
+
+- Kept sign-up database checks at runtime so the production build does not access PostgreSQL while statically rendering localized routes.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.16.1] - 2026-09-16
 
 ### Added
