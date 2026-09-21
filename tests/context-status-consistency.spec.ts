@@ -41,20 +41,23 @@ test.beforeEach(async ({ page }) => {
   await page.addScriptTag({ content: bundle });
 });
 
-test('streaming, finished and aborting use the same percentage; 98% is yellow', async ({ page }, info) => {
+test('streaming hides transient context notices while the header keeps the same percentage', async ({ page }, info) => {
   const notice = page.getByTestId('chat-runtime-notice');
-  await expect(notice).toHaveAttribute('data-context-percent', '98');
-  await expect(notice).toHaveAttribute('role', 'status');
-  await page.getByRole('button', { name: 'Finish', exact: true }).click();
-  await expect(notice).toHaveAttribute('data-context-percent', '98');
-  await page.getByRole('button', { name: 'Abort', exact: true }).click();
-  await expect(notice).toHaveAttribute('data-context-percent', '98');
+  await expect(notice).toHaveCount(0);
   await page.getByTestId('chat-header-menu-trigger').click();
   const bar = page.getByTestId('chat-context-progress');
   await expect(bar).toHaveAttribute('data-context-percent', '98');
   await expect(bar).toHaveClass(/bg-amber-500/);
   await expect(page.getByTestId('context-measurement-details')).toContainText('provider-reported, not current context');
   await expect(page.getByTestId('chat-context-details')).toContainText('post-compaction target');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(notice).toHaveAttribute('data-context-percent', '98');
+  await expect(notice).toHaveAttribute('role', 'status');
+  await page.getByRole('button', { name: 'Abort', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+  await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(notice).toHaveAttribute('data-context-percent', '98');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: info.outputPath('context-98-consistent.png'), fullPage: true, animations: 'disabled' });
 });
@@ -63,15 +66,14 @@ test('stale values are labelled and never treated as current overflow', async ({
   await page.getByRole('button', { name: 'Overflow', exact: true }).click();
   await expect(page.getByTestId('chat-runtime-notice')).toHaveAttribute('role', 'alert');
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
-  await expect(page.getByTestId('chat-runtime-notice')).toHaveAttribute('role', 'status');
-  await expect(page.getByTestId('chat-runtime-notice')).toContainText('previous measurement');
+  await expect(page.getByTestId('chat-runtime-notice')).toHaveCount(0);
   await page.getByTestId('chat-header-menu-trigger').click();
   await expect(page.getByTestId('context-measurement-details')).toContainText('Updating context estimate');
   await expect(page.getByTestId('chat-context-progress')).toHaveClass(/bg-cyan-500/);
   await page.screenshot({ path: info.outputPath('context-updating.png'), fullPage: true, animations: 'disabled' });
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Unavailable', exact: true }).click();
-  await expect(page.getByTestId('chat-runtime-notice')).toContainText('unavailable');
+  await expect(page.getByTestId('chat-runtime-notice')).toHaveCount(0);
   await page.getByRole('button', { name: 'New 63%', exact: true }).click();
   await expect(page.getByTestId('chat-runtime-notice')).toHaveCount(0);
   await page.getByTestId('chat-header-menu-trigger').click();
@@ -108,8 +110,7 @@ test('retained context failure is consistent and does not blame the latest user 
 
 test('a previous no-op is never the disabled compact reason or a conflicting current status', async ({ page }, info) => {
   await page.getByRole('button', { name: 'Previous no-op', exact: true }).click();
-  await expect(page.getByTestId('chat-runtime-notice')).toContainText('Automatic summarization is planned');
-  await expect(page.getByTestId('chat-runtime-notice')).not.toContainText('required before continuing');
+  await expect(page.getByTestId('chat-runtime-notice')).toHaveCount(0);
   await page.getByTestId('chat-header-menu-trigger').click();
   await expect(page.getByTestId('chat-compact')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByTestId('chat-compact')).toContainText('Available after the response finishes');
@@ -117,6 +118,8 @@ test('a previous no-op is never the disabled compact reason or a conflicting cur
   await page.screenshot({ path: info.outputPath('context-running-after-noop.png'), fullPage: true, animations: 'disabled' });
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Finish', exact: true }).click();
+  await expect(page.getByTestId('chat-runtime-notice')).toContainText('Automatic summarization is planned');
+  await expect(page.getByTestId('chat-runtime-notice')).not.toContainText('required before continuing');
   await page.getByTestId('chat-header-menu-trigger').click();
   await expect(page.getByTestId('chat-compact')).not.toHaveAttribute('aria-disabled', 'true');
   await page.keyboard.press('Escape');

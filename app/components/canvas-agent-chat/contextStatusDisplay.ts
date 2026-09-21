@@ -100,3 +100,8 @@ export function getContextStatusPresentation(status: RuntimeStatus | null) {
       && display.pressureTokens >= display.triggerTokens,
   } as const;
 }
+
+/** Chat notices use only stable idle measurements; the header may show provisional values. */
+export function shouldShowChatContextWarning(status: RuntimeStatus | null): boolean {
+  return status?.phase === 'idle' && getContextStatusPresentation(status).severity !== null;
+}

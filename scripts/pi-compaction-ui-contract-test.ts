@@ -8,7 +8,10 @@ import {
   type RuntimeCompactionStatus,
   type RuntimeStatus,
 } from '../app/lib/chat/runtime-status';
-import { getContextStatusDisplay } from '../app/components/canvas-agent-chat/contextStatusDisplay';
+import {
+  getContextStatusDisplay,
+  shouldShowChatContextWarning,
+} from '../app/components/canvas-agent-chat/contextStatusDisplay';
 import { createPiRuntimeContextStatusProjection } from '../app/lib/pi/runtime-context-status';
 import { parseClientMessage } from '../app/lib/websocket/protocol';
 import type { PiContextBudgetSnapshot } from '../app/lib/pi/context-budget';
@@ -119,6 +122,36 @@ const baseRuntimeStatus = {
   lastCompactionKind: null,
   lastCompactionOmittedCount: 0,
 } satisfies RuntimeStatus;
+
+const warningStatus = {
+  ...baseRuntimeStatus,
+  contextPressure: {
+    pressureTokens: 108_000,
+    source: 'serialized_request' as const,
+    effectiveInputBudgetTokens: 200_000,
+    triggerTokens: 110_000,
+    targetTokens: 22_000,
+    percentOfTrigger: 98,
+  },
+  contextMeasurement: {
+    revision: 1,
+    measuredRevision: 1,
+    measuredAt: '2026-09-21T10:00:00.000Z',
+    state: 'current' as const,
+  },
+};
+assert.equal(shouldShowChatContextWarning(warningStatus), true, 'stable idle pressure should remain visible');
+for (const phase of ['streaming', 'running_tool', 'aborting'] as const) {
+  assert.equal(
+    shouldShowChatContextWarning({ ...warningStatus, phase }),
+    false,
+    `${phase} pressure is provisional and must not flicker in the transcript`,
+  );
+}
+assert.equal(shouldShowChatContextWarning({
+  ...warningStatus,
+  contextMeasurement: { ...warningStatus.contextMeasurement, state: 'updating' },
+}), false, 'an updating measurement must stay in the header rather than becoming a chat event');
 
 assert.deepEqual(getContextStatusDisplay({
   ...baseRuntimeStatus,

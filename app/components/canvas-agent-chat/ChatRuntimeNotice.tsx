@@ -8,7 +8,7 @@ import {
   type RuntimeStatus,
 } from '@/app/lib/chat/runtime-status';
 import { cn } from '@/lib/utils';
-import { getContextStatusPresentation } from './contextStatusDisplay';
+import { getContextStatusPresentation, shouldShowChatContextWarning } from './contextStatusDisplay';
 
 export function ChatRuntimeNotice({ status }: { status: RuntimeStatus | null }) {
   const t = useTranslations('chat');
@@ -22,21 +22,23 @@ export function ChatRuntimeNotice({ status }: { status: RuntimeStatus | null }) 
   const presentation = getContextStatusPresentation(status);
   const contextPressurePercent = presentation.percent;
   const contextWarningLevel = presentation.severity;
-  const updating = presentation.freshness !== 'current';
+  // Context measurements are invalidated at durable message boundaries and
+  // recomputed asynchronously. During a response this is an expected transient
+  // state, not a new chat event. Only surface stable informational pressure once
+  // the run is idle; real compaction work and failures remain visible.
+  const showContextWarning = shouldShowChatContextWarning(status);
 
-  if (!isCompacting && !hasCompactionProblem && !contextWarningLevel && !updating) {
+  if (!isCompacting && !hasCompactionProblem && !showContextWarning) {
     return null;
   }
 
   const label = isCompacting || hasCompactionProblem
     ? compactionKey ? t(compactionKey) : t('compactionStatusFailed')
-    : updating
-      ? t(presentation.freshnessKey)
-      : presentation.blocking
-        ? t('contextBudgetExceeded')
-        : presentation.needsCompaction
-          ? t('contextCompactionRequired', { percent: contextPressurePercent })
-          : t(presentation.basis === 'trigger' ? 'contextUsageWarning' : 'contextBudgetWarning', { percent: contextPressurePercent });
+    : presentation.blocking
+      ? t('contextBudgetExceeded')
+      : presentation.needsCompaction
+        ? t('contextCompactionRequired', { percent: contextPressurePercent })
+        : t(presentation.basis === 'trigger' ? 'contextUsageWarning' : 'contextBudgetWarning', { percent: contextPressurePercent });
   const isProblem = presentation.failed || presentation.blocking;
 
   return (
@@ -45,7 +47,7 @@ export function ChatRuntimeNotice({ status }: { status: RuntimeStatus | null }) 
         data-testid="chat-runtime-notice"
         data-context-percent={contextPressurePercent}
         data-context-basis={presentation.basis}
-        data-notice-kind={isCompacting ? 'compaction' : isProblem ? 'error' : updating ? 'measurement' : contextWarningLevel ?? 'compaction'}
+        data-notice-kind={isCompacting ? 'compaction' : isProblem ? 'error' : contextWarningLevel ?? 'compaction'}
         role={isProblem ? 'alert' : 'status'}
         aria-live={isProblem ? 'assertive' : 'polite'}
         className={cn(
@@ -57,7 +59,7 @@ export function ChatRuntimeNotice({ status }: { status: RuntimeStatus | null }) 
               : 'border-violet-500/30 bg-violet-500/10 text-violet-800 dark:text-violet-200',
         )}
       >
-        {isCompacting || presentation.freshness === 'updating' ? (
+        {isCompacting ? (
           <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
         ) : (
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
