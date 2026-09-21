@@ -82,6 +82,31 @@ export const ProposalReviewProjectionSchemaV1 = Type.Object({
 }, closed);
 export type ProposalReviewProjectionV1 = Static<typeof ProposalReviewProjectionSchemaV1>;
 
+/** Additive page envelope used by the read-only graph browser. It never carries content or paths. */
+export const ProposalReviewProjectionPageSchemaV1 = Type.Object({
+  contractVersion: Version,
+  scope: ProposalReviewGraphScopeSchemaV1,
+  items: Type.Array(ProposalReviewProposalSchemaV1, { maxItems: 256 }),
+  authorizedProposalIds: Type.Array(Id, { uniqueItems: true, maxItems: PROPOSAL_GRAPH_LIMITS.closureNodes }),
+  selectedProposalIds: Type.Array(Id, { uniqueItems: true, maxItems: PROPOSAL_GRAPH_LIMITS.batchMembers }),
+  actionability: ProposalReviewActionabilitySchemaV1,
+  page: ProposalReviewPageBindingSchemaV1,
+  diagnosis: ProposalReviewDiagnosisSchemaV1,
+}, closed);
+export type ProposalReviewProjectionPageV1 = Static<typeof ProposalReviewProjectionPageSchemaV1>;
+
+export function parseProposalReviewProjectionPageV1(value: unknown): ProposalReviewProjectionPageV1 {
+  let serialized: string | undefined;
+  try { serialized = JSON.stringify(value); } catch { throw new Error('Proposal review projection page must be JSON.'); }
+  if (serialized === undefined || new TextEncoder().encode(serialized).byteLength > PROPOSAL_GRAPH_LIMITS.payloadBytes) throw new Error('Projection page exceeds limits.');
+  if (!Value.Check(ProposalReviewProjectionPageSchemaV1, value)) throw new Error('Projection page does not match contract version 1.');
+  const page = value as ProposalReviewProjectionPageV1;
+  if (page.page.cursorRevision !== page.scope.graphRevision) throw new Error('Page cursor is bound to a different graph revision.');
+  if (!page.selectedProposalIds.every((id) => page.authorizedProposalIds.includes(id))) throw new Error('Selection contains an unauthorized proposal.');
+  if (!page.items.every((item) => page.authorizedProposalIds.includes(item.proposalId))) throw new Error('Page contains an unauthorized proposal.');
+  return page;
+}
+
 export function parseProposalReviewProjectionV1(value: unknown): ProposalReviewProjectionV1 {
   let serialized: string | undefined;
   try { serialized = JSON.stringify(value); } catch { throw new Error('Proposal review projection must be JSON.'); }
