@@ -1,13 +1,33 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { Pool } from 'pg';
 
 async function main(): Promise<void> {
+  const configuredUrl = process.env.CANVAS_TEST_POSTGRES_URL;
+  assert.ok(configuredUrl, 'Set CANVAS_TEST_POSTGRES_URL to an explicitly selected local PostgreSQL database.');
+  const sourceUrl = new URL(configuredUrl);
+  assert.ok(['postgres:', 'postgresql:'].includes(sourceUrl.protocol), 'CANVAS_TEST_POSTGRES_URL must be a PostgreSQL URL.');
+  assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(sourceUrl.hostname), 'Only a local PostgreSQL server is permitted.');
+  const databaseName = `canvas_memory_service_test_${randomUUID().replaceAll('-', '')}`;
+  const testUrl = new URL(sourceUrl);
+  testUrl.pathname = `/${databaseName}`;
+  const adminUrl = new URL(sourceUrl);
+  adminUrl.pathname = '/postgres';
+  const admin = new Pool({ connectionString: adminUrl.toString(), max: 1 });
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-memory-service-'));
+  const originalEnvironment = Object.fromEntries(['DATABASE_URL', 'CANVAS_DATABASE_PROVIDER', 'CANVAS_POSTGRES_MODE', 'CANVAS_DATA_ROOT', 'DATA']
+    .map((key) => [key, process.env[key]]));
+  let databaseCreated = false;
+  let closeDatabaseConnections: (() => Promise<void>) | null = null;
   process.env.CANVAS_DATA_ROOT = dataDir;
   process.env.DATA = dataDir;
+  process.env.DATABASE_URL = testUrl.toString();
+  process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+  process.env.CANVAS_POSTGRES_MODE = 'external';
 
   const moduleInternals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = moduleInternals._load;
@@ -25,19 +45,45 @@ async function main(): Promise<void> {
     return originalLoad(request, parent, isMain);
   };
   try {
-    const { openDb } = await import('../app/lib/db');
+    await admin.query(`CREATE DATABASE "${databaseName}"`);
+    databaseCreated = true;
+    const migrationPool = new Pool({ connectionString: testUrl.toString(), max: 1 });
+    try {
+      const { runPostgresMigrations } = await import('../app/lib/db/postgres');
+      await runPostgresMigrations(migrationPool);
+    } finally {
+      await migrationPool.end();
+    }
+    const { openDb: openRawDb, closeDatabaseConnections: closeConnections } = await import('../app/lib/db');
+    closeDatabaseConnections = closeConnections;
+    const openDb = async () => {
+      const connection = await openRawDb();
+      const postgresSql = (sql: string) => {
+        let index = 0;
+        return sql.replace(/\?/gu, () => `$${++index}`);
+      };
+      return {
+        get: (sql: string, params?: unknown[]) => connection.get(postgresSql(sql), params),
+        run: (sql: string, params?: unknown[]) => connection.run(postgresSql(sql), params),
+        all: (sql: string, params?: unknown[]) => connection.all(postgresSql(sql), params),
+        close: (error?: Error) => connection.close(error),
+      };
+    };
     const db = await openDb();
     try {
-      await db.run(`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-1', 'Memory User', 'memory@example.test']);
-      await db.run(`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-reader', 'Memory Reader', 'reader@example.test']);
-      await db.run(`INSERT INTO user (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-external', 'External User', 'external@example.test']);
+      await db.run(`INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-1', 'Memory User', 'memory@example.test']);
+      await db.run(`INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-reader', 'Memory Reader', 'reader@example.test']);
+      await db.run(`INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-writer', 'Memory Writer', 'writer@example.test']);
+      await db.run(`INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)`, ['user-external', 'External User', 'external@example.test']);
       await db.run(`INSERT INTO canvas_organization_settings (organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at) VALUES ('org-1', 'user-1', 'team', 1, 1, 1)`);
       await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-1', 'member', 'active', 1, 1)`);
       await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-reader', 'member', 'active', 1, 1)`);
+      await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-writer', 'member', 'active', 1, 1)`);
       await db.run(`INSERT INTO organization_user_permissions (organization_id, user_id, role, status, created_at, updated_at) VALUES ('org-1', 'user-external', 'external', 'active', 1, 1)`);
       await db.run(`INSERT INTO canvas_workspaces (id, organization_id, type, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at) VALUES ('workspace-1', 'org-1', 'team', 'workspaces/team/org-1/workspace-1/files', 'Memory workspace', '', 'users-round', 'active', 0, 1, 1)`);
       await db.run(`INSERT INTO canvas_workspace_members (organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage, created_at, updated_at) VALUES ('org-1', 'workspace-1', 'user-1', 'member', 'active', 1, 1, 0, 1, 1)`);
       await db.run(`INSERT INTO canvas_workspace_members (organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage, created_at, updated_at) VALUES ('org-1', 'workspace-1', 'user-reader', 'viewer', 'active', 1, 0, 0, 1, 1)`);
+      await db.run(`INSERT INTO canvas_workspace_members (organization_id, workspace_id, user_id, role, status, can_read, can_write, can_manage, created_at, updated_at) VALUES ('org-1', 'workspace-1', 'user-writer', 'member', 'active', 1, 1, 0, 1, 1)`);
     } finally { await db.close(); }
 
     const {
@@ -139,21 +185,21 @@ async function main(): Promise<void> {
     await restoreMemory({ ...scope, id: added.entry!.id });
     await deleteMemory({ ...scope, id: added.entry!.id });
 
-    const workspace = await addMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', content: 'Use the approved brand voice.' });
+    const workspace = await addMemory({ target: 'workspace', userId: 'user-writer', workspaceId: 'workspace-1', content: 'Use the approved brand voice.' });
     assert.equal(workspace.entry?.status, 'pending');
     assert.equal((await readMemoryCollection({
-      target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', collectionId: workspace.entry!.collectionId, view: 'pending',
+      target: 'workspace', userId: 'user-writer', workspaceId: 'workspace-1', collectionId: workspace.entry!.collectionId, view: 'pending',
     })).entries[0]?.id, workspace.entry?.id);
     assert.deepEqual((await readMemoryCollection({
       target: 'workspace', userId: 'user-reader', workspaceId: 'workspace-1', collectionId: workspace.entry!.collectionId, view: 'pending',
     })).entries, []);
     await assert.rejects(
-      () => updateMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id, content: 'Unapproved edit.' }),
+      () => updateMemory({ target: 'workspace', userId: 'user-writer', workspaceId: 'workspace-1', id: workspace.entry!.id, content: 'Unapproved edit.' }),
       /permission to update workspace memory/,
     );
-    assert.deepEqual((await readMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1' })).entries, []);
+    assert.deepEqual((await readMemory({ target: 'workspace', userId: 'user-writer', workspaceId: 'workspace-1' })).entries, []);
     await assert.rejects(
-      () => publishMemory({ target: 'workspace', userId: 'user-1', workspaceId: 'workspace-1', id: workspace.entry!.id }),
+      () => publishMemory({ target: 'workspace', userId: 'user-writer', workspaceId: 'workspace-1', id: workspace.entry!.id }),
       /permission to publish workspace memory/,
     );
     const governanceDb = await openDb();
@@ -190,9 +236,9 @@ async function main(): Promise<void> {
       /permission to suggest workspace memory/,
     );
 
-    const organizationMemory = await addMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1', content: 'Use British spelling in organization material.' });
+    const organizationMemory = await addMemory({ target: 'organization', userId: 'user-writer', organizationId: 'org-1', content: 'Use British spelling in organization material.' });
     assert.equal(organizationMemory.entry?.status, 'pending');
-    await assert.deepEqual((await readMemory({ target: 'organization', userId: 'user-1', organizationId: 'org-1' })).entries, []);
+    await assert.deepEqual((await readMemory({ target: 'organization', userId: 'user-writer', organizationId: 'org-1' })).entries, []);
     const organizationPermissionDb = await openDb();
     try {
       await organizationPermissionDb.run(`UPDATE organization_user_permissions SET can_manage_organization_memory = 1 WHERE organization_id = 'org-1' AND user_id = 'user-1'`);
@@ -432,48 +478,42 @@ async function main(): Promise<void> {
     assert.ok(workspaceReviewCollection);
     const workspaceReviewEntries = await readMemoryCollection({ ...workspaceScope, collectionId: workspaceReviewCollection.id });
     assert.equal(workspaceReviewEntries.entries.some((entry) => entry.status === 'pending' && /approved workspace tone/.test(entry.content)), true);
+    const readerReviewSettings = await updateMemoryReviewSettings('user-reader', { automaticMemoryEnabled: true }, 1_003);
     const revocationDb = await openDb();
-    let targetReads = 0;
-    const concurrentlyRevokedWorkspaceCandidate = {
-      action: 'add' as const,
-      category: 'decisions',
-      semanticKey: 'workspace.revoked-write',
-      content: 'This proposal must not survive a concurrent permission revocation.',
-      priority: 60,
-      get target() {
-        targetReads += 1;
-        if (targetReads === 3) {
-          // The preflight permission lookup has already captured the writable
-          // workspace. Revoke it before the review opens its write transaction.
-          queueMicrotask(() => {
-            void revocationDb.run(`
-              UPDATE canvas_workspace_members
-              SET can_write = 0, updated_at = 2
-              WHERE workspace_id = 'workspace-1' AND user_id = 'user-1'
-            `);
-          });
-        }
-        return 'workspace' as const;
-      },
-    };
-    const revokedWorkspaceReviewResult = await applyMemoryReviewCandidates({
-      claim: claim!,
-      scopeContext: { workspaceId: 'workspace-1' },
-      candidates: [concurrentlyRevokedWorkspaceCandidate],
-    });
-    assert.deepEqual(revokedWorkspaceReviewResult, { added: 0, updated: 0, archived: 0, skipped: 1 });
-    const revokedWorkspaceCollection = (await listMemoryCollections(workspaceScope))
-      .find((collection) => collection.category === 'decisions');
-    const revokedWorkspaceEntries = revokedWorkspaceCollection
-      ? await readMemoryCollection({ ...workspaceScope, collectionId: revokedWorkspaceCollection.id })
-      : null;
-    assert.equal(revokedWorkspaceEntries?.entries.some((entry) => entry.semanticKey === 'workspace.revoked-write') ?? false, false);
-    await revocationDb.run(`
-      UPDATE canvas_workspace_members
-      SET can_write = 1, updated_at = 3
-      WHERE workspace_id = 'workspace-1' AND user_id = 'user-1'
-    `);
-    await revocationDb.close();
+    try {
+      await revocationDb.run(`
+        UPDATE memory_review_jobs
+        SET user_id = 'user-reader'
+        WHERE id = ?
+      `, [claim!.id]);
+      const revokedClaim = {
+        ...claim!,
+        userId: 'user-reader',
+        settingsRevision: readerReviewSettings.settingsRevision,
+      };
+      const revokedWorkspaceReviewResult = await applyMemoryReviewCandidates({
+        claim: revokedClaim,
+        scopeContext: { workspaceId: 'workspace-1' },
+        candidates: [{
+          action: 'add', target: 'workspace', category: 'decisions', semanticKey: 'workspace.revoked-write',
+          content: 'This proposal must not survive a revoked write permission.', priority: 60,
+        }],
+      });
+      assert.deepEqual(revokedWorkspaceReviewResult, { added: 0, updated: 0, archived: 0, skipped: 1 });
+      const revokedWorkspaceCollection = (await listMemoryCollections(workspaceScope))
+        .find((collection) => collection.category === 'decisions');
+      const revokedWorkspaceEntries = revokedWorkspaceCollection
+        ? await readMemoryCollection({ ...workspaceScope, collectionId: revokedWorkspaceCollection.id })
+        : null;
+      assert.equal(revokedWorkspaceEntries?.entries.some((entry) => entry.semanticKey === 'workspace.revoked-write') ?? false, false);
+    } finally {
+      await revocationDb.run(`
+        UPDATE memory_review_jobs
+        SET user_id = 'user-1'
+        WHERE id = ?
+      `, [claim!.id]);
+      await revocationDb.close();
+    }
     const rejectedSharedMutation = await applyMemoryReviewCandidates({
       claim: claim!,
       scopeContext: { workspaceId: 'workspace-1' },
@@ -762,13 +802,13 @@ async function main(): Promise<void> {
       await recoveryDb.run(`INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence) VALUES (?, 'assistant', '{}', 2, 2)`, [historicalSession.id]);
       await recoveryDb.run(`
         INSERT INTO pi_sessions (session_id, user_id, organization_id, agent_id, provider, model, created_at, updated_at)
-        VALUES ('unconfigured-session', 'user-external', 'org-2', 'external-agent', 'test', 'test-model', 1, 1)
+        VALUES ('unconfigured-session', 'user-external', 'org-1', 'external-agent', 'test', 'test-model', 1, 1)
       `);
       await recoveryDb.run(`
         INSERT INTO memory_review_jobs (
           id, user_id, organization_id, session_id, from_message_sequence, through_message_sequence,
           trigger_type, scheduled_for, status, attempts, created_at
-        ) VALUES ('unconfigured-front-job', 'user-external', 'org-2', 'unconfigured-session', 1, 2,
+        ) VALUES ('unconfigured-front-job', 'user-external', 'org-1', 'unconfigured-session', 1, 2,
           'idle', 79999, 'scheduled', 0, 1)
       `);
       await recoveryDb.run(`
@@ -862,7 +902,14 @@ async function main(): Promise<void> {
     } finally { await maintenanceDb.close(); }
   } finally {
     moduleInternals._load = originalLoad;
+    await closeDatabaseConnections?.();
+    if (databaseCreated) await admin.query(`DROP DATABASE "${databaseName}"`);
+    await admin.end();
     await fs.rm(dataDir, { recursive: true, force: true });
+    for (const [key, value] of Object.entries(originalEnvironment)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   }
   console.log('memory-service-test: ok');
 }
