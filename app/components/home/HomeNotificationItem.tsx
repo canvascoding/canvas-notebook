@@ -1,6 +1,6 @@
 'use client';
 
-import { BrainCircuit, Check, CircleAlert, FileClock, ImageIcon, ListTodo, Mail, MessageSquare, PlugZap, Workflow, X } from 'lucide-react';
+import { BrainCircuit, Check, CircleAlert, FileClock, ImageIcon, ListTodo, Loader2, Mail, MessageSquare, PlugZap, Workflow, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Link } from '@/i18n/navigation';
@@ -24,7 +24,18 @@ const ICONS = {
   file_change: FileClock,
 };
 
-export function HomeNotificationItem({ item, showActions, pending, onRead, onDismiss, onOpenFileChange }: {
+export function HomeNotificationItem({
+  item,
+  showActions,
+  pending,
+  onRead,
+  onDismiss,
+  onOpenFileChange,
+  onMemoryDecision,
+  memoryDecision,
+  memoryTargets,
+  onMemoryOpen,
+}: {
   item: NotificationItem;
   showActions: boolean;
   pending: boolean;
@@ -49,7 +60,7 @@ export function HomeNotificationItem({ item, showActions, pending, onRead, onDis
   return (
     <li className="border-b border-border/60 last:border-0">
       <Link href={notificationHref(item)} onClick={(event) => {
-        if (isMemory) {
+        if (item.target.kind === 'memory') {
           event.preventDefault();
           onMemoryOpen?.();
           void openMemoryReview(item.target, memoryTargets);
@@ -75,8 +86,8 @@ export function HomeNotificationItem({ item, showActions, pending, onRead, onDis
       </Link>
       {showActions && (item.unread || dismissible || isMemory) ? <div className="flex flex-wrap justify-end gap-1 px-2 pb-3">
         {isMemory ? <>
-          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('reject')} aria-label={t('memoryReject')} title={t('memoryReject')}><X className="h-3 w-3" />{t('memoryReject')}</Button>
-          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('approve')} aria-label={t('memoryApprove')} title={t('memoryApprove')}><Check className="h-3 w-3" />{t('memoryApprove')}</Button>
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('reject')} aria-label={t('memoryReject')} title={t('memoryReject')}>{memoryDecision === 'reject' ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}{t('memoryReject')}</Button>
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('approve')} aria-label={t('memoryApprove')} title={t('memoryApprove')}>{memoryDecision === 'approve' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}{t('memoryApprove')}</Button>
         </> : null}
         {item.unread ? <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={pending} onClick={onRead}><Check className="h-3 w-3" />{t('markRead')}</Button> : null}
         {dismissible ? <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={pending} onClick={onDismiss}><X className="h-3 w-3" />{t('dismiss')}</Button> : null}

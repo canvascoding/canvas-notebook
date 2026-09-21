@@ -698,7 +698,7 @@ export async function readMemoryReview(
       target: {
         entryId: String(row.id),
         collectionId: String(row.collection_id),
-        scope: row.scope_type as MemoryScopeType,
+        scope: row.scope_type as Extract<MemoryScopeType, 'workspace' | 'organization'>,
         workspaceId: typeof row.workspace_id === 'string' ? row.workspace_id : undefined,
         organizationId: typeof row.organization_id === 'string' ? row.organization_id : undefined,
       },

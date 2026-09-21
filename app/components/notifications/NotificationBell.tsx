@@ -13,6 +13,7 @@ import {
   FileClock,
   ImageIcon,
   ListTodo,
+  Loader2,
   Mail,
   MessageSquare,
   PlugZap,
@@ -181,7 +182,10 @@ export function NotificationBell() {
     }
   }, [mutateInbox, refresh]);
 
-  const notificationItems = summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [];
+  const notificationItems = useMemo(
+    () => summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [],
+    [summary],
+  );
   const todoItems = summary?.sections.todoAttention ?? summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
   const emailItems = summary?.sections.emailAttention ?? summary?.items.filter((item) => item.target.kind === 'email') ?? [];
 
@@ -192,6 +196,7 @@ export function NotificationBell() {
         .filter((candidate) => candidate.target.kind === 'memory')
         .map(memoryReviewTargetFromNotification)
         .filter((target): target is NonNullable<typeof target> => Boolean(target));
+      if (item.unread) void markItemRead(item).catch(() => undefined);
       await openMemoryReview(item.target, targets);
       return;
     }
@@ -296,10 +301,10 @@ export function NotificationBell() {
         {item.target.kind === 'memory' ? (
           <span className="flex shrink-0 items-center gap-0.5">
             <Button variant="ghost" size="icon-xs" onClick={(event) => { event.stopPropagation(); void decideMemoryItem(item, 'approve'); }} disabled={Boolean(memoryDecisions[`${item.workspaceId}:${item.id}`])} aria-label={t('memoryApprove')} title={t('memoryApprove')}>
-              <Check className="h-3.5 w-3.5" />
+              {memoryDecisions[`${item.workspaceId}:${item.id}`] === 'approve' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             </Button>
             <Button variant="ghost" size="icon-xs" onClick={(event) => { event.stopPropagation(); void decideMemoryItem(item, 'reject'); }} disabled={Boolean(memoryDecisions[`${item.workspaceId}:${item.id}`])} aria-label={t('memoryReject')} title={t('memoryReject')}>
-              <X className="h-3.5 w-3.5" />
+              {memoryDecisions[`${item.workspaceId}:${item.id}`] === 'reject' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <X className="h-3.5 w-3.5" />}
             </Button>
           </span>
         ) : null}
