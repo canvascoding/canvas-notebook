@@ -2995,6 +2995,9 @@
     "unread": "Unread",
     "highPriority": "High priority",
     "dismiss": "Remove from notifications",
+    "memoryApprove": "Save memory",
+    "memoryReject": "Don't save memory",
+    "memoryDecisionFailed": "The memory decision could not be saved.",
     "workspaceFallback": "Workspace",
     "recent": "Recent",
     "sections": {

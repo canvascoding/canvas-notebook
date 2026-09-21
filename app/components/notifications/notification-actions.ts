@@ -6,6 +6,8 @@ import { mcpConnectionSettingsHref } from '@/app/lib/mcp/connection-health-types
 import { beginExternalWorkspaceNavigation } from '@/app/lib/workspaces/navigation-sync';
 import { openVersionCenterFromNotification } from '@/app/store/file-version-center-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { decideMemoryReviewClient, loadMemoryReview } from '@/app/lib/memory/review-client';
+import type { MemoryReviewDecision, MemoryReviewTarget } from '@/app/lib/memory/contract';
 import type { NotificationItem, NotificationSummary } from './notification-summary';
 
 export type NotificationMutation = {
@@ -19,6 +21,19 @@ let fileChangeOpenGeneration = 0;
 
 export function shouldMarkNotificationReadOnOpen(item: NotificationItem): boolean {
   return item.target.kind !== 'file_change';
+}
+
+export function memoryReviewTargetFromNotification(item: NotificationItem): MemoryReviewTarget | null {
+  return item.target.kind === 'memory' ? item.target : null;
+}
+
+export async function decideMemoryNotification(item: NotificationItem, decision: MemoryReviewDecision): Promise<void> {
+  const target = memoryReviewTargetFromNotification(item);
+  if (!target) throw new Error('This notification is not a memory review.');
+  const entry = await loadMemoryReview(target);
+  await decideMemoryReviewClient(entry, decision);
+  window.dispatchEvent(new CustomEvent('memory_review_updated'));
+  window.dispatchEvent(new CustomEvent('notification_summary_updated'));
 }
 
 export function notificationHref(item: NotificationItem): string {
@@ -109,6 +124,6 @@ export function homeNotificationItems(summary: NotificationSummary | null): Noti
   for (const item of [...summary.items, ...summary.sections.notifications, ...summary.sections.todoAttention, ...summary.sections.emailAttention]) {
     unique.set(`${item.workspaceId}:${item.id}`, item);
   }
-  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo')
+  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo' || item.target.kind === 'memory')
     .sort((a, b) => Number(b.priority === 'high') - Number(a.priority === 'high') || Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
 }

@@ -2994,6 +2994,9 @@
     "unread": "Ungelesen",
     "highPriority": "Hohe Priorität",
     "dismiss": "Aus Benachrichtigungen entfernen",
+    "memoryApprove": "Memory speichern",
+    "memoryReject": "Memory nicht speichern",
+    "memoryDecisionFailed": "Die Memory-Entscheidung konnte nicht gespeichert werden.",
     "workspaceFallback": "Workspace",
     "recent": "Kürzlich",
     "sections": {

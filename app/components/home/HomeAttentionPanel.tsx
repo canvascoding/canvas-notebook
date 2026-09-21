@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet';
 import type { NotificationItem, NotificationSummary } from '@/app/components/notifications/notification-summary';
-import { homeNotificationItems, updateNotification } from '@/app/components/notifications/notification-actions';
+import { decideMemoryNotification, homeNotificationItems, memoryReviewTargetFromNotification, updateNotification } from '@/app/components/notifications/notification-actions';
 import { HomeNotificationRowsSkeleton } from './HomeSkeletons';
 import { HomeNotificationItem } from './HomeNotificationItem';
 
@@ -14,9 +14,11 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
   const t = useTranslations('home.start');
   const tn = useTranslations('notifications');
   const [pending, setPending] = useState<string | null>(null);
+  const [memoryDecision, setMemoryDecision] = useState<Record<string, 'approve' | 'reject' | null>>({});
   const [error, setError] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const items = homeNotificationItems(summary);
+  const memoryTargets = items.map(memoryReviewTargetFromNotification).filter((target): target is NonNullable<typeof target> => Boolean(target));
   const countLabel = isLoading ? tn('loading') : !summary ? t('notificationsFailed') : t('attentionCount', { count: items.length });
 
   const act = async (item: NotificationItem, dismiss = false) => {
@@ -28,6 +30,18 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
       setError(true);
     } finally {
       setPending(null);
+    }
+  };
+
+  const decideMemory = async (item: NotificationItem, decision: 'approve' | 'reject') => {
+    const key = `${item.workspaceId}:${item.id}`;
+    setMemoryDecision((current) => ({ ...current, [key]: decision }));
+    try {
+      await decideMemoryNotification(item, decision);
+    } catch {
+      setError(true);
+    } finally {
+      setMemoryDecision((current) => ({ ...current, [key]: null }));
     }
   };
 
@@ -44,6 +58,10 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
         onRead={() => void act(item)}
         onDismiss={() => void act(item, true)}
         onOpenFileChange={() => setSheetOpen(false)}
+        memoryTargets={memoryTargets}
+        memoryDecision={memoryDecision[`${item.workspaceId}:${item.id}`]}
+        onMemoryDecision={(decision) => void decideMemory(item, decision)}
+        onMemoryOpen={() => setSheetOpen(false)}
       />
     ))}</ul>;
   };

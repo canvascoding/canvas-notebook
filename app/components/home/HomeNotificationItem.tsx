@@ -11,6 +11,7 @@ import {
   openFileChangeReviewNotification,
   shouldMarkNotificationReadOnOpen,
 } from '@/app/components/notifications/notification-actions';
+import { openMemoryReview } from '@/app/store/memory-review-store';
 
 const ICONS = {
   chat: MessageSquare,
@@ -30,6 +31,10 @@ export function HomeNotificationItem({ item, showActions, pending, onRead, onDis
   onRead: () => void;
   onDismiss: () => void;
   onOpenFileChange?: () => void;
+  onMemoryDecision?: (decision: 'approve' | 'reject') => void;
+  memoryDecision?: 'approve' | 'reject' | null;
+  memoryTargets?: import('@/app/lib/memory/contract').MemoryReviewTarget[];
+  onMemoryOpen?: () => void;
 }) {
   const t = useTranslations('notifications');
   const Icon = ICONS[item.target.kind];
@@ -40,9 +45,16 @@ export function HomeNotificationItem({ item, showActions, pending, onRead, onDis
   const typeLabel = item.target.kind === 'file_change'
     ? `${t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
     : `${t(`types.${item.target.kind}`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`;
+  const isMemory = item.target.kind === 'memory';
   return (
     <li className="border-b border-border/60 last:border-0">
       <Link href={notificationHref(item)} onClick={(event) => {
+        if (isMemory) {
+          event.preventDefault();
+          onMemoryOpen?.();
+          void openMemoryReview(item.target, memoryTargets);
+          return;
+        }
         if (item.target.kind === 'file_change') {
           event.preventDefault();
           onOpenFileChange?.();
@@ -61,7 +73,11 @@ export function HomeNotificationItem({ item, showActions, pending, onRead, onDis
         </span>
         {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
       </Link>
-      {showActions && (item.unread || dismissible) ? <div className="flex flex-wrap justify-end gap-1 px-2 pb-3">
+      {showActions && (item.unread || dismissible || isMemory) ? <div className="flex flex-wrap justify-end gap-1 px-2 pb-3">
+        {isMemory ? <>
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('reject')} aria-label={t('memoryReject')} title={t('memoryReject')}><X className="h-3 w-3" />{t('memoryReject')}</Button>
+          <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('approve')} aria-label={t('memoryApprove')} title={t('memoryApprove')}><Check className="h-3 w-3" />{t('memoryApprove')}</Button>
+        </> : null}
         {item.unread ? <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={pending} onClick={onRead}><Check className="h-3 w-3" />{t('markRead')}</Button> : null}
         {dismissible ? <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={pending} onClick={onDismiss}><X className="h-3 w-3" />{t('dismiss')}</Button> : null}
       </div> : null}

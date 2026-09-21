@@ -509,6 +509,17 @@ export function MemorySettingsPanel() {
   }, [loadEntries, selectedCollectionId, t]);
 
   useEffect(() => {
+    const refreshAfterReview = () => {
+      void Promise.all([
+        loadCollections(selectedCollectionId),
+        loadEntries(selectedCollectionId),
+      ]).catch((loadError) => setError(loadError instanceof Error ? loadError.message : t('errors.loadEntries')));
+    };
+    window.addEventListener('memory_review_updated', refreshAfterReview);
+    return () => window.removeEventListener('memory_review_updated', refreshAfterReview);
+  }, [loadCollections, loadEntries, selectedCollectionId, t]);
+
+  useEffect(() => {
     if (!highlightedEntryId || !entries.some((entry) => entry.id === highlightedEntryId)) return;
     const timer = window.setTimeout(() => {
       document.getElementById(`memory-entry-${highlightedEntryId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });

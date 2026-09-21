@@ -27,12 +27,15 @@ import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import {
   notificationHref,
+  decideMemoryNotification,
+  memoryReviewTargetFromNotification,
   openFileChangeReviewNotification,
   shouldMarkNotificationReadOnOpen,
   updateNotification,
   type NotificationMutation,
 } from './notification-actions';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
+import { openMemoryReview } from '@/app/store/memory-review-store';
 import {
   readNotificationSummary,
   type NotificationItem,
@@ -72,6 +75,7 @@ export function NotificationBell() {
   const [summary, setSummary] = useState<NotificationSummary | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
+  const [memoryDecisions, setMemoryDecisions] = useState<Record<string, 'approve' | 'reject' | null>>({});
 
   const unreadCount = summary?.unreadCount ?? 0;
   const badgeLabel = useMemo(() => formatBadgeCount(unreadCount), [unreadCount]);
@@ -177,8 +181,20 @@ export function NotificationBell() {
     }
   }, [mutateInbox, refresh]);
 
+  const notificationItems = summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [];
+  const todoItems = summary?.sections.todoAttention ?? summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
+  const emailItems = summary?.sections.emailAttention ?? summary?.items.filter((item) => item.target.kind === 'email') ?? [];
+
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
+    if (item.target.kind === 'memory') {
+      const targets = notificationItems
+        .filter((candidate) => candidate.target.kind === 'memory')
+        .map(memoryReviewTargetFromNotification)
+        .filter((target): target is NonNullable<typeof target> => Boolean(target));
+      await openMemoryReview(item.target, targets);
+      return;
+    }
     if (item.target.kind === 'file_change') {
       if (!await openFileChangeReviewNotification(item)) {
         toast.error(t('fileChanges.openFailed'));
@@ -210,11 +226,21 @@ export function NotificationBell() {
     }
     if (dispatchOpenChatSession(item.target.sessionId, 'notification', item.workspaceId)) return;
     window.location.assign(notificationHref(item));
-  }, [markItemRead, t]);
+  }, [markItemRead, notificationItems, t]);
 
-  const notificationItems = summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [];
-  const todoItems = summary?.sections.todoAttention ?? summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
-  const emailItems = summary?.sections.emailAttention ?? summary?.items.filter((item) => item.target.kind === 'email') ?? [];
+  const decideMemoryItem = useCallback(async (item: NotificationItem, decision: 'approve' | 'reject') => {
+    if (item.target.kind !== 'memory') return;
+    const key = `${item.workspaceId}:${item.id}`;
+    setMemoryDecisions((current) => ({ ...current, [key]: decision }));
+    try {
+      await decideMemoryNotification(item, decision);
+      await refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('memoryDecisionFailed'));
+    } finally {
+      setMemoryDecisions((current) => ({ ...current, [key]: null }));
+    }
+  }, [refresh, t]);
 
   const renderItem = (item: NotificationItem) => {
     const Icon = notificationIcon(item);
@@ -266,6 +292,16 @@ export function NotificationBell() {
           >
             {item.unread ? <Check className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}
           </Button>
+        ) : null}
+        {item.target.kind === 'memory' ? (
+          <span className="flex shrink-0 items-center gap-0.5">
+            <Button variant="ghost" size="icon-xs" onClick={(event) => { event.stopPropagation(); void decideMemoryItem(item, 'approve'); }} disabled={Boolean(memoryDecisions[`${item.workspaceId}:${item.id}`])} aria-label={t('memoryApprove')} title={t('memoryApprove')}>
+              <Check className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon-xs" onClick={(event) => { event.stopPropagation(); void decideMemoryItem(item, 'reject'); }} disabled={Boolean(memoryDecisions[`${item.workspaceId}:${item.id}`])} aria-label={t('memoryReject')} title={t('memoryReject')}>
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </span>
         ) : null}
         {isDismissible(item) ? (
           <Button
