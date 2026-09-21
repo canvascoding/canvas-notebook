@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { FileText, Image as ImageIcon, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -27,6 +28,10 @@ export function AttachmentPreviewItem({
   const displayAttachment = deriveUploadAttachmentPreview(attachment);
   const isImage = displayAttachment.contentKind === 'image' && Boolean(displayAttachment.previewUrl);
   const mediaUrl = getAttachmentMediaUrl(displayAttachment);
+  const [failedPreviewUrl, setFailedPreviewUrl] = useState<string | null>(null);
+  const imageSrc = failedPreviewUrl === displayAttachment.previewUrl && mediaUrl
+    ? mediaUrl
+    : displayAttachment.previewUrl;
   const canOpen = Boolean(isImage && mediaUrl && onOpen);
   const sizeLabel = formatAttachmentSize(displayAttachment.size);
   const wrapperClass = context === 'composer'
@@ -82,7 +87,7 @@ export function AttachmentPreviewItem({
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={displayAttachment.previewUrl}
+          src={imageSrc}
           alt={displayAttachment.name}
           width={imageDimensions.width}
           height={imageDimensions.height}
@@ -91,6 +96,11 @@ export function AttachmentPreviewItem({
           decoding="async"
           fetchPriority="low"
           draggable={false}
+          onError={() => {
+            if (imageSrc !== mediaUrl && mediaUrl) {
+              setFailedPreviewUrl(displayAttachment.previewUrl ?? null);
+            }
+          }}
         />
       </button>
       <div className="min-w-0 flex-1">
