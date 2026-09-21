@@ -146,6 +146,9 @@ async function resolvePluginConnectionReadinessUncached(input: {
     const status = await getGatewayStatus(composioContext).catch(() => ({
       configured: false,
       apiKeyValid: false,
+      apiKeyState: 'unknown' as const,
+      providerHealthy: false,
+      errorCode: undefined,
       connectedAccounts: [],
     }));
     const connectedBySlug = new Set(
@@ -154,7 +157,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
         .filter((slug): slug is string => Boolean(slug)),
     );
     let toolkitBySlug = new Map<string, { name?: string; logo?: string; ready: boolean }>();
-    if (status.configured && status.apiKeyValid) {
+    if (status.configured && status.apiKeyValid && status.providerHealthy) {
       const toolkitResult = await getGatewayToolkits(composioContext).catch(() => ({ toolkits: [] }));
       if (Array.isArray(toolkitResult.toolkits)) {
         toolkitBySlug = new Map(toolkitResult.toolkits
@@ -176,9 +179,17 @@ async function resolvePluginConnectionReadinessUncached(input: {
     }
     for (const connector of composio) {
       const toolkit = toolkitBySlug.get(connector.toolkit);
-      const configured = Boolean(status.configured && status.apiKeyValid);
+      const configured = Boolean(status.configured && status.apiKeyValid && status.providerHealthy);
+      const degraded = status.providerHealthy === false;
+      const needsConfiguration = status.apiKeyState === 'missing'
+        || status.apiKeyState === 'invalid_or_insufficient_scope';
       const available = configured && Boolean(toolkit);
       const connected = Boolean(toolkit?.ready);
+      const statusDetail = degraded
+        ? status.errorCode === 'COMPOSIO_RATE_LIMITED'
+          ? 'Composio is rate limited. Try again later.'
+          : 'Composio is temporarily unavailable. Try again later.'
+        : undefined;
       items.push({
         type: 'composio',
         key: connector.toolkit,
@@ -190,8 +201,11 @@ async function resolvePluginConnectionReadinessUncached(input: {
         configured,
         logo: toolkit?.logo,
         reason: connector.reason,
-        details: connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : undefined,
-        action: !configured ? 'configure-composio' : connected ? 'none' : 'connect-composio',
+        details: [
+          ...(connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : []),
+          ...(statusDetail ? [statusDetail] : []),
+        ],
+        action: degraded ? 'none' : needsConfiguration ? 'configure-composio' : connected ? 'none' : 'connect-composio',
       });
     }
   }

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.21.1",
-  "lockfileSha256": "27d819c0e376dcd670a7101f642ac5b2a8298177f1e6e50312ed69fc688ab2f1",
+  "lockfileSha256": "48a276941e77318e948e0dbcfebf89b0320ea6a8e19606f7b25e415453839185",
   "summary": {
-    "totalComponents": 1996,
-    "npmComponents": 1972,
+    "totalComponents": 1999,
+    "npmComponents": 1975,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1452,
+    "runtimeComponents": 1455,
     "developmentOnlyComponents": 544,
-    "allowed": 1946,
+    "allowed": 1949,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -12624,6 +12624,29 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@cfworker/json-schema",
+      "versionOrCommit": "4.1.1",
+      "sourceUrl": "https://github.com/cfworker/cfworker/tree/5409fdc2bd144f68e8b28c61c71fcb16600000a6",
+      "packagePathOrArtifact": "node_modules/@cfworker/json-schema",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@cfworker/json-schema@4.1.1",
+      "licenseTextSha256": "376944252ab78ca6b41aee44ddea8894927ee67891e77e61eb9d59af63e35094",
+      "copyrightNotices": [
+        "Copyright (c) 2020 Jeremy Danyow"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/cfworker/cfworker/5409fdc2bd144f68e8b28c61c71fcb16600000a6/LICENSE.md Published source revision: 5409fdc2bd144f68e8b28c61c71fcb16600000a6"
+    },
+    {
       "name": "@chevrotain/cst-dts-gen",
       "versionOrCommit": "11.0.3",
       "sourceUrl": "https://github.com/Chevrotain/chevrotain",
@@ -13203,7 +13226,7 @@
     },
     {
       "name": "@composio/client",
-      "versionOrCommit": "0.1.0-alpha.74",
+      "versionOrCommit": "0.1.0-alpha.76",
       "sourceUrl": "github:ComposioHQ/composio-base-ts",
       "packagePathOrArtifact": "node_modules/@composio/client",
       "usage": "runtime",
@@ -13227,7 +13250,7 @@
     },
     {
       "name": "@composio/core",
-      "versionOrCommit": "0.13.1",
+      "versionOrCommit": "0.18.1",
       "sourceUrl": "https://github.com/ComposioHQ/composio",
       "packagePathOrArtifact": "node_modules/@composio/core",
       "usage": "runtime",
@@ -13249,7 +13272,7 @@
     },
     {
       "name": "@composio/json-schema-to-zod",
-      "versionOrCommit": "0.2.0",
+      "versionOrCommit": "0.3.2",
       "sourceUrl": "https://github.com/ComposioHQ/composio",
       "packagePathOrArtifact": "node_modules/@composio/json-schema-to-zod",
       "usage": "runtime",
@@ -32357,6 +32380,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "is-fs-case-sensitive",
+      "versionOrCommit": "2.0.0",
+      "sourceUrl": "privatenumber/is-fs-case-sensitive",
+      "packagePathOrArtifact": "node_modules/is-fs-case-sensitive",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/is-fs-case-sensitive/LICENSE",
+      "licenseTextSha256": "10c904a49af44409b073532e45a53fd4df19bdf26eaf9afc7917258c2b354382",
+      "copyrightNotices": [
+        "Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "is-glob",
       "versionOrCommit": "4.0.3",
       "sourceUrl": "micromatch/is-glob",
@@ -36471,6 +36516,30 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "openai",
+      "versionOrCommit": "7.20.0",
+      "sourceUrl": "github:openai/openai-node",
+      "packagePathOrArtifact": "node_modules/@composio/core/node_modules/openai",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/@composio/core/node_modules/openai/LICENSE",
+      "licenseTextSha256": "636eb7d79da9bb6d515a4b3fd417aa26679eb3cf16396ddab4bc55fa74e616e4",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright 2026 OpenAI",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "opensrc",
       "versionOrCommit": "0.7.3",
       "sourceUrl": "https://github.com/vercel-labs/opensrc/tree/f96078ac0a7ce3fb7d058d73ce65ff4b6606d765",
@@ -38498,7 +38567,7 @@
     },
     {
       "name": "pusher-js",
-      "versionOrCommit": "8.5.0",
+      "versionOrCommit": "8.6.0",
       "sourceUrl": "https://github.com/pusher/pusher-js",
       "packagePathOrArtifact": "node_modules/pusher-js",
       "usage": "runtime",

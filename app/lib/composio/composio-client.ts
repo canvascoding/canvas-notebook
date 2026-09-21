@@ -4,6 +4,7 @@ import { Composio } from '@composio/core';
 import { readScopedEnvState, type EnvStorageScope } from '../integrations/env-config';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import type { ResolvedComposioContext } from './composio-context';
+import { classifyComposioFailure, type ComposioProviderError } from './composio-provider-error';
 
 const composioInstances = new Map<string, Composio>();
 
@@ -65,14 +66,28 @@ export async function getComposio(storageScope?: EnvStorageScope | null): Promis
   return composio;
 }
 
-export async function verifyApiKey(context: ResolvedComposioContext): Promise<boolean> {
+export type ComposioApiKeyProbe = {
+  valid: boolean;
+  healthy: boolean;
+  error?: ComposioProviderError;
+};
+
+export async function verifyApiKey(context: ResolvedComposioContext): Promise<ComposioApiKeyProbe> {
   try {
     const composio = await getComposio(context.storageScope);
-    if (!composio) return false;
-    await composio.connectedAccounts.list({ userIds: [context.composioUserId], limit: 1 });
-    return true;
-  } catch {
-    return false;
+    if (!composio) return { valid: false, healthy: true };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    try {
+      await composio.connectedAccounts.list({ userIds: [context.composioUserId], limit: 1 }, { signal: controller.signal });
+      return { valid: true, healthy: true };
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch (error) {
+    const normalized = classifyComposioFailure({ error, timeout: error instanceof Error && error.name === 'AbortError' });
+    if (normalized.code === 'COMPOSIO_CREDENTIALS_OR_SCOPE') return { valid: false, healthy: true, error: normalized };
+    return { valid: true, healthy: false, error: normalized };
   }
 }
 

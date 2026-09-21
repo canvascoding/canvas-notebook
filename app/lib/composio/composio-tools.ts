@@ -21,7 +21,7 @@ import {
 const COMPOSIO_TOOL_DESCRIPTIONS = {
   SEARCH_TOOLS: 'Search for available tools across external apps, or deterministically list and search a known app toolkit. When the user names an app, always pass its exact toolkit slug in toolkits (for example ["instagram"]). Omit query to list that toolkit catalog. An empty unscoped semantic search is not evidence that an app has no tools. Returns tool name, description, and toolkit. Always discover before executing — don\'t guess action names.',
   GET_TOOL_SCHEMAS: 'Get the complete input parameter schemas for specific Composio tools. Provide tool slugs obtained from COMPOSIO_SEARCH_TOOLS. Returns JSON Schema for each tool\'s parameters so you know exactly what fields to provide.',
-  EXECUTE: 'Execute a Composio tool action. The action must be a valid tool slug (use COMPOSIO_SEARCH_TOOLS to find available actions first). If the tool requires authentication you haven\'t set up, the response will contain auth_required with a redirect URL to connect the app.',
+  EXECUTE: 'Execute a Composio tool action. The action must be a valid tool slug (use COMPOSIO_SEARCH_TOOLS to find available actions first). If the tool requires authentication you haven\'t set up, the response will contain auth_required with a redirect URL to connect the app. If outcome_unknown is returned, do not retry automatically: check the provider state before considering a manual retry.',
   MANAGE_CONNECTIONS: 'Manage connections to external apps. Use \'connect\' to get an OAuth redirect URL, \'disconnect\' to remove a connection, or \'status\' to check if a toolkit is connected.',
 } as const;
 
@@ -110,7 +110,16 @@ export function createComposioExecuteTool(context?: ResolvedComposioContext | nu
 
         return textResult(_toolCallId, JSON.stringify(result));
       } catch (error: unknown) {
-        const err = error as { statusCode?: number; code?: string; message?: string };
+        const err = error as { statusCode?: number; code?: string; message?: string; outcomeUnknown?: boolean; providerRequestId?: string; retryable?: boolean };
+        if (err?.outcomeUnknown || err?.code === 'COMPOSIO_OUTCOME_UNKNOWN') {
+          return textResult(_toolCallId, JSON.stringify({
+            error: err.message || 'The provider did not confirm whether this action completed.',
+            outcome_unknown: true,
+            retryable: false,
+            provider_request_id: err.providerRequestId,
+            message: 'Check the provider state before considering a manual retry.',
+          }));
+        }
         if (err?.statusCode === 401 || err?.code === 'NOT_CONNECTED' || err?.message?.includes('not connected') || err?.message?.includes('not authenticated')) {
           let redirectUrl = '';
           try {

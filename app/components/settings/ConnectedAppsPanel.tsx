@@ -57,6 +57,10 @@ type TriggerAppInfo = {
 type ComposioStatus = {
   configured: boolean;
   apiKeyValid: boolean;
+  apiKeyState?: 'missing' | 'valid' | 'invalid_or_insufficient_scope' | 'unknown';
+  providerHealthy?: boolean;
+  retryable?: boolean;
+  retryAfterMs?: number;
   mode: 'local' | 'managed' | 'disabled';
   localConfigured?: boolean;
   managedAvailable?: boolean;
@@ -360,7 +364,8 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
   };
 
   const isManagedMode = status?.mode === 'managed';
-  const needsApiKey = !loading && !isManagedMode && (!status?.configured || !status?.apiKeyValid);
+  const needsApiKey = !loading && !isManagedMode && (!status?.configured || status?.apiKeyState === 'invalid_or_insufficient_scope');
+  const providerDegraded = Boolean(status?.configured && status?.providerHealthy === false);
 
   if (loading) {
     return (
@@ -468,6 +473,9 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
         <p className="text-sm text-muted-foreground">
           {isManagedMode ? t('managedDescription') : t('localDescription')}
         </p>
+        {providerDegraded ? (
+          <p className="text-sm text-amber-700">Composio is temporarily unavailable. Please retry{status?.retryAfterMs ? ` after ${Math.ceil(status.retryAfterMs / 1000)} seconds` : ''}.</p>
+        ) : null}
 
         {/* API Key Section */}
         {needsApiKey && isAdmin && (

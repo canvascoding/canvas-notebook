@@ -468,6 +468,8 @@ export async function storeToolOutput(input: StoreToolOutputInput): Promise<Stor
       let fileName: string | undefined;
       try {
         fileName = `output-${randomBytes(16).toString('hex')}.${input.format === 'json' ? 'json' : 'txt'}`;
+        // This digest is an integrity checksum for the stored tool output. It is
+        // not used to authenticate a password or to persist an API credential.
         const sha256 = createHash('sha256').update(content).digest('hex');
         const manifest: StoredManifest = {
           policyVersion: TOOL_OUTPUT_POLICY_VERSION,

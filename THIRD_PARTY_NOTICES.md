@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.21.1
-- Lockfile SHA-256: `27d819c0e376dcd670a7101f642ac5b2a8298177f1e6e50312ed69fc688ab2f1`
-- Distributed components: 1452
+- Lockfile SHA-256: `48a276941e77318e948e0dbcfebf89b0320ea6a8e19606f7b25e415453839185`
+- Distributed components: 1455
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -105,6 +105,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @braintree/sanitize-url | 6.0.2 | runtime | MIT | allowed |
 | @braintree/sanitize-url | 7.1.2 | runtime | MIT | allowed |
 | @bramus/specificity | 2.4.2 | runtime | MIT | allowed |
+| @cfworker/json-schema | 4.1.1 | runtime | MIT | allowed |
 | @chevrotain/cst-dts-gen | 11.0.3 | runtime | Apache-2.0 | allowed |
 | @chevrotain/gast | 11.0.3 | runtime | Apache-2.0 | allowed |
 | @chevrotain/regexp-to-ast | 11.0.3 | runtime | Apache-2.0 | allowed |
@@ -131,9 +132,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @codemirror/state | 6.7.1 | runtime | MIT | allowed |
 | @codemirror/theme-one-dark | 6.1.3 | runtime | MIT | allowed |
 | @codemirror/view | 6.43.6 | runtime | MIT | allowed |
-| @composio/client | 0.1.0-alpha.74 | runtime | Apache-2.0 | allowed |
-| @composio/core | 0.13.1 | runtime | ISC | allowed |
-| @composio/json-schema-to-zod | 0.2.0 | runtime | ISC | allowed |
+| @composio/client | 0.1.0-alpha.76 | runtime | Apache-2.0 | allowed |
+| @composio/core | 0.18.1 | runtime | ISC | allowed |
+| @composio/json-schema-to-zod | 0.3.2 | runtime | ISC | allowed |
 | @csstools/color-helpers | 6.1.0 | runtime | MIT-0 | allowed |
 | @csstools/css-calc | 3.2.1 | runtime | MIT | allowed |
 | @csstools/css-color-parser | 4.1.9 | runtime | MIT | allowed |
@@ -960,6 +961,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | is-binary-path | 2.1.0 | runtime | MIT | allowed |
 | is-decimal | 2.0.1 | runtime | MIT | allowed |
 | is-extglob | 2.1.1 | runtime | MIT | allowed |
+| is-fs-case-sensitive | 2.0.0 | runtime | MIT | allowed |
 | is-glob | 4.0.3 | runtime | MIT | allowed |
 | is-hexadecimal | 2.0.1 | runtime | MIT | allowed |
 | is-number | 7.0.0 | runtime | MIT | allowed |
@@ -1144,6 +1146,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | open-color | 1.9.1 | runtime | MIT | allowed |
 | openai | 6.40.0 | runtime | Apache-2.0 | allowed |
 | openai | 6.46.0 | runtime | Apache-2.0 | allowed |
+| openai | 7.20.0 | runtime | Apache-2.0 | allowed |
 | opensrc | 0.7.3 | runtime | Apache-2.0 | allowed |
 | option | 0.2.4 | runtime | BSD-2-Clause | allowed |
 | orderedmap | 2.1.1 | runtime | MIT | allowed |
@@ -1235,7 +1238,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | punycode.js | 2.3.1 | runtime | MIT | allowed |
 | punycode | 2.3.1 | runtime | MIT | allowed |
 | puppeteer-core | 25.3.0 | runtime | Apache-2.0 | allowed |
-| pusher-js | 8.5.0 | runtime | MIT | allowed |
+| pusher-js | 8.6.0 | runtime | MIT | allowed |
 | pwacompat | 2.0.17 | runtime | Apache-2.0 | allowed |
 | qrcode.react | 4.2.0 | runtime | ISC | allowed |
 | qs | 6.16.0 | runtime | BSD-3-Clause | allowed |
@@ -3692,7 +3695,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text 10c904a49af4
 
-Applies to tsx@4.23.1.
+Applies to is-fs-case-sensitive@2.0.0, tsx@4.23.1.
 
 Copyright notices:
 
@@ -6928,6 +6931,38 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+### License text 376944252ab7
+
+Applies to @cfworker/json-schema@4.1.1.
+
+Copyright notices:
+
+- Copyright (c) 2020 Jeremy Danyow
+
+```text
+MIT License
+
+Copyright (c) 2020 Jeremy Danyow
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### License text 37876d7de8bd
@@ -11642,7 +11677,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 636eb7d79da9
 
-Applies to openai@6.40.0, openai@6.46.0.
+Applies to openai@6.40.0, openai@6.46.0, openai@7.20.0.
 
 Copyright notices:
 
@@ -12018,7 +12053,7 @@ SOFTWARE.
 
 ### License text 65ca9bc7095a
 
-Applies to @composio/core@0.13.1, @composio/json-schema-to-zod@0.2.0.
+Applies to @composio/core@0.18.1, @composio/json-schema-to-zod@0.3.2.
 
 Copyright notices:
 
@@ -26697,7 +26732,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text dd2b01bb5ed5
 
-Applies to @composio/client@0.1.0-alpha.74.
+Applies to @composio/client@0.1.0-alpha.76.
 
 Copyright notices:
 
@@ -28558,7 +28593,7 @@ THE SOFTWARE.
 
 ### License text e7170db86204
 
-Applies to pusher-js@8.5.0.
+Applies to pusher-js@8.6.0.
 
 Copyright notices:
 

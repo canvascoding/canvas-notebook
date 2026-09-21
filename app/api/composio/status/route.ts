@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getGatewayStatus } from '@/app/lib/composio/composio-gateway';
+import { getComposioGatewayMode, getGatewayStatus } from '@/app/lib/composio/composio-gateway';
 import { toPublicEffectiveComposioContext } from '@/app/lib/composio/composio-context';
 import { requireComposioRequestContext } from '@/app/lib/composio/composio-request';
 
@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ configured: true, apiKeyValid: false, mode: 'disabled', connectedAccounts: [], error: message }, { status: 500 });
+    const mode = await getComposioGatewayMode(contextResult.composioContext).catch(() => 'disabled' as const);
+    return NextResponse.json({ configured: mode !== 'disabled', apiKeyValid: false, apiKeyState: 'unknown', providerHealthy: false, mode, connectedAccounts: [], error: message }, { status: 500 });
   }
 }
