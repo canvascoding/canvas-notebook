@@ -14,7 +14,8 @@ import {
   type ComposioToolSummary,
 } from './composio-tool-discovery';
 import { createComposioOAuthFlowState } from './composio-oauth-state';
-import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
+import { requestManagedComposio, type ManagedRequestOptions } from './managed-composio-client';
+import { classifyComposioFailure } from './composio-provider-error';
 import { encryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
 import { db } from '../db';
 import { composioWebhookSubscriptions } from '../db/schema';
@@ -42,6 +43,8 @@ type TriggerAppCacheEntry = {
 };
 
 const triggerAppCache = new Map<string, TriggerAppCacheEntry>();
+const TOOL_VERSION_CACHE_TTL_MS = 30 * 60 * 1000;
+const toolVersionCache = new Map<string, { version: string; expiresAt: number }>();
 
 export interface ComposioConnectedAccount {
   id: string;
@@ -57,6 +60,8 @@ export interface ComposioConnectedAccount {
 export interface ComposioStatusResult {
   configured: boolean;
   apiKeyValid: boolean;
+  apiKeyState: 'missing' | 'valid' | 'invalid_or_insufficient_scope' | 'unknown';
+  providerHealthy: boolean;
   mode: ComposioMode;
   localConfigured: boolean;
   managedAvailable: boolean;
@@ -75,18 +80,10 @@ export interface ComposioStatusResult {
     connectedAt?: string;
     status?: string;
   }>;
-}
-
-function controlPlaneBaseUrl(): string {
-  const baseUrl = getManagedControlPlaneBaseUrl();
-  if (!baseUrl) throw new Error('CANVAS_CONTROL_PLANE_URL is required for managed Composio.');
-  return baseUrl;
-}
-
-function instanceToken(): string {
-  const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
-  if (!token) throw new Error('CANVAS_INSTANCE_TOKEN is required for managed Composio.');
-  return token;
+  retryable?: boolean;
+  errorCode?: string;
+  providerRequestId?: string;
+  retryAfterMs?: number;
 }
 
 function appBaseUrl(): string {
@@ -147,57 +144,31 @@ function normalizeLocalTriggerInstance(
 
 async function managedRequest<T>(
   path: string,
-  options: { method?: string; body?: Record<string, unknown>; query?: URLSearchParams } = {},
+  options: ManagedRequestOptions = {},
   context: ResolvedComposioContext,
 ): Promise<T> {
-  const userId = context.composioUserId;
-  const url = new URL(`${controlPlaneBaseUrl()}/v1/managed/composio${path}`);
-  if (options.query) {
-    options.query.forEach((value, key) => url.searchParams.set(key, value));
-  }
-  const method = options.method || 'GET';
-  logComposioTrigger('Managed fetch started', { method, path, query: url.searchParams.toString() });
-  const headers: Record<string, string> = {
-    'Authorization': `Bearer ${instanceToken()}`,
-    'X-Canvas-Composio-User-Id': userId,
-  };
-  const body = options.body ? JSON.stringify({ ...options.body, composioUserId: userId }) : undefined;
-  if (body) {
-    headers['Content-Type'] = 'application/json';
-  }
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body,
-    });
-  } catch (error) {
-    logComposioTriggerError('Managed fetch failed', error, { method, path });
-    throw error;
-  }
+  return requestManagedComposio<T>(path, options, context);
+}
 
-  const text = await response.text();
-  let data: Record<string, unknown>;
-  try {
-    data = text ? JSON.parse(text) as Record<string, unknown> : {};
-  } catch (error) {
-    logComposioTriggerError('Managed fetch returned non-JSON response', error, {
-      method,
-      path,
-      status: response.status,
-      bodyPreview: text.slice(0, 500),
-    });
-    throw new Error(`Managed Composio request returned invalid JSON (${response.status})`);
+function cacheToolVersion(tool: Record<string, unknown>): void {
+  const slug = stringValue(tool.slug) || stringValue(tool.name);
+  const version = stringValue(tool.version) || stringValue(asRecord(tool.meta).version);
+  if (slug && version) toolVersionCache.set(slug, { version, expiresAt: Date.now() + TOOL_VERSION_CACHE_TTL_MS });
+}
+
+function cachedToolVersion(action: string): string | undefined {
+  const cached = toolVersionCache.get(action);
+  if (!cached || cached.expiresAt <= Date.now()) {
+    toolVersionCache.delete(action);
+    return undefined;
   }
-  logComposioTrigger('Managed fetch completed', { method, path, status: response.status, ok: response.ok });
-  if (!response.ok) {
-    if (data && typeof data === 'object' && 'auth_required' in data) {
-      return data as T;
-    }
-    throw new Error(typeof data.error === 'string' ? data.error : `Managed Composio request failed (${response.status})`);
-  }
-  return data as T;
+  return cached.version;
+}
+
+async function withComposioSignal<T>(timeoutMs: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try { return await operation(controller.signal); } finally { clearTimeout(timer); }
 }
 
 function connectedAccountResponse(accounts: ComposioConnectedAccount[]) {
@@ -221,26 +192,60 @@ export async function getGatewayStatus(context: ResolvedComposioContext): Promis
   const localConfigured = mode === 'local';
   const managedAvailable = isManagedComposioConfigured();
   if (mode === 'disabled') {
-    return { configured: false, apiKeyValid: false, mode, localConfigured, managedAvailable, webhookSubscription: null, connectedAccounts: [] };
+    return { configured: false, apiKeyValid: false, apiKeyState: 'missing', providerHealthy: true, mode, localConfigured, managedAvailable, webhookSubscription: null, connectedAccounts: [] };
   }
 
   if (mode === 'managed') {
-    const result = await managedRequest<ComposioStatusResult>('/status', {}, context);
+    try {
+      const result = await managedRequest<ComposioStatusResult>('/status', {}, context);
+      return {
+        ...result,
+        configured: result.configured !== false,
+        apiKeyValid: result.apiKeyValid !== false,
+        apiKeyState: result.apiKeyState || (result.apiKeyValid === false ? 'invalid_or_insufficient_scope' : 'valid'),
+        providerHealthy: result.providerHealthy !== false,
+        mode,
+        localConfigured,
+        managedAvailable,
+        webhookSubscription: { configured: true, mode: 'managed' },
+        connectedAccounts: (result.connectedAccounts || []).filter((account) => account.status === 'ACTIVE'),
+      };
+    } catch (error) {
+      const normalized = error instanceof Error && 'code' in error
+        ? error as { code?: string; retryable?: boolean; providerRequestId?: string; retryAfterMs?: number }
+        : classifyComposioFailure({ error });
+      return {
+        configured: true,
+        apiKeyValid: true,
+        apiKeyState: 'unknown',
+        providerHealthy: false,
+        mode,
+        localConfigured,
+        managedAvailable,
+        webhookSubscription: { configured: true, mode: 'managed' },
+        connectedAccounts: [],
+        retryable: normalized.retryable,
+        errorCode: normalized.code,
+        providerRequestId: normalized.providerRequestId,
+        retryAfterMs: normalized.retryAfterMs,
+      };
+    }
+  }
+
+  const probe = await verifyApiKey(context);
+  if (!probe.valid || !probe.healthy) {
     return {
-      ...result,
-      configured: result.configured !== false,
-      apiKeyValid: result.apiKeyValid !== false,
+      configured: true,
+      apiKeyValid: probe.valid,
+      apiKeyState: probe.valid ? 'unknown' : 'invalid_or_insufficient_scope',
+      providerHealthy: probe.healthy,
       mode,
       localConfigured,
       managedAvailable,
-      webhookSubscription: { configured: true, mode: 'managed' },
-      connectedAccounts: (result.connectedAccounts || []).filter((account) => account.status === 'ACTIVE'),
+      webhookSubscription: null,
+      connectedAccounts: [],
+      ...(probe.error ? { retryable: probe.error.retryable, errorCode: probe.error.code, providerRequestId: probe.error.providerRequestId, retryAfterMs: probe.error.retryAfterMs } : {}),
     };
-  }
-
-  const apiKeyValid = await verifyApiKey(context);
-  if (!apiKeyValid) {
-    return { configured: true, apiKeyValid: false, mode, localConfigured, managedAvailable, webhookSubscription: null, connectedAccounts: [] };
   }
   const accounts = await getActiveConnectedAccounts(context);
   let webhookSubscription: ComposioStatusResult['webhookSubscription'] = null;
@@ -252,7 +257,7 @@ export async function getGatewayStatus(context: ResolvedComposioContext): Promis
       webhookSubscription = { configured: false };
     }
   } catch { /* subscription check is non-critical */ }
-  return { configured: true, apiKeyValid: true, mode, localConfigured, managedAvailable, webhookSubscription, connectedAccounts: connectedAccountResponse(accounts) };
+  return { configured: true, apiKeyValid: true, apiKeyState: 'valid', providerHealthy: true, mode, localConfigured, managedAvailable, webhookSubscription, connectedAccounts: connectedAccountResponse(accounts) };
 }
 
 export async function getGatewayToolkits(context: ResolvedComposioContext) {
@@ -268,7 +273,7 @@ export async function getGatewayTriggerApps(context: ResolvedComposioContext) {
     return {
       apps: [],
       totalCount: 0,
-      status: { configured: false, apiKeyValid: false, mode, webhookSubscription: null, connectedAccounts: [] },
+      status: { configured: false, apiKeyValid: false, apiKeyState: 'missing' as const, providerHealthy: true, mode, webhookSubscription: null, connectedAccounts: [] },
     };
   }
 
@@ -276,7 +281,7 @@ export async function getGatewayTriggerApps(context: ResolvedComposioContext) {
   // keeps provider errors (which can include API-key details) out of the
   // automation composer and lets it show its normal setup-required state.
   const status = await getGatewayStatus(context);
-  if (!status.configured || status.apiKeyValid === false) {
+  if (!status.configured || status.apiKeyValid === false || !status.providerHealthy) {
     return { apps: [], totalCount: 0, status };
   }
 
@@ -352,8 +357,9 @@ export async function getGatewayToolkitTools(toolkit: string, search: string, co
     important: false,
   };
   if (search) queryParams.search = search;
-  const results = await composio.tools.getRawComposioTools(queryParams);
+  const results = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioTools({ ...queryParams, signal } as Parameters<typeof composio.tools.getRawComposioTools>[0]));
   const toolList = Array.isArray(results) ? results : [];
+  toolList.forEach((tool) => cacheToolVersion(tool as Record<string, unknown>));
   const tools = toolList.map((tool: Record<string, unknown>) => {
     const tk = (tool.toolkit ?? {}) as Record<string, unknown>;
     return {
@@ -459,10 +465,12 @@ export async function searchGatewayTools(query: string, toolkits: string[] | und
 
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  const results = await composio.tools.getRawComposioTools({
+  const results = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioTools({
     search: normalizedQuery,
-  } as Parameters<typeof composio.tools.getRawComposioTools>[0]);
+    signal,
+  } as Parameters<typeof composio.tools.getRawComposioTools>[0]));
   const resultArr = Array.isArray(results) ? results : [];
+  resultArr.forEach((tool) => cacheToolVersion(tool as Record<string, unknown>));
   const filtered = resultArr.filter((tool: Record<string, unknown>) => {
     const toolkit = (tool.toolkit ?? {}) as Record<string, unknown>;
     const toolkitSlug = String(toolkit.slug ?? tool.toolkitSlug ?? '');
@@ -495,8 +503,9 @@ export async function getGatewayToolSchemas(tools: string[], context: ResolvedCo
   const schemas: Record<string, unknown> = {};
   for (const slug of tools.slice(0, 10)) {
     try {
-      const tool = await composio.tools.getRawComposioToolBySlug(String(slug));
+      const tool = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioToolBySlug(String(slug), { signal } as never));
       const toolRecord = tool as Record<string, unknown>;
+      cacheToolVersion(toolRecord);
       schemas[String(slug)] = (toolRecord?.inputParameters ?? null) as Record<string, unknown> | null;
     } catch {
       schemas[String(slug)] = { error: `Tool '${slug}' not found` };
@@ -510,20 +519,34 @@ export async function executeGatewayTool(action: string, params: Record<string, 
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
     const toolkit = action.split('_')[0]?.trim().toLowerCase() || 'unknown';
+    const result = await managedRequest<Record<string, unknown>>('/execute', { method: 'POST', body: { action, params } }, context);
+    if (result.auth_required !== true) return result;
     const flow = await createComposioOAuthFlowState({ context, toolkitSlug: toolkit });
-    return managedRequest<unknown>('/execute', {
-      method: 'POST',
-      body: { action, params, returnUrl: flow.callbackUrl },
+    const connected = await managedRequest<Record<string, unknown>>(`/connect/${encodeURIComponent(toolkit)}`, {
+      method: 'POST', body: { returnUrl: flow.callbackUrl },
     }, context);
+    return { ...result, redirectUrl: connected.redirectUrl, flowId: flow.state, expiresAt: flow.expiresAt.toISOString() };
   }
 
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  return composio.tools.execute(action, {
-    userId: context.composioUserId,
-    arguments: params,
-    dangerouslySkipVersionCheck: true,
-  });
+  let version = cachedToolVersion(action);
+  if (!version) {
+    const tool = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioToolBySlug(action, { signal } as never));
+    const toolRecord = tool as Record<string, unknown>;
+    cacheToolVersion(toolRecord);
+    version = cachedToolVersion(action);
+  }
+  try {
+    return await withComposioSignal(120_000, (signal) => composio.tools.execute(action, {
+      userId: context.composioUserId,
+      arguments: params,
+      ...(version ? { version } : {}),
+      signal,
+    } as Parameters<typeof composio.tools.execute>[1]));
+  } catch (error) {
+    throw classifyComposioFailure({ error, mutation: true, timeout: error instanceof Error && error.name === 'AbortError' });
+  }
 }
 
 export async function getGatewayAuthRedirect(toolkit: string, context: ResolvedComposioContext) {
@@ -543,10 +566,11 @@ export async function getGatewayTriggerTypes(toolkit: string, context: ResolvedC
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   logComposioTrigger('Listing local trigger types', { toolkit });
-  const result = await composio.triggers.listTypes({
+  const result = await withComposioSignal(15_000, (signal) => composio.triggers.listTypes({
     ...(toolkit ? { toolkits: [toolkit] } : {}),
     limit: 1000,
-  });
+    signal,
+  } as Parameters<typeof composio.triggers.listTypes>[0]));
   logComposioTrigger('Listed local trigger types', { toolkit, count: result.items.length, hasMore: Boolean(result.nextCursor) });
   return {
     triggerTypes: result.items,
@@ -571,11 +595,12 @@ export async function listGatewayTriggers(context: ResolvedComposioContext) {
     return { triggers: [] };
   }
   logComposioTrigger('Listing local active triggers', { connectedAccountCount: connectedAccountIds.length });
-  const result = await composio.triggers.listActive({
+  const result = await withComposioSignal(15_000, (signal) => composio.triggers.listActive({
     connectedAccountIds,
     showDisabled: true,
     limit: 1000,
-  });
+    signal,
+  } as Parameters<typeof composio.triggers.listActive>[0]));
   const triggers = result.items.map((item) => normalizeLocalTriggerInstance(item, accountById));
   logComposioTrigger('Listed local active triggers', { count: triggers.length });
   return {
@@ -626,19 +651,21 @@ export async function ensureLocalWebhookSubscription(options: { forceRefresh?: b
     enabled_events: COMPOSIO_WEBHOOK_EVENT_TYPES,
     version: 'V3',
   };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30_000);
   const response = await fetch('https://backend.composio.dev/api/v3.1/webhook_subscriptions', {
     method: 'POST',
     headers,
     body: JSON.stringify(subscriptionBody),
-  });
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timer));
   let data: unknown;
   if (response.status === 409) {
     logComposioTrigger('Local webhook subscription already exists, reusing remote subscription');
     data = await reuseExistingLocalWebhookSubscription(apiKey, headers, subscriptionBody);
   } else if (!response.ok) {
-    const text = await response.text();
-    logComposioTriggerError('Failed to create Composio webhook subscription', new Error(`HTTP ${response.status}`), { status: response.status, body: text.slice(0, 500) });
-    throw new Error(`Failed to create Composio webhook subscription (${response.status}): ${text.slice(0, 200)}`);
+    logComposioTriggerError('Failed to create Composio webhook subscription', new Error(`HTTP ${response.status}`), { status: response.status });
+    throw classifyComposioFailure({ status: response.status, headers: response.headers, mutation: true });
   } else {
     data = await response.json();
   }
@@ -700,8 +727,7 @@ async function reuseExistingLocalWebhookSubscription(
     headers: { 'X-API-KEY': apiKey },
   });
   if (!listResponse.ok) {
-    const text = await listResponse.text();
-    throw new Error(`Failed to list existing Composio webhook subscriptions (${listResponse.status}): ${text.slice(0, 200)}`);
+    throw classifyComposioFailure({ status: listResponse.status, headers: listResponse.headers });
   }
 
   const listData = await listResponse.json();
@@ -723,8 +749,7 @@ async function reuseExistingLocalWebhookSubscription(
     body: JSON.stringify(subscriptionBody),
   });
   if (!updateResponse.ok) {
-    const text = await updateResponse.text();
-    throw new Error(`Failed to update existing Composio webhook subscription (${updateResponse.status}): ${text.slice(0, 200)}`);
+    throw classifyComposioFailure({ status: updateResponse.status, headers: updateResponse.headers, mutation: true });
   }
 
   const updateData = await updateResponse.json();
@@ -762,20 +787,22 @@ export async function createGatewayTrigger(input: {
     hasConnectedAccountId: Boolean(input.connectedAccountId),
     hasTriggerConfig: Boolean(input.triggerConfig && Object.keys(input.triggerConfig).length > 0),
   });
-  const triggerType = await composio.triggers.getType(input.triggerSlug);
+  const triggerType = await withComposioSignal(15_000, (signal) => composio.triggers.getType(input.triggerSlug, { signal } as never));
   const composioUserId = context.composioUserId;
-  const result = await composio.triggers.create(composioUserId, input.triggerSlug, {
+  const result = await withComposioSignal(30_000, (signal) => composio.triggers.create(composioUserId, input.triggerSlug, {
     connectedAccountId: input.connectedAccountId,
     triggerConfig: input.triggerConfig || {},
-  });
+    signal,
+  } as never));
   const triggerId = result.triggerId;
   let connectedAccountId = input.connectedAccountId || '';
   try {
-    const activeResult = await composio.triggers.listActive({
+    const activeResult = await withComposioSignal(15_000, (signal) => composio.triggers.listActive({
       triggerIds: [triggerId],
       showDisabled: true,
       limit: 1,
-    });
+      signal,
+    } as Parameters<typeof composio.triggers.listActive>[0]));
     const activeTrigger = asRecord(activeResult.items[0]);
     connectedAccountId = stringValue(activeTrigger.connectedAccountId) || stringValue(activeTrigger.connected_account_id) || connectedAccountId;
   } catch (error) {
@@ -820,8 +847,8 @@ export async function prepareGatewayTriggerUpdate(context: ResolvedComposioConte
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   return async (triggerId: string, input: { status?: 'active' | 'paused'; triggerConfig?: Record<string, unknown>; notebookWebhookUrl?: string | null }) => {
-    if (input.status === 'paused') await composio.triggers.disable(triggerId);
-    if (input.status === 'active') await composio.triggers.enable(triggerId);
+    if (input.status === 'paused') await withComposioSignal(30_000, (signal) => composio.triggers.disable(triggerId, { signal } as never));
+    if (input.status === 'active') await withComposioSignal(30_000, (signal) => composio.triggers.enable(triggerId, { signal } as never));
     return { trigger: { triggerId, status: input.status } };
   };
 }
@@ -835,12 +862,13 @@ export async function deleteGatewayTrigger(triggerId: string, context: ResolvedC
 
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  await composio.triggers.delete(triggerId);
+  await withComposioSignal(30_000, (signal) => composio.triggers.delete(triggerId, { signal } as never));
   return { success: true };
 }
 
 export function clearComposioGatewayCaches(context?: ResolvedComposioContext | null): void {
   clearToolkitCache();
   triggerAppCache.clear();
+  toolVersionCache.clear();
   resetSessionCache(context);
 }

@@ -6,6 +6,12 @@ import { getAvailableToolkitsRaw } from './composio-toolkit-registry';
 import type { ResolvedComposioContext } from './composio-context';
 import { createComposioOAuthFlowState } from './composio-oauth-state';
 
+async function withSignal<T>(timeoutMs: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try { return await operation(controller.signal); } finally { clearTimeout(timer); }
+}
+
 export type ComposioConnectedAccountStatus =
   | 'INITIALIZING'
   | 'INITIATED'
@@ -52,7 +58,7 @@ export async function initiateConnection(
     toolkitSlug: toolkit,
     mobileReturnUrl: options.mobileReturnUrl,
   });
-  const connectionRequest = await session.authorize(toolkit, { callbackUrl: flow.callbackUrl });
+  const connectionRequest = await withSignal(30_000, (signal) => session.authorize(toolkit, { callbackUrl: flow.callbackUrl, signal } as never)) as { redirectUrl: string };
   return {
     redirectUrl: connectionRequest.redirectUrl,
     flowId: flow.state,
@@ -67,7 +73,7 @@ export async function disconnectTool(toolkit: string, context: ResolvedComposioC
   if (account) {
     const composio = await getComposio(context.storageScope);
     if (!composio) throw new Error('Composio not configured');
-    await composio.connectedAccounts.delete((account as { id: string }).id);
+    await withSignal(30_000, (signal) => composio.connectedAccounts.delete((account as { id: string }).id, { signal } as never));
   }
 }
 
@@ -76,7 +82,7 @@ export async function getAuthConfigs(context: ResolvedComposioContext): Promise<
   if (!composio) return [];
 
   try {
-    const result = await composio.authConfigs.list({});
+    const result = await withSignal(15_000, (signal) => composio.authConfigs.list({ signal } as Parameters<typeof composio.authConfigs.list>[0]));
     const listResult = result as Record<string, unknown>;
     const items = Array.isArray(listResult.items) ? listResult.items : [];
     return items as Array<Record<string, unknown>>;
@@ -100,7 +106,7 @@ export async function getConnectedAccounts(
     const params: Record<string, unknown> = { userIds: [context.composioUserId], limit: 100 };
     if (options.statuses?.length) params.statuses = options.statuses;
     if (cursor) params.cursor = cursor;
-    const result = await composio.connectedAccounts.list(params as Parameters<typeof composio.connectedAccounts.list>[0]);
+    const result = await withSignal(15_000, (signal) => composio.connectedAccounts.list({ ...params, signal } as Parameters<typeof composio.connectedAccounts.list>[0]));
     const items = Array.isArray(result.items) ? result.items : [];
     allItems.push(...(items as typeof allItems));
     cursor = ((result as Record<string, unknown>).nextCursor as string | undefined) ?? undefined;
@@ -117,7 +123,7 @@ export async function getToolkitsWithStatus(context: ResolvedComposioContext) {
   const session = await getComposioSession(context);
   if (!session) return [];
 
-  const { items } = await session.toolkits();
+  const { items } = await withSignal(15_000, (signal) => session.toolkits({ signal } as never)) as { items: Array<Record<string, unknown>> };
   return items;
 }
 

@@ -4,7 +4,7 @@
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "engines": {
-    "node": ">=22.19.0"
+    "node": ">=22.22.3"
   },
   "allowScripts": {
     "@google/genai@1.52.0": true,
@@ -561,7 +561,7 @@
     "@codemirror/lang-rust": "^6.0.2",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/lang-xml": "^6.1.0",
-    "@composio/core": "^0.13.1",
+    "@composio/core": "0.18.1",
     "@earendil-works/pi-agent-core": "0.85.1",
     "@earendil-works/pi-ai": "0.85.1",
     "@eigenpal/docx-js-editor": "0.5.3",

@@ -269,12 +269,15 @@ async function prepareAutomationWorkspaceChange(
       const status = await getGatewayStatus(composioContext);
       const connected = status.configured
         && status.apiKeyValid
+        && status.providerHealthy
         && status.connectedAccounts.some((account) => account.id === job.composioConnectedAccountId);
       if (!connected) {
         issues.push(issue(
           'COMPOSIO_CONNECTION_UNAVAILABLE',
           'warning',
-          'The Composio account used by this trigger is no longer connected for the responsible user.',
+          status.providerHealthy === false
+            ? 'Composio is temporarily unavailable. Retry this connection check later.'
+            : 'The Composio account used by this trigger is no longer connected for the responsible user.',
           { field: 'composioConnectedAccountId', value: job.composioConnectedAccountId },
         ));
       }

@@ -64,7 +64,7 @@ async function loadComposioConnectionOptions(
   if (!userId) return [];
   const composioContext = await resolveComposioContext({ userId, workspaceId });
   const status = await getGatewayStatus(composioContext);
-  if (!status.configured || !status.apiKeyValid || status.connectedAccounts.length === 0) {
+  if (!status.configured || !status.apiKeyValid || !status.providerHealthy || status.connectedAccounts.length === 0) {
     return [];
   }
 

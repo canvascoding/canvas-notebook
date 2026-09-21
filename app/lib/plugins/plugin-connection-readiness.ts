@@ -146,6 +146,8 @@ async function resolvePluginConnectionReadinessUncached(input: {
     const status = await getGatewayStatus(composioContext).catch(() => ({
       configured: false,
       apiKeyValid: false,
+      apiKeyState: 'unknown' as const,
+      providerHealthy: false,
       connectedAccounts: [],
     }));
     const connectedBySlug = new Set(
@@ -154,7 +156,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
         .filter((slug): slug is string => Boolean(slug)),
     );
     let toolkitBySlug = new Map<string, { name?: string; logo?: string; ready: boolean }>();
-    if (status.configured && status.apiKeyValid) {
+    if (status.configured && status.apiKeyValid && status.providerHealthy) {
       const toolkitResult = await getGatewayToolkits(composioContext).catch(() => ({ toolkits: [] }));
       if (Array.isArray(toolkitResult.toolkits)) {
         toolkitBySlug = new Map(toolkitResult.toolkits
@@ -176,7 +178,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
     }
     for (const connector of composio) {
       const toolkit = toolkitBySlug.get(connector.toolkit);
-      const configured = Boolean(status.configured && status.apiKeyValid);
+      const configured = Boolean(status.configured && status.apiKeyValid && status.providerHealthy);
       const available = configured && Boolean(toolkit);
       const connected = Boolean(toolkit?.ready);
       items.push({
@@ -191,7 +193,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
         logo: toolkit?.logo,
         reason: connector.reason,
         details: connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : undefined,
-        action: !configured ? 'configure-composio' : connected ? 'none' : 'connect-composio',
+        action: !status.configured || status.apiKeyState === 'invalid_or_insufficient_scope' ? 'configure-composio' : connected ? 'none' : 'connect-composio',
       });
     }
   }

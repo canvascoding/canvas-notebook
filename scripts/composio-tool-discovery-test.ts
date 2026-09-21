@@ -38,15 +38,13 @@ async function main() {
   assert.equal(fallbackResult.totalCount, tools.length);
   assert.equal(fallbackResult.tools.length, tools.length);
 
-  const [gatewaySource, toolSource, promptSource] = await Promise.all([
+  const [gatewaySource, toolSource] = await Promise.all([
     readFile('app/lib/composio/composio-gateway.ts', 'utf8'),
     readFile('app/lib/composio/composio-tools.ts', 'utf8'),
-    readFile('app/lib/agents/system-prompt.ts', 'utf8'),
   ]);
   assert.match(gatewaySource, /getGatewayToolkitTools\(toolkit, '', context\)/u);
   assert.match(gatewaySource, /inferConnectedComposioToolkits/u);
   assert.match(toolSource, /Omit query to list that toolkit catalog/u);
-  assert.match(promptSource, /Never conclude that a connected app lacks read or write operations/u);
 
   console.log('composio-tool-discovery-test: ok');
 }

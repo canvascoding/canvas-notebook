@@ -205,6 +205,9 @@ type CustomWebhookDraft = {
 type ComposioStatus = {
   configured: boolean;
   apiKeyValid?: boolean;
+  apiKeyState?: 'missing' | 'valid' | 'invalid_or_insufficient_scope' | 'unknown';
+  providerHealthy?: boolean;
+  retryable?: boolean;
   mode?: string;
   connectedAccounts?: Array<{
     id: string;
@@ -1368,7 +1371,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
 
       const status = asRecord(appsPayload.status) as ComposioStatus;
       setComposioStatus(status);
-      if (!status.configured || status.mode === 'disabled' || status.apiKeyValid === false) {
+      if (!status.configured || status.mode === 'disabled' || status.apiKeyValid === false || status.providerHealthy === false) {
         setTriggerApps([]);
         return;
       }
@@ -3049,17 +3052,18 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                   ) : composioStatus &&
                     (!composioStatus.configured ||
                       composioStatus.mode === 'disabled' ||
-                      composioStatus.apiKeyValid === false) ? (
+                      composioStatus.apiKeyValid === false ||
+                      composioStatus.providerHealthy === false) ? (
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                       <p className="font-medium text-foreground">{t('triggers.setupRequiredTitle')}</p>
-                      <p className="mt-1">{t('triggers.setupRequiredDescription')}</p>
-                      <Link
+                      <p className="mt-1">{composioStatus.providerHealthy === false ? 'Composio is temporarily unavailable. Please retry shortly.' : t('triggers.setupRequiredDescription')}</p>
+                      {composioStatus.providerHealthy === false ? null : <Link
                         href={`/settings?tab=integrations&section=composio&workspaceId=${encodeURIComponent(triggerWorkspaceId)}`}
                         className="mt-3 inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline"
                       >
                         <ExternalLink className="mr-2 h-4 w-4" />
                         {t('triggers.openIntegrations')}
-                      </Link>
+                      </Link>}
                     </div>
                   ) : triggerApps.length === 0 ? (
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">

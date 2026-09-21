@@ -77,7 +77,9 @@ export async function getAvailableToolkitsRaw(context: ResolvedComposioContext):
   if (!composio) return [];
 
   try {
-    const response = await composio.toolkits.get({});
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
+    const response = await composio.toolkits.get({ signal: controller.signal } as Parameters<typeof composio.toolkits.get>[0]).finally(() => clearTimeout(timer));
     const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
     console.log(`[Composio] Fetched ${rawItems.length} raw toolkits`);
     rawToolkitCache.set(cacheKey, { data: rawItems, expires: now + CACHE_TTL_MS });
@@ -174,10 +176,13 @@ export async function getToolkitTools(toolkitSlug: string, context: ResolvedComp
   if (!composio) return [];
 
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15_000);
     const results = await composio.tools.getRawComposioTools({
       search: '',
       toolkits: [toolkitSlug],
-    } as Parameters<typeof composio.tools.getRawComposioTools>[0]);
+      signal: controller.signal,
+    } as Parameters<typeof composio.tools.getRawComposioTools>[0]).finally(() => clearTimeout(timer));
 
     const toolList = Array.isArray(results) ? results : [];
     const tools: ToolkitToolInfo[] = toolList.map((tool: Record<string, unknown>) => {
