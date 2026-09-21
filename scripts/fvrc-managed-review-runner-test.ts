@@ -37,13 +37,31 @@ async function main(): Promise<void> {
       commands: [command, { ...command, name: 'review-collaboration' }],
       environment,
       preflight: async () => { order.push('preflight'); },
+      prepareExecution: async (input, pass) => { order.push(`reset:${input.name}:${pass}`); },
       execute: async (input): Promise<ManagedReviewExecution> => {
         order.push(input.name);
         return { exitCode: 0, output: '2 passed' };
       },
     });
-    assert.deepEqual(order, ['preflight', 'review-regression', 'review-collaboration', 'review-regression', 'review-collaboration']);
+    assert.deepEqual(order, [
+      'preflight',
+      'reset:review-regression:1', 'preflight', 'review-regression',
+      'reset:review-collaboration:1', 'preflight', 'review-collaboration',
+      'reset:review-regression:2', 'preflight', 'review-regression',
+      'reset:review-collaboration:2', 'preflight', 'review-collaboration',
+    ]);
     assert.deepEqual(records.map((entry) => entry.pass), [1, 1, 2, 2]);
+
+    let executedAfterResetFailure = false;
+    await rejectsMessage(() => runManagedReviewSuite({
+      commands: [command], environment, preflight: async () => undefined,
+      prepareExecution: async () => { throw new Error('reset failed safely'); },
+      execute: async () => {
+        executedAfterResetFailure = true;
+        return { exitCode: 0, output: '1 passed' };
+      },
+    }), /reset failed safely/);
+    assert.equal(executedAfterResetFailure, false, 'a failed reset must stop before Playwright executes');
 
     await rejectsMessage(() => runManagedReviewSuite({
       commands: [command], environment, preflight: async () => ({ serverMarker: 'old-build' }),
@@ -62,10 +80,15 @@ async function main(): Promise<void> {
       execute: async () => ({ exitCode: 0, output: 'model provider unavailable; deterministic fixture used' }),
     });
     assert.equal(modelIndependent.length, 2, 'the deterministic review suite must not depend on a reachable model');
-    await rejectsMessage(() => runManagedReviewSuite({
+    await assert.rejects(() => runManagedReviewSuite({
       commands: [command], environment, preflight: async () => undefined,
-      execute: async () => ({ exitCode: 2, output: 'redacted failure' }),
-    }), /exit 2/);
+      execute: async () => ({ exitCode: 2, output: 'bounded diagnostic tail' }),
+    }), (error: unknown) => (
+      error instanceof Error
+      && /exit 2/u.test(error.message)
+      && /Playwright output tail/u.test(error.message)
+      && /bounded diagnostic tail/u.test(error.message)
+    ));
   } finally {
     await fs.rm(data, { recursive: true, force: true });
   }

@@ -23,6 +23,7 @@ export type ManagedReviewRunnerOptions = {
   commands: readonly ManagedReviewCommand[];
   environment: NodeJS.ProcessEnv;
   preflight: () => Promise<{ serverMarker?: string } | void>;
+  prepareExecution?: (command: ManagedReviewCommand, pass: 1 | 2) => Promise<void>;
   execute?: (command: ManagedReviewCommand, environment: NodeJS.ProcessEnv) => Promise<ManagedReviewExecution>;
   report?: (message: string) => void;
 };
@@ -77,9 +78,21 @@ async function executeWithoutShell(command: ManagedReviewCommand, environment: N
 }
 
 function assertExecutionPassed(command: ManagedReviewCommand, pass: 1 | 2, execution: ManagedReviewExecution): void {
-  if (execution.exitCode !== 0) throw new Error(`Managed review ${command.name} failed on pass ${pass} (exit ${execution.exitCode}).`);
+  const outputTail = execution.output
+    .replace(/\u001b\[[0-9;]*m/gu, '')
+    .trim()
+    .slice(-6_000);
+  const withOutput = (message: string) => new Error(outputTail ? `${message}\n--- Playwright output tail ---\n${outputTail}` : message);
+  if (execution.exitCode !== 0) throw withOutput(`Managed review ${command.name} failed on pass ${pass} (exit ${execution.exitCode}).`);
   for (const failure of FAILURE_PATTERNS) {
-    if (failure.pattern.test(execution.output)) throw new Error(`Managed review ${command.name} failed gate ${failure.code} on pass ${pass}.`);
+    if (failure.pattern.test(execution.output)) throw withOutput(`Managed review ${command.name} failed gate ${failure.code} on pass ${pass}.`);
+  }
+}
+
+async function assertPreflightPassed(options: ManagedReviewRunnerOptions): Promise<void> {
+  const preflight = await options.preflight();
+  if (preflight?.serverMarker && preflight.serverMarker !== options.environment.FVRC_BUILD_MARKER) {
+    throw new Error('Managed review runner detected a local/server build identity mismatch.');
   }
 }
 
@@ -88,15 +101,16 @@ export async function runManagedReviewSuite(options: ManagedReviewRunnerOptions)
   if (options.commands.length === 0) throw new Error('Managed review runner requires at least one command.');
   options.commands.forEach(validateCommand);
   await fs.access(path.resolve(options.environment.DATA!));
-  const preflight = await options.preflight();
-  if (preflight?.serverMarker && preflight.serverMarker !== options.environment.FVRC_BUILD_MARKER) {
-    throw new Error('Managed review runner detected a local/server build identity mismatch.');
-  }
+  await assertPreflightPassed(options);
   const execute = options.execute ?? executeWithoutShell;
   const records: ManagedReviewRunRecord[] = [];
   for (const pass of [1, 2] as const) {
     for (const command of options.commands) {
       options.report?.(`FVRC managed review: ${command.name}, pass ${pass}/2`);
+      if (options.prepareExecution) {
+        await options.prepareExecution(command, pass);
+        await assertPreflightPassed(options);
+      }
       const execution = await execute(command, options.environment);
       assertExecutionPassed(command, pass, execution);
       records.push({ command: command.name, pass, status: 'passed' });
