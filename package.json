@@ -18,8 +18,8 @@
     "fsevents@2.3.2": true,
     "fsevents@2.3.3": true,
     "protobufjs@7.6.5": true,
-    "sharp@0.35.2": true,
-    "unrs-resolver@1.12.2": true
+    "unrs-resolver@1.12.2": true,
+    "electron-winstaller@5.4.0": true
   },
   "scripts": {
     "test:live-events": "tsx --conditions react-server scripts/live-events-bridge-test.ts && tsx scripts/live-events-client-test.ts",
