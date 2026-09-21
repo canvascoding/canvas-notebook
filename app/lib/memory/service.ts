@@ -13,6 +13,8 @@ import {
   type MemoryEntryStatus,
   type MemoryScopePermissions,
   type MemoryScopeType,
+  type MemoryReviewDecision,
+  type MemoryReviewEntry,
   assertCompleteMemoryScopeIdentity,
   initialMemoryEntryStatus,
   resolveMemoryScopePermissions,
@@ -76,6 +78,11 @@ export type MemoryEvent = {
   actorType: string;
   decisionCode: string | null;
   createdAt: number;
+};
+
+export type MemoryReviewDecisionResult = {
+  decision: MemoryReviewDecision;
+  entry: MemoryEntry;
 };
 
 export type MemoryServiceScope = {
@@ -665,6 +672,86 @@ export async function readMemoryEntryHistory(
       createdAt: Number(row.created_at),
     }));
   } finally { await connection.close(); }
+}
+
+export async function readMemoryReview(
+  scope: MemoryServiceScope & { id: string },
+): Promise<MemoryReviewEntry> {
+  await assertMemoryScopeAccess(scope, 'publish');
+  const connection = await openDb();
+  try {
+    const where = collectionScopeWhere(scope, 2);
+    const row = await connection.get(`
+      SELECT entry.id, entry.collection_id, entry.content, entry.priority, entry.revision,
+        entry.created_by_user_id, entry.created_at, collection.scope_type, collection.workspace_id,
+        collection.organization_id, collection.category
+      FROM memory_entries entry
+      INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+      WHERE entry.id = $1 AND ${where.sql} AND entry.status = 'pending'
+      LIMIT 1
+    `, [scope.id.trim(), ...where.params]) as Record<string, unknown> | undefined;
+    if (!row) throw new Error(`Pending memory entry "${scope.id}" was not found.`);
+    return {
+      target: {
+        entryId: String(row.id),
+        collectionId: String(row.collection_id),
+        scope: row.scope_type as MemoryScopeType,
+        workspaceId: typeof row.workspace_id === 'string' ? row.workspace_id : undefined,
+        organizationId: typeof row.organization_id === 'string' ? row.organization_id : undefined,
+      },
+      content: String(row.content),
+      category: String(row.category),
+      priority: Number(row.priority),
+      submittedBy: typeof row.created_by_user_id === 'string' ? row.created_by_user_id : null,
+      submittedAt: Number(row.created_at),
+      workspaceName: null,
+      revision: Number(row.revision),
+    };
+  } finally {
+    await connection.close();
+  }
+}
+
+export async function decideMemoryReview(
+  scope: MemoryServiceScope & { id: string; decision: MemoryReviewDecision; expectedRevision: number },
+): Promise<MemoryReviewDecisionResult> {
+  await assertMemoryScopeAccess(scope, 'publish');
+  if (!Number.isSafeInteger(scope.expectedRevision) || scope.expectedRevision < 1) {
+    throw new Error('expectedRevision must be a positive integer.');
+  }
+  const id = scope.id.trim();
+  const nextStatus = scope.decision === 'approve' ? 'published' : 'archived';
+  const decisionCode = scope.decision === 'approve' ? 'shared_memory_manager' : 'shared_memory_rejected';
+  const connection = await openDb();
+  try {
+    const where = collectionScopeWhere(scope, 5);
+    const expectedRevisionParam = 5 + where.params.length;
+    const now = Date.now();
+    const result = await connection.run(`
+      UPDATE memory_entries
+      SET archived_from_status = CASE WHEN $1 = 'archived' THEN 'pending' ELSE NULL END,
+        status = $1, revision = revision + 1, updated_at = $2
+      WHERE id = $3 AND id IN (
+        SELECT entry.id FROM memory_entries entry
+        INNER JOIN memory_collections collection ON collection.id = entry.collection_id
+        WHERE ${where.sql} AND entry.status = 'pending' AND entry.revision = $${expectedRevisionParam}
+      )
+    `, [nextStatus, now, id, ...where.params, scope.expectedRevision]) as { changes?: number };
+    if (Number(result.changes ?? 0) !== 1) {
+      throw new Error('Memory review is stale or has already been decided.');
+    }
+    await connection.run(`
+      INSERT INTO memory_events (id, entry_id, action, actor_type, actor_user_id, decision_code, created_at)
+      VALUES ($1, $2, $3, 'user', $4, $5, $6)
+    `, [randomUUID(), id, scope.decision === 'approve' ? 'publish' : 'archive', scope.userId, decisionCode, now]);
+    const row = await connection.get(`
+      SELECT id, content, status, priority, pinned, collection_id, semantic_key, updated_at, last_used_at
+      FROM memory_entries WHERE id = $1
+    `, [id]) as Record<string, unknown>;
+    return { decision: scope.decision, entry: toEntry(row) };
+  } finally {
+    await connection.close();
+  }
 }
 
 /**
