@@ -117,7 +117,7 @@ assert.equal(
 );
 assert.equal(
   inventory.summary.developmentOnlyReviewRequired,
-  50,
+  36,
   'development-only review items must remain visible without being treated as release blockers',
 );
 
@@ -524,7 +524,7 @@ for (const [cacheKey, entry] of Object.entries(licenseCache.entries || {})) {
 const sharpLibvipsComponents = inventory.components.filter((component) => (
   component.name.startsWith('@img/sharp-libvips-')
 ));
-assert.equal(sharpLibvipsComponents.length, 20);
+assert.equal(sharpLibvipsComponents.length, 10);
 for (const component of sharpLibvipsComponents) {
   assert.equal(component.policyDecision, 'review_required');
   assert.equal(component.usage, 'development-only');
@@ -544,7 +544,7 @@ const sharpCompositeBinaryComponents = inventory.components.filter((component) =
   component.name === '@img/sharp-wasm32'
   || component.name.startsWith('@img/sharp-win32-')
 ));
-assert.equal(sharpCompositeBinaryComponents.length, 8);
+assert.equal(sharpCompositeBinaryComponents.length, 4);
 for (const component of sharpCompositeBinaryComponents) {
   assert.equal(component.policyDecision, 'review_required');
   assert.equal(component.usage, 'development-only');
@@ -557,7 +557,7 @@ for (const component of sharpCompositeBinaryComponents) {
 const allSharpPrebuiltComponents = inventory.components.filter((component) => (
   component.name.startsWith('@img/sharp-')
 ));
-assert.equal(allSharpPrebuiltComponents.length, 52);
+assert.equal(allSharpPrebuiltComponents.length, 26);
 assert(allSharpPrebuiltComponents.every((component) => component.usage === 'development-only'));
 assert(allSharpPrebuiltComponents.every((component) => (
   component.distributedIn.join(',') === 'source-development-install'

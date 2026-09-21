@@ -73,7 +73,7 @@ async function main() {
       permissions: { canRead: true, canWrite: true, canDelete: true, canCreatePublicLinks: true, canManageWorkspace: true, canRunAgent: true },
     }],
   });
-  const router = { push() {}, replace() {}, prefetch() {}, refresh() {}, back() {}, forward() {}, hmrRefresh() {} };
+  const router = { push() {}, replace() {}, prefetch() {}, refresh() {}, back() {}, forward() {}, hmrRefresh() {}, bfcacheId: 'test-router' };
   const screen = render(
     <AppRouterContext.Provider value={router}>
       <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>

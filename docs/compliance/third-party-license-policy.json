@@ -652,7 +652,7 @@
     },
     "@zone-eu/mailsplit@5.4.16": {
       "verifiedLicense": "MIT",
-      "licenseTextPath": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.MIT",
+      "licenseTextPath": "node_modules/@zone-eu/mailsplit/LICENSE.MIT",
       "copyrightNotices": [
         "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
       ],

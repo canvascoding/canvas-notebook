@@ -64,6 +64,7 @@ const router = {
   forward: () => {},
   refresh: () => {},
   hmrRefresh: () => {},
+  bfcacheId: 'test-router',
   push: (href: string) => {
     pushedHref = href;
   },

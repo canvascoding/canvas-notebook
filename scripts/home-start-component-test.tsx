@@ -20,7 +20,7 @@ async function main() {
   const { HomeAttentionPanel } = await import('../app/components/home/HomeAttentionPanel');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   const navigations: string[] = [];
-  const router = { push: (url: string) => navigations.push(url), replace: () => {}, prefetch: () => {}, refresh: () => {}, back: () => {}, forward: () => {}, hmrRefresh: () => {} };
+  const router = { push: (url: string) => navigations.push(url), replace: () => {}, prefetch: () => {}, refresh: () => {}, back: () => {}, forward: () => {}, hmrRefresh: () => {}, bfcacheId: 'test-router' };
   const workspace: ClientWorkspaceSummary = { id: 'one', type: 'personal', name: 'Mein Workspace', color: 'gray' as ClientWorkspaceSummary['color'], status: 'active', permissions: { canRead: true, canWrite: true, canDelete: true, canCreatePublicLinks: true, canManageWorkspace: true, canRunAgent: true } };
   const file = (n: number) => ({ path: `Notes/file-${n}.md`, name: `file-${n}.md`, title: `Notiz ${n}`, openedAt: 1700000000000, isFavorite: false });
   const wrap = (children: React.ReactNode) => <AppRouterContext.Provider value={router}><NextIntlClientProvider locale="de" timeZone="Europe/Berlin" messages={de}>{children}</NextIntlClientProvider></AppRouterContext.Provider>;
