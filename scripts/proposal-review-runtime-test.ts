@@ -134,3 +134,31 @@ test('a live current change is delivered to the evaluator confirmation fence', a
   await assert.rejects(review.evaluateSelection({ selectedProposalIds: ['p1'] }), (error: unknown) =>
     error instanceof ProposalGraphContractError && error.code === Codes.currentChanged);
 });
+
+test('the runtime exposes a read-only graph-aware comparison entry point', async () => {
+  const document = new Y.Doc();
+  document.getText('content').insert(0, 'base\n');
+  const update = Y.encodeStateAsUpdate(document);
+  document.destroy();
+  const review = await service({ owners: [{ proposal_id: 'p1', initiated_by_user_id: 'owner' }], current: () => update,
+    evaluate: async (input) => {
+      await input.authorize({ scope: input.scope, proposalIds: ['p1'] });
+      const current = await input.loadCurrent();
+      const currentProof = proposalYjsCurrentProof({ update: current.update, representation: current.representation, revisionId: current.revisionId });
+      const candidate = new Y.Doc(); candidate.getText('content').insert(0, 'base\nproposal\n');
+      const candidateUpdate = Y.encodeStateAsUpdate(candidate); candidate.destroy();
+      const candidateProof = proposalYjsCurrentProof({ update: candidateUpdate, representation: current.representation, revisionId: null });
+      return { status: 'clean', reasonCode: null, current: currentProof, graphRevision: 0, selectedProposalIds: ['p1'],
+        dependencyProposalIds: [], applyProposalIds: ['p1'], prerequisiteProposalIds: [], closureProposalIds: ['p1'], selectionHash: 'a'.repeat(64),
+        actionability: 'accept', effectiveCandidate: { ref: 'candidate', sha256: 'b'.repeat(64), sizeBytes: 1, encoding: 'yjs_full_update_v1' },
+        candidateContent: 'base\nproposal\n', candidateProof, appliedProposalIds: ['p1'], satisfiedProposalIds: [],
+        evaluation: { contractVersion: 1, evaluationId: 'eval-runtime', proposalId: 'p1', scope: input.scope, current: currentProof, graphRevision: 0,
+          status: 'clean', reasonCode: null, effectiveCandidate: { ref: 'candidate', sha256: 'b'.repeat(64), sizeBytes: 1, encoding: 'yjs_full_update_v1' },
+          anchorMap: { ref: 'anchor', sha256: 'c'.repeat(64), sizeBytes: 1 }, effectPreconditions: { ref: 'effect', sha256: 'd'.repeat(64), sizeBytes: 1 },
+          selectionHash: 'a'.repeat(64), evaluatedAt: 1, expiresAt: Date.now() + 60_000 },
+      } as never;
+    } });
+  const result = await review.createCompareService().compare({ selectedProposalIds: ['p1'] });
+  assert.equal(result.diagnosis.availability, 'available');
+  assert.equal(result.summary.additions, 1);
+});

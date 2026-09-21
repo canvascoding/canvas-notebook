@@ -14,8 +14,11 @@ import {
   type ProposalGraphErrorCode,
 } from './contracts/proposal-graph-v1';
 import { evaluateProposalReview, type ProposalReviewEvaluationResult } from './proposal-review-evaluation';
+import { createProposalReviewCompareService } from './proposal-review-compare-service';
+import { hashProposalEvaluationSelectionV1 } from './proposal-action-fence';
+import { resolveProposalClosure } from './proposal-graph-model';
 import { createProposalGraphStorage, type ProposalGraphStorageTransaction } from './proposal-storage';
-import type { ProposalYjsRepresentation } from './proposal-yjs-candidate';
+import { proposalYjsCurrentProof, proposalYjsSnapshotContent, type ProposalYjsRepresentation } from './proposal-yjs-candidate';
 import type { FileVersionCenterAccess, ResolvedFileVersionTarget } from './query-service';
 
 type CollaborationIdentityRow = {
@@ -163,42 +166,98 @@ export async function createRuntimeProposalReviewService(input: {
     };
   };
 
-  return {
-    scope,
-    async evaluateSelection(inputSelection: { selectedProposalIds: readonly string[] }): Promise<ProposalReviewEvaluationResult> {
-      return storage.withLockedGraph(scope, {}, async (transaction, sql) => {
+  const authorize = async (sql: FileVersionCenterTransaction, requestedScope: ProposalDocumentScopeV1, proposalIds: readonly string[]) => {
+    if (!isDeepStrictEqual(scope, requestedScope) || proposalIds.length === 0) {
+      fail(Codes.scopeMismatch, 'Proposal authorization is not bound to this document scope.');
+    }
+    const unique = [...new Set(proposalIds)];
+    if (unique.length !== proposalIds.length) fail(Codes.invalidRequest, 'Proposal authorization contains duplicate IDs.');
+    const rows = (await sql.query<ProposalOwnerRow>(`SELECT proposal.proposal_id, operation.initiated_by_user_id
+      FROM file_change_proposals proposal
+      JOIN file_proposal_graphs graph ON graph.graph_id = proposal.graph_id
+      JOIN collaboration_agent_operations operation ON operation.operation_id = proposal.operation_id
+      WHERE graph.workspace_id = $1 AND graph.lineage_id = $2 AND graph.document_id = $3
+        AND graph.lifecycle_generation = $4 AND graph.schema_version = $5
+        AND proposal.proposal_id = ANY($6::text[])`,
+    [scope.workspaceId, scope.lineageId, scope.documentId, scope.lifecycleGeneration, scope.schemaVersion, unique])).rows;
+    if (rows.length !== unique.length || new Set(rows.map((row) => row.proposal_id)).size !== unique.length) {
+      fail(Codes.sourceInvalid, 'A selected proposal is unavailable in this exact document scope.');
+    }
+    if (!(access.canManageWorkspace && workspace.permissions.canManageWorkspace)
+      && rows.some((row) => row.initiated_by_user_id !== access.userId)) {
+      fail(Codes.accessDenied, 'Only a workspace manager may review another user’s proposal.');
+    }
+  };
+
+  const evaluateSelection = async (inputSelection: { selectedProposalIds: readonly string[] }): Promise<ProposalReviewEvaluationResult> => {
+    return storage.withLockedGraph(scope, {}, async (transaction, sql) => {
         const locked = assertIdentity(await loadIdentity(sql, { documentId: scope.documentId, workspaceId: scope.workspaceId }),
           { scope, target, workspace, state: assertState({ state: await loadState(scope.documentId), target, workspace }) });
         const sequence = Number(locked.document_sequence);
-        const authorize = async ({ scope: requestedScope, proposalIds }: { scope: ProposalDocumentScopeV1; proposalIds: string[] }) => {
-          if (!isDeepStrictEqual(scope, requestedScope) || proposalIds.length === 0) {
-            fail(Codes.scopeMismatch, 'Proposal authorization is not bound to this document scope.');
-          }
-          const unique = [...new Set(proposalIds)];
-          if (unique.length !== proposalIds.length) fail(Codes.invalidRequest, 'Proposal authorization contains duplicate IDs.');
-          const rows = (await sql.query<ProposalOwnerRow>(`SELECT proposal.proposal_id, operation.initiated_by_user_id
-            FROM file_change_proposals proposal
-            JOIN file_proposal_graphs graph ON graph.graph_id = proposal.graph_id
-            JOIN collaboration_agent_operations operation ON operation.operation_id = proposal.operation_id
-            WHERE graph.workspace_id = $1 AND graph.lineage_id = $2 AND graph.document_id = $3
-              AND graph.lifecycle_generation = $4 AND graph.schema_version = $5
-              AND proposal.proposal_id = ANY($6::text[])`,
-          [scope.workspaceId, scope.lineageId, scope.documentId, scope.lifecycleGeneration, scope.schemaVersion, unique])).rows;
-          if (rows.length !== unique.length || new Set(rows.map((row) => row.proposal_id)).size !== unique.length) {
-            fail(Codes.sourceInvalid, 'A selected proposal is unavailable in this exact document scope.');
-          }
-          if (!(access.canManageWorkspace && workspace.permissions.canManageWorkspace)
-            && rows.some((row) => row.initiated_by_user_id !== access.userId)) {
-            fail(Codes.accessDenied, 'Only a workspace manager may review another user’s proposal.');
-          }
-        };
         const current = () => loadCurrent(sql, sequence);
         return evaluate({
           scope, selectedProposalIds: inputSelection.selectedProposalIds, transaction,
           loadCurrent: current,
           confirmCurrent: async () => current(),
-          authorize,
+          authorize: async (request) => authorize(sql, request.scope, request.proposalIds),
         });
+    });
+  };
+
+  return {
+    scope,
+    evaluateSelection,
+    /**
+     * A read-only adapter for display pagination. It reauthorizes the entire
+     * graph closure and verifies the durable evaluation/artifact on every page.
+     */
+    createCompareService() {
+      return createProposalReviewCompareService({
+        evaluateSelection,
+        loadCurrent: async () => database.transaction(async (sql) => {
+          const locked = assertIdentity(await loadIdentity(sql, { documentId: scope.documentId, workspaceId: scope.workspaceId }),
+            { scope, target, workspace, state: assertState({ state: await loadState(scope.documentId), target, workspace }) });
+          const current = await loadCurrent(sql, Number(locked.document_sequence));
+          return { content: proposalYjsSnapshotContent({ update: current.update, representation: current.representation }),
+            proof: proposalYjsCurrentProof({ update: current.update, representation: current.representation, revisionId: current.revisionId }) };
+        }),
+        loadEvaluation: async ({ evaluationId, selectedProposalIds }) => storage.withLockedGraph(scope, {}, async (transaction, sql) => {
+          assertIdentity(await loadIdentity(sql, { documentId: scope.documentId, workspaceId: scope.workspaceId }),
+            { scope, target, workspace, state: assertState({ state: await loadState(scope.documentId), target, workspace }) });
+          await authorize(sql, scope, selectedProposalIds);
+          const graph = await transaction.loadGraph({ includeProposalIds: selectedProposalIds });
+          const closure = resolveProposalClosure({ graph, selectedProposalIds: [...selectedProposalIds] });
+          if (closure.status !== 'ready') fail(closure.reasonCode, 'The evaluated proposal closure is no longer reviewable.');
+          await authorize(sql, scope, closure.closureProposalIds);
+          const evaluation = await transaction.getEvaluation(evaluationId);
+          if (!evaluation || !isDeepStrictEqual(evaluation.scope, scope) || evaluation.proposalId !== selectedProposalIds[0]) {
+            fail(Codes.candidateChanged, 'The displayed evaluation is unavailable for this proposal selection.');
+          }
+          const selectionHash = hashProposalEvaluationSelectionV1({ selectedProposalIds: closure.selectedProposalIds,
+            closureProposalIds: closure.closureProposalIds, applyProposalIds: closure.applyProposalIds, graphRevision: closure.graphRevision });
+          if (evaluation.selectionHash !== selectionHash) fail(Codes.candidateChanged, 'The displayed evaluation belongs to a different proposal selection.');
+          const stateNow = assertState({ state: await loadState(scope.documentId), target, workspace });
+          let candidateContent: string | null = null;
+          let nullEffectProven = false;
+          if (evaluation.effectiveCandidate) {
+            const update = await transaction.readArtifact(evaluation.effectiveCandidate);
+            candidateContent = proposalYjsSnapshotContent({ update, representation: stateNow.representation });
+            const candidateProof = proposalYjsCurrentProof({ update, representation: stateNow.representation, revisionId: null });
+            if ((evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect')
+              && !isDeepStrictEqual(candidateProof, evaluation.current)) {
+              fail(Codes.candidateChanged, 'A satisfied proposal must prove a null effective diff.');
+            }
+            nullEffectProven = evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect';
+          }
+          if (evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect') {
+            if (!evaluation.effectiveCandidate || !evaluation.anchorMap || !evaluation.effectPreconditions || !nullEffectProven) {
+              fail(Codes.candidateChanged, 'A satisfied proposal requires immutable null-effect evidence.');
+            }
+            candidateContent = null;
+          }
+          return { evaluation, selectionHash, selectedProposalIds: [...closure.selectedProposalIds], graphRevision: evaluation.graphRevision,
+            currentGraphRevision: graph.graphRevision, candidateContent, status: evaluation.status, nullEffectProven };
+        }),
       });
     },
   };
