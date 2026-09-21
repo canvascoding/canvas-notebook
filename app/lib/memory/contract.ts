@@ -87,7 +87,7 @@ export type MemoryReviewDecision = 'approve' | 'reject';
 export type MemoryReviewTarget = {
   entryId: string;
   collectionId: string;
-  scope: MemoryScopeType;
+  scope: Extract<MemoryScopeType, 'workspace' | 'organization'>;
   workspaceId?: string;
   organizationId?: string;
 };

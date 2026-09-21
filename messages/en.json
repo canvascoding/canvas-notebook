@@ -8355,6 +8355,13 @@
     "reject": "Don't save",
     "openSettings": "Open memory management",
     "submittedBy": "Submitted by {name}",
-    "unknown": "Unknown"
+    "submittedAt": "Submitted on {date}",
+    "unknown": "Unknown",
+    "retry": "Try again",
+    "close": "Close",
+    "scope": {
+      "workspace": "Workspace",
+      "organization": "Organization"
+    }
   }
 }

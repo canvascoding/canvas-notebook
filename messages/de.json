@@ -8354,6 +8354,13 @@
     "reject": "Nicht speichern",
     "openSettings": "Memory-Verwaltung öffnen",
     "submittedBy": "Eingereicht von {name}",
-    "unknown": "Unbekannt"
+    "submittedAt": "Eingereicht am {date}",
+    "unknown": "Unbekannt",
+    "retry": "Erneut versuchen",
+    "close": "Schließen",
+    "scope": {
+      "workspace": "Workspace",
+      "organization": "Organisation"
+    }
   }
 }
