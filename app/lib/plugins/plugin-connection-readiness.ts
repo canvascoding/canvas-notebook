@@ -148,6 +148,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
       apiKeyValid: false,
       apiKeyState: 'unknown' as const,
       providerHealthy: false,
+      errorCode: undefined,
       connectedAccounts: [],
     }));
     const connectedBySlug = new Set(
@@ -179,8 +180,16 @@ async function resolvePluginConnectionReadinessUncached(input: {
     for (const connector of composio) {
       const toolkit = toolkitBySlug.get(connector.toolkit);
       const configured = Boolean(status.configured && status.apiKeyValid && status.providerHealthy);
+      const degraded = status.providerHealthy === false;
+      const needsConfiguration = status.apiKeyState === 'missing'
+        || status.apiKeyState === 'invalid_or_insufficient_scope';
       const available = configured && Boolean(toolkit);
       const connected = Boolean(toolkit?.ready);
+      const statusDetail = degraded
+        ? status.errorCode === 'COMPOSIO_RATE_LIMITED'
+          ? 'Composio is rate limited. Try again later.'
+          : 'Composio is temporarily unavailable. Try again later.'
+        : undefined;
       items.push({
         type: 'composio',
         key: connector.toolkit,
@@ -192,8 +201,11 @@ async function resolvePluginConnectionReadinessUncached(input: {
         configured,
         logo: toolkit?.logo,
         reason: connector.reason,
-        details: connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : undefined,
-        action: !status.configured || status.apiKeyState === 'invalid_or_insufficient_scope' ? 'configure-composio' : connected ? 'none' : 'connect-composio',
+        details: [
+          ...(connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : []),
+          ...(statusDetail ? [statusDetail] : []),
+        ],
+        action: degraded ? 'none' : needsConfiguration ? 'configure-composio' : connected ? 'none' : 'connect-composio',
       });
     }
   }

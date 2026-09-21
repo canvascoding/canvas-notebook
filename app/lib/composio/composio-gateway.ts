@@ -16,6 +16,7 @@ import {
 import { createComposioOAuthFlowState } from './composio-oauth-state';
 import { requestManagedComposio, type ManagedRequestOptions } from './managed-composio-client';
 import { classifyComposioFailure, ComposioProviderError } from './composio-provider-error';
+import { executeManagedComposioTool } from './managed-composio-execution';
 import { encryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
 import { db } from '../db';
 import { composioWebhookSubscriptions } from '../db/schema';
@@ -520,13 +521,13 @@ export async function executeGatewayTool(action: string, params: Record<string, 
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
     const toolkit = action.split('_')[0]?.trim().toLowerCase() || 'unknown';
-    const result = await managedRequest<Record<string, unknown>>('/execute', { method: 'POST', body: { action, params } }, context);
-    if (result.auth_required !== true) return result;
-    const flow = await createComposioOAuthFlowState({ context, toolkitSlug: toolkit });
-    const connected = await managedRequest<Record<string, unknown>>(`/connect/${encodeURIComponent(toolkit)}`, {
-      method: 'POST', body: { returnUrl: flow.callbackUrl },
-    }, context);
-    return { ...result, redirect_url: connected.redirectUrl, redirectUrl: connected.redirectUrl, flowId: flow.state, expiresAt: flow.expiresAt.toISOString() };
+    return executeManagedComposioTool({
+      execute: () => managedRequest<Record<string, unknown>>('/execute', { method: 'POST', body: { action, params } }, context),
+      createOAuthFlow: () => createComposioOAuthFlowState({ context, toolkitSlug: toolkit }),
+      connect: (returnUrl) => managedRequest<Record<string, unknown>>(`/connect/${encodeURIComponent(toolkit)}`, {
+        method: 'POST', body: { returnUrl },
+      }, context),
+    });
   }
 
   const composio = await getComposio(context.storageScope);

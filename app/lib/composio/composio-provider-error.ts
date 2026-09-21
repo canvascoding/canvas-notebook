@@ -55,7 +55,7 @@ function headersFrom(value: unknown): Headers | undefined {
   return entries.length ? new Headers(entries) : undefined;
 }
 
-function errorDetails(error: unknown): { status?: number; headers?: Headers; payload?: unknown; timeout: boolean } {
+function errorDetails(error: unknown): { status?: number; headers?: Headers; payload?: unknown; timeout: boolean; network: boolean } {
   const errorRecord = record(error);
   const response = record(errorRecord.response);
   const cause = record(errorRecord.cause);
@@ -64,8 +64,12 @@ function errorDetails(error: unknown): { status?: number; headers?: Headers; pay
   const headers = headersFrom(errorRecord.headers) ?? headersFrom(response.headers) ?? headersFrom(cause.headers);
   const name = typeof errorRecord.name === 'string' ? errorRecord.name : '';
   const message = typeof errorRecord.message === 'string' ? errorRecord.message : '';
-  const timeout = /abort|timeout|request.?cancelled/i.test(`${name} ${message}`);
-  return { status, headers, payload: data, timeout };
+  const causeName = typeof cause.name === 'string' ? cause.name : '';
+  const causeMessage = typeof cause.message === 'string' ? cause.message : '';
+  const errorText = `${name} ${message} ${causeName} ${causeMessage}`;
+  const timeout = /abort|timeout|request.?cancelled/i.test(errorText);
+  const network = /fetch failed|network(?:\s|-)error|socket|econn(?:reset|refused|timedout)|enotfound|eai_again/i.test(errorText);
+  return { status, headers, payload: data, timeout, network };
 }
 
 export function retryAfterMs(value: string | null | undefined, now = Date.now()): number | undefined {
@@ -109,7 +113,8 @@ export function classifyComposioFailure(input: {
   const payload = record(payloadValue);
   const timeout = input.timeout || details.timeout;
   const payloadCode = knownCode(payload.code);
-  const outcomeUnknown = payload.outcomeUnknown === true || Boolean(input.mutation && timeout);
+  const mutationOutcomeUnknown = Boolean(input.mutation && (timeout || details.network || (status !== undefined && [502, 503, 504].includes(status))));
+  const outcomeUnknown = payload.outcomeUnknown === true || mutationOutcomeUnknown;
   let code: ComposioErrorCode = payloadCode || 'COMPOSIO_UNAVAILABLE';
   if (outcomeUnknown) code = 'COMPOSIO_OUTCOME_UNKNOWN';
   else if (timeout) code = 'COMPOSIO_TIMEOUT';

@@ -419,6 +419,8 @@ type ComposioConnectorState = {
   apiKeyValid: boolean;
   apiKeyState?: 'missing' | 'valid' | 'invalid_or_insufficient_scope' | 'unknown';
   providerHealthy?: boolean;
+  errorCode?: string;
+  retryAfterMs?: number;
   toolkitsBySlug: Record<string, ComposioToolkitSummary>;
   connectedSlugs: Record<string, boolean>;
   error?: string;
@@ -705,6 +707,8 @@ function CanvasPluginsSection({
           apiKeyValid,
           apiKeyState: status.apiKeyState,
           providerHealthy,
+          errorCode: typeof status.errorCode === 'string' ? status.errorCode : undefined,
+          retryAfterMs: typeof status.retryAfterMs === 'number' ? status.retryAfterMs : undefined,
           toolkitsBySlug,
           connectedSlugs,
         });
@@ -922,7 +926,13 @@ function CanvasPluginsSection({
   }
 
   async function connectComposioToolkit(toolkit: string) {
-    if (!composioConnectorState.configured || composioConnectorState.apiKeyState === 'invalid_or_insufficient_scope' || composioConnectorState.apiKeyState === 'missing') {
+    if (composioConnectorState.providerHealthy === false) {
+      setError(composioConnectorState.errorCode === 'COMPOSIO_RATE_LIMITED'
+        ? 'Composio is rate limited. Try again later.'
+        : 'Composio is temporarily unavailable. Try again later.');
+      return;
+    }
+    if (composioConnectorState.apiKeyState === 'invalid_or_insufficient_scope' || composioConnectorState.apiKeyState === 'missing') {
       window.location.href = `/settings?tab=integrations&section=composio${activeWorkspaceId ? `&workspaceId=${encodeURIComponent(activeWorkspaceId)}` : ''}`;
       return;
     }
@@ -1131,8 +1141,16 @@ function CanvasPluginsSection({
     const composioItems: PluginPreflightItem[] = composio.map((connector) => {
       const toolkit = composioConnectorState.toolkitsBySlug[connector.toolkit];
       const configured = Boolean(composioConnectorState.configured && composioConnectorState.apiKeyValid && composioConnectorState.providerHealthy !== false);
+      const degraded = composioConnectorState.providerHealthy === false;
+      const needsConfiguration = composioConnectorState.apiKeyState === 'missing'
+        || composioConnectorState.apiKeyState === 'invalid_or_insufficient_scope';
       const connected = Boolean(toolkit?.connected || composioConnectorState.connectedSlugs[connector.toolkit]);
       const available = configured && Boolean(toolkit);
+      const statusDetail = degraded
+        ? composioConnectorState.errorCode === 'COMPOSIO_RATE_LIMITED'
+          ? 'Composio is rate limited. Try again later.'
+          : 'Composio is temporarily unavailable. Try again later.'
+        : undefined;
       return {
         type: 'composio',
         key: connector.toolkit,
@@ -1144,8 +1162,11 @@ function CanvasPluginsSection({
         configured,
         logo: toolkit?.logo,
         reason: connector.reason,
-        details: connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : undefined,
-        action: !composioConnectorState.configured || composioConnectorState.apiKeyState === 'invalid_or_insufficient_scope' ? 'configure-composio' : connected ? 'none' : 'connect-composio',
+        details: [
+          ...(connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : []),
+          ...(statusDetail ? [statusDetail] : []),
+        ],
+        action: degraded ? 'none' : needsConfiguration ? 'configure-composio' : connected ? 'none' : 'connect-composio',
       };
     });
     const emailItems: PluginPreflightItem[] = email.map((connector, index) => {
