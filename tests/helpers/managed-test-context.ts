@@ -21,6 +21,27 @@ export type AuthenticatedContextIdentity = {
   password?: string;
 };
 
+export type ManagedTestPreflightOptions = {
+  /** Optional values make the preflight opt-in and keep existing callers compatible. */
+  baseURL?: string;
+  authOrigin?: string;
+  workspaceId?: string;
+  requireWorkspacePermission?: 'read' | 'write';
+  fixtureIdentity?: string;
+  buildMarker?: string;
+  serverMarker?: string;
+};
+
+export type ManagedTestPreflightResult = {
+  baseURL: string;
+  authOrigin: string;
+  workspaceId?: string;
+  requireWorkspacePermission?: 'read' | 'write';
+  fixtureIdentity?: string;
+  buildMarker?: string;
+  serverMarker?: string;
+};
+
 type ResolvedIdentity = {
   email: string;
   password: string;
@@ -98,7 +119,8 @@ async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIden
           },
         });
         if (!response.ok()) {
-          throw new Error(`Playwright authentication failed (${response.status()}): ${await response.text()}`);
+          // Never include response bodies: auth endpoints can echo credentials or tokens.
+          throw new Error(`Playwright authentication failed (${response.status()}).`);
         }
         await context.storageState({ path: temporaryPath });
         await fs.chmod(temporaryPath, 0o600);
@@ -115,6 +137,67 @@ async function ensureAuthenticatedState(browser: Browser, identity: ResolvedIden
   }
   throw new Error('Timed out waiting for the shared Playwright authentication state.');
 }
+
+/**
+ * Validate the managed test environment using an already authenticated context.
+ * This is deliberately explicit: callers only get checks they requested, while
+ * failures remain actionable and never disclose secrets.
+ */
+export async function runManagedTestPreflight(
+  context: BrowserContext,
+  options: ManagedTestPreflightOptions = {},
+): Promise<ManagedTestPreflightResult> {
+  const baseURL = options.baseURL || process.env.BASE_URL || 'http://localhost:3000';
+  const authOrigin = options.authOrigin || process.env.AUTH_ORIGIN || baseURL;
+  let parsedBase: URL;
+  let parsedAuth: URL;
+  try {
+    parsedBase = new URL(baseURL);
+    parsedAuth = new URL(authOrigin);
+  } catch {
+    throw new Error('Managed test preflight failed: BASE_URL/AUTH_ORIGIN must be valid URLs.');
+  }
+  if (parsedBase.protocol !== 'http:' && parsedBase.protocol !== 'https:') {
+    throw new Error('Managed test preflight failed: BASE_URL must use http or https.');
+  }
+  if (parsedAuth.protocol !== 'http:' && parsedAuth.protocol !== 'https:') {
+    throw new Error('Managed test preflight failed: AUTH_ORIGIN must use http or https.');
+  }
+
+  const session = await context.request.get(new URL('/api/auth/get-session', authOrigin).toString());
+  if (!session.ok()) throw new Error(`Managed test preflight failed: session check returned ${session.status()}.`);
+  const sessionPayload = await session.json() as { user?: { id?: string } | null };
+  if (!sessionPayload.user?.id) throw new Error('Managed test preflight failed: authenticated session is missing.');
+
+  if (options.workspaceId) {
+    const response = await context.request.get(new URL('/api/workspaces', baseURL).toString());
+    if (!response.ok()) throw new Error(`Managed test preflight failed: workspace check returned ${response.status()}.`);
+    const payload = await response.json() as { workspaces?: Array<{ id?: string; permissions?: { canRead?: boolean; canWrite?: boolean } }> };
+    const workspace = payload.workspaces?.find((entry) => entry.id === options.workspaceId);
+    if (!workspace) throw new Error('Managed test preflight failed: requested workspace fixture was not found.');
+    const permission = options.requireWorkspacePermission || 'read';
+    if (!workspace.permissions?.[permission === 'write' ? 'canWrite' : 'canRead']) {
+      throw new Error(`Managed test preflight failed: workspace lacks ${permission} permission.`);
+    }
+  }
+
+  const markerChecks: Array<[string, string | undefined]> = [
+    ['fixture identity', options.fixtureIdentity],
+    ['build marker', options.buildMarker],
+    ['server marker', options.serverMarker],
+  ];
+  for (const [label, expected] of markerChecks) {
+    if (expected !== undefined && !expected.trim()) throw new Error(`Managed test preflight failed: ${label} is empty.`);
+  }
+  const { baseURL: _baseURL, authOrigin: _authOrigin, ...resultOptions } = options;
+  return {
+    ...resultOptions,
+    baseURL: parsedBase.toString().replace(/\/$/, ''),
+    authOrigin: parsedAuth.toString().replace(/\/$/, ''),
+  };
+}
+
+export const preflightManagedTestContext = runManagedTestPreflight;
 
 export async function createAuthenticatedContext(
   browser: Browser,
