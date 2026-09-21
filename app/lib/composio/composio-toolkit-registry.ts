@@ -79,13 +79,13 @@ export async function getAvailableToolkitsRaw(context: ResolvedComposioContext):
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
-    const response = await composio.toolkits.get({ signal: controller.signal } as Parameters<typeof composio.toolkits.get>[0]).finally(() => clearTimeout(timer));
+    const response = await composio.toolkits.get({}, { signal: controller.signal }).finally(() => clearTimeout(timer));
     const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
     console.log(`[Composio] Fetched ${rawItems.length} raw toolkits`);
     rawToolkitCache.set(cacheKey, { data: rawItems, expires: now + CACHE_TTL_MS });
     return rawItems;
   } catch (error) {
-    console.error('[Composio] Failed to fetch raw toolkits:', error);
+    console.error('[Composio] Failed to fetch raw toolkits', { operation: 'toolkits.get', errorType: error instanceof Error ? error.name : typeof error });
     return [];
   }
 }
@@ -107,14 +107,11 @@ export async function getAvailableToolkits(context: ResolvedComposioContext): Pr
       getConnectedAccounts({}, context),
     ]);
 
-    console.log(`[Composio] Processing ${rawItems.length} toolkits, ${connectedAccounts.length} connected accounts`);
-    if (connectedAccounts.length > 0) {
-      for (const a of connectedAccounts) {
-        const acc = a as Record<string, unknown>;
-        const slug = (acc.toolkit as Record<string, unknown> | undefined)?.slug;
-        console.log(`[Composio] Connected account: slug=${slug}, status=${acc.status}, id=${acc.id}`);
-      }
-    }
+    console.log('[Composio] Processed toolkit catalog', {
+      operation: 'connectedAccounts.list',
+      toolkitCount: rawItems.length,
+      connectedAccountCount: connectedAccounts.length,
+    });
 
     const connectedBySlug = new Map<string, Record<string, unknown>>();
     for (const a of connectedAccounts) {
@@ -157,7 +154,7 @@ export async function getAvailableToolkits(context: ResolvedComposioContext): Pr
     toolkitCache.set(cacheKey, { data: toolkits, expires: now + CACHE_TTL_MS });
     return toolkits;
   } catch (error) {
-    console.error('[Composio] Failed to fetch toolkits:', error);
+    console.error('[Composio] Failed to fetch toolkits', { operation: 'toolkits.list', errorType: error instanceof Error ? error.name : typeof error });
     return [];
   }
 }
@@ -181,8 +178,7 @@ export async function getToolkitTools(toolkitSlug: string, context: ResolvedComp
     const results = await composio.tools.getRawComposioTools({
       search: '',
       toolkits: [toolkitSlug],
-      signal: controller.signal,
-    } as Parameters<typeof composio.tools.getRawComposioTools>[0]).finally(() => clearTimeout(timer));
+    } as Parameters<typeof composio.tools.getRawComposioTools>[0], undefined, { signal: controller.signal }).finally(() => clearTimeout(timer));
 
     const toolList = Array.isArray(results) ? results : [];
     const tools: ToolkitToolInfo[] = toolList.map((tool: Record<string, unknown>) => {
@@ -198,7 +194,7 @@ export async function getToolkitTools(toolkitSlug: string, context: ResolvedComp
     toolsCache.set(cacheKey, { data: tools, expires: now + CACHE_TTL_MS });
     return tools;
   } catch (error) {
-    console.error('[Composio] Failed to fetch tools for toolkit:', toolkitSlug, error);
+    console.error('[Composio] Failed to fetch tools for toolkit', { operation: 'tools.getRawComposioTools', toolkit: toolkitSlug, errorType: error instanceof Error ? error.name : typeof error });
     return [];
   }
 }

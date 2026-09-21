@@ -79,7 +79,7 @@ export async function verifyApiKey(context: ResolvedComposioContext): Promise<Co
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 15_000);
     try {
-      await composio.connectedAccounts.list({ userIds: [context.composioUserId], limit: 1, signal: controller.signal } as Parameters<typeof composio.connectedAccounts.list>[0]);
+      await composio.connectedAccounts.list({ userIds: [context.composioUserId], limit: 1 }, { signal: controller.signal });
       return { valid: true, healthy: true };
     } finally {
       clearTimeout(timer);

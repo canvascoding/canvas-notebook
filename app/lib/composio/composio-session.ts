@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getComposio, resetComposioInstance } from './composio-client';
 import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
+import { classifyComposioFailure } from './composio-provider-error';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sessionCache = new Map<string, any>();
@@ -17,12 +18,15 @@ export async function getComposioSession(context: ResolvedComposioContext): Prom
   }
 
   try {
-    const session = await composio.create(context.composioUserId);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
+    const session = await composio.create(context.composioUserId, undefined, { signal: controller.signal }).finally(() => clearTimeout(timer));
     sessionCache.set(cacheKey, session);
     return session;
   } catch (error) {
-    console.error('[Composio] Failed to create session:', error);
-    return null;
+    const normalized = classifyComposioFailure({ error, mutation: true });
+    console.error('[Composio] Failed to create session', { operation: 'create', errorType: normalized.name, code: normalized.code });
+    throw normalized;
   }
 }
 

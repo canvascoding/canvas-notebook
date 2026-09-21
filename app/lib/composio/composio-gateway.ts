@@ -15,7 +15,7 @@ import {
 } from './composio-tool-discovery';
 import { createComposioOAuthFlowState } from './composio-oauth-state';
 import { requestManagedComposio, type ManagedRequestOptions } from './managed-composio-client';
-import { classifyComposioFailure } from './composio-provider-error';
+import { classifyComposioFailure, ComposioProviderError } from './composio-provider-error';
 import { encryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
 import { db } from '../db';
 import { composioWebhookSubscriptions } from '../db/schema';
@@ -114,7 +114,7 @@ function logComposioTrigger(message: string, details?: Record<string, unknown>):
 function logComposioTriggerError(message: string, error: unknown, details?: Record<string, unknown>): void {
   console.error(`[Composio Triggers] ${message}`, {
     ...details,
-    error: error instanceof Error ? error.message : String(error),
+    errorType: error instanceof Error ? error.name : typeof error,
   });
 }
 
@@ -153,7 +153,7 @@ async function managedRequest<T>(
 function cacheToolVersion(tool: Record<string, unknown>): void {
   const slug = stringValue(tool.slug) || stringValue(tool.name);
   const version = stringValue(tool.version) || stringValue(asRecord(tool.meta).version);
-  if (slug && version) toolVersionCache.set(slug, { version, expiresAt: Date.now() + TOOL_VERSION_CACHE_TTL_MS });
+  if (slug && version && version !== 'latest') toolVersionCache.set(slug, { version, expiresAt: Date.now() + TOOL_VERSION_CACHE_TTL_MS });
 }
 
 function cachedToolVersion(action: string): string | undefined {
@@ -165,10 +165,12 @@ function cachedToolVersion(action: string): string | undefined {
   return cached.version;
 }
 
-async function withComposioSignal<T>(timeoutMs: number, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+async function withComposioSignal<T>(timeoutMs: number, operation: (signal: AbortSignal) => Promise<T>, mutation = false): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await operation(controller.signal); } finally { clearTimeout(timer); }
+  try { return await operation(controller.signal); }
+  catch (error) { throw classifyComposioFailure({ error, mutation, timeout: controller.signal.aborted }); }
+  finally { clearTimeout(timer); }
 }
 
 function connectedAccountResponse(accounts: ComposioConnectedAccount[]) {
@@ -357,7 +359,7 @@ export async function getGatewayToolkitTools(toolkit: string, search: string, co
     important: false,
   };
   if (search) queryParams.search = search;
-  const results = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioTools({ ...queryParams, signal } as Parameters<typeof composio.tools.getRawComposioTools>[0]));
+  const results = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioTools(queryParams, undefined, { signal }));
   const toolList = Array.isArray(results) ? results : [];
   toolList.forEach((tool) => cacheToolVersion(tool as Record<string, unknown>));
   const tools = toolList.map((tool: Record<string, unknown>) => {
@@ -467,8 +469,7 @@ export async function searchGatewayTools(query: string, toolkits: string[] | und
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   const results = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioTools({
     search: normalizedQuery,
-    signal,
-  } as Parameters<typeof composio.tools.getRawComposioTools>[0]));
+  } as Parameters<typeof composio.tools.getRawComposioTools>[0], undefined, { signal }));
   const resultArr = Array.isArray(results) ? results : [];
   resultArr.forEach((tool) => cacheToolVersion(tool as Record<string, unknown>));
   const filtered = resultArr.filter((tool: Record<string, unknown>) => {
@@ -503,7 +504,7 @@ export async function getGatewayToolSchemas(tools: string[], context: ResolvedCo
   const schemas: Record<string, unknown> = {};
   for (const slug of tools.slice(0, 10)) {
     try {
-      const tool = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioToolBySlug(String(slug), { signal } as never));
+      const tool = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioToolBySlug(String(slug), undefined, { signal }));
       const toolRecord = tool as Record<string, unknown>;
       cacheToolVersion(toolRecord);
       schemas[String(slug)] = (toolRecord?.inputParameters ?? null) as Record<string, unknown> | null;
@@ -525,26 +526,32 @@ export async function executeGatewayTool(action: string, params: Record<string, 
     const connected = await managedRequest<Record<string, unknown>>(`/connect/${encodeURIComponent(toolkit)}`, {
       method: 'POST', body: { returnUrl: flow.callbackUrl },
     }, context);
-    return { ...result, redirectUrl: connected.redirectUrl, flowId: flow.state, expiresAt: flow.expiresAt.toISOString() };
+    return { ...result, redirect_url: connected.redirectUrl, redirectUrl: connected.redirectUrl, flowId: flow.state, expiresAt: flow.expiresAt.toISOString() };
   }
 
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   let version = cachedToolVersion(action);
   if (!version) {
-    const tool = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioToolBySlug(action, { signal } as never));
+    const tool = await withComposioSignal(15_000, (signal) => composio.tools.getRawComposioToolBySlug(action, undefined, { signal }));
     const toolRecord = tool as Record<string, unknown>;
     cacheToolVersion(toolRecord);
     version = cachedToolVersion(action);
+  }
+  if (!version) {
+    throw new ComposioProviderError('Tool schema did not include a concrete version.', {
+      code: 'COMPOSIO_BAD_RESPONSE',
+      retryable: false,
+    });
   }
   try {
     return await withComposioSignal(120_000, (signal) => composio.tools.execute(action, {
       userId: context.composioUserId,
       arguments: params,
-      ...(version ? { version } : {}),
-      signal,
-    } as Parameters<typeof composio.tools.execute>[1]));
+      version,
+    }, { signal }), true);
   } catch (error) {
+    if (error instanceof ComposioProviderError) throw error;
     throw classifyComposioFailure({ error, mutation: true, timeout: error instanceof Error && error.name === 'AbortError' });
   }
 }
@@ -569,8 +576,7 @@ export async function getGatewayTriggerTypes(toolkit: string, context: ResolvedC
   const result = await withComposioSignal(15_000, (signal) => composio.triggers.listTypes({
     ...(toolkit ? { toolkits: [toolkit] } : {}),
     limit: 1000,
-    signal,
-  } as Parameters<typeof composio.triggers.listTypes>[0]));
+  } as Parameters<typeof composio.triggers.listTypes>[0], { signal }));
   logComposioTrigger('Listed local trigger types', { toolkit, count: result.items.length, hasMore: Boolean(result.nextCursor) });
   return {
     triggerTypes: result.items,
@@ -599,8 +605,7 @@ export async function listGatewayTriggers(context: ResolvedComposioContext) {
     connectedAccountIds,
     showDisabled: true,
     limit: 1000,
-    signal,
-  } as Parameters<typeof composio.triggers.listActive>[0]));
+  } as Parameters<typeof composio.triggers.listActive>[0], { signal }));
   const triggers = result.items.map((item) => normalizeLocalTriggerInstance(item, accountById));
   logComposioTrigger('Listed local active triggers', { count: triggers.length });
   return {
@@ -626,6 +631,18 @@ export async function getLocalWebhookSubscription(context: ResolvedComposioConte
   return row ?? null;
 }
 
+async function fetchComposioWebhook(url: string, init: RequestInit, timeoutMs: number, mutation: boolean): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    throw classifyComposioFailure({ error, mutation, timeout: controller.signal.aborted });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function ensureLocalWebhookSubscription(options: { forceRefresh?: boolean; context: ResolvedComposioContext }) {
   const mode = await getComposioMode(options.context.storageScope);
   if (mode !== 'local') throw new Error('Webhook subscriptions are only supported in local Composio mode.');
@@ -635,13 +652,13 @@ export async function ensureLocalWebhookSubscription(options: { forceRefresh?: b
   const currentUrl = `${appBaseUrl()}/api/composio/webhook`;
   if (existing && !options?.forceRefresh) {
     if (existing.webhookUrl !== currentUrl) {
-      logComposioTrigger('Webhook URL changed, re-registering subscription', { old: existing.webhookUrl, new: currentUrl });
+      logComposioTrigger('Webhook URL changed, re-registering subscription');
       return ensureLocalWebhookSubscription({ forceRefresh: true, context: options.context });
     }
     return existing;
   }
   const webhookUrl = `${appBaseUrl()}/api/composio/webhook`;
-  logComposioTrigger('Creating local webhook subscription', { webhookUrl });
+  logComposioTrigger('Creating local webhook subscription');
   const headers = {
     'X-API-KEY': apiKey,
     'Content-Type': 'application/json',
@@ -651,14 +668,11 @@ export async function ensureLocalWebhookSubscription(options: { forceRefresh?: b
     enabled_events: COMPOSIO_WEBHOOK_EVENT_TYPES,
     version: 'V3',
   };
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
-  const response = await fetch('https://backend.composio.dev/api/v3.1/webhook_subscriptions', {
+  const response = await fetchComposioWebhook('https://backend.composio.dev/api/v3.1/webhook_subscriptions', {
     method: 'POST',
     headers,
     body: JSON.stringify(subscriptionBody),
-    signal: controller.signal,
-  }).finally(() => clearTimeout(timer));
+  }, 30_000, true);
   let data: unknown;
   if (response.status === 409) {
     logComposioTrigger('Local webhook subscription already exists, reusing remote subscription');
@@ -713,7 +727,7 @@ export async function ensureLocalWebhookSubscription(options: { forceRefresh?: b
       },
     })
     .returning();
-  logComposioTrigger('Local webhook subscription ensured', { subscriptionId, webhookUrl: returnedUrl || webhookUrl });
+  logComposioTrigger('Local webhook subscription ensured');
   return row;
 }
 
@@ -722,10 +736,10 @@ async function reuseExistingLocalWebhookSubscription(
   headers: Record<string, string>,
   subscriptionBody: { webhook_url: string; enabled_events: string[]; version: string },
 ): Promise<unknown> {
-  const listResponse = await fetch('https://backend.composio.dev/api/v3.1/webhook_subscriptions?limit=10', {
+  const listResponse = await fetchComposioWebhook('https://backend.composio.dev/api/v3.1/webhook_subscriptions?limit=10', {
     method: 'GET',
     headers: { 'X-API-KEY': apiKey },
-  });
+  }, 15_000, false);
   if (!listResponse.ok) {
     throw classifyComposioFailure({ status: listResponse.status, headers: listResponse.headers });
   }
@@ -743,11 +757,11 @@ async function reuseExistingLocalWebhookSubscription(
     throw new Error('Composio reported an existing webhook subscription but did not return it from the list endpoint.');
   }
 
-  const updateResponse = await fetch(`https://backend.composio.dev/api/v3.1/webhook_subscriptions/${encodeURIComponent(subscriptionId)}`, {
+  const updateResponse = await fetchComposioWebhook(`https://backend.composio.dev/api/v3.1/webhook_subscriptions/${encodeURIComponent(subscriptionId)}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify(subscriptionBody),
-  });
+  }, 30_000, true);
   if (!updateResponse.ok) {
     throw classifyComposioFailure({ status: updateResponse.status, headers: updateResponse.headers, mutation: true });
   }
@@ -787,13 +801,12 @@ export async function createGatewayTrigger(input: {
     hasConnectedAccountId: Boolean(input.connectedAccountId),
     hasTriggerConfig: Boolean(input.triggerConfig && Object.keys(input.triggerConfig).length > 0),
   });
-  const triggerType = await withComposioSignal(15_000, (signal) => composio.triggers.getType(input.triggerSlug, { signal } as never));
+  const triggerType = await withComposioSignal(15_000, (signal) => composio.triggers.getType(input.triggerSlug, { signal }));
   const composioUserId = context.composioUserId;
   const result = await withComposioSignal(30_000, (signal) => composio.triggers.create(composioUserId, input.triggerSlug, {
     connectedAccountId: input.connectedAccountId,
     triggerConfig: input.triggerConfig || {},
-    signal,
-  } as never));
+  }, { signal }), true);
   const triggerId = result.triggerId;
   let connectedAccountId = input.connectedAccountId || '';
   try {
@@ -801,17 +814,16 @@ export async function createGatewayTrigger(input: {
       triggerIds: [triggerId],
       showDisabled: true,
       limit: 1,
-      signal,
-    } as Parameters<typeof composio.triggers.listActive>[0]));
+    } as Parameters<typeof composio.triggers.listActive>[0], { signal }));
     const activeTrigger = asRecord(activeResult.items[0]);
     connectedAccountId = stringValue(activeTrigger.connectedAccountId) || stringValue(activeTrigger.connected_account_id) || connectedAccountId;
   } catch (error) {
-    logComposioTriggerError('Failed to fetch created trigger details', error, { triggerId, triggerSlug: input.triggerSlug });
+    logComposioTriggerError('Failed to fetch created trigger details', error, { triggerSlug: input.triggerSlug });
   }
   if (!connectedAccountId) {
     throw new Error('Composio created the trigger but did not return the connected account ID.');
   }
-  logComposioTrigger('Created local trigger', { triggerId, triggerSlug: input.triggerSlug, connectedAccountId });
+  logComposioTrigger('Created local trigger', { triggerSlug: input.triggerSlug });
   return {
     trigger: {
       triggerId,
@@ -847,8 +859,8 @@ export async function prepareGatewayTriggerUpdate(context: ResolvedComposioConte
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   return async (triggerId: string, input: { status?: 'active' | 'paused'; triggerConfig?: Record<string, unknown>; notebookWebhookUrl?: string | null }) => {
-    if (input.status === 'paused') await withComposioSignal(30_000, (signal) => composio.triggers.disable(triggerId, { signal } as never));
-    if (input.status === 'active') await withComposioSignal(30_000, (signal) => composio.triggers.enable(triggerId, { signal } as never));
+    if (input.status === 'paused') await withComposioSignal(30_000, (signal) => composio.triggers.disable(triggerId, { signal }), true);
+    if (input.status === 'active') await withComposioSignal(30_000, (signal) => composio.triggers.enable(triggerId, { signal }), true);
     return { trigger: { triggerId, status: input.status } };
   };
 }
@@ -862,7 +874,7 @@ export async function deleteGatewayTrigger(triggerId: string, context: ResolvedC
 
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  await withComposioSignal(30_000, (signal) => composio.triggers.delete(triggerId, { signal } as never));
+  await withComposioSignal(30_000, (signal) => composio.triggers.delete(triggerId, { signal }), true);
   return { success: true };
 }
 
