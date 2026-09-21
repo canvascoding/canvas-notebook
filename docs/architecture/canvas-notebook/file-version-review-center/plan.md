@@ -1,8 +1,9 @@
 # File Version & Review Center
 
-Stand: 2026-09-17
+Stand: 2026-09-21
 
-Status: Markdown-Kernfeature umgesetzt; Proposal-Graph und weitere Adapter geplant
+Status: Markdown-Kernfeature umgesetzt; Proposal-Graph teilweise intern umgesetzt,
+vollstaendige Merge-/UI-Abnahme und manuelle Konfliktaufloesung offen
 
 Repository: `canvasstudios-notebook`
 
@@ -14,6 +15,13 @@ Agentenvorschlaege ist in
 [`proposal-graph.md`](./proposal-graph.md) spezifiziert.
 Die nachgeprueften Randfaelle und 46 zugeordnete Tests stehen in
 [`proposal-graph-scenarios.md`](./proposal-graph-scenarios.md).
+
+Der konkrete Verbesserungsplan nach den Produktionsmeldungen steht in
+[`merge-reliability-plan.md`](./merge-reliability-plan.md): sichere Neuauswertung,
+"Alle Aenderungen akzeptieren", ausklappbare Diagnose und PR-aehnliche manuelle
+Konfliktaufloesung mit 32 zusaetzlichen Abnahmeszenarien. Er konkretisiert
+`FVRC-1005` bis `FVRC-1008` und ergaenzt `FVRC-P12`; die bisher dokumentierten
+internen Tests ersetzen keine vollstaendige Browser- oder Produktionsabnahme.
 
 ## 1. Zielbild
 
@@ -657,8 +665,9 @@ mobile Kartenbreiten und gleiche Verfuegbarkeit bei gleichen Capabilities in
 Personal-/Team-Workspaces besitzen konkrete Browserfaelle im
 [`Szenario- und Testplan`](./proposal-graph-scenarios.md).
 
-Die Umsetzung erfolgt als neues Paket `FVRC-P10` vor dem weiterhin
-zurueckgestellten Text-/Codeadapter-Paket `FVRC-P09`. Die vorhandenen IDs von
+Die Umsetzung erfolgt mit `FVRC-P10`, danach mit dem neuen Konfliktaufloesungs-
+Paket `FVRC-P12`, vor dem weiterhin zurueckgestellten Text-/Codeadapter-Paket
+`FVRC-P09`. Die vorhandenen IDs von
 `FVRC-P09` bleiben fuer bestehende Referenzen stabil; die Ausfuehrungsreihenfolge
 wird durch das explizite `order`-Feld in `todo.json` bestimmt.
 
