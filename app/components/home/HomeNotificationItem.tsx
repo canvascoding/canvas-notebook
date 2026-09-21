@@ -63,6 +63,7 @@ export function HomeNotificationItem({
         if (item.target.kind === 'memory') {
           event.preventDefault();
           onMemoryOpen?.();
+          if (item.unread) onRead();
           void openMemoryReview(item.target, memoryTargets);
           return;
         }
