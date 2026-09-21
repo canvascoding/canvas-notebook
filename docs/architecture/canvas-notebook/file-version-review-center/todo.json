@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "feature": "file-version-review-center",
   "title": "File Version & Review Center",
-  "updatedAt": "2026-09-17",
+  "updatedAt": "2026-09-21",
   "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "documents": [
@@ -15,6 +15,7 @@
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-contracts-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-storage-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-mechanics-v1.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/merge-reliability-plan.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -94,6 +95,11 @@
       "id": "FVRC-G10-PROPOSAL-GRAPH",
       "packageId": "FVRC-P10",
       "evidence": "All PG-S01..PG-S34 and PG-U01..PG-U12 scenarios pass: orthogonal dependency/replacement/choice relations, current-state preview, prerequisite checks, durable document-wide apply/recovery, legacy-route guards and exact UI/chat/notification selections."
+    },
+    {
+      "id": "FVRC-G12-CONFLICT-RESOLUTION",
+      "packageId": "FVRC-P12",
+      "evidence": "Persistent resolution drafts, explicit per-proposal dispositions, current-bound final previews and durable merge/recovery pass MR-25..MR-32 and the full P10 regression without mutating live content during draft editing."
     },
     {
       "id": "FVRC-G09-TEXT-ADAPTERS",
@@ -1290,6 +1296,7 @@
       "dependsOn": ["FVRC-P08", "FVRC-P11"],
       "exitGate": "FVRC-G10-PROPOSAL-GRAPH",
       "testPlan": "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-scenarios.md",
+      "improvementPlan": "docs/architecture/canvas-notebook/file-version-review-center/merge-reliability-plan.md",
       "tasks": [
         {
           "id": "FVRC-1000",
@@ -1483,28 +1490,43 @@
           "id": "FVRC-1005",
           "order": 5,
           "title": "Timeline-, Compare- und API-Projektionen fuer den Proposal-Graph erweitern",
-          "status": "planned",
+          "status": "done",
+          "completedAt": "2026-09-21",
           "area": "file-version-center-services",
           "dependsOn": ["FVRC-1004"],
-          "verificationScenarios": ["PG-S26", "PG-S29", "PG-U02", "PG-U04", "PG-U05", "PG-U08", "PG-U11", "PG-U12"],
+          "verificationScenarios": ["PG-S26", "PG-S29", "PG-U02", "PG-U04", "PG-U05", "PG-U08", "PG-U11", "PG-U12", "MR-01", "MR-04", "MR-05", "MR-06", "MR-07", "MR-08", "MR-09", "MR-10", "MR-13", "MR-14", "MR-23"],
           "deliverables": [
+            "Zuerst deterministische Zehn-Aenderungen-Regression und gemeinsamer authentifizierter Harness ohne Login-429; dokumentierter Ist-Zustand statt unbelegter Produktionsursache",
+            "Versionierter Auswertungs-/Diagnosevertrag mit strukturierten Gruenden, erlaubten Aktionen, Korrelations-ID und redigierten Metadaten statt null/stale-Sammelfehlern",
             "Permission-aware Graphprojektion mit Root, Parent, Relation und Actionability",
             "Vergleich aktueller Stand gegen effektiven Einzel- oder Batch-Kandidaten",
             "Paginierung ohne doppelte Ancestor- oder Deep-Link-Eintraege",
             "Aktualisierte Action-Fences und stabile stale-/blocked-/conflict-Antworten",
-            "Exakte Aufloesung terminaler Referenzen, getrennte Lese-/Aktionsrechte und an eine Auswertung gebundene Diff-Folgeseiten"
+            "Exakte Aufloesung terminaler Referenzen, getrennte Lese-/Aktionsrechte und an eine Auswertung gebundene Diff-Folgeseiten",
+            "Neuauswertung verbleibender Vorschlaege nach Dokument-/Graph-Aenderung ueber die vorhandenen gemeinsamen Mechaniken",
+            "Sichere Legacy-Klassifizierung mit belegtem Restumfang oder upgrade_required; niemals Snapshotpruefung abschalten"
           ],
           "acceptanceCriteria": [
             "Der sichtbare Vergleich verwendet weiterhin immer den aktuellen autoritativen Stand.",
             "Ein Kind zeigt vor Parent-Annahme den kumulativen und danach den verbleibenden Vergleich.",
             "Read-only Nutzer koennen zulaessige Beziehungen und Vergleiche sehen, aber keine Graphmutation ausloesen.",
             "Fremde Initiatoren ohne Managerrecht und Cross-Workspace-Deep-Links bleiben fail-closed.",
-            "Fehlendes Restore-Recht sperrt nicht pauschal Vergleich/Review; verspätete Antworten und ungezeigte Closure-Mitglieder erzeugen keine Aktionsfreigabe."
+            "Fehlendes Restore-Recht sperrt nicht pauschal Vergleich/Review; verspätete Antworten und ungezeigte Closure-Mitglieder erzeugen keine Aktionsfreigabe.",
+            "Nach drei Annahmen aus zehn belegbar unabhaengigen Vorschlaegen sind die verbleibenden sieben auf dem aktuellen Stand korrekt pruefbar; echte Konflikte und unbewiesene Legacy-Patches bleiben begruendet gesperrt.",
+            "Harness und neue Produktregression werden getrennt bewertet; zwei vollstaendige bestehende Review-Laeufe funktionieren ohne Login-429, Pflicht-Skips oder erreichbares KI-Modell."
           ],
           "verification": [
             "Query-, Compare-, Pagination- und Deep-Link-Contracttests",
             "Berechtigungs-, stale-selection- und Current-Fence-Tests",
-            "Performance-Grenztests fuer breite und tiefe Graphen"
+            "Performance-Grenztests fuer breite und tiefe Graphen",
+            "MR-01, MR-04..MR-10, MR-13, MR-14 und MR-23 gemaess merge-reliability-plan.md; Browser nur nach expliziter Freigabe"
+          ],
+          "evidence": [
+            "Versionierte Projection-/Compare-Vertraege, autorisierte Root-/Parent-/Relation-/Actionability-Projektion und produktive GET-/POST-Routen sind implementiert. Auswahl, vollstaendige Closure, Graphrevision, Current-Proof, Kandidaten- und Selection-Hash werden vor Lesen und Vergleichen erneut gebunden; fremde Workspaces, Initiatoren und spaete Antworten bleiben fail-closed.",
+            "Einzel- und Batchauswertung verwenden den aktuellen autoritativen Yjs-Stand. Erforderliche offene Vorfahren werden genau einmal einbezogen; No-op und anderweitig erfuellte Wirkung sind explizit, echte Konflikte sowie nicht belegbare Legacy-Reste bleiben gesperrt oder upgrade_required. Der Proposal-Compare nutzt denselben mehrstelligen Text-Diff wie die bestehende Versionsansicht.",
+            "Das deterministische Zehn-Vorschlaege-Fixture sowie Projection-, Evaluation-, Legacy-, API-, Read-Service-, Route-Error-, Compare-, Runtime-, bestehende Compare-Regression und Managed-Runner-Tests bestehen ueber npm run test:proposal-graph:review-projection. TypeScript, fokussiertes ESLint, git diff --check und der Produktionsbuild mit 346 Seiten bestehen.",
+            "Der verwaltete lokale PostgreSQL-Team-Seat-Stack bestand den Browser-Gate mit genau einem Worker: sieben Szenarien liefen jeweils zweimal, insgesamt 14 serielle Suite-Laeufe ohne 429 oder Pflicht-Skip. Der Harness verwendet wiederverwendete Auth-Zustaende, getrennte Admin-/Mitglied-Rollen, einen optionalen shell-freien Runtime-Reset vor jedem unabhaengigen Lauf sowie erneuten Health-/Team-/Build-Preflight. Kein erreichbares KI-Modell und keine gelockerte Produkt-Ratenbegrenzung waren erforderlich.",
+            "Vollstaendiger Nachweis: docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1005/results.md. Hierarchie, Aktionen, technische Details und Batchbedienung im globalen Center bleiben ausdruecklich FVRC-1006; oeffentliche Proposal-Mutationswerkzeuge bleiben bis FVRC-1008 geschlossen."
           ]
         },
         {
@@ -1514,7 +1536,7 @@
           "status": "planned",
           "area": "frontend",
           "dependsOn": ["FVRC-1005"],
-          "verificationScenarios": ["PG-U01", "PG-U02", "PG-U03", "PG-U04", "PG-U05", "PG-U06", "PG-U07", "PG-U08", "PG-U09", "PG-U10", "PG-U11"],
+          "verificationScenarios": ["PG-U01", "PG-U02", "PG-U03", "PG-U04", "PG-U05", "PG-U06", "PG-U07", "PG-U08", "PG-U09", "PG-U10", "PG-U11", "MR-02", "MR-03", "MR-11", "MR-12", "MR-15", "MR-19", "MR-21"],
           "deliverables": [
             "Gruppierte Root-, Kind-, Ersatz- und Alternativkarten in der Review-Sektion",
             "Beziehungs-, Include-, Rebase-, Blockierungs- und Konflikttexte unabhaengig von Farbe",
@@ -1522,7 +1544,10 @@
             "Desktop-, Tablet- und Mobile-Darstellung im bestehenden Canvas-Stil",
             "Batch-Auswahl mit Dependency-Closure und sichtbaren Schliessungsfolgen fuer Alternativen",
             "Eigene Zustandsansichten fuer Konflikt, verlorene Voraussetzung, fehlenden Inhalt, No-op, Sync und dauerhafte Speicherung",
-            "Stabile Auswahl/Fokus/Scrollposition, scrollender Historientrenner und getrennte Rechte je Aktion"
+            "Stabile Auswahl/Fokus/Scrollposition, scrollender Historientrenner und getrennte Rechte je Aktion",
+            "Zuerst konkrete Fehleransichten und ausklappbare redigierte Diagnosedetails mit Kopieraktion; keine Null-Diff-Zaehler bei fehlendem Vergleich",
+            "Danach Alle Aenderungen akzeptieren ueber alle berechtigten Listenseiten eines Dokuments: feste Auswahl, gemeinsame Vorschau, ausdrueckliche Freigabe und eine dauerhafte Batch-Operation",
+            "Optionale explizite konfliktfreie Teilmenge nur mit eigener abhaengigkeitsvollstaendiger Vorschau; keine neue freie Hunk-Teilannahme"
           ],
           "acceptanceCriteria": [
             "Der Nutzer erkennt vor jedem Klick, welche Vorschlaege und Aenderungen angewendet oder geschlossen werden.",
@@ -1530,7 +1555,10 @@
             "Ein terminal enthaltener oder ersetzter Vorschlag besitzt keinen aktiven Annehmen-Button.",
             "Tastatur, Screenreader, Touch, Focus, Reduced Motion sowie Light/Dark funktionieren ohne horizontales Ueberlaufen.",
             "Nach Current-/Graph-Wechsel wird vor einem neuen Accept der neue Diff gezeigt; lokale unsynchronisierte Aenderungen werden erhalten und abgeglichen.",
-            "HTTP 200, Timeout und Dialogschliessen werden nicht als dauerhafter Erfolg oder sichere Cancellation fehlinterpretiert."
+            "HTTP 200, Timeout und Dialogschliessen werden nicht als dauerhafter Erfolg oder sichere Cancellation fehlinterpretiert.",
+            "Drei Einzelannahmen plus Batch der restlichen sieben erzeugen exakt vier neue Inhaltsrevisionen; kein wiederholter Effekt und kein sequentieller Accept-Loop.",
+            "Neue Vorschlaege, Alternativen, fehlende Rechte und noch nicht geladene Seiten veraendern die bestaetigte Auswahl niemals still.",
+            "Technische Details sind im Fehlerzustand erreichbar, standardmaessig geschlossen und ohne Dokumentinhalte, Dateipfade, Secrets oder fremde Referenzen kopierbar."
           ],
           "verification": [
             "Komponenten- und Interaktionstests fuer jede Beziehung und Aktion",
@@ -1545,7 +1573,7 @@
           "status": "planned",
           "area": "entrypoints-notifications",
           "dependsOn": ["FVRC-1006"],
-          "verificationScenarios": ["PG-S24", "PG-U01", "PG-U05", "PG-U06", "PG-U12"],
+          "verificationScenarios": ["PG-S24", "PG-U01", "PG-U05", "PG-U06", "PG-U12", "MR-17"],
           "deliverables": [
             "Exakte historische Widget-Referenz mit aktuellem Status und explizitem Nachfolger-Link",
             "Eine gruppierte Notification pro Root oder aktionsbeduerftigem Zweig",
@@ -1562,7 +1590,8 @@
           "verification": [
             "Chat-Reload-, Widget-Refresh- und Notification-Dedupe-Tests",
             "Deep-Link-, Workspace-Wechsel- und Access-loss-Tests",
-            "Desktop-, Home- und Mobile-Contracttests"
+            "Desktop-, Home- und Mobile-Contracttests",
+            "MR-17: exakte Referenzen und aktueller Merge-Status aus Editor, Dateibrowser, Chat und bestehenden Notifications; keine zweite Merge-Implementierung"
           ]
         },
         {
@@ -1572,20 +1601,24 @@
           "status": "planned",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
-          "verificationScenarios": ["PG-S16", "PG-S17", "PG-S18", "PG-S19", "PG-S20", "PG-S21", "PG-S24", "PG-S27", "PG-S28", "PG-S29", "PG-S30", "PG-S32", "PG-S33", "PG-S34", "PG-U09", "PG-U10", "PG-U11", "PG-U12"],
+          "verificationScenarios": ["PG-S16", "PG-S17", "PG-S18", "PG-S19", "PG-S20", "PG-S21", "PG-S24", "PG-S27", "PG-S28", "PG-S29", "PG-S30", "PG-S32", "PG-S33", "PG-S34", "PG-U09", "PG-U10", "PG-U11", "PG-U12", "MR-01", "MR-02", "MR-03", "MR-04", "MR-05", "MR-06", "MR-07", "MR-08", "MR-09", "MR-10", "MR-11", "MR-12", "MR-13", "MR-14", "MR-15", "MR-16", "MR-17", "MR-18", "MR-19", "MR-20", "MR-21", "MR-22", "MR-23", "MR-24"],
           "deliverables": [
             "Komplette 46-Faelle-Testmatrix aus proposal-graph-scenarios.md mit Commit-bezogener Evidence",
             "Metriken und inhaltsfreie Logs fuer Graphgroesse, Rebase, Blockierung, Konflikt und Apply",
             "Feature-Flag-Ringe mit Legacy-Routenschutz vor Beziehungserstellung und gemeinsamer Aktivierung von Closure, Recovery und Propagation",
             "Datenbewahrender Rollback auf sicheren Einzelreview",
-            "Aktualisierte Betriebs- und Supportdiagnose"
+            "Aktualisierte Betriebs- und Supportdiagnose",
+            "MR-01..MR-24 inklusive 10 -> 3 -> 7, Sammelannahme, Race/Recovery, Personal/Team, Mobile und Diagnose-Redaktion in zwei vollstaendigen Laeufen",
+            "Evidence mit tatsaechlichem Commit, Build/Image, URL, Fixtures, Pflicht-Skips und Soll/Ist; PGlite, echtes PostgreSQL und Browser getrennt kennzeichnen"
           ],
           "acceptanceCriteria": [
             "Alle bestehenden Einzelreview-, Restore-, Chat- und Notification-Regressionen bleiben gruen.",
             "Abhaengige Vorschlaege fallen bei Rollback fail-closed und werden nie still als unabhaengig angewendet.",
             "Keine offenen Referenzen, Inhalte oder Auditbindungen gehen bei Migration, Restart oder Rollback verloren.",
             "Produktionsbuild und alle genehmigten UI/E2E-Gates bestehen.",
-            "PG-S01 bis PG-S34 und PG-U01 bis PG-U12 sind bestanden oder eine explizite begruendete Produktaenderung ist dokumentiert."
+            "PG-S01 bis PG-S34 und PG-U01 bis PG-U12 sind bestanden oder eine explizite begruendete Produktaenderung ist dokumentiert.",
+            "MR-01 bis MR-24 sind bestanden; sichere Verweigerung allein gilt nicht als erfolgreicher Mehrfach-Merge. Neue Graph-Schreibpfade bleiben bis zum Gate geschlossen.",
+            "Ein neu angelegtes Dokument bleibt standardmaessig safe_direct; manueller Konflikteditor wird erst mit separatem P12-Gate zugesagt."
           ],
           "verification": [
             "Fokussierte Unit-, Contract-, PostgreSQL-, Yjs-, Security- und Concurrency-Suites",
@@ -1598,12 +1631,123 @@
       ]
     },
     {
-      "id": "FVRC-P09",
+      "id": "FVRC-P12",
       "order": 11,
+      "title": "Persistente PR-aehnliche Konfliktaufloesung im globalen Review-Center",
+      "status": "planned",
+      "dependsOn": ["FVRC-P10"],
+      "exitGate": "FVRC-G12-CONFLICT-RESOLUTION",
+      "testPlan": "docs/architecture/canvas-notebook/file-version-review-center/merge-reliability-plan.md",
+      "tasks": [
+        {
+          "id": "FVRC-1200",
+          "order": 0,
+          "title": "Resolution-Contract, Entwurfsspeicher und Abschlussdispositionen definieren",
+          "status": "planned",
+          "area": "architecture-storage",
+          "dependsOn": ["FVRC-1008"],
+          "verificationScenarios": ["MR-25", "MR-28", "MR-31"],
+          "deliverables": [
+            "Versionierter benutzer-/workspace-/lineagegebundener Entwurf mit fester Proposal-Auswahl, Basis-/Current-/Evaluationsreferenzen, Ergebnisartefakt und CAS",
+            "Additive Migration, Retention-Pins, Groessenlimits, Ablauf/Bereinigung und Rechteverlustregeln",
+            "Expliziter Resolution-Nachweis je Original: unveraendert uebernommen, veraendert aufgeloest, aktuell behalten oder nicht einbezogen",
+            "Kompatibilitaetsprojektion fuer alte Clients; Entwurf ist kein replaces-Vorschlag und schliesst kein Original vorzeitig"
+          ],
+          "acceptanceCriteria": [
+            "Oeffnen, Autosave, Wiederaufnahme und Verwerfen eines Entwurfs veraendern weder Live-Dokument noch Original-Lifecycle.",
+            "Veraenderte oder verworfene Originalwirkung wird nicht faelschlich als unveraendert applied auditierbar.",
+            "Fremde Entwuerfe und nicht autorisierte Parent-Inhalte bleiben geschuetzt; Retry, CAS und Retention sind nach Restart nachvollziehbar."
+          ],
+          "verification": [
+            "Contract-, Scope-, Rechte-, CAS- und Grenztests",
+            "Reale PostgreSQL-Migrations-, Restart- und Retention-Tests"
+          ]
+        },
+        {
+          "id": "FVRC-1201",
+          "order": 1,
+          "title": "Konfliktentscheidungen in einen aktuellen validierten Merge-Kandidaten ueberfuehren",
+          "status": "planned",
+          "area": "domain-services",
+          "dependsOn": ["FVRC-1200"],
+          "verificationScenarios": ["MR-26", "MR-27", "MR-29", "MR-30", "MR-31"],
+          "deliverables": [
+            "Strukturierte Konfliktstellen mit verfuegbarer Basis, aktuellem Inhalt, Vorschlag und Ergebnis",
+            "Aktuell behalten, Vorschlag uebernehmen und manuell kombinieren als explizite Entscheidungen auf versioniertem Entwurf",
+            "Identitaetserhaltender Kandidat mit Schema-/Roundtrippruefung auf aktuellem Snapshot; keine stille Whole-Document-Ersetzung",
+            "Erneute Validierung gespeicherter Entscheidungen bei Peer-Edit; angepasste Vorschlaege und Nachfahren korrekt neu auswerten",
+            "Autorisierte Finalisierung ueber vorhandenen Action-Orchestrator samt dauerhaftem Receipt fuer die folgende echte UI-Integration; oeffentliche Aktivierung bleibt gesperrt"
+          ],
+          "acceptanceCriteria": [
+            "Nicht betroffene Nutzertexte, Formatierungen und Blockidentitaeten bleiben unveraendert.",
+            "Fehlende oder verschiedene Ausgangsbasen werden nicht als erfundene gemeinsame Basis angezeigt.",
+            "Alte Freigaben erlauben keinen neuen Kandidaten; ungueltig gewordene Entscheidungen verlangen erneute Klaerung.",
+            "Kein Kind wird automatisch auf den Entwurf umgehaengt; nicht einbezogene Vorschlaege bleiben offen."
+          ],
+          "verification": [
+            "Deterministische Yjs-, Struktur-, Markdown- und Unicode-Fixtures mit festen Soll-Ergebnissen",
+            "Current-/Graph-/Rechtewechsel und No-op ohne leere Inhaltsrevision"
+          ]
+        },
+        {
+          "id": "FVRC-1202",
+          "order": 2,
+          "title": "Wiederaufnehmbaren Konflikteditor im bestehenden Canvas-Stil integrieren",
+          "status": "planned",
+          "area": "frontend",
+          "dependsOn": ["FVRC-1201"],
+          "verificationScenarios": ["MR-25", "MR-26", "MR-27", "MR-28"],
+          "deliverables": [
+            "Konfliktliste, Ausgang/Aktuell/Vorschlag/Ergebnis und manuelle Ergebnisbearbeitung im globalen Popup",
+            "Mobile Tabs, tastaturfaehige Entscheidungen, Autosave-/Wiederaufnahmezustand und Zahl offener Konflikte",
+            "Abschluss in zwei Schritten: Zusammenfuehrung pruefen, Gesamtdiff bestaetigen; Konsequenzen fuer Originale sichtbar",
+            "Diagnose, Entwurfsverwerfen und exakte Audit-/Nachfolgereferenzen ohne zweiten Review-Workflow"
+          ],
+          "acceptanceCriteria": [
+            "Dialog schliessen verliert keinen bestaetigt gespeicherten Entwurf und behauptet keine Cancellation laufender Aktionen.",
+            "Neue Current-/Graph-Staende verlangen eine neue gezeigte Vorschau und bewusste Bestaetigung.",
+            "Desktop/Mobile, DE/EN, Light/Dark, Touch und Tastatur sind im bestehenden Stil bedienbar; keine versteckten Entscheidungen."
+          ],
+          "verification": [
+            "Komponenten-/Interaktionstests fuer alle Entwurfszustaende",
+            "Genehmigte Browserpruefung mit zwei Clients, Reload, Peer-Edit und Diagnosekopie"
+          ]
+        },
+        {
+          "id": "FVRC-1203",
+          "order": 3,
+          "title": "Dauerhaften Resolution-Abschluss, Recovery und separaten Rollout absichern",
+          "status": "planned",
+          "area": "hardening-rollout",
+          "dependsOn": ["FVRC-1202"],
+          "verificationScenarios": ["MR-25", "MR-26", "MR-27", "MR-28", "MR-29", "MR-30", "MR-31", "MR-32"],
+          "deliverables": [
+            "Finalisierung ueber vorhandenen Action-Orchestrator und Collaboration-Apply; Resolution-Receipt mit atomarer Auditbindung",
+            "Lost-response-, Restart-, Rechteverlust- und Concurrent-Finalize-Absicherung ohne zweite Wirkung",
+            "MR-25..MR-32 und vollstaendige P10-Regression mit Commit-/Build-bezogener Evidence",
+            "Separate serverseitige Capability, Canary und datenbewahrender Rollback fuer manuelle Aufloesung"
+          ],
+          "acceptanceCriteria": [
+            "Ein inhaltsaendernder Abschluss erzeugt genau eine logische Inhaltsrevision; reines Aktuell-behalten keine leere Version.",
+            "Unsichere Persistenz bleibt sichtbar in Recovery, statt Originale vorzeitig als erledigt auszugeben.",
+            "Rollback bewahrt Entwuerfe, Artefakte und History; unbekannte Resolution-Zustaende werden von alten Clients nicht angewendet.",
+            "MR-25 bis MR-32 und saemtliche P10-Gates bestehen ohne Pflicht-Skips; Produktionsaktivierung erfolgt nur gesondert autorisiert."
+          ],
+          "verification": [
+            "Reale PostgreSQL-/Yjs-Concurrency und Crash-Grenztests, Security- und Retention-Regressionen",
+            "Typecheck, Lint, fokussierte Tests, git diff --check, npm run build und GitNexus detect_changes",
+            "Zwei vollstaendige genehmigte Browserlaeufe im einzelnen verwalteten Stack; kein externer KI-Provider erforderlich"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "FVRC-P09",
+      "order": 12,
       "title": "Weitere Text- und Codeformate ueber Adapter erweitern",
       "status": "planned",
       "phase": "deferred",
-      "dependsOn": ["FVRC-P10"],
+      "dependsOn": ["FVRC-P12"],
       "exitGate": "FVRC-G09-TEXT-ADAPTERS",
       "tasks": [
         {
@@ -1612,7 +1756,7 @@
           "title": "Revision-Check-Adapter fuer MDX, JSON, YAML und Quellcode implementieren",
           "status": "planned",
           "area": "file-adapters",
-          "dependsOn": ["FVRC-1008"],
+          "dependsOn": ["FVRC-1203"],
           "deliverables": [
             "Explizite Adapter-Capabilities je Formatklasse",
             "Text-Diff und idempotenter Restore mit Expected-Revision",

@@ -6,6 +6,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { JSONContent } from '@tiptap/core';
 
+import { createAuthenticatedContext } from './helpers/managed-test-context';
+
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const ADMIN_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
@@ -47,22 +49,31 @@ type ObservedEditor = HTMLElement & {
 
 const execFileAsync = promisify(execFile);
 
-async function fixtureContext(browser: Browser): Promise<BrowserContext> {
+async function fixtureContext(browser: Browser, secondary = false): Promise<BrowserContext> {
   const { baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor } = test.info().project.use;
-  return browser.newContext({ baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor });
+  return createAuthenticatedContext(
+    browser,
+    { baseURL, viewport, isMobile, hasTouch, userAgent, deviceScaleFactor },
+    { email: secondary ? SECONDARY_EMAIL : ADMIN_EMAIL, password: secondary ? SECONDARY_PASSWORD : ADMIN_PASSWORD },
+  );
 }
 
 async function login(page: Page, email: string, password: string): Promise<string> {
   expect(Boolean(email && password), 'The managed fixture credentials must be configured.').toBe(true);
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: { Origin: BASE_URL },
-    data: { email, password },
-  });
-  expect(response.ok(), await response.text()).toBeTruthy();
-  const session = await page.request.get('/api/auth/get-session');
+  let session = await page.request.get('/api/auth/get-session');
+  let sessionPayload = session.ok() ? await session.json() as { user?: { id?: string } } : null;
+  if (!sessionPayload?.user?.id) {
+    const response = await page.request.post('/api/auth/sign-in/email', {
+      headers: { Origin: BASE_URL },
+      data: { email, password },
+    });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    session = await page.request.get('/api/auth/get-session');
+    sessionPayload = session.ok() ? await session.json() as { user?: { id?: string } } : null;
+  }
   expect(session.ok()).toBe(true);
-  const userId = (await session.json()).user?.id;
-  expect(typeof userId).toBe('string');
+  const userId = sessionPayload?.user?.id;
+  if (!userId) throw new Error('Authenticated managed fixture session is missing its user ID.');
   return userId;
 }
 
@@ -122,6 +133,9 @@ function logBrowserDiagnostics(page: Page, label: string): string[] {
   });
   page.on('response', (response) => {
     if (response.status() === 404) console.info(`[${label}] 404 response: ${response.url()}`);
+    if (response.status() === 429) {
+      console.info(`[${label}] 429 response: ${response.request().method()} ${response.url()}`);
+    }
   });
   return browserErrors;
 }
@@ -239,7 +253,7 @@ test.describe('Markdown live collaboration', () => {
   test('deletes and moves blocks across peers without save rows or layout shifts', async ({ browser }) => {
     const filePath = `collaboration-quiet-blocks-${randomUUID()}.md`;
     const ownerContext = await fixtureContext(browser);
-    const peerContext = await fixtureContext(browser);
+    const peerContext = await fixtureContext(browser, true);
     const owner = await ownerContext.newPage();
     const peer = await peerContext.newPage();
     const errors = logBrowserDiagnostics(owner, 'quiet-owner');
@@ -337,7 +351,7 @@ test.describe('Markdown live collaboration', () => {
   test('keeps remote labels inside table and viewport edges after scrolling and resizing', async ({ browser }, testInfo) => {
     const filePath = `collaboration-caret-bounds-${randomUUID()}.md`;
     const ownerContext = await fixtureContext(browser);
-    const peerContext = await fixtureContext(browser);
+    const peerContext = await fixtureContext(browser, true);
     const owner = await ownerContext.newPage();
     const peer = await peerContext.newPage();
     const errors = logBrowserDiagnostics(owner, 'caret-owner');
@@ -419,7 +433,7 @@ test.describe('Markdown live collaboration', () => {
     const suffix = `${Date.now()}-${randomUUID()}`;
     const filePath = `collaboration-e2e-${suffix}.md`;
     const adminContext = await fixtureContext(browser);
-    const memberContext = await fixtureContext(browser);
+    const memberContext = await fixtureContext(browser, true);
     const adminPage = await adminContext.newPage();
     const memberPage = await memberContext.newPage();
     const adminBrowserErrors = logBrowserDiagnostics(adminPage, 'admin');
@@ -649,7 +663,7 @@ test.describe('Markdown live collaboration', () => {
     const filePath = `collaboration-agent-review-${suffix}.md`;
     const context = await fixtureContext(browser);
     const page = await context.newPage();
-    const peerContext = await fixtureContext(browser);
+    const peerContext = await fixtureContext(browser, true);
     const peer = await peerContext.newPage();
     const browserErrors = logBrowserDiagnostics(page, 'agent-review');
     const peerErrors = logBrowserDiagnostics(peer, 'agent-review-peer');

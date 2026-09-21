@@ -341,6 +341,15 @@ test('PG-S11/S12: historical resolution and currently verified prerequisites rem
   }, 'already-present effect does not implicitly approve alternatives or reapply its parent');
 });
 
+test('FVRC-1005: evaluation selection binding is additive and preserves legacy evaluations', () => {
+  assert.equal(parseProposalEvaluationV1(cleanEvaluationFixture).selectionHash, undefined);
+  const bound = parseProposalEvaluationV1({ ...cleanEvaluationFixture, selectionHash: 'f'.repeat(64) });
+  assert.equal(bound.selectionHash, 'f'.repeat(64));
+  rejects(parseProposalEvaluationV1,
+    changed(cleanEvaluationFixture, ['selectionHash'], 'not-a-selection-hash'),
+    'selection hash must remain an opaque digest');
+});
+
 test('product action rules distinguish content, metadata and new reviewed proposals', () => {
   const expectations = {
     accept: [true, false, true, true, 'applied'],

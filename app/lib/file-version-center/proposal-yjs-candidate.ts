@@ -131,6 +131,12 @@ function open(update: Uint8Array, representation: ProposalYjsRepresentation): YT
 function content(doc: YTypes.Doc, representation: ProposalYjsRepresentation): string {
   return representation === 'plain_text' ? doc.getText('content').toString() : richMarkdownFromYDoc(doc);
 }
+
+/** Read-only rendering of an already validated, full proposal snapshot. */
+export function proposalYjsSnapshotContent(input: { update: Uint8Array; representation: ProposalYjsRepresentation }): string {
+  const document = open(input.update, input.representation);
+  try { return content(document, input.representation); } finally { document.destroy(); }
+}
 function structure(doc: YTypes.Doc, representation: ProposalYjsRepresentation): unknown {
   return representation === 'plain_text' ? doc.getText('content').toDelta()
     : { body: readRichDocumentJson(doc), frontmatter: doc.getText('frontmatter').toDelta(), ending: doc.getText('bodyFinalLineEnding').toString() };

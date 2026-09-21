@@ -70,6 +70,25 @@ export function hashProposalValue(value: unknown): string {
   return createHash('sha256').update(canonicalProposalJson(value)).digest('hex');
 }
 
+/**
+ * Binds an evaluated candidate to the exact graph selection it previewed. The
+ * arrays are intentionally ordered: their order is part of the approved work.
+ */
+export function hashProposalEvaluationSelectionV1(input: {
+  selectedProposalIds: readonly string[];
+  closureProposalIds: readonly string[];
+  applyProposalIds: readonly string[];
+  graphRevision: number;
+}): string {
+  return hashProposalValue({
+    purpose: 'proposal-evaluation-selection-v1',
+    selectedProposalIds: input.selectedProposalIds,
+    closureProposalIds: input.closureProposalIds,
+    applyProposalIds: input.applyProposalIds,
+    graphRevision: input.graphRevision,
+  });
+}
+
 function batchHash(state: ProposalFenceState, creation: ProposalCreateRequestV1 | null): string {
   return hashProposalValue({ purpose: 'proposal-batch-v1', scope: state.scope, actionType: state.actionType,
     selectedProposalIds: state.selectedProposalIds, applyProposalIds: state.applyProposalIds,
