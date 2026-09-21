@@ -1490,7 +1490,8 @@
           "id": "FVRC-1005",
           "order": 5,
           "title": "Timeline-, Compare- und API-Projektionen fuer den Proposal-Graph erweitern",
-          "status": "planned",
+          "status": "done",
+          "completedAt": "2026-09-21",
           "area": "file-version-center-services",
           "dependsOn": ["FVRC-1004"],
           "verificationScenarios": ["PG-S26", "PG-S29", "PG-U02", "PG-U04", "PG-U05", "PG-U08", "PG-U11", "PG-U12", "MR-01", "MR-04", "MR-05", "MR-06", "MR-07", "MR-08", "MR-09", "MR-10", "MR-13", "MR-14", "MR-23"],
@@ -1519,6 +1520,13 @@
             "Berechtigungs-, stale-selection- und Current-Fence-Tests",
             "Performance-Grenztests fuer breite und tiefe Graphen",
             "MR-01, MR-04..MR-10, MR-13, MR-14 und MR-23 gemaess merge-reliability-plan.md; Browser nur nach expliziter Freigabe"
+          ],
+          "evidence": [
+            "Versionierte Projection-/Compare-Vertraege, autorisierte Root-/Parent-/Relation-/Actionability-Projektion und produktive GET-/POST-Routen sind implementiert. Auswahl, vollstaendige Closure, Graphrevision, Current-Proof, Kandidaten- und Selection-Hash werden vor Lesen und Vergleichen erneut gebunden; fremde Workspaces, Initiatoren und spaete Antworten bleiben fail-closed.",
+            "Einzel- und Batchauswertung verwenden den aktuellen autoritativen Yjs-Stand. Erforderliche offene Vorfahren werden genau einmal einbezogen; No-op und anderweitig erfuellte Wirkung sind explizit, echte Konflikte sowie nicht belegbare Legacy-Reste bleiben gesperrt oder upgrade_required. Der Proposal-Compare nutzt denselben mehrstelligen Text-Diff wie die bestehende Versionsansicht.",
+            "Das deterministische Zehn-Vorschlaege-Fixture sowie Projection-, Evaluation-, Legacy-, API-, Read-Service-, Route-Error-, Compare-, Runtime-, bestehende Compare-Regression und Managed-Runner-Tests bestehen ueber npm run test:proposal-graph:review-projection. TypeScript, fokussiertes ESLint, git diff --check und der Produktionsbuild mit 346 Seiten bestehen.",
+            "Der verwaltete lokale PostgreSQL-Team-Seat-Stack bestand den Browser-Gate mit genau einem Worker: sieben Szenarien liefen jeweils zweimal, insgesamt 14 serielle Suite-Laeufe ohne 429 oder Pflicht-Skip. Der Harness verwendet wiederverwendete Auth-Zustaende, getrennte Admin-/Mitglied-Rollen, einen optionalen shell-freien Runtime-Reset vor jedem unabhaengigen Lauf sowie erneuten Health-/Team-/Build-Preflight. Kein erreichbares KI-Modell und keine gelockerte Produkt-Ratenbegrenzung waren erforderlich.",
+            "Vollstaendiger Nachweis: docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1005/results.md. Hierarchie, Aktionen, technische Details und Batchbedienung im globalen Center bleiben ausdruecklich FVRC-1006; oeffentliche Proposal-Mutationswerkzeuge bleiben bis FVRC-1008 geschlossen."
           ]
         },
         {
