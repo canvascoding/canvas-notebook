@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 
-import { verifyProposalActionFence, type ProposalFenceState } from './proposal-action-fence';
+import { hashProposalEvaluationSelectionV1, verifyProposalActionFence, type ProposalFenceState } from './proposal-action-fence';
 import {
   PROPOSAL_GRAPH_ERROR_CODES as Codes,
   PROPOSAL_ACTION_RULES_V1,
@@ -110,8 +110,44 @@ function actionShape(graph: ProposalGraphSnapshotV1, request: ProposalActionRequ
   return { closureIds: [selected.proposalId], applyIds: [], choiceResolutions: [] };
 }
 
-function expectedState(input: { graph: ProposalGraphSnapshotV1; current: ProposalCurrentProofV1 | null; actor: ActionActor; request: ProposalActionRequestV1 }): ProposalFenceState {
-  const shape = actionShape(input.graph, input.request);
+/**
+ * V1 evaluations were single-proposal records. Keep those records usable only
+ * for their exact primary proposal; a batch must always carry the new binding.
+ */
+function assertEvaluationSelection(input: {
+  evaluation: ProposalEvaluationV1;
+  request: ProposalActionRequestV1;
+  shape: ReturnType<typeof actionShape>;
+  graphRevision: number;
+}): void {
+  const { evaluation, request, shape, graphRevision } = input;
+  const selectedProposalIds = request.fence.selectedProposalIds;
+  const expected = hashProposalEvaluationSelectionV1({
+    selectedProposalIds,
+    closureProposalIds: shape.closureIds,
+    applyProposalIds: shape.applyIds,
+    graphRevision,
+  });
+  if (evaluation.selectionHash !== undefined) {
+    if (evaluation.selectionHash !== expected) {
+      fail(Codes.candidateChanged, 'The displayed evaluation belongs to a different proposal selection.');
+    }
+    return;
+  }
+  if (selectedProposalIds.length !== 1 || request.fence.actionType === 'batch_accept'
+    || evaluation.proposalId !== selectedProposalIds[0]) {
+    fail(Codes.candidateChanged, 'The displayed evaluation is not bound to this proposal selection.');
+  }
+}
+
+function expectedState(input: {
+  graph: ProposalGraphSnapshotV1;
+  current: ProposalCurrentProofV1 | null;
+  actor: ActionActor;
+  request: ProposalActionRequestV1;
+  shape: ReturnType<typeof actionShape>;
+}): ProposalFenceState {
+  const { shape } = input;
   const { fence } = input.request;
   if (fence.applyProposalIds.join('\u0000') !== shape.applyIds.join('\u0000')
     || fence.choiceResolutions.length !== shape.choiceResolutions.length
@@ -186,17 +222,20 @@ export function createProposalActionOrchestrator(dependencies: ProposalActionOrc
         const actor = await dependencies.authorize({ scope: graph.scope, proposalIds: request.fence.closure.map((member) => member.proposalId), actionType: request.fence.actionType });
         const current = ['reject', 'branch_reject'].includes(request.fence.actionType)
           ? null : await dependencies.readCurrent(graph.scope);
-        const expected = expectedState({ graph, current, actor, request });
+        const shape = actionShape(graph, request);
+        const expected = expectedState({ graph, current, actor, request, shape });
         verifyProposalActionFence({ fence: request.fence, token: request.fenceToken, expected, creation: request.creation,
           secret: dependencies.signingSecret, now: now() });
         let candidate: DurableCandidate | null = null;
         if (request.fence.evaluationId) {
           const evaluation = await transaction.getEvaluation(request.fence.evaluationId);
+          const evaluationRule = PROPOSAL_ACTION_RULES_V1[request.fence.actionType].evaluation;
           if (!evaluation || evaluation.graphRevision !== graph.graphRevision || evaluation.expiresAt <= now()
             || !current || evaluation.current.fullStateHash !== current.fullStateHash || evaluation.effectiveCandidate?.sha256 !== request.fence.effectiveCandidateHash
-            || (PROPOSAL_ACTION_RULES_V1[request.fence.actionType].writesContent && !['clean', 'clean_rebased'].includes(evaluation.status))) {
+            || (evaluationRule !== 'any' && !(evaluationRule as readonly string[]).includes(evaluation.status))) {
             fail(Codes.candidateChanged, 'The displayed proposal evaluation is no longer current.');
           }
+          assertEvaluationSelection({ evaluation, request, shape, graphRevision: graph.graphRevision });
           if (PROPOSAL_ACTION_RULES_V1[request.fence.actionType].writesContent) {
             if (!evaluation.effectiveCandidate) fail(Codes.candidateChanged, 'The approved candidate artifact is unavailable.');
             candidate = { evaluation, update: await transaction.readArtifact(evaluation.effectiveCandidate) };

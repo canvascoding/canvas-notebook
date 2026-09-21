@@ -225,6 +225,12 @@ export const ProposalEvaluationSchemaV1 = Type.Object({
   effectiveCandidate: Type.Union([ProposalSnapshotReferenceSchemaV1, Type.Null()]),
   anchorMap: Type.Union([ProposalArtifactReferenceSchemaV1, Type.Null()]),
   effectPreconditions: Type.Union([ProposalArtifactReferenceSchemaV1, Type.Null()]),
+  /**
+   * Optional for persisted pre-FVRC-1005 single-proposal evaluations. When
+   * present, the action boundary verifies this binds the exact selected,
+   * closure and apply sets against the graph revision it reviewed.
+   */
+  selectionHash: Type.Optional(Hash),
   evaluatedAt: Timestamp,
   expiresAt: Timestamp,
 }, closed);
@@ -421,7 +427,7 @@ export const PROPOSAL_ACTION_RULES_V1 = Object.freeze({
   replace: { from: ['open'], evaluation: 'any', resolution: 'superseded', writesContent: false, createsProposal: true, includesDependencies: false, closesAlternatives: false },
   detach: { from: ['open'], evaluation: 'any', resolution: null, writesContent: false, createsProposal: true, includesDependencies: false, closesAlternatives: false },
   rebase: { from: ['open'], evaluation: 'any', resolution: null, writesContent: false, createsProposal: false, includesDependencies: false, closesAlternatives: false },
-  complete_satisfied: { from: ['open'], evaluation: ['satisfied_elsewhere'], resolution: 'satisfied_elsewhere', writesContent: false, createsProposal: false, includesDependencies: false, closesAlternatives: false },
+  complete_satisfied: { from: ['open'], evaluation: ['satisfied_elsewhere', 'empty_effect'], resolution: 'satisfied_elsewhere', writesContent: false, createsProposal: false, includesDependencies: false, closesAlternatives: false },
 } as const);
 
 /** Historical resolution alone never proves that today's prerequisite remains present. */

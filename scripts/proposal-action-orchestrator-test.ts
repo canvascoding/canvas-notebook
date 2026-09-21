@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildProposalActionFence, signProposalActionFence, type ProposalFenceState } from '../app/lib/file-version-center/proposal-action-fence';
+import {
+  buildProposalActionFence,
+  hashProposalEvaluationSelectionV1,
+  signProposalActionFence,
+  type ProposalFenceState,
+} from '../app/lib/file-version-center/proposal-action-fence';
 import {
   createProposalActionOrchestrator,
   ProposalActionDefinitelyUnappliedError,
@@ -38,6 +43,22 @@ function request(actionType: 'accept' | 'reject' | 'branch_reject' = 'accept') {
   return { contractVersion: 1 as const, fence, fenceToken: signProposalActionFence(fence, secret), idempotencyKey: `idempotency-${actionType}-0001`, creation: null };
 }
 
+function batchRequest(idempotencySuffix = 'default') {
+  const state: ProposalFenceState = {
+    scope: proposalScopeFixture, actor: { userId: 'reviewer', actorId: 'reviewer', authorizationRevision: 'access-1' }, actionType: 'batch_accept',
+    current: currentProofFixture, graphRevision: 3, evaluationId: 'evaluation-p2', effectiveCandidateHash: 'c'.repeat(64),
+    closure: [
+      { proposalId: 'p1', casVersion: 1, candidateHash: '8'.repeat(64) },
+      { proposalId: 'p2', casVersion: 1, candidateHash: 'c'.repeat(64) },
+      { proposalId: 'p3', casVersion: 1, candidateHash: 'e'.repeat(64) },
+    ],
+    selectedProposalIds: ['p1', 'p2'], applyProposalIds: ['p1', 'p2'],
+    choiceResolutions: [{ groupId: 'choice-insurance', groupRevision: 1, chosenProposalId: 'p2', closingProposalIds: ['p3'] }],
+  };
+  const fence = buildProposalActionFence({ state, fenceId: 'fence-batch-accept', now: clock, expiresAt: clock + 10_000 });
+  return { contractVersion: 1 as const, fence, fenceToken: signProposalActionFence(fence, secret), idempotencyKey: `idempotency-batch-accept-${idempotencySuffix}`, creation: null };
+}
+
 function harness(currentAvailable = true, materializeThrows = false) {
   const snapshot = graph();
   const actions = new Map<string, ProposalActionReceiptV1>();
@@ -48,11 +69,14 @@ function harness(currentAvailable = true, materializeThrows = false) {
   let recoverFailure = false;
   let applyDefinitelyUnapplied = false;
   let recoverDefinitelyUnapplied = false;
+  let evaluationProposalId = 'p2';
+  let evaluationSelectionHash: string | undefined;
+  let satisfiedEvaluationStatus: 'satisfied_elsewhere' | 'empty_effect' | 'clean' = 'satisfied_elsewhere';
   const transaction = {
     loadGraph: async () => structuredClone(snapshot),
-    getEvaluation: async (id: string) => id === 'evaluation-p2' || id === 'satisfied-p2' ? { contractVersion: 1, evaluationId: id, proposalId: 'p2', scope: proposalScopeFixture,
-      current: currentProofFixture, graphRevision: 3, status: id === 'satisfied-p2' ? 'satisfied_elsewhere' : 'clean', reasonCode: null, effectiveCandidate: { ref: 'effective', sha256: 'c'.repeat(64), sizeBytes: 1, encoding: 'yjs_full_update_v1' },
-      anchorMap: { ref: 'anchors', sha256: 'a'.repeat(64), sizeBytes: 1 }, effectPreconditions: { ref: 'proof', sha256: 'b'.repeat(64), sizeBytes: 1 }, evaluatedAt: clock, expiresAt: clock + 10_000 } : null,
+    getEvaluation: async (id: string) => id === 'evaluation-p2' || id === 'satisfied-p2' ? { contractVersion: 1, evaluationId: id, proposalId: evaluationProposalId, scope: proposalScopeFixture,
+      current: currentProofFixture, graphRevision: 3, status: id === 'satisfied-p2' ? satisfiedEvaluationStatus : 'clean', reasonCode: null, effectiveCandidate: { ref: 'effective', sha256: 'c'.repeat(64), sizeBytes: 1, encoding: 'yjs_full_update_v1' },
+      anchorMap: { ref: 'anchors', sha256: 'a'.repeat(64), sizeBytes: 1 }, effectPreconditions: { ref: 'proof', sha256: 'b'.repeat(64), sizeBytes: 1 }, selectionHash: evaluationSelectionHash, evaluatedAt: clock, expiresAt: clock + 10_000 } : null,
     readArtifact: async () => new Uint8Array([1]),
     reserveAction: async (receipt: ProposalActionReceiptV1, stored: unknown) => {
       for (const prior of actions.values()) {
@@ -114,6 +138,9 @@ function harness(currentAvailable = true, materializeThrows = false) {
     failApply: () => { applyFailure = true; }, failRecovery: () => { recoverFailure = true; },
     failApplyBeforeMutation: () => { applyDefinitelyUnapplied = true; },
     failRecoveryBeforeMutation: () => { recoverDefinitelyUnapplied = true; },
+    setEvaluationProposalId: (proposalId: string) => { evaluationProposalId = proposalId; },
+    setEvaluationSelectionHash: (selectionHash: string | undefined) => { evaluationSelectionHash = selectionHash; },
+    setSatisfiedEvaluationStatus: (status: typeof satisfiedEvaluationStatus) => { satisfiedEvaluationStatus = status; },
     action: (id: string) => actions.get(id) ?? null };
 }
 
@@ -181,6 +208,35 @@ test('a stale closure fence fails before live apply and leaves the graph unresol
   assert.equal(h.applies(), 0); assert.deepEqual(h.state().nodes.map((node) => node.lifecycle), ['open', 'open', 'open']);
 });
 
+test('a legacy single-proposal evaluation cannot be reused for a different proposal', async () => {
+  const h = harness();
+  h.setEvaluationProposalId('p1');
+  await assert.rejects(h.orchestrator.execute(request()), { code: 'PROPOSAL_CANDIDATE_CHANGED' });
+  assert.equal(h.applies(), 0);
+});
+
+test('batch accept rejects an unbound legacy evaluation before durable apply', async () => {
+  const h = harness();
+  await assert.rejects(h.orchestrator.execute(batchRequest()), { code: 'PROPOSAL_CANDIDATE_CHANGED' });
+  assert.equal(h.applies(), 0);
+});
+
+test('batch accept requires a selection hash for the exact selected closure and apply set', async () => {
+  const h = harness();
+  h.setEvaluationSelectionHash(hashProposalEvaluationSelectionV1({
+    selectedProposalIds: ['p1', 'p3'], closureProposalIds: ['p1', 'p3'], applyProposalIds: ['p1', 'p3'], graphRevision: 3,
+  }));
+  await assert.rejects(h.orchestrator.execute(batchRequest()), { code: 'PROPOSAL_CANDIDATE_CHANGED' });
+  assert.equal(h.applies(), 0);
+
+  h.setEvaluationSelectionHash(hashProposalEvaluationSelectionV1({
+    selectedProposalIds: ['p1', 'p2'], closureProposalIds: ['p1', 'p2', 'p3'], applyProposalIds: ['p1', 'p2'], graphRevision: 3,
+  }));
+  const accepted = await h.orchestrator.execute(batchRequest('valid-selection'));
+  assert.equal(accepted.phase, 'succeeded');
+  assert.equal(h.applies(), 1);
+});
+
 test('single reject changes only the selected proposal and never applies document content', async () => {
   const h = harness(false); const rejected = await h.orchestrator.execute(request('reject'));
   assert.equal(rejected.phase, 'succeeded'); assert.equal(rejected.result?.kind, 'metadata_only');
@@ -229,6 +285,17 @@ test('complete_satisfied requires and records the satisfied evaluation', async (
   const h = harness();
   const completed = await h.orchestrator.execute(metadataRequest('complete_satisfied'));
   assert.equal(completed.result?.resolutions[0]?.lifecycle, 'satisfied_elsewhere');
+
+  const empty = harness();
+  empty.setSatisfiedEvaluationStatus('empty_effect');
+  const completedEmpty = await empty.orchestrator.execute(metadataRequest('complete_satisfied'));
+  assert.equal(completedEmpty.result?.resolutions[0]?.lifecycle, 'satisfied_elsewhere');
+
+  const wrong = harness();
+  wrong.setSatisfiedEvaluationStatus('clean');
+  await assert.rejects(wrong.orchestrator.execute(metadataRequest('complete_satisfied')), {
+    code: 'PROPOSAL_CANDIDATE_CHANGED',
+  });
 });
 
 test('a changed choice group is rejected before apply', async () => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import {
-  buildProposalActionFence, canonicalProposalJson, hashProposalValue,
+  buildProposalActionFence, canonicalProposalJson, hashProposalEvaluationSelectionV1, hashProposalValue,
   signProposalActionFence, verifyProposalActionFence, type ProposalFenceState,
 } from '../app/lib/file-version-center/proposal-action-fence';
 import {
@@ -40,6 +40,19 @@ test('canonical proof has a fixed independent SHA oracle and ignores JSON object
   assert.equal(hashProposalValue({ b: 2, a: 1 }), '43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777');
   assert.equal(hashProposalValue({ a: [1, { z: 2, b: 3 }] }), hashProposalValue({ a: [1, { b: 3, z: 2 }] }));
   assert.notEqual(hashProposalValue([1, 2]), hashProposalValue([2, 1]));
+});
+
+test('evaluation selection hash binds every ordered selection field and graph revision', () => {
+  const input = {
+    selectedProposalIds: ['p1', 'p2'], closureProposalIds: ['p1', 'p2', 'p3'],
+    applyProposalIds: ['p1', 'p2'], graphRevision: 3,
+  };
+  const expected = hashProposalEvaluationSelectionV1(input);
+  assert.equal(expected, hashProposalValue({ purpose: 'proposal-evaluation-selection-v1', ...input }));
+  assert.notEqual(expected, hashProposalEvaluationSelectionV1({ ...input, selectedProposalIds: ['p2', 'p1'] }));
+  assert.notEqual(expected, hashProposalEvaluationSelectionV1({ ...input, closureProposalIds: ['p1', 'p2'] }));
+  assert.notEqual(expected, hashProposalEvaluationSelectionV1({ ...input, applyProposalIds: ['p2', 'p1'] }));
+  assert.notEqual(expected, hashProposalEvaluationSelectionV1({ ...input, graphRevision: 4 }));
 });
 
 test('canonical proof rejects non-JSON data without invoking accessors', () => {
