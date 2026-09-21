@@ -82,6 +82,27 @@ export type MemoryScopeIdentity = {
   organizationId?: string | null;
 };
 
+export type MemoryReviewDecision = 'approve' | 'reject';
+
+export type MemoryReviewTarget = {
+  entryId: string;
+  collectionId: string;
+  scope: MemoryScopeType;
+  workspaceId?: string;
+  organizationId?: string;
+};
+
+export type MemoryReviewEntry = {
+  target: MemoryReviewTarget;
+  content: string;
+  category: string;
+  priority: number;
+  submittedBy: string | null;
+  submittedAt: number;
+  workspaceName: string | null;
+  revision: number;
+};
+
 export type MemoryScopePermissions = {
   canReadPublished: boolean;
   canSuggest: boolean;
