@@ -1127,7 +1127,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
         ref={promptOverlayRef}
         className="pointer-events-none absolute inset-x-0 bottom-0 z-40 bg-gradient-to-t from-background via-background/85 to-transparent px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-14 md:px-6"
       >
-        <div className="pointer-events-auto mx-auto flex w-full max-w-5xl flex-col gap-2 rounded-[28px] border border-border/80 bg-card/95 p-3 shadow-2xl backdrop-blur-xl">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-5xl flex-col gap-2 rounded-none border border-border/80 bg-card/95 p-3 shadow-2xl backdrop-blur-xl">
           {store.mode === 'video' ? (
             <div className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-background/70 px-3 py-2">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
