@@ -31,7 +31,8 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
   try {
     const { id } = await context.params;
     const scope = await reviewScope(request, session.user.id, {});
-    return NextResponse.json({ success: true, data: await readMemoryReview({ ...scope, id }) });
+    const collectionId = requiredString(request.nextUrl.searchParams.get('collectionId'), 'collectionId');
+    return NextResponse.json({ success: true, data: await readMemoryReview({ ...scope, id, collectionId }) });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to load memory review.';
     return NextResponse.json({ success: false, error: message }, { status: message.includes('not found') ? 404 : 400 });
@@ -50,7 +51,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 1) throw new Error('expectedRevision must be a positive integer.');
     const { id } = await context.params;
     const scope = await reviewScope(request, session.user.id, payload);
-    const result = await decideMemoryReview({ ...scope, id, decision, expectedRevision });
+    const collectionId = requiredString(payload.collectionId, 'collectionId');
+    const result = await decideMemoryReview({ ...scope, id, collectionId, decision, expectedRevision });
     return NextResponse.json({ success: true, data: result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to decide memory review.';
