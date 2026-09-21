@@ -11,6 +11,25 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.21.1] - 2026-09-21
+
+### Added
+
+- Added durable proposal-graph workflows for agent file changes, including provenance, review actions, operation fences, storage projection, and Yjs candidates.
+- Added global File Version Review Center workflows and agent proposal-review coverage.
+
+### Changed
+
+- Improved collaboration startup navigation, chat tool-app rendering and scrolling, version-center comparisons, and direct-edit permissions.
+
+### Fixed
+
+- Preserved file reviews during session deletion and avoided expected file-watcher deletion errors.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.16.2] - 2026-09-16
 
 ### Added
