@@ -8344,5 +8344,16 @@
     "versionsHint": "Lade eine gespeicherte Version zur Wiederherstellung herunter.",
     "close": "Schließen",
     "copySaved": "Kopie gespeichert: {path}"
+  },
+  "memoryReview": {
+    "title": "Memory prüfen",
+    "loading": "Memory wird geladen …",
+    "progress": "Memory {current} von {total}",
+    "completed": "Alle Memory-Vorschläge wurden geprüft.",
+    "approve": "Speichern",
+    "reject": "Nicht speichern",
+    "openSettings": "Memory-Verwaltung öffnen",
+    "submittedBy": "Eingereicht von {name}",
+    "unknown": "Unbekannt"
   }
 }

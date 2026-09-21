@@ -8345,5 +8345,16 @@
     "versionsHint": "Download a saved version for recovery.",
     "close": "Close",
     "copySaved": "Copy saved: {path}"
+  },
+  "memoryReview": {
+    "title": "Review memory",
+    "loading": "Loading memory…",
+    "progress": "Memory {current} of {total}",
+    "completed": "All memory suggestions have been reviewed.",
+    "approve": "Save",
+    "reject": "Don't save",
+    "openSettings": "Open memory management",
+    "submittedBy": "Submitted by {name}",
+    "unknown": "Unknown"
   }
 }
