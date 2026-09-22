@@ -837,10 +837,10 @@ export function useChatRuntimeEvents({
       const text = extractToolResultText(event.result?.content);
       const resultDetails = event.result?.details;
       const isError = Boolean(
-        resultDetails
+        event.isError || (resultDetails
         && typeof resultDetails === 'object'
         && 'error' in resultDetails
-        && resultDetails.error,
+        && resultDetails.error),
       );
       const toolResultPiMessage = {
         role: 'toolResult',

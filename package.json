@@ -462,6 +462,7 @@
     "test:chat:navigation": "tsx scripts/chat-navigation-intent-test.ts",
     "test:chat:workspace-runtime": "tsx scripts/chat-workspace-runtime-lifecycle-test.ts",
     "test:chat:file-links": "tsx scripts/chat-file-link-validation-test.ts",
+    "test:chat:file-references": "tsx --conditions react-server scripts/chat-tool-file-references-test.ts && tsx scripts/chat-projection-display-test.ts && tsx scripts/chat-file-link-validation-test.ts && tsx scripts/chat-file-validation-races-test.ts && tsx scripts/chat-session-refresh-test.tsx && tsx scripts/chat-run-file-references-test.ts && tsx scripts/chat-file-reference-card-test.tsx",
     "test:public-share:security": "tsx scripts/public-share-security-test.ts && tsx scripts/public-markdown-images-test.ts && tsx --conditions react-server scripts/public-share-response-test.ts",
     "test:public-share:workspace": "tsx --conditions react-server scripts/public-share-workspace-scope-test.ts",
     "test:public-share:route-access": "tsx scripts/public-share-route-access-test.ts",

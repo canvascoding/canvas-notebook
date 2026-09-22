@@ -146,6 +146,23 @@ async function main() {
   live = false; cleanup(); pending.length = 0;
 
   render(<Harness />);
+  await act(async () => { void controller.loadSession(session('load-status-reconciled')); });
+  await act(async () => { setLive([...state.messages]); });
+  await respond(0, [1, 2]);
+  assert.deepEqual(ids(), ['1', '2'], 'status reconciliation that only copies the loading array must not reject its snapshot');
+  assert.equal(pending.length, 1, 'unchanged placeholder accepts initial snapshot without another fetch');
+  cleanup(); pending.length = 0;
+
+  render(<Harness />);
+  await act(async () => { void controller.loadSession(session('load-noop')); });
+  await act(async () => { setLive([{ id: 'live-complete', role: 'assistant', status: 'sent', content: 'completed response' }]); });
+  await respond(0, [1, 2]);
+  assert.equal(pending.length, 2, 'a rejected initial snapshot must retry even if its updater runs after load finally');
+  await respond(1, [1, 2]);
+  assert.deepEqual(ids(), ['1', '2'], 'idle initial load must not remain stuck on Loading');
+  cleanup(); pending.length = 0;
+
+  render(<Harness />);
   await act(async () => { void controller.loadSession(session('first')); });
   await act(async () => { void controller.loadSession(session('second')); });
   assert.equal(pending[0].signal?.aborted, true);

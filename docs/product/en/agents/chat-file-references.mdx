@@ -6,7 +6,7 @@ sectionOrder: 4
 order: 6
 locale: en
 translationKey: agents.chat-file-references
-updatedAt: 2026-07-17
+updatedAt: 2026-09-22
 ---
 
 # File and Folder References in Chat
@@ -31,6 +31,20 @@ A workspace reference points to an existing file in place. A chat attachment upl
 ## Keep paths stable
 
 References are strongest signals, not permanent locks. If a file is moved, deleted, or replaced before the agent reads it, the task can fail or use stale context. Use precise names, keep related material in one project folder, and verify the output path after the run.
+
+## Files below an answer
+
+After a run, the chat collects files confirmed by completed workspace read, write, edit, and patch tools into one file section. It shows up to three results directly. Expand the section to see the remaining files; larger expanded lists include a search field and scroll within a bounded area.
+
+Each result indicates whether the file was created, changed, left unchanged, or a change was proposed. “Change proposed” describes the tool's result at that time; use the existing file review widget to inspect the current proposal and accept or reject it.
+
+Documents the agent read appear in a separate, initially collapsed group. Reading a document does not necessarily mean that the answer cites or relies on it. The same file appears only once per run, with a change taking precedence over a read.
+
+Selecting a file opens it in its workspace with the current access checks. A file that has since moved or been deleted may no longer open. Studio outputs outside the workspace continue to use their media previews.
+
+File sections use tool results, not guessed filenames in answer text. Explicit Markdown links still work, including in older conversations. Inline code and example paths remain text. Older conversations can show file sections when their saved tool metadata is sufficient; the app does not reconstruct missing references from prose.
+
+For exceptionally large tool batches, the UI retains up to 500 references per tool and reports when additional references were omitted. The original tool output remains available through its existing output viewer when retained.
 
 ## Related guides
 

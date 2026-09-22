@@ -1,6 +1,6 @@
 # Structured file references in chat
 
-Status: implementation planned, 2026-09-22.
+Status: implementation complete; final browser/build verification in progress, 2026-09-22.
 
 ## Problem and intended behavior
 
@@ -41,4 +41,15 @@ Each step is completed before proceeding to the next. Independent parts within a
 
 ## Verification log
 
-Pending implementation. Browser testing was explicitly authorized by the user on 2026-09-22.
+Browser testing was explicitly authorized by the user on 2026-09-22.
+
+- Steps 1–3 completed in separate commits. Structured receipts survive a 35-file large-output roundtrip; projection, metadata-only hydration and internal-notice tests pass.
+- Delayed history requests, coalesced refresh notifications, same-tick live updates, workspace/session changes, older-history retention and unmount cancellation pass deterministic hook tests.
+- File validation shares slow in-flight requests, keeps errors distinct from missing files and revalidates on file events instead of timers. Existing watcher, reveal and file-open tests pass.
+- Step 4 uses the existing user-message segment boundary rather than adding a new runtime `runId` or database table. Receipts are durable in tool messages; the list is a deterministic display projection. Opening files still goes through the existing authorized workspace flow.
+- The bounded searchable view is inline. Disclosure/search state lives above message wrappers, scoped by workspace/session and the run's last tool call, so persisted message IDs and loading older history do not reset it. Search includes result files beyond the collapsed preview. Historical proposals are labelled “Change proposed”; the existing review widget remains authoritative for current review status.
+- Reference metadata is capped at 500 entries per tool (2,048 characters per path), with an explicit omitted count. Studio files outside the workspace retain their media previews. Historical relative tool paths are adapted conservatively; unsupported or lost old metadata is not guessed.
+- `npm run test:chat:file-references` passes all seven contract, projection, validation, race, aggregation and component scripts. Scoped ESLint and TypeScript checks pass.
+- Four authorized Playwright cases pass on the managed host development server: desktop/mobile compact lists with search, disclosure, live-to-saved hydration and full page reload; existing file-write Markdown/diff widgets; existing grouped clickable image-read previews. Screenshots were visually reviewed. Runtime events/history were deterministic fixtures; this does not claim a live model/provider integration test.
+- Browser testing additionally reproduced and fixed an initial-load race: runtime status can copy the loading array without changing its messages, and a rejected initial snapshot can otherwise leave a deferred read undrained after React's no-op update. Both cases have deterministic regression tests.
+- Final production build: pending.

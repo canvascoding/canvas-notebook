@@ -10,6 +10,7 @@ import {
   CANVAS_MARKDOWN_REMARK_PLUGINS,
 } from '@/app/lib/markdown/canvas-markdown';
 import { isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
+import { stripInternalProjectionNotices } from '@/app/lib/chat/display-text';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
 import type { ChatMessage } from '@/app/lib/chat/types';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
@@ -250,7 +251,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
     event.stopPropagation();
 
     const validation = results.get(normalizedPath);
-    if (!normalizedPath || validation?.path !== normalizedPath || validation.type !== 'file') return;
+    if (!normalizedPath || validation?.path !== normalizedPath || (validation.type !== 'file' && validation.type !== 'unavailable')) return;
 
     void openFileReference(normalizedPath);
   };
@@ -261,7 +262,7 @@ function FileLink({ href, children, showIcon = false }: { href: string; children
   const isDirectory = activeValidation?.type === 'directory';
   const isMissing = !normalizedPath || activeValidation?.type === 'missing';
 
-  if (!isFile) {
+  if (!isFile && activeValidation?.type !== 'unavailable') {
     if (isDirectory) {
       return (
         <span
@@ -337,10 +338,6 @@ function MarkdownCode({
 
   if (isColorCode(cleanedCode)) {
     return <ColorSwatch color={cleanedCode} />;
-  }
-
-  if (!className && isFilePath(cleanedCode)) {
-    return <FileLink href={cleanedCode} showIcon>{children}</FileLink>;
   }
 
   const lang = getCodeLanguage(className);
@@ -588,7 +585,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
         rehypePlugins={CANVAS_MARKDOWN_REHYPE_PLUGINS}
         components={components}
       >
-        {content}
+        {variant === 'user' ? content : stripInternalProjectionNotices(content)}
       </ReactMarkdown>
     </div>
   );

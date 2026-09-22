@@ -222,6 +222,7 @@ export type ChatSessionCacheStore = {
 
 export interface ChatEvent {
   type: string;
+  isError?: boolean;
   message?: AgentMessage;
   text?: string;
   assistantMessageEvent?: {

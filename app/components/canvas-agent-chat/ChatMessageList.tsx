@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl';
 
 import type { ToolOutputScope } from './StoredToolOutputPreview';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
-import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
+import { DEFAULT_FILE_REFERENCE_VIEW_STATE, FileReferenceCard, type FileReferenceViewState } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { ChatMessageIdentity } from '@/app/components/canvas-agent-chat/ChatMessageIdentity';
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import {
@@ -21,7 +21,8 @@ import {
   buildToolImagePreviewGroups,
   ToolBatchDisclosure,
 } from '@/app/components/canvas-agent-chat/ChatToolRunMessages';
-import { extractFilePaths } from '@/app/lib/chat/extract-file-paths';
+import { buildRunFileReferenceProjection } from '@/app/lib/chat/run-file-references';
+import { stripInternalProjectionNotices } from '@/app/lib/chat/display-text';
 import { buildToolBatchProjection } from '@/app/lib/chat/run-collapse';
 import { rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import type { AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
@@ -435,10 +436,16 @@ export function ChatMessageList({
 }) {
   const t = useTranslations('chat');
   const skillReferenceCatalog = useSkillReferenceCatalog();
+  const referenceScope = `${toolOutputScope?.workspaceId}:${toolOutputScope?.sessionId}`;
+  // Live and persisted message wrappers may remount; disclosure belongs to the run.
+  const [referenceViews, setReferenceViews] = useState<{ scope: string; states: Record<string, FileReferenceViewState> }>({ scope: referenceScope, states: {} });
   const toolBatchProjection = useMemo(() => buildToolBatchProjection(messages), [messages]);
   const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
   const runtimeChanges = useMemo(() => indexChatRuntimeChanges(messages), [messages]);
   const hiddenToolMessageIds = toolBatchProjection.hiddenToolMessageIds;
+  const fileReferenceGroups = useMemo(() => buildRunFileReferenceProjection(
+    messages, toolOutputScope?.workspaceId, Boolean(runtimePhase && runtimePhase !== 'idle'),
+  ), [messages, toolOutputScope?.workspaceId, runtimePhase]);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -455,7 +462,18 @@ export function ChatMessageList({
         const isAbortedAssistant = isAssistant && isAbortedAssistantPiMessage(message.piMessage);
         const toolBatch = toolBatchProjection.batchesByAnchorId.get(message.id);
         const toolImagePreviewGroup = isTool ? toolImagePreviewGroups.get(message.id) : undefined;
-        const rawBodyContent = contentToString(message.content);
+        const rawBodyContent = isUser ? contentToString(message.content) : stripInternalProjectionNotices(contentToString(message.content));
+        const referenceGroup = fileReferenceGroups.get(message.id);
+        const fileReferences = referenceGroup ? <FileReferenceCard
+          key={`${toolOutputScope?.sessionId}:${referenceGroup.key}`}
+          references={referenceGroup.references}
+          omittedCount={referenceGroup.omittedCount}
+          viewState={referenceViews.scope === referenceScope ? referenceViews.states[referenceGroup.key] ?? DEFAULT_FILE_REFERENCE_VIEW_STATE : DEFAULT_FILE_REFERENCE_VIEW_STATE}
+          onViewStateChange={(state) => setReferenceViews((previous) => ({
+            scope: referenceScope,
+            states: { ...(previous.scope === referenceScope ? previous.states : {}), [referenceGroup.key]: state },
+          }))}
+        /> : null;
         const hasVisibleAssistantContent = rawBodyContent.trim().length > 0;
         const suppressAssistantTitle = isAssistant && hasEarlierVisibleAssistantInRun(messages, messageIndex, hiddenToolMessageIds);
         const batchDisclosure = toolBatch ? (
@@ -477,6 +495,7 @@ export function ChatMessageList({
           return (
             <Fragment key={messageRenderKey}>
               {batchDisclosure}
+              {fileReferences}
             </Fragment>
           );
         }
@@ -535,7 +554,7 @@ export function ChatMessageList({
         }
 
         if (isAssistant && !isStreamingAssistant && !hasVisibleAssistantContent && message.status !== 'error' && !isAbortedAssistant) {
-          return batchDisclosure ? <Fragment key={messageRenderKey}>{batchDisclosure}</Fragment> : null;
+          return batchDisclosure || fileReferences ? <Fragment key={messageRenderKey}>{batchDisclosure}{fileReferences}</Fragment> : null;
         }
 
         const bubbleClass = isUser
@@ -662,10 +681,7 @@ export function ChatMessageList({
                 </div>
               )}
 
-              {isAssistant && !isStreamingAssistant && bodyContent && (() => {
-                const filePaths = extractFilePaths(bodyContent);
-                return filePaths.length > 0 ? <FileReferenceCard paths={filePaths} /> : null;
-              })()}
+              {fileReferences}
             </div>
             {showMessageActions ? (
               <MessageActionBar
