@@ -1,3 +1,6 @@
+import { getNotebookQueryClient } from '../app/lib/queries/client';
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import { fileVersionTestRouter } from './file-version-test-router';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { act } from 'react';
@@ -92,7 +95,7 @@ async function main() {
   const root = createRoot(document.getElementById('root')!);
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <FileVersionCenterHost />
+      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
 
@@ -206,8 +209,47 @@ async function main() {
   }), null, 'leaving the initial operation discards the trusted one-shot intent');
   assert.notEqual(useFileVersionCenterStore.getState().request, trustedRequest);
 
+  // Initial auth hydration does not emit revocation; the host must still restart
+  // its unresolved read in the authenticated partition instead of staying busy.
+  const { authClient } = await import('../app/lib/auth-client');
+  const { openedDocumentAuthScope } = await import('../app/lib/collaboration/opened-document-registry');
+  assert.equal(openedDocumentAuthScope(), null);
+  const sessionAtom = authClient.$store.atoms.session;
+  const previousAuth = sessionAtom.get();
+  const previousFetch = globalThis.fetch;
+  let resolveUnhydrated!: (response: Response) => void;
+  let hydrationReads = 0;
+  const hydrationResponse = (path: string) => Response.json({
+    contractVersion: 1,
+    document: { workspaceId: 'workspace-one', lineageId: 'lineage-hydration', documentId: 'document-hydration', path },
+    capabilities: { contractVersion: 1, history: true, compare: true, restore: true, agentReviewPolicy: true, preview: 'markdown' },
+    entries: [{ kind: 'current', id: 'current', observedAt: new Date(0).toISOString(), revisionId: null, sha256: 'a'.repeat(64), sizeBytes: 10 }],
+    page: { hasMore: false, nextCursor: null },
+  });
+  globalThis.fetch = async () => {
+    hydrationReads += 1;
+    if (hydrationReads === 1) return new Promise<Response>((resolve) => { resolveUnhydrated = resolve; });
+    return hydrationResponse('AUTHENTICATED.md');
+  };
+  await act(async () => { closeVersionCenter(); openVersionCenter({ ...request,
+    target: { kind: 'lineage', workspaceId: 'workspace-one', lineageId: 'lineage-hydration' }, selectedEntry: undefined }); });
+  await settle();
+  assert.equal(hydrationReads, 1);
+  assert.ok(document.querySelector('[data-testid="file-version-loading-skeleton"]'));
+  await act(async () => { sessionAtom.set({ ...previousAuth, isPending: false,
+    data: { user: { id: 'review-user' }, session: { id: 'review-session' } },
+  } as unknown as typeof previousAuth); });
+  await settle();
+  assert.equal(hydrationReads, 2, 'initial hydration starts a fresh scoped resolution');
+  assert.ok(document.querySelector('[data-testid="file-version-center-responsive-layout"]'));
+  assert.match(document.body.textContent ?? '', /AUTHENTICATED.md/);
+  await act(async () => { resolveUnhydrated(hydrationResponse('OLD-HYDRATION.md')); });
+  await settle();
+  assert.doesNotMatch(document.body.textContent ?? '', /OLD-HYDRATION.md/);
   await act(async () => root.unmount());
   assert.equal(document.querySelector('[role="dialog"]'), null, 'the host unmount removes its portal');
+  sessionAtom.set(previousAuth);
+  globalThis.fetch = previousFetch;
 
   let releaseFirstOpen!: () => void;
   let hydrationCalls = 0;
@@ -277,4 +319,4 @@ async function main() {
   console.log('file-version-center-open-test: ok');
 }
 
-void main().catch((error) => { console.error(error); process.exitCode = 1; });
+void main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => getNotebookQueryClient().clear());

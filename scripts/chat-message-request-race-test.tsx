@@ -14,7 +14,7 @@ const sessionIdRef = ref<string | null>(null);
 const agentRef = ref('bradley');
 const workspaceRef = ref<string | null>('workspace-a');
 const messagesRef = ref<ChatMessage[]>([]);
-let exposed!: ReturnType<typeof useChatSessionMessages> & { messages: ChatMessage[]; loadingOlder: boolean; injectLive: () => void };
+let exposed!: ReturnType<typeof useChatSessionMessages> & { messages: ChatMessage[]; loadingOlder: boolean; injectLive: (content?: string) => void };
 const base = {
   activeModel: '', activeProvider: '', activeThinkingLevel: 'off',
   deferredSavedMessageRefreshSessionRef: ref<string | null>(null),
@@ -54,8 +54,8 @@ function Harness({ workspaceId }: { workspaceId: string }) {
     oldestSequence, setOldestSequence, isLoadingOlder, setIsLoadingOlder,
   } as unknown as Params);
   useLayoutEffect(() => { exposed = { ...hooks, messages, loadingOlder: isLoadingOlder,
-    injectLive: () => setMessages((current) => [...current, {
-      id: 'live-assistant', role: 'assistant', status: 'sending', content: 'Newest streaming content',
+    injectLive: (content = 'Newest streaming content') => setMessages((current) => [...current.filter((message) => message.id !== 'live-assistant'), {
+      id: 'live-assistant', role: 'assistant', status: 'sending', content,
       piMessage: { role: 'assistant', timestamp: 10100, content: [] } as unknown as ChatMessage['piMessage'],
     }]),
   }; });
@@ -74,6 +74,9 @@ function page(id: number, content: string, hasMoreBefore = false) {
   });
 }
 async function main() {
+  const originalNow = Date.now;
+  const sameMillisecond = originalNow();
+  Date.now = () => sameMillisecond; // Exercise read/cache ordering even within one clock tick.
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
   Object.assign(globalThis, { window: dom.window, document: dom.window.document,
     HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true,
@@ -89,6 +92,7 @@ async function main() {
     }
     throw new Error(`Unexpected request ${url}`);
   };
+  base.historyRef.current = [session('race-a'), session('race-b')];
   const root = createRoot(dom.window.document.getElementById('root')!);
   await act(async () => { root.render(<Harness workspaceId="workspace-a" />); });
   const take = (sessionId: string, older = false) => {
@@ -128,6 +132,28 @@ async function main() {
   assert.equal(exposed.messages.length, 2, 'persisted and live version of the same message are not duplicated');
   assert.equal(exposed.messages[1].content, 'Newest streaming content', 'HTTP response cannot overwrite live event received while request was pending');
   assert.equal(pending.length, 1, 'events during a refresh coalesce into one follow-up');
+  // Refresh follow-up started before this later WebSocket/cache snapshot.
+  await act(async () => { exposed.injectLive('Even newer streaming content'); });
+  // Reopening uses the newer UI snapshot while sharing a read that started earlier.
+  await act(async () => { load = exposed.loadSession(session('race-b')); });
+  assert.equal(exposed.isLoadingMessages, false, 'warm transcript stays visible without a loading reset');
+  await act(async () => {
+    take('race-b').resolve(Response.json({ success: true, hasMoreBefore: false,
+      messages: [{ id: 100, sequence: 100, role: 'user', content: 'B', timestamp: 10000 },
+        { id: 101, sequence: 101, role: 'assistant', content: [{ type: 'text', text: 'Older HTTP partial' }], timestamp: 10100 }],
+    }));
+    await load;
+  });
+  assert.equal(exposed.messages[1].content, 'Even newer streaming content', 'warm cached live text beats an already in-flight older page');
+  await act(async () => { load = exposed.loadSession(session('race-b')); });
+  assert.equal(pending.length, 1, 'warm reopen bypasses the fresh but older Query page');
+  await act(async () => { take('race-b').resolve(Response.json({ success: true, hasMoreBefore: false,
+    clientReadStartedAt: 1, // Untrusted server field must be overwritten locally.
+    messages: [{ id: 100, sequence: 100, role: 'user', content: 'B updated', timestamp: 10000 },
+      { id: 101, sequence: 101, role: 'assistant', content: [{ type: 'text', text: 'Final server content' }], timestamp: 10100 }],
+  })); await load; });
+  assert.equal(exposed.messages[1].content, 'Final server content', 'fresh authoritative read updates an unchanged cached overlap');
+  await act(async () => { exposed.refreshSavedMessages('race-b'); });
   const staleRefresh = take('race-b');
   await act(async () => { root.render(<Harness workspaceId="workspace-b" />); });
   await act(async () => { staleRefresh.resolve(page(102, 'WRONG WORKSPACE')); });
@@ -136,6 +162,7 @@ async function main() {
   await act(async () => { exposed.cancelSessionLoad(); root.unmount(); });
   getNotebookQueryClient().clear();
   dom.window.close();
+  Date.now = originalNow;
   console.log('chat-message-request-race-test: ok');
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

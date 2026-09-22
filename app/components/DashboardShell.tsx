@@ -144,6 +144,7 @@ import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForc
 import { isPromptHandoffForNavigation } from '@/app/lib/chat/prompt-handoff';
 import { resolveNotebookEntry } from '@/app/lib/notebook/notebook-entry';
 import { NotebookLoadingSkeleton } from '@/app/components/notebook/NotebookLoadingSkeleton';
+import { NotebookSurfaceMount } from '@/app/components/notebook/NotebookSurfaceMount';
 
 type SurfaceTabProps = {
   active: boolean;
@@ -1281,6 +1282,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const chatVisible =
     !documentFocus && (state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet);
   const chatContent = (
+    <NotebookSurfaceMount key={activeWorkspaceId} active={chatVisible}>
     <CanvasAgentChat
       initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
       hideNavHeader
@@ -1292,8 +1294,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       onSessionContextChange={setActiveChatContext}
       onOpenLiveBrowser={openLiveBrowser}
     />
+    </NotebookSurfaceMount>
   );
-  const documentContent = currentFile || isLoadingFile || fileError || missingFilePath
+  const documentContent = <NotebookSurfaceMount key={activeWorkspaceId} active={state.mainSurface === 'document'}>
+    {currentFile || isLoadingFile || fileError || missingFilePath
     ? <FileEditor key={activeWorkspaceId} onClosePreview={handleCloseDocument} />
     : (
       <NotebookEmptyDocumentState
@@ -1302,7 +1306,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           : dispatch({ type: 'SET_EXPLORER', open: true })}
         onOpenChat={showChat}
       />
-    );
+    )}
+  </NotebookSurfaceMount>;
   const surfacePanelIds = {
     chat: layout.isMobile ? 'notebook-mobile-chat' : 'onboarding-notebook-chat',
     document: layout.isMobile ? 'notebook-mobile-document' : 'notebook-desktop-document',

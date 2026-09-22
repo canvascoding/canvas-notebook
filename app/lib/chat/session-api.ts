@@ -1,3 +1,4 @@
+import { nextChatSnapshotTimestamp } from '@/app/lib/chat/snapshot-clock';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import { fetchNotebookQuery, notebookQueryKey } from '@/app/lib/queries/client';
 import { chatMessageResource, invalidateChatQueries, seedCreatedChatSession } from '@/app/lib/queries/chat-queries';
@@ -16,6 +17,8 @@ import type {
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
 export type ChatSessionMessagesPayload = {
+  /** Browser read provenance; always assigned locally, never accepted from the server. */
+  clientReadStartedAt?: number;
   success: boolean;
   messages?: PersistedChatMessage[];
   hasMoreBefore?: boolean;
@@ -240,11 +243,12 @@ export async function fetchChatSessionMessages(params: {
   return fetchNotebookQuery({ workspaceId: params.workspaceId ?? null, resource: chatMessageResource(params),
     staleTime: params.cache === 'no-store' ? 0 : 10_000, signal: params.signal,
     queryFn: async ({ signal }) => {
+      const clientReadStartedAt = nextChatSnapshotTimestamp();
       const response = await fetch(`/api/sessions/messages?${searchParams.toString()}`, {
         signal, cache: 'no-store', credentials: params.credentials ?? 'include',
       });
       const payload = await safeFetchJson<ChatSessionMessagesPayload>(response);
       if (!payload?.success || !Array.isArray(payload.messages)) throw new Error('Failed to load chat messages.');
-      return payload;
+      return { ...payload, clientReadStartedAt };
     } });
 }

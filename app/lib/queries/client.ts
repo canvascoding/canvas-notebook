@@ -7,7 +7,7 @@ import {
 function createClient() {
   return new QueryClient({ defaultOptions: { queries: {
     staleTime: 15_000,
-    gcTime: 5 * 60_000,
+    gcTime: typeof window === 'undefined' ? Infinity : 5 * 60_000,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,

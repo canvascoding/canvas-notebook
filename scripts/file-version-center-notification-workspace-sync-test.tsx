@@ -1,3 +1,4 @@
+import { getNotebookQueryClient } from '../app/lib/queries/client';
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 import React, { act, useSyncExternalStore } from 'react';
@@ -53,6 +54,7 @@ const navigationModule = {
     return window.location.pathname;
   },
   useRouter: () => ({
+    push: (href: string) => window.history.pushState(window.history.state, '', href),
     replace: (href: string) => window.history.replaceState(window.history.state, '', href),
   }),
   useSearchParams: () => {
@@ -330,6 +332,7 @@ async function main() {
       resetWorkspaceView: originalFile.resetWorkspaceView,
     });
     closeVersionCenter({ syncLocation: false });
+    getNotebookQueryClient().clear();
     moduleInternals._load = originalLoad;
     Object.defineProperty(window.history, 'replaceState', { configurable: true, value: originalReplaceState });
     dom.window.close();

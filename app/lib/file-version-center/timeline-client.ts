@@ -1,5 +1,6 @@
 'use client';
 
+import { fetchReviewTimeline } from '@/app/lib/queries/review-queries';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 import { FileVersionCenterClientError } from './client';
@@ -24,7 +25,7 @@ async function readPayload(response: Response): Promise<unknown> {
   }
 }
 
-export async function loadFileVersionTimelinePage(
+async function requestFileVersionTimelinePage(
   request: FileVersionTimelineRequestV1,
   signal?: AbortSignal,
 ): Promise<FileVersionTimelineResponseV1> {
@@ -71,4 +72,14 @@ export async function loadFileVersionTimelinePage(
     }
   }
   return parseFileVersionTimelineResponseV1(payload);
+}
+
+export async function loadFileVersionTimelinePage(
+  request: FileVersionTimelineRequestV1,
+  signal?: AbortSignal,
+): Promise<FileVersionTimelineResponseV1> {
+  return fetchReviewTimeline({
+    request, signal,
+    queryFn: ({ signal: querySignal }) => requestFileVersionTimelinePage(request, querySignal),
+  });
 }

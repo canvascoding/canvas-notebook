@@ -50,6 +50,7 @@ export function FileVersionActions({
   entry,
   reviewedProposalVersion,
   candidateAvailable,
+  reviewPending = false,
   restoreAllowed,
   onTimelineInvalidate,
   onContinue,
@@ -60,6 +61,7 @@ export function FileVersionActions({
   entry: CandidateEntry;
   reviewedProposalVersion: string | null;
   candidateAvailable: boolean;
+  reviewPending?: boolean;
   restoreAllowed: boolean;
   onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
   onContinue: () => void;
@@ -80,7 +82,7 @@ export function FileVersionActions({
     action: FileVersionMutation,
     operation: () => Promise<unknown>,
   ) => {
-    if (busyRef.current) return;
+    if (busyRef.current || reviewPending) return;
     busyRef.current = true;
     setBusy(action);
     setError(null);
@@ -102,7 +104,7 @@ export function FileVersionActions({
       busyRef.current = false;
       setBusy(null);
     }
-  }, [onTimelineInvalidate]);
+  }, [onTimelineInvalidate, reviewPending]);
 
   const execute = useCallback((
     action: FileVersionMutation,
@@ -135,7 +137,7 @@ export function FileVersionActions({
                 type="button"
                 variant="outline"
                 size="sm"
-                disabled={Boolean(busy)}
+                disabled={Boolean(busy) || reviewPending}
                 onClick={() => { void retryRef.current?.(); }}
               >
                 {t('actions.retry')}
@@ -155,7 +157,7 @@ export function FileVersionActions({
               type="button"
               variant="outline"
               size="sm"
-              disabled={Boolean(busy)}
+              disabled={Boolean(busy) || reviewPending}
               onClick={() => { void execute('reject', () => controller.reject({
                 operationId: entry.operationId,
                 workspaceId: request.target.workspaceId,
@@ -173,7 +175,7 @@ export function FileVersionActions({
               type="button"
               size="sm"
               className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600"
-              disabled={Boolean(busy)}
+              disabled={Boolean(busy) || reviewPending}
               onClick={() => { void execute('accept', () => controller.accept({
                 operationId: entry.operationId,
                 workspaceId: request.target.workspaceId,
@@ -189,7 +191,7 @@ export function FileVersionActions({
           {restoreEnabled && entry.kind === 'revision' ? (
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button type="button" size="sm" disabled={Boolean(busy)}>
+                <Button type="button" size="sm" disabled={Boolean(busy) || reviewPending}>
                   <RotateCcw className="size-4" aria-hidden="true" />
                   {t('actions.restore')}
                 </Button>
@@ -207,6 +209,7 @@ export function FileVersionActions({
                 <AlertDialogFooter>
                   <AlertDialogCancel>{t('actions.cancel')}</AlertDialogCancel>
                   <AlertDialogAction
+                    disabled={Boolean(busy) || reviewPending}
                     onClick={() => { void execute('restore', () => controller.restore({
                       target: request.target,
                       revisionId: entry.revisionId,

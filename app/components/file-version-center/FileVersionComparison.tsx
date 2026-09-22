@@ -12,7 +12,7 @@ import {
   RefreshCw,
   ShieldAlert,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
 import { useTranslations } from 'next-intl';
 
 import { InertMarkdownPreview } from '@/app/components/shared/InertMarkdownPreview';
@@ -38,6 +38,7 @@ import type { FileVersionMutation } from '@/app/lib/file-version-center/action-c
 import type { FileVersionTimelineSelection } from '@/app/lib/file-version-center/timeline-state';
 import { cn } from '@/lib/utils';
 
+import { FileVersionLoadingSkeleton } from './FileVersionLoadingSkeleton';
 import { FileVersionActions } from './FileVersionActions';
 
 type CandidateEntry = Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' | 'revision' }>;
@@ -198,6 +199,9 @@ function LoadedComparison({
   current,
   entry,
   restoreAllowed,
+  lineageId,
+  timelineRefreshing,
+  timelineStale,
   onTimelineInvalidate,
   onContinue,
 }: {
@@ -205,11 +209,15 @@ function LoadedComparison({
   current: Extract<FileVersionTimelineEntryV1, { kind: 'current' }>;
   entry: CandidateEntry;
   restoreAllowed: boolean;
+  lineageId: string;
+  timelineRefreshing: boolean;
+  timelineStale: boolean;
   onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
   onContinue: () => void;
 }) {
   const t = useTranslations('fileVersionCenter');
-  const [payload, setPayload] = useState<FileVersionComparePayload | null>(null);
+  const [snapshot, setSnapshot] = useState<{ identity: string; payload: FileVersionComparePayload } | null>(null);
+  const payload = snapshot?.payload ?? null;
   const [error, setError] = useState<FileVersionCenterClientError | Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [retryVersion, setRetryVersion] = useState(0);
@@ -219,17 +227,41 @@ function LoadedComparison({
   const timelineRefreshInFlightRef = useRef(false);
   const fence = useMemo(() => currentFence(current), [current]);
   const candidate = useMemo(() => selectionFor(entry), [entry]);
+  const proposalVersion = entry.kind === 'agent_operation' ? entry.proposalVersion ?? null : null;
+  const identity = JSON.stringify([request.target, lineageId, candidate, fence, proposalVersion]);
+  const generationRef = useRef(0);
+  const paginationRef = useRef<AbortController | null>(null);
+  const reviewPending = timelineRefreshing || timelineStale || loading || snapshot?.identity !== identity || Boolean(error);
+
+  useLayoutEffect(() => {
+    generationRef.current += 1;
+    return () => {
+      generationRef.current += 1;
+      paginationRef.current?.abort();
+      paginationRef.current = null;
+    };
+  }, [identity, retryVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const generation = generationRef.current;
+    const isCurrent = () => !controller.signal.aborted && generation === generationRef.current;
+    Promise.resolve().then(() => {
+      if (!isCurrent()) return;
+      setLoading(true);
+      setError(null);
+      setLoadingHunks(false);
+      setHunkError(null);
+    });
     void compareFileVersion({
       contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
       target: request.target,
       candidate,
       expectedCurrent: fence,
       limit: 20,
-    }, controller.signal).then((result) => {
-      setPayload(result);
+    }, controller.signal, { lineageId, proposalVersion, force: retryVersion > 0 }).then((result) => {
+      if (!isCurrent()) return;
+      setSnapshot({ identity, payload: result });
       setLoading(false);
       if (timelineRefreshInFlightRef.current) {
         const remainsUnavailable = result.response.candidate.stale
@@ -239,7 +271,7 @@ function LoadedComparison({
         setTimelineRefreshState(remainsUnavailable ? 'confirmed_stale' : 'idle');
       } else setTimelineRefreshState('idle');
     }).catch((loadError: unknown) => {
-      if (loadError instanceof DOMException && loadError.name === 'AbortError') return;
+      if (!isCurrent() || (loadError instanceof DOMException && loadError.name === 'AbortError')) return;
       if (timelineRefreshInFlightRef.current) {
         timelineRefreshInFlightRef.current = false;
         setTimelineRefreshState('failed');
@@ -248,7 +280,7 @@ function LoadedComparison({
       setLoading(false);
     });
     return () => controller.abort();
-  }, [candidate, fence, request.target, retryVersion, t]);
+  }, [candidate, fence, identity, lineageId, proposalVersion, request.target, retryVersion, t]);
 
   const retry = () => {
     setError(null);
@@ -271,35 +303,33 @@ function LoadedComparison({
 
   const loadMoreHunks = async () => {
     const cursor = payload?.response.page.nextCursor;
-    if (!payload?.response.page.hasMore || !cursor || loadingHunks) return;
+    if (!payload?.response.page.hasMore || !cursor || loadingHunks || reviewPending || paginationRef.current) return;
+    const generation = generationRef.current;
+    const controller = new AbortController();
+    paginationRef.current = controller;
+    const isCurrent = () => !controller.signal.aborted && generation === generationRef.current;
     setLoadingHunks(true);
     setHunkError(null);
     try {
       const page = await compareFileVersion({
         contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
-        target: request.target,
-        candidate,
-        expectedCurrent: fence,
-        cursor,
-        limit: 20,
-      });
-      setPayload((currentPayload) => currentPayload
-        ? mergeFileVersionComparePayload(currentPayload, page)
-        : page);
+        target: request.target, candidate, expectedCurrent: fence, cursor, limit: 20,
+      }, controller.signal, { lineageId, proposalVersion });
+      if (!isCurrent()) return;
+      // Validate before entering React's state updater so failures remain retryable.
+      const merged = mergeFileVersionComparePayload(payload, page);
+      setSnapshot((currentSnapshot) => currentSnapshot?.identity === identity
+        ? { identity, payload: merged } : currentSnapshot);
     } catch (pageError) {
-      setHunkError(pageError instanceof Error ? pageError.message : t('hunksFailed'));
+      if (isCurrent()) setHunkError(pageError instanceof Error ? pageError.message : t('hunksFailed'));
     } finally {
-      setLoadingHunks(false);
+      if (paginationRef.current === controller) paginationRef.current = null;
+      if (isCurrent()) setLoadingHunks(false);
     }
   };
 
-  if (loading) return (
-    <div role="status" className="flex flex-1 items-center justify-center gap-2 p-6 text-sm text-muted-foreground">
-      <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-      {t('loadingComparison')}
-    </div>
-  );
-  if (error || !payload) {
+  if (loading && !payload) return <FileVersionLoadingSkeleton label={t('loadingComparison')} />;
+  if (!payload) {
     const changed = error instanceof FileVersionCenterClientError
       && ['FVRC_STALE_CURRENT', 'FVRC_STALE_SELECTION', 'FVRC_CONFLICT'].includes(error.code);
     return (
@@ -352,6 +382,14 @@ function LoadedComparison({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      {reviewPending ? (
+        <div role={error ? 'alert' : 'status'} data-testid="file-version-comparison-refresh" className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-3 text-sm">
+          <span>{error?.message ?? (loading || timelineRefreshing ? t('loadingComparison') : t('comparisonChanged'))}</span>
+          {!loading && !timelineRefreshing ? <Button variant="outline" size="sm" onClick={() => { void refreshTimeline(); }} disabled={timelineRefreshState === 'refreshing'}>
+            <RefreshCw className="size-4" aria-hidden="true" />{t('refreshTimeline')}
+          </Button> : null}
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-5">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-semibold">{selectedTitle}</h2>
@@ -425,7 +463,7 @@ function LoadedComparison({
             {payload.response.page.hasMore || hunkError ? (
               <div className="mt-3 space-y-2">
                 {hunkError ? <p role="alert" className="text-xs text-destructive">{hunkError}</p> : null}
-                <Button type="button" variant="outline" onClick={() => { void loadMoreHunks(); }} disabled={loadingHunks}>
+                <Button type="button" variant="outline" onClick={() => { void loadMoreHunks(); }} disabled={loadingHunks || reviewPending}>
                   {loadingHunks
                     ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                     : <Braces className="size-4" aria-hidden="true" />}
@@ -472,6 +510,7 @@ function LoadedComparison({
         current={current}
         entry={entry}
         reviewedProposalVersion={payload.actionFence.proposalVersion}
+        reviewPending={reviewPending}
         candidateAvailable={!unavailable}
         restoreAllowed={restoreAllowed}
         onTimelineInvalidate={onTimelineInvalidate}
@@ -512,19 +551,23 @@ export function FileVersionComparison({
   selection,
   onTimelineInvalidate,
   onContinue,
+  isRevalidating = false,
+  isStale = false,
 }: {
   request: FileVersionCenterRequestV1;
   timeline: FileVersionTimelineResponseV1;
   selection: FileVersionTimelineSelection;
   onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
   onContinue: () => void;
+  isRevalidating?: boolean;
+  isStale?: boolean;
 }) {
   const t = useTranslations('fileVersionCenter');
   const current = timeline.entries.find((entry) => entry.kind === 'current');
   const selected = selection.entry;
   const metadataOnly = selected?.kind === 'revision' && selected.content.availability === 'metadata_only';
   const identity = selected && selected.kind !== 'current'
-    ? `${selected.kind}:${selected.id}`
+    ? JSON.stringify([timeline.document.workspaceId, timeline.document.lineageId, timeline.document.documentId, selected.kind, selected.id])
     : 'empty';
 
   return (
@@ -572,6 +615,9 @@ export function FileVersionComparison({
           current={current}
           entry={selected}
           restoreAllowed={timeline.capabilities.restore}
+          lineageId={timeline.document.lineageId}
+          timelineRefreshing={isRevalidating}
+          timelineStale={isStale}
           onTimelineInvalidate={onTimelineInvalidate}
           onContinue={onContinue}
         />

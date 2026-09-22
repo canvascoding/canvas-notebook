@@ -10,6 +10,7 @@ import {
   type MutableRefObject,
   type SetStateAction,
 } from 'react';
+import { openedDocumentAuthScope, subscribeOpenedDocumentAuthInvalidation } from '@/app/lib/collaboration/opened-document-registry';
 import { useTranslations } from 'next-intl';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import { EMPTY_CHAT_PAGINATION, reconcileChatMessages, reconcileChatPagination, type ChatMessagePagination } from '@/app/lib/chat/chat-reconciliation';
@@ -171,6 +172,11 @@ export function useChatSessionMessages({
   const loadSessionRequestIdRef = useRef(0);
   const loadSessionAbortRef = useRef<AbortController | null>(null);
   const loadingSessionIdRef = useRef<string | null>(null);
+  const cacheWriterScopeRef = useRef(openedDocumentAuthScope());
+  const cacheWriterRevokedRef = useRef(false);
+  useLayoutEffect(() => subscribeOpenedDocumentAuthInvalidation(() => {
+    cacheWriterRevokedRef.current = true;
+  }), []);
   const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const activeWorkspaceRef = useRef(activeWorkspaceId ?? null);
@@ -263,7 +269,13 @@ export function useChatSessionMessages({
       creator: historySession?.creator,
     };
 
+    // Bind the writer to the session's original auth epoch, not the time a delayed
+    // React effect happens to run. A new explicit load may establish a new writer.
+    if (!cacheWriterScopeRef.current && !cacheWriterRevokedRef.current) {
+      cacheWriterScopeRef.current = openedDocumentAuthScope();
+    }
     const entry = buildCachedChatSessionEntry({
+      authScope: cacheWriterScopeRef.current,
       session: sessionForCache,
       messages,
       hasMoreBefore,
@@ -369,6 +381,8 @@ export function useChatSessionMessages({
     }
 
     cancelSessionLoad();
+    cacheWriterScopeRef.current = openedDocumentAuthScope();
+    cacheWriterRevokedRef.current = false;
     const sessionAgentId = session.agentId || DEFAULT_AGENT_ID;
     const requestId = loadSessionRequestIdRef.current;
     const workspaceId = activeWorkspaceRef.current;
@@ -485,12 +499,18 @@ export function useChatSessionMessages({
         limit: 50,
         workspaceId,
         signal: abortController.signal,
+        ...(hasCachedMessages ? { cache: 'no-store' as const } : {}),
       });
 
       if (!isCurrent()) return;
 
       if (messagesPayload?.success && Array.isArray(messagesPayload.messages)) {
-        applyMessagePage(messagesPayload, requestSnapshot, isCurrent);
+        // A shared read started before the warm snapshot may contain older live
+        // content. Fresh reads can authoritatively update unchanged overlaps.
+        const predatesCache = cachedEntry && hasCachedMessages
+          && typeof messagesPayload.clientReadStartedAt === 'number'
+          && messagesPayload.clientReadStartedAt < cachedEntry.cachedAt;
+        applyMessagePage(messagesPayload, predatesCache ? [] : requestSnapshot, isCurrent);
       } else if (!hasCachedMessages) {
         setMessages((current) => !isCurrent() || current.length > 0 ? current : [
           { id: 'error', role: 'system', type: 'system', status: 'error', content: t('failedToLoadMessageHistory') },

@@ -1,10 +1,12 @@
 'use client';
 
+import { fetchReviewComparison, type FileVersionCompareQueryOptions } from '@/app/lib/queries/review-queries';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 import { FileVersionCenterClientError } from './client';
 import {
   FILE_VERSION_CENTER_API_V1,
+  FILE_VERSION_CENTER_ERROR_CODES,
   parseFileVersionCenterErrorResponseV1,
   parseFileVersionCompareResponseV1,
   type FileVersionCompareRequestV1,
@@ -67,7 +69,7 @@ async function readPayload(response: Response): Promise<unknown> {
   }
 }
 
-export async function compareFileVersion(
+async function requestFileVersionComparison(
   request: FileVersionCompareRequestV1,
   signal?: AbortSignal,
 ): Promise<FileVersionComparePayload> {
@@ -139,6 +141,33 @@ export async function compareFileVersion(
   }
 }
 
+export async function compareFileVersion(
+  request: FileVersionCompareRequestV1,
+  signal?: AbortSignal,
+  options: FileVersionCompareQueryOptions = {},
+): Promise<FileVersionComparePayload> {
+  return fetchReviewComparison({
+    request, signal, options,
+    queryFn: async ({ signal: querySignal }) => {
+      const result = await requestFileVersionComparison(request, querySignal);
+      const fence = result.response.current.fence;
+      if (fence.revisionId !== request.expectedCurrent.revisionId
+        || fence.sha256 !== request.expectedCurrent.sha256
+        || fence.stateVectorHash !== request.expectedCurrent.stateVectorHash) {
+        throw new FileVersionCenterClientError(FILE_VERSION_CENTER_ERROR_CODES.staleCurrent,
+          'The current document changed. Reload the timeline before comparing.', 409, false);
+      }
+      const selection = result.response.candidate.selection;
+      if (selection.kind !== request.candidate.kind || selection.id !== request.candidate.id
+        || (typeof options.proposalVersion === 'string' && result.actionFence.proposalVersion !== options.proposalVersion)) {
+        throw new FileVersionCenterClientError(FILE_VERSION_CENTER_ERROR_CODES.staleSelection,
+          'The selected proposal changed. Reload the timeline before comparing.', 409, false);
+      }
+      return result;
+    },
+  });
+}
+
 export function mergeFileVersionComparePayload(
   previous: FileVersionComparePayload,
   next: FileVersionComparePayload,
@@ -148,6 +177,7 @@ export function mergeFileVersionComparePayload(
   if (previous.response.current.fence.sha256 !== next.response.current.fence.sha256
     || previous.response.current.fence.revisionId !== next.response.current.fence.revisionId
     || previous.response.current.fence.stateVectorHash !== next.response.current.fence.stateVectorHash
+    || previous.actionFence.proposalVersion !== next.actionFence.proposalVersion
     || previousSelection.kind !== nextSelection.kind
     || previousSelection.id !== nextSelection.id) {
     throw new Error('The comparison page belongs to another document state.');

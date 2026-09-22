@@ -5,6 +5,8 @@ import {
   prepareCollaborationAgentAction,
   type CollaborationAgentOperation,
 } from '@/app/lib/collaboration/agent-operations-client';
+import { invalidateReviewQueries } from '@/app/lib/queries/review-queries';
+import { notebookQueryKey } from '@/app/lib/queries/client';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 import {
@@ -197,6 +199,7 @@ export class FileVersionActionController {
     action: 'accept' | 'reject',
     input: AgentActionInput,
   ): Promise<FileVersionAgentMutationResult> {
+    const authScope = notebookQueryKey(input.workspaceId)[1];
     const identity = `agent:${input.workspaceId}:${input.operationId}:${action}:${input.reviewedProposalVersion ?? ''}`;
     return this.once(identity, async () => {
       const operation = await this.loadOperation(input);
@@ -258,6 +261,7 @@ export class FileVersionActionController {
           false,
         );
       }
+      await invalidateReviewQueries(input.workspaceId, authScope);
       // Mutation routes return the persisted action receipt, while the GET route
       // owns the complete permission-aware operation projection used by the UI.
       const updated = await this.loadOperation(input);
@@ -292,6 +296,7 @@ export class FileVersionActionController {
     revisionId: string;
     expectedCurrent: FileVersionCurrentFenceV1;
   }): Promise<FileVersionRestoreMutationResult> {
+    const authScope = notebookQueryKey(input.target.workspaceId)[1];
     const fence = `${input.expectedCurrent.revisionId ?? ''}:${input.expectedCurrent.sha256}:${input.expectedCurrent.stateVectorHash ?? ''}`;
     const identity = `restore:${input.target.workspaceId}:${input.revisionId}:${fence}`;
     return this.once(identity, async () => {
@@ -325,6 +330,7 @@ export class FileVersionActionController {
       if (!response.ok) throw failureFrom(response, payload);
       try {
         const restored = parseFileVersionRestoreResponseV1(payload);
+        await invalidateReviewQueries(input.target.workspaceId, authScope);
         this.actionKeys.delete(identity);
         return { action: 'restore', outcome: restored.outcome, response: restored };
       } catch {

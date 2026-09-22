@@ -1,3 +1,4 @@
+import { nextChatSnapshotTimestamp } from '@/app/lib/chat/snapshot-clock';
 import type { AISession } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import type { ChatSessionMessagesPayload } from '@/app/lib/chat/session-api';
@@ -50,6 +51,7 @@ export async function fetchChatSessionBootstrap(input: {
     staleTime: 10_000,
     signal: input.signal,
     queryFn: async ({ signal }) => {
+      const clientReadStartedAt = nextChatSnapshotTimestamp();
       const params = new URLSearchParams();
       if (input.workspaceId) params.set('workspaceId', input.workspaceId);
       const response = await fetch(`/api/sessions/${encodeURIComponent(input.sessionId)}/bootstrap?${params}`, {
@@ -60,7 +62,7 @@ export async function fetchChatSessionBootstrap(input: {
         || !payload.messages?.success || !Array.isArray(payload.messages.messages)) {
         throw new Error(payload.error || 'Failed to load chat session.');
       }
-      return { session: payload.session as AISession, messages: payload.messages as ChatSessionMessagesPayload };
+      return { session: payload.session as AISession, messages: { ...payload.messages, clientReadStartedAt } as ChatSessionMessagesPayload };
     },
   });
   if (scope[1] === notebookQueryKey(input.workspaceId ?? null)[1]) {
