@@ -8,6 +8,7 @@ import {
   type PiContextBudgetPolicy,
 } from './context-budget';
 import { createSessionCompactionBudget } from './compaction/policy';
+import { demotePiLeanTailToolResults } from './compaction/pruning';
 import { selectPiCompactionUnits } from './compaction/selection';
 import {
   buildPiHistoryUnits,
@@ -59,6 +60,10 @@ export type ComposePiHistoryOptions = {
   additionalContextTokens?: number;
   modelIdentity?: string;
   policy?: PiContextBudgetPolicy;
+  /** Optional recovery capability for Lean's projection-only tool stubs. */
+  sessionId?: string;
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
   selectionMode?: PiHistorySelectionMode;
   /** @deprecated Use selectionMode. Kept as a compatibility adapter for callers in flight. */
   aggressive?: boolean;
@@ -383,6 +388,9 @@ export function composePiHistoryForLlm({
   additionalContextTokens,
   modelIdentity,
   policy,
+  sessionId,
+  authorizedSessionId,
+  sessionSearchAvailable,
   selectionMode = 'automatic',
   aggressive = false,
 }: ComposePiHistoryOptions): PiHistoryComposition {
@@ -475,8 +483,30 @@ export function composePiHistoryForLlm({
     measureTokens: getUnitTokens,
     measureBytes: getUnitBytes,
   });
-  const minimumRequiredTokens = selection.minimumRequiredTokens;
-  const minimumRequiredBytes = selection.minimumRequiredBytes;
+  const resolvedPolicy = validatePiContextBudgetPolicy(
+    policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
+  );
+  const selectedKeptMessages = selection.keptUnits.flatMap((unit) => [...unit.messages]);
+  const leanTailDemotion = resolvedPolicy.tailMode === 'lean' && mustCompact
+    ? demotePiLeanTailToolResults({
+      messages: selectedKeptMessages,
+      tailMessages: selection.tailUnits.flatMap((unit) => [...unit.messages]),
+      sessionId,
+      authorizedSessionId,
+      sessionSearchAvailable,
+    })
+    : null;
+  const projectedKeptMessages = [...(leanTailDemotion?.messages ?? selectedKeptMessages)];
+  const projectedKeptTokens = projectedKeptMessages.reduce(
+    (total, message) => total + estimatePiMessageTokens(message),
+    0,
+  );
+  const projectedKeptBytes = projectedKeptMessages.reduce(
+    (total, message) => total + estimatePiMessagePayloadBytes(message),
+    0,
+  );
+  const minimumRequiredTokens = summaryTokens + projectedKeptTokens;
+  const minimumRequiredBytes = summaryBytes + projectedKeptBytes;
   const contextBudgetExceeded = selectionMode === 'full'
     ? minimumRequiredBytes > MAX_LLM_HISTORY_BYTES
     : minimumRequiredTokens > availableHistoryTokens
@@ -487,7 +517,7 @@ export function composePiHistoryForLlm({
   const keptUnitSet = new Set(keptUnits);
   const keptMessages = contextBudgetExceeded
     ? []
-    : keptUnits.flatMap((unit) => [...unit.messages]);
+    : projectedKeptMessages;
   const omittedMessages = historyUnits
     .filter((unit) => !keptUnitSet.has(unit))
     .flatMap((unit) => [...unit.messages]);

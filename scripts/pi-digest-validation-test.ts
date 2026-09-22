@@ -72,6 +72,7 @@ async function main() {
   let sampledPrompt = '';
   await generatePiRollingSummaryV2({
     previousSummaryText: null, messagesToSummarize: promptMessages, model, sessionId: 'prompt-preserves-sample',
+    tailMode: 'lean',
     streamFn: async (_requestedModel, context) => {
       sampledPrompt = String(context.messages[0]?.content ?? '');
       return stream(response(body));

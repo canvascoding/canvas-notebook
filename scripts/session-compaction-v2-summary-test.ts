@@ -58,10 +58,12 @@ async function main() {
     }) as AgentMessage);
 
     let v2Calls = 0;
+    let legacyTailV2Prompt = '';
     const v2Stream: StreamFn = async (_requestedModel, context, options) => {
       v2Calls += 1;
       assert.equal(options?.maxTokens, undefined);
-      const prompt = String(context.messages[0]?.content ?? '');
+      const prompt = context.messages.map((entry) => String(entry.content ?? '')).join('\n');
+      legacyTailV2Prompt = prompt;
       assert.match(prompt, /untrusted_source_segments/);
       return resultStream(message(body('Continue the current request.')));
     };
@@ -71,6 +73,38 @@ async function main() {
     });
     assert.ok(v2?.includes(PI_ROLLING_SUMMARY_CONTRACT));
     assert.equal(v2Calls, 1, 'large V2 history must not cause digest calls');
+    assert.doesNotMatch(legacyTailV2Prompt, /untrusted_exact_anchors|untrusted_historical_user_excerpts/,
+      'V2 generator with the legacy tail keeps Hermes bounded head/tail input only');
+    assert.doesNotMatch(v2!, /## Anchor Index|## User Messages|## Context Recovery/,
+      'legacy tail never stores Lean continuity appendices');
+
+    let leanTailV2Calls = 0;
+    let leanTailV2Prompt = '';
+    const leanTail = await summarizePiSessionHistory({
+      previousSummaryText: null,
+      messagesToSummarize: [...messages, {
+        role: 'user', timestamp: 49,
+        content: 'Keep app/lib/pi/tail.ts and issue #1234 available for recovery.',
+      } as AgentMessage],
+      model,
+      sessionId: 'v2-lean-single',
+      authorizedSessionId: 'v2-lean-single',
+      sessionSearchAvailable: true,
+      summaryMode: 'hermes_v2',
+      tailMode: 'lean',
+      streamFn: async (_requestedModel, context, options) => {
+        leanTailV2Calls += 1;
+        assert.equal(options?.maxTokens, undefined);
+        leanTailV2Prompt = context.messages.map((entry) => String(entry.content ?? '')).join('\n');
+        return resultStream(message(body('Continue the current lean request.')));
+      },
+    });
+    assert.equal(leanTailV2Calls, 1, 'Lean V2 uses one bounded summary call');
+    assert.match(leanTailV2Prompt, /untrusted_exact_anchors/);
+    assert.match(leanTailV2Prompt, /untrusted_historical_user_excerpts/);
+    assert.ok(leanTail?.includes('## Anchor Index'));
+    assert.ok(leanTail?.includes('## User Messages'));
+    assert.ok(leanTail?.includes('## Context Recovery'));
 
     let legacyCalls = 0;
     const legacy = await summarizePiSessionHistory({
@@ -84,6 +118,48 @@ async function main() {
     });
     assert.ok(legacy?.includes('Continue legacy work.'));
     assert.equal(legacyCalls, 1, 'legacy also performs one bounded summary call');
+
+    const boundedLegacyModel = {
+      ...model,
+      id: 'legacy-bounded-head-tail',
+      contextWindow: 64_000,
+    } as Model<'openai-completions'>;
+    let boundedLegacyPrompt = '';
+    const boundedLegacy = await summarizePiSessionHistory({
+      previousSummaryText: null,
+      messagesToSummarize: messages,
+      model: boundedLegacyModel,
+      sessionId: 'legacy-bounded-head-tail',
+      summaryMode: 'legacy',
+      streamFn: async (_requestedModel, context) => {
+        boundedLegacyPrompt = context.messages.map((entry) => String(entry.content ?? '')).join('\n');
+        return resultStream(message('## Active Task\nLegacy bounded history succeeded.'));
+      },
+    });
+    assert.ok(boundedLegacy?.includes('Legacy bounded history succeeded.'));
+    assert.match(boundedLegacyPrompt, /Requested step 0/);
+    assert.match(boundedLegacyPrompt, /Completed step 47/);
+    assert.match(boundedLegacyPrompt, /summary input truncated/,
+      'legacy keeps Hermes bounded head/tail records instead of Lean sampling gaps');
+    assert.doesNotMatch(boundedLegacyPrompt, /historical records omitted/);
+
+    let legacySummaryLeanTailCalls = 0;
+    const legacySummaryLeanTail = await summarizePiSessionHistory({
+      previousSummaryText: null,
+      messagesToSummarize: messages,
+      model,
+      sessionId: 'legacy-summary-lean-tail',
+      summaryMode: 'legacy',
+      tailMode: 'lean',
+      streamFn: async () => {
+        legacySummaryLeanTailCalls += 1;
+        return resultStream(message('## Active Task\nLegacy summary remains on its rollout path.'));
+      },
+    });
+    assert.equal(legacySummaryLeanTailCalls, 1,
+      'tail policy does not change the selected legacy summary generator');
+    assert.equal((legacySummaryLeanTail ?? '').includes(PI_ROLLING_SUMMARY_CONTRACT), false,
+      'only hermes_v2 produces the rolling-summary contract');
 
     let auxiliaryCalls = 0;
     let mainCalls = 0;

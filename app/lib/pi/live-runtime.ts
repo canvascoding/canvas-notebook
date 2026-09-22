@@ -729,6 +729,9 @@ export class LivePiRuntime {
       requestOutputTokens: this.requestOutputTokenCap,
       toolTokens: estimatePiToolSchemaTokens(this.getEffectiveTools()),
       additionalContextTokens,
+      sessionId: this.sessionId,
+      authorizedSessionId: this.sessionId,
+      sessionSearchAvailable: this.hasSessionSearchCapability(),
       selectionMode,
       policy: this.options?.effectiveCompactionPolicy?.contextBudgetPolicy,
     });
@@ -840,6 +843,8 @@ export class LivePiRuntime {
           streamFn: this.options.summaryStreamFn,
           summaryModel: this.options.summaryModel,
           summaryStreamFn: this.options.summaryModelStreamFn,
+          authorizedSessionId: this.sessionId,
+          sessionSearchAvailable: this.hasSessionSearchCapability(),
           selectionMode: input.selectionMode ?? 'automatic',
           triggerSnapshot: input.triggerSnapshot,
           focusTopic: input.focusTopic,
@@ -1514,6 +1519,13 @@ export class LivePiRuntime {
     const manifest = buildEffectiveToolManifest(this.getEffectiveTools());
     return ['ls', 'read', 'rg', 'grep', 'glob', 'inspect_document_relations']
       .some((toolName) => effectiveToolManifestHas(manifest, toolName));
+  }
+
+  private hasSessionSearchCapability(): boolean {
+    return effectiveToolManifestHas(
+      buildEffectiveToolManifest(this.getEffectiveTools()),
+      'session_search',
+    );
   }
 
   private getAgentRuntimeTempContextBlock(): string | null {

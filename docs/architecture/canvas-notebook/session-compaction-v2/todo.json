@@ -554,7 +554,8 @@
       "id": "SC-P12",
       "order": 12,
       "title": "Complete current Hermes legacy and lean parity",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-09-22",
       "dependsOn": ["SC-P11"],
       "hermesReferences": [
         "agent/context_compressor.py legacy and lean tail budgets",
@@ -573,7 +574,14 @@
         "active user and tool-group preservation",
         "authorized recovery and raw-history tests"
       ],
-      "completionEvidence": [],
+      "completionEvidence": [
+        "Legacy and Lean use distinct Hermes-equivalent inputs: Legacy bounds chronological head/tail text, while Lean samples complete records and adds deterministic anchors, real-user excerpts and authorized recovery guidance",
+        "Both tail formulas obey the 20 percent context-window hard cap; Lean additionally keeps the 10K/2.5-percent/25K target and preserves required user, assistant and atomic tool-group anchors",
+        "Lean projection demotes completed large tool results outside the newest six tool rounds into idempotent stubs; incomplete groups remain protected and durable raw history is never rewritten",
+        "Recovery hints are emitted only when the exact session is authorized and session_search is present in the effective Live or Automation tool manifest",
+        "A production-path two-cycle Automation fixture commits both summaries, advances the watermark, retains raw tool output in the store and projects the same authorized session id in a later Lean recovery stub",
+        "Policy, selection, pruning, recovery, summary, candidate-normalization, Live and Automation suites pass together with TypeScript, ESLint and diff checks"
+      ],
       "exitGate": "SC-G12_TAIL_MODE_PARITY"
     },
     {

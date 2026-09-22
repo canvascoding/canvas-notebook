@@ -30,7 +30,8 @@ import {
   type PiSummaryMode,
   type PiSummaryProgressEvent,
 } from './compaction/summary-generator';
-import { samplePiCompactionSummaryRecords } from './compaction/recovery';
+import type { SessionCompactionTailMode } from './compaction/policy';
+import { boundPiCompactionSummaryInput } from './compaction/recovery';
 import { logPiCompactionDiagnostic } from './compaction/diagnostics';
 import { buildPiSummaryOrientation, PI_SUMMARY_RELEVANCE_POLICY } from './compaction/orientation';
 
@@ -73,6 +74,8 @@ export type SummarizeHistoryInput = {
   summaryModel?: Model<Api>;
   summaryStreamFn?: StreamFn;
   summaryMode?: PiSummaryMode;
+  /** Independent tail policy; summaryMode selects the generator rollout only. */
+  tailMode?: SessionCompactionTailMode;
   focusTopic?: string | null;
   knownSecrets?: readonly string[];
   authorizedSessionId?: string | null;
@@ -114,6 +117,7 @@ const SUMMARY_MESSAGE_TEXT_LIMIT = 6000;
 const SUMMARY_TOOL_TEXT_LIMIT = 3000;
 const SUMMARY_TOOL_ARGUMENT_LIMIT = 1200;
 const SUMMARY_INPUT_SAFETY_TOKENS = 512;
+const SUMMARY_RECORD_PROMPT_OVERHEAD_TOKENS = 128;
 const DEFAULT_LEGACY_SUMMARY_IDLE_TIMEOUT_MS = 120_000;
 const DEFAULT_LEGACY_SUMMARY_TOTAL_TIMEOUT_MS = 300_000;
 const AUXILIARY_LEGACY_ATTEMPT_DEADLINE_FRACTION = 0.6;
@@ -490,6 +494,7 @@ export async function summarizePiSessionHistory({
   summaryModel,
   summaryStreamFn,
   summaryMode = 'legacy',
+  tailMode = 'legacy',
   focusTopic,
   knownSecrets,
   authorizedSessionId,
@@ -518,6 +523,7 @@ export async function summarizePiSessionHistory({
       streamFn,
       summaryModel,
       summaryStreamFn,
+      tailMode,
       idleTimeoutMs: summaryIdleTimeoutMs,
       totalTimeoutMs: summaryTotalTimeoutMs,
       onProgress: onSummaryProgress,
@@ -560,22 +566,24 @@ export async function summarizePiSessionHistory({
     )
     : null;
   const priorTokens = priorSummaryRecord ? estimateSummaryMessageTokens(priorSummaryRecord) : 0;
-  const recordBudgetCharacters = Math.max(0, (availableInputTokens - priorTokens - 24) * 4);
+  const recordBudgetCharacters = Math.max(
+    0,
+    (availableInputTokens - priorTokens - SUMMARY_RECORD_PROMPT_OVERHEAD_TOKENS) * 4,
+  );
   if (recordBudgetCharacters <= 0) return null;
-  // Current Hermes intentionally sends one bounded, record-preserving request
-  // for legacy too. Do not serially summarize batches: it makes latency grow
-  // linearly with history and can commit partial state after a later failure.
-  const sampled = samplePiCompactionSummaryRecords({
-    records: sanitizedMessages.map((message) => String(message.content)),
-    maximumCharacters: recordBudgetCharacters,
-  });
-  if (!sampled.text) return null;
+  // Hermes legacy uses a bounded head/tail transcript. Lean's sampling and
+  // deterministic appendices are deliberately confined to the V2 generator.
+  const boundedRecords = boundPiCompactionSummaryInput(
+    sanitizedMessages.map((message) => String(message.content)).join('\n\n'),
+    recordBudgetCharacters,
+  );
+  if (!boundedRecords) return null;
   const context: { systemPrompt: string; messages: UserMessage[] } = {
     systemPrompt: SUMMARY_SYSTEM_PROMPT,
     messages: [
       ...(orientation.text ? [{ role: 'user' as const, content: orientation.text, timestamp: 0 }] : []),
       ...(priorSummaryRecord ? [priorSummaryRecord] : []),
-      wrapUntrustedSummaryRecord('conversation_records', sampled.text, Date.now()),
+      wrapUntrustedSummaryRecord('conversation_records', boundedRecords, Date.now()),
       { role: 'user', content: SUMMARY_UPDATE_PROMPT, timestamp: Date.now() },
     ],
   };
@@ -666,6 +674,7 @@ export async function preparePiHistoryContext({
   let summaryUpdated = false;
   let summaryFailed = false;
   let summaryFailureReason: PreparePiHistoryContextResult['summaryFailureReason'];
+  const tailMode: SessionCompactionTailMode = policy?.tailMode === 'lean' ? 'lean' : 'legacy';
   let composition = composePiHistoryForLlm({
     messages,
     summary: nextSummary,
@@ -675,6 +684,9 @@ export async function preparePiHistoryContext({
     requestOutputTokens,
     toolTokens,
     additionalContextTokens,
+    sessionId,
+    authorizedSessionId,
+    sessionSearchAvailable,
     selectionMode,
     policy,
   });
@@ -723,6 +735,7 @@ export async function preparePiHistoryContext({
       summaryModel,
       summaryStreamFn,
       summaryMode,
+      tailMode,
       focusTopic,
       knownSecrets,
       authorizedSessionId,
@@ -757,6 +770,9 @@ export async function preparePiHistoryContext({
         requestOutputTokens,
         toolTokens,
         additionalContextTokens,
+        sessionId,
+        authorizedSessionId,
+        sessionSearchAvailable,
         selectionMode,
         policy,
       });
@@ -789,6 +805,9 @@ export async function preparePiHistoryContext({
       requestOutputTokens,
       toolTokens,
       additionalContextTokens,
+      sessionId,
+      authorizedSessionId,
+      sessionSearchAvailable,
       selectionMode: 'full',
       policy,
     });
@@ -834,6 +853,9 @@ export async function preparePiHistoryContext({
       requestOutputTokens,
       toolTokens,
       additionalContextTokens,
+      sessionId,
+      authorizedSessionId,
+      sessionSearchAvailable,
       selectionMode: 'hard_limit',
       policy,
     });

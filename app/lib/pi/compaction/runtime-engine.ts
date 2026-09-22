@@ -152,6 +152,9 @@ export type PreparePiHermesCompactionCandidateInput = Readonly<{
   /** Optional, already-authorized compression route for this request. */
   summaryModel?: Model<Api>;
   summaryStreamFn?: StreamFn;
+  /** Authorized recovery scope used only for Lean's projection-only stubs. */
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
   selectionMode?: Extract<PiHistorySelectionMode, 'automatic' | 'force'>;
   /** Full, normalized request that established automatic pressure for this candidate. */
   triggerSnapshot?: PiContextBudgetSnapshot;
@@ -174,6 +177,10 @@ export type ProjectPiHermesHistoryInput = Readonly<{
   requestOutputTokens: number;
   toolTokens: number;
   additionalContextTokens?: number;
+  /** Optional recovery scope for a status/preflight projection. */
+  sessionId?: string;
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
   selectionMode?: PiHistorySelectionMode;
   policy?: PiContextBudgetPolicy;
   rolloutMode?: PiCompactionRolloutMode;
@@ -229,6 +236,9 @@ export function projectPiHermesHistory(
     toolTokens: input.toolTokens,
     additionalContextTokens: input.additionalContextTokens,
     modelIdentity: `${input.model.provider}:${input.model.api}:${input.model.id}`,
+    sessionId: input.sessionId,
+    authorizedSessionId: input.authorizedSessionId,
+    sessionSearchAvailable: input.sessionSearchAvailable,
     selectionMode: input.selectionMode ?? 'automatic',
     policy,
   });
@@ -308,7 +318,8 @@ export async function preparePiHermesCompactionCandidate(
     selectionMode,
     focusTopic: input.focusTopic,
     policy,
-    authorizedSessionId: input.sessionId,
+    authorizedSessionId: input.authorizedSessionId ?? input.sessionId,
+    sessionSearchAvailable: input.sessionSearchAvailable,
     onSummaryProgress: input.onSummaryProgress,
   });
   return Object.freeze({ ...candidate, pruning: projection.pruning });

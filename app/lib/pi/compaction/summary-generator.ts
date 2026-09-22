@@ -17,6 +17,7 @@ import type {
 
 import { estimateTextTokens } from '../history-budget';
 import { isPiActionableUserMessage } from './selection';
+import type { SessionCompactionTailMode } from './policy';
 import { buildPiSummaryOrientation, PI_SUMMARY_RELEVANCE_POLICY } from './orientation';
 import {
   buildPiSummarySourceInput,
@@ -31,6 +32,7 @@ import {
 import {
   buildPiCompactionAnchorIndex,
   buildPiCompactionRecoveryArtifacts,
+  boundPiCompactionSummaryInput,
   redactPiCompactionText,
   samplePiCompactionSummaryRecords,
 } from './recovery';
@@ -102,6 +104,8 @@ export type GeneratePiRollingSummaryInput = Readonly<{
   idleTimeoutMs?: number;
   totalTimeoutMs?: number;
   onProgress?: (event: PiSummaryProgressEvent) => void;
+  /** Independent from summaryMode: only Lean receives Hermes continuity appendices. */
+  tailMode?: SessionCompactionTailMode;
 }>;
 
 type ModelCallInput = Readonly<{
@@ -336,6 +340,7 @@ export async function generatePiRollingSummaryV2(
   assertActive(input.signal);
   const attemptDeadline = Date.now() + (input.totalTimeoutMs ?? DEFAULT_TOTAL_TIMEOUT_MS);
   const knownSecrets = input.knownSecrets ?? [];
+  const tailMode = input.tailMode === 'lean' ? 'lean' : 'legacy';
   const sessionId = input.sessionId ?? '';
   const diagnosticContext = {
     sessionId: sessionId || null,
@@ -405,22 +410,30 @@ export async function generatePiRollingSummaryV2(
   const summaryInstruction = `Aim for approximately ${targetTokens} tokens in the updated rolling summary. `
       + 'This is a writing target, not a hard limit: preserve essential facts and exact identifiers. '
       + `Return only the five required sections; the storage safety ceiling is ${maximumSummaryBodyCharacters} characters.`;
-  // Allocate the source section before sampling. Passing individual sampled
-  // records to the generic builder would rebudget them at 55% and clip each
-  // one a second time, which defeats record preservation and can lose the
-  // newest anchor or explicit gap marker.
+  // Lean spends its source budget on evenly sampled complete records plus
+  // deterministic recovery appendices. Legacy deliberately keeps Hermes'
+  // bounded head/tail source and omits those Lean-only artifacts.
   const sourceSectionBudget = getPiSummarySourceSectionBudget({
     prior,
-    anchors: recovery.anchorIndex.text,
-    users: recovery.verbatimUserSection,
+    anchors: tailMode === 'lean' ? recovery.anchorIndex.text : '',
+    users: tailMode === 'lean' ? recovery.verbatimUserSection : '',
     instruction: summaryInstruction,
     maximumCharacters: maximumInputCharacters,
   });
-  const sampledRecords = samplePiCompactionSummaryRecords({
-    records: recovery.redactedRecords.map(escapePiSummaryReference),
-    maximumCharacters: sourceSectionBudget,
-  });
-  if (!sampledRecords.text) return null;
+  const sampledRecords = tailMode === 'lean'
+    ? samplePiCompactionSummaryRecords({
+      records: recovery.redactedRecords.map(escapePiSummaryReference),
+      maximumCharacters: sourceSectionBudget,
+    })
+    : null;
+  const legacyBoundedSource = tailMode === 'legacy'
+    ? escapePiSummaryReference(boundPiCompactionSummaryInput(
+      recovery.redactedTranscript,
+      sourceSectionBudget,
+    ))
+    : '';
+  const sourceText = sampledRecords?.text ?? legacyBoundedSource;
+  if (!sourceText) return null;
   logPiCompactionDiagnostic('info', 'summary_budget_selected', {
     ...diagnosticContext,
     sourceTokens,
@@ -431,29 +444,34 @@ export async function generatePiRollingSummaryV2(
     maximumBodyCharacters: maximumSummaryBodyCharacters,
     maximumCharacters: maximumSummaryCharacters,
     sourceSectionBudget,
-    strategy: 'sampled_records',
-    recordCount: sampledRecords.recordCount,
-    sampledRecordCount: sampledRecords.sampledRecordCount,
-    elidedRecordCount: sampledRecords.elidedRecordCount,
-    inputCharacters: sampledRecords.inputCharacters,
-    sampledCharacters: sampledRecords.sampledCharacters,
-    omittedCharacters: sampledRecords.omittedCharacters,
+    strategy: tailMode === 'lean' ? 'sampled_records' : 'bounded_head_tail',
+    recordCount: sampledRecords?.recordCount ?? recovery.redactedRecords.length,
+    sampledRecordCount: sampledRecords?.sampledRecordCount ?? recovery.redactedRecords.length,
+    elidedRecordCount: sampledRecords?.elidedRecordCount ?? 0,
+    inputCharacters: sampledRecords?.inputCharacters ?? recovery.redactedTranscript.length,
+    sampledCharacters: sampledRecords?.sampledCharacters ?? legacyBoundedSource.length,
+    omittedCharacters: sampledRecords?.omittedCharacters
+      ?? Math.max(0, recovery.redactedTranscript.length - legacyBoundedSource.length),
   });
-  const priorAnchorMessage = priorSummaryAnchorMessage(input.previousSummaryText);
-  const anchorIndex = buildPiCompactionAnchorIndex(
-    priorAnchorMessage
-      ? [priorAnchorMessage, ...input.messagesToSummarize]
-      : input.messagesToSummarize,
-    knownSecrets,
-  );
+  const priorAnchorMessage = tailMode === 'lean'
+    ? priorSummaryAnchorMessage(input.previousSummaryText)
+    : null;
+  const anchorIndex = tailMode === 'lean'
+    ? buildPiCompactionAnchorIndex(
+      priorAnchorMessage
+        ? [priorAnchorMessage, ...input.messagesToSummarize]
+        : input.messagesToSummarize,
+      knownSecrets,
+    )
+    : Object.freeze({ categories: Object.freeze({}), text: '' });
   const boundedSummaryInput = buildPiSummarySourceInput({
     // The full rendered sample is deliberately one source value. It has
     // already been bounded to the section allocation above.
-    sourceRecords: [sampledRecords.text],
+    sourceRecords: [sourceText],
     sourceRecordsAreEscaped: true,
     prior,
-    anchors: recovery.anchorIndex.text,
-    users: recovery.verbatimUserSection,
+    anchors: tailMode === 'lean' ? recovery.anchorIndex.text : '',
+    users: tailMode === 'lean' ? recovery.verbatimUserSection : '',
     instruction: summaryInstruction,
     maximumCharacters: maximumInputCharacters,
   });
@@ -523,9 +541,9 @@ export async function generatePiRollingSummaryV2(
       body: summaryBody,
       previousSummaryText: input.previousSummaryText,
       anchorIndex,
-      verbatimUserSection: recovery.verbatimUserSection,
+      verbatimUserSection: tailMode === 'lean' ? recovery.verbatimUserSection : '',
       digestSection: '',
-      recoveryFooter: recovery.recoveryFooter,
+      recoveryFooter: tailMode === 'lean' ? recovery.recoveryFooter : '',
       hasRealUserTurn: orientation.hasRealUserTurn || input.messagesToSummarize.some(isPiActionableUserMessage),
       focusTopic,
       knownSecrets,

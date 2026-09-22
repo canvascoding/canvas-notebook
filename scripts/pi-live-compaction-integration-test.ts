@@ -213,6 +213,15 @@ async function main(): Promise<void> {
     },
     touch: () => undefined,
   });
+  assert.equal((runtime as unknown as { hasSessionSearchCapability: () => boolean }).hasSessionSearchCapability(), false,
+    'live compaction sees no session-search recovery when the effective tool list omits it');
+  const runtimeInternals = runtime as unknown as Record<string, unknown>;
+  runtimeInternals.getEffectiveTools = () => [{
+    name: 'session_search', label: 'Session search', description: 'Recover authorized session history.',
+  }];
+  assert.equal((runtime as unknown as { hasSessionSearchCapability: () => boolean }).hasSessionSearchCapability(), true,
+    'live compaction enables recovery only when session_search is effective for the turn');
+  runtimeInternals.getEffectiveTools = () => [];
 
   const statusRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
   Object.assign(statusRuntime, {

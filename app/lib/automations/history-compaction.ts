@@ -24,6 +24,10 @@ import {
   inspectPiRuntimeCompactionPressure,
   preparePiHermesCompactionCandidate,
 } from '@/app/lib/pi/compaction/runtime-engine';
+import {
+  buildEffectiveToolManifest,
+  effectiveToolManifestHas,
+} from '@/app/lib/pi/effective-tool-manifest';
 
 export type PrepareAutomationHistoryInput = Readonly<{
   sessionId: string;
@@ -69,6 +73,10 @@ export async function prepareAutomationHistoryWithCompaction(
   input: PrepareAutomationHistoryInput,
 ): Promise<PreparedAutomationHistory> {
   const toolTokens = estimatePiToolSchemaTokens(input.tools);
+  const sessionSearchAvailable = effectiveToolManifestHas(
+    buildEffectiveToolManifest(input.tools),
+    'session_search',
+  );
   const contextMessages = projectToolOutputBlocks(input.messages, input.model);
   const compose = (selectionMode: 'automatic' | 'hard_limit' | 'full' = 'automatic') => composePiHistoryForLlm({
     messages: contextMessages,
@@ -78,6 +86,9 @@ export async function prepareAutomationHistoryWithCompaction(
     modelMaxTokens: input.model.maxTokens,
     requestOutputTokens: input.requestOutputTokens,
     toolTokens,
+    sessionId: input.sessionId,
+    authorizedSessionId: input.sessionId,
+    sessionSearchAvailable,
     selectionMode,
     policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
   });
@@ -177,6 +188,8 @@ export async function prepareAutomationHistoryWithCompaction(
       streamFn: input.streamFn,
       summaryModel: input.summaryModel,
       summaryStreamFn: input.summaryStreamFn,
+      authorizedSessionId: input.sessionId,
+      sessionSearchAvailable,
       selectionMode: input.force ? 'force' : 'automatic',
       onSummaryProgress: (progress) => reportProgress(progress),
       policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,

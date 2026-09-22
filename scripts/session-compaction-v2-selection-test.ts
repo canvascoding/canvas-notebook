@@ -104,6 +104,17 @@ function main(): void {
   assert.equal(first.visibleAssistantAnchored, true);
   assert.ok(first.middleUnits.length > 0);
 
+  const oversizedActiveTurn = message('user', 'ACTIVE-OVERSIZED-TURN', 12_000);
+  const oversizedSelection = select(buildPiHistoryUnits([
+    message('user', 'older context'),
+    message('assistant', [{ type: 'text', text: 'older result' }]),
+    message('user', 'another old request'),
+    oversizedActiveTurn,
+  ] as AgentMessage[]));
+  assert.equal(oversizedSelection.activeUserAnchored, true);
+  assert.equal(oversizedSelection.keptUnits.some((unit) => unit.messages.includes(oversizedActiveTurn)), true,
+    'an oversized active user turn may exceed the tail target but cannot be summarized away');
+
   const subsequent = select(anchorUnits, true);
   assert.equal(subsequent.effectiveProtectFirstMessages, 0);
   assert.equal(subsequent.headUnits.length, 0, 'the initial head must decay after compaction');

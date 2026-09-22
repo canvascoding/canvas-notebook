@@ -15,6 +15,10 @@ import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/po
 import { estimateTextTokens, type PiSessionSummaryState } from '@/app/lib/pi/history-budget';
 import type { PiMessageNormalizationOptions } from '@/app/lib/pi/message-normalization';
 import { preparePiFinalPayload } from '@/app/lib/pi/multimodal-preparation';
+import {
+  buildEffectiveToolManifest,
+  effectiveToolManifestHas,
+} from '@/app/lib/pi/effective-tool-manifest';
 
 export type AutomationRuntimePayloadRecovery = Readonly<{
   messages: Message[];
@@ -63,6 +67,10 @@ export async function recoverAutomationRuntimePayload(input: {
   const compactionMessages = input.messages
     .filter((message) => !isAutomationSummaryProjectionMessage(message))
     .map(withoutPersistedMessageSequence);
+  const sessionSearchAvailable = effectiveToolManifestHas(
+    buildEffectiveToolManifest(input.tools),
+    'session_search',
+  );
   let summary: PiSessionSummaryState = {
     ...input.summary,
     summaryThroughSequence: null,
@@ -86,6 +94,8 @@ export async function recoverAutomationRuntimePayload(input: {
       streamFn: input.streamFn,
       summaryModel: input.summaryModel,
       summaryStreamFn: input.summaryStreamFn,
+      authorizedSessionId: input.sessionId,
+      sessionSearchAvailable,
       selectionMode: 'force',
       policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
     });
