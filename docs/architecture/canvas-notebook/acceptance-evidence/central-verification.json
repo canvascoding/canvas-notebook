@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-22T20:05:30.361Z",
+  "environment": "isolated local Control Plane and OrbStack canvas-managed-e2e",
+  "success": {
+    "database": {
+      "operationId": "38fb8717-5317-46b7-8a29-e4d09eb5a72c",
+      "status": "succeeded",
+      "phase": "verified",
+      "currentStage": "heartbeat_verification",
+      "failureCode": null,
+      "targetVersion": "2026.9.22.3",
+      "targetDigest": "sha256:694cd09cac5df9ab28cb2a0f57b7c1a448d7f010d6b69921f43c30f051adbaa6",
+      "commandId": "a9f54547-0e39-4ee4-b612-2e2941daa70f",
+      "completedAt": "2026-09-22T19:59:45.871",
+      "runStatus": "succeeded",
+      "commandStatus": "done",
+      "commandExitCode": 0
+    },
+    "centralVerification": {
+      "operationId": "38fb8717-5317-46b7-8a29-e4d09eb5a72c",
+      "commandId": "a9f54547-0e39-4ee4-b612-2e2941daa70f",
+      "sequence": 111,
+      "source": "control_plane",
+      "stage": "heartbeat_verification",
+      "status": "succeeded",
+      "errorCode": null,
+      "occurredAt": "2026-09-22T19:59:45.871",
+      "rollbackImageVerified": null
+    },
+    "api": {
+      "httpStatus": 200,
+      "operationId": "38fb8717-5317-46b7-8a29-e4d09eb5a72c",
+      "status": "succeeded",
+      "stage": "completed",
+      "rolledBack": false,
+      "errorCode": null,
+      "lastSequence": 39,
+      "eventCount": 39,
+      "corsOrigin": "http://localhost:3100",
+      "cacheControl": "no-store"
+    }
+  },
+  "rollback": {
+    "database": {
+      "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+      "status": "failed",
+      "phase": "failed",
+      "currentStage": "completed",
+      "failureCode": "update_execution_failed",
+      "targetVersion": "2026.9.22.3",
+      "targetDigest": "sha256:5adf6e1524794cee12ad8ce349ebdbb328de21116e386bf4f8ff44cc7344f5c3",
+      "commandId": "5196b713-3665-463c-8702-487e3fd5fc31",
+      "completedAt": "2026-09-22T20:05:01.957",
+      "runStatus": "failed",
+      "commandStatus": "failed",
+      "commandExitCode": 1
+    },
+    "hostCliRollbackProof": {
+      "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+      "commandId": "5196b713-3665-463c-8702-487e3fd5fc31",
+      "sequence": 142,
+      "source": "host_cli",
+      "stage": "rollback",
+      "status": "succeeded",
+      "errorCode": null,
+      "occurredAt": "2026-09-22T20:05:00.308",
+      "rollbackImageVerified": true
+    },
+    "failedCliCompletion": {
+      "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+      "commandId": "5196b713-3665-463c-8702-487e3fd5fc31",
+      "sequence": 143,
+      "source": "host_cli",
+      "stage": "completed",
+      "status": "failed",
+      "errorCode": "health_verification_failed",
+      "occurredAt": "2026-09-22T20:05:00.308",
+      "rollbackImageVerified": null
+    },
+    "api": {
+      "httpStatus": 200,
+      "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+      "status": "rolled_back",
+      "stage": "completed",
+      "rolledBack": true,
+      "errorCode": "update_execution_failed",
+      "lastSequence": 34,
+      "eventCount": 34,
+      "corsOrigin": "http://localhost:3100",
+      "cacheControl": "no-store"
+    },
+    "restoredContainer": {
+      "imageId": "sha256:694cd09cac5df9ab28cb2a0f57b7c1a448d7f010d6b69921f43c30f051adbaa6",
+      "configuredImage": "localhost:5000/canvas/notebook@sha256:694cd09cac5df9ab28cb2a0f57b7c1a448d7f010d6b69921f43c30f051adbaa6",
+      "running": true,
+      "startedAt": "2026-09-22T20:04:11.159194452Z",
+      "repoDigests": [
+        "localhost:5000/canvas/notebook@sha256:694cd09cac5df9ab28cb2a0f57b7c1a448d7f010d6b69921f43c30f051adbaa6"
+      ]
+    },
+    "freshHeartbeat": {
+      "status": "online",
+      "canvasVersion": "2026.9.22.3",
+      "canvasImageDigest": "sha256:694cd09cac5df9ab28cb2a0f57b7c1a448d7f010d6b69921f43c30f051adbaa6",
+      "appHealthStatus": "healthy",
+      "appHealthCheckedAt": "2026-09-22T20:05:01.753",
+      "lastSeenAt": "2026-09-22T20:05:02.001"
+    }
+  },
+  "assertions": [
+    "CLI success is confirmed by a separate central heartbeat verification before update success.",
+    "The intentional failed target never becomes centrally successful.",
+    "Rollback has persisted host CLI image verification and a later failed CLI completion for the same command.",
+    "Public API reports rolled_back while the attempted update remains failed in orchestration.",
+    "The running container and fresh healthy heartbeat report the previous successful image digest."
+  ]
+}

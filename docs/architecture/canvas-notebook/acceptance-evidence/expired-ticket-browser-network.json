@@ -1,0 +1,57 @@
+[
+  {
+    "at": "2026-09-22T19:58:45.725Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/status",
+    "status": 401
+  },
+  {
+    "at": "2026-09-22T19:58:45.746Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/events",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:58:45.768Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:58:47.980Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/events",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:58:50.160Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/events",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:59:42.875Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/events",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:59:45.055Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/events",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:59:45.819Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/status-access",
+    "status": 201
+  },
+  {
+    "at": "2026-09-22T19:59:45.828Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/status",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:59:47.205Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/38fb8717-5317-46b7-8a29-e4d09eb5a72c/events",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T19:59:49.177Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates",
+    "status": 200
+  }
+]

@@ -1,14 +1,16 @@
 # In-App-Update-Architektur fuer Canvas Notebook
 
-Stand: 2026-09-04
+Stand: 2026-09-22
 
-Status: Notebook-/Standalone-Grundlagen implementiert; Managed-Ende-zu-Ende-Abnahme offen.
+Status: Notebook-/Standalone-Grundlagen implementiert; Managed-Pfad lokal Ende zu Ende abgenommen.
 
-Die Pruefung vom 2026-09-22 hat Luecken zwischen Notebook, Control Plane und
-Host-Agent festgestellt. Der Abschlussstatus von Phase 7 ist deshalb bis zur
-gemeinsamen Integration und Abnahme zurueckgenommen. Verbindliche Arbeitspakete,
-Schnittstellen und Testnachweise stehen im
-[Managed-Settings-Update-Umsetzungsplan](managed-settings-update-implementation.md).
+Die am 2026-09-22 festgestellten Luecken zwischen Notebook, Control Plane und
+Host-Agent wurden implementiert und mit realem Browser, Agent und CLI auf einer
+OrbStack-VM geprueft. Erfolg und verifizierter Rollback sind nachgewiesen.
+Verbindliche Schnittstellen stehen im
+[Managed-Settings-Update-Umsetzungsplan](managed-settings-update-implementation.md),
+Laufzeitnachweise, Testzustand und Abnahmegrenzen im
+[Abnahmeprotokoll](managed-settings-update-acceptance.md).
 
 ## Ziel
 

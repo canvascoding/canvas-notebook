@@ -77,7 +77,8 @@ Die drei Teilbereiche duerfen nach Gate 1 parallel umgesetzt werden. Gate 3
 beginnt erst, wenn alle Teilbereiche abgeschlossen und zusammengefuehrt sind.
 
 Status: Alle drei Teilbereiche umgesetzt, zusammengefuehrt und auf Quellcode-Ebene
-abgenommen; die reale VM-/Browser-Abnahme bleibt offen.
+sowie mit realer VM und Browser lokal abgenommen. Laufzeitbefunde und Grenzen
+stehen im [Abnahmeprotokoll](managed-settings-update-acceptance.md).
 
 1. **Control-Plane-API:** neue instanzgebundene Routen, Scope-Migration,
    Readiness/Release-Pruefung, Wiederverwendung der bestehenden Start-Orchestrierung,
@@ -98,10 +99,10 @@ abgenommen; die reale VM-/Browser-Abnahme bleibt offen.
 - [x] Gemeinsame Payloads gegen echte Parser beider Repositories pruefen.
 - [x] Fokussierte Tests sowie Control-Plane-Typecheck und Notebook-Build erfolgreich.
 - [x] GitNexus detect_changes vor jedem Implementierungscommit; nur erwartete Pfade.
-- [ ] Bestehenden lokalen Stack nur nach expliziter Build-Freigabe aktualisieren;
+- [x] Bestehenden lokalen Stack nur nach expliziter Build-Freigabe aktualisieren;
       vorher erfolgreicher Host-Build, keine weitere Testumgebung starten.
-- [ ] Browser-Abnahme nur nach ausdruecklicher Playwright-Freigabe.
-- [ ] Echte VM-Abnahme: Start, persistente Annahme, Containerwechsel, direkter Status,
+- [x] Browser-Abnahme nur nach ausdruecklicher Playwright-Freigabe.
+- [x] Echte VM-Abnahme: Start, persistente Annahme, Containerwechsel, direkter Status,
       Wiederverbindung, verifizierte Zielversion; Rollback separat kontrolliert testen.
 - [x] Nicht ausgefuehrte oder blockierte Laufzeitpruefungen ausdruecklich dokumentieren.
 
@@ -216,29 +217,28 @@ Filesystem-Tracing bleiben bestehen.
    Hosts, darunter `host.orb.internal`; produktive Verbindungen bleiben HTTPS.
    Ein Browser muss den konfigurierten CP-Host selbst erreichen koennen.
 
-### Noch offene Laufzeitabnahme
+### Abgeschlossene lokale Laufzeitabnahme
 
-Kein Container wurde gebaut oder ersetzt, keine reale VM aktualisiert und kein
-Playwright-/Browserlauf ausgefuehrt. Die ausdrueckliche Freigabe fuer diese Schritte
-wurde angefragt und liegt bislang nicht vor. Massgeblich sind die Repository-Regeln
-in [AGENTS.md](../../../AGENTS.md): Container nur bei ausdruecklicher Anforderung,
-Playwright nur bei ausdruecklicher Zustimmung. Die laufenden alten Artefakte
-wurden nicht als Test des neuen Stands gewertet.
+Mit der ausdruecklichen Folgeanweisung „Dann mach die abnahme“ wurden die
+Container-/VM-/Browserpruefungen beauftragt und am 2026-09-22 durchgefuehrt.
+Der verwaltete Stack wurde nach erfolgreichen Host-Builds aus den Branches neu
+gebaut. Fuer den Agent-/CLI-Lauf blieb ausschliesslich die OrbStack-VM als
+Notebook-Testinstanz aktiv; der Notebook-Dienst im lokalen Compose-Stack wurde
+gestoppt.
 
-Nach Freigabe bleibt folgendes konkrete Abnahme-To-do:
+Die Abnahme fand und korrigierte zusaetzlich die fehlende CP-Origin in der CSP
+(`646bcb18a`) sowie die fehlende Digest-Persistenz und ueberschriebene explizite
+Vector-Policy der CLI (`6049e7d6c`). Eine inkonsistente lokale Domain-Fixture wurde
+ueber die CP-API angeglichen.
 
-1. Den einen verwalteten Teststack gemaess `canvas-local-team-seat-dev` aus den
-   beiden Branches neu bauen/recreaten; zuvor den erfolgreichen Host-Build
-   bestaetigen. Keine parallelen Testcontainer oder zweite Umgebung starten.
-2. Instanz-Token, neue Scopes, Notebook-Origin, Worker und Agent-Verbindung pruefen;
-   mit den lokalen Bootstrap-Admin-Credentials anmelden.
-3. In Settings ein freigegebenes Stable-Update starten. Persistente Operation-ID
-   und gebundene Release-ID pruefen; zweiten Start waehrenddessen ablehnen lassen.
-4. Containerwechsel beobachten: direkter Ticket-Status bleibt lesbar, anschliessend
-   App-Reconnect und zentral verifizierte Zielversion pruefen. Seite waehrend des
-   Updates neu laden und Ticket-/Operation-Recovery pruefen.
-5. In der kontrollierten Testumgebung Fehler nach dem Containerwechsel ausloesen;
-   Healthcheck und Image-ID des Rollbacks pruefen. Ohne Image-Nachweis darf kein
-   verifizierter Rollback angezeigt werden.
-6. Worker offline, Agent offline, abgelaufene Sitzung und abgelaufenes Ticket in
-   der UI pruefen. Ergebnisse erst dann als vollstaendige E2E-Abnahme eintragen.
+Echter UI-Start, konkurrierender Start, Offline-Zustaende, direkter Status bei
+App-Ausfall, Reload, abgelaufene Sitzung, Ticket-Ablauf samt Erneuerung, zentral
+verifizierter Erfolg und kontrollierter Rollback mit Image-Nachweis bestanden.
+Das [Abnahmeprotokoll](managed-settings-update-acceptance.md) enthaelt Operationen,
+Screenshots, Journale, unabhaengige DB-/Host-Verifikation und finalen Testzustand.
+
+Ausdrueckliche Grenzen: lokale gleiche-Version-Rebuilds statt neuer Schema-
+Migration; CLI passend vorinstalliert statt extern heruntergeladen; produktive
+DNS/TLS und der separate Standalone-Pfad wurden hier nicht abgenommen. Als kleine
+UX-Nacharbeit bleibt eine genauere grobe Fortschrittsphase waehrend des
+Host-Healthchecks; technische Details und Abschlusssemantik sind korrekt.
