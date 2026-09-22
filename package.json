@@ -145,6 +145,7 @@
     "test:agent:origami-icons": "tsx scripts/agent-origami-icon-assets-test.tsx",
     "test:chat:message-identities": "tsx scripts/chat-message-identity-ui-test.tsx",
     "test:chat:scroll-stability": "tsx scripts/chat-scroll-anchor-test.ts && tsx scripts/chat-message-render-key-test.ts",
+    "test:chat:widget-scroll": "playwright test tests/chat-widget-scroll.spec.ts",
     "test:agent:bradley-working-state": "tsx scripts/bradley-working-state-test.tsx && tsx scripts/bradley-abort-transition-test.ts && npm run test:agent:bradley-glyph",
     "test:agent:bradley-starter": "tsx scripts/bradley-starter-state-test.tsx",
     "test:agent:bradley-onboarding-visual": "tsx scripts/bradley-onboarding-visual-test.ts",
