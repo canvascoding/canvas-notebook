@@ -3,12 +3,16 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Module from 'node:module';
+import { createPiTestDatabase } from './helpers/pi-test-database';
+
+let database: Awaited<ReturnType<typeof createPiTestDatabase>>;
 
 const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
+  if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || request === '../app/lib/db') return database;
   if (request === 'server-only') {
     return {};
   }
@@ -80,6 +84,9 @@ async function insertUser(userId: string, email: string) {
 }
 
 async function main() {
+  database = await createPiTestDatabase();
+  process.env.BASE_URL = 'http://localhost:3001';
+  process.env.BETTER_AUTH_BASE_URL = process.env.BASE_URL;
   tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-email-accounts-'));
   secretsDir = path.join(tmpRoot, 'secrets');
   integrationsEnvPath = path.join(secretsDir, 'Canvas-Integrations.env');
@@ -746,4 +753,7 @@ main().catch(async (error) => {
   if (tmpRoot) await fs.rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
   console.error(error);
   process.exitCode = 1;
+}).finally(async () => {
+  moduleInternals._load = originalLoad;
+  await database?.close();
 });

@@ -2,6 +2,7 @@ import 'server-only';
 
 import {
   getEmailAccountForUser,
+  getPersonalEmailAccountForUser,
   publicStoredEmailAccount,
   readStoredEmailAccountSecret,
   upsertSmtpEmailAccount,
@@ -154,7 +155,7 @@ function draftInputFromStored(draft: Awaited<ReturnType<typeof getStoredEmailDra
 
 async function readExistingSmtpSecretForInput(userId: string, input: SmtpAccountInput): Promise<EmailAccountSmtpSecret | null> {
   if (!input.accountId) return null;
-  const existingAccount = await getEmailAccountForUser(userId, input.accountId);
+  const existingAccount = await getPersonalEmailAccountForUser(userId, input.accountId);
   const secret = await readStoredEmailAccountSecret(existingAccount);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   return secret;
@@ -195,7 +196,7 @@ export async function testSmtpConnection(userId: string, input: SmtpAccountInput
 }
 
 export async function testStoredSmtpEmailAccount(userId: string, accountId: string) {
-  const account = await getEmailAccountForUser(userId, accountId);
+  const account = await getPersonalEmailAccountForUser(userId, accountId);
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
 
