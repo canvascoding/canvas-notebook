@@ -7,10 +7,10 @@ import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import { invalidateWorkspaceLinkIndexCache } from '@/app/lib/markdown/workspace-link-index-client';
 
 const POSITIVE_VALIDATION_CACHE_TTL_MS = 30_000;
-const NEGATIVE_VALIDATION_CACHE_TTL_MS = 1_000;
-const MAX_BACKGROUND_NEGATIVE_RETRIES = 5;
+const NEGATIVE_VALIDATION_CACHE_TTL_MS = 30_000;
+const UNAVAILABLE_VALIDATION_CACHE_TTL_MS = 5_000;
 
-export type FileReferenceValidationType = 'file' | 'directory' | 'missing';
+export type FileReferenceValidationType = 'file' | 'directory' | 'missing' | 'unavailable';
 
 export type FileReferenceValidationResult = {
   path: string;
@@ -25,8 +25,6 @@ type ValidationCacheEntry = {
 };
 
 const validationCache = new Map<string, ValidationCacheEntry>();
-const negativeRetryAttempts = new Map<string, number>();
-const negativeRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 export interface FileReferenceValidationInvalidation {
   workspaceId: string;
   path: string | null;
@@ -46,40 +44,11 @@ function notifyValidationListeners(event: FileReferenceValidationInvalidation) {
   for (const listener of validationListeners) listener(event);
 }
 
-function clearNegativeRetry(cacheKey: string, resetAttempts = true) {
-  const timer = negativeRetryTimers.get(cacheKey);
-  if (timer) clearTimeout(timer);
-  negativeRetryTimers.delete(cacheKey);
-  if (resetAttempts) negativeRetryAttempts.delete(cacheKey);
-}
-
-function scheduleNegativeRetry(cacheKey: string, workspaceId: string, path: string) {
-  if (negativeRetryTimers.has(cacheKey)) return;
-  const attempts = negativeRetryAttempts.get(cacheKey) ?? 0;
-  if (attempts >= MAX_BACKGROUND_NEGATIVE_RETRIES) return;
-  negativeRetryAttempts.set(cacheKey, attempts + 1);
-
-  const timer = setTimeout(() => {
-    negativeRetryTimers.delete(cacheKey);
-    const cached = validationCache.get(cacheKey);
-    if (cached?.value?.type !== 'missing') return;
-    validationCache.delete(cacheKey);
-    notifyValidationListeners({ workspaceId, path });
-  }, NEGATIVE_VALIDATION_CACHE_TTL_MS);
-  negativeRetryTimers.set(cacheKey, timer);
-}
-
 export function subscribeToFileReferenceValidationInvalidation(
   listener: (event: FileReferenceValidationInvalidation) => void,
 ): () => void {
   validationListeners.add(listener);
   return () => validationListeners.delete(listener);
-}
-
-export function hasPendingFileReferenceValidationRetry(filePath: string): boolean {
-  const normalizedPath = normalizeChatFilePath(filePath);
-  if (!normalizedPath) return false;
-  return negativeRetryTimers.has(buildValidationCacheKey(getActiveWorkspaceId(), normalizedPath));
 }
 
 export function invalidateFileReferenceValidationCache(options: {
@@ -89,8 +58,7 @@ export function invalidateFileReferenceValidationCache(options: {
   const workspaceId = options.workspaceId ?? getActiveWorkspaceId() ?? LEGACY_PERSONAL_WORKSPACE_ID;
   const normalizedPath = options.path ? normalizeChatFilePath(options.path) : null;
 
-  const cacheKeys = new Set([...validationCache.keys(), ...negativeRetryTimers.keys()]);
-  for (const key of cacheKeys) {
+  for (const key of validationCache.keys()) {
     const [cachedWorkspaceId, cachedPath] = key.split('\0', 2);
     if (workspaceId && cachedWorkspaceId !== workspaceId) continue;
     if (
@@ -102,7 +70,6 @@ export function invalidateFileReferenceValidationCache(options: {
       continue;
     }
     validationCache.delete(key);
-    clearNegativeRetry(key);
   }
 
   invalidateWorkspaceLinkIndexCache(workspaceId);
@@ -115,6 +82,10 @@ function missingValidationResult(path: string): FileReferenceValidationResult {
     type: 'missing',
     exists: false,
   };
+}
+
+function unavailableValidationResult(path: string): FileReferenceValidationResult {
+  return { path, type: 'unavailable', exists: false };
 }
 
 function validationResultFromType(
@@ -133,13 +104,14 @@ function parseApiValidationResult(
   payload: unknown
 ): FileReferenceValidationResult {
   if (!payload || typeof payload !== 'object' || !('data' in payload)) {
-    return missingValidationResult(normalizedPath);
+    return unavailableValidationResult(normalizedPath);
   }
 
   const data = payload.data;
-  if (!data || typeof data !== 'object' || !('exists' in data) || data.exists !== true) {
-    return missingValidationResult(normalizedPath);
+  if (!data || typeof data !== 'object' || !('exists' in data) || typeof data.exists !== 'boolean') {
+    return unavailableValidationResult(normalizedPath);
   }
+  if (!data.exists) return missingValidationResult(normalizedPath);
 
   const responsePath = 'path' in data && typeof data.path === 'string'
     ? normalizeChatFilePath(data.path)
@@ -150,10 +122,12 @@ function parseApiValidationResult(
       ? 'directory'
       : 'file';
 
-  return validationResultFromType(responsePath || normalizedPath, type);
+  if (responsePath !== normalizedPath) return unavailableValidationResult(normalizedPath);
+  return validationResultFromType(normalizedPath, type);
 }
 
 function getCacheTtl(result: FileReferenceValidationResult): number {
+  if (result.type === 'unavailable') return UNAVAILABLE_VALIDATION_CACHE_TTL_MS;
   return result.type === 'missing'
     ? NEGATIVE_VALIDATION_CACHE_TTL_MS
     : POSITIVE_VALIDATION_CACHE_TTL_MS;
@@ -162,61 +136,56 @@ function getCacheTtl(result: FileReferenceValidationResult): number {
 export async function validateFileReference(
   filePath: string,
   fileTree: FileNode[],
-  options: { fileTreeWorkspaceId?: string | null; preferFresh?: boolean } = {},
+  options: { workspaceId?: string | null; fileTreeWorkspaceId?: string | null; preferFresh?: boolean } = {},
 ): Promise<FileReferenceValidationResult> {
   const normalizedPath = normalizeChatFilePath(filePath);
-  const workspaceId = getActiveWorkspaceId();
-  const resolvedWorkspaceId = workspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID;
+  const workspaceId = options.workspaceId === undefined ? getActiveWorkspaceId() : options.workspaceId;
   const cacheKey = buildValidationCacheKey(workspaceId, normalizedPath);
+
+  const now = Date.now();
+  const cached = validationCache.get(cacheKey);
+  // In-flight work has no TTL. A slow request must not cause another request.
+  if (cached?.promise) return cached.promise;
+  if (cached?.value && cached.expiresAt > now) return cached.value;
 
   const canUseTree = !options.preferFresh && (options.fileTreeWorkspaceId === undefined || options.fileTreeWorkspaceId === workspaceId);
   const nodeInTree = canUseTree ? findNodeInTree(normalizedPath, fileTree) : null;
   if (nodeInTree !== null) {
-    clearNegativeRetry(cacheKey);
     return validationResultFromType(normalizedPath, nodeInTree.type);
   }
 
-  if (!normalizedPath || typeof fetch !== 'function') {
-    return missingValidationResult(normalizedPath);
-  }
-
-  const now = Date.now();
-  const cached = validationCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
-    if (cached.promise) {
-      return cached.promise;
-    }
-    return cached.value ?? missingValidationResult(normalizedPath);
-  }
+  if (!normalizedPath) return missingValidationResult(normalizedPath);
+  if (typeof fetch !== 'function') return unavailableValidationResult(normalizedPath);
 
   const url = withWorkspaceQuery(`/api/files/exists?path=${encodeURIComponent(normalizedPath)}`, workspaceId);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
   const promise: Promise<FileReferenceValidationResult> = fetch(url, {
     credentials: 'include',
     cache: 'no-store',
     headers: workspaceHeaders(workspaceId),
+    signal: controller.signal,
   })
     .then(async (response) => {
       if (!response.ok) {
-        return missingValidationResult(normalizedPath);
+        return unavailableValidationResult(normalizedPath);
       }
 
       const payload = await response.json().catch(() => null);
       return parseApiValidationResult(normalizedPath, payload);
     })
-    .catch(() => missingValidationResult(normalizedPath))
+    .catch(() => unavailableValidationResult(normalizedPath))
     .then((result) => {
-      if (validationCache.get(cacheKey)?.promise !== promise) return result;
+      const current = validationCache.get(cacheKey);
+      if (current?.promise !== promise) {
+        return current?.promise ?? current?.value ?? unavailableValidationResult(normalizedPath);
+      }
       validationCache.set(cacheKey, {
         value: result,
         expiresAt: Date.now() + getCacheTtl(result),
       });
-      if (result.type === 'missing') {
-        scheduleNegativeRetry(cacheKey, resolvedWorkspaceId, normalizedPath);
-      } else {
-        clearNegativeRetry(cacheKey);
-      }
       return result;
-    });
+    }).finally(() => clearTimeout(timeout));
 
   validationCache.set(cacheKey, {
     promise,

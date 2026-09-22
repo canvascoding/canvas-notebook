@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import {
-  hasPendingFileReferenceValidationRetry,
   subscribeToFileReferenceValidationInvalidation,
   validateFileReference,
   type FileReferenceValidationResult,
@@ -19,14 +18,15 @@ type ValidationSnapshot = {
 
 const EMPTY_RESULTS = new Map<string, FileReferenceValidationResult>();
 
-export function useChatFileReferenceValidation(pathKey: string) {
+export function useChatFileReferenceValidation(pathKey: string, workspaceId?: string | null) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const fileTree = useFileStore((state) => state.fileTree);
   const fileTreeWorkspaceId = useFileStore((state) => state.fileTreeWorkspaceId);
   const [validationVersion, setValidationVersion] = useState(0);
   const [snapshot, setSnapshot] = useState<ValidationSnapshot | null>(null);
   const paths = useMemo(() => pathKey.split('\n').filter(Boolean), [pathKey]);
-  const workspaceKey = activeWorkspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID;
+  const resolvedWorkspaceId = workspaceId === undefined ? activeWorkspaceId : workspaceId;
+  const workspaceKey = resolvedWorkspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID;
   const validationKey = `${workspaceKey}\0${pathKey}`;
 
   useEffect(() => subscribeToFileReferenceValidationInvalidation((event) => {
@@ -44,22 +44,19 @@ export function useChatFileReferenceValidation(pathKey: string) {
 
     let ignore = false;
     void Promise.all(paths.map(async (path) => (
-      [path, await validateFileReference(path, fileTree, { fileTreeWorkspaceId, preferFresh: validationVersion > 0 })] as const
+      [path, await validateFileReference(path, fileTree, { workspaceId: resolvedWorkspaceId, fileTreeWorkspaceId, preferFresh: validationVersion > 0 })] as const
     ))).then((entries) => {
       if (ignore) return;
-      const settledEntries = entries.filter(([, result]) => (
-        result.type !== 'missing' || !hasPendingFileReferenceValidationRetry(result.path)
-      ));
       setSnapshot({
         key: validationKey,
-        results: new Map(settledEntries),
+        results: new Map(entries),
       });
     });
 
     return () => {
       ignore = true;
     };
-  }, [fileTree, fileTreeWorkspaceId, paths, validationKey, validationVersion]);
+  }, [fileTree, fileTreeWorkspaceId, paths, resolvedWorkspaceId, validationKey, validationVersion]);
 
   const results = snapshot?.key === validationKey ? snapshot.results : EMPTY_RESULTS;
   return {
