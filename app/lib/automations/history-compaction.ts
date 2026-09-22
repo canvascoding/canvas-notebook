@@ -9,6 +9,7 @@ import {
   estimatePiToolSchemaTokens,
   serializePiEffectiveToolSchemas,
 } from '@/app/lib/pi/context-budget';
+import type { PiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import {
   composePiHistoryForLlm,
   isPiHistoryCompositionSendable,
@@ -43,6 +44,8 @@ export type PrepareAutomationHistoryInput = Readonly<{
   signal: AbortSignal;
   streamFn: StreamFn;
   imageNormalizationOptions?: PiMessageNormalizationOptions;
+  /** Immutable request-bound policy shared with live compaction. */
+  effectiveCompactionPolicy?: PiEffectiveCompactionPolicy;
   force?: boolean;
   bypassCooldown?: boolean;
 }>;
@@ -74,6 +77,7 @@ export async function prepareAutomationHistoryWithCompaction(
     requestOutputTokens: input.requestOutputTokens,
     toolTokens,
     selectionMode,
+    policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
   });
   const preflight = compose('full');
   const roughInspection = inspectPiRuntimeCompactionPressure({
@@ -81,6 +85,7 @@ export async function prepareAutomationHistoryWithCompaction(
     model: input.model,
     outputReserveTokens: input.requestOutputTokens,
     fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
+    policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
   });
   let shouldCompact = input.force === true
     || preflight.softThresholdExceeded
@@ -101,6 +106,7 @@ export async function prepareAutomationHistoryWithCompaction(
       outputReserveTokens: input.requestOutputTokens,
       fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
       finalSnapshot: exactPreflight.budgetSnapshot,
+      policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
     }).pressure.shouldCompact;
   }
   if (
@@ -169,6 +175,7 @@ export async function prepareAutomationHistoryWithCompaction(
       streamFn: input.streamFn,
       selectionMode: input.force ? 'force' : 'automatic',
       onSummaryProgress: (progress) => reportProgress(progress),
+      policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
     }),
   });
   if (result.state === 'succeeded' && result.summary && result.composition) {

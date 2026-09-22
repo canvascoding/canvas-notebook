@@ -17,6 +17,7 @@ import {
   withPiRequestOutputTokenCap,
   type PiContextBudgetSnapshot,
 } from '@/app/lib/pi/context-budget';
+import { loadPiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import { projectAgentEventForExternal } from '@/app/lib/pi/visual-data-projection';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
@@ -555,6 +556,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       };
       let currentSystemPrompt = systemPrompt;
       let automationSummary = initialSessionSummary;
+      const effectiveCompactionPolicy = await loadPiEffectiveCompactionPolicy();
       const prepareHistoryForRuntime = (
         runtime: ExecutableAgentRuntime,
         overrides: {
@@ -582,6 +584,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           signal: overrides.signal ?? executionSignal,
           streamFn: runtime.streamFn,
           imageNormalizationOptions: automationImageNormalizationOptions,
+          effectiveCompactionPolicy,
           force: overrides.force,
           bypassCooldown: overrides.bypassCooldown,
         })
@@ -670,6 +673,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             streamFn: executableRuntime.streamFn,
             imageNormalizationOptions: automationImageNormalizationOptions,
             initialSnapshot,
+            effectiveCompactionPolicy,
           });
           if (recovered) transientAutomationSummary = recovered.summary;
           return recovered;

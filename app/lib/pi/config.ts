@@ -6,6 +6,16 @@ export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'x
 
 export type OllamaMode = 'local' | 'cloud';
 
+/**
+ * Global, admin-managed preferences for session compaction. These values do
+ * not contain provider credentials; a deployment may override them for an
+ * immediate operational rollback.
+ */
+export type PiCompactionRuntimeConfig = {
+  tailMode?: 'legacy' | 'lean';
+  summaryModel?: string | null;
+};
+
 export interface PiProviderConfig {
   id: string; // e.g., 'openrouter', 'anthropic', 'google', 'ollama', 'groq'
   model: string;
@@ -36,6 +46,7 @@ export interface PiRuntimeConfig {
   qmd?: {
     allowExpensiveQueryMode?: boolean;
   };
+  compaction?: PiCompactionRuntimeConfig;
   updatedAt: string;
   updatedBy: string;
 }
@@ -85,6 +96,7 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
 };
 
 export function normalizePiRuntimeConfig(config: PiRuntimeConfig): PiRuntimeConfig {
+  const { compaction: configuredCompaction, ...configWithoutCompaction } = config;
   const providers = Object.fromEntries(
     Object.entries(config.providers).map(([providerId, providerConfig]) => {
       const normalizedProviderConfig = {
@@ -96,9 +108,21 @@ export function normalizePiRuntimeConfig(config: PiRuntimeConfig): PiRuntimeConf
     }),
   );
 
+  const compaction = configuredCompaction && typeof configuredCompaction === 'object'
+    ? {
+      ...(configuredCompaction.tailMode === 'legacy' || configuredCompaction.tailMode === 'lean'
+        ? { tailMode: configuredCompaction.tailMode }
+        : {}),
+      ...(typeof configuredCompaction.summaryModel === 'string' && configuredCompaction.summaryModel.trim()
+        ? { summaryModel: configuredCompaction.summaryModel.trim() }
+        : {}),
+    }
+    : undefined;
+
   return {
-    ...config,
+    ...configWithoutCompaction,
     providers,
+    ...(compaction && Object.keys(compaction).length > 0 ? { compaction } : {}),
   };
 }
 
@@ -170,6 +194,26 @@ export function validatePiConfig(config: unknown): string | null {
         typeof candidate.qmd.allowExpensiveQueryMode !== 'boolean'))
   ) {
     return 'qmd.allowExpensiveQueryMode must be a boolean when provided.';
+  }
+
+  if (candidate.compaction !== undefined) {
+    if (typeof candidate.compaction !== 'object' || candidate.compaction === null) {
+      return 'compaction must be an object when provided.';
+    }
+    const compaction = candidate.compaction as Partial<PiCompactionRuntimeConfig>;
+    if (compaction.tailMode !== undefined && compaction.tailMode !== 'legacy' && compaction.tailMode !== 'lean') {
+      return 'compaction.tailMode must be either "legacy" or "lean" when provided.';
+    }
+    if (compaction.summaryModel !== undefined && compaction.summaryModel !== null) {
+      if (
+        typeof compaction.summaryModel !== 'string'
+        || !compaction.summaryModel.trim()
+        || compaction.summaryModel.length > 512
+        || /[\u0000-\u001F\u007F]/u.test(compaction.summaryModel)
+      ) {
+        return 'compaction.summaryModel must be a non-empty model identity of at most 512 characters when provided.';
+      }
+    }
   }
 
   return null;

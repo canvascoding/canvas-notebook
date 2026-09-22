@@ -487,7 +487,8 @@
       "id": "SC-P10",
       "order": 10,
       "title": "Refresh Hermes reference and central compaction policy",
-      "status": "in_progress",
+      "status": "completed",
+      "completedAt": "2026-09-22",
       "dependsOn": ["SC-P09"],
       "hermesReferences": [
         "agent/context_compressor.py:_compute_threshold_tokens",
@@ -505,7 +506,13 @@
         "small, 256K and large-window threshold parity tests",
         "live and automation effective-policy equality"
       ],
-      "completionEvidence": [],
+      "completionEvidence": [
+        "The immutable effective compaction policy resolves deployment overrides before persisted admin preferences and product defaults",
+        "Live chat, normal automation compaction and automation overflow recovery use the same request-bound context-budget policy",
+        "Optional compaction configuration is strictly validated without changing existing runtime configuration semantics",
+        "Hermes MIT inventory and notices are pinned to e2f8a0731bf26e95b31e35d73e71e183a1045b81 without unrelated dependency drift",
+        "Policy, live-compaction, automation-history-compaction and focused ESLint checks pass"
+      ],
       "exitGate": "SC-G10_POLICY_REFRESHED"
     },
     {

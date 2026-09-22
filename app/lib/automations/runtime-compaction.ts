@@ -6,6 +6,7 @@ import {
   estimatePiToolSchemaTokens,
   type PiContextBudgetSnapshot,
 } from '@/app/lib/pi/context-budget';
+import type { PiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import {
   getPiFinalPayloadRetryLoad,
   preparePiHermesCompactionCandidate,
@@ -54,6 +55,8 @@ export async function recoverAutomationRuntimePayload(input: {
   streamFn: StreamFn;
   imageNormalizationOptions?: PiMessageNormalizationOptions;
   initialSnapshot?: PiContextBudgetSnapshot | null;
+  /** Immutable request-bound policy shared with normal automation compaction. */
+  effectiveCompactionPolicy?: PiEffectiveCompactionPolicy;
 }): Promise<AutomationRuntimePayloadRecovery | null> {
   const compactionMessages = input.messages
     .filter((message) => !isAutomationSummaryProjectionMessage(message))
@@ -65,7 +68,9 @@ export async function recoverAutomationRuntimePayload(input: {
   let previousLoad = input.initialSnapshot
     ? getPiFinalPayloadRetryLoad(input.initialSnapshot)
     : input.model.contextWindow;
-  const maximumAttempts = DEFAULT_PI_CONTEXT_BUDGET_POLICY.maxCompactionAttempts ?? 3;
+  const maximumAttempts = input.effectiveCompactionPolicy?.contextBudgetPolicy.maxCompactionAttempts
+    ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY.maxCompactionAttempts
+    ?? 3;
   for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
     const candidate = await preparePiHermesCompactionCandidate({
       messages: compactionMessages,
@@ -78,6 +83,7 @@ export async function recoverAutomationRuntimePayload(input: {
       signal: input.signal,
       streamFn: input.streamFn,
       selectionMode: 'force',
+      policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
     });
     // An empty overflow projection fits any window, but has lost the request.
     // Require complete history coverage before treating recovery as successful.

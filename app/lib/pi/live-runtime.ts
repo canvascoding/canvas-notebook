@@ -72,6 +72,10 @@ import {
 } from '@/app/lib/pi/compaction/diagnostics';
 import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/policy';
 import {
+  loadPiEffectiveCompactionPolicy,
+  type PiEffectiveCompactionPolicy,
+} from '@/app/lib/pi/compaction/runtime-policy';
+import {
   abortPiSessionCompaction,
   getActivePiSessionCompaction,
   invalidatePiSessionCompaction,
@@ -317,6 +321,8 @@ type RuntimeOptions = {
   requiresRuntimeRecreation?: () => boolean;
   summaryStreamFn?: StreamFn;
   compactionPolicy?: PiCompactionCoordinatorPolicy;
+  /** Immutable request-bound policy shared by status, preflight and compaction. */
+  effectiveCompactionPolicy?: PiEffectiveCompactionPolicy;
   idleCompaction?: boolean;
   idleCompactionDelayMs?: number;
 };
@@ -719,6 +725,7 @@ export class LivePiRuntime {
       toolTokens: estimatePiToolSchemaTokens(this.getEffectiveTools()),
       additionalContextTokens,
       selectionMode,
+      policy: this.options?.effectiveCompactionPolicy?.contextBudgetPolicy,
     });
   }
 
@@ -829,6 +836,7 @@ export class LivePiRuntime {
           selectionMode: input.selectionMode ?? 'automatic',
           triggerSnapshot: input.triggerSnapshot,
           focusTopic: input.focusTopic,
+          policy: this.options?.effectiveCompactionPolicy?.contextBudgetPolicy,
           onSummaryProgress: (progress) => {
             reportProgress(progress);
             if (progress.status === 'started' || progress.status === 'completed') {
@@ -1845,7 +1853,9 @@ export class LivePiRuntime {
     }
 
     this.preparedRuntimePayload = null;
-    const maximumAttempts = DEFAULT_PI_CONTEXT_BUDGET_POLICY.maxCompactionAttempts ?? 3;
+    const maximumAttempts = this.options?.effectiveCompactionPolicy?.contextBudgetPolicy.maxCompactionAttempts
+      ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY.maxCompactionAttempts
+      ?? 3;
     let previousLoad = getPiFinalPayloadRetryLoad(prepared.budgetSnapshot);
     let addedContextReserve = input.additionalContextTokens;
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
@@ -2799,9 +2809,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const provider = executableRuntime.selection.selection.providerId;
   const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
   const model = executableRuntime.model;
-  const [loadedSession, lastProviderInputUsage] = await Promise.all([
+  const [loadedSession, lastProviderInputUsage, effectiveCompactionPolicy] = await Promise.all([
     loadPiSessionWithSummary(sessionId, userId, agentId),
     loadLatestPiSessionInputUsage(sessionId, userId),
+    loadPiEffectiveCompactionPolicy(),
   ]);
   timing.mark('sessionHistory');
   const initialMessages = loadedSession?.messages || [];
@@ -2920,6 +2931,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       resetToolLoopGuard: () => toolLoopGuard.reset(),
       requiresRuntimeRecreation: executableRuntime.requiresRecreation,
       summaryStreamFn: executableRuntime.streamFn,
+      effectiveCompactionPolicy,
       idleCompaction: process.env.CANVAS_PI_IDLE_COMPACTION_ENABLED === 'true',
     },
   );
