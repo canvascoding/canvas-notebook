@@ -805,7 +805,7 @@ export async function update(
       phase = 'finalize';
       const finalizeTimeout = remainingUpdateTime(deadline, true);
       const persisted = await readConfig(context);
-      if (previousConfigImage.includes('@sha256:')) {
+      if (options.eventStream || managedByControlPlane(config) || previousConfigImage.includes('@sha256:')) {
         persisted.image = targetImage;
       } else {
         const targetImageId = await docker.imageId(targetImage);

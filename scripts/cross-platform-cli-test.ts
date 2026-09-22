@@ -327,6 +327,13 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(postgresConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
     assert.equal(postgresConfig.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.equal(postgresConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
+    for (const explicitValue of [false, 'false']) {
+      const vectorDisabled = materializeConfig({
+        ...postgresConfig,
+        env: { ...postgresConfig.env, CANVAS_POSTGRES_VECTOR_ENABLED: explicitValue },
+      });
+      assert.equal(vectorDisabled.env.CANVAS_POSTGRES_VECTOR_ENABLED, explicitValue);
+    }
     assert.match(String(postgresConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=managed$/m);
@@ -578,6 +585,18 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.ok(events.some((event) => event.stage === 'version_verification' && event.status === 'succeeded'));
       assert.equal(events.at(-1)?.stage, 'completed');
       assert.equal(events.at(-1)?.status, 'succeeded');
+      assert.equal((JSON.parse(await readFile(paths.configFile, 'utf8')) as { image: string }).image, targetImage);
+      assert.ok((await readFile(paths.composeEnvFile, 'utf8')).includes(`CANVAS_IMAGE=${targetImage}\n`));
+      assert.equal(runner.calls.some((call) => call.args[0] === 'image' && call.args[1] === 'tag'), false);
+
+      config = await reset();
+      config.env.CANVAS_MANAGED_SERVICES_ENABLED = true;
+      await writeConfig(config);
+      const managedSuccess = await captureConsole(() => update(context, docker, config, true, { image: targetImage }));
+      assert.equal(JSON.parse(managedSuccess.at(-1) || '{}').success, true);
+      assert.equal((JSON.parse(await readFile(paths.configFile, 'utf8')) as { image: string }).image, targetImage);
+      assert.ok((await readFile(paths.composeEnvFile, 'utf8')).includes(`CANVAS_IMAGE=${targetImage}\n`));
+      assert.equal(runner.calls.some((call) => call.args[0] === 'image' && call.args[1] === 'tag'), false);
 
       config = await reset();
       runner.healthMode = 'new-unhealthy';

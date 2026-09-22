@@ -427,7 +427,7 @@ export function normalizeDatabaseConfig(
     requireUrlSafePostgresPart('CANVAS_POSTGRES_DB', prepared.env.CANVAS_POSTGRES_DB);
     prepared.env.DATABASE_URL = `postgresql://${prepared.env.CANVAS_POSTGRES_USER}:${prepared.env.CANVAS_POSTGRES_PASSWORD}@postgres:5432/${prepared.env.CANVAS_POSTGRES_DB}`;
   }
-  prepared.env.CANVAS_POSTGRES_VECTOR_ENABLED = true;
+  prepared.env.CANVAS_POSTGRES_VECTOR_ENABLED ??= true;
   return prepared;
 }
 
