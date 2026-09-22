@@ -2,7 +2,13 @@
 
 Stand: 2026-09-04
 
-Status: Implementiert in acht abgeschlossenen Phasen
+Status: Notebook-/Standalone-Grundlagen implementiert; Managed-Ende-zu-Ende-Abnahme offen.
+
+Die Pruefung vom 2026-09-22 hat Luecken zwischen Notebook, Control Plane und
+Host-Agent festgestellt. Der Abschlussstatus von Phase 7 ist deshalb bis zur
+gemeinsamen Integration und Abnahme zurueckgenommen. Verbindliche Arbeitspakete,
+Schnittstellen und Testnachweise stehen im
+[Managed-Settings-Update-Umsetzungsplan](managed-settings-update-implementation.md).
 
 ## Ziel
 
@@ -433,7 +439,7 @@ Migrationsvertrag einhalten:
 - Postflight prueft angewandte Migrationen, Health und effektive Version,
 - Rollback-Erfolg wird erst nach Health- und Versionsverifikation gemeldet.
 
-## Umsetzung in abgeschlossenen Phasen
+## Umsetzungsphasen
 
 ### Phase 1: Updatevertrag
 
