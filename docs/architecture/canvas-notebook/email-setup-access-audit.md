@@ -1,13 +1,13 @@
 # E-Mail-Einrichtung, Zuordnung und Onboarding
 
-Stand: 22. September 2026, geprüft gegen `c9168e618` (inklusive PR #146).
-Diese Bestandsaufnahme beschreibt bestätigte Codepfade und den nächsten Implementierungsumfang. Die unten genannten Laufzeitlücken sind noch nicht behoben.
+Stand: 22. September 2026. Ausgangsaudit gegen `c9168e618` (inklusive PR #146); Umsetzung auf `codex/email-setup-audit`, mit `origin/main` bis `ed60b12d8` abgeglichen.
+Die folgenden Abschnitte dokumentieren den ursprünglichen Befund. Die Umsetzung und Abnahme stehen am Ende dieses Dokuments.
 
-## Ergebnis
+## Ergebnis des Ausgangsaudits
 
 Persönliche Konten, Business-Postfächer und Systemversand sind als verschiedene Konzepte vorhanden. Die zentrale E-Mail-App führt sie aber noch nicht durchgängig zusammen. Besonders die persönliche Kontoverwaltung trennt den Business-Scope nicht in allen Schreib- und Standardauswahlpfaden. Das muss vor einer bloßen Erweiterung des Kontoselektors korrigiert werden.
 
-## Aktueller Ablauf
+## Ablauf vor der Umsetzung
 
 | Art | Einrichtung und Zuordnung | Aktuelle Nutzung |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ Persönliche Konten, Business-Postfächer und Systemversand sind als verschieden
 
 Eine zusätzliche API kann ein persönliches Konto einem Workspace zuordnen. Diese verlangt Verwaltungsrecht am bisherigen und neuen Workspace und belässt den Konto-Scope auf `personal`. Die Sichtbarkeit der dadurch freigegebenen Inhalte und Aktionen muss vor einem prominenten UI-Einstieg ausdrücklich erklärt werden; eine Zuordnung darf nicht als bloße persönliche Sortierung dargestellt werden.
 
-## Bestätigte Lücken
+## Bestätigte Lücken im Ausgangsstand
 
 ### P1: Persönliche Kontoverwaltung muss Business-Konten ausschließen
 
@@ -86,10 +86,44 @@ Eine zusätzliche API kann ein persönliches Konto einem Workspace zuordnen. Die
 - DE/EN, 320/390/1024 px: Scope, Absender und Hauptaktion sichtbar; Details aufklappbar, keine horizontale Überbreite.
 - Workspace-Suche, Anhänge, Compose, Agent-Draft, Notification, Review und Outbox verwenden denselben Postfachkontext und dieselben Grenzen.
 
-## Prüfstatus dieses Audits
+## Prüfstatus des ursprünglichen Audits
 
 - Dokumente und Quellcodepfade unabhängig durch Hauptagent und Subagent geprüft.
 - `test:email:system` und `test:pi:email-agent-policy` erfolgreich.
 - `test:email:review` erfolgreich: persönliche/Workspace-Policy, persistente Fehler, Versionsschutz, unsicherer Versandstatus, PostgreSQL-Migration und Review-Store. Die Warnung „Audit unavailable“ gehört zum absichtlich simulierten Fehler nach erfolgreichem Versand.
 - `test:email:accounts` startet in der aktuellen Shell nicht: Der Test erwartet eine Datenbank, konfiguriert aber keine isolierte PostgreSQL-Verbindung. Abbruch mit `postgres_missing_database_url`, bevor die Kontenfälle laufen. Eine passende isolierte Datenbank-Testfixture ist Teil von Schritt 1; der Test darf nicht gegen die vorhandenen Benutzerdaten umgebogen werden.
 - Keine neue Browser-/Provider-Einrichtungsprüfung in diesem Audit; keine echten Nachrichten oder Zugangsdaten geändert. Die 15 erfolgreichen Browser-Tests von PR #146 prüfen Review/Suche, nicht diese noch fehlende Setup-Journey.
+
+
+## Umgesetzter Stand
+
+1. **Kontogrenzen:** Persönliche Defaults und Management-Pfade schließen Business-Konten aus. Scope-Kollisionen schreiben keine Secrets. Isolierte PostgreSQL-Tests ersetzen die frühere fehlende Datenbank-Testfixture.
+2. **Zugriff:** `/api/email/mailboxes` liefert persönliche und berechtigte Workspace-Postfächer samt Fähigkeiten. Der Resolver prüft Session, Mitgliedschaft, Zuordnung, Organisationsgrenze und Operationsrecht vor Providerzugriff. Persönliche Einstellungen bleiben owner-only. Shared-AI und Agenttools verlangen zusätzlich `canRunAgent`.
+3. **Oberfläche:** Gruppierte Auswahl mit pro Nutzer gespeichertem gültigem Kontext, sichtbarer Absender und Workspace, getrennte Quell-/Postfach-Workspaces, Schutz vor veralteten Antworten und Rechteentzug. Read-only-Mitglieder ändern auch implizit keinen Lesestatus. Shared-Manuellversand erstellt zuerst einen dauerhaften Outbox-Eintrag.
+4. **Einrichtung/Reparatur:** Optionaler Leerzustand mit persönlichen/gemeinsamen Wegen, Rollenführung und konkretem Workspace-Zuweisungslink. Abgelaufene und fehlende Credentials werden reparierbar angezeigt; reine SMTP-Konten bleiben sendefähig. Zuweisungswechsel prüft alte/neue Rechte vor Secret-Schreiben und archiviert die alte Bindung. Verbindungsänderungen erhalten vorhandene Policies.
+5. **Onboarding/Hilfe:** Optionaler E-Mail-Einstieg auf Home, drei E-Mail-Hinweise bei aktivierter Hint-Funktion, DE/EN-Texte und aktualisierte Produktdocs. Technische Optionen bleiben aufklappbar.
+6. **Review-Fixes:** Zentrale Trash-Route verlangt Löschrecht; Tools respektieren KI-Rechte des tatsächlichen Postfach-Workspaces; fehlende persönliche SMTP-Secrets sind mit vollständigen Credentials ersetzbar. Shared-Dateianhänge werden mit Actor-/Quellworkspace-Rechten geprüft und als Upload-Kopie gespeichert. Der Composer fixiert den Quellworkspace; ein Wechsel kann keine andere Datei desselben Pfads unterschieben.
+
+## Abnahme
+
+- **33 Playwright-Tests erfolgreich**: 18 Setup-/Mailbox-/Hinweisfälle und 15 bestehende Review-/Such-/Fokustests. DE/EN und 320/390/1024 px; persönliche/Workspace-Auswahl, Read-only, Source-Kontext, Reparatur, SMTP-only, rollenabhängige Einrichtung, mobiler Business-Dialog und optionaler Hinweisablauf.
+- Lokale App mit echter Bootstrap-Anmeldung auf Port 3001; Katalogvertrag zusätzlich gegen den laufenden Server geprüft. Providerzugriffe und E-Mail-Schreibaktionen der Browser-Journeys sind Fixture-basiert. Keine echten Nachrichten oder Provider-Zugangsdaten geändert.
+- `test:email:accounts`, `test:email:personal-boundaries`, `test:email:mailboxes`, `test:email:setup`, `test:email:review`, `test:email:ai-runtime-scope`, `test:pi:email-agent-policy` und `test:onboarding:tour-safety` erfolgreich. Die absichtliche Warnung „Audit unavailable“ prüft den Schutz nach bereits erfolgtem Versand.
+- TypeScript und fokussiertes ESLint erfolgreich. GitNexus-Vergleich gegen `origin/main` enthält die erwarteten Konto-, Mailbox-, KI- und Outbox-Pfade. Neue Symbole waren teilweise noch nicht indexiert; ihre Aufrufer wurden zusätzlich manuell geprüft.
+- Unabhängiges Subagent-Review fand vier konkrete Lücken; alle korrigiert und nachgeprüft, keine verbleibenden Blocker aus diesem Review.
+- `npm run build` erfolgreich auf dem mit `origin/main` (`ed60b12d8`) zusammengeführten Stand: Lizenzprüfung, Produktionskompilierung, TypeScript und Seitengenerierung abgeschlossen; CLI-Version `2026.9.22.3`. Kein Container gebaut.
+
+### Bewusste Grenzen
+
+- Gemeinsame Entwürfe unterstützen Dateianhänge inklusive Bilddateien, derzeit keine eingebetteten Inline-Bilder. Die Oberfläche erklärt dies; die API lehnt solche Eingaben vor Entwurfserstellung mit HTTP 400 ab. Persönlicher Composer unverändert.
+- Microsoft OAuth wird vom aktuellen Einrichtungsbildschirm nicht angeboten. Kein neuer Microsoft-Provider oder Live-OAuth-Test ist Bestandteil dieses Changesets.
+- Direkter manueller Personalversand behält sein bisheriges Policy-Verhalten. Shared-Versand und Review/Outbox prüfen Empfängerregeln serverseitig; abgelehnte oder fehlgeschlagene Shared-Sends bleiben erhalten.
+- Kein Container-Build, kein Deployment, kein Merge des neuen PR.
+
+### Geprüfte Screenshots
+
+![Postfachauswahl bei 320 px](email-setup-screenshots/mobile-mailbox.png)
+
+![Postfachauswahl bei 1024 px](email-setup-screenshots/tablet-mailbox.png)
+
+![Gemeinsame Einrichtung mit sichtbarer Hauptaktion bei 390 px](email-setup-screenshots/mobile-business-setup.png)
