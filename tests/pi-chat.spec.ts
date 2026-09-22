@@ -3019,7 +3019,28 @@ contentKind: document
       await expect(items).toHaveCount(17);
       await panel.scrollIntoViewIfNeeded();
       await page.screenshot({ path: testInfo.outputPath(`references-${viewport.name}-expanded.png`) });
-      await items.last().scrollIntoViewIfNeeded();
+      // The chat's scrollport extends behind its absolute composer. Browser
+      // scrollIntoViewIfNeeded checks that larger box, not the unoccluded area.
+      // Scroll as a user would, outside the results' nested scrolling list.
+      const composer = page.getByTestId('chat-input').locator('xpath=ancestor::div[contains(@class, "bottom-0")][1]');
+      const scrollRegionBounds = await page.getByTestId('chat-scroll-region').boundingBox();
+      const composerBounds = await composer.boundingBox();
+      const lastReadBounds = await items.last().boundingBox();
+      expect(scrollRegionBounds).not.toBeNull();
+      expect(composerBounds).not.toBeNull();
+      expect(lastReadBounds).not.toBeNull();
+      await page.mouse.move(scrollRegionBounds!.x + scrollRegionBounds!.width - 4, scrollRegionBounds!.y + 24);
+      await page.mouse.wheel(0, Math.max(120, lastReadBounds!.y + lastReadBounds!.height - composerBounds!.y + 24));
+      await expect.poll(async () => {
+        const row = await items.last().boundingBox();
+        const overlay = await composer.boundingBox();
+        return Boolean(row && overlay && row.y + row.height <= overlay.y);
+      }).toBe(true);
+      await expect.poll(() => items.last().evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        return hit !== null && element.contains(hit);
+      })).toBe(true);
       await page.screenshot({ path: testInfo.outputPath(`references-${viewport.name}-reads.png`) });
       const bounds = await panel.boundingBox();
       expect(bounds).not.toBeNull();

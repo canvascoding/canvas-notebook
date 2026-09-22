@@ -1,6 +1,6 @@
 # Structured file references in chat
 
-Status: implementation complete; final browser/build verification in progress, 2026-09-22.
+Status: implemented and verified, 2026-09-22.
 
 ## Problem and intended behavior
 
@@ -51,5 +51,6 @@ Browser testing was explicitly authorized by the user on 2026-09-22.
 - Reference metadata is capped at 500 entries per tool (2,048 characters per path), with an explicit omitted count. Studio files outside the workspace retain their media previews. Historical relative tool paths are adapted conservatively; unsupported or lost old metadata is not guessed.
 - `npm run test:chat:file-references` passes all seven contract, projection, validation, race, aggregation and component scripts. Scoped ESLint and TypeScript checks pass.
 - Four authorized Playwright cases pass on the managed host development server: desktop/mobile compact lists with search, disclosure, live-to-saved hydration and full page reload; existing file-write Markdown/diff widgets; existing grouped clickable image-read previews. Screenshots were visually reviewed. Runtime events/history were deterministic fixtures; this does not claim a live model/provider integration test.
+- Desktop/mobile checks also verify actual wheel scrolling reaches the last read document above the floating composer, with hit testing proving the row is unobscured. The browser's native `scrollIntoView` alone does not account for that overlay.
 - Browser testing additionally reproduced and fixed an initial-load race: runtime status can copy the loading array without changing its messages, and a rejected initial snapshot can otherwise leave a deferred read undrained after React's no-op update. Both cases have deterministic regression tests.
-- Final production build: pending.
+- `npm run build` passes, including license checks, optimized compilation, TypeScript and page generation. Build-only warnings report missing auth/MCP base URLs and Node's experimental localStorage; the authenticated browser tests use the managed runtime environment. No container was built or deployment performed.
