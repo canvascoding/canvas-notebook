@@ -60,6 +60,9 @@ export type EmailFolder = {
 
 export type EmailMessageSummary = {
   id: string;
+  to?: string[] | string;
+  cc?: string[] | string;
+  bcc?: string[] | string;
   uid?: string;
   folder?: string;
   from: string;

@@ -7,8 +7,8 @@ import {
   Settings,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useSearchParams } from 'next/navigation';
 
+import { parseEmailSearchQuery } from '@/app/lib/email/search-query';
 import { EmailComposeDialog } from '@/app/apps/email/components/EmailComposeDialog';
 import { EmailMailboxHeader } from '@/app/apps/email/components/EmailMailboxHeader';
 import { EmailMailboxNavigation } from '@/app/apps/email/components/EmailMailboxNavigation';
@@ -66,9 +66,8 @@ export function EmailClient({
   const t = useTranslations('emails');
   const locale = useLocale();
   const setEmailChatContext = useSetEmailChatContext();
-  const searchParams = useSearchParams();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const { containerRef, listWidth, mode: layoutMode, setListWidth } = useEmailWorkspaceLayout();
+  const { containerRef, listWidth, availableWidth, mode: layoutMode, setListWidth } = useEmailWorkspaceLayout();
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [emailAllowRemoteImages, setEmailAllowRemoteImages] = useState(false);
@@ -90,6 +89,44 @@ export function EmailClient({
   const [messageFilter, setMessageFilter] = useState<'all' | 'unread'>('all');
   const [query, setQuery] = useState('');
   const [submittedQuery, setSubmittedQuery] = useState('');
+  const [searchRevision, setSearchRevision] = useState(0);
+  const [searchNotice, setSearchNotice] = useState<string | null>(null);
+  const [serverHasMore, setServerHasMore] = useState<boolean | null>(null);
+  const [focused, setFocused] = useState(false);
+  const focusFolderRestore = useRef(false);
+  const previousFolder = useRef('INBOX');
+  const tSearch = useTranslations('emailSearch');
+  const effectiveListWidth = Math.max(280, Math.min(listWidth, availableWidth - (isFolderSidebarOpen ? 220 : 0) - 8 - 360));
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try { setIsFolderSidebarOpen(window.localStorage.getItem('emails.foldersVisible') === 'true'); } catch { /* Storage is optional. */ }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const changeFolderSidebar = (open: boolean) => {
+    if (open && focused) window.dispatchEvent(new CustomEvent('email-focus-change', { detail: { focused: false, preserveFolders: true } }));
+    setIsFolderSidebarOpen(open);
+    try { window.localStorage.setItem('emails.foldersVisible', String(open)); } catch { /* Storage is optional. */ }
+  };
+  const toggleFocus = () => {
+    const next = !focused;
+    if (next) { focusFolderRestore.current = isFolderSidebarOpen; setIsFolderSidebarOpen(false); }
+    else setIsFolderSidebarOpen(focusFolderRestore.current);
+    setFocused(next);
+    window.dispatchEvent(new CustomEvent('email-focus-change', { detail: { focused: next } }));
+  };
+  useEffect(() => {
+    const syncFocus = (event: Event) => {
+      const detail = (event as CustomEvent<{ focused: boolean; preserveFolders?: boolean }>).detail;
+      if (focused && detail?.focused === false) {
+        setFocused(false);
+        if (!detail.preserveFolders) setIsFolderSidebarOpen(focusFolderRestore.current);
+      }
+    };
+    window.addEventListener('email-focus-change', syncFocus);
+    return () => window.removeEventListener('email-focus-change', syncFocus);
+  }, [focused]);
+  useEffect(() => () => { window.dispatchEvent(new CustomEvent('email-focus-change', { detail: { focused: false } })); }, []);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -134,8 +171,8 @@ export function EmailClient({
     [accounts, activeAccountId],
   );
   const activeFolderName = useMemo(
-    () => folders.find((folder) => folder.path === activeFolder)?.name || activeFolder,
-    [activeFolder, folders],
+    () => activeFolder === 'all' ? tSearch('allFolders') : folders.find((folder) => folder.path === activeFolder)?.name || activeFolder,
+    [activeFolder, folders, tSearch],
   );
   const canReadActiveAccount = Boolean(activeAccount && (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost));
   const isStreamingSelectedMessageSummary = Boolean(selectedMessage && streamingSummaryMessageId === selectedMessage.id);
@@ -342,6 +379,7 @@ export function EmailClient({
     if (folder === activeFolder) return;
     listRequestRef.current?.abort();
     clearReader();
+    if (folder !== 'all') previousFolder.current = folder;
     setActiveFolder(folder);
     setMessagePage(0);
   };
@@ -366,7 +404,7 @@ export function EmailClient({
       setFolders(nextFolders);
       setFoldersAccountId(accountId);
       setActiveFolder((current) => {
-        if (current && nextFolders.some((folder) => folder.path === current)) return current;
+        if (current === 'all' || (current && nextFolders.some((folder) => folder.path === current))) return current;
         return nextFolders.find((folder) => folder.role === 'inbox')?.path || nextFolders[0]?.path || 'INBOX';
       });
     } catch (loadError) {
@@ -398,7 +436,7 @@ export function EmailClient({
       if (
         detailRefreshRequestRef.current !== controller
         || activeAccountRef.current !== accountId
-        || activeFolderRef.current !== folder
+        || selectedMessageRef.current?.folder !== current.folder
         || selectedMessageRef.current?.id !== current.id
         || !shouldApplyEmailRefresh({
           requestEpoch,
@@ -449,7 +487,9 @@ export function EmailClient({
     setIsLoadingMessages(!preserveVisibleData);
     setIsRefreshingMessages(preserveVisibleData);
     setError(null);
+    setSearchNotice(null);
     try {
+      parseEmailSearchQuery(submittedQuery);
       const response = await fetch('/api/email/messages/list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -480,6 +520,8 @@ export function EmailClient({
       ) return;
       const nextMessages = (payload.data?.messages || []) as EmailMessageSummary[];
       setMessages(nextMessages);
+      setServerHasMore(typeof payload.data?.hasMore === 'boolean' ? payload.data.hasMore : null);
+      setSearchNotice(typeof payload.data?.searchNotice === 'string' ? payload.data.searchNotice : null);
       setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
       scheduleListFollowUp(scopeKey, payload.data?.cache, requestEpoch);
       if (!options?.swrFollowUp) void refreshSelectedMessage();
@@ -559,7 +601,7 @@ export function EmailClient({
       if (
         detailRequestRef.current !== controller
         || activeAccountRef.current !== accountId
-        || activeFolderRef.current !== folder
+        || activeFolderRef.current !== activeFolder
         || !shouldApplyEmailRefresh({
           requestEpoch,
           currentEpoch: detailRequestEpochRef.current,
@@ -603,7 +645,7 @@ export function EmailClient({
     cancelListFollowUp();
     listRequestEpochRef.current += 1;
     listRequestRef.current?.abort();
-  }, [activeAccount?.id, activeFolder, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, submittedQuery]);
+  }, [activeAccount?.id, activeFolder, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, submittedQuery, searchRevision]);
 
   useEffect(() => () => {
     cancelListFollowUp();
@@ -762,7 +804,7 @@ export function EmailClient({
       void loadMessages();
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [loadMessages]);
+  }, [loadMessages, searchRevision]);
 
   useEffect(() => {
     if (!canReadActiveAccount) return;
@@ -780,12 +822,23 @@ export function EmailClient({
     };
   }, [canReadActiveAccount, loadMessages]);
 
-  const handleSearch = (event: React.FormEvent) => {
-    event.preventDefault();
+  const applySearch = (value: string) => {
+    try { parseEmailSearchQuery(value); } catch (failure) {
+      setError(tSearch('invalidQuery', { reason: failure instanceof Error ? failure.message : String(failure) }));
+      return;
+    }
+    listRequestEpochRef.current += 1;
     listRequestRef.current?.abort();
+    listRequestRef.current = null;
     clearReader();
     setMessagePage(0);
-    setSubmittedQuery(query.trim());
+    setServerHasMore(null);
+    setSubmittedQuery(value.trim());
+    setSearchRevision(current => current + 1);
+  };
+  const handleSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    applySearch(query);
   };
 
   const toggleUnreadFilter = () => {
@@ -804,7 +857,6 @@ export function EmailClient({
     onError: setError,
     onMessageActionNotice: setMessageActionNotice,
     onMessageDialogOpenChange: setMessageDialogOpen,
-    searchParams,
   });
   const {
     agentEvents: composeAgentEvents,
@@ -816,15 +868,8 @@ export function EmailClient({
     generateAiReplyPreview,
     isGeneratingAi: isGeneratingComposeAi,
     isSubmitting: isSubmittingCompose,
-    isWorkspaceOutboxReview,
     openDraft: openComposeDraft,
     openNewDraft: openNewComposeDraft,
-    openPersonalOutboxDraft,
-    openWorkspaceOutboxDraft,
-    outboxSenderAddress,
-    reviewCase: workspaceOutboxReviewCase,
-    reviewCenterRevision: workspaceOutboxRevision,
-    save: saveOutboxComposeDraft,
     submit: submitComposeDraft,
     updateDraft: updateComposeDraft,
   } = composeController;
@@ -990,9 +1035,9 @@ export function EmailClient({
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
   const messageEnd = messageOffset + messages.length;
   const hasPreviousMessagePage = messagePage > 0;
-  const hasNextMessagePage = messageTotal === null
+  const hasNextMessagePage = serverHasMore ?? (messageTotal === null
     ? messages.length === MESSAGE_PAGE_SIZE
-    : messageEnd < messageTotal;
+    : messageEnd < messageTotal);
   const messageRangeLabel = messages.length === 0
     ? t('messageRangeEmpty')
     : messageTotal === null
@@ -1142,6 +1187,14 @@ export function EmailClient({
     to: t('to'),
   };
 
+  const reviewCenter = (
+      <EmailReviewCenter
+        focusRequestKey={contextIntent?.view === 'review-center'
+          ? `${contextIntent.toolCallId || contextIntent.toolName}:${contextIntent.mailboxId || ''}`
+          : undefined}
+      />
+  );
+
   if (isLoadingAccounts) {
     return (
       <div className="flex min-h-64 items-center justify-center text-sm text-muted-foreground">
@@ -1153,7 +1206,8 @@ export function EmailClient({
 
   if (accounts.length === 0) {
     return (
-      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
+        {reviewCenter}
         <EmailAccountsCard
           isOpen={true}
           onOpenChange={() => undefined}
@@ -1206,19 +1260,18 @@ export function EmailClient({
           onRefresh={() => void loadMessages({ background: true })}
           onSearch={handleSearch}
           query={query}
+          submittedQuery={submittedQuery}
+          scope={activeFolder === 'all' ? 'all' : 'folder'}
+          searchNotice={searchNotice}
+          onSearchQuery={applySearch}
+          onResetSearch={() => { setQuery(''); applySearch(''); }}
+          onScopeChange={(scope) => selectFolder(scope === 'all' ? 'all' : (folders.find(folder => folder.path === previousFolder.current)?.path || folders.find(folder => folder.role === 'inbox')?.path || 'INBOX'))}
+          focused={focused}
+          onFocus={toggleFocus}
         />
       </section>
 
-      <EmailReviewCenter
-        focusRequestKey={contextIntent?.view === 'review-center'
-          ? `${contextIntent.toolCallId || contextIntent.toolName}:${contextIntent.mailboxId || ''}`
-          : undefined}
-        onOpenPersonalDraft={openPersonalOutboxDraft}
-        onOpenWorkspaceDraft={openWorkspaceOutboxDraft}
-        refreshKey={workspaceOutboxRevision}
-        t={t}
-        workspaceId={activeWorkspaceId}
-      />
+      {reviewCenter}
 
       {error && (
         <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1255,8 +1308,8 @@ export function EmailClient({
           style={layoutMode === 'wide'
             ? {
               gridTemplateColumns: isFolderSidebarOpen
-                ? `220px minmax(280px, ${listWidth}px) 8px minmax(0, 1fr)`
-                : `minmax(280px, ${listWidth}px) 8px minmax(0, 1fr)`,
+                ? `220px minmax(280px, ${effectiveListWidth}px) 8px minmax(0, 1fr)`
+                : `minmax(280px, ${effectiveListWidth}px) 8px minmax(0, 1fr)`,
             }
             : undefined}
         >
@@ -1278,7 +1331,7 @@ export function EmailClient({
               messages: t('messages'),
               nextPage: t('nextPage'),
               noFolders: t('noFolders'),
-              noMessages: t('noMessages'),
+              noMessages: submittedQuery ? tSearch('noMatches') : t('noMessages'),
               noSubject: t('noSubject'),
               previousPage: t('previousPage'),
               resizeMessageList: t('resizeMessageList'),
@@ -1287,14 +1340,14 @@ export function EmailClient({
               unreadOnly: t('unreadOnly'),
             }}
             layoutMode={layoutMode}
-            listWidth={listWidth}
+            listWidth={effectiveListWidth}
             messageContextMenu={messageContextMenu}
             messageFilter={messageFilter}
             messageRangeLabel={messageRangeLabel}
             messages={messages}
             onCloseContextMenu={() => setMessageContextMenu(null)}
             onContextMenu={(message, position) => setMessageContextMenu({ messageId: message.id, ...position })}
-            onFolderSidebarOpenChange={setIsFolderSidebarOpen}
+            onFolderSidebarOpenChange={changeFolderSidebar}
             onListWidthChange={setListWidth}
             onMessageAction={handleMessageListAction}
             onOpenMessage={(message, openInDialog) => void loadMessage(message, openInDialog ? { openDialog: true } : undefined)}
@@ -1307,6 +1360,7 @@ export function EmailClient({
             onToggleUnreadFilter={toggleUnreadFilter}
             selectedMessageId={selectedMessageId}
             viewerLabels={messageViewerLabels}
+            searchQuery={submittedQuery}
           />
 
           {layoutMode === 'wide' && <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
@@ -1377,15 +1431,12 @@ export function EmailClient({
         error={composeError}
         isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
-        isWorkspaceOutboxReview={isWorkspaceOutboxReview}
-        reviewCase={workspaceOutboxReviewCase}
-        senderAddress={isWorkspaceOutboxReview ? outboxSenderAddress : activeAccount?.emailAddress || ''}
+        senderAddress={activeAccount?.emailAddress || ''}
         labels={composeDialogLabels}
         locale={locale}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
         onClose={closeComposeDialog}
         onGenerateAi={() => void generateComposeAiBody()}
-        onSave={() => void saveOutboxComposeDraft()}
         onSubmit={() => void submitComposeDraft()}
         onUpdate={updateComposeDraft}
       />

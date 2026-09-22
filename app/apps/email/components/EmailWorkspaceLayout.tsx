@@ -23,7 +23,9 @@ function modeForWidth(width: number): EmailWorkspaceLayoutMode {
 
 function readStoredListWidth() {
   try {
-    const stored = Number(window.localStorage.getItem(LIST_WIDTH_STORAGE_KEY));
+    const raw = window.localStorage.getItem(LIST_WIDTH_STORAGE_KEY);
+    if (raw === null) return DEFAULT_LIST_WIDTH;
+    const stored = Number(raw);
     return Number.isFinite(stored) ? clampListWidth(stored) : DEFAULT_LIST_WIDTH;
   } catch {
     return DEFAULT_LIST_WIDTH;
@@ -33,6 +35,7 @@ function readStoredListWidth() {
 export function useEmailWorkspaceLayout(): {
   containerRef: RefCallback<HTMLDivElement>;
   listWidth: number;
+  availableWidth: number;
   mode: EmailWorkspaceLayoutMode;
   setListWidth(value: number): void;
 } {
@@ -41,6 +44,7 @@ export function useEmailWorkspaceLayout(): {
     setContainerElement(element);
   }, []);
   const [mode, setMode] = useState<EmailWorkspaceLayoutMode>('compact');
+  const [availableWidth, setAvailableWidth] = useState(0);
   const [listWidth, setListWidthState] = useState(DEFAULT_LIST_WIDTH);
 
   useEffect(() => {
@@ -50,7 +54,11 @@ export function useEmailWorkspaceLayout(): {
 
   useEffect(() => {
     if (!containerElement) return;
-    const update = () => setMode(modeForWidth(containerElement.getBoundingClientRect().width));
+    const update = () => {
+      const width = containerElement.getBoundingClientRect().width;
+      setAvailableWidth(width);
+      setMode(modeForWidth(width));
+    };
     update();
     const observer = new ResizeObserver(update);
     observer.observe(containerElement);
@@ -67,7 +75,7 @@ export function useEmailWorkspaceLayout(): {
     }
   }, []);
 
-  return { containerRef, listWidth, mode, setListWidth };
+  return { containerRef, listWidth, availableWidth, mode, setListWidth };
 }
 
 export function EmailPaneResizeHandle({

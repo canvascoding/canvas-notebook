@@ -1,3 +1,4 @@
+import type { EmailReviewTarget } from '@/app/lib/email/review-client';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import {
   buildFileChangeReviewCenterHref,
@@ -18,6 +19,12 @@ export type NotificationMutation = {
 };
 
 let fileChangeOpenGeneration = 0;
+
+export function emailReviewTargetFromNotification(item: NotificationItem): EmailReviewTarget | null {
+  if (item.target.kind !== 'email' || !item.target.draftId) return null;
+  return { scope: item.target.scope, draftId: item.target.draftId,
+    workspaceId: item.target.scope === 'workspace' ? item.workspaceId : undefined };
+}
 
 export function shouldMarkNotificationReadOnOpen(item: NotificationItem): boolean {
   return item.target.kind !== 'file_change';
@@ -124,6 +131,6 @@ export function homeNotificationItems(summary: NotificationSummary | null): Noti
   for (const item of [...summary.items, ...summary.sections.notifications, ...summary.sections.todoAttention, ...summary.sections.emailAttention]) {
     unique.set(`${item.workspaceId}:${item.id}`, item);
   }
-  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo' || item.target.kind === 'memory')
+  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo' || item.target.kind === 'memory' || item.target.kind === 'email')
     .sort((a, b) => Number(b.priority === 'high') - Number(a.priority === 'high') || Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
 }

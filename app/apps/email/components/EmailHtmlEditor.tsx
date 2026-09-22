@@ -58,6 +58,7 @@ type EmailHtmlEditorProps = {
   onChange?: (value: { html: string; text: string }) => void;
   onAttachmentsChange?: (attachments: EmailAttachmentDraft[]) => void;
   placeholder?: string;
+  toolbarVisible?: boolean;
   value: string;
 };
 
@@ -960,6 +961,7 @@ export function EmailHtmlEditor({
   onAttachmentsChange,
   onChange,
   placeholder,
+  toolbarVisible = true,
   value,
 }: EmailHtmlEditorProps) {
   const extensions = useMemo(() => createEmailEditorExtensions(), []);
@@ -1013,12 +1015,12 @@ export function EmailHtmlEditor({
         disabled && 'opacity-70',
       )}
     >
-      <EmailHtmlToolbar
+      {toolbarVisible && <EmailHtmlToolbar
         attachments={attachments}
         disabled={disabled}
         editor={editor}
         onAttachmentsChange={onAttachmentsChange}
-      />
+      />}
       <div className="relative min-h-0 flex-1">
         {isEmpty && placeholder ? (
           <div className="pointer-events-none absolute left-3 top-3 text-sm text-muted-foreground">
