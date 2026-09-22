@@ -149,6 +149,9 @@ export type PreparePiHermesCompactionCandidateInput = Readonly<{
   sessionId: string;
   signal: AbortSignal;
   streamFn?: StreamFn;
+  /** Optional, already-authorized compression route for this request. */
+  summaryModel?: Model<Api>;
+  summaryStreamFn?: StreamFn;
   selectionMode?: Extract<PiHistorySelectionMode, 'automatic' | 'force'>;
   /** Full, normalized request that established automatic pressure for this candidate. */
   triggerSnapshot?: PiContextBudgetSnapshot;
@@ -299,6 +302,8 @@ export async function preparePiHermesCompactionCandidate(
     sessionId: input.sessionId,
     signal: input.signal,
     streamFn: input.streamFn,
+    summaryModel: input.summaryModel,
+    summaryStreamFn: input.summaryStreamFn,
     summaryMode: rollout.summaryMode,
     selectionMode,
     focusTopic: input.focusTopic,

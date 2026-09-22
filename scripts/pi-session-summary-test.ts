@@ -150,7 +150,7 @@ async function main() {
   let abortedSummaryStreamCalls = 0;
   const abortingSummaryStreamFn: StreamFn = async (requestedModel, context, options) => {
     abortedSummaryStreamCalls += 1;
-    assert.equal(options?.signal, summaryAbortController.signal);
+    assert.ok(options?.signal, 'legacy summary uses a bridged provider-abort signal');
     assert.ok(context.messages.length < 9, 'the test input must require more than one summary batch');
     summaryAbortController.abort();
     return {

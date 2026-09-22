@@ -16,7 +16,10 @@ import type { Api, AssistantMessage, Context, Message, Model } from '@earendil-w
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { resolveAndPinSessionRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
+import {
+  resolveAndPinSessionRuntime,
+  resolveCompactionSummaryRuntime,
+} from '@/app/lib/agent-runtime-policy/provider-runtime';
 import {
   createPiSystemPromptSnapshot,
   ensurePiSessionSystemPromptSnapshot,
@@ -320,6 +323,8 @@ type RuntimeOptions = {
   resetToolLoopGuard?: () => void;
   requiresRuntimeRecreation?: () => boolean;
   summaryStreamFn?: StreamFn;
+  summaryModel?: Model<Api>;
+  summaryModelStreamFn?: StreamFn;
   compactionPolicy?: PiCompactionCoordinatorPolicy;
   /** Immutable request-bound policy shared by status, preflight and compaction. */
   effectiveCompactionPolicy?: PiEffectiveCompactionPolicy;
@@ -833,6 +838,8 @@ export class LivePiRuntime {
           sessionId: this.sessionId,
           signal: candidateSignal,
           streamFn: this.options.summaryStreamFn,
+          summaryModel: this.options.summaryModel,
+          summaryStreamFn: this.options.summaryModelStreamFn,
           selectionMode: input.selectionMode ?? 'automatic',
           triggerSnapshot: input.triggerSnapshot,
           focusTopic: input.focusTopic,
@@ -2814,6 +2821,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     loadLatestPiSessionInputUsage(sessionId, userId),
     loadPiEffectiveCompactionPolicy(),
   ]);
+  const compactionSummaryRuntime = await resolveCompactionSummaryRuntime({
+    primary: executableRuntime,
+    configuredIdentity: effectiveCompactionPolicy.summaryModel,
+  });
   timing.mark('sessionHistory');
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
@@ -2931,6 +2942,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       resetToolLoopGuard: () => toolLoopGuard.reset(),
       requiresRuntimeRecreation: executableRuntime.requiresRecreation,
       summaryStreamFn: executableRuntime.streamFn,
+      summaryModel: compactionSummaryRuntime?.model,
+      summaryModelStreamFn: compactionSummaryRuntime?.streamFn,
       effectiveCompactionPolicy,
       idleCompaction: process.env.CANVAS_PI_IDLE_COMPACTION_ENABLED === 'true',
     },

@@ -43,6 +43,8 @@ export type PrepareAutomationHistoryInput = Readonly<{
   runtimePolicyRevision: number;
   signal: AbortSignal;
   streamFn: StreamFn;
+  summaryModel?: Model<Api>;
+  summaryStreamFn?: StreamFn;
   imageNormalizationOptions?: PiMessageNormalizationOptions;
   /** Immutable request-bound policy shared with live compaction. */
   effectiveCompactionPolicy?: PiEffectiveCompactionPolicy;
@@ -173,6 +175,8 @@ export async function prepareAutomationHistoryWithCompaction(
       sessionId: input.sessionId,
       signal: candidateSignal,
       streamFn: input.streamFn,
+      summaryModel: input.summaryModel,
+      summaryStreamFn: input.summaryStreamFn,
       selectionMode: input.force ? 'force' : 'automatic',
       onSummaryProgress: (progress) => reportProgress(progress),
       policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,

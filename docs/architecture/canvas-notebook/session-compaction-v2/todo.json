@@ -519,7 +519,8 @@
       "id": "SC-P11",
       "order": 11,
       "title": "Port current Hermes single-call summary path",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-09-22",
       "dependsOn": ["SC-P10"],
       "hermesReferences": [
         "agent/context_compressor.py:_sample_summary_records",
@@ -539,7 +540,14 @@
         "summary coverage and newest-record tests",
         "timeout, refusal, empty and truncation tests"
       ],
-      "completionEvidence": [],
+      "completionEvidence": [
+        "Legacy and Hermes V2 now use one bounded, complete-record summary request in the normal case; the serial digest-model loop and eager digest preparation are absent from production compaction",
+        "Time-distributed sampling preserves record boundaries, explicit gap markers and the newest record while bounding oversized individual records and stripping thinking/media payloads",
+        "An optional summary runtime is resolved through the normal authenticated catalog-policy boundary and falls back exactly once to the pinned main runtime without changing that runtime",
+        "Shared prompts budget against the narrowest candidate context window and the largest native candidate output reserve, including heterogeneous auxiliary/main model pairs",
+        "Empty, refusal-only, length-stopped and non-success results fail closed; idle and total deadlines abort provider work, reserve 40 percent of the attempt for the main fallback and never commit partial state",
+        "Single-call, coverage, newest-record, asymmetric-context, timeout, progress, provider-abort, refusal, truncation, live-runtime and automation-runtime tests pass together with TypeScript, ESLint and diff checks"
+      ],
       "exitGate": "SC-G11_SINGLE_CALL_SUMMARY"
     },
     {

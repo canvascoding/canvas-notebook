@@ -53,6 +53,8 @@ export async function recoverAutomationRuntimePayload(input: {
   sessionId: string;
   signal: AbortSignal;
   streamFn: StreamFn;
+  summaryModel?: Model<Api>;
+  summaryStreamFn?: StreamFn;
   imageNormalizationOptions?: PiMessageNormalizationOptions;
   initialSnapshot?: PiContextBudgetSnapshot | null;
   /** Immutable request-bound policy shared with normal automation compaction. */
@@ -82,6 +84,8 @@ export async function recoverAutomationRuntimePayload(input: {
       sessionId: input.sessionId,
       signal: input.signal,
       streamFn: input.streamFn,
+      summaryModel: input.summaryModel,
+      summaryStreamFn: input.summaryStreamFn,
       selectionMode: 'force',
       policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
     });

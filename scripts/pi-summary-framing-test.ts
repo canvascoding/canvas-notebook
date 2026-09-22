@@ -42,21 +42,14 @@ async function main() {
   const body = '## Active Task\nCompare travel options.\n## Completed Work\nEarlier research.\n'
     + '## Decisions and Constraints\nKeep the deadline.\n## Files, Commands, and Exact Errors\nNone.\n## Remaining Work\nFinish the comparison.';
   for (const long of [false, true]) {
-    let digestCalls = 0;
     let summaryCalls = 0;
-    const streamFn: StreamFn = async (_model, context, options) => {
+    const streamFn: StreamFn = async (_model, context) => {
       const text = String(context.messages[0].content);
-      const digest = Boolean(options?.sessionId?.includes('summary-digest'));
-      if (digest) {
-        digestCalls++;
-        assertFramed(text, 'session_segment');
-      } else {
-        summaryCalls++;
-        assertFramed(text, 'source_segments');
-        assertFramed(text, 'prior_rolling_summary');
-      }
+      summaryCalls++;
+      assertFramed(text, 'source_segments');
+      assertFramed(text, 'prior_rolling_summary');
       const message: AssistantMessage = {
-        role: 'assistant', content: [{ type: 'text', text: digest ? `- Source quotation: ${hostile}` : body }],
+        role: 'assistant', content: [{ type: 'text', text: body }],
         timestamp: 2, api: model.api, provider: model.provider, model: model.id, stopReason: 'stop',
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
@@ -69,7 +62,6 @@ async function main() {
       previousSummaryText: hostile });
     assert.ok(result);
     assert.equal(summaryCalls, 1);
-    assert.equal(digestCalls > 0, long, 'cover direct and digest-backed summary generation');
   }
   console.log('pi summary framing tests passed');
 }
