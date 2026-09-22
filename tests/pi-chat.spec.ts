@@ -2962,11 +2962,19 @@ contentKind: document
         ] },
         ...toolResults, assistant,
       ];
-      let messageReads = 0;
+      let historyReads = 0;
+      let createdSession: Record<string, unknown> | null = null;
+      const historyPage = () => ({ success: true, messages: persisted, hasMoreBefore: false, oldestMessageId: 1, oldestSequence: 1, oldestTimestamp: persisted[0].timestamp });
       await mockEmptyChatBootstrap(page, { sessionId, title: 'Document references' });
       await page.route('**/api/sessions/messages?**', async (route) => {
-        messageReads += 1;
-        await route.fulfill({ json: { success: true, messages: persisted, hasMoreBefore: false, oldestMessageId: 1, oldestSequence: 1, oldestTimestamp: timestamp } });
+        historyReads += 1;
+        await route.fulfill({ json: historyPage() });
+      });
+      await page.route(`**/api/sessions/${sessionId}/bootstrap?**`, async (route) => {
+        historyReads += 1;
+        await route.fulfill({ json: { success: true, session: { ...createdSession,
+          workspace: { workspaceId: references[0].workspaceId, workspaceType: 'personal', workspaceName: 'Personal Workspace' },
+        }, messages: historyPage() } });
       });
       await page.route('**/api/files/exists?**', async (route) => {
         const filePath = new URL(route.request().url()).searchParams.get('path');
@@ -2995,7 +3003,9 @@ contentKind: document
       await page.goto('/notebook?chat=open');
       await startFreshChat(page);
       await page.getByTestId('chat-input').fill('Erstelle die Dokumente aus meinen Briefings.');
+      const creationResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/sessions' && response.request().method() === 'POST');
       await page.getByTestId('chat-send').click();
+      createdSession = (await (await creationResponse).json()).session;
 
       const panel = page.getByTestId('chat-file-references');
       const items = panel.getByTestId('chat-file-reference-item');
@@ -3047,11 +3057,11 @@ contentKind: document
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width + 1);
 
-      const readsBeforeRefresh = messageReads;
+      const readsBeforeRefresh = historyReads;
       await page.evaluate((targetSessionId) => {
         window.dispatchEvent(new CustomEvent('agent_event', { detail: { sessionId: targetSessionId, event: { type: 'message_saved' } } }));
       }, sessionId);
-      await expect.poll(() => messageReads).toBeGreaterThan(readsBeforeRefresh);
+      await expect.poll(() => historyReads).toBeGreaterThan(readsBeforeRefresh);
       await expect(items).toHaveCount(17);
       await expect(panel.getByTestId('chat-read-references-toggle')).toHaveAttribute('aria-expanded', 'true');
       await expect(page.getByTestId('chat-message-assistant').last()).not.toContainText('omitted from');
@@ -3061,9 +3071,9 @@ contentKind: document
       await panel.getByTestId('chat-file-references-expand').click();
       await expect(items).toHaveCount(3);
 
-      const readsBeforeReload = messageReads;
+      const readsBeforeReload = historyReads;
       await page.goto(`/notebook?chat=open&session=${sessionId}`);
-      await expect.poll(() => messageReads).toBeGreaterThan(readsBeforeReload);
+      await expect.poll(() => historyReads).toBeGreaterThan(readsBeforeReload);
       await expect(panel).toHaveCount(1, { timeout: 15000 });
       await expect(items).toHaveCount(3);
       await panel.getByTestId('chat-file-references-expand').click();
