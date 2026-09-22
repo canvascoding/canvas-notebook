@@ -29,4 +29,11 @@ assert.throws(
   /must be a UUID/u,
 );
 
+const verifiedRollback = reporter.emit('rollback', 'succeeded', 'Previous image verified.', undefined, true);
+assert.equal(verifiedRollback?.rollbackImageVerified, true);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, rollbackImageVerified: false }).ok, false);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, stage: 'completed' }).ok, false);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, status: 'failed' }).ok, false);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, rollbackImageVerified: undefined }).ok, true);
+
 console.log('System update reporter tests passed.');

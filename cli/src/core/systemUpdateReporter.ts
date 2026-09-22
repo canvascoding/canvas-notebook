@@ -39,6 +39,7 @@ export class SystemUpdateEventReporter {
     status: SystemUpdateStageStatus,
     message: string,
     errorCode?: SystemUpdateErrorCode,
+    rollbackImageVerified?: true,
   ): SystemUpdateEvent | null {
     if (!this.enabled) return null;
     const normalizedMessage = message.replace(/[\0\r\n]+/gu, ' ').trim().slice(0, 2048) || 'Update status changed.';
@@ -52,6 +53,7 @@ export class SystemUpdateEventReporter {
       message: normalizedMessage,
       occurredAt: this.now().toISOString(),
       ...(errorCode ? { errorCode } : {}),
+      ...(rollbackImageVerified ? { rollbackImageVerified } : {}),
     };
     const validated = validateSystemUpdateEvent(event);
     if (!validated.ok) throw new Error(validated.error);

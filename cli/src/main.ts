@@ -866,7 +866,7 @@ export async function update(
           throw new Error('Rollback container does not run the previous Canvas Notebook image.');
         }
         rolledBack = true;
-        reporter.succeeded('rollback', 'Previous Canvas Notebook image restored.');
+        reporter.emit('rollback', 'succeeded', 'Previous Canvas Notebook image restored and verified.', undefined, true);
       } catch {
         rolledBack = false;
         reporter.failed('rollback', 'Previous Canvas Notebook image could not be restored.', 'rollback_failed');

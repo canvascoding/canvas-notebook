@@ -599,6 +599,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
         stage: string;
         status: string;
         errorCode?: string;
+        rollbackImageVerified?: true;
       });
       assert.equal(process.exitCode, 1);
       assert.ok(failedEvents.some((event) => (
@@ -607,6 +608,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
         && event.errorCode === 'health_verification_failed'
       )));
       assert.ok(failedEvents.some((event) => event.stage === 'rollback' && event.status === 'succeeded'));
+      assert.equal(failedEvents.find((event) => event.stage === 'rollback' && event.status === 'succeeded')?.rollbackImageVerified, true);
       assert.equal(failedEvents.at(-1)?.stage, 'completed');
       assert.equal(failedEvents.at(-1)?.status, 'failed');
       assert.equal(runner.runningImageId, 'old-image-id');

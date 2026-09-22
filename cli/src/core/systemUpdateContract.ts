@@ -110,6 +110,7 @@ export interface SystemUpdateEvent {
   message: string;
   occurredAt: string;
   errorCode?: SystemUpdateErrorCode;
+  rollbackImageVerified?: true;
 }
 
 export interface SystemUpdateOperation {
@@ -343,6 +344,10 @@ export function validateSystemUpdateEvent(input: unknown): SystemUpdateValidatio
   if (input.errorCode !== undefined && !isMember(SYSTEM_UPDATE_ERROR_CODES, input.errorCode)) {
     return { ok: false, error: 'Update event error code is invalid.' };
   }
+  if (input.rollbackImageVerified !== undefined &&
+    (input.rollbackImageVerified !== true || input.stage !== 'rollback' || input.status !== 'succeeded')) {
+    return { ok: false, error: 'Rollback image proof requires a successful rollback event.' };
+  }
 
   return {
     ok: true,
@@ -355,6 +360,7 @@ export function validateSystemUpdateEvent(input: unknown): SystemUpdateValidatio
       status: input.status,
       message: input.message,
       occurredAt: input.occurredAt,
+      ...(input.rollbackImageVerified === true ? { rollbackImageVerified: true as const } : {}),
       ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode }),
     },
   };
