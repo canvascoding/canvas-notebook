@@ -59,7 +59,7 @@ async function loadQueue(target?: EmailReviewTarget) {
       const fresh = await loadEmailReview(emailReviewTarget(selected), selected);
       if (currentGeneration !== generation) return false;
       if (isPendingEmailReview(fresh)) setActive(fresh);
-      else { setActive(null); useEmailReviewStore.setState({ error: 'This email has already been processed. Refresh the queue to continue.' }); }
+      else { emitUpdated(); await advanceAfterDecision(fresh); }
     } else {
       setActive(null);
       if (target) useEmailReviewStore.setState({ error: 'This email is no longer awaiting review or its outbox could not be loaded.' });
@@ -87,7 +87,8 @@ export async function selectEmailReview(target: EmailReviewTarget) {
   try {
     const entry = await loadEmailReview(target, context);
     if (currentGeneration !== generation) return false;
-    setActive(entry);
+    if (isPendingEmailReview(entry)) setActive(entry);
+    else { emitUpdated(); await advanceAfterDecision(entry); }
     return true;
   } catch (error) {
     if (currentGeneration === generation && !handleAuthFailure(error)) useEmailReviewStore.setState({ loading: false, error: message(error) });
@@ -159,7 +160,7 @@ async function advanceAfterDecision(entry: EmailReviewEntry) {
   const oldIndex = state.queue.findIndex((item) => emailReviewKey(item) === emailReviewKey(entry));
   const queue = state.queue.filter((item) => emailReviewKey(item) !== emailReviewKey(entry));
   const visible = queue.filter((item) => matchesEmailReviewFilter(item, state.filter));
-  useEmailReviewStore.setState({ queue, busy: false, dirty: false, activeEntry: null, form: emptyForm, completed: !queue.length && !state.loadingWarnings.length });
+  useEmailReviewStore.setState({ queue, busy: false, loading: false, needsReload: false, dirty: false, activeEntry: null, form: emptyForm, completed: !queue.length && !state.loadingWarnings.length });
   if (visible.length) await selectEmailReview(emailReviewTarget(visible[Math.min(Math.max(oldIndex, 0), visible.length - 1)]));
 }
 export async function saveActiveEmailReview() {
@@ -218,13 +219,26 @@ export async function sendActiveEmailReview() {
 }
 export async function rejectActiveEmailReview() {
   if (!canMutate()) return false;
-  const entry = useEmailReviewStore.getState().activeEntry;
+  const state = useEmailReviewStore.getState();
+  const entry = state.activeEntry;
   if (!entry) return false;
   useEmailReviewStore.setState({ busy: true, error: null });
   try {
     await decideEmailReview(entry, 'reject'); emitUpdated(); await advanceAfterDecision(entry); return true;
   } catch (error) {
-    if (!handleAuthFailure(error)) useEmailReviewStore.setState({ error: message(error) });
+    if (handleAuthFailure(error)) return false;
+    if (!(error instanceof EmailReviewClientError && error.status === 409)) {
+      try {
+        const fresh = await loadEmailReview(emailReviewTarget(entry), entry);
+        if (!isPendingEmailReview(fresh)) { emitUpdated(); await advanceAfterDecision(fresh); return true; }
+        // Never rebase an unsaved form onto somebody else's new version.
+        if (!state.dirty) { replaceEntry(fresh); setActive(fresh); }
+      } catch (reloadError) {
+        if (handleAuthFailure(reloadError)) return false;
+        useEmailReviewStore.setState({ needsReload: true });
+      }
+    }
+    useEmailReviewStore.setState({ error: message(error) });
     return false;
   } finally { useEmailReviewStore.setState({ busy: false }); }
 }
@@ -233,14 +247,30 @@ export async function rejectEmailReviewTarget(target: EmailReviewTarget) {
   if (state.busy || state.loading) throw new Error('An email review operation is already in progress.');
   if (state.dirty && state.activeEntry && emailReviewKey(state.activeEntry) === emailReviewKey(target)) throw new Error('This email has unsaved edits. Open the review to save or discard them first.');
   useEmailReviewStore.setState({ busy: true });
+  let entry: EmailReviewEntry | null = null;
   try {
-    const entry = await loadEmailReview(target, state.queue.find((item) => emailReviewKey(item) === emailReviewKey(target)));
-    await decideEmailReview(entry, 'reject'); emitUpdated();
-    if (state.activeEntry && emailReviewKey(state.activeEntry) === emailReviewKey(target)) await advanceAfterDecision(entry);
+    entry = await loadEmailReview(target, state.queue.find((item) => emailReviewKey(item) === emailReviewKey(target)));
+    if (isPendingEmailReview(entry)) await decideEmailReview(entry, 'reject');
+  } catch (error) {
+    if (handleAuthFailure(error)) throw error;
+    if (!entry || (error instanceof EmailReviewClientError && error.status === 409)) {
+      useEmailReviewStore.setState({ busy: false });
+      throw error;
+    }
+    try {
+      const fresh = await loadEmailReview(target, entry);
+      if (isPendingEmailReview(fresh)) throw error;
+      entry = fresh;
+    } catch (reloadError) {
+      handleAuthFailure(reloadError);
+      useEmailReviewStore.setState({ busy: false });
+      throw error;
+    }
+  }
+  try {
+    emitUpdated();
+    if (entry && state.activeEntry && emailReviewKey(state.activeEntry) === emailReviewKey(target)) await advanceAfterDecision(entry);
     else useEmailReviewStore.setState({ queue: useEmailReviewStore.getState().queue.filter((item) => emailReviewKey(item) !== emailReviewKey(target)) });
     return true;
-  } catch (error) {
-    handleAuthFailure(error);
-    throw error;
   } finally { useEmailReviewStore.setState({ busy: false }); }
 }

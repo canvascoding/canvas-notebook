@@ -30,6 +30,19 @@ async function installOutboxFixture(context: BrowserContext, initial: Draft[]) {
   await context.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname === '/api/notifications/summary') {
+      const items = [...drafts.values()].filter((item) => !['sent', 'discarded'].includes(item.status)).map((item) => ({
+        id: `email-fixture-${item.id}`, type: 'email.attention', title: item.subject,
+        detail: `${item.senderAddress} → ${item.to.join(', ')}`, occurredAt: item.updatedAt,
+        unread: false, priority: 'normal', workspaceId: item.workspaceId || '', workspaceName: null,
+        target: { kind: 'email', scope: item.workspaceId ? 'workspace' : 'personal', draftId: item.id },
+      }));
+      return route.fulfill({ json: { success: true, data: {
+        unreadCount: 0, counts: { unread: 0, chat: 0, todos: 0, todoUnread: 0, todoAttention: 0, emailAttention: items.length, studio: 0, automation: 0, memoryApprovals: 0 },
+        items, sections: { notifications: [], todos: [], todoUnread: [], todoAttention: [], emailAttention: items },
+      } } });
+    }
+    if (url.pathname === '/api/email/accounts') return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [] } } });
     const match = url.pathname.match(/^\/api\/(?:workspaces\/[^/]+\/email|email)\/outbox(?:\/([^/]+))?(?:\/(send|reject))?$/u);
     if (!match) {
       if (url.pathname.includes('/email/') && !['GET', 'HEAD'].includes(request.method())) {
@@ -134,6 +147,52 @@ test.describe('Global email review', () => {
       await dialog.getByTestId('email-review-send').click();
       await expect.poll(() => fixture.drafts.get('workspace-proposal')?.status).toBe('sent');
       expect(fixture.writes.find((write) => write.action === 'send')?.path).toBe(`/api/workspaces/${workspace!.id}/email/outbox/workspace-proposal/send`);
+      expect(fixture.unexpected).toEqual([]);
+    } finally { await context.close(); }
+  });
+
+  test('Email app opens one central review editor from both its entry and deep link', async ({ browser }) => {
+    const context = await createAuthenticatedContext(browser);
+    await installOutboxFixture(context, [draft('app-proposal', 'App entry proposal')]);
+    const page = await context.newPage();
+    try {
+      await page.goto('/emails?outboxDraft=app-proposal', { waitUntil: 'domcontentloaded' });
+      const host = page.getByTestId('email-review-host');
+      await expect(host).toBeVisible();
+      await expect(host.getByTestId('email-review-subject')).toHaveValue('App entry proposal');
+      await expect(page.locator('[role="dialog"]:visible')).toHaveCount(1);
+      await expect(page.locator('.ProseMirror:visible')).toHaveCount(1);
+      await host.getByRole('button', { name: /^close$|^schließen$/i }).click();
+      await page.getByTestId('email-app-review-open').click();
+      await expect(host).toBeVisible();
+      await expect(page.locator('[role="dialog"]:visible')).toHaveCount(1);
+    } finally { await context.close(); }
+  });
+
+  test('Home and notification compact entries open the central review and reject directly', async ({ browser }) => {
+    const context = await createAuthenticatedContext(browser);
+    const fixture = await installOutboxFixture(context, [draft('compact-open', 'Compact open proposal'), draft('compact-reject', 'Compact reject proposal')]);
+    const page = await context.newPage();
+    try {
+      await page.goto('/', { waitUntil: 'domcontentloaded' });
+      await page.getByTestId('home-email-open-compact-open').click();
+      const host = page.getByTestId('email-review-host');
+      await expect(host).toBeVisible();
+      await expect(host.getByTestId('email-review-subject')).toHaveValue('Compact open proposal');
+      await host.getByRole('button', { name: /^close$|^schließen$/i }).click();
+      await page.getByTestId('home-email-reject-compact-reject').click();
+      await expect.poll(() => fixture.drafts.get('compact-reject')?.status).toBe('discarded');
+      await expect(host).not.toBeVisible();
+      await page.getByTestId('notification-bell').click();
+      await page.getByTestId('notification-email-open-compact-open').click();
+      await expect(host).toBeVisible();
+      await expect(host.getByTestId('email-review-subject')).toHaveValue('Compact open proposal');
+      await host.getByRole('button', { name: /^close$|^schließen$/i }).click();
+      await page.getByTestId('notification-bell').click();
+      await page.getByTestId('notification-email-reject-compact-open').click();
+      await expect.poll(() => fixture.drafts.get('compact-open')?.status).toBe('discarded');
+      await expect(host).not.toBeVisible();
+      expect(fixture.writes.map((write) => write.action)).toEqual(['reject', 'reject']);
       expect(fixture.unexpected).toEqual([]);
     } finally { await context.close(); }
   });

@@ -32,3 +32,12 @@ Each milestone is completed and checked before proceeding to the next. Commit co
 - The complete queue is independent of notification preview limits.
 - Unsaved edits are protected when selecting another draft, closing, or navigating away.
 - Successful decisions advance the queue and synchronize notification/home/email counts.
+
+## Verification completed
+
+- Backend delivery/policy, PostgreSQL migration, and shared review-store regression suites passed.
+- Existing email context-intent, reading-flow, and notification regression checks passed.
+- Six Playwright journeys passed against the current host development server: desktop editing/rejection, policy correction/retry, workspace delivery, mobile uncertain delivery, email-app deep links, and Home/notification actions. Email writes were mocked; no real mail was sent.
+- Targeted ESLint and the production build, including TypeScript, passed. The build reports environment-dependent direct-MCP OAuth configuration warnings because no base URL is supplied to the build process.
+- The email-app entry remains available when no mailbox is connected. Failed proposals therefore remain accessible during account repair.
+- Implementation and final integration were independently reviewed by sub-agents. No container was built or deployed.

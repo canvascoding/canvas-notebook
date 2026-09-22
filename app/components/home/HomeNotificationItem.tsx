@@ -8,9 +8,12 @@ import { Button } from '@/components/ui/button';
 import type { NotificationItem } from '@/app/components/notifications/notification-summary';
 import {
   notificationHref,
+  emailReviewTargetFromNotification,
   openFileChangeReviewNotification,
   shouldMarkNotificationReadOnOpen,
 } from '@/app/components/notifications/notification-actions';
+import { openEmailReview } from '@/app/store/email-review-store';
+import { EmailReviewNotificationActions } from '@/app/components/email-review/EmailReviewNotificationActions';
 import { openMemoryReview } from '@/app/store/memory-review-store';
 
 const ICONS = {
@@ -56,10 +59,12 @@ export function HomeNotificationItem({
   const typeLabel = item.target.kind === 'file_change'
     ? `${t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
     : `${t(`types.${item.target.kind}`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`;
+  const emailTarget = emailReviewTargetFromNotification(item);
   const isMemory = item.target.kind === 'memory';
   return (
     <li className="border-b border-border/60 last:border-0">
-      <Link href={notificationHref(item)} onClick={(event) => {
+      <Link href={notificationHref(item)} data-testid={emailTarget ? `home-email-open-${emailTarget.draftId}` : undefined} onClick={(event) => {
+        if (emailTarget) { event.preventDefault(); void openEmailReview(emailTarget); return; }
         if (item.target.kind === 'memory') {
           event.preventDefault();
           onMemoryOpen?.();
@@ -85,6 +90,7 @@ export function HomeNotificationItem({
         </span>
         {item.priority === 'high' ? <CircleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
       </Link>
+      {emailTarget && <div className="flex justify-end px-2 pb-3"><EmailReviewNotificationActions item={item} surface="home" /></div>}
       {showActions && (item.unread || dismissible || isMemory) ? <div className="flex flex-wrap justify-end gap-1 px-2 pb-3">
         {isMemory ? <>
           <Button variant="ghost" size="sm" className="text-xs text-muted-foreground" disabled={Boolean(memoryDecision)} onClick={() => onMemoryDecision?.('reject')} aria-label={t('memoryReject')} title={t('memoryReject')}>{memoryDecision === 'reject' ? <Loader2 className="h-3 w-3 animate-spin" /> : <X className="h-3 w-3" />}{t('memoryReject')}</Button>

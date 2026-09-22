@@ -8367,6 +8367,10 @@
     }
   },
   "emailReview": {
+    "openOutbox": "Gesamten Postausgang öffnen",
+    "review": "Prüfen",
+    "rejected": "E-Mail-Vorschlag abgelehnt",
+    "rejectFailed": "E-Mail-Vorschlag konnte nicht abgelehnt werden.",
     "reloadRequired": "Der aktuelle Versandstatus konnte nicht geladen werden. Aktualisiere zuerst den Entwurf, bevor du ihn bearbeitest oder erneut sendest.",
     "title": "E-Mails prüfen",
     "description": "Prüfe Absender, Empfänger und Inhalt, bevor du eine Nachricht freigibst.",

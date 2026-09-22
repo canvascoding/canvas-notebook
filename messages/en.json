@@ -8368,6 +8368,10 @@
     }
   },
   "emailReview": {
+    "openOutbox": "Open full outbox",
+    "review": "Review",
+    "rejected": "Email proposal rejected",
+    "rejectFailed": "Unable to reject email proposal.",
     "reloadRequired": "The current delivery status could not be loaded. Refresh the draft before editing or sending it again.",
     "title": "Review emails",
     "description": "Review the sender, recipients and content before approving each message.",

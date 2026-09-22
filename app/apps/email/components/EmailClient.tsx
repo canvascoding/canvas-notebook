@@ -7,7 +7,6 @@ import {
   Settings,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
-import { useSearchParams } from 'next/navigation';
 
 import { EmailComposeDialog } from '@/app/apps/email/components/EmailComposeDialog';
 import { EmailMailboxHeader } from '@/app/apps/email/components/EmailMailboxHeader';
@@ -66,7 +65,6 @@ export function EmailClient({
   const t = useTranslations('emails');
   const locale = useLocale();
   const setEmailChatContext = useSetEmailChatContext();
-  const searchParams = useSearchParams();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const { containerRef, listWidth, mode: layoutMode, setListWidth } = useEmailWorkspaceLayout();
   const [accountsOpen, setAccountsOpen] = useState(false);
@@ -804,7 +802,6 @@ export function EmailClient({
     onError: setError,
     onMessageActionNotice: setMessageActionNotice,
     onMessageDialogOpenChange: setMessageDialogOpen,
-    searchParams,
   });
   const {
     agentEvents: composeAgentEvents,
@@ -816,15 +813,8 @@ export function EmailClient({
     generateAiReplyPreview,
     isGeneratingAi: isGeneratingComposeAi,
     isSubmitting: isSubmittingCompose,
-    isWorkspaceOutboxReview,
     openDraft: openComposeDraft,
     openNewDraft: openNewComposeDraft,
-    openPersonalOutboxDraft,
-    openWorkspaceOutboxDraft,
-    outboxSenderAddress,
-    reviewCase: workspaceOutboxReviewCase,
-    reviewCenterRevision: workspaceOutboxRevision,
-    save: saveOutboxComposeDraft,
     submit: submitComposeDraft,
     updateDraft: updateComposeDraft,
   } = composeController;
@@ -1142,6 +1132,14 @@ export function EmailClient({
     to: t('to'),
   };
 
+  const reviewCenter = (
+      <EmailReviewCenter
+        focusRequestKey={contextIntent?.view === 'review-center'
+          ? `${contextIntent.toolCallId || contextIntent.toolName}:${contextIntent.mailboxId || ''}`
+          : undefined}
+      />
+  );
+
   if (isLoadingAccounts) {
     return (
       <div className="flex min-h-64 items-center justify-center text-sm text-muted-foreground">
@@ -1153,7 +1151,8 @@ export function EmailClient({
 
   if (accounts.length === 0) {
     return (
-      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
+        {reviewCenter}
         <EmailAccountsCard
           isOpen={true}
           onOpenChange={() => undefined}
@@ -1209,16 +1208,7 @@ export function EmailClient({
         />
       </section>
 
-      <EmailReviewCenter
-        focusRequestKey={contextIntent?.view === 'review-center'
-          ? `${contextIntent.toolCallId || contextIntent.toolName}:${contextIntent.mailboxId || ''}`
-          : undefined}
-        onOpenPersonalDraft={openPersonalOutboxDraft}
-        onOpenWorkspaceDraft={openWorkspaceOutboxDraft}
-        refreshKey={workspaceOutboxRevision}
-        t={t}
-        workspaceId={activeWorkspaceId}
-      />
+      {reviewCenter}
 
       {error && (
         <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -1377,15 +1367,12 @@ export function EmailClient({
         error={composeError}
         isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
-        isWorkspaceOutboxReview={isWorkspaceOutboxReview}
-        reviewCase={workspaceOutboxReviewCase}
-        senderAddress={isWorkspaceOutboxReview ? outboxSenderAddress : activeAccount?.emailAddress || ''}
+        senderAddress={activeAccount?.emailAddress || ''}
         labels={composeDialogLabels}
         locale={locale}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
         onClose={closeComposeDialog}
         onGenerateAi={() => void generateComposeAiBody()}
-        onSave={() => void saveOutboxComposeDraft()}
         onSubmit={() => void submitComposeDraft()}
         onUpdate={updateComposeDraft}
       />

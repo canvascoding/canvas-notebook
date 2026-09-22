@@ -15,6 +15,8 @@ async function main() {
   let drafts: Record<string, Draft> = {};
   let sendFailure = false;
   let lostSendResponse = false;
+  let lostRejectResponse = false;
+  let terminalRead = false;
   let conflict = false;
   let unauthorized = false;
   let workspaceFailure = false;
@@ -41,7 +43,7 @@ async function main() {
     if (method === 'GET' && deferredRead?.id === id) return deferredRead.promise;
     const current = drafts[id] || make(id);
     if (method === 'GET' && readFailure) throw new TypeError('Reload unavailable');
-    if (method === 'GET') return response({ success: true, data: current });
+    if (method === 'GET') return response({ success: true, data: terminalRead ? { ...current, status: 'sent' } : current });
     if (action === 'send' && sendGate) await sendGate;
     if (conflict || body?.expectedVersion !== current.version) return response({ success: false, error: 'Version conflict' }, 409);
     if (method === 'PATCH') {
@@ -53,13 +55,14 @@ async function main() {
       return response({ success: false, code: 'SEND_POLICY_BLOCKED', error: 'Recipient blocked', data: drafts[id] }, 422);
     }
     drafts[id] = { ...current, version: current.version + 2, status: action === 'reject' ? 'discarded' : 'sent' };
+    if (action === 'reject' && lostRejectResponse) throw new TypeError('Reject response lost');
     if (action === 'send' && lostSendResponse) throw new TypeError('Network response lost');
     return response({ success: true, data: drafts[id] });
   };
   function reset() {
     store.useEmailReviewStore.setState({ dirty: false, busy: false }); store.closeEmailReview();
     drafts = { first: make('first'), second: make('second') };
-    sendFailure = false; lostSendResponse = false; conflict = false; unauthorized = false; workspaceFailure = false; readFailure = false; sendGate = null; releaseSend = null; deferredRead = null; requests.length = 0;
+    sendFailure = false; lostSendResponse = false; lostRejectResponse = false; terminalRead = false; conflict = false; unauthorized = false; workspaceFailure = false; readFailure = false; sendGate = null; releaseSend = null; deferredRead = null; requests.length = 0;
   }
   const target = (draftId: string) => ({ scope: 'personal' as const, draftId });
   reset();
@@ -129,6 +132,30 @@ async function main() {
   await store.confirmDiscardEmailReviewNavigation();
   assert.equal(store.useEmailReviewStore.getState().activeEntry?.version, 5);
   assert.equal(store.useEmailReviewStore.getState().form.subject, 'Server changed');
+
+  reset(); await store.openEmailReview(target('first'));
+  lostRejectResponse = true;
+  store.updateEmailReviewForm({ subject: 'Explicit reject discards this edit' });
+  assert.equal(await store.rejectActiveEmailReview(), true);
+  assert.equal(store.useEmailReviewStore.getState().queue.some((entry) => entry.id === 'first'), false);
+  assert.equal(store.useEmailReviewStore.getState().dirty, false);
+
+  reset(); await store.openEmailReview(target('first'));
+  lostRejectResponse = true;
+  assert.equal(await store.rejectEmailReviewTarget(target('second')), true);
+  assert.equal(store.useEmailReviewStore.getState().queue.some((entry) => entry.id === 'second'), false);
+
+  reset(); terminalRead = true;
+  await store.openEmailReview(target('first'));
+  assert.equal(store.useEmailReviewStore.getState().queue.length, 0);
+  assert.equal(store.useEmailReviewStore.getState().completed, true);
+  assert.equal(store.useEmailReviewStore.getState().loading, false);
+
+  reset(); await store.openEmailReview(target('first'));
+  terminalRead = true;
+  await store.selectEmailReview(target('second'));
+  assert.equal(store.useEmailReviewStore.getState().queue.length, 0);
+  assert.equal(store.useEmailReviewStore.getState().loading, false);
 
   reset(); await store.openEmailReview(target('first'));
   let resolveRead!: (response: Response) => void;
