@@ -732,6 +732,7 @@
     "revealingFile": "Datei wird im Dateibrowser angezeigt …",
     "fileRevealFailed": "Datei geöffnet, aber ihr Ordner konnte nicht angezeigt werden.",
     "retryFileReveal": "Erneut im Dateibrowser anzeigen",
+    "revealInFileBrowser": "Im Dateibrowser anzeigen",
     "documentUpdating": "Dokument wird aktualisiert …",
     "documentUpdated": "Dokument nach externer Änderung aktualisiert.",
     "documentUpdateFailed": "Dokument konnte nicht aktualisiert werden. Neu verbinden oder erneut laden.",

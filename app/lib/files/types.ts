@@ -105,6 +105,7 @@ export type FileLoadResult =
 export interface OpenWorkspaceFileOptions {
   workspaceId?: string | null;
   revealInTree?: boolean;
+  explorerBehavior?: 'preserve' | 'reveal';
   transitionId?: string;
   expectedDocumentId?: string;
   isCurrent?: () => boolean;
