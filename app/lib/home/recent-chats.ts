@@ -25,7 +25,11 @@ export async function listHomeChats(userId: string, workspace: WorkspaceContext,
   const workspaceCondition = workspace.workspaceType === 'personal'
     ? or(eq(piSessions.workspaceId, workspace.workspaceId), isNull(piSessions.workspaceId))
     : eq(piSessions.workspaceId, workspace.workspaceId);
-  const activityAt = sql<number>`(select max(${piMessages.timestamp}) from ${piMessages} where ${piMessages.piSessionDbId} = ${piSessions.id} and ${piMessages.role} in ('user', 'assistant'))`;
+  // A query-builder subquery preserves outer-table qualification in SELECTs;
+  // raw SQL column interpolation is dequalified by Drizzle for a single-table selection.
+  const activityAt = sql<number>`${db.select({ value: sql`max(${piMessages.timestamp})` }).from(piMessages).where(and(
+    eq(piMessages.piSessionDbId, piSessions.id), inArray(piMessages.role, ['user', 'assistant']),
+  ))}`;
   const piRows = await db.select({
     sessionId: piSessions.sessionId, title: piSessions.title, agentId: piSessions.agentId, activityAt,
     lastMessageAt: piSessions.lastMessageAt, lastViewedAt: piSessions.lastViewedAt,
@@ -43,7 +47,9 @@ export async function listHomeChats(userId: string, workspace: WorkspaceContext,
   }));
   // Older sessions have no workspace field and belong only to the user's personal workspace.
   if (workspace.workspaceType === 'personal' && agentIds.includes(DEFAULT_AGENT_ID) && await legacyAiTablesExist()) {
-    const lastMessage = sql<Date>`(select max(${aiMessages.createdAt}) from ${aiMessages} where ${aiMessages.aiSessionDbId} = ${aiSessions.id} and ${aiMessages.role} in ('user', 'assistant'))`.mapWith(aiMessages.createdAt);
+    const lastMessage = sql<Date>`${db.select({ value: sql`max(${aiMessages.createdAt})` }).from(aiMessages).where(and(
+      eq(aiMessages.aiSessionDbId, aiSessions.id), inArray(aiMessages.role, ['user', 'assistant']),
+    ))}`.mapWith(aiMessages.createdAt);
     const legacy = await db.select({ sessionId: aiSessions.sessionId, title: aiSessions.title, lastMessage })
       .from(aiSessions).where(and(
         eq(aiSessions.userId, userId),
