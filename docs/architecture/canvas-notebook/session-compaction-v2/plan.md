@@ -1,5 +1,13 @@
 # Hermes-aligned Session Compaction V2
 
+> **Aktualisierung 2026-09-22:** Der urspruengliche Plan P00-P09 bleibt als
+> Implementierungs- und Rollout-Historie erhalten. Die verbindliche
+> Paritaetsrunde gegen aktuelles Hermes
+> `e2f8a0731bf26e95b31e35d73e71e183a1045b81` liegt in
+> [hermes-parity-refresh-plan.md](./hermes-parity-refresh-plan.md). Sie ersetzt
+> insbesondere die alte Annahme, Lean benoetige mehrere serielle
+> Digest-LLM-Aufrufe. Die neuen Arbeitspakete sind SC-P10 bis SC-P14.
+
 Stand: 2026-09-01
 Status: in Umsetzung
 Canvas-Ausgangsstand: `0b8fda3f43e36ad165e559b8f0d155755cc1296f` inklusive des gemergten Provider-Context-Status aus PR `#106`

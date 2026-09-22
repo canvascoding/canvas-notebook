@@ -2,17 +2,19 @@
   "schemaVersion": 1,
   "feature": "hermes-aligned-session-compaction-v2",
   "title": "Hermes-aligned Session Compaction V2",
-  "updatedAt": "2026-09-01",
+  "updatedAt": "2026-09-22",
   "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "reference": {
     "repository": "https://github.com/NousResearch/hermes-agent",
-    "commit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+    "commit": "e2f8a0731bf26e95b31e35d73e71e183a1045b81",
     "license": "MIT",
     "rule": "Every implementation task must name its Hermes source symbol or document an intentional Canvas divergence."
   },
   "documents": [
     "docs/architecture/canvas-notebook/session-compaction-v2/plan.md",
+    "docs/architecture/canvas-notebook/session-compaction-v2/hermes-parity-refresh-plan.md",
+    "docs/architecture/canvas-notebook/session-compaction-v2/operations.md",
     "docs/architecture/canvas-notebook/session-compaction-v2/todo.json"
   ],
   "executionPolicy": {
@@ -80,6 +82,31 @@
       "id": "SC-G09_V2_READY",
       "packageId": "SC-P09",
       "evidence": "Shadow rollout, default decision, rollback, compliance, tests, lint, build and approved E2E are complete."
+    },
+    {
+      "id": "SC-G10_POLICY_REFRESHED",
+      "packageId": "SC-P10",
+      "evidence": "Current Hermes reference, configuration precedence and one shared runtime budget policy are pinned and tested."
+    },
+    {
+      "id": "SC-G11_SINGLE_CALL_SUMMARY",
+      "packageId": "SC-P11",
+      "evidence": "The multi-digest path is gone; one bounded summary call and one explicit main-model fallback satisfy the summary contract."
+    },
+    {
+      "id": "SC-G12_TAIL_MODE_PARITY",
+      "packageId": "SC-P12",
+      "evidence": "Legacy and lean match current Hermes tail, anchor, user-verbatim, tool-stub and recovery invariants."
+    },
+    {
+      "id": "SC-G13_SETTINGS_READY",
+      "packageId": "SC-P13",
+      "evidence": "Persisted admin settings and visible environment overrides resolve identically for live chat and automations."
+    },
+    {
+      "id": "SC-G14_PRODUCTION_READY",
+      "packageId": "SC-P14",
+      "evidence": "Latency, reliability, rollback, observability, build and approved UI gates pass on production-shaped fixtures."
     }
   ],
   "packages": [
@@ -455,6 +482,134 @@
         "Approved Playwright verification passes the runtime-details and manual-compaction-break flows against an isolated migrated PostgreSQL database on localhost:3000"
       ],
       "exitGate": "SC-G09_V2_READY"
+    },
+    {
+      "id": "SC-P10",
+      "order": 10,
+      "title": "Refresh Hermes reference and central compaction policy",
+      "status": "in_progress",
+      "dependsOn": ["SC-P09"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_compute_threshold_tokens",
+        "agent/context_compressor.py:_effective_threshold_percent",
+        "hermes_cli/config_defaults.py compression and auxiliary.compression"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Updated MIT attribution and pinned current Hermes reference",
+        "Central legacy/lean and summary-model configuration resolver",
+        "One immutable request-budget snapshot for live chat, automations, status and logs"
+      ],
+      "verification": [
+        "configuration precedence and invalid-value tests",
+        "small, 256K and large-window threshold parity tests",
+        "live and automation effective-policy equality"
+      ],
+      "completionEvidence": [],
+      "exitGate": "SC-G10_POLICY_REFRESHED"
+    },
+    {
+      "id": "SC-P11",
+      "order": 11,
+      "title": "Port current Hermes single-call summary path",
+      "status": "pending",
+      "dependsOn": ["SC-P10"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_sample_summary_records",
+        "agent/context_compressor.py:_bound_oversized_record",
+        "agent/context_compressor.py:_generate_summary",
+        "agent/conversation_compression.py progress-aware timeout and fallback flow"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Removal of serial digest LLM calls",
+        "Bounded complete-record summary sampling",
+        "Refusal, empty and length-stop rejection",
+        "Dedicated summary model with one main-model fallback"
+      ],
+      "verification": [
+        "one-call and explicit-fallback call-count tests",
+        "summary coverage and newest-record tests",
+        "timeout, refusal, empty and truncation tests"
+      ],
+      "completionEvidence": [],
+      "exitGate": "SC-G11_SINGLE_CALL_SUMMARY"
+    },
+    {
+      "id": "SC-P12",
+      "order": 12,
+      "title": "Complete current Hermes legacy and lean parity",
+      "status": "pending",
+      "dependsOn": ["SC-P11"],
+      "hermesReferences": [
+        "agent/context_compressor.py legacy and lean tail budgets",
+        "agent/context_compressor.py lean anchor, verbatim-user and recovery augmentation",
+        "agent/context_compressor.py stale tail tool demotion"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Exact legacy and lean tail selection",
+        "Lean tail hard cap",
+        "Deterministic anchor, user-verbatim, tool-stub and recovery sections",
+        "Searchable in-place raw history across repeated compactions"
+      ],
+      "verification": [
+        "multi-cycle legacy and lean fixtures",
+        "active user and tool-group preservation",
+        "authorized recovery and raw-history tests"
+      ],
+      "completionEvidence": [],
+      "exitGate": "SC-G12_TAIL_MODE_PARITY"
+    },
+    {
+      "id": "SC-P13",
+      "order": 13,
+      "title": "Expose compaction runtime settings and overrides",
+      "status": "pending",
+      "dependsOn": ["SC-P12"],
+      "hermesReferences": [
+        "hermes_cli/config_defaults.py compression.tail_mode",
+        "hermes_cli/config_defaults.py auxiliary.compression"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Persisted admin mode and summary-model settings",
+        "Environment override and visible source",
+        "Effective mode, model, trigger and tail target in runtime status"
+      ],
+      "verification": [
+        "settings API and authorization tests",
+        "environment precedence and restart tests",
+        "localized UI contracts and approved browser verification"
+      ],
+      "completionEvidence": [],
+      "exitGate": "SC-G13_SETTINGS_READY"
+    },
+    {
+      "id": "SC-P14",
+      "order": 14,
+      "title": "Production hardening, latency evidence and rollout",
+      "status": "pending",
+      "dependsOn": ["SC-P13"],
+      "hermesReferences": [
+        "agent/conversation_compression.py leases and commit fences",
+        "agent/context_compressor.py persisted cooldown and anti-thrash",
+        "tests for infinite compaction, timeout and recovery"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Content-free stage, model, token and duration telemetry",
+        "Production-shaped latency and recovery evidence",
+        "Documented legacy rollback and lean canary rollout"
+      ],
+      "verification": [
+        "targeted compaction, runtime, automation and persistence suites",
+        "TypeScript, ESLint and npm run build",
+        "GitNexus detect_changes against main",
+        "approved Playwright verification"
+      ],
+      "completionEvidence": [],
+      "exitGate": "SC-G14_PRODUCTION_READY"
     }
   ]
 }

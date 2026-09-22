@@ -1,8 +1,17 @@
 # Session Compaction V2 Operations
 
+> **Parity refresh (2026-09-22):** Current Hermes main at
+> `e2f8a0731bf26e95b31e35d73e71e183a1045b81` replaces the older multi-digest
+> lean design with one bounded summary call plus deterministic anchors, user
+> excerpts and recovery pointers. The implementation and rollout plan is
+> [hermes-parity-refresh-plan.md](./hermes-parity-refresh-plan.md). Statements
+> below that keep Lean as a measurement-only variant describe the previous
+> shipping decision and remain as historical rollout evidence until SC-P10
+> through SC-P14 are complete.
+
 ## Shipping decision
 
-Canvas ships the Hermes V2 summary path with the conservative Hermes
+Canvas currently ships the Hermes V2 summary path with the conservative Hermes
 `legacy` tail policy. The deterministic unit selector, exact anchors, rolling
 LLM summary contract, recovery sections, fail-closed validation, retries and
 anti-thrash protection are active. The smaller `lean` tail remains a measured
