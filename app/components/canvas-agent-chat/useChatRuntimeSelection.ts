@@ -7,16 +7,8 @@ import type {
   AiRuntimeSelection,
   AiRuntimeSelectionSource,
 } from '@/app/lib/agent-runtime-policy/types';
-
-type EffectiveRuntimeResponse = {
-  success?: boolean;
-  resolution?: AiEffectiveRuntimeResolution;
-  // Kept temporarily so the client can tolerate the preferences-route response
-  // shape while every runtime consumer moves to the dedicated effective endpoint.
-  data?: AiEffectiveRuntimeResolution;
-  error?: string;
-  code?: string;
-};
+import { getNotebookQueryClient } from '@/app/lib/queries/client';
+import { fetchEffectiveRuntime, isRuntimeResolution, workspaceQueryKeys } from '@/app/lib/queries/workspace-queries';
 
 type RuntimeRequestState = {
   contextKey: string;
@@ -35,15 +27,6 @@ type UseChatRuntimeSelectionParams = {
   agentId: string;
   sessionId: string | null;
 };
-
-function isRuntimeResolution(value: unknown): value is AiEffectiveRuntimeResolution {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const candidate = value as Partial<AiEffectiveRuntimeResolution>;
-  return Number.isSafeInteger(candidate.catalogRevision)
-    && Number.isSafeInteger(candidate.policyRevision)
-    && Array.isArray(candidate.providers)
-    && Array.isArray(candidate.issues);
-}
 
 function selectionForResolution(
   resolution: AiEffectiveRuntimeResolution | null,
@@ -72,11 +55,8 @@ export function useChatRuntimeSelection({
 
     const requestSequence = ++requestSequenceRef.current;
     const controller = new AbortController();
-    const query = new URLSearchParams({ workspaceId, agentId });
-    if (sessionId) query.set('sessionId', sessionId);
-
     Promise.resolve().then(() => {
-      if (requestSequence !== requestSequenceRef.current) return;
+      if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
       setRequestState((current) => ({
         contextKey,
         resolution: current.contextKey === contextKey ? current.resolution : null,
@@ -85,23 +65,9 @@ export function useChatRuntimeSelection({
       }));
     });
 
-    void fetch(`/api/agent-runtime/effective?${query.toString()}`, {
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null) as EffectiveRuntimeResponse | null;
-        if (!response.ok || payload?.success !== true) {
-          throw new Error(payload?.error || `Runtime selection could not be loaded (HTTP ${response.status}).`);
-        }
-        const resolution = payload.resolution ?? payload.data;
-        if (!isRuntimeResolution(resolution)) {
-          throw new Error('The runtime service returned an invalid response.');
-        }
-        return resolution;
-      })
+    void fetchEffectiveRuntime({ workspaceId, agentId, sessionId }, controller.signal)
       .then((resolution) => {
-        if (requestSequence !== requestSequenceRef.current) return;
+        if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
         setRequestState({
           contextKey,
           resolution,
@@ -111,12 +77,12 @@ export function useChatRuntimeSelection({
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
-        setRequestState({
+        setRequestState((current) => ({
           contextKey,
-          resolution: null,
+          resolution: current.contextKey === contextKey ? current.resolution : null,
           loading: false,
           error: error instanceof Error ? error.message : 'Runtime selection could not be loaded.',
-        });
+        }));
       });
 
     return () => {
@@ -140,6 +106,13 @@ export function useChatRuntimeSelection({
 
   const applyResolution = useCallback((next: AiEffectiveRuntimeResolution) => {
     if (!isRuntimeResolution(next)) return;
+    if (workspaceId) {
+      const queryClient = getNotebookQueryClient();
+      const queryKey = workspaceQueryKeys.runtime({ workspaceId, agentId, sessionId });
+      void queryClient.cancelQueries({ queryKey, exact: true });
+      queryClient.setQueryData(queryKey, next);
+    }
+    requestSequenceRef.current += 1;
     setRequestState({
       contextKey,
       resolution: next,
@@ -149,11 +122,17 @@ export function useChatRuntimeSelection({
     setLocalSelection((current) => (
       current?.contextKey === contextKey ? null : current
     ));
-  }, [contextKey]);
+  }, [agentId, contextKey, sessionId, workspaceId]);
 
   const refresh = useCallback(() => {
+    if (workspaceId) {
+      void getNotebookQueryClient().invalidateQueries({
+        queryKey: workspaceQueryKeys.runtime({ workspaceId, agentId, sessionId }),
+        exact: true,
+      });
+    }
     setReloadToken((current) => current + 1);
-  }, []);
+  }, [agentId, sessionId, workspaceId]);
 
   return useMemo(() => ({
     resolution,

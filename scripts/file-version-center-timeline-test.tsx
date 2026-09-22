@@ -1,3 +1,6 @@
+import { getNotebookQueryClient } from '../app/lib/queries/client';
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import { fileVersionTestRouter } from './file-version-test-router';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { act } from 'react';
@@ -153,7 +156,7 @@ async function main() {
   const root = createRoot(document.getElementById('root')!);
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <FileVersionCenterHost />
+      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
   await act(async () => { openVersionCenter(request); });
@@ -338,4 +341,4 @@ async function main() {
   console.log('file-version-center-timeline-test: ok');
 }
 
-void main().catch((error) => { console.error(error); process.exitCode = 1; });
+void main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => getNotebookQueryClient().clear());

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.22.3",
-  "lockfileSha256": "39b8fc0da93ae509d6a57c496225cfa930704a3b47d3c01ac16cb11125075055",
+  "lockfileSha256": "e1d4d9fb6cb7600e001fb7e5203fbb6cb8baeda8a61f92396368bd7b12aab6a5",
   "summary": {
-    "totalComponents": 1965,
-    "npmComponents": 1941,
+    "totalComponents": 1967,
+    "npmComponents": 1943,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1447,
+    "runtimeComponents": 1449,
     "developmentOnlyComponents": 518,
-    "allowed": 1929,
+    "allowed": 1931,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -21571,6 +21571,50 @@
         "(c) You must retain, in the Source form of any Derivative Works",
         "Copyright 2024 SWC contributors.",
         "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@tanstack/query-core",
+      "versionOrCommit": "5.103.2",
+      "sourceUrl": "https://github.com/TanStack/query",
+      "packagePathOrArtifact": "node_modules/@tanstack/query-core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@tanstack/query-core/LICENSE",
+      "licenseTextSha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7",
+      "copyrightNotices": [
+        "Copyright (c) 2021-present Tanner Linsley"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@tanstack/react-query",
+      "versionOrCommit": "5.103.2",
+      "sourceUrl": "https://github.com/TanStack/query",
+      "packagePathOrArtifact": "node_modules/@tanstack/react-query",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@tanstack/react-query/LICENSE",
+      "licenseTextSha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7",
+      "copyrightNotices": [
+        "Copyright (c) 2021-present Tanner Linsley"
       ],
       "modified": false,
       "policyDecision": "allowed"

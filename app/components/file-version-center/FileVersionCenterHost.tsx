@@ -1,12 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { FileClock, FileQuestion, RefreshCw } from 'lucide-react';
-import { useLocale, useTranslations } from 'next-intl';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import {
-  buildContinueFileVersionHref,
   type FileVersionMutation,
 } from '@/app/lib/file-version-center/action-client';
 import {
@@ -39,15 +38,42 @@ import {
 } from '@/app/store/file-version-center-store';
 import { updateNotification } from '@/app/components/notifications/notification-actions';
 
+import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
+import { authClient } from '@/app/lib/auth-client';
+import { openedDocumentAuthScope, subscribeOpenedDocumentAuthInvalidation } from '@/app/lib/collaboration/opened-document-registry';
+import { useEditorStore } from '@/app/store/editor-store';
+import { useFileStore } from '@/app/store/file-store';
+import { useRouter } from '@/i18n/navigation';
+import { invalidateReviewQueries } from '@/app/lib/queries/review-queries';
+import { FileVersionLoadingSkeleton } from './FileVersionLoadingSkeleton';
 import { FileVersionComparison } from './FileVersionComparison';
 import { FileVersionTimeline } from './FileVersionTimeline';
 
+function subscribeFileVersionAuth(listener: () => void): () => void {
+  // Initial session hydration is not a revocation, but it still changes the
+  // partition of a review opened before the authentication atom resolves.
+  const unsubscribeSession = authClient.$store.atoms.session.listen(listener);
+  const unsubscribeInvalidation = subscribeOpenedDocumentAuthInvalidation(listener);
+  return () => { unsubscribeSession(); unsubscribeInvalidation(); };
+}
+
 export function FileVersionCenterHost() {
   const t = useTranslations('fileVersionCenter');
-  const locale = useLocale();
+  const router = useRouter();
   const request = useFileVersionCenterStore((state) => state.request);
-  const [timeline, setTimeline] = useState<FileVersionTimelineResponseV1 | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const authScope = useSyncExternalStore(subscribeFileVersionAuth, openedDocumentAuthScope, () => null);
+  const targetIdentity = request ? JSON.stringify([authScope, request.target]) : null;
+  const [resolvedTimeline, setResolvedTimeline] = useState<{ identity: string; value: FileVersionTimelineResponseV1 } | null>(null);
+  const [failure, setFailure] = useState<{ identity: string; message: string } | null>(null);
+  const timeline = resolvedTimeline?.identity === targetIdentity ? resolvedTimeline.value : null;
+  const error = failure?.identity === targetIdentity ? failure.message : null;
+  const [invalidatedTarget, setInvalidatedTarget] = useState<string | null>(null);
+  const invalidationRevisionRef = useRef(0);
+  const editorPath = useEditorStore((state) => state.activePath);
+  const editorDirty = useEditorStore((state) => state.isDirty);
+  const editorWorkspaceId = useFileStore((state) => state.currentFileWorkspaceId);
+  const unsavedReviewDocument = Boolean(timeline && editorDirty
+    && editorPath === timeline.document.path && editorWorkspaceId === timeline.document.workspaceId);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
@@ -61,25 +87,32 @@ export function FileVersionCenterHost() {
     options?: { preserveTimeline?: boolean },
   ) => {
     const generation = ++requestGenerationRef.current;
+    const identity = JSON.stringify([authScope, activeRequest.target]);
+    const invalidationRevision = invalidationRevisionRef.current;
+    const isCurrent = () => generation === requestGenerationRef.current && !signal?.aborted
+      && openedDocumentAuthScope() === authScope;
     paginationAbortRef.current?.abort();
+    paginationAbortRef.current = null;
     setLoading(true);
-    setError(null);
+    setFailure(null);
     setLoadMoreError(null);
     setLoadingMore(false);
-    if (!options?.preserveTimeline) setTimeline(null);
     let resolvingRequest = activeRequest;
     try {
+      if (options?.preserveTimeline) await invalidateReviewQueries(activeRequest.target.workspaceId);
+      if (!isCurrent()) return;
       for (;;) {
         try {
           const next = await resolveFileVersionCenterWhenReady(resolvingRequest, signal);
-          if (generation !== requestGenerationRef.current) return;
+          if (!isCurrent()) return;
           if (next.document.workspaceId !== resolvingRequest.target.workspaceId) {
             throw new Error('The resolved document belongs to another workspace.');
           }
-          setTimeline(next);
+          setResolvedTimeline({ identity, value: next });
+          if (invalidationRevision === invalidationRevisionRef.current) setInvalidatedTarget(null);
           return;
         } catch (loadError) {
-          if (generation !== requestGenerationRef.current
+          if (!isCurrent()
             || (loadError instanceof DOMException && loadError.name === 'AbortError')) return;
           if (loadError instanceof FileVersionCenterClientError
             && loadError.code === 'FVRC_STALE_SELECTION') {
@@ -99,14 +132,14 @@ export function FileVersionCenterHost() {
               continue;
             }
           }
-          setError(loadError instanceof Error ? loadError.message : t('loadFailed'));
+          setFailure({ identity, message: loadError instanceof Error ? loadError.message : t('loadFailed') });
           return;
         }
       }
     } finally {
-      if (generation === requestGenerationRef.current) setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
-  }, [t]);
+  }, [authScope, t]);
 
   const requestTarget = request?.target;
   const requestSource = request?.source;
@@ -146,10 +179,43 @@ export function FileVersionCenterHost() {
     const begin = window.setTimeout(() => { void load(resolutionRequest, controller.signal); }, 0);
     return () => {
       window.clearTimeout(begin);
+      requestGenerationRef.current += 1;
       controller.abort();
       paginationAbortRef.current?.abort();
     };
   }, [load, resolutionRequest]);
+
+  const observedWorkspaceId = timeline?.document.workspaceId;
+  const observedPath = timeline?.document.path;
+  useEffect(() => {
+    if (!targetIdentity || !observedWorkspaceId || !observedPath) return;
+    const markChanged = () => {
+      invalidationRevisionRef.current += 1;
+      setInvalidatedTarget(targetIdentity);
+    };
+    const fileChanged = useFileStore.subscribe((state, previous) => {
+      if (state.currentFileWorkspaceId === observedWorkspaceId && state.currentFile?.path === observedPath
+        && previous.currentFileWorkspaceId === observedWorkspaceId && previous.currentFile?.path === observedPath
+        && state.currentFile.content !== previous.currentFile.content) markChanged();
+    });
+    const draftChanged = useEditorStore.subscribe((state, previous) => {
+      if (useFileStore.getState().currentFileWorkspaceId === observedWorkspaceId
+        && state.activePath === observedPath && previous.activePath === observedPath
+        && state.draft !== previous.draft) markChanged();
+    });
+    const watcher = getFileWatcherClient();
+    const fileEvent = (event: Event) => {
+      const detail = (event as CustomEvent<FileEvent>).detail;
+      if (detail && (!detail.workspaceId || detail.workspaceId === observedWorkspaceId)
+        && (detail.relativePath === observedPath || detail.mutation?.oldPath === observedPath)) markChanged();
+    };
+    watcher.addEventListener('filechange', fileEvent);
+    return () => {
+      fileChanged();
+      draftChanged();
+      watcher.removeEventListener('filechange', fileEvent);
+    };
+  }, [observedPath, observedWorkspaceId, targetIdentity]);
 
   const selection = useMemo(() => request && timeline
     ? reconcileFileVersionTimelineSelection({ request, timeline })
@@ -189,10 +255,9 @@ export function FileVersionCenterHost() {
     const activeRequest = request;
     const activeTimeline = timeline;
     const cursor = activeTimeline?.page.nextCursor;
-    if (!activeRequest || !activeTimeline?.page.hasMore || !cursor || loadingMore) return;
+    if (!activeRequest || !activeTimeline?.page.hasMore || !cursor || loadingMore || paginationAbortRef.current) return;
     const generation = requestGenerationRef.current;
     const controller = new AbortController();
-    paginationAbortRef.current?.abort();
     paginationAbortRef.current = controller;
     setLoadingMore(true);
     setLoadMoreError(null);
@@ -203,16 +268,20 @@ export function FileVersionCenterHost() {
         cursor,
         limit: 25,
       }, controller.signal);
-      if (generation !== requestGenerationRef.current) return;
-      setTimeline((current) => current ? mergeFileVersionTimelinePage(current, page) : page);
+      if (generation !== requestGenerationRef.current || controller.signal.aborted
+        || openedDocumentAuthScope() !== authScope) return;
+      const merged = mergeFileVersionTimelinePage(activeTimeline, page);
+      const identity = JSON.stringify([authScope, activeRequest.target]);
+      setResolvedTimeline((current) => current?.identity === identity ? { identity, value: merged } : current);
     } catch (pageError) {
-      if (generation !== requestGenerationRef.current
+      if (generation !== requestGenerationRef.current || controller.signal.aborted
         || (pageError instanceof DOMException && pageError.name === 'AbortError')) return;
       setLoadMoreError(pageError instanceof Error ? pageError.message : t('loadMoreFailed'));
     } finally {
+      if (paginationAbortRef.current === controller) paginationAbortRef.current = null;
       if (generation === requestGenerationRef.current) setLoadingMore(false);
     }
-  }, [loadingMore, request, t, timeline]);
+  }, [authScope, loadingMore, request, t, timeline]);
 
   const close = useCallback(() => closeVersionCenter(), []);
   const resolvedPath = timeline?.document.path;
@@ -221,22 +290,23 @@ export function FileVersionCenterHost() {
     : t('resolvingDocument'));
 
   const invalidateTimeline = useCallback(async (action?: FileVersionMutation) => {
-    if (action) selectVersionCenterEntry(null);
+    if (!request || openedDocumentAuthScope() !== authScope) return;
+    await invalidateReviewQueries(request.target.workspaceId);
     const activeRequest = useFileVersionCenterStore.getState().request;
-    if (activeRequest) await load(activeRequest, undefined, { preserveTimeline: true });
-  }, [load]);
+    if (!activeRequest || JSON.stringify([authScope, activeRequest.target]) !== targetIdentity) return;
+    if (action && activeRequest.selectedEntry?.kind === request.selectedEntry?.kind
+      && activeRequest.selectedEntry?.id === request.selectedEntry?.id) selectVersionCenterEntry(null);
+    const refreshedRequest = useFileVersionCenterStore.getState().request;
+    if (refreshedRequest) await load(refreshedRequest, undefined, { preserveTimeline: true });
+  }, [authScope, load, request, targetIdentity]);
 
   const continueEditing = useCallback(() => {
-    const activeTimeline = timeline;
-    if (!activeTimeline) return;
-    const href = buildContinueFileVersionHref({
-      workspaceId: activeTimeline.document.workspaceId,
-      path: activeTimeline.document.path,
-      locale,
-    });
+    if (!timeline) return;
     closeVersionCenter({ syncLocation: false });
-    window.location.assign(href);
-  }, [locale, timeline]);
+    router.push({ pathname: '/notebook', query: {
+      workspaceId: timeline.document.workspaceId, path: timeline.document.path, chat: 'open',
+    } });
+  }, [router, timeline]);
 
   return (
     <Dialog open={Boolean(request)} onOpenChange={(open) => { if (!open) close(); }}>
@@ -266,13 +336,14 @@ export function FileVersionCenterHost() {
               </div>
             </div>
           </DialogHeader>
+          {error && timeline ? <div role="alert" className="flex items-center justify-between gap-3 border-b px-5 py-3 text-sm">
+            <span>{error}</span>
+            <Button variant="outline" size="sm" disabled={loading} onClick={() => { void invalidateTimeline(); }}>{t('retry')}</Button>
+          </div> : null}
           <div className="flex min-h-0 flex-1 items-center justify-center">
-            {loading && !timeline ? (
-              <div role="status" className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-                <RefreshCw className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                {t('loading')}
-              </div>
-            ) : error ? (
+            {!timeline && !error ? (
+              <FileVersionLoadingSkeleton label={t('loading')} timeline />
+            ) : error && !timeline ? (
               <div role="alert" className="m-6 max-w-md rounded-xl border bg-muted/25 p-5 text-center">
                 <p className="text-sm font-medium">{t('loadFailed')}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{error}</p>
@@ -317,6 +388,8 @@ export function FileVersionCenterHost() {
                   selection={selection}
                   onTimelineInvalidate={invalidateTimeline}
                   onContinue={continueEditing}
+                  isRevalidating={loading}
+                  isStale={Boolean(error) || invalidatedTarget === targetIdentity || unsavedReviewDocument}
                 />
               </div>
             ) : null}

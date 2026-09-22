@@ -12,6 +12,8 @@ import {
   type FileReviewPolicyUpdateRequestV1,
   type FileReviewPolicyV1,
 } from './contracts/v1';
+import { fetchReviewResolution, invalidateReviewQueries } from '@/app/lib/queries/review-queries';
+import { notebookQueryKey } from '@/app/lib/queries/client';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 const FILE_VERSION_CENTER_RESOLVE_RETRY_DELAYS_MS = Object.freeze([
@@ -43,7 +45,7 @@ async function responseJson(response: Response): Promise<unknown> {
   }
 }
 
-export async function resolveFileVersionCenter(
+async function requestFileVersionCenter(
   request: FileVersionCenterRequestV1,
   signal?: AbortSignal,
 ): Promise<FileVersionTimelineResponseV1> {
@@ -92,6 +94,16 @@ export async function resolveFileVersionCenter(
   return parseFileVersionTimelineResponseV1(payload);
 }
 
+export async function resolveFileVersionCenter(
+  request: FileVersionCenterRequestV1,
+  signal?: AbortSignal,
+): Promise<FileVersionTimelineResponseV1> {
+  return fetchReviewResolution({
+    request, signal, readiness: 'once',
+    queryFn: ({ signal: querySignal }) => requestFileVersionCenter(request, querySignal),
+  });
+}
+
 function waitForResolveRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) return Promise.reject(new DOMException('The version center request was cancelled.', 'AbortError'));
   return new Promise<void>((resolve, reject) => {
@@ -118,22 +130,28 @@ export async function resolveFileVersionCenterWhenReady(
   options: { retryDelaysMs?: readonly number[] } = {},
 ): Promise<FileVersionTimelineResponseV1> {
   const retryDelaysMs = options.retryDelaysMs ?? FILE_VERSION_CENTER_RESOLVE_RETRY_DELAYS_MS;
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await resolveFileVersionCenter(request, signal);
-    } catch (error) {
-      if (!(error instanceof FileVersionCenterClientError)
-        || error.code !== FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable
-        || attempt >= retryDelaysMs.length) throw error;
-      await waitForResolveRetry(retryDelaysMs[attempt], signal);
-    }
-  }
+  return fetchReviewResolution({
+    request, signal, readiness: retryDelaysMs,
+    queryFn: async ({ signal: querySignal }) => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await requestFileVersionCenter(request, querySignal);
+        } catch (error) {
+          if (!(error instanceof FileVersionCenterClientError)
+            || error.code !== FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable
+            || attempt >= retryDelaysMs.length) throw error;
+          await waitForResolveRetry(retryDelaysMs[attempt], querySignal);
+        }
+      }
+    },
+  });
 }
 
 export async function updateFileReviewPolicy(
   request: FileReviewPolicyUpdateRequestV1,
   signal?: AbortSignal,
 ): Promise<FileReviewPolicyV1> {
+  const authScope = notebookQueryKey(request.target.workspaceId)[1];
   let response: Response;
   try {
     response = await fetch(FILE_VERSION_CENTER_API_V1.policy, {
@@ -176,5 +194,7 @@ export async function updateFileReviewPolicy(
       );
     }
   }
-  return parseFileReviewPolicyV1(payload);
+  const policy = parseFileReviewPolicyV1(payload);
+  await invalidateReviewQueries(request.target.workspaceId, authScope);
+  return policy;
 }

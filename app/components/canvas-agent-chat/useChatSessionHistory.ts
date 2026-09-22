@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -13,6 +14,7 @@ import {
 import { useTranslations } from 'next-intl';
 import type { ChatHistoryPanelLabels } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { fetchChatSessions, patchChatSessions, searchChatSessions } from '@/app/lib/chat/session-api';
+import { invalidateChatQueries } from '@/app/lib/queries/chat-queries';
 import { updateCachedChatSessionTitle } from '@/app/lib/chat/session-cache';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
@@ -96,6 +98,7 @@ export function useChatSessionHistory({
   surfaceVisibleRef,
   t,
 }: UseChatSessionHistoryParams) {
+  const tCommon = useTranslations('common');
   const [history, setHistory] = useState<AISession[]>([]);
   const [historySearchQuery, setHistorySearchQuery] = useState('');
   const [historyUnreadOnly, setHistoryUnreadOnly] = useState(false);
@@ -106,11 +109,13 @@ export function useChatSessionHistory({
   const [latestSession, setLatestSession] = useState<AISession | null>(null);
   const [totalUnreadCount, setTotalUnreadCount] = useState(0);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   const historyRef = useRef<AISession[]>([]);
   const sessionListRequestRef = useRef<Promise<AISession[]> | null>(null);
   const hasLoadedSessionListRef = useRef(false);
   const activeWorkspaceIdRef = useRef(activeWorkspaceId ?? null);
+  const historyGenerationRef = useRef(0);
 
   useEffect(() => {
     historyRef.current = history;
@@ -156,22 +161,35 @@ export function useChatSessionHistory({
       return sessionListRequestRef.current;
     }
 
+    const workspaceId = activeWorkspaceId ?? null;
+    const generation = historyGenerationRef.current;
+    hasLoadedSessionListRef.current = true;
+    setIsLoadingHistory(true);
+    setHistoryError(null);
     const request = (async () => {
-      const sessions = applyResolvedTitles(await fetchChatSessions('all', { workspaceId: activeWorkspaceId }));
-      hasLoadedSessionListRef.current = true;
-      return sessions;
+      const sessions = await fetchChatSessions('all', { workspaceId });
+      if (generation !== historyGenerationRef.current || workspaceId !== activeWorkspaceIdRef.current) {
+        throw new DOMException('History request superseded', 'AbortError');
+      }
+      return applyResolvedTitles(sessions);
     })();
 
     sessionListRequestRef.current = request;
 
     try {
       return await request;
+    } catch (error) {
+      if (generation === historyGenerationRef.current && workspaceId === activeWorkspaceIdRef.current) {
+        setHistoryError(error instanceof Error ? error.message : t('errorMessage', { message: 'Failed to load chat history.' }));
+      }
+      throw error;
     } finally {
       if (sessionListRequestRef.current === request) {
         sessionListRequestRef.current = null;
+        setIsLoadingHistory(false);
       }
     }
-  }, [activeWorkspaceId, applyResolvedTitles]);
+  }, [activeWorkspaceId, applyResolvedTitles, t]);
 
   const setHistoryAndLatest = useCallback((sessions: AISession[]) => {
     setHistory(sessions);
@@ -202,7 +220,11 @@ export function useChatSessionHistory({
   }, []);
 
   const resetHistoryState = useCallback(() => {
+    historyGenerationRef.current += 1;
     sessionListRequestRef.current = null;
+    historyRef.current = [];
+    setIsLoadingHistory(false);
+    setHistoryError(null);
     hasLoadedSessionListRef.current = false;
     setHistory([]);
     setLatestSession(null);
@@ -211,20 +233,23 @@ export function useChatSessionHistory({
     setResolvedHistorySearchKey('');
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const normalizedWorkspaceId = activeWorkspaceId ?? null;
-    if (activeWorkspaceIdRef.current === normalizedWorkspaceId) {
-      return;
-    }
+    if (activeWorkspaceIdRef.current === normalizedWorkspaceId) return;
     activeWorkspaceIdRef.current = normalizedWorkspaceId;
     resetHistoryState();
   }, [activeWorkspaceId, resetHistoryState]);
 
+  useEffect(() => () => {
+    historyGenerationRef.current += 1;
+  }, []);
+
   const fetchHistory = useCallback(async () => {
-    setIsLoadingHistory(true);
+    const generation = historyGenerationRef.current;
     try {
-      const currentVisibleSessionId = surfaceVisibleRef.current ? sessionIdRef.current : null;
       const sessions = await loadSessionList();
+      if (generation !== historyGenerationRef.current) return;
+      const currentVisibleSessionId = surfaceVisibleRef.current ? sessionIdRef.current : null;
       const activeVisibleUnreadSession = currentVisibleSessionId
         ? sessions.find((candidate) => candidate.sessionId === currentVisibleSessionId && candidate.hasUnread)
         : null;
@@ -247,6 +272,7 @@ export function useChatSessionHistory({
           agentId: sessionAgentIdRef.current || selectedAgentId,
           sessionId: currentVisibleSessionId,
           markAsRead: true,
+          workspaceId: activeWorkspaceIdRef.current,
         }).catch((error) => {
           console.error('Failed to mark active session as read after history refresh', error);
         });
@@ -263,8 +289,6 @@ export function useChatSessionHistory({
       }
     } catch (err) {
       console.error('Failed to fetch history', err);
-    } finally {
-      setIsLoadingHistory(false);
     }
   }, [
     loadSessionList,
@@ -280,9 +304,10 @@ export function useChatSessionHistory({
   ]);
 
   const markAllAsRead = useCallback(async () => {
+    const generation = historyGenerationRef.current;
     try {
       const data = await patchChatSessions({ agentId: selectedAgentId, markAllAsRead: true, workspaceId: activeWorkspaceId });
-      if (data?.success) {
+      if (data?.success && generation === historyGenerationRef.current) {
         const now = data.lastViewedAt;
         setHistory((prev) => prev.map((item) => (
           item.hasUnread ? { ...item, lastViewedAt: item.lastMessageAt || now, hasUnread: false } : item
@@ -334,16 +359,19 @@ export function useChatSessionHistory({
           agentId: sessionAgentIdRef.current || selectedAgentId,
           sessionId: updatedSessionId,
           markAsRead: true,
+          workspaceId: activeWorkspaceIdRef.current,
         }).catch((error) => {
           console.error('Failed to mark active session as read after response', error);
         });
       }
 
       if (!sessionFound) {
+        void invalidateChatQueries(activeWorkspaceIdRef.current);
         void (async () => {
           try {
+            const generation = historyGenerationRef.current;
             const sessions = await loadSessionList();
-            setHistoryAndLatest(sessions);
+            if (generation === historyGenerationRef.current) setHistoryAndLatest(sessions);
           } catch (error) {
             console.error('Failed to refresh history after session update', error);
           }
@@ -370,10 +398,12 @@ export function useChatSessionHistory({
   useEffect(() => {
     const handleSessionTitleUpdated = (event: CustomEvent<{
       sessionId: string;
+      workspaceId?: string;
       title: string;
       titleGenerationState?: AISession['titleGenerationState'];
     }>) => {
-      const { sessionId: updatedSessionId, title, titleGenerationState } = event.detail;
+      const { sessionId: updatedSessionId, title, titleGenerationState, workspaceId } = event.detail;
+      if (workspaceId && workspaceId !== activeWorkspaceIdRef.current) return;
       const resolvedTitle = resolveSessionTitle(updatedSessionId, title);
       if (!resolvedTitle) return;
       const resolvedTitleGenerationState = titleGenerationState ?? 'generated';
@@ -404,8 +434,12 @@ export function useChatSessionHistory({
       }
 
       if (!sessionFound) {
+        void invalidateChatQueries(activeWorkspaceIdRef.current);
+        const generation = historyGenerationRef.current;
         void loadSessionList()
-          .then(setHistoryAndLatest)
+          .then((sessions) => {
+            if (generation === historyGenerationRef.current) setHistoryAndLatest(sessions);
+          })
           .catch((error) => console.error('Failed to refresh history after title update', error));
       }
     };
@@ -577,6 +611,8 @@ export function useChatSessionHistory({
 
   const historyPanelLabels = useMemo<ChatHistoryPanelLabels>(() => ({
     chatHistory: t('chatHistory'),
+    loadingSessions: t('loadingSessions'),
+    retry: tCommon('retry'),
     searchSessions: t('searchSessions'),
     searchingSessions: t('searchingSessions'),
     matchInChat: t('matchInChat'),
@@ -593,7 +629,7 @@ export function useChatSessionHistory({
     renameSession: t('renameSession'),
     markAsUnread: t('markAsUnread'),
     deleteSession: t('deleteSession'),
-  }), [t]);
+  }), [t, tCommon]);
 
   return {
     addSessionToHistory,
@@ -605,6 +641,7 @@ export function useChatSessionHistory({
     historyAgentFilter,
     historyAgentOptions,
     historyGroupLabels,
+    historyError,
     historyPanelLabels,
     historyRef,
     historySearchQuery,

@@ -5,6 +5,7 @@ import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { fetchLiveDocument } from '@/app/lib/collaboration/opened-document-registry';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { fetchDocumentQuery, fetchDocumentTreeQuery } from '@/app/lib/queries/document-queries';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
 import {
   type WorkspaceBatchUploadResult,
@@ -116,6 +117,7 @@ interface UploadWorkspaceFilesParams {
 
 interface LoadWorkspaceTreeOptions {
   includeStats?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface WorkspaceFileReferenceEntry {
@@ -322,44 +324,43 @@ export async function loadWorkspaceTree(
   options: LoadWorkspaceTreeOptions = {}
 ): Promise<FileNode[]> {
   const includeStats = options.includeStats ?? true;
+  const requestWorkspaceId = workspaceId ?? getActiveWorkspaceId();
   const baseUrl = `/api/files/tree?path=${encodeURIComponent(path)}&depth=${depth}${includeStats ? '' : '&stats=0'}${noCache ? `&noCache=${Date.now()}` : ''}`;
-  const url = withWorkspaceQuery(baseUrl, workspaceId);
-  const response = await fetch(url, {
-    credentials: 'include',
-    cache: noCache ? 'no-store' : 'default',
-    headers: workspaceHeaders(workspaceId),
-  });
-
-  if (!response.ok) {
-    throw new Error(await readApiError(response, fallbackMessage));
-  }
-
-  const { data } = await readApiJson<{ data: FileNode[] }>(response, fallbackMessage);
-  return data;
+  const url = withWorkspaceQuery(baseUrl, requestWorkspaceId);
+  const headers = workspaceHeaders(requestWorkspaceId);
+  return fetchDocumentTreeQuery({ workspaceId: requestWorkspaceId, path, depth, includeStats, noCache, signal: options.signal },
+    async ({ signal }) => {
+      const response = await fetch(url, { credentials: 'include', cache: noCache ? 'no-store' : 'default', headers, signal });
+      if (!response.ok) throw new Error(await readApiError(response, fallbackMessage));
+      const { data } = await readApiJson<{ data: FileNode[] }>(response, fallbackMessage);
+      return data;
+    });
 }
 
 export async function readWorkspaceFile(
   path: string,
-  options: { metaOnly?: boolean; noCache?: boolean; fallbackMessage?: string; workspaceId?: string | null } = {}
+  options: { metaOnly?: boolean; noCache?: boolean; fallbackMessage?: string; workspaceId?: string | null; signal?: AbortSignal } = {}
 ): Promise<CurrentFile> {
   const { metaOnly = false, noCache = false, fallbackMessage = 'Failed to load file', workspaceId } = options;
+  const requestWorkspaceId = workspaceId ?? getActiveWorkspaceId();
   let url = `/api/files/read?path=${encodeURIComponent(path)}${metaOnly ? '&meta=1' : ''}`;
   if (noCache) {
     url += `&t=${Date.now()}`;
   }
 
-  const response = await fetchLiveDocument(url, {
-    credentials: 'include',
-    cache: 'no-store',
-    headers: workspaceHeaders(workspaceId),
-  });
-
-  if (!response.ok) {
-    throw response;
+  const headers = workspaceHeaders(requestWorkspaceId);
+  try {
+    return await fetchDocumentQuery({ workspaceId: requestWorkspaceId, path, metaOnly, noCache, signal: options.signal },
+      async ({ signal }) => {
+        const response = await fetchLiveDocument(url, { credentials: 'include', cache: 'no-store', headers, signal });
+        if (!response.ok) throw response;
+        const { data } = await readApiJson<{ data: CurrentFile }>(response, fallbackMessage);
+        return data;
+      });
+  } catch (error) {
+    // Each consumer keeps the existing Response error contract and its own body.
+    throw error instanceof Response ? error.clone() : error;
   }
-
-  const { data } = await readApiJson<{ data: CurrentFile }>(response, fallbackMessage);
-  return data;
 }
 
 export async function workspacePathExists(
