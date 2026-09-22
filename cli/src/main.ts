@@ -860,6 +860,11 @@ export async function update(
         );
         const rollbackHealthTimeout = remainingUpdateTime(deadline, false);
         await docker.waitUntilHealthy(rollback, boundedHealthAttempts(rollbackHealthTimeout), rollbackHealthTimeout);
+        const restoredContainer = await docker.containerId(rollback);
+        const restoredImageId = await docker.containerImageId(restoredContainer);
+        if (!restoredImageId || restoredImageId !== previousImageId) {
+          throw new Error('Rollback container does not run the previous Canvas Notebook image.');
+        }
         rolledBack = true;
         reporter.succeeded('rollback', 'Previous Canvas Notebook image restored.');
       } catch {

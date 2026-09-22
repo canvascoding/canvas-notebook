@@ -612,6 +612,34 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.equal(runner.runningImageId, 'old-image-id');
 
       config = await reset();
+      const originalContainerImageId = docker.containerImageId.bind(docker);
+      let proxyFailed = false;
+      let rollbackImageInspections = 0;
+      docker.containerImageId = async (containerId) => {
+        if (!proxyFailed) return originalContainerImageId(containerId);
+        rollbackImageInspections += 1;
+        return 'unexpected-restored-image';
+      };
+      try {
+        const wrongRollbackLines = await captureStdout(() => update(context, docker, config, false, {
+          image: targetImage,
+          eventStream: true,
+          operationId: '156f381c-53c1-4c08-95e7-9afcce05ac1c',
+          syncProxy: async () => { proxyFailed = true; throw new Error('Proxy failed after image verification'); },
+        }));
+        const wrongRollbackEvents = wrongRollbackLines.map((line) => JSON.parse(line) as {
+          stage: string; status: string; errorCode?: string;
+        });
+        assert.equal(process.exitCode, 1);
+        assert.equal(rollbackImageInspections, 1, 'rollback must inspect the restored image after its health check');
+        assert.ok(wrongRollbackEvents.some((event) => event.stage === 'rollback' && event.errorCode === 'rollback_failed'));
+        assert.equal(wrongRollbackEvents.some((event) => event.stage === 'rollback' && event.status === 'succeeded'), false);
+        assert.equal(wrongRollbackEvents.at(-1)?.errorCode, 'rollback_failed');
+      } finally {
+        docker.containerImageId = originalContainerImageId;
+      }
+
+      config = await reset();
       const freshPostgresConfig = materializePostgresInfrastructureConfig(config);
       const uninitializedPostgresConfig = structuredClone(freshPostgresConfig);
       uninitializedPostgresConfig.env.DATABASE_URL = '';
