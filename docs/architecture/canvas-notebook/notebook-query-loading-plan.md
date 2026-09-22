@@ -107,7 +107,7 @@ Editoren erhalten Änderungen über ihre Collaboration-/Konfliktlogik.
 ## Umsetzung und Abnahme
 
 - [x] Plan dokumentieren.
-- [ ] 1. Gemeinsame Query-Grundlage und eindeutige Notebook-Navigation.
+- [x] 1. Gemeinsame Query-Grundlage und eindeutige Notebook-Navigation.
 - [ ] 2. Bestehende Chats, Bootstrap, Nachrichtenabgleich und Pagination.
 - [ ] 3. Neue Chats, Startseiten-Übergabe und Idempotenz.
 - [ ] 4. Dokumente, Reviews und durchgängige Skeletons.
@@ -127,4 +127,11 @@ Freigabe; Container werden nur bei ausdrücklichem Auftrag gebaut.
 
 ## Validierungsprotokoll
 
-Wird mit den tatsächlichen Änderungen und Prüfergebnissen ergänzt.
+Schritt 1: TanStack Query installiert; Benutzer-/Session-Partitionierung,
+geteilte Reads mit getrennten Verbraucher-Abbrüchen, Agenten/Präferenz/Runtime-
+Queries integriert. Notebook wartet auf Layout und Zielworkspace; explizite
+Navigation verdrängt gespeicherte Dokumentwiederherstellung. Einstiegsskeleton.
+Prüfungen: `notebook-query-client-test`, `workspace-query-test`,
+`notebook-layout-state-test`, `chat-navigation-intent-test`,
+`notebook-chat-context-test`, `tsc --noEmit`, gezieltes ESLint und
+`git diff --check` erfolgreich. Browserfreigabe noch ausstehend.

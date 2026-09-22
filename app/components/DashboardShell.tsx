@@ -141,6 +141,8 @@ import {
   type WorkspaceChangedDetail,
 } from '@/app/store/workspace-store';
 import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
+import { resolveNotebookEntry } from '@/app/lib/notebook/notebook-entry';
+import { NotebookLoadingSkeleton } from '@/app/components/notebook/NotebookLoadingSkeleton';
 
 type SurfaceTabProps = {
   active: boolean;
@@ -513,6 +515,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const fileError = useFileStore((fileState) => fileState.fileError);
   const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
   const activeWorkspaceId = useWorkspaceStore((workspaceState) => workspaceState.activeWorkspaceId);
+  const workspaceReady = useWorkspaceStore((workspaceState) => workspaceState.initialized);
   const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const { chatContext: emailChatContext } = useEmailChatContext();
 
@@ -883,12 +886,21 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       !layout.preferencesHydrated
       || layout.viewportWidth === 0
       || !activeWorkspaceId
+      || !workspaceReady
+      || !workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId)
       || initialNotebookStateResolvedRef.current
     ) {
       return;
     }
     initialNotebookStateResolvedRef.current = true;
     const restoredTabs = hydrateDocumentTabs(activeWorkspaceId);
+    const entry = resolveNotebookEntry({ intent: getNotebookNavigationIntent(searchParams),
+      workspaceId: activeWorkspaceId, workspaceReady, hasInitialPrompt: hasStoredInitialPrompt,
+      restoredPath: restoredTabs.activePath });
+    if (entry.kind === 'chat' && shouldForceChatOpen) {
+      dispatch({ type: 'SHOW_CHAT' });
+      return;
+    }
     if (routeFilePath) {
       if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
@@ -913,6 +925,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     openNotebookFile,
     routeFilePath,
     shouldForceChatOpen,
+    workspaceReady,
+    routeWorkspaceId,
+    searchParams,
+    hasStoredInitialPrompt,
   ]);
 
   useEffect(() => {
@@ -955,14 +971,24 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
       if (bridgedRequestRef.current?.workspaceId === nextWorkspaceId) return;
-      if (!restoredTabs.activePath) {
+      const intent = getNotebookNavigationIntent(new URLSearchParams(window.location.search));
+      const entry = resolveNotebookEntry({ intent, workspaceId: nextWorkspaceId,
+        workspaceReady: true,
+        hasInitialPrompt: Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY)),
+        restoredPath: restoredTabs.activePath });
+      if (entry.kind === 'waiting' || intent.path) return;
+      if (entry.kind === 'chat') {
         dispatch({ type: 'SHOW_CHAT' });
         return;
       }
-      openedPathRef.current = restoredTabs.activePath;
+      openedPathRef.current = entry.path;
+      const navigationSearch = window.location.search;
+      const generation = documentOpenGenerationRef.current;
       window.setTimeout(() => {
-        if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId) {
-          void openNotebookFile(restoredTabs.activePath!);
+        if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId
+          && navigationSearch === window.location.search
+          && generation === documentOpenGenerationRef.current) {
+          void openNotebookFile(entry.path);
         }
       }, 0);
     };
@@ -1496,8 +1522,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             ) : null}
           </div>
 
-          {!layout.preferencesHydrated || layout.viewportWidth === 0 ? (
-            <main className="min-h-0 flex-1 bg-background" />
+          {!layout.preferencesHydrated || layout.viewportWidth === 0 || !workspaceReady
+            || (activeWorkspaceId && documentTabsHydratedFor !== activeWorkspaceId)
+            || !workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId) ? (
+            <NotebookLoadingSkeleton document={Boolean(routeFilePath) && !shouldForceChatOpen} />
           ) : layout.isMobile ? (
             <main className="relative min-h-0 flex-1 overflow-hidden">
               <SurfaceLayer
