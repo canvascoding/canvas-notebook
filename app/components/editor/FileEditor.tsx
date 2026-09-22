@@ -316,6 +316,7 @@ function ImageLoadingSkeleton({ path }: { path: string | null }) {
 
 interface FileEditorProps {
   onClosePreview?: () => void;
+  onRevealInExplorer?: () => void;
 }
 
 class SupersededEditorOperation extends Error {}
@@ -330,7 +331,7 @@ function captureEditorScope() {
 
 type HtmlViewMode = 'code' | 'preview';
 
-export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
+export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
   const {
     currentFile,
@@ -1279,6 +1280,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             ) : null}
             <FileActionsDropdown
               node={currentFileNode}
+              onRevealInExplorer={onRevealInExplorer}
               showCreateActions={false}
               showMultiSelectActions={false}
               versionLineageId={currentFile.revision?.lineageId ?? collaboration?.latestRevision?.lineageId}

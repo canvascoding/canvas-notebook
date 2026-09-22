@@ -134,7 +134,7 @@ import { registerNotebookDocumentOpenGuard } from '@/app/lib/notebook/document-t
 import { resolveNotebookChatContext } from '@/app/lib/notebook/chat-context';
 import { getNotebookTabRevealDelta } from '@/app/lib/notebook/tab-strip';
 import { useEditorStore } from '@/app/store/editor-store';
-import { useFileStore } from '@/app/store/file-store';
+import { useFileStore, type OpenWorkspaceFileOptions } from '@/app/store/file-store';
 import {
   useWorkspaceStore,
   WORKSPACE_CHANGED_EVENT,
@@ -162,6 +162,7 @@ type SurfaceTabProps = {
 
 type OpenNotebookFileOptions = {
   dockChatIfFull?: boolean;
+  explorerBehavior?: OpenWorkspaceFileOptions['explorerBehavior'];
   workspaceId?: string;
   transitionId?: string;
 };
@@ -769,6 +770,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       transitionId,
       workspaceId,
       expectedDocumentId,
+      explorerBehavior: options.explorerBehavior,
       isCurrent: canOpen,
     });
     if (result.status !== 'opened') {
@@ -915,7 +917,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     if (restoredTabs.activePath) {
       openedPathRef.current = restoredTabs.activePath;
-      void openNotebookFile(restoredTabs.activePath);
+      void openNotebookFile(restoredTabs.activePath, { explorerBehavior: 'preserve' });
       if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
     }
@@ -998,7 +1000,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId
           && navigationSearch === window.location.search
           && generation === documentOpenGenerationRef.current) {
-          void openNotebookFile(entry.path);
+          void openNotebookFile(entry.path, { explorerBehavior: 'preserve' });
         }
       }, 0);
     };
@@ -1036,7 +1038,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       openedPathRef.current = null;
       dispatch({ type: 'DOCUMENT_CLOSED' });
       // Closing succeeds even when the neighboring document no longer exists.
-      if (nextTabs.activePath) await openNotebookFile(nextTabs.activePath);
+      if (nextTabs.activePath) await openNotebookFile(nextTabs.activePath, { explorerBehavior: 'preserve' });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : tNotebook('failedToSaveFile'));
     }
@@ -1101,7 +1103,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       replaceDocumentTabs(activeWorkspaceId, nextTabs);
       if (nextTabs.activePath) {
         if (currentFilePath !== nextTabs.activePath) {
-          void openNotebookFile(nextTabs.activePath);
+          void openNotebookFile(nextTabs.activePath, { explorerBehavior: 'preserve' });
         }
         return;
       }
@@ -1277,11 +1279,29 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     setMobileExplorerOpen(false);
   }, [showOpenedDocument]);
   const handleSelectDocumentTab = useCallback(async (path: string) => {
-    const result = await openNotebookFile(path, { dockChatIfFull: true });
+    const result = await openNotebookFile(path, {
+      dockChatIfFull: true,
+      explorerBehavior: 'preserve',
+    });
     if (result?.status !== 'opened' && result?.status !== 'superseded') {
       toast.error(result?.error || tNotebook('failedToLoadPreview'));
     }
   }, [openNotebookFile, tNotebook]);
+  const handleRevealCurrentDocument = useCallback(async () => {
+    const file = useFileStore.getState().currentFile;
+    if (!file) return;
+    const result = await useFileStore.getState().revealAndLoadFile(file.path, {
+      workspaceId: activeWorkspaceId,
+      explorerBehavior: 'reveal',
+    });
+    if (result.status !== 'opened') {
+      if (result.status !== 'superseded') toast.error(result.error || tNotebook('failedToLoadPreview'));
+      return;
+    }
+    setRequestedDocumentFocus(false);
+    if (layout.isMobile) setMobileExplorerOpen(true);
+    else dispatch({ type: 'SET_EXPLORER', open: true });
+  }, [activeWorkspaceId, dispatch, layout.isMobile, tNotebook]);
 
   const chatVisible =
     !documentFocus && (state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet);
@@ -1302,7 +1322,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   );
   const documentContent = <NotebookSurfaceMount key={activeWorkspaceId} active={state.mainSurface === 'document'}>
     {currentFile || isLoadingFile || fileError || missingFilePath
-    ? <FileEditor key={activeWorkspaceId} onClosePreview={handleCloseDocument} />
+    ? <FileEditor
+        key={activeWorkspaceId}
+        onClosePreview={handleCloseDocument}
+        onRevealInExplorer={handleRevealCurrentDocument}
+      />
     : (
       <NotebookEmptyDocumentState
         onOpenExplorer={() => layout.isMobile
@@ -1484,7 +1508,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 if (!activeWorkspaceId) return;
                 const path = closedDocuments[activeWorkspaceId]?.at(-1);
                 if (!path) return;
-                void openNotebookFile(path, { dockChatIfFull: true }).then((result) => {
+                void openNotebookFile(path, {
+                  dockChatIfFull: true,
+                  explorerBehavior: 'preserve',
+                }).then((result) => {
                   if (result?.status === 'opened') {
                     setClosedDocuments((current) => ({
                       ...current, [activeWorkspaceId]: (current[activeWorkspaceId] || []).filter((item) => item !== path),
