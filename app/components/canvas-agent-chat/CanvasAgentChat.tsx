@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
+import { authClient } from '@/app/lib/auth-client';
+import { isPromptHandoffForNavigation } from '@/app/lib/chat/prompt-handoff';
 import { toast } from 'sonner';
 import {
   Loader2,
@@ -153,6 +155,7 @@ export default function CanvasAgentChat({
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
+  const authSession = authClient.useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
@@ -290,7 +293,9 @@ export default function CanvasAgentChat({
       return false;
     }
     const hasStoredInitialPrompt = Boolean(
-      initialPromptStorageKey && window.sessionStorage.getItem(initialPromptStorageKey),
+      initialPromptStorageKey && isPromptHandoffForNavigation(window.sessionStorage, initialPromptStorageKey, {
+        search: window.location.search, workspaceId: activeWorkspaceId,
+      }),
     );
     const hasStoredSession = Boolean(readCanvasChatActiveSessionStorage(activeWorkspaceId));
     return hasStoredInitialPrompt || hasStoredSession;
@@ -464,7 +469,7 @@ export default function CanvasAgentChat({
   } = useChatComposerDraft({
     input,
     messages,
-    sessionIdRef,
+    sessionId,
     setInput,
     textareaRef,
   });
@@ -649,6 +654,10 @@ export default function CanvasAgentChat({
   }, [pathname, router]);
 
   const {
+    isSending,
+    sendError,
+    canRetrySend,
+    retryFailedSend,
     handleCompact,
     handleControlAction,
     handleEditQueuedMessage,
@@ -690,6 +699,7 @@ export default function CanvasAgentChat({
     resetStreamConnection,
     runtimePhase,
     selectedAgentId,
+    sessionId,
     sessionAgentIdRef,
     sessionIdRef,
     sessionWorkspaceIdRef,
@@ -976,6 +986,7 @@ export default function CanvasAgentChat({
     initialPromptStorageKey,
     isLoadingHistory,
     isResolvingInitialChatState,
+    isAuthReady: !authSession.isPending,
     isRuntimeSelectionLoading,
     isWorkspaceNavigationPending,
     loadSession,
@@ -1130,7 +1141,7 @@ export default function CanvasAgentChat({
   const isModelConfigured = Boolean(runtimeSelection);
   const primaryActionDisabled = primaryActionIsStop
     ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
-    : isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
+    : isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
   const isModelConfigurationLoading = isRuntimeSelectionLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const isHistoryOverlayOpen = showHistory && shouldShowHistoryAsOverlay;
@@ -1416,6 +1427,12 @@ export default function CanvasAgentChat({
               <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-4 text-sm">
                 <p>{initialSessionError}</p>
                 <button type="button" onClick={retryInitialSession} className="underline">{tCommon('retry')}</button>
+              </div>
+            ) : null}
+            {canRetrySend && sendError && !initialSessionError ? (
+              <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-4 text-sm">
+                <p>{sendError}</p>
+                <button type="button" disabled={isSending} onClick={() => void retryFailedSend()} className="underline">{tCommon('retry')}</button>
               </div>
             ) : null}
             {showInitialChatLoader && (

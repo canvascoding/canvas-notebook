@@ -1311,6 +1311,21 @@ export const piSessions = pgTable("pi_sessions", {
   delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
 }));
 
+// Durable admission receipts survive runtime loss; they deliberately store no prompt content.
+// The schema-driven PostgreSQL startup migration creates this additive table and its constraints.
+export const piMessageDeliveryReceipts = pgTable("pi_message_delivery_receipts", {
+  piSessionDbId: bigint("pi_session_db_id", { mode: "number" }).notNull().references(() => piSessions.id, { onDelete: "cascade" }),
+  clientMessageId: text("client_message_id").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  runtimeToken: text("runtime_token").notNull(),
+  state: text("state").notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.piSessionDbId, table.clientMessageId] }),
+  stateCheck: check("pi_message_delivery_receipts_state_check", sql`${table.state} IN ('dispatching', 'accepted')`),
+}));
+
 export const piSessionCompactionAttempts = pgTable("pi_session_compaction_attempts", {
   id: text("id").primaryKey(),
   piSessionDbId: bigint("pi_session_db_id", { mode: "number" }).notNull().references(() => piSessions.id, { onDelete: "cascade" }),

@@ -109,7 +109,7 @@ Editoren erhalten Änderungen über ihre Collaboration-/Konfliktlogik.
 - [x] Plan dokumentieren.
 - [x] 1. Gemeinsame Query-Grundlage und eindeutige Notebook-Navigation.
 - [x] 2. Bestehende Chats, Bootstrap, Nachrichtenabgleich und Pagination.
-- [ ] 3. Neue Chats, Startseiten-Übergabe und Idempotenz.
+- [x] 3. Neue Chats, Startseiten-Übergabe und Idempotenz.
 - [ ] 4. Dokumente, Reviews und durchgängige Skeletons.
 - [ ] Abschließende Integration, Build und zulässige UI-Prüfung.
 
@@ -145,3 +145,23 @@ Prüfungen: `chat-query-test`, `chat-reconciliation-test`,
 `chat-session-bootstrap-test` (PGlite), bestehende Render-Key-, Scroll-, History-
 und Workspace-Regressionen, `tsc --noEmit --incremental false`, gezieltes ESLint
 und `git diff --check` erfolgreich. Browserfreigabe noch ausstehend.
+
+Schritt 3: Gemeinsame Erstellung je Entwurf, feste Erstellungs-/Nachrichten-IDs,
+eingefrorener Kontext, expliziter Retry und Navigationsschutz implementiert.
+Startseite navigiert intern mit authentifizierter Workspace-/Handoff-Identität;
+Bestätigung verbraucht ausschließlich den passenden gespeicherten Auftrag.
+Entwurfstimer sind an den ursprünglichen Chat gebunden; neue Entwurfseinträge
+werden nach Benutzer und Workspace getrennt. Alte unzugeordnete lokale Einträge
+werden nicht automatisch einem Benutzer/Workspace zugewiesen.
+
+Session-Replay verwendet den gespeicherten Runtime-Snapshot. Die additive
+Tabelle `pi_message_delivery_receipts` wird über die vorhandene Schema-Migration
+angelegt. Nach Runtimeverlust ohne belegte Verlaufspersistenz liefert ein Retry
+`MESSAGE_DELIVERY_UNCERTAIN`: keine automatische Zweitausführung, aber auch
+keine unbelegte Erfolgsbestätigung. Dies ist keine dauerhafte Queue-Wiederaufnahme.
+
+Prüfungen: `chat-session-create-idempotency-test` und
+`pi-message-delivery-receipt-test` (PGlite), `chat-send-transaction-test`,
+`chat-prompt-handoff-test`, `chat-draft-scope-test`, `chat-created-query-test`,
+erweiterte Bootstrap-Races, Home-Komponenten- und Workspace-Lifecycle-Tests,
+vollständiger Typecheck, gezieltes ESLint und Diff-Prüfung erfolgreich.

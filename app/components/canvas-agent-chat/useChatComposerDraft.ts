@@ -10,13 +10,13 @@ import {
   type SetStateAction,
 } from 'react';
 import { contentToString } from '@/app/lib/chat/message-content';
-import { removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
+import { composerDraftScope, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import type { ChatMessage } from '@/app/lib/chat/types';
 
 type UseChatComposerDraftParams = {
   input: string;
   messages: ChatMessage[];
-  sessionIdRef: RefObject<string | null>;
+  sessionId: string | null;
   setInput: Dispatch<SetStateAction<string>>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 };
@@ -24,7 +24,7 @@ type UseChatComposerDraftParams = {
 export function useChatComposerDraft({
   input,
   messages,
-  sessionIdRef,
+  sessionId,
   setInput,
   textareaRef,
 }: UseChatComposerDraftParams) {
@@ -90,19 +90,23 @@ export function useChatComposerDraft({
     };
   }, []);
 
+  const draftScope = composerDraftScope();
+  const draftKey = sessionId ?? '__new__';
   useEffect(() => {
     if (draftSaveTimerRef.current) {
       clearTimeout(draftSaveTimerRef.current);
     }
     draftSaveTimerRef.current = setTimeout(() => {
-      const key = sessionIdRef.current ?? '__new__';
       if (input.trim()) {
-        saveComposerDraft(key, input);
+        saveComposerDraft(draftKey, input, draftScope);
       } else {
-        removeComposerDraft(key);
+        removeComposerDraft(draftKey, draftScope);
       }
     }, 300);
-  }, [input, sessionIdRef]);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [draftKey, draftScope, input]);
 
   return {
     navigateInputHistory,

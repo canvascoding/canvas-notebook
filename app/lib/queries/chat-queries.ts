@@ -22,6 +22,23 @@ export function invalidateChatQueries(workspaceId?: string | null, scope = noteb
   ) });
 }
 
+/** Only a confirmed fresh session is known to have an empty persisted history. */
+export function seedCreatedChatSession(session: Partial<AISession>, workspaceId: string | null, authScope: string) {
+  if (!session.sessionId || !session.agentId || !session.createdAt || session.id === undefined) return;
+  const client = getNotebookQueryClient();
+  const scope = notebookQueryKey(workspaceId);
+  if (scope[1] !== authScope) return;
+  const messages: ChatSessionMessagesPayload = {
+    success: true, messages: [], hasMoreBefore: false,
+    oldestTimestamp: null, oldestMessageId: null, oldestSequence: null,
+  };
+  const messageKey = [...scope, ...chatMessageResource({ workspaceId, agentId: session.agentId, sessionId: session.sessionId })];
+  // Never replace a page delivered by a live refresh while creation was pending.
+  if (!client.getQueryData(messageKey)) client.setQueryData(messageKey, messages);
+  const bootstrapKey = [...scope, 'chat', 'bootstrap', session.sessionId];
+  if (!client.getQueryData(bootstrapKey)) client.setQueryData(bootstrapKey, { session, messages });
+}
+
 export async function fetchChatSessionBootstrap(input: {
   sessionId: string; workspaceId?: string | null; signal?: AbortSignal;
 }): Promise<{ session: AISession; messages: ChatSessionMessagesPayload }> {

@@ -1,6 +1,6 @@
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import { fetchNotebookQuery, notebookQueryKey } from '@/app/lib/queries/client';
-import { chatMessageResource, invalidateChatQueries } from '@/app/lib/queries/chat-queries';
+import { chatMessageResource, invalidateChatQueries, seedCreatedChatSession } from '@/app/lib/queries/chat-queries';
 export { fetchChatSessionBootstrap } from '@/app/lib/queries/chat-queries';
 import type {
   AISession,
@@ -26,6 +26,7 @@ export type ChatSessionMessagesPayload = {
 
 export type CreateChatSessionPayload = {
   agentId: string;
+  clientRequestId?: string;
   title?: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
@@ -38,6 +39,7 @@ export type CreateChatSessionPayload = {
 
 export type CreateChatSessionResponse = {
   success: boolean;
+  created?: boolean;
   error?: string;
   code?: string;
   currentCatalogRevision?: number;
@@ -154,6 +156,9 @@ export async function createChatSession(payload: CreateChatSessionPayload): Prom
     };
   }
   void invalidateChatQueries(payload.workspaceId, scope);
+  if (data.created && data.session?.sessionId) {
+    seedCreatedChatSession(data.session, payload.workspaceId ?? payload.workspace?.workspaceId ?? null, scope);
+  }
   return data;
 }
 

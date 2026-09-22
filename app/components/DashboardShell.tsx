@@ -141,6 +141,7 @@ import {
   type WorkspaceChangedDetail,
 } from '@/app/store/workspace-store';
 import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
+import { isPromptHandoffForNavigation } from '@/app/lib/chat/prompt-handoff';
 import { resolveNotebookEntry } from '@/app/lib/notebook/notebook-entry';
 import { NotebookLoadingSkeleton } from '@/app/components/notebook/NotebookLoadingSkeleton';
 
@@ -531,7 +532,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   } = useForcedChatSession(routeSessionId);
   const hasStoredInitialPrompt =
     typeof window !== 'undefined'
-    && Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY));
+    && isPromptHandoffForNavigation(window.sessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY, {
+      search: searchParams.toString(), workspaceId: activeWorkspaceId,
+    });
   const shouldForceChatOpen = shouldOpenRouteChat || hasStoredInitialPrompt;
 
   const handleContextOpen = useCallback((surface: NotebookContextSurface) => {
@@ -974,7 +977,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       const intent = getNotebookNavigationIntent(new URLSearchParams(window.location.search));
       const entry = resolveNotebookEntry({ intent, workspaceId: nextWorkspaceId,
         workspaceReady: true,
-        hasInitialPrompt: Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY)),
+        hasInitialPrompt: isPromptHandoffForNavigation(window.sessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY, {
+          search: window.location.search, workspaceId: nextWorkspaceId,
+        }),
         restoredPath: restoredTabs.activePath });
       if (entry.kind === 'waiting' || intent.path) return;
       if (entry.kind === 'chat') {

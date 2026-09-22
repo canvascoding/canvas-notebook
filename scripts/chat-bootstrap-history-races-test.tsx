@@ -7,10 +7,12 @@ import messages from '../messages/en.json';
 import { useChatSessionBootstrap } from '../app/components/canvas-agent-chat/useChatSessionBootstrap';
 import { useChatSessionHistory } from '../app/components/canvas-agent-chat/useChatSessionHistory';
 import { writeCanvasChatActiveSessionStorage } from '../app/lib/chat/constants';
+import { createPromptHandoff, persistPromptHandoff } from '../app/lib/chat/prompt-handoff';
 import { getNotebookQueryClient } from '../app/lib/queries/client';
 import { observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 import type { AISession } from '../app/lib/chat/types';
 
+const reportError = console.error;
 const dom = new JSDOM('<div id="root"></div>', { url: 'https://canvas.test/en/notebook' });
 for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'DOMException'] as const) {
   Object.defineProperty(globalThis, key, { configurable: true, value: key === 'window' ? dom.window : dom.window[key] });
@@ -20,8 +22,9 @@ observeOpenedDocumentAuth({ data: { user: { id: 'test-user' }, session: { id: 't
 const root = createRoot(document.getElementById('root')!);
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (error: Error) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 const session = (id: string, workspaceId: string): AISession => ({ id: 1, sessionId: id,
   title: id, agentId: 'canvas-agent', model: 'test', engine: 'pi', createdAt: new Date().toISOString(),
@@ -29,12 +32,14 @@ const session = (id: string, workspaceId: string): AISession => ({ id: 1, sessio
 const finishLoad = deferred<void>();
 const loads: string[] = [];
 const noop = () => {};
-const asyncNoop = async () => {};
+type Send = Parameters<typeof useChatSessionBootstrap>[0]['handleControlAction'];
+let sendHandler: Send = async () => {};
+const send: Send = async (...args) => { await sendHandler(...args); };
 let historyState!: ReturnType<typeof useChatSessionHistory>;
 let bootstrapState!: ReturnType<typeof useChatSessionBootstrap>;
 
-function Harness({ workspaceId, requested = null, restore = false, showHistory = false }: {
-  workspaceId: string; requested?: string | null; restore?: boolean; showHistory?: boolean;
+function Harness({ workspaceId, requested = null, restore = false, showHistory = false, initialPromptStorageKey, isAuthReady = true }: {
+  workspaceId: string; requested?: string | null; restore?: boolean; showHistory?: boolean; initialPromptStorageKey?: string; isAuthReady?: boolean;
 }) {
   const t = useTranslations('chat');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -62,7 +67,7 @@ function Harness({ workspaceId, requested = null, restore = false, showHistory =
   }, []);
   const bootstrap = useChatSessionBootstrap({ activeWorkspaceId: workspaceId, addSessionToHistory: history.addSessionToHistory,
     appendSystemMessage: noop, clearSessionParamFromUrl: noop, fetchHistory: history.fetchHistory,
-    handleControlAction: asyncNoop, hasLoadedSessionListRef: history.hasLoadedSessionListRef,
+    handleControlAction: send, initialPromptStorageKey, isAuthReady, hasLoadedSessionListRef: history.hasLoadedSessionListRef,
     historyLength: history.history.length, initialPromptConsumedRef: consumed,
     isLoadingHistory: history.isLoadingHistory, isResolvingInitialChatState: resolving,
     isRuntimeSelectionLoading: false, isWorkspaceNavigationPending: false, loadSession,
@@ -173,9 +178,41 @@ async function main() {
   await tick();
   assert.deepEqual(historyState.history.map((value) => value.sessionId), ['B-chat']);
   assert.equal(historyState.isLoadingHistory, false);
+  // Source handoff waits for auth, survives failure, and retries only explicitly with the same ID.
+  globalThis.fetch = async () => Response.json({ success: true, sessions: [] });
+  const source = createPromptHandoff({ prompt: 'Start the review', attachments: [], agentId: 'canvas-agent',
+    workspaceId: 'handoff-workspace', auth: { userId: 'test-user', sessionId: 'test-session' } });
+  persistPromptHandoff(window.sessionStorage, 'handoff-test', source);
+  window.history.replaceState(null, '', `?workspaceId=handoff-workspace&chat=open&handoff=${source.handoffId}`);
+  let sendAttempt = deferred<void>();
+  const attempts: Array<Parameters<Send>[1]> = [];
+  sendHandler = async (_action, override) => { attempts.push(override); await sendAttempt.promise; };
+  await render({ workspaceId: 'handoff-workspace', initialPromptStorageKey: 'handoff-test', isAuthReady: false }, 'handoff');
+  await tick();
+  assert.equal(attempts.length, 0);
+  await render({ workspaceId: 'handoff-workspace', initialPromptStorageKey: 'handoff-test', isAuthReady: true }, 'handoff');
+  await tick();
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0]?.handoffId, source.handoffId);
+  assert.equal(attempts[0]?.workspaceId, source.workspaceId);
+  await act(async () => { sendAttempt.reject(new Error('Send was not acknowledged')); });
+  await tick();
+  assert.match(bootstrapState.initialSessionError ?? '', /not acknowledged/);
+  assert.ok(window.sessionStorage.getItem('handoff-test'));
+  await render({ workspaceId: 'handoff-workspace', initialPromptStorageKey: 'handoff-test', showHistory: true }, 'handoff');
+  await tick();
+  assert.equal(attempts.length, 1, 'ordinary rerenders never retry a failed send');
+  sendAttempt = deferred<void>();
+  await act(async () => { bootstrapState.retryInitialSession(); });
+  await tick();
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[1]?.handoffId, source.handoffId);
+  await act(async () => { sendAttempt.resolve(); });
+  await tick();
+  assert.equal(window.sessionStorage.getItem('handoff-test'), null, 'consume only after acknowledged send');
   console.error = originalError;
   await act(async () => root.unmount());
   getNotebookQueryClient().clear();
   console.log('chat bootstrap/history race tests passed');
 }
-void main().catch((error) => { console.error(error); process.exit(1); });
+void main().catch((error) => { reportError(error); process.exit(1); });

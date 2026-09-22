@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useState,
   useCallback,
   useRef,
@@ -10,9 +11,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { useTranslations } from 'next-intl';
-import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
-import { isRecord } from '@/app/lib/chat/message-content';
 import { fetchChatSessionBootstrap } from '@/app/lib/chat/session-api';
 import { readLatestCachedChatSession } from '@/app/lib/chat/session-cache';
 import type {
@@ -20,15 +19,11 @@ import type {
   Attachment,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { consumePromptHandoff, createPromptHandoff, isPromptHandoffForNavigation, readPromptHandoff, type PromptHandoff } from '@/app/lib/chat/prompt-handoff';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { readCanvasChatActiveSessionStorage } from '@/app/lib/chat/constants';
 
 type ChatTranslator = ReturnType<typeof useTranslations<'chat'>>;
-
-type InitialPromptPayload = {
-  prompt: string;
-  attachments: Attachment[];
-  agentId: string | null;
-};
 
 type UseChatSessionBootstrapParams = {
   addSessionToHistory: (session: AISession) => void;
@@ -38,7 +33,7 @@ type UseChatSessionBootstrapParams = {
   forcedSessionId?: string | null;
   handleControlAction: (
     action: 'send' | 'steer' | 'follow_up' | 'replace',
-    override?: { text: string; attachments: Attachment[] },
+    override?: { text: string; attachments: Attachment[]; handoffId?: string; workspaceId?: string },
   ) => Promise<void>;
   activeWorkspaceId?: string | null;
   hasLoadedSessionListRef: MutableRefObject<boolean>;
@@ -47,6 +42,7 @@ type UseChatSessionBootstrapParams = {
   initialPromptConsumedRef: MutableRefObject<boolean>;
   initialPromptStorageKey?: string;
   isLoadingHistory: boolean;
+  isAuthReady?: boolean;
   isResolvingInitialChatState: boolean;
   isRuntimeSelectionLoading: boolean;
   isWorkspaceNavigationPending: boolean;
@@ -67,73 +63,7 @@ type UseChatSessionBootstrapParams = {
   userStartedNewChatRef: MutableRefObject<boolean>;
 };
 
-const MANAGED_AGENT_ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
-
-function normalizeInitialPromptAgentId(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return MANAGED_AGENT_ID_PATTERN.test(normalized) ? normalized : null;
-}
-
-function parseInitialPromptAttachment(value: unknown): Attachment | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const contentKind = value.contentKind === 'image' || value.contentKind === 'document'
-    ? value.contentKind
-    : null;
-  const name = typeof value.name === 'string' ? value.name : '';
-  const id = typeof value.id === 'string' ? value.id : '';
-
-  if (!contentKind || !name || !id) {
-    return null;
-  }
-
-  return deriveUploadAttachmentPreview({
-    name,
-    id,
-    contentKind,
-    mimeType: typeof value.mimeType === 'string' ? value.mimeType : undefined,
-    category: typeof value.category === 'string' ? value.category : undefined,
-    filePath: typeof value.filePath === 'string' ? value.filePath : undefined,
-    previewUrl: typeof value.previewUrl === 'string' ? value.previewUrl : undefined,
-    mediaUrl: typeof value.mediaUrl === 'string' ? value.mediaUrl : undefined,
-  });
-}
-
-function parseInitialPromptPayload(storedData: string): InitialPromptPayload | null {
-  try {
-    const parsed = JSON.parse(storedData) as unknown;
-    if (!isRecord(parsed)) {
-      return null;
-    }
-
-    const prompt = typeof parsed.prompt === 'string' ? parsed.prompt : '';
-    const attachments = Array.isArray(parsed.attachments)
-      ? parsed.attachments
-        .map(parseInitialPromptAttachment)
-        .filter((attachment): attachment is Attachment => Boolean(attachment))
-      : [];
-
-    if (!prompt.trim() && attachments.length === 0) {
-      return null;
-    }
-
-    return {
-      prompt,
-      attachments,
-      agentId: normalizeInitialPromptAgentId(parsed.agentId),
-    };
-  } catch {
-    const prompt = storedData.trim();
-    return prompt ? { prompt, attachments: [], agentId: null } : null;
-  }
-}
 
 function sessionMatchesActiveWorkspace(session: AISession, activeWorkspaceId?: string | null): boolean {
   if (!activeWorkspaceId) {
@@ -144,7 +74,6 @@ function sessionMatchesActiveWorkspace(session: AISession, activeWorkspaceId?: s
 
 export function useChatSessionBootstrap({
   addSessionToHistory,
-  appendSystemMessage,
   clearSessionParamFromUrl,
   fetchHistory,
   forcedSessionId,
@@ -155,6 +84,7 @@ export function useChatSessionBootstrap({
   initialPromptConsumedRef,
   initialPromptStorageKey,
   isLoadingHistory,
+  isAuthReady = true,
   isResolvingInitialChatState,
   isRuntimeSelectionLoading,
   isWorkspaceNavigationPending,
@@ -169,51 +99,77 @@ export function useChatSessionBootstrap({
   setIsResolvingInitialChatState,
   setSelectedAgentId,
   showHistory,
-  t,
   userStartedNewChatRef,
 }: UseChatSessionBootstrapParams) {
   const [initialSessionFailure, setInitialSessionFailure] = useState<{
     message: string; workspaceId: string | null; sessionId: string | null; requestedSessionId: string | null;
   } | null>(null);
   const [retryVersion, setRetryVersion] = useState(0);
-  const retryInitialSession = useCallback(() => setRetryVersion((value) => value + 1), []);
+  const retryInitialSession = useCallback(() => {
+    initialPromptConsumedRef.current = false;
+    setRetryVersion((value) => value + 1);
+  }, [initialPromptConsumedRef]);
+  const directPromptRef = useRef<PromptHandoff | null>(null);
+  const promptNavigationRef = useRef<object | null>(null);
+  useLayoutEffect(() => {
+    promptNavigationRef.current = {};
+    return () => { promptNavigationRef.current = null; };
+  }, [activeWorkspaceId, resolvedRequestedSessionId]);
   const requestedSessionLoadIdRef = useRef(0);
   const restoredSessionLoadIdRef = useRef(0);
 
   useEffect(() => {
-    if (isWorkspaceNavigationPending) return;
+    if (!isAuthReady || isWorkspaceNavigationPending || isRuntimeSelectionLoading || !activeWorkspaceId) return;
     if (initialPromptConsumedRef.current) return;
-    if (isRuntimeSelectionLoading) return;
-
-    const queueInitialPrompt = async (promptText: string, promptAttachments: Attachment[], storageKey?: string) => {
-      initialPromptConsumedRef.current = true;
-      try {
-        await handleControlAction('send', { text: promptText, attachments: promptAttachments });
-        if (storageKey && typeof window !== 'undefined') {
-          window.sessionStorage.removeItem(storageKey);
-        }
-      } catch (error) {
-        setIsResolvingInitialChatState(false);
-        appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
-      }
-    };
-
     const candidatePrompt = (initialPrompt || '').trim();
-    if (candidatePrompt) {
-      void queueInitialPrompt(candidatePrompt, []);
+    if (!candidatePrompt && !initialPromptStorageKey) return;
+    const auth = openedDocumentAuthScope();
+    const navigation = promptNavigationRef.current;
+    let payload: PromptHandoff | null;
+    let storageKey: string | undefined;
+    try {
+      if (candidatePrompt) {
+        if (!directPromptRef.current) directPromptRef.current = createPromptHandoff({
+          prompt: candidatePrompt, attachments: [], agentId: selectedAgentId,
+          workspaceId: activeWorkspaceId, auth,
+        });
+        payload = directPromptRef.current;
+        if (payload.workspaceId !== activeWorkspaceId) return;
+      } else {
+        storageKey = initialPromptStorageKey;
+        if (!isPromptHandoffForNavigation(window.sessionStorage, storageKey!, {
+          search: window.location.search, workspaceId: activeWorkspaceId,
+        })) return;
+        payload = readPromptHandoff(window.sessionStorage, storageKey!, {
+          workspaceId: activeWorkspaceId, auth,
+          requestedHandoffId: new URLSearchParams(window.location.search).get('handoff'),
+        });
+      }
+      if (!payload) return;
+      if (payload.auth && (!auth || payload.auth.userId !== auth.userId || payload.auth.sessionId !== auth.sessionId)) {
+        throw new Error('This prompt belongs to another sign-in session.');
+      }
+      if (storageKey && !new URLSearchParams(window.location.search).get('handoff')) {
+        // Bind upgraded legacy handoffs before any later render can restore a saved session.
+        const url = new URL(window.location.href);
+        url.searchParams.set('handoff', payload.handoffId);
+        url.searchParams.set('workspaceId', payload.workspaceId);
+        url.searchParams.set('chat', 'open');
+        window.history.replaceState(window.history.state, '', url);
+      }
+    } catch (error) {
+      // Failed storage/account validation requires an explicit retry, never an effect loop.
+      initialPromptConsumedRef.current = true;
+      const message = error instanceof Error ? error.message : String(error);
+      Promise.resolve().then(() => {
+        if (promptNavigationRef.current !== navigation) return;
+        setIsResolvingInitialChatState(false);
+        setInitialSessionFailure({ message, workspaceId: activeWorkspaceId,
+          sessionId: sessionIdRef.current, requestedSessionId: resolvedRequestedSessionId });
+      });
       return;
     }
-
-    if (!initialPromptStorageKey || typeof window === 'undefined') return;
-    const storedData = window.sessionStorage.getItem(initialPromptStorageKey);
-    if (!storedData) return;
-
-    const parsed = parseInitialPromptPayload(storedData);
-    if (!parsed) {
-      return;
-    }
-
-    const targetAgentId = parsed.agentId || CHAT_AGENT_ID;
+    const targetAgentId = payload.agentId || CHAT_AGENT_ID;
     if (targetAgentId !== selectedAgentId) {
       sessionAgentIdRef.current = targetAgentId;
       void saveLastActiveAgentId(targetAgentId);
@@ -224,8 +180,37 @@ export function useChatSessionBootstrap({
       return;
     }
 
-    void queueInitialPrompt(parsed.prompt, parsed.attachments, initialPromptStorageKey);
-  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptConsumedRef, initialPromptStorageKey, isRuntimeSelectionLoading, isWorkspaceNavigationPending, selectedAgentId, sessionAgentIdRef, setHistoryAgentFilter, setIsResolvingInitialChatState, setSelectedAgentId, t]);
+    // Lock before yielding: renders and agent/runtime updates cannot send twice.
+    initialPromptConsumedRef.current = true;
+    const handoff = payload;
+    const isCurrentHandoff = () => promptNavigationRef.current === navigation
+      && !userStartedNewChatRef.current
+      && openedDocumentAuthScope() === auth
+      && (!storageKey || new URLSearchParams(window.location.search).get('handoff') === handoff.handoffId);
+    void (async () => {
+      await Promise.resolve();
+      if (!isCurrentHandoff()) return;
+      setInitialSessionFailure(null);
+      let detached = false;
+      try {
+        await handleControlAction('send', { text: handoff.prompt, attachments: handoff.attachments,
+          handoffId: handoff.handoffId, workspaceId: handoff.workspaceId });
+        if (storageKey) consumePromptHandoff(window.sessionStorage, storageKey, handoff.handoffId);
+      } catch (error) {
+        detached = error instanceof Error && error.name === 'AbortError';
+        if (!detached && isCurrentHandoff()) {
+          setInitialSessionFailure({ message: error instanceof Error ? error.message : String(error),
+            workspaceId: handoff.workspaceId, sessionId: sessionIdRef.current,
+            requestedSessionId: resolvedRequestedSessionId });
+        }
+      } finally {
+        if (!detached && isCurrentHandoff()) setIsResolvingInitialChatState(false);
+      }
+    })();
+  }, [activeWorkspaceId, handleControlAction, initialPrompt, initialPromptConsumedRef, initialPromptStorageKey,
+    isAuthReady, isRuntimeSelectionLoading, isWorkspaceNavigationPending, resolvedRequestedSessionId, retryVersion,
+    selectedAgentId, sessionAgentIdRef, sessionIdRef, setHistoryAgentFilter, setIsResolvingInitialChatState,
+    setSelectedAgentId, userStartedNewChatRef]);
 
   useEffect(() => {
     if (isWorkspaceNavigationPending) return;
@@ -247,7 +232,10 @@ export function useChatSessionBootstrap({
   useEffect(() => {
     if (isWorkspaceNavigationPending) return;
     if (initialPrompt?.trim()) return;
-    if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
+    if (initialPromptStorageKey && typeof window !== 'undefined'
+      && isPromptHandoffForNavigation(window.sessionStorage, initialPromptStorageKey, {
+        search: window.location.search, workspaceId: activeWorkspaceId,
+      })) {
       return;
     }
     if (userStartedNewChatRef.current) return;
@@ -301,7 +289,10 @@ export function useChatSessionBootstrap({
   useEffect(() => {
     if (isWorkspaceNavigationPending) return;
     if (initialPrompt?.trim()) return;
-    if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
+    if (initialPromptStorageKey && typeof window !== 'undefined'
+      && isPromptHandoffForNavigation(window.sessionStorage, initialPromptStorageKey, {
+        search: window.location.search, workspaceId: activeWorkspaceId,
+      })) {
       return;
     }
     if (initialPromptConsumedRef.current) return;

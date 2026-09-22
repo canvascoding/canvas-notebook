@@ -65,6 +65,10 @@ function getClientError(error: unknown): { code: string; message: string } {
       message: 'This chat has conflicting session data. Refresh the app and try again.',
     };
   }
+  if (error instanceof Error && 'code' in error &&
+    ['MESSAGE_ID_CONFLICT', 'MESSAGE_DELIVERY_UNCERTAIN', 'INVALID_CLIENT_MESSAGE_ID'].includes(String(error.code))) {
+    return { code: String(error.code), message: error.message };
+  }
   return { code: 'RUNTIME_ERROR', message: getErrorMessage(error) };
 }
 
