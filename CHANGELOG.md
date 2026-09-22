@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.9.22.2] - 2026-09-22
+## [2026.9.22.3] - 2026-09-22
 
 ### Added
 
@@ -27,6 +27,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Restored chat attachment preview fallback behavior and synchronized security dependency lockfiles.
 - Updated the Docker runtime's source-built libvips to satisfy Sharp 0.35.4 on AMD64 and ARM64.
+- Normalized the locked Soup Sieve runtime version to its installed PEP 440 representation.
 
 ### Verification
 
