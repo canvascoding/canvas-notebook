@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { normalizeEmailAttachmentInputs } from '@/app/lib/email/attachments';
-import { updatePersonalOutboxDraft } from '@/app/lib/email/workspace-inbox-outbox';
+import { findPersonalOutboxDraft, updatePersonalOutboxDraft } from '@/app/lib/email/workspace-inbox-outbox';
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ draftId: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -24,5 +24,18 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ d
     return NextResponse.json({ success: true, data });
   } catch (error) {
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Failed to update outbox draft.' }, { status: 409 });
+  }
+}
+
+export async function GET(request: NextRequest, context: { params: Promise<{ draftId: string }> }) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  try {
+    const { draftId } = await context.params;
+    const data = await findPersonalOutboxDraft(session.user.id, draftId);
+    if (!data) return NextResponse.json({ success: false, error: 'Outbox draft not found.' }, { status: 404 });
+    return NextResponse.json({ success: true, data });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Unable to load outbox draft.' }, { status: 403 });
   }
 }
