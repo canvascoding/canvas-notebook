@@ -22,6 +22,35 @@ type Props = {
 const failedResult = (message: string): CallToolResult => ({ content: [{ type: 'text', text: message }], isError: true });
 const DEFAULT_RESERVED_HEIGHT = 240;
 
+export function ToolAppLoadingSkeleton({ label, animated = true, className = '' }: {
+  label: string;
+  animated?: boolean;
+  className?: string;
+}) {
+  return <div data-testid="tool-app-loading-skeleton" role="status" aria-label={label}
+    className={`flex h-full min-h-[120px] flex-col bg-background p-3 ${className}`}>
+    <div aria-hidden="true" className={animated ? 'motion-safe:animate-pulse' : ''}>
+      <div className="flex items-center gap-3">
+        <div className="h-8 w-8 shrink-0 rounded-[var(--radius)] bg-muted" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="h-3 w-2/5 rounded-[var(--radius)] bg-muted" />
+          <div className="h-2.5 w-3/5 rounded-[var(--radius)] bg-muted/70" />
+        </div>
+        <div className="h-6 w-16 rounded-[var(--radius)] border border-border/70 bg-muted/50" />
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <div className="h-12 rounded-[var(--radius)] border border-border/60 bg-muted/60" />
+        <div className="h-12 rounded-[var(--radius)] border border-border/60 bg-muted/60" />
+        <div className="col-span-2 h-8 rounded-[var(--radius)] border border-border/60 bg-muted/40" />
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="h-2.5 w-1/3 rounded-[var(--radius)] bg-muted/70" />
+        <div className="h-7 w-20 rounded-[var(--radius)] border border-border/70 bg-muted/50" />
+      </div>
+    </div>
+  </div>;
+}
+
 /** One bridge lifecycle for Canvas resources and external MCP Apps. */
 export function ToolAppWidget({ invocation, sessionId, agentId, actions, reservedHeight = DEFAULT_RESERVED_HEIGHT }: Props) {
   const t = useTranslations(invocation.kind === 'builtin' ? 'chat.toolApp' : 'chat.mcpApp');
@@ -182,12 +211,13 @@ export function ToolAppWidget({ invocation, sessionId, agentId, actions, reserve
   };
   return <section data-testid={builtin ? 'canvas-tool-app-widget' : 'mcp-app-widget'}
     className="relative my-2 w-full max-w-3xl overflow-hidden rounded-[var(--radius)] border bg-background"
-    style={{ minHeight: payloadUnavailable || error || presentationReady ? undefined : reservedHeight }}>
+    style={{ minHeight: presentationReady ? 120 : reservedHeight }}>
     {payloadUnavailable || error ? <div className="space-y-2 p-3 text-xs text-muted-foreground" role="status">
       <p>{t(payloadUnavailable ? 'oversized' : error!)}</p>
       {!payloadUnavailable ? <Button size="xs" variant="outline" onClick={refresh}>{t('reload')}</Button> : null}
     </div> : <>
-      {!presentationReady ? <p className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-background/90 p-3 text-xs text-muted-foreground" role="status">{t('loading')}</p> : null}
+      {!presentationReady ? <ToolAppLoadingSkeleton label={t('loading')}
+        className="pointer-events-none absolute inset-0 z-10" /> : null}
       {frame ? <iframe ref={frameRef} title={builtin ? t('frameTitle') : invocation.descriptor.toolName}
         sandbox="allow-scripts allow-same-origin" referrerPolicy="no-referrer" tabIndex={builtin ? -1 : undefined}
         style={{ height, visibility: presentationReady ? 'visible' : 'hidden' }}

@@ -332,8 +332,13 @@ async function runWidgetScrollRegression(
     if (await slot.locator('[data-testid="canvas-tool-app-widget"]').count()) break;
   }
   await expect(slot.locator('[data-testid="canvas-tool-app-widget"]'), JSON.stringify(activationSamples, null, 2)).toHaveCount(1);
-  test.fail(true, 'Known regression: the slot height feeds back into its own reserved height while loading.');
+  await expect(slot.getByTestId('tool-app-loading-skeleton')).toBeVisible();
+  await slot.screenshot({
+    path: testInfo.outputPath('chat-widget-skeleton.png'),
+    animations: 'disabled',
+  });
   await page.waitForTimeout(2_200);
+  await expect(slot.getByTestId('tool-app-loading-skeleton')).toHaveCount(0);
 
   const samples = await page.evaluate(() => {
     type TraceWindow = Window & typeof globalThis & {
