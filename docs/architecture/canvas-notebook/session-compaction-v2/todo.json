@@ -618,7 +618,8 @@
       "id": "SC-P14",
       "order": 14,
       "title": "Production hardening, latency evidence and rollout",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-09-22",
       "dependsOn": ["SC-P13"],
       "hermesReferences": [
         "agent/conversation_compression.py leases and commit fences",
@@ -637,7 +638,13 @@
         "GitNexus detect_changes against main",
         "approved Playwright verification"
       ],
-      "completionEvidence": [],
+      "completionEvidence": [
+        "Content-free structured stage telemetry records an opaque attemptId, provider/model route, token counters, duration and terminal reason without provider messages, prompt content, session identifiers or fingerprints",
+        "The deterministic production-shaped scorecard covers tool-rich 32k, 256k and 1M windows, preserves partition and tool-group invariants, and has explicit negative coverage for a truly removed tool result",
+        "One bounded summary call has a deterministic p95 of 375 ms versus 1,500 ms for the removed four-call serial-digest architecture (75 percent reduction)",
+        "Coordinator/store, selection, pruning, summary, live-runtime and automation regressions plus TypeScript, ESLint and the direct Next.js production build pass; the npm build wrapper stops earlier on a pre-existing unrelated third-party-inventory drift, which was not regenerated into this feature change",
+        "Operations document the legacy-tail canary, Lean canary comparison, telemetry acceptance criteria and immediate non-destructive rollback"
+      ],
       "exitGate": "SC-G14_PRODUCTION_READY"
     }
   ]

@@ -39,7 +39,6 @@ import {
 import {
   getPiCompactionErrorDiagnostics,
   logPiCompactionDiagnostic,
-  sanitizePiCompactionDiagnosticText,
 } from './diagnostics';
 
 const V2_INPUT_SAFETY_TOKENS = 768;
@@ -343,7 +342,6 @@ export async function generatePiRollingSummaryV2(
   const tailMode = input.tailMode === 'lean' ? 'lean' : 'legacy';
   const sessionId = input.sessionId ?? '';
   const diagnosticContext = {
-    sessionId: sessionId || null,
     attemptId: input.compactionAttemptId ?? null,
     provider: input.model.provider,
     api: input.model.api,
@@ -497,6 +495,7 @@ export async function generatePiRollingSummaryV2(
       ? Math.max(1, remainingTimeoutMs - fallbackReserveMs)
       : remainingTimeoutMs;
     let summaryMessage: AssistantMessage;
+    const candidateStartedAt = Date.now();
     try {
       summaryMessage = await callSummaryModel({ ...input, totalTimeoutMs: candidateTimeoutMs }, {
         systemPrompt: SUMMARY_SYSTEM_PROMPT_V2,
@@ -523,6 +522,18 @@ export async function generatePiRollingSummaryV2(
       if (error instanceof PiSummaryTimeoutError && (!hasAuxiliaryRoute || candidate.fallback)) throw error;
       continue;
     }
+    logPiCompactionDiagnostic('info', 'summary_provider_completed', {
+      ...diagnosticContext,
+      stage: 'summary',
+      provider: candidate.model.provider,
+      api: candidate.model.api,
+      model: candidate.model.id,
+      fallback: candidate.fallback,
+      durationMs: Math.max(0, Date.now() - candidateStartedAt),
+      inputTokens: summaryMessage.usage.input ?? null,
+      outputTokens: summaryMessage.usage.output ?? null,
+      stopReason: summaryMessage.stopReason,
+    });
     const failure = summaryResponseFailure({ message: summaryMessage, knownSecrets });
     if (failure) {
       logPiCompactionDiagnostic('warn', 'summary_provider_failure', {
@@ -530,9 +541,7 @@ export async function generatePiRollingSummaryV2(
         stage: 'summary', outcome: failure, fallback: candidate.fallback,
         attemptedModel: `${candidate.model.provider}:${candidate.model.id}`,
         stopReason: summaryMessage.stopReason,
-        ...(summaryMessage.errorMessage
-          ? { errorMessage: sanitizePiCompactionDiagnosticText(summaryMessage.errorMessage, knownSecrets) }
-          : {}),
+        hasProviderError: Boolean(summaryMessage.errorMessage),
       });
       continue;
     }

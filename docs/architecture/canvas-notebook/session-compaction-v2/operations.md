@@ -144,3 +144,50 @@ the default.
    the rollback does not delete or rewrite history.
 5. Re-enable `shadow` before returning to `v2` if the incident involved
    summary recall, selection savings or provider behavior.
+
+## P14 canary runbook
+
+Use one canary application process only. Start with the validated V2 summary
+path and the Hermes-compatible legacy tail:
+
+```sh
+CANVAS_PI_COMPACTION_ROLLOUT=v2
+CANVAS_PI_COMPACTION_TAIL_MODE=legacy
+```
+
+For at least 25 eligible compaction attempts, retain the normal attempt rows
+and inspect only the content-free `[PI Compaction]` JSON events. Correlate an
+attempt through its opaque `attemptId`; never add a session ID, prompt, tool
+argument, provider error message or contract fingerprint to log collection.
+The required fields are stage, provider/model route, token counters,
+`durationMs`, terminal state/reason and retry time. The canary passes only if:
+
+- no attempt commits after `aborted`, `stale_snapshot`, idle or total timeout;
+- no `cooldown_active` or `breaker_active` loop repeats provider work;
+- every successful attempt reports a strictly smaller sendable projection;
+- scorecard partition and orphan-tool-group counts remain zero; and
+- observed p95 `attempt_finished.durationMs` is materially below the retired
+  multi-digest baseline. The deterministic fixture baseline is 75 percent
+  lower (375 ms vs 1,500 ms) and guards architectural regressions; it is not a
+  substitute for provider-specific production latency monitoring.
+
+After that legacy-tail canary is stable, enable Lean only on a separate canary
+process:
+
+```sh
+CANVAS_PI_COMPACTION_TAIL_MODE=lean
+```
+
+Do not mix this comparison with a summary-model change. Compare the same
+provider/model mix, context-window bands (small, 256k and large) and tool-rich
+traffic. Require the legacy invariants above plus no recall, cache-read-cost or
+p95-boundary-latency regression before making Lean the organization default.
+
+### Immediate rollback
+
+If Lean has an invariant, recall, provider or latency incident, recreate only
+the affected application process with `CANVAS_PI_COMPACTION_TAIL_MODE=legacy`.
+For a summary-path incident also set `CANVAS_PI_COMPACTION_ROLLOUT=legacy`.
+Do not delete session rows, attempt records, V2 summaries or raw history.
+Keep the correlated `attemptId` telemetry and the authorized session record for
+diagnosis, then return through `shadow` before re-enabling the affected path.

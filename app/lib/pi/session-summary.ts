@@ -785,7 +785,6 @@ export async function preparePiHistoryContext({
     summaryFailed = true;
     if (error instanceof PiSummaryTimeoutError) summaryFailureReason = error.reasonCode;
     console.warn('[PI Summary] Summary candidate generation failed.', {
-      sessionId: sessionId ?? null,
       errorName: error instanceof Error ? error.name : 'UnknownError',
     });
   }
@@ -820,7 +819,7 @@ export async function preparePiHistoryContext({
     const shrinks = after.minimumRequiredTokens < before.minimumRequiredTokens
       && after.minimumRequiredBytes < before.minimumRequiredBytes;
     logPiCompactionDiagnostic(fits && shrinks ? 'info' : 'warn', 'summary_effective_context_checked', {
-      sessionId: sessionId ?? null,
+      stage: 'effective_context_validation',
       attemptId: compactionAttemptId ?? null,
       beforeTokens: before.minimumRequiredTokens,
       afterTokens: after.minimumRequiredTokens,

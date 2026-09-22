@@ -248,6 +248,7 @@ export function projectPiHermesHistory(
 export async function preparePiHermesCompactionCandidate(
   input: PreparePiHermesCompactionCandidateInput,
 ): Promise<PreparePiHermesCompactionCandidateResult> {
+  const projectionStartedAt = performance.now();
   const policy = validatePiContextBudgetPolicy(
     input.policy ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY,
   );
@@ -266,9 +267,14 @@ export async function preparePiHermesCompactionCandidate(
     ? 'force' : 'automatic';
   const projection = projectPiHermesHistory({ ...input, selectionMode, pruningMode: 'candidate' });
   logPiCompactionDiagnostic('info', 'candidate_projection', {
-    sessionId: input.sessionId,
+    stage: 'candidate_projection',
     attemptId: input.compactionAttemptId ?? null,
     selectionMode,
+    provider: input.model.provider,
+    api: input.model.api,
+    model: input.model.id,
+    contextWindowTokens: input.model.contextWindow,
+    durationMs: Math.round((performance.now() - projectionStartedAt) * 1_000) / 1_000,
     rawEstimatedTokens: input.messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
     projectedEstimatedTokens: projection.pruning.afterTokens,
     prunedTokens: projection.pruning.reclaimedTokens,

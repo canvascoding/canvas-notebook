@@ -199,6 +199,23 @@ Gate: keine History-Verluste, keine Compaction-Schleifen, konsistente Anzeige
 und eine materiell niedrigere p95-Latenz als der bisherige serielle
 Digest-Pfad.
 
+Status: abgeschlossen. Der eigentliche Next.js-Produktions-Build inklusive
+TypeScript und CLI-Versionsinjektion ist gruen. Der vorgeschaltete
+`npm run build`-Lizenzinventar-Check bleibt wegen eines bereits vorhandenen,
+nicht durch dieses Paket verursachten lokalen Inventory-Drifts rot; die
+Compliance-Artefakte wurden bewusst nicht als fachfremde Aenderung
+regeneriert. Die
+produktive Telemetrie bleibt inhaltsfrei, enthaelt aber eine opaque `attemptId`
+zur Korrelation von Start, Candidate, Summary-Fortschritt und Abschluss.
+Provider-Fehlermeldungen, Prompts, Session-IDs und Contract-Fingerprints werden
+nicht geloggt. Der deterministische Produktions-Scorecard-Test deckt toolreiche
+32k-, 256k- und 1M-Fenster ab, erkennt echte fehlende Tool-Mitglieder und
+akzeptiert ausschliesslich den markierten Lean-Recovery-Stub derselben
+Tool-Einheit. Sein reproduzierbares Latenzmodell misst p95 375 ms fuer einen
+Aufruf gegenueber 1.500 ms fuer den entfernten seriellen Vier-Aufruf-Pfad
+(75 Prozent Reduktion). Das Repository-Diff-Gate wird vor dem Commit erneut
+ausgefuehrt.
+
 ## Rollback
 
 `CANVAS_PI_COMPACTION_TAIL_MODE=legacy` schaltet nur die Tail- und

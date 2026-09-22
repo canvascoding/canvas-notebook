@@ -9,7 +9,7 @@
 > Digest-LLM-Aufrufe. Die neuen Arbeitspakete sind SC-P10 bis SC-P14.
 
 Stand: 2026-09-22
-Status: in Umsetzung
+Status: abgeschlossen; App-Produktions-Build gruen, bestehender Lizenzinventar-Precheck separat dokumentiert
 Canvas-Ausgangsstand: `0b8fda3f43e36ad165e559b8f0d155755cc1296f` inklusive des gemergten Provider-Context-Status aus PR `#106`
 Hermes-Referenz: `NousResearch/hermes-agent@e2f8a0731bf26e95b31e35d73e71e183a1045b81`
 

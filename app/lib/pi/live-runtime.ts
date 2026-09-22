@@ -799,7 +799,6 @@ export class LivePiRuntime {
     const ownsStatus = activeAttempt === null;
     const startedAt = Date.now();
     const diagnosticContext = {
-      sessionId: this.sessionId,
       attemptId,
       trigger: input.kind,
       cause: input.cause,
@@ -2343,9 +2342,7 @@ export class LivePiRuntime {
     const projectedMessageCount = contextMessages.filter((message, index) => message !== messages[index]).length;
     if (projectedMessageCount > 0 || projection.pruning.changed || !canSendWithoutCompaction) {
       logPiCompactionDiagnostic('info', 'normalized_preflight', {
-        sessionId: this.sessionId,
-        contextRevision: this.getContextMeasurementCache().metadata.revision,
-        contractFingerprint: exactPreflight.budgetSnapshot.contractFingerprint,
+        stage: 'normalized_preflight',
         messageCount: messages.length,
         projectedMessageCount,
         rawHistoryTokens: messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
