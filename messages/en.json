@@ -365,12 +365,14 @@
     "tourAutomationsDescription": "Schedule recurring work so routine tasks can run automatically.",
     "tourSettingsTitle": "Settings",
     "tourSettingsDescription": "Adjust providers, tools, and integrations whenever you need more control.",
+    "tourEmailTitle": "Set up email (optional)",
+    "tourEmailDescription": "Connect personal and shared mailboxes, access them centrally, and review proposed messages.",
     "tourNotebookTitle": "Open Notebook",
     "tourNotebookDescription": "Collect and edit files, then work with Bradley directly in context.",
     "tourAutomationTitle": "Plan workflows",
     "tourAutomationDescription": "Schedule recurring work and store results reliably.",
     "tourHomeTitle": "Your Canvas starting point",
-    "tourHomeDescription": "Explore these three areas at your own pace. Short hints show the key controls in each one.",
+    "tourHomeDescription": "Explore these areas at your own pace. Set up email now or later; short hints explain the key controls.",
     "tourExplore": "Open",
     "tourFinish": "Finish tour",
     "tourFinishError": "Could not finish the tour. Please try again.",
@@ -394,6 +396,20 @@
     "completionError": "Could not complete onboarding",
     "unexpectedError": "An unexpected error occurred",
     "hints": {
+      "emails": {
+        "mailbox": {
+          "title": "Personal or shared",
+          "description": "This area identifies the active mailbox and its workspace. An address you use alone for work is personal; shared addresses belong to their assigned workspace. Your mailbox selection determines the sender."
+        },
+        "setup": {
+          "title": "Set up and repair connections",
+          "description": "Connect your own mailbox yourself. Organization administrators manage shared connections; workspace managers assign them. Setup remains optional. Missing IMAP access and expired connections are explained here."
+        },
+        "review": {
+          "title": "Review proposals before sending",
+          "description": "Open the Outbox to edit, approve or reject agent drafts. Recipient policies still apply. Blocked and failed drafts stay there so you can correct them later."
+        }
+      },
       "home": {
         "promptHero": {
           "title": "What to create?",

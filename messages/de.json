@@ -365,12 +365,14 @@
     "tourAutomationsDescription": "Plane wiederkehrende Aufgaben, damit Routinearbeit automatisch erledigt wird.",
     "tourSettingsTitle": "Einstellungen",
     "tourSettingsDescription": "Passe Provider, Tools und Integrationen an, wenn du mehr Kontrolle brauchst.",
+    "tourEmailTitle": "E-Mail einrichten (optional)",
+    "tourEmailDescription": "Persönliche und gemeinsame Postfächer richtig zuordnen, zentral nutzen und Versandvorschläge prüfen.",
     "tourNotebookTitle": "Notebook öffnen",
     "tourNotebookDescription": "Dateien sammeln, bearbeiten und direkt mit Bradley im Kontext arbeiten.",
     "tourAutomationTitle": "Abläufe planen",
     "tourAutomationDescription": "Wiederkehrende Aufgaben terminieren und Ergebnisse zuverlässig ablegen.",
     "tourHomeTitle": "Dein Startpunkt in Canvas",
-    "tourHomeDescription": "Gehe diese drei Bereiche in deinem Tempo durch. Die kurzen Hinweise zeigen dir jeweils die wichtigsten Bedienelemente.",
+    "tourHomeDescription": "Erkunde diese Bereiche in deinem Tempo. E-Mail kannst du jetzt oder später einrichten; kurze Hinweise erklären die wichtigsten Bedienelemente.",
     "tourExplore": "Öffnen",
     "tourFinish": "Tour abschließen",
     "tourFinishError": "Die Tour konnte nicht abgeschlossen werden. Bitte versuche es erneut.",
@@ -394,6 +396,20 @@
     "completionError": "Onboarding konnte nicht abgeschlossen werden",
     "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
     "hints": {
+      "emails": {
+        "mailbox": {
+          "title": "Persönlich oder gemeinsam",
+          "description": "Hier siehst du das aktive Postfach und seinen Workspace. Eine allein beruflich genutzte Adresse ist persönlich; gemeinsame Adressen gehören zum zugeordneten Workspace. Die Auswahl bestimmt deinen Absender."
+        },
+        "setup": {
+          "title": "Einrichten und Verbindungen reparieren",
+          "description": "Verbinde dein persönliches Postfach selbst. Gemeinsame Verbindungen verwaltet die Organisationsadministration; Workspace-Verwalter ordnen sie zu. Die Einrichtung bleibt optional. Fehlender IMAP-Empfang und abgelaufene Verbindungen werden hier erklärt."
+        },
+        "review": {
+          "title": "Vorschläge vor dem Versand prüfen",
+          "description": "Öffne den Postausgang, um Agentenentwürfe zu bearbeiten, freizugeben oder abzulehnen. Empfängerregeln gelten weiterhin. Blockierte und fehlgeschlagene Entwürfe bleiben dort für die spätere Korrektur erhalten."
+        }
+      },
       "home": {
         "promptHero": {
           "title": "Was erstellen?",

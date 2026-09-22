@@ -6,20 +6,20 @@ sectionOrder: 7
 order: 9
 locale: en
 translationKey: email.policies
-updatedAt: 2026-07-17
+updatedAt: 2026-09-22
 ---
 
 # Sending Policies and Guardrails
 
-Every personal email account has two server-enforced allowlists. They constrain both user-interface and agent operations at the account boundary.
+Email accounts have read and send allowlists. These settings express allowed addresses, not a separate denylist. Edit personal rules under Settings → Email; shared mailbox rules require the appropriate workspace management rights.
 
 ## Read policy
 
-`readFrom` lists the senders whose messages an agent-enabled email workflow may return. An entry can be an exact email address or a domain form such as `@example.com` or `*@example.com`. Search and read operations can exclude a message when its parsed sender is outside the list.
+`readFrom` lists the senders whose messages an agent-enabled email workflow may return. An entry can be an exact email address or a domain form such as `@example.com` or `*@example.com`. Agent reads and shared workspace search/read operations exclude messages whose parsed sender is outside the list. Direct browsing of a user’s own personal mailbox is not filtered by this agent read policy.
 
 ## Send policy
 
-`sendTo` applies to every recipient of a send or draft operation. Each To, CC, or other supported recipient must match an exact address or allowed domain. The server rejects the operation when one recipient is outside the policy.
+`sendTo` is enforced for tool and automation deliveries and for reviewed outbox sends, including manual shared-workspace sends. To, CC and BCC recipients are checked. A blocked outbox item remains available for correction and retry. Direct manual personal compose retains the personal-mail behavior that lets the signed-in owner choose recipients.
 
 An empty normalized allowlist means unrestricted access for that direction. Use this deliberately; a narrowly scoped account is safer for automations and agents than a general mailbox with unrestricted recipients.
 

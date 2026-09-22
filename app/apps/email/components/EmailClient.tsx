@@ -1263,11 +1263,13 @@ export function EmailClient({
   };
 
   const reviewCenter = (
+    <div id="onboarding-email-review" className="shrink-0">
       <EmailReviewCenter
         focusRequestKey={contextIntent?.view === 'review-center'
           ? `${contextIntent.toolCallId || contextIntent.toolName}:${contextIntent.mailboxId || ''}`
           : undefined}
       />
+    </div>
   );
 
   if (isLoadingAccounts) {

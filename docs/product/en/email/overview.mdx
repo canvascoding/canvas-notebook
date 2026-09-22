@@ -6,7 +6,7 @@ sectionOrder: 7
 order: 1
 locale: en
 translationKey: email.overview
-updatedAt: 2026-07-17
+updatedAt: 2026-09-22
 ---
 
 # Email Overview
@@ -15,9 +15,9 @@ Canvas Email brings connected mailboxes into the same workspace as files, agents
 
 ## Account capabilities
 
-OAuth connections support available Google and Microsoft mailbox operations. A custom SMTP connection provides sending, while optional IMAP settings add inbox, search, reading, and message organization.
+The setup interface offers Google OAuth and SMTP/IMAP connections. A custom SMTP connection provides sending, while optional IMAP settings add inbox, search, reading, and message organization.
 
-You can connect multiple accounts and choose a primary personal account. The active account determines the mailbox, sender identity, folders, and the `readFrom` and `sendTo` allowlists enforced by the server.
+You can connect multiple personal accounts, choose a primary personal account, and access shared workspace mailboxes in the same app. The app shows only accounts available to the current user. The selected account and workspace determine the sender identity, folders, available actions and applicable policies. Read-only members can browse permitted mail but cannot compose, change read state or delete.
 
 ## Human and agent workflows
 
@@ -28,6 +28,10 @@ AI-generated content remains a draft until the user explicitly sends it from the
 ## Email is not system mail
 
 Personal connected accounts power mailbox work. System SMTP is an administrator-controlled sender for platform notifications. The two configurations have different ownership and fallback behavior.
+
+## Optional setup and recovery
+
+The first Email visit explains personal and shared ownership before showing credential fields. You can leave setup and return later. Loading failures offer retry, expired connections offer repair, and SMTP-only accounts explain how to enable the inbox. The login email is separate from mailbox setup. The optional Home introduction links to Email. Instances with onboarding hints enabled also show a short tour of mailbox selection, setup and Outbox.
 
 ## Next steps
 

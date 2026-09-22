@@ -6,30 +6,36 @@ sectionOrder: 7
 order: 2
 locale: en
 translationKey: email.connect
-updatedAt: 2026-07-17
+updatedAt: 2026-09-22
 ---
 
 # Connecting an Email Account
 
-Connect email under Settings → Integrations. Each account belongs to the current user and stores its authorization separately from workspace documents and chat messages.
+Open [Email](/emails) or [Settings → Email](/settings?tab=system-email). Email setup is optional: the address used to sign in to Canvas does not automatically connect a mailbox.
+
+## Choose who can access the mailbox
+
+**My mailbox:** connect a personal Google or SMTP/IMAP account. A work address used by one person is still a personal account; its domain does not make it shared. Only the signed-in owner manages its connection and primary-account setting.
+
+**Shared workspace mailbox:** an organization administrator connects and tests the SMTP/IMAP account in the Business Inbox section. Choose an authorized workspace during setup, or assign it later. Workspace administrators can also open the workspace's mailbox assignment from Workspace settings. Members gain access according to their workspace permissions and the mailbox policies. Connecting without assigning does not expose it to members.
+
+A separate advanced API can assign a personal account to a workspace. That is a sharing action, not a personal folder or label. It requires management rights for both the previous and new workspace.
 
 ## Choose a connection method
 
-- Use Google OAuth for Gmail or Google Workspace when the instance provides an OAuth client or managed connection.
-- Use Microsoft OAuth for Outlook or Microsoft 365 when configured.
-- Use SMTP for a custom send-capable account and add IMAP when the mailbox should be readable in Canvas.
+- Google sign-in connects Gmail or Google Workspace when managed OAuth or a local OAuth client is available.
+- SMTP provides sending. Add IMAP to read folders, messages and attachments, organize mail, and search.
+- The current setup screen does not offer Microsoft OAuth. Use the connection methods shown by the instance.
 
-Complete the provider authorization or enter the server settings, then verify the connection. The first active personal account becomes primary unless you choose another account later.
-
-## Configure policies at setup
-
-Each account has `readFrom` and `sendTo` allowlists. New account setup can seed the account's own address as a safe initial value. Add only the addresses or domains the user and enabled agents should be able to read from or send to through that account.
+Complete authorization or enter the server settings, then choose **Test and save**. The connection test checks SMTP and configured IMAP; it does not send a real email. The first active personal account becomes primary. Shared accounts cannot become a personal primary account.
 
 ## Confirm the result
 
-Open Email, select the account, load its folders, and send a controlled test to an allowed recipient. For SMTP without IMAP, expect sending and policy management but no inbox, reading, or search.
+Open Email and verify the displayed address and Personal or Workspace label. The selector groups accessible accounts by scope. A workspace-only user can use the app without connecting a personal account.
 
-OAuth access can expire or be revoked. Password-based credentials are stored in the user-scoped encrypted email secret store and should never be copied into a workspace file.
+Review allowed senders and recipients in the account settings before enabling agents. See [policy behavior](/docs/email/policies) for the differences between manual personal mail and workspace or agent operations.
+
+A send-only account remains selectable and can compose mail. To enable its inbox, choose **Add IMAP**. An expired or revoked connection remains visible with a repair action; reconnect the same account rather than deleting it first. For a shared connection, the app directs you to the appropriate administrator or workspace assignment.
 
 ## Related guides
 

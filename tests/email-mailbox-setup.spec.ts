@@ -13,6 +13,7 @@ function mailbox(id: string, shared = false, writable = true) {
 type Mailbox = ReturnType<typeof mailbox>;
 async function installFixture(context: BrowserContext, initialAccounts: Mailbox[]) {
   const state = { accounts: initialAccounts, failLoad: false, setup: { canManageBusiness: false, manageableWorkspaces: [] as Array<{ id: string; name: string }> }, requests: [] as Array<{ path: string; workspace: unknown; body: Record<string, unknown> }>, writes: [] as string[] };
+  await context.route('**/api/user-hints**', route => route.fulfill({ json: { page: 'emails', version: 1, completed: true, currentHintKey: null, hints: [] } }));
   await context.route('https://api.github.com/repos/canvascoding/canvas-notebook/releases/latest', route => route.fulfill({ json: { tag_name: '0.0.0', body: '', html_url: 'https://github.com/canvascoding/canvas-notebook/releases' } }));
   await context.route('**/api/**', async route => {
     const req = route.request(); const url = new URL(req.url()); const path = url.pathname;
@@ -258,3 +259,32 @@ test('workspace setup deep link opens the permitted assignment dialog', async ({
     await expect(page.getByRole('dialog')).toHaveCount(0);
   } finally { await context.close(); }
 });
+
+for (const empty of [true, false]) {
+  test(`email hint tour points to visible ${empty ? 'setup' : 'mailbox'} controls`, async ({ browser }) => {
+    test.skip(process.env.ONBOARDING_HINTS !== 'true', 'Start the test server with ONBOARDING_HINTS=true to exercise the optional tour.');
+    const context = await createAuthenticatedContext(browser, { viewport: { width: 390, height: 740 } });
+    await installFixture(context, empty ? [] : [mailbox('support', true)]);
+    const hints = ['emails.mailbox', 'emails.setup', 'emails.review'];
+    let index = 0;
+    await context.route('**/api/user-hints**', async route => {
+      if (route.request().method() === 'PATCH') {
+        const dismissedHintKey = hints[index++];
+        return route.fulfill({ json: { dismissedHintKey, nextHintKey: hints[index] || null, completed: index >= hints.length } });
+      }
+      return route.fulfill({ json: { page: 'emails', version: 1, completed: false, currentHintKey: hints[index], hints: hints.map(hintKey => ({ hintKey, dismissed: false, dismissedAt: null })) } });
+    });
+    const page = await context.newPage();
+    try {
+      await page.goto('/emails');
+      for (const selector of empty ? ['#onboarding-email-setup', '#onboarding-email-setup-choices', '#onboarding-email-review'] : ['#onboarding-email-mailbox', '#onboarding-email-settings', '#onboarding-email-review']) {
+        await expect(page.locator(selector)).toBeVisible();
+        const previousIndex = index;
+        const title = ['Personal or shared', 'Set up and repair connections', 'Review proposals before sending'][previousIndex];
+        await page.getByRole('dialog', { name: title, exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+        await expect.poll(() => index).toBe(previousIndex + 1);
+      }
+      expect(index).toBe(3);
+    } finally { await context.close(); }
+  });
+}

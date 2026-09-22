@@ -52,11 +52,11 @@ export function EmailSetupGuide({ setup, account, onPersonalSetup, onCompose, de
   </section>;
 
   return <section data-testid="email-setup-guide" className="space-y-5">
-    <header className="space-y-2">
+    <header id="onboarding-email-setup" className="space-y-2">
       <h2 className="text-xl font-semibold tracking-tight">{t('setupTitle')}</h2>
       <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{t('setupDescription')}</p>
     </header>
-    <div className="grid gap-3 md:grid-cols-2">
+    <div id="onboarding-email-setup-choices" className="grid gap-3 md:grid-cols-2">
       <article className="flex flex-col gap-3 rounded-md border border-border bg-card p-4 sm:p-5">
         <div className="flex items-center gap-2"><Mail className="size-5 text-primary" /><h3 className="font-semibold">{t('personal')}</h3></div>
         <p className="text-sm leading-6 text-muted-foreground">{t('personalOwnership')}</p>

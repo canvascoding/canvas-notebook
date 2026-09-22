@@ -31,6 +31,15 @@ export const ONBOARDING_PAGES: Record<string, PageDefinition> = {
       { hintKey: 'notebook.chat', page: 'notebook', targetSelector: '#onboarding-notebook-chat' },
     ],
   },
+  emails: {
+    page: 'emails',
+    version: 1,
+    hints: [
+      { hintKey: 'emails.mailbox', page: 'emails', targetSelector: '#onboarding-email-mailbox, #onboarding-email-setup' },
+      { hintKey: 'emails.setup', page: 'emails', targetSelector: '#onboarding-email-settings, #onboarding-email-setup-choices' },
+      { hintKey: 'emails.review', page: 'emails', targetSelector: '#onboarding-email-review' },
+    ],
+  },
   settings: {
     page: 'settings',
     version: 1,

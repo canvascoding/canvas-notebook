@@ -62,7 +62,7 @@ export function EmailMailboxHeader({
   return (
     <>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-2">
+        <div id="onboarding-email-mailbox" className="flex min-w-0 items-center gap-2">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
             <Inbox className="h-5 w-5 text-primary" aria-hidden="true" />
           </div>
@@ -114,7 +114,7 @@ export function EmailMailboxHeader({
             <PenLine className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">{labels.compose}</span>
           </Button>
-          <Button type="button" size="sm" variant="outline" aria-label={labels.account} title={labels.account} onClick={onManageAccounts}>
+          <Button id="onboarding-email-settings" type="button" size="sm" variant="outline" aria-label={labels.account} title={labels.account} onClick={onManageAccounts}>
             <Settings className="h-4 w-4 sm:mr-2" />
             <span className="hidden sm:inline">{labels.account}</span>
           </Button>
