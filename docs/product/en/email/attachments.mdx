@@ -6,7 +6,7 @@ sectionOrder: 7
 order: 7
 locale: en
 translationKey: email.attachments
-updatedAt: 2026-07-17
+updatedAt: 2026-09-22
 ---
 
 # Working with Email Attachments
@@ -25,7 +25,11 @@ Use the Upload tab for material that is not in the workspace. Uploaded email fil
 
 A message can include up to 25 attachments with an estimated encoded transfer budget of 20 MB. Email encoding increases transfer size beyond the raw file size, so the interface reports usage against the effective limit.
 
-Images can also appear inline when the HTML body references their content ID. Canvas removes unreferenced inline items before sending. Common document, image, text, archive, spreadsheet, and PDF types receive appropriate MIME information; unknown types use a generic binary type.
+Personal compose supports inline images when the HTML body references their content ID. Shared workspace compose currently accepts images as normal file attachments, not embedded images; its editor explains this limit. Canvas removes unreferenced inline items before sending. Common document, image, text, archive, spreadsheet, and PDF types receive appropriate MIME information; unknown types use a generic binary type.
+
+## Shared outbox attachments
+
+Workspace files selected for a shared draft are read with the signed-in user’s source-workspace permissions and saved as attachment copies before the draft enters Outbox. Changing the source file later does not silently change the reviewed attachment. The source-file workspace can differ from the mailbox workspace.
 
 ## Review before sending
 

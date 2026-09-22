@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     const [mailboxes, workspaces] = await Promise.all([
       listAdminWorkspaceMailboxes(admin.organizationId),
-      listWorkspaceMailboxWorkspaceChoices(admin.organizationId),
+      listWorkspaceMailboxWorkspaceChoices(admin.organizationId, admin.session.user.id),
     ]);
     return NextResponse.json({ success: true, data: { mailboxes, workspaces } }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (error) {

@@ -1,3 +1,4 @@
+import { EmailMailboxAccessError, resolveEmailMailboxAccess } from '@/app/lib/email/mailbox-access';
 import { after, NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
@@ -20,13 +21,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { accountId, messageId } = await params;
     const folder = request.nextUrl.searchParams.get('folder') || undefined;
-    const data = await readEmailMessage(session.user.id, accountId, messageId, folder, {
-      enforceReadPolicy: false,
-      cacheMode: 'swr',
+    const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId, mailboxWorkspaceId: request.nextUrl.searchParams.get('mailboxWorkspaceId'), operation: 'read' });
+    const data = await readEmailMessage(access.accountOwnerId, access.accountId, messageId, folder, {
+      ...access.readOptions,
       scheduleBackgroundTask: after,
     });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof EmailMailboxAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     if (isImapMailboxChangedError(error)) {
       return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
     }

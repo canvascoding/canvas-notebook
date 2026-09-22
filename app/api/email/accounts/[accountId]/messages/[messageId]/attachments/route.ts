@@ -1,3 +1,4 @@
+import { EmailMailboxAccessError, resolveEmailMailboxAccess } from '@/app/lib/email/mailbox-access';
 import JSZip from 'jszip';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -47,12 +48,13 @@ export async function GET(
   try {
     const { accountId, messageId } = await params;
     const folder = request.nextUrl.searchParams.get('folder') || undefined;
+    const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId, mailboxWorkspaceId: request.nextUrl.searchParams.get('mailboxWorkspaceId'), operation: 'read' });
     const downloaded = await downloadEmailAttachmentBatch({
-      userId: session.user.id,
-      accountId,
+      userId: access.accountOwnerId,
+      accountId: access.accountId,
       messageId,
       folder,
-      readPolicy: { enforceReadPolicy: false },
+      readPolicy: access.readOptions,
     });
     const zip = new JSZip();
     for (const item of downloaded.attachments) {
@@ -74,6 +76,9 @@ export async function GET(
       },
     });
   } catch (error) {
+    if (error instanceof EmailMailboxAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     const status = errorStatus(error);
     if (status >= 500) console.error('[Email Attachments Archive] Error:', error);
     return NextResponse.json(errorPayload(error), { status });
@@ -119,13 +124,14 @@ export async function POST(
     const { accountId, messageId } = await params;
     const folder = typeof record.folder === 'string' && record.folder.trim() ? record.folder : undefined;
     const targetPath = record.targetPath;
+    const access = await resolveEmailMailboxAccess({ userId: workspaceResult.session.user.id, accountId, mailboxWorkspaceId: record.mailboxWorkspaceId, operation: 'read' });
     const downloaded = await downloadEmailAttachmentBatch({
-      userId: workspaceResult.session.user.id,
-      accountId,
+      userId: access.accountOwnerId,
+      accountId: access.accountId,
       messageId,
       folder,
       attachmentIds,
-      readPolicy: { enforceReadPolicy: false },
+      readPolicy: access.readOptions,
     });
     const savedAttachments = await saveDownloadedEmailAttachmentsToWorkspace({
       workspace: workspaceResult.workspace,
@@ -162,6 +168,9 @@ export async function POST(
       targetWorkspaceId: workspaceResult.workspace.workspaceId,
     });
   } catch (error) {
+    if (error instanceof EmailMailboxAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     const status = errorStatus(error);
     if (status >= 500) console.error('[Email Attachments Workspace Save] Error:', error);
     return NextResponse.json(errorPayload(error), { status });

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { ArrowRight, Bot, Check, FolderKanban, Loader2, Settings2, Workflow } from 'lucide-react';
+import { ArrowRight, Bot, Check, FolderKanban, Loader2, Mail, Settings2, Workflow } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -38,6 +38,7 @@ export function GettingStartedCard() {
 
   const items = [
     { href: '/notebook', icon: FolderKanban, title: t('tourNotebookTitle'), description: t('tourNotebookDescription') },
+    { href: '/emails', icon: Mail, title: t('tourEmailTitle'), description: t('tourEmailDescription') },
     { href: '/automations', icon: Workflow, title: t('tourAutomationTitle'), description: t('tourAutomationDescription') },
     { href: '/settings', icon: Settings2, title: t('tourSettingsTitle'), description: t('tourSettingsDescription') },
   ];
@@ -55,9 +56,9 @@ export function GettingStartedCard() {
           </div>
         </div>
       </div>
-      <div className="grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+      <div className="grid divide-y divide-border sm:grid-cols-2 sm:divide-y-0 xl:grid-cols-4">
         {items.map(({ href, icon: Icon, title, description }) => (
-          <Link key={href} href={href} className="group p-4 transition-colors hover:bg-background/70">
+          <Link key={href} href={href} data-testid={href === '/emails' ? 'getting-started-email' : undefined} className="group p-4 transition-colors hover:bg-background/70">
             <Icon className="mb-3 h-4 w-4 text-primary" />
             <p className="text-sm font-semibold">{title}</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>

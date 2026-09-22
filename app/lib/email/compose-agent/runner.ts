@@ -131,9 +131,9 @@ function parseFinalResult(text: string): EmailComposeAgentResult {
   };
 }
 
-async function originalMessageContext(userId: string, input: EmailComposeAgentInput): Promise<string | null> {
+async function originalMessageContext(userId: string, input: EmailComposeAgentInput, mailbox?: ComposeMailboxAccess): Promise<string | null> {
   if (!input.messageId) return null;
-  const result = await readEmailMessage(userId, input.accountId, input.messageId, input.folder, { enforceReadPolicy: false });
+  const result = await readEmailMessage(mailbox?.accountOwnerId ?? userId, input.accountId, input.messageId, input.folder, { enforceReadPolicy: mailbox?.enforceReadPolicy ?? false });
   const message = result.message && typeof result.message === 'object'
     ? result.message as Record<string, unknown>
     : null;
@@ -163,11 +163,14 @@ function previewToolResult(result: unknown): { preview: string; contextPath?: st
   };
 }
 
+type ComposeMailboxAccess = { accountOwnerId: string; enforceReadPolicy: boolean };
+
 export async function runEmailWorkspaceComposeAgent(
   userId: string,
   input: EmailComposeAgentInput,
   emit: EmailComposeAgentEventSink,
   requestSignal?: AbortSignal,
+  mailbox?: ComposeMailboxAccess,
 ): Promise<EmailComposeAgentResult> {
   assertEmailAiComposeInput(input);
   const instruction = input.instruction?.trim();
@@ -180,7 +183,7 @@ export async function runEmailWorkspaceComposeAgent(
   const runtime = await resolveScopedEmailAiRuntime({ userId, workspaceId: input.workspaceId });
   const brandContext = await getWorkspaceBrandPromptBlock(runtime.workspace.workspaceId);
 
-  const originalContext = await originalMessageContext(userId, input);
+  const originalContext = await originalMessageContext(userId, input, mailbox);
   if (requestSignal?.aborted) throw new Error('Email Workspace Agent request was aborted.');
   let agent: Agent | null = null;
   let terminationReason: 'request' | 'timeout' | null = null;

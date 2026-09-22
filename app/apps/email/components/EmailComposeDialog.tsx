@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { useCallback, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { FileText, Loader2, Mail, Plus, Sparkles, Wrench, X } from 'lucide-react';
 
@@ -264,6 +265,8 @@ function EmailRecipientChipInput({
 }
 
 export function EmailComposeDialog({
+  accountId,
+  mailboxWorkspaceId,
   agentEvents,
   agentStatus,
   allowRemoteResourcesByDefault,
@@ -272,6 +275,9 @@ export function EmailComposeDialog({
   error,
   isGeneratingAi,
   isSubmitting,
+  canGenerateAi = true,
+  submitDisabled = false,
+  onOpenOutbox,
   senderAddress,
   labels,
   locale,
@@ -289,7 +295,12 @@ export function EmailComposeDialog({
   error: string | null;
   isGeneratingAi: boolean;
   isSubmitting: boolean;
+  canGenerateAi?: boolean;
+  submitDisabled?: boolean;
+  onOpenOutbox?(): void;
   senderAddress: string;
+  accountId?: string;
+  mailboxWorkspaceId?: string | null;
   labels: EmailComposeDialogLabels;
   locale: string;
   onAllowRemoteResourcesForSender(sender: string): void;
@@ -298,6 +309,7 @@ export function EmailComposeDialog({
   onSubmit(): void;
   onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
 }) {
+  const tm = useTranslations('emailMailboxes');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
@@ -539,7 +551,7 @@ export function EmailComposeDialog({
                           </div>
                         ) : null}
                       </div>
-                      <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onGenerateAi} disabled={isSubmitting || isGeneratingAi || !draft.aiPrompt.trim()}>
+                      <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={onGenerateAi} disabled={!canGenerateAi || isSubmitting || isGeneratingAi || !draft.aiPrompt.trim()}>
                         {isGeneratingAi ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
                         {isGeneratingAi ? labels.composeGeneratingWithAi : labels.composeGenerateWithAi}
                       </Button>
@@ -578,6 +590,7 @@ export function EmailComposeDialog({
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-body">{labels.composeBodyLabel}</label>
                     <EmailHtmlEditor
+                      allowInlineImages={!mailboxWorkspaceId}
                       attachments={draft.attachments}
                       id="email-compose-body"
                       value={draft.bodyHtml}
@@ -587,6 +600,7 @@ export function EmailComposeDialog({
                       disabled={isSubmitting || isGeneratingAi}
                     />
                   </div>
+                  {mailboxWorkspaceId && <p data-testid="email-shared-inline-image-help" className="text-xs leading-5 text-muted-foreground">{tm('sharedInlineImages')}</p>}
                   <EmailAttachmentPanel attachments={displayedAttachments} disabled={isSubmitting || isGeneratingAi} labels={labels} onChange={updateDisplayedAttachments} />
                   {error ? <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"><p className="break-words">{error}</p></div> : null}
                 </section>
@@ -605,6 +619,8 @@ export function EmailComposeDialog({
                     </div>
                     <div className="max-h-[42dvh] overflow-y-auto px-3 py-3 sm:px-4 lg:max-h-[calc(100dvh-20rem)]">
                       <EmailMessageBody
+                      accountId={accountId}
+                      mailboxWorkspaceId={mailboxWorkspaceId}
                         allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
                         allowedRemoteResourceSenders={allowedRemoteResourceSenders}
                         message={draft.message}
@@ -619,8 +635,9 @@ export function EmailComposeDialog({
               </div>
             </div>
             <DialogFooter className="shrink-0 border-t border-border px-4 py-3 sm:px-6">
+              {onOpenOutbox && <Button type="button" variant="outline" onClick={onOpenOutbox}>{tm('openOutbox')}</Button>}
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting || isGeneratingAi}>{labels.cancel}</Button>
-              <Button type="button" onClick={onSubmit} disabled={isSubmitting || isGeneratingAi}>
+              <Button type="button" onClick={onSubmit} disabled={submitDisabled || isSubmitting || isGeneratingAi}>
                 {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
                 {isSubmitting ? labels.composeSending : labels.composeSend}
               </Button>

@@ -63,6 +63,8 @@ export function EmailMailboxNavigation({
   onFolderSidebarOpenChange,
   onListWidthChange,
   onMessageAction,
+  canWrite = true,
+  canDelete = true,
   onOpenMessage,
   onPageChange,
   onSelectFolder,
@@ -91,6 +93,8 @@ export function EmailMailboxNavigation({
   onContextMenu(message: EmailMessageSummary, position: EmailMessageContextMenuPosition): void;
   onFolderSidebarOpenChange(open: boolean): void;
   onListWidthChange(width: number): void;
+  canWrite?: boolean;
+  canDelete?: boolean;
   onMessageAction(message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string): void;
   onOpenMessage(message: EmailMessageSummary, openInDialog: boolean): void;
   onPageChange(direction: 'next' | 'previous'): void;
@@ -246,6 +250,8 @@ export function EmailMailboxNavigation({
               </button>
               <div className="flex shrink-0 items-start px-2 py-2">
                 <EmailMessageRowActions
+                  canWrite={canWrite}
+                  canDelete={canDelete}
                   activeAction={activeMessageListAction}
                   contextMenuPosition={messageContextMenu?.messageId === message.id ? messageContextMenu : null}
                   folders={folders}

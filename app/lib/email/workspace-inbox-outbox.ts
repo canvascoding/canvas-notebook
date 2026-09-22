@@ -115,7 +115,7 @@ export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: str
   const rows = await db.select({ draft: emailDrafts, senderAddress: emailAccounts.emailAddress })
     .from(emailDrafts)
     .innerJoin(emailAccounts, eq(emailAccounts.id, emailDrafts.accountId))
-    .where(and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])))
+    .where(and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent', 'human'])))
     .orderBy(desc(emailDrafts.updatedAt));
   return rows.map(({ draft, senderAddress }) => publicOutboxDraft(draft, senderAddress));
 }
@@ -136,7 +136,7 @@ export async function findWorkspaceOutboxDraft(userId: string, workspaceId: stri
     .where(and(
       eq(emailDrafts.id, draftId),
       eq(emailDrafts.workspaceId, workspaceId),
-      inArray(emailDrafts.origin, ['automation', 'agent']),
+      inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
     ))
     .limit(1);
   return row ? publicOutboxDraft(row.draft, row.senderAddress) : null;
@@ -195,7 +195,7 @@ export async function getWorkspaceEmailAttentionSummary(workspaceId: string) {
     db.query.emailDrafts.findMany({
       where: and(
         eq(emailDrafts.workspaceId, workspaceId),
-        inArray(emailDrafts.origin, ['automation', 'agent']),
+        inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
         inArray(emailDrafts.outboxStatus, ['prepared', 'awaiting_review', 'editing', 'send_failed', 'send_uncertain']),
       ),
       orderBy: [desc(emailDrafts.updatedAt)],
@@ -287,7 +287,7 @@ export async function createWorkspaceOutboxDraft(input: {
   bodyHtml?: string;
   attachments?: EmailAttachmentInput[];
   originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null; assignedUserId?: string | null;
-  origin?: 'automation' | 'agent';
+  origin?: 'automation' | 'agent' | 'human';
   initialStatus?: Extract<OutboxStatus, 'prepared' | 'awaiting_review'>;
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
@@ -341,7 +341,7 @@ export async function createWorkspaceOutboxDraft(input: {
     summary: 'Workspace outbox draft prepared for human review.',
     metadata: { mailboxId: input.mailboxId, inboxCaseId: input.inboxCaseId || null, origin: input.origin || 'agent' },
   });
-  void import('@/app/lib/mobile/push-devices')
+  if (input.origin !== 'human') void import('@/app/lib/mobile/push-devices')
     .then(({ sendWorkspaceOutboxReviewPush }) => sendWorkspaceOutboxReviewPush({
       userId: input.assignedUserId || input.userId,
       workspaceId: input.workspaceId,
@@ -398,7 +398,7 @@ export async function updateWorkspaceOutboxDraft(input: {
   actor?: 'human' | 'agent';
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
-  const current = await db.query.emailDrafts.findFirst({ where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])) });
+  const current = await db.query.emailDrafts.findFirst({ where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['automation', 'agent', 'human'])) });
   if (!current) throw new Error('Workspace outbox draft not found.');
   if (current.version !== input.expectedVersion) throw new Error('This outbox draft has changed. Reload it before saving.');
   if (['sent', 'discarded', 'sending', 'send_uncertain'].includes(current.outboxStatus || '')) throw new Error('This outbox draft can no longer be edited.');
@@ -591,7 +591,7 @@ export async function sendWorkspaceOutboxDraft(input: {
 }, dependencies: WorkspaceOutboxSendDependencies = {}) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const current = await db.query.emailDrafts.findFirst({
-    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])),
+    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['automation', 'agent', 'human'])),
   });
   if (!current) throw new Error('Workspace outbox draft not found.');
   assertReviewableDraft(current, input.expectedVersion);
@@ -647,7 +647,7 @@ export async function rejectPersonalOutboxDraft(input: { userId: string; draftId
 export async function rejectWorkspaceOutboxDraft(input: { userId: string; workspaceId: string; draftId: string; expectedVersion: number }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const current = await db.query.emailDrafts.findFirst({
-    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['agent', 'automation'])),
+    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['agent', 'automation', 'human'])),
   });
   if (!current) throw new Error('Workspace outbox draft not found.');
   return discardOutboxDraft(current, input.userId, input.expectedVersion);

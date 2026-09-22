@@ -1673,6 +1673,16 @@ export class LivePiRuntime {
     if (this.emailContext.accountId) {
       pushRuntimeContextLine(lines, 'Active account ID', this.emailContext.accountId);
     }
+    if (this.emailContext.accountScope) {
+      pushRuntimeContextLine(lines, 'Mailbox scope', this.emailContext.accountScope);
+    }
+    if (this.emailContext.mailboxWorkspaceId) {
+      pushRuntimeContextLine(lines, 'Mailbox workspace ID', this.emailContext.mailboxWorkspaceId);
+      pushRuntimeContextLine(lines, 'Mailbox workspace name', this.emailContext.workspaceName);
+      lines.push('This mailbox workspace can differ from the chat/file workspace. Call email_list_mailboxes with this exact mailboxWorkspaceId, select the returned mailbox matching Active account ID, and include the same mailboxWorkspaceId in every email tool call. Never substitute a personal account or the chat workspace if that mailbox is unavailable.');
+    } else if (this.emailContext.accountScope === 'personal') {
+      lines.push('This is a personal mailbox. Use account:<Active account ID> as mailboxId and omit mailboxWorkspaceId. Never substitute a shared mailbox from the chat workspace. If unavailable, explain the problem and ask the user to select or reconnect the mailbox.');
+    }
     if (this.emailContext.folderName || this.emailContext.folder) {
       pushRuntimeContextLine(lines, 'Active folder', this.emailContext.folderName || this.emailContext.folder);
     }

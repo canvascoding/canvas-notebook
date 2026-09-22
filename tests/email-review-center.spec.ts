@@ -22,6 +22,7 @@ function draft(id: string, subject: string, overrides: Partial<Draft> = {}): Dra
 }
 
 async function installOutboxFixture(context: BrowserContext, initial: Draft[]) {
+  await context.route('**/api/user-hints**', route => route.fulfill({ json: { page: 'emails', version: 1, completed: true, currentHintKey: null, hints: [] } }));
   context.setDefaultTimeout(15_000);
   await context.route('https://api.github.com/repos/canvascoding/canvas-notebook/releases/latest', route => route.fulfill({ json: { tag_name: '0.0.0', html_url: 'https://github.com/canvascoding/canvas-notebook/releases', body: '' } }));
   const drafts = new Map(initial.map((item) => [item.id, { ...item }]));
@@ -31,6 +32,7 @@ async function installOutboxFixture(context: BrowserContext, initial: Draft[]) {
   await context.route('**/api/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
+    if (url.pathname.startsWith('/api/user-hints')) return route.fulfill({ json: { page: 'emails', version: 1, completed: true, currentHintKey: null, hints: [] } });
     if (url.pathname === '/api/notifications/summary') {
       const items = [...drafts.values()].filter((item) => !['sent', 'discarded'].includes(item.status)).map((item) => ({
         id: `email-fixture-${item.id}`, type: 'email.attention', title: item.subject,
@@ -43,7 +45,7 @@ async function installOutboxFixture(context: BrowserContext, initial: Draft[]) {
         items, sections: { notifications: [], todos: [], todoUnread: [], todoAttention: [], emailAttention: items },
       } } });
     }
-    if (url.pathname === '/api/email/accounts') return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [] } } });
+    if ((url.pathname === '/api/email/accounts' || url.pathname === '/api/email/mailboxes')) return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [] } } });
     const match = url.pathname.match(/^\/api\/(?:workspaces\/[^/]+\/email|email)\/outbox(?:\/([^/]+))?(?:\/(send|reject))?$/u);
     if (!match) {
       if (url.pathname.includes('/email/') && !['GET', 'HEAD'].includes(request.method())) {

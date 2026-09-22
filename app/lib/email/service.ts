@@ -98,6 +98,8 @@ type EmailMessageListInput = EmailSearchInput & {
 };
 
 type EmailReadPolicyOptions = {
+  /** Authenticated actor for AI/files; provider ownership may differ for shared mailboxes. */
+  actorUserId?: string;
   enforceReadPolicy?: boolean;
   workspaceId?: string | null;
   cacheMode?: EmailCacheMode;

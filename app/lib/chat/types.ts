@@ -89,6 +89,9 @@ export interface ChatRequestContext {
     activeImagePath?: string | null;
   };
   emailContext?: {
+    accountScope?: 'personal' | 'workspace';
+    mailboxWorkspaceId?: string | null;
+    workspaceName?: string | null;
     accountEmail?: string;
     accountId?: string;
     filter?: 'all' | 'unread';

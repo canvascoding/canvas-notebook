@@ -1,7 +1,7 @@
 import 'server-only';
 
 import crypto from 'crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, ne, or } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { emailAccounts, workspaceEmailMailboxes } from '@/app/lib/db/schema';
@@ -32,6 +32,7 @@ export type PublicEmailAccount = {
   displayName: string | null;
   isPrimary: boolean;
   status: string;
+  connectionState?: 'ready' | 'send_only' | 'reconnect_required';
   workspaceId: string | null;
   scope: string | null;
   expiresAt: string | null;
@@ -96,6 +97,9 @@ export function publicStoredEmailAccount(
     displayName: account.displayName || null,
     isPrimary: Boolean(account.isPrimary),
     status: account.status,
+    connectionState: secret === undefined ? undefined : account.status !== 'active' || !secret
+      ? 'reconnect_required'
+      : secret.authType === 'smtp_imap' && !secret.imap ? 'send_only' : 'ready',
     workspaceId: mailbox?.workspaceId || null,
     scope: secret?.authType === 'oauth' ? secret.scope || null : null,
     expiresAt: secret?.authType === 'oauth' ? secret.expiresAt || null : null,
@@ -143,6 +147,7 @@ export async function requireActiveWorkspaceMailboxForAutomation(input: {
 }
 
 export async function listEmailAccountRecordsForUser(userId: string): Promise<StoredEmailAccount[]> {
+  await ensurePrimaryEmailAccount(userId);
   return db.query.emailAccounts.findMany({
     // The personal integrations UI must never expose a centrally configured
     // workspace mailbox merely because an administrator created its record.
@@ -168,13 +173,28 @@ export async function listPublicEmailAccountsForUser(userId: string): Promise<Pu
   return publicAccounts;
 }
 
+/** Explicit management view only; inactive accounts must never become transport defaults. */
+export async function listInactivePersonalEmailAccounts(userId: string): Promise<PublicEmailAccount[]> {
+  const accounts = await db.query.emailAccounts.findMany({
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.accountScope, 'personal')),
+  });
+  return Promise.all(accounts.filter(account => ['expired', 'revoked', 'disconnected'].includes(account.status)).map(async account => {
+    const [secret, mailbox] = await Promise.all([
+      readEmailAccountSecret(account.secretRef).catch(() => null),
+      getActiveWorkspaceMailboxForEmailAccount(account.id),
+    ]);
+    return publicStoredEmailAccount(account, secret, mailbox);
+  }));
+}
+
 export async function getEmailAccountForUser(userId: string, accountId?: string): Promise<StoredEmailAccount> {
+  if (!accountId) await ensurePrimaryEmailAccount(userId);
   const account = accountId
     ? await db.query.emailAccounts.findFirst({
         where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId), eq(emailAccounts.status, 'active')),
       })
     : await db.query.emailAccounts.findFirst({
-        where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active')),
+        where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active'), eq(emailAccounts.accountScope, 'personal')),
         orderBy: (table, { desc }) => [desc(table.isPrimary), desc(table.updatedAt)],
       });
 
@@ -182,9 +202,34 @@ export async function getEmailAccountForUser(userId: string, accountId?: string)
   return account;
 }
 
+/** Personal settings only; explicit transport lookups remain owner-aware. */
+export async function getPersonalEmailAccountForUser(userId: string, accountId: string): Promise<StoredEmailAccount> {
+  const account = await db.query.emailAccounts.findFirst({
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId), eq(emailAccounts.accountScope, 'personal')),
+  });
+  if (!account) throw new Error('Personal email account not found. Manage shared mailboxes in Business email settings.');
+  return account;
+}
+
+async function personalAccountForUpsert(userId: string, provider: StoredEmailProvider, emailAddress: string, accountId?: string) {
+  const byId = accountId ? await db.query.emailAccounts.findFirst({ where: eq(emailAccounts.id, accountId) }) : null;
+  if (byId && (byId.userId !== userId || byId.provider !== provider || byId.accountScope !== 'personal')) {
+    throw new Error('This email account cannot be changed through personal email settings.');
+  }
+  const byAddress = await db.query.emailAccounts.findFirst({
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.provider, provider), eq(emailAccounts.emailAddress, emailAddress)),
+  });
+  if (byAddress && byAddress.accountScope !== 'personal') {
+    throw new Error('This address belongs to a shared Business mailbox. Manage it in Business email settings.');
+  }
+  if (byId && provider !== 'smtp_imap' && byId.emailAddress !== emailAddress) throw new Error('Reconnect the same email address for this OAuth account.');
+  if (byId && byAddress && byId.id !== byAddress.id) throw new Error('An email account with this address already exists.');
+  return byId || byAddress;
+}
+
 async function hasActivePrimaryEmailAccount(userId: string): Promise<boolean> {
   const primaryAccount = await db.query.emailAccounts.findFirst({
-    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active'), eq(emailAccounts.isPrimary, true)),
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active'), eq(emailAccounts.accountScope, 'personal'), eq(emailAccounts.isPrimary, true)),
     columns: { id: true },
   });
   return Boolean(primaryAccount);
@@ -202,9 +247,12 @@ async function clearPrimaryEmailAccounts(userId: string): Promise<void> {
 }
 
 async function ensurePrimaryEmailAccount(userId: string): Promise<void> {
+  // Repair historical Business defaults without ever promoting one again.
+  await db.update(emailAccounts).set({ isPrimary: false })
+    .where(and(eq(emailAccounts.userId, userId), or(ne(emailAccounts.accountScope, 'personal'), ne(emailAccounts.status, 'active')), eq(emailAccounts.isPrimary, true)));
   if (await hasActivePrimaryEmailAccount(userId)) return;
   const fallback = await db.query.emailAccounts.findFirst({
-    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active')),
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active'), eq(emailAccounts.accountScope, 'personal')),
     orderBy: (table, { desc }) => [desc(table.updatedAt)],
   });
   if (!fallback) return;
@@ -214,7 +262,8 @@ async function ensurePrimaryEmailAccount(userId: string): Promise<void> {
 }
 
 export async function setPrimaryStoredEmailAccount(userId: string, accountId: string): Promise<PublicEmailAccount> {
-  await getEmailAccountForUser(userId, accountId);
+  const account = await getPersonalEmailAccountForUser(userId, accountId);
+  if (account.status !== 'active') throw new Error('Reconnect the email account before making it primary.');
   await clearPrimaryEmailAccounts(userId);
   await db.update(emailAccounts)
     .set({ isPrimary: true, updatedAt: new Date() })
@@ -331,7 +380,7 @@ export async function updateStoredEmailPolicy(
   accountId: string,
   policy: Partial<EmailPolicy>,
 ): Promise<PublicEmailAccount> {
-  const account = await getEmailAccountForUser(userId, accountId);
+  const account = await getPersonalEmailAccountForUser(userId, accountId);
   const currentPolicy = parsePolicyJson(account.policyJson, { defaultAddresses: [account.emailAddress] });
   const nextPolicy = normalizePolicy({
     readFrom: policy.readFrom === undefined ? currentPolicy.readFrom : policy.readFrom,
@@ -342,7 +391,7 @@ export async function updateStoredEmailPolicy(
     .set({ policyJson: JSON.stringify(nextPolicy), updatedAt: new Date() })
     .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId)));
 
-  const updated = await getEmailAccountForUser(userId, accountId);
+  const updated = await getPersonalEmailAccountForUser(userId, accountId);
   const [secret, mailbox] = await Promise.all([
     readEmailAccountSecret(updated.secretRef).catch(() => null),
     getActiveWorkspaceMailboxForEmailAccount(updated.id),
@@ -351,10 +400,10 @@ export async function updateStoredEmailPolicy(
 }
 
 export async function disconnectStoredEmailAccount(userId: string, accountId: string): Promise<boolean> {
-  const account = await getEmailAccountForUser(userId, accountId);
+  const account = await getPersonalEmailAccountForUser(userId, accountId);
   await db.delete(emailAccounts).where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId)));
   await deleteEmailAccountSecret(account.secretRef);
-  if (account.isPrimary) await ensurePrimaryEmailAccount(userId);
+  await ensurePrimaryEmailAccount(userId);
   return true;
 }
 
@@ -370,13 +419,7 @@ export async function upsertOAuthEmailAccount(params: {
   createdAt?: Date;
 }): Promise<StoredEmailAccount> {
   const emailAddress = normalizeEmailAddress(params.emailAddress);
-  const existing = await db.query.emailAccounts.findFirst({
-    where: and(
-      eq(emailAccounts.userId, params.userId),
-      eq(emailAccounts.provider, params.provider),
-      eq(emailAccounts.emailAddress, emailAddress),
-    ),
-  });
+  const existing = await personalAccountForUpsert(params.userId, params.provider, emailAddress, params.accountId);
   const now = new Date();
   const id = existing?.id || params.accountId || accountIdFor(params.userId, params.provider, emailAddress);
   const secretRef = existing?.secretRef || emailAccountSecretRef(params.userId, id);
@@ -458,30 +501,7 @@ export async function upsertSmtpEmailAccount(params: {
   createdAt?: Date;
 }): Promise<StoredEmailAccount> {
   const emailAddress = normalizeEmailAddress(params.emailAddress);
-  const existingById = params.accountId
-    ? await db.query.emailAccounts.findFirst({
-        where: and(eq(emailAccounts.userId, params.userId), eq(emailAccounts.id, params.accountId), eq(emailAccounts.provider, 'smtp_imap')),
-      })
-    : null;
-  const existing = existingById || await db.query.emailAccounts.findFirst({
-    where: and(
-      eq(emailAccounts.userId, params.userId),
-      eq(emailAccounts.provider, 'smtp_imap'),
-      eq(emailAccounts.emailAddress, emailAddress),
-    ),
-  });
-  if (existingById && existingById.emailAddress !== emailAddress) {
-    const emailCollision = await db.query.emailAccounts.findFirst({
-      where: and(
-        eq(emailAccounts.userId, params.userId),
-        eq(emailAccounts.provider, 'smtp_imap'),
-        eq(emailAccounts.emailAddress, emailAddress),
-      ),
-    });
-    if (emailCollision && emailCollision.id !== existingById.id) {
-      throw new Error('An SMTP/IMAP account with this email address already exists.');
-    }
-  }
+  const existing = await personalAccountForUpsert(params.userId, 'smtp_imap', emailAddress, params.accountId);
   const now = new Date();
   const id = existing?.id || params.accountId || accountIdFor(params.userId, 'smtp_imap', emailAddress);
   const secretRef = existing?.secretRef || emailAccountSecretRef(params.userId, id);
