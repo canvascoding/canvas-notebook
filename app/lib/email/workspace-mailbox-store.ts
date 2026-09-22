@@ -283,8 +283,7 @@ export async function saveAdminWorkspaceMailbox(
   const organizationId = options.organizationId === undefined
     ? (await readOrganizationPermissionForUser(actorUserId)).organizationId
     : options.organizationId;
-  const workspaceId = optionalWorkspaceId(input.workspaceId);
-  if (workspaceId) await requireWorkspace(workspaceId, organizationId);
+  const requestedWorkspaceId = optionalWorkspaceId(input.workspaceId);
   const accountIdentifier = typeof input.accountId === 'string' && input.accountId.trim()
     ? input.accountId.trim()
     : typeof input.mailboxId === 'string' && input.mailboxId.trim()
@@ -295,7 +294,7 @@ export async function saveAdminWorkspaceMailbox(
     : undefined;
 
   const existingSecret = existingAccount
-    ? await readEmailAccountSecret(existingAccount.secretRef)
+    ? await readEmailAccountSecret(existingAccount.secretRef).catch(() => null)
     : null;
   if (existingSecret && existingSecret.authType !== 'smtp_imap') {
     throw new Error('This workspace mailbox is not an SMTP/IMAP mailbox.');
@@ -327,6 +326,13 @@ export async function saveAdminWorkspaceMailbox(
   if (accountToSave && accountToSave.organizationId !== organizationId) {
     throw new Error('This System Email mailbox belongs to a different organization.');
   }
+  const currentAssignment = accountToSave ? await getActiveMailboxForAccount(accountToSave.id) : null;
+  // Missing field preserves the binding; explicit null removes it.
+  const workspaceId = input.workspaceId === undefined ? currentAssignment?.workspaceId || null : requestedWorkspaceId;
+  for (const protectedWorkspaceId of new Set([currentAssignment?.workspaceId, workspaceId].filter((id): id is string => Boolean(id)))) {
+    await requireWorkspace(protectedWorkspaceId, organizationId);
+    await resolveAgentSessionWorkspaceForUser({ userId: actorUserId, workspaceId: protectedWorkspaceId, permissions: ['canManageWorkspace'] });
+  }
   if (options.verify) {
     await verifySmtpAccountSecret(normalized.secret);
     await verifyImapSecret(normalized.secret);
@@ -340,7 +346,7 @@ export async function saveAdminWorkspaceMailbox(
     await db.update(emailAccounts).set({
       provider: 'smtp_imap', authType: 'smtp_imap', emailAddress: normalized.emailAddress,
       displayName: normalized.displayName, providerAccountId: normalized.emailAddress,
-      status: 'active', policyJson: policyJson(normalized.policy, normalized.emailAddress),
+      status: 'active', policyJson: normalized.policy === undefined ? accountToSave.policyJson : policyJson(normalized.policy, normalized.emailAddress),
       secretRef, isPrimary: false, accountScope: WORKSPACE_ACCOUNT_SCOPE,
       organizationId, connectedByUserId: actorUserId, automationEnabledAt: workspaceId ? now : null,
       workspaceId: null, updatedAt: now,
@@ -365,8 +371,13 @@ export async function saveAdminWorkspaceMailbox(
       accountId,
       workspaceId,
       actorUserId,
+      currentMailboxId: currentAssignment?.id,
     });
     return resolvePublicMailbox(activeMailboxId, organizationId);
+  }
+  if (currentAssignment) {
+    await db.update(workspaceEmailMailboxes).set({ status: 'archived', pausedAt: now, lastEditedByUserId: actorUserId, updatedAt: now })
+      .where(eq(workspaceEmailMailboxes.id, currentAssignment.id));
   }
   return resolvePublicMailbox(accountId, organizationId);
 }
@@ -454,7 +465,7 @@ export async function listAdminWorkspaceMailboxes(organizationId?: string | null
   return (await listWorkspaceMailboxRows(organizationId)).map(publicMailbox);
 }
 
-export async function listWorkspaceMailboxWorkspaceChoices(organizationId?: string | null) {
+export async function listWorkspaceMailboxWorkspaceChoices(organizationId?: string | null, actorUserId?: string) {
   const workspaces = await db.query.canvasWorkspaces.findMany({
     where: and(
       eq(canvasWorkspaces.status, 'active'),
@@ -467,7 +478,14 @@ export async function listWorkspaceMailboxWorkspaceChoices(organizationId?: stri
     columns: { id: true, displayName: true, type: true },
     orderBy: [asc(canvasWorkspaces.displayName)],
   });
-  return workspaces.map((workspace) => ({ id: workspace.id, name: workspace.displayName, type: workspace.type }));
+  const choices = [];
+  for (const workspace of workspaces) {
+    if (actorUserId) {
+      try { await resolveAgentSessionWorkspaceForUser({ userId: actorUserId, workspaceId: workspace.id, permissions: ['canManageWorkspace'] }); } catch { continue; }
+    }
+    choices.push({ id: workspace.id, name: workspace.displayName, type: workspace.type });
+  }
+  return choices;
 }
 
 export async function testAdminWorkspaceMailbox(mailboxId: string, organizationId?: string | null) {

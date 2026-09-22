@@ -3,14 +3,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2,
-  MailWarning,
-  Settings,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { authClient } from '@/app/lib/auth-client';
 import { parseEmailSearchQuery } from '@/app/lib/email/search-query';
 import { EmailComposeDialog } from '@/app/apps/email/components/EmailComposeDialog';
+import { EmailSetupGuide, type EmailMailboxSetup } from '@/app/apps/email/components/EmailSetupGuide';
 import { EmailMailboxHeader } from '@/app/apps/email/components/EmailMailboxHeader';
 import { EmailMailboxNavigation } from '@/app/apps/email/components/EmailMailboxNavigation';
 import { EmailMessageViewer } from '@/app/apps/email/components/EmailMessageReader';
@@ -73,6 +72,8 @@ export function EmailClient({
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const { containerRef, listWidth, availableWidth, mode: layoutMode, setListWidth } = useEmailWorkspaceLayout();
   const [accountsOpen, setAccountsOpen] = useState(false);
+  const [personalSetupOpen, setPersonalSetupOpen] = useState(false);
+  const [mailboxSetup, setMailboxSetup] = useState<EmailMailboxSetup>({ canManageBusiness: false, manageableWorkspaces: [] });
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [accountsUser, setAccountsUser] = useState<string | null>(null);
   const accountsUserRef = useRef<string | null>(null);
@@ -343,6 +344,7 @@ export function EmailClient({
       setAccountsUser(selectionStorageKey);
       const nextAccounts = (payload.data?.accounts || []) as EmailAccount[];
       setAccounts(nextAccounts);
+      setMailboxSetup({ canManageBusiness: payload.data?.setup?.canManageBusiness === true, manageableWorkspaces: Array.isArray(payload.data?.setup?.manageableWorkspaces) ? payload.data.setup.manageableWorkspaces : [] });
       setActiveAccountId((current) => {
         const key = (account: EmailAccount) => account.workspaceId ? `${account.id}:${account.workspaceId}` : account.id;
         let saved = userChanged ? '' : current;
@@ -1288,6 +1290,8 @@ export function EmailClient({
     return (
       <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
         {reviewCenter}
+        {!personalSetupOpen ? <EmailSetupGuide setup={mailboxSetup} onPersonalSetup={() => setPersonalSetupOpen(true)} /> : <>
+        <Button className="self-start" variant="ghost" onClick={() => setPersonalSetupOpen(false)}>{tm('backToSetup')}</Button>
         <EmailAccountsCard
           isOpen={true}
           onOpenChange={() => undefined}
@@ -1298,6 +1302,7 @@ export function EmailClient({
             setEmailRemoteImageAllowedSenders(preferences.emailRemoteImageAllowedSenders || []);
           }}
         />
+        </>}
       </div>
     );
   }
@@ -1367,17 +1372,7 @@ export function EmailClient({
 
       {!canReadActiveAccount ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <section data-testid={activeAccount?.connectionState === 'reconnect_required' ? 'email-mailbox-repair' : 'email-mailbox-send-only'} className="flex min-h-80 items-center justify-center border border-border bg-card p-6 text-center">
-            <div className="max-w-md space-y-3">
-              <MailWarning className="mx-auto h-9 w-9 text-muted-foreground" />
-              <h3 className="text-base font-semibold">{tm(!activeAccount ? 'selectMailbox' : activeAccount.connectionState === 'reconnect_required' ? 'reconnectTitle' : 'sendOnlyTitle')}</h3>
-              <p className="text-sm leading-6 text-muted-foreground">{tm(!activeAccount ? 'selectionRemoved' : activeAccount.connectionState === 'reconnect_required' ? 'reconnectDescription' : 'sendOnlyDescription')}</p>
-              <Button type="button" onClick={() => setAccountsOpen(true)}>
-                <Settings className="mr-2 h-4 w-4" />
-                {t('manageAccounts')}
-              </Button>
-            </div>
-          </section>
+          {activeAccount ? <div className="p-3 sm:p-5"><EmailSetupGuide setup={mailboxSetup} account={activeAccount} denied={deniedMailboxKey === mailboxScopeKey} onPersonalSetup={() => setAccountsOpen(true)} onCompose={openNewComposeDraft} /></div> : <section className="space-y-3 p-6 text-center"><h3 className="font-semibold">{tm('selectMailbox')}</h3><p className="text-sm text-muted-foreground">{tm('selectionRemoved')}</p></section>}
         </div>
       ) : (
         <div
@@ -1540,7 +1535,7 @@ export function EmailClient({
               <DialogDescription className="text-xs leading-5 sm:text-sm">{t('manageAccountsDescription')}</DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5">
-              <EmailAccountsCard
+              {activeAccount?.workspaceId ? <EmailSetupGuide setup={mailboxSetup} account={activeAccount} denied={deniedMailboxKey === mailboxScopeKey} onPersonalSetup={() => undefined} /> : <EmailAccountsCard
                 isOpen={true}
                 onOpenChange={() => undefined}
                 onAccountsChanged={() => { setDeniedMailboxKey(null); void loadAccounts(); }}
@@ -1549,7 +1544,7 @@ export function EmailClient({
                   setEmailAllowRemoteImages(preferences.emailAllowRemoteImages);
                   setEmailRemoteImageAllowedSenders(preferences.emailRemoteImageAllowedSenders || []);
                 }}
-              />
+              />}
             </div>
           </DialogContent>
         </Dialog>

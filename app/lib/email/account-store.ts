@@ -169,6 +169,20 @@ export async function listPublicEmailAccountsForUser(userId: string): Promise<Pu
   return publicAccounts;
 }
 
+/** Explicit management view only; inactive accounts must never become transport defaults. */
+export async function listInactivePersonalEmailAccounts(userId: string): Promise<PublicEmailAccount[]> {
+  const accounts = await db.query.emailAccounts.findMany({
+    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.accountScope, 'personal')),
+  });
+  return Promise.all(accounts.filter(account => ['expired', 'revoked', 'disconnected'].includes(account.status)).map(async account => {
+    const [secret, mailbox] = await Promise.all([
+      readEmailAccountSecret(account.secretRef).catch(() => null),
+      getActiveWorkspaceMailboxForEmailAccount(account.id),
+    ]);
+    return publicStoredEmailAccount(account, secret, mailbox);
+  }));
+}
+
 export async function getEmailAccountForUser(userId: string, accountId?: string): Promise<StoredEmailAccount> {
   if (!accountId) await ensurePrimaryEmailAccount(userId);
   const account = accountId

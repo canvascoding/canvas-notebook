@@ -12,14 +12,14 @@ function mailbox(id: string, shared = false, writable = true) {
 }
 type Mailbox = ReturnType<typeof mailbox>;
 async function installFixture(context: BrowserContext, initialAccounts: Mailbox[]) {
-  const state = { accounts: initialAccounts, failLoad: false, requests: [] as Array<{ path: string; workspace: unknown; body: Record<string, unknown> }>, writes: [] as string[] };
+  const state = { accounts: initialAccounts, failLoad: false, setup: { canManageBusiness: false, manageableWorkspaces: [] as Array<{ id: string; name: string }> }, requests: [] as Array<{ path: string; workspace: unknown; body: Record<string, unknown> }>, writes: [] as string[] };
   await context.route('https://api.github.com/repos/canvascoding/canvas-notebook/releases/latest', route => route.fulfill({ json: { tag_name: '0.0.0', body: '', html_url: 'https://github.com/canvascoding/canvas-notebook/releases' } }));
   await context.route('**/api/**', async route => {
     const req = route.request(); const url = new URL(req.url()); const path = url.pathname;
     if (!path.includes('/email/') && path !== '/api/email/mailboxes') return route.continue();
     const body = req.method() === 'POST' || req.method() === 'PATCH' ? (req.postDataJSON() || {}) as Record<string, unknown> : {};
     state.requests.push({ path, workspace: body.mailboxWorkspaceId ?? url.searchParams.get('mailboxWorkspaceId'), body });
-    if (path === '/api/email/mailboxes') return route.fulfill({ status: state.failLoad ? 503 : 200, json: state.failLoad ? { success: false, error: 'Fixture mailbox connection unavailable' } : { success: true, data: { accounts: state.accounts, setup: { canManageBusiness: false, manageableWorkspaces: [] } } } });
+    if (path === '/api/email/mailboxes') return route.fulfill({ status: state.failLoad ? 503 : 200, json: state.failLoad ? { success: false, error: 'Fixture mailbox connection unavailable' } : { success: true, data: { accounts: state.accounts, setup: state.setup } } });
     if (path === '/api/email/accounts') return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: state.accounts.filter(a => a.accountScope === 'personal') } } });
     if (path.endsWith('/outbox')) return route.fulfill({ json: { success: true, data: [] } });
     if (path === '/api/email/oauth/status') return route.fulfill({ json: { success: true, data: { mode: 'local', providers: { google: { configured: false }, microsoft: { configured: false } } } } });
@@ -123,6 +123,57 @@ test.describe('Central email mailboxes', () => {
       await expect(page.getByText('Mail for support', { exact: true }).first()).toBeVisible();
     } finally { await context.close(); }
   });
+
+  test('empty setup is optional and explains personal and shared ownership before showing credentials', async ({ browser }) => {
+    const context = await createAuthenticatedContext(browser, { viewport: { width: 320, height: 740 } });
+    await installFixture(context, []);
+    const page = await context.newPage();
+    try {
+      await page.goto('/de/emails');
+      await expect(page.getByTestId('email-setup-guide')).toBeVisible();
+      await expect(page.getByTestId('email-setup-business')).toHaveCount(0);
+      await expect(page.getByTestId('email-setup-later')).toHaveAttribute('href', '/de');
+      await expect(page.locator('input[type="password"]')).toHaveCount(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      await page.getByTestId('email-setup-personal').click();
+      await expect(page.getByRole('button', { name: /SMTP\/IMAP/ })).toBeVisible();
+    } finally { await context.close(); }
+  });
+
+  test('setup provides role-aware admin and workspace assignment links', async ({ browser }) => {
+    const context = await createAuthenticatedContext(browser);
+    const fixture = await installFixture(context, []);
+    fixture.setup = { canManageBusiness: true, manageableWorkspaces: [{ id: 'mail-team', name: 'Customer Support' }] };
+    const page = await context.newPage();
+    try {
+      await page.goto('/emails');
+      await expect(page.getByTestId('email-setup-business')).toHaveAttribute('href', /tab=system-email/);
+      await expect(page.locator('a[href*="mailboxWorkspaceId=mail-team"]')).toHaveAttribute('href', /workspaceManagement=1/);
+    } finally { await context.close(); }
+  });
+
+  for (const connectionState of ['reconnect_required', 'send_only']) {
+    test(`${connectionState} offers repair without querying unavailable inbox`, async ({ browser }) => {
+      const context = await createAuthenticatedContext(browser);
+      const account = mailbox('repair');
+      account.connectionState = connectionState;
+      account.capabilities.canRead = false;
+      account.capabilities.canWrite = connectionState === 'send_only';
+      account.status = connectionState === 'reconnect_required' ? 'expired' : 'active';
+      account.imapHost = '';
+      const fixture = await installFixture(context, [account]);
+      const page = await context.newPage();
+      try {
+        await page.goto('/emails');
+        await expect(page.getByTestId(connectionState === 'send_only' ? 'email-mailbox-send-only' : 'email-mailbox-repair')).toBeVisible();
+        await page.getByTestId('email-setup-personal-repair').click();
+        await expect(page.getByRole('dialog')).toBeVisible();
+        await expect(page.getByRole('button', { name: connectionState === 'send_only' ? 'Add IMAP' : 'Reconnect', exact: true })).toBeVisible();
+        expect(fixture.requests.filter(r => r.path === '/api/email/folders' || r.path.endsWith('/messages/list'))).toEqual([]);
+        expect(fixture.writes).toEqual([]);
+      } finally { await context.close(); }
+    });
+  }
 });
 
 for (const width of [320, 390, 1024]) {
@@ -161,5 +212,49 @@ test('live local catalogue exposes the scoped contract without provider operatio
       expect(account.secretRef).toBeUndefined();
       expect(account.password).toBeUndefined();
     }
+  } finally { await context.close(); }
+});
+
+test('business connection makes sharing explicit and keeps save controls in the mobile viewport', async ({ browser }, testInfo) => {
+  const context = await createAuthenticatedContext(browser, { viewport: { width: 390, height: 740 } });
+  await installFixture(context, []);
+  const saves: Record<string, unknown>[] = [];
+  await context.route('**/api/admin/workspace-email-mailboxes', async route => {
+    if (route.request().method() !== 'GET') {
+      saves.push(route.request().postDataJSON());
+      return route.fulfill({ json: { success: true, data: { workspaceId: 'mail-team' } } });
+    }
+    return route.fulfill({ json: { success: true, data: { mailboxes: [], workspaces: [{ id: 'mail-team', name: 'Customer Support' }] } } });
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto('/de/settings?tab=system-email');
+    await page.getByRole('button', { name: 'Postfach hinzufügen', exact: true }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('#business-mailbox-workspace').selectOption('mail-team');
+    await expect(dialog.getByText(/Mitglieder dieses Workspaces erhalten Zugriff/)).toBeVisible();
+    const save = dialog.getByRole('button', { name: 'Testen & speichern', exact: true });
+    const bounds = await save.boundingBox();
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(740);
+    await page.screenshot({ path: testInfo.outputPath('business-setup-390.png'), fullPage: true });
+    await save.click();
+    await expect(dialog).toHaveCount(0);
+    expect(saves[0]).toMatchObject({ workspaceId: 'mail-team', verifyConnection: true });
+    await expect(page.getByRole('link', { name: 'E-Mail öffnen', exact: true })).toBeVisible();
+  } finally { await context.close(); }
+});
+
+test('workspace setup deep link opens the permitted assignment dialog', async ({ browser }) => {
+  const context = await createAuthenticatedContext(browser);
+  await installFixture(context, []);
+  await context.route('**/api/workspaces', route => route.fulfill({ json: { success: true, activeWorkspaceId: 'mail-team', teamFeaturesEnabled: true, workspaces: [{ id: 'mail-team', name: 'Customer Support', type: 'team', status: 'active', permissions: { canRead: true, canWrite: true, canManageWorkspace: true } }] } }));
+  await context.route('**/api/workspaces/mail-team/email/mailbox', route => route.fulfill({ json: { success: true, data: { mailboxes: [] } } }));
+  const page = await context.newPage();
+  try {
+    await page.goto('/settings?tab=workspace&workspaceManagement=1&mailboxWorkspaceId=mail-team');
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await expect(page.getByRole('dialog')).toContainText('Customer Support');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
   } finally { await context.close(); }
 });

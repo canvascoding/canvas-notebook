@@ -1483,7 +1483,7 @@ export function EmailAccountsCard({
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/email/accounts', { cache: 'no-store' });
+      const response = await fetch('/api/email/accounts?includeInactive=1', { cache: 'no-store' });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadAccounts'));
       const nextAccounts = (payload.data?.accounts || []) as EmailAccount[];
@@ -2233,15 +2233,27 @@ export function EmailAccountsCard({
                         {account.displayName && <p className="mt-1 text-sm text-muted-foreground">{account.displayName}</p>}
                         <div className="mt-3 flex flex-wrap gap-2">
                           <Badge variant="outline" className="gap-1.5 font-normal"><Send className="h-3 w-3" />{t('capabilities.sending')}</Badge>
-                          {account.imapHost ? (
+                          {account.authType !== 'smtp_imap' || account.imapHost ? (
                             <Badge variant="outline" className="gap-1.5 font-normal"><Inbox className="h-3 w-3" />{t('capabilities.mailbox')}</Badge>
                           ) : (
                             <Badge variant="outline" className="font-normal text-muted-foreground">{t('capabilities.sendOnly')}</Badge>
                           )}
                         </div>
+                        {account.status !== 'active' && (
+                          <p className="mt-3 max-w-xl text-sm text-muted-foreground">{t('repair.reconnectDescription')}</p>
+                        )}
+                        {account.status === 'active' && account.authType === 'smtp_imap' && !account.imapHost && (
+                          <p className="mt-3 max-w-xl text-sm text-muted-foreground">{t('repair.sendOnlyDescription')}</p>
+                        )}
                       </div>
 
-                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                      <div className="flex shrink-0 flex-wrap items-center gap-2 self-end sm:self-auto">
+                        {(account.status !== 'active' || (account.authType === 'smtp_imap' && !account.imapHost)) && (
+                          <Button type="button" variant="outline" size="sm" disabled={activeAction !== null}
+                            onClick={() => account.authType === 'smtp_imap' ? editSmtpAccount(account) : void startOAuth(account.provider === 'microsoft' ? 'microsoft' : 'google')}>
+                            {account.status !== 'active' ? t('repair.reconnect') : t('repair.addInbox')}
+                          </Button>
+                        )}
                         <CollapsibleTrigger asChild>
                           <Button type="button" variant="outline" size="sm" aria-label={`${detailsOpen ? t('account.collapse') : t('account.manage')} ${account.emailAddress}`}>
                             <Settings className="mr-2 h-4 w-4" />
@@ -2268,7 +2280,7 @@ export function EmailAccountsCard({
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {!account.isPrimary && (
+                            {!account.isPrimary && account.status === 'active' && (
                               <DropdownMenuItem onSelect={() => void setMainEmail(account.id)}>
                                 <Star />
                                 {t('setMainEmail')}

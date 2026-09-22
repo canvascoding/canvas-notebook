@@ -84,7 +84,7 @@ export function EmailMailboxHeader({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button data-testid="email-focus-toggle" type="button" variant={focused ? 'secondary' : 'ghost'} size="icon-sm" aria-pressed={focused} aria-label={tSearch(focused ? 'exitFocus' : 'focus')} title={tSearch(focused ? 'exitFocus' : 'focus')} onClick={onFocus}><Focus className="size-4" /></Button>
-          {accounts.length > 1 ? (
+          {accounts.length > 1 || !activeAccount ? (
             <>
               <label className="sr-only" htmlFor="email-account-header-switcher">{labels.account}</label>
               <select

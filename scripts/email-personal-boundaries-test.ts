@@ -61,6 +61,14 @@ async function main() {
   await assert.rejects(() => store.getEmailAccountForUser('owner', backup.id), /not found/);
   await assert.rejects(() => store.setPrimaryStoredEmailAccount('owner', backup.id), /Reconnect/);
   await store.updateStoredEmailPolicy('owner', backup.id, { sendTo: ['fixed@example.test'] });
+  await database.db.update(emailAccounts).set({ status: 'expired' }).where(eq(emailAccounts.id, 'business'));
+  const repairable = await store.listInactivePersonalEmailAccounts('owner');
+  assert.deepEqual(repairable.map(account => account.id), [backup.id], 'Repair view excludes inactive business accounts');
+  assert.equal(repairable[0].status, 'expired');
+  assert.equal('secretRef' in repairable[0], false);
+  assert.equal('password' in repairable[0], false);
+  assert.deepEqual(await store.listInactivePersonalEmailAccounts('other'), [], 'Repair view remains owner-only');
+  assert.deepEqual(await store.listEmailAccountRecordsForUser('owner'), [], 'Normal list continues to exclude expired accounts');
   await store.disconnectStoredEmailAccount('owner', backup.id);
   await assert.rejects(() => store.getEmailAccountForUser('owner'), /No active email account/);
   assert.equal((await database.db.query.emailAccounts.findFirst({ where: eq(emailAccounts.id, 'business') }))?.isPrimary, false);

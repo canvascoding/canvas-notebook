@@ -93,7 +93,11 @@ export function normalizeSmtpAccountInput(input: SmtpAccountInput, existingSecre
   const imapHost = normalizeOptionalHost(input.imapHost, 'IMAP host');
   const imapPort = normalizeOptionalPort(input.imapPort, 'IMAP port');
   const imapUsername = input.imapUsername ? normalizeRequiredSmtpString(input.imapUsername, 'IMAP username') : undefined;
-  const imapPassword = input.imapPassword ? normalizeRequiredSmtpString(input.imapPassword, 'IMAP password') : existingSecret?.imap?.password;
+  // A cleared IMAP section means send-only. Reuse its password only while
+  // the connection is still configured; otherwise edits could never disable it.
+  const imapPassword = input.imapPassword
+    ? normalizeRequiredSmtpString(input.imapPassword, 'IMAP password')
+    : (imapHost || imapPort || imapUsername) ? existingSecret?.imap?.password : undefined;
 
   if ((imapHost || imapPort || imapUsername || imapPassword) && (!imapHost || !imapPort || !imapUsername || !imapPassword)) {
     throw new Error('IMAP host, port, username, and password are all required when IMAP is configured.');
