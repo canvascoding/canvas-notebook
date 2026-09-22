@@ -1,3 +1,4 @@
+import { resolveEmailMailboxAccess, EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
@@ -40,7 +41,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await readEmailAiJsonObject(request);
-    const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() || undefined : undefined;
+    const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId: typeof body.accountId === 'string' ? body.accountId : undefined, mailboxWorkspaceId: body.mailboxWorkspaceId, operation: 'ai' });
+    const workspaceId = access.workspaceId || (typeof body.workspaceId === 'string' ? body.workspaceId.trim() || undefined : undefined);
     const aiInput = { ...body, workspaceId } as Parameters<typeof generateEmailComposeBody>[1];
     accountId = typeof body.accountId === 'string' ? body.accountId : '';
     messageId = typeof body.messageId === 'string' ? body.messageId : '';
@@ -73,9 +75,9 @@ export async function POST(request: NextRequest) {
           try {
             emit({ type: 'status', stage: 'reading_context', label: 'Preparing email context' });
             const data = await streamEmailComposeBody(
-              session.user.id,
+              access.accountOwnerId,
               aiInput,
-              { enforceReadPolicy: false, signal: abortController.signal, workspaceId },
+              { ...access.readOptions, actorUserId: session.user.id, signal: abortController.signal, workspaceId },
             );
 
             emit({ type: 'status', stage: 'writing', label: 'Drafting email text' });
@@ -150,9 +152,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await generateEmailComposeBody(
-      session.user.id,
+      access.accountOwnerId,
       aiInput,
-      { enforceReadPolicy: false, workspaceId },
+      { ...access.readOptions, actorUserId: session.user.id, workspaceId },
     );
     logEmailClientEvent('info', 'compose_ai_succeeded', {
       accountId,
@@ -180,7 +182,7 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : 'Failed to generate email text';
     return NextResponse.json(
       { success: false, error: message },
-      { status: emailAiRequestBodyErrorStatus(error) ?? 500 },
+      { status: error instanceof EmailMailboxAccessError ? error.status : emailAiRequestBodyErrorStatus(error) ?? 500 },
     );
   }
 }

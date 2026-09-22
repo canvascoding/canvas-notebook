@@ -115,7 +115,7 @@ async function listWorkspaceAttention(input: {
     db.query.emailDrafts.findMany({
       where: and(
         eq(emailDrafts.workspaceId, workspace.workspaceId),
-        inArray(emailDrafts.origin, ['automation', 'agent']),
+        inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
         inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
       ),
       orderBy: [desc(emailDrafts.updatedAt), desc(emailDrafts.id)],
@@ -279,13 +279,13 @@ export async function countEmailAttention(input: {
     )),
     db.select({ total: count() }).from(emailDrafts).where(and(
       eq(emailDrafts.workspaceId, workspace.workspaceId),
-      inArray(emailDrafts.origin, ['automation', 'agent']),
+      inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
       isNull(emailDrafts.inboxCaseId),
       inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
     )),
     db.select({ total: countDistinct(emailDrafts.inboxCaseId) }).from(emailDrafts).where(and(
       eq(emailDrafts.workspaceId, workspace.workspaceId),
-      inArray(emailDrafts.origin, ['automation', 'agent']),
+      inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
       notInArray(emailDrafts.inboxCaseId, activeCaseIds),
       inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
     )),

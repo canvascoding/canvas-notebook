@@ -1,3 +1,4 @@
+import { EmailMailboxAccessError, resolveEmailMailboxAccess } from '@/app/lib/email/mailbox-access';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
@@ -18,9 +19,13 @@ export async function GET(request: NextRequest) {
 
   try {
     const accountId = request.nextUrl.searchParams.get('accountId') || undefined;
-    const data = await listEmailFolders(session.user.id, accountId);
+    const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId, mailboxWorkspaceId: request.nextUrl.searchParams.get('mailboxWorkspaceId'), operation: 'read' });
+    const data = await listEmailFolders(access.accountOwnerId, access.accountId);
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof EmailMailboxAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'Failed to load email folders';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }

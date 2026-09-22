@@ -1,3 +1,4 @@
+import { resolveEmailMailboxAccess, EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
 import { NextRequest, NextResponse } from 'next/server';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 
@@ -33,7 +34,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { accountId, messageId } = await params;
     const body = await readEmailAiJsonObject(request);
     const folder = stringValue(body.folder);
-    const workspaceId = stringValue(body.workspaceId);
+    const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId, mailboxWorkspaceId: body.mailboxWorkspaceId, operation: 'ai' });
+    const workspaceId = access.workspaceId || stringValue(body.workspaceId);
     const shouldStream = request.nextUrl.searchParams.get('stream') === '1'
       || request.headers.get('accept')?.includes('text/event-stream');
 
@@ -53,11 +55,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               label: 'Reading email context',
             }));
             const data = await streamEmailMessageSummary(
-              session.user.id,
+              access.accountOwnerId,
               accountId,
               messageId,
               folder,
-              { enforceReadPolicy: false, signal: abortController.signal, workspaceId },
+              { ...access.readOptions, actorUserId: session.user.id, signal: abortController.signal, workspaceId },
             );
 
             controller.enqueue(encodeSummaryStreamEvent({ type: 'start', messageId: data.messageId }));
@@ -119,11 +121,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     const data = await summarizeEmailMessage(
-      session.user.id,
+      access.accountOwnerId,
       accountId,
       messageId,
       folder,
-      { enforceReadPolicy: false, workspaceId },
+      { ...access.readOptions, actorUserId: session.user.id, workspaceId },
     );
     return NextResponse.json({ success: true, data });
   } catch (error) {
@@ -136,7 +138,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const message = error instanceof Error ? error.message : 'Failed to summarize email message';
     return NextResponse.json(
       { success: false, error: message },
-      { status: emailAiRequestBodyErrorStatus(error) ?? 500 },
+      { status: error instanceof EmailMailboxAccessError ? error.status : emailAiRequestBodyErrorStatus(error) ?? 500 },
     );
   }
 }

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
+import { OutboxSendError } from '@/app/lib/email/outbox-errors';
+
 import { auth } from '@/app/lib/auth';
-import { updateEmailDraft } from '@/app/lib/email/service';
+import { updateBrowserEmailDraft } from '@/app/lib/email/mailbox-compose';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -18,10 +21,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const { draftId } = await params;
     const body = await request.json().catch(() => ({}));
-    const data = await updateEmailDraft(session.user.id, draftId, body, { deliveryOrigin: 'human' });
+    const data = await updateBrowserEmailDraft(session.user.id, draftId, body);
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof OutboxSendError) return NextResponse.json({ success: false, error: error.message, code: error.code, data: error.draft }, { status: error.status });
     const message = error instanceof Error ? error.message : 'Failed to update email draft';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: error instanceof EmailMailboxAccessError ? error.status : 500 });
   }
 }

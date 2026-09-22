@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { isImapMailboxChangedError } from '@/app/lib/email/imap-service';
-import { createEmailDerivedDraft } from '@/app/lib/email/service';
+import { createBrowserEmailDerivedDraft } from '@/app/lib/email/mailbox-compose';
+import { EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type DraftMode = 'forward' | 'reply' | 'reply-all';
@@ -34,13 +35,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json().catch(() => ({}));
     const folder = stringValue((body as { folder?: unknown }).folder);
     const mode = draftMode((body as { mode?: unknown }).mode);
-    const data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, undefined, { enforceReadPolicy: false });
+    const data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, messageId, folder, mode, mailboxWorkspaceId: body.mailboxWorkspaceId });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     if (isImapMailboxChangedError(error)) {
       return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
     }
     const message = error instanceof Error ? error.message : 'Failed to create email draft';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: error instanceof EmailMailboxAccessError ? error.status : 500 });
   }
 }

@@ -8,6 +8,7 @@ const modules = Module as typeof Module & { _load: Loader };
 const originalLoad = modules._load;
 let database: Awaited<ReturnType<typeof createPiTestDatabase>>;
 let auditFails = false;
+let browserTransportCalls = 0;
 modules._load = (request, parent, isMain) => {
   if (database && (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request))) return database;
   if (request.endsWith('/pi/session-workspace-context')) return {
@@ -16,6 +17,16 @@ modules._load = (request, parent, isMain) => {
       assert.equal(workspaceId, 'workspace');
       return { workspaceId };
     },
+  };
+  if (request === '@/app/lib/email/mailbox-access') return {
+    resolveEmailMailboxAccess: async (input: { userId: string; mailboxWorkspaceId: string; accountId: string }) => {
+      assert.equal(input.userId, 'reviewer'); assert.equal(input.mailboxWorkspaceId, 'workspace'); assert.equal(input.accountId, 'account');
+      return { accountId: 'account', accountOwnerId: 'owner', workspaceId: 'workspace', mailboxId: 'mailbox', readOptions: { enforceReadPolicy: true } };
+    },
+    EmailMailboxAccessError: Error,
+  };
+  if (request === '@/app/lib/email/service' || /\/app\/lib\/email\/service(?:\.ts)?$/u.test(request)) return {
+    sendEmailMessage: async (ownerId: string) => { assert.equal(ownerId, 'owner'); browserTransportCalls++; },
   };
   if (request.endsWith('/audit/audit-service')) return {
     recordAuditEvent: async () => { if (auditFails) throw new Error('Audit unavailable'); },
@@ -33,8 +44,21 @@ async function main() {
     await db.insert(user).values(['owner', 'reviewer'].map((id) => ({ id, name: id, email: `${id}@example.test`, emailVerified: true, createdAt: now, updatedAt: now })));
     await db.insert(emailAccounts).values({ id: 'account', userId: 'owner', provider: 'smtp_imap', authType: 'smtp_imap', emailAddress: 'owner@example.test', policyJson: JSON.stringify({ readFrom: [], sendTo: ['@example.test'] }), secretRef: 'unused-test-secret', createdAt: now, updatedAt: now });
     await db.insert(workspaceEmailMailboxes).values({ id: 'mailbox', workspaceId: 'workspace', emailAccountId: 'account', createdByUserId: 'owner', lastEditedByUserId: 'owner', createdAt: now, updatedAt: now });
+    const humanCreated = await outbox.createWorkspaceOutboxDraft({ userId: 'reviewer', workspaceId: 'workspace', mailboxId: 'mailbox', origin: 'human', subject: 'Composed by a person', body: 'Keep this draft', to: ['outside@blocked.test'], initialStatus: 'prepared' });
+    assert.equal(humanCreated.origin, 'human');
+    assert.ok((await outbox.listWorkspaceOutboxDrafts('reviewer', 'workspace')).some(draft => draft.id === humanCreated.id));
+    await assert.rejects(outbox.sendWorkspaceOutboxDraft({ userId: 'reviewer', workspaceId: 'workspace', draftId: humanCreated.id, expectedVersion: humanCreated.version }, { sendMessage: async () => { throw new Error('Policy should prevent transport'); } }), (error: unknown) => (error as { code: string }).code === 'SEND_POLICY_BLOCKED');
+    assert.equal((await outbox.findWorkspaceOutboxDraft('reviewer', 'workspace', humanCreated.id))?.status, 'send_failed');
+    const compose = await import('../app/lib/email/mailbox-compose');
+    await assert.rejects(compose.sendBrowserEmailMessage('reviewer', { accountId: 'account', mailboxWorkspaceId: 'workspace', to: ['blocked@outside.test'], subject: 'Manual browser send', body: 'Recover me' }), (error: unknown) => (error as { code: string }).code === 'SEND_POLICY_BLOCKED');
+    const failedManual = (await outbox.listWorkspaceOutboxDrafts('reviewer', 'workspace')).find(draft => draft.subject === 'Manual browser send');
+    assert.ok(failedManual); assert.equal(failedManual.origin, 'human'); assert.equal(failedManual.status, 'send_failed'); assert.equal(failedManual.assignedUserId, 'reviewer');
+    assert.equal(browserTransportCalls, 0);
+    const fixedManual = await compose.updateBrowserEmailDraft('reviewer', failedManual.id, { accountId: 'account', mailboxWorkspaceId: 'workspace', expectedVersion: failedManual.version, to: ['allowed@example.test'], subject: 'Manual browser send', body: 'Recovered' });
+    const sentManual = await compose.sendBrowserEmailDraft('reviewer', failedManual.id, { accountId: 'account', mailboxWorkspaceId: 'workspace', expectedVersion: Number((fixedManual as { draft: { version: number } }).draft.version) });
+    assert.equal((sentManual as { sentByUserId: string }).sentByUserId, 'reviewer'); assert.equal((sentManual as { status: string }).status, 'sent'); assert.equal(browserTransportCalls, 1);
     let serial = 0;
-    for (const scope of ['personal', 'workspace'] as const) {
+    for (const scope of ['personal', 'workspace', 'human'] as const) {
       const identity = scope === 'personal' ? { userId: 'owner' } : { userId: 'reviewer', workspaceId: 'workspace' };
       const send = (draftId: string, expectedVersion: number, sendMessage: (input: { to: string[]; cc: string[]; bcc: string[] }) => Promise<unknown>) => scope === 'personal'
         ? outbox.sendPersonalOutboxDraft({ ...identity, draftId, expectedVersion }, { sendMessage })
@@ -49,7 +73,7 @@ async function main() {
       const get = (draftId: string) => scope === 'personal' ? outbox.findPersonalOutboxDraft('owner', draftId) : outbox.findWorkspaceOutboxDraft('reviewer', 'workspace', draftId);
       const fixture = async (recipients: Partial<Record<'to' | 'cc' | 'bcc', string[]>> = {}) => {
         const id = `${scope}-${++serial}`;
-        await db.insert(emailDrafts).values({ id, userId: 'owner', accountId: 'account', workspaceId: scope === 'workspace' ? 'workspace' : null, mailboxId: scope === 'workspace' ? 'mailbox' : null, origin: 'agent', outboxStatus: 'awaiting_review', version: 1, subject: 'Review subject', body: '<p><strong>Preserve me</strong></p>', isHtml: true, toJson: JSON.stringify(recipients.to ?? ['allowed@example.test']), ccJson: JSON.stringify(recipients.cc ?? []), bccJson: JSON.stringify(recipients.bcc ?? ['blind@example.test']), createdAt: now, updatedAt: now });
+        await db.insert(emailDrafts).values({ id, userId: 'owner', accountId: 'account', workspaceId: scope !== 'personal' ? 'workspace' : null, mailboxId: scope !== 'personal' ? 'mailbox' : null, origin: scope === 'human' ? 'human' : 'agent', outboxStatus: 'awaiting_review', version: 1, subject: 'Review subject', body: '<p><strong>Preserve me</strong></p>', isHtml: true, toJson: JSON.stringify(recipients.to ?? ['allowed@example.test']), ccJson: JSON.stringify(recipients.cc ?? []), bccJson: JSON.stringify(recipients.bcc ?? ['blind@example.test']), createdAt: now, updatedAt: now });
         return id;
       };
       let deliveries = 0;
@@ -192,7 +216,7 @@ async function main() {
       await assert.rejects(send(uncertainId, uncertain.version, deliver));
       await assert.rejects(edit(uncertainId, uncertain.version));
       await assert.rejects(reject(uncertainId, uncertain.version));
-      if (scope === 'workspace') {
+      if (scope !== 'personal') {
         const auditId = await fixture();
         auditFails = true;
         try { assert.equal((await send(auditId, 1, deliver)).status, 'sent'); } finally { auditFails = false; }

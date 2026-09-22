@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
+import { OutboxSendError } from '@/app/lib/email/outbox-errors';
+
 import { auth } from '@/app/lib/auth';
-import { createEmailDraft } from '@/app/lib/email/service';
+import { createBrowserEmailDraft } from '@/app/lib/email/mailbox-compose';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function requireSession(request: NextRequest) {
@@ -17,10 +20,11 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const body = await request.json().catch(() => ({}));
-    const data = await createEmailDraft(session.user.id, body, { deliveryOrigin: 'human' });
+    const data = await createBrowserEmailDraft(session.user.id, body);
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof OutboxSendError) return NextResponse.json({ success: false, error: error.message, code: error.code, data: error.draft }, { status: error.status });
     const message = error instanceof Error ? error.message : 'Failed to create email draft';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: error instanceof EmailMailboxAccessError ? error.status : 500 });
   }
 }

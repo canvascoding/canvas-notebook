@@ -44,8 +44,8 @@ async function main() {
   await assert.rejects(() => store.upsertSmtpEmailAccount({ userId: 'owner', emailAddress: 'business@example.test', secret }), /shared Business mailbox/);
   await assert.rejects(() => store.upsertSmtpEmailAccount({ userId: 'owner', accountId: 'business', emailAddress: 'changed@example.test', secret }), /cannot be changed/);
   await assert.rejects(() => store.upsertSmtpEmailAccount({ userId: 'other', accountId: personal.id, emailAddress: 'other@example.test', secret }), /cannot be changed/);
-  await assert.rejects(() => store.upsertOAuthEmailAccount({ userId: 'owner', provider: 'google', emailAddress: 'business-google@example.test', secret: { authType: 'oauth', accessToken: 'fixture' } }), /shared Business mailbox/);
-  await assert.rejects(() => store.upsertOAuthEmailAccount({ userId: 'owner', provider: 'google', accountId: 'business', emailAddress: 'new@example.test', secret: { authType: 'oauth', accessToken: 'fixture' } }), /cannot be changed/);
+  await assert.rejects(() => store.upsertOAuthEmailAccount({ userId: 'owner', provider: 'google', emailAddress: 'business-google@example.test', secret: { authType: 'oauth', accessToken: 'fixture', tokenType: 'Bearer' } }), /shared Business mailbox/);
+  await assert.rejects(() => store.upsertOAuthEmailAccount({ userId: 'owner', provider: 'google', accountId: 'business', emailAddress: 'new@example.test', secret: { authType: 'oauth', accessToken: 'fixture', tokenType: 'Bearer' } }), /cannot be changed/);
   assert.equal(writes, initialWrites, 'Rejected management and collisions must not write secrets');
   assert.equal(await store.getEmailAccountForUser('owner', 'business').then(a => a.id), 'business', 'Explicit owner-aware transport lookup remains supported');
   assert.equal(await store.getEmailAccountForUser('owner').then(a => a.id), personal.id);

@@ -1,3 +1,4 @@
+import { EmailMailboxAccessError, resolveEmailMailboxAccess } from '@/app/lib/email/mailbox-access';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
@@ -6,6 +7,7 @@ import {
   archiveEmailMessage,
   deleteEmailMessagePermanently,
   moveEmailMessage,
+  readEmailMessage,
   setEmailMessageAnswered,
   setEmailMessageRead,
   trashEmailMessage,
@@ -59,24 +61,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { accountId, messageId } = await params;
     const body = await request.json().catch(() => ({}));
     const action = actionValue((body as { action?: unknown }).action);
+    const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId, mailboxWorkspaceId: body.mailboxWorkspaceId, operation: action === 'trash' || action === 'permanent-delete' ? 'delete' : 'write' });
     const folder = stringValue((body as { folder?: unknown }).folder);
     const destination = stringValue((body as { destination?: unknown }).destination);
+    // A shared mailbox's read policy also gates mutations of known message IDs.
+    if (access.workspaceId) {
+      await readEmailMessage(access.accountOwnerId, access.accountId, messageId, folder, access.readOptions);
+    }
     let data: unknown;
 
-    if (action === 'archive') data = await archiveEmailMessage(session.user.id, accountId, messageId, folder);
-    if (action === 'trash') data = await trashEmailMessage(session.user.id, accountId, messageId, folder);
-    if (action === 'permanent-delete') data = await deleteEmailMessagePermanently(session.user.id, accountId, messageId, folder);
-    if (action === 'mark-read') data = await setEmailMessageRead(session.user.id, accountId, messageId, folder, true);
-    if (action === 'mark-unread') data = await setEmailMessageRead(session.user.id, accountId, messageId, folder, false);
-    if (action === 'mark-answered') data = await setEmailMessageAnswered(session.user.id, accountId, messageId, folder, true);
-    if (action === 'clear-answered') data = await setEmailMessageAnswered(session.user.id, accountId, messageId, folder, false);
+    if (action === 'archive') data = await archiveEmailMessage(access.accountOwnerId, access.accountId, messageId, folder);
+    if (action === 'trash') data = await trashEmailMessage(access.accountOwnerId, access.accountId, messageId, folder);
+    if (action === 'permanent-delete') data = await deleteEmailMessagePermanently(access.accountOwnerId, access.accountId, messageId, folder);
+    if (action === 'mark-read') data = await setEmailMessageRead(access.accountOwnerId, access.accountId, messageId, folder, true);
+    if (action === 'mark-unread') data = await setEmailMessageRead(access.accountOwnerId, access.accountId, messageId, folder, false);
+    if (action === 'mark-answered') data = await setEmailMessageAnswered(access.accountOwnerId, access.accountId, messageId, folder, true);
+    if (action === 'clear-answered') data = await setEmailMessageAnswered(access.accountOwnerId, access.accountId, messageId, folder, false);
     if (action === 'move') {
       if (!destination) throw new Error('A destination folder is required.');
-      data = await moveEmailMessage(session.user.id, accountId, messageId, folder, destination);
+      data = await moveEmailMessage(access.accountOwnerId, access.accountId, messageId, folder, destination);
     }
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof EmailMailboxAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     if (isImapMailboxChangedError(error)) {
       return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
     }
