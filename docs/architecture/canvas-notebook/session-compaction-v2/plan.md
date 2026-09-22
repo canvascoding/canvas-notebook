@@ -1,9 +1,17 @@
 # Hermes-aligned Session Compaction V2
 
-Stand: 2026-09-01
-Status: in Umsetzung
+> **Aktualisierung 2026-09-22:** Der urspruengliche Plan P00-P09 bleibt als
+> Implementierungs- und Rollout-Historie erhalten. Die verbindliche
+> Paritaetsrunde gegen aktuelles Hermes
+> `e2f8a0731bf26e95b31e35d73e71e183a1045b81` liegt in
+> [hermes-parity-refresh-plan.md](./hermes-parity-refresh-plan.md). Sie ersetzt
+> insbesondere die alte Annahme, Lean benoetige mehrere serielle
+> Digest-LLM-Aufrufe. Die neuen Arbeitspakete sind SC-P10 bis SC-P14.
+
+Stand: 2026-09-22
+Status: abgeschlossen; App-Produktions-Build gruen, bestehender Lizenzinventar-Precheck separat dokumentiert
 Canvas-Ausgangsstand: `0b8fda3f43e36ad165e559b8f0d155755cc1296f` inklusive des gemergten Provider-Context-Status aus PR `#106`
-Hermes-Referenz: `NousResearch/hermes-agent@f293e7206b4ddd66042329442c6afebc19a8808d`
+Hermes-Referenz: `NousResearch/hermes-agent@e2f8a0731bf26e95b31e35d73e71e183a1045b81`
 
 ## 1. Ziel
 
@@ -41,7 +49,7 @@ manual | automatic | idle | pre-send | overflow
  deterministic prune + exact anchor index
                     |
                     v
-     chunk digests + LLM rolling summary
+      one bounded LLM summary call
                     |
                     v
  validate coverage, savings and sendability
@@ -65,7 +73,7 @@ Aufnahme permissiv lizenzierten MIT-Codes nicht. Fuer jede direkte oder
 substanzielle Hermes-Uebernahme gelten aber folgende Gates:
 
 1. Vor der ersten Codeuebernahme wird der unveraenderte Hermes-MIT-Text unter
-   `docs/compliance/license-texts/hermes-agent-f293e720-MIT.txt` versioniert.
+   `docs/compliance/license-texts/hermes-agent-e2f8a073-MIT.txt` versioniert.
 2. `docs/compliance/third-party-license-policy.json` erhaelt Hermes Agent als
    versionierte `additionalComponent` mit Commit, Quell-URL, MIT-Lizenz,
    Modifikationshinweis und den tatsaechlichen Auslieferungszielen.
@@ -74,7 +82,7 @@ substanzielle Hermes-Uebernahme gelten aber folgende Gates:
 4. Dateien mit substantiell uebersetztem Code erhalten einen kurzen Header:
 
    ```text
-   Portions adapted from NousResearch/hermes-agent at f293e7206b4d...
+   Portions adapted from NousResearch/hermes-agent at e2f8a0731bf2...
    Copyright (c) 2025 Nous Research, MIT License.
    See THIRD_PARTY_NOTICES.md.
    ```
@@ -117,9 +125,9 @@ zugeordnet:
 | Exakter Anchor Index | [`_build_anchor_index`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L1019-L1066) | `app/lib/pi/compaction/anchors.ts` | `DIRECT_PORT`: Kategorien, Frequency/Recency-Ranking und Zeichenbudget nahezu direkt portieren; um Canvas-Sessions, Todos und Workspace-IDs erweitern. |
 | Verbatim-User-Block | [`_build_verbatim_user_section`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L910-L946) | `app/lib/pi/compaction/summary-input.ts` | `DIRECT_PORT`: echte User-Texte newest-first unter Budget erhalten; synthetische User-Zeilen filtern. |
 | Recovery Footer | [`_build_recovery_footer`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L948-L968) | `app/lib/pi/compaction/summary-input.ts` | `ADAPTED_PORT`: auf das bereits vorhandene Canvas-Tool `session_search` und die konkrete Session-ID verweisen. |
-| Chunk Digests | [`_build_chunk_digests`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L4434-L4517) | `app/lib/pi/compaction/summary-generator.ts` | `ADAPTED_PORT`: sequentielle Digests mit identifier-erhaltendem Prompt uebernehmen; Canvas-StreamFn, Abbruchsignal und Summary-Modell verwenden. |
+| Chunk Digests | Aktuelles Hermes verwendet keine seriellen Digest-Aufrufe mehr. | `app/lib/pi/compaction/summary-generator.ts` | `DO_NOT_PORT`: der fruehere Mehrfach-Digest-Pfad bleibt nur als historische Test-/Kompatibilitaetshilfe und ist kein Produktionspfad. |
 | Begrenzter Summary-Input | [`_bound_summary_input`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L4519-L4549) | `app/lib/pi/compaction/summary-input.ts` | `DIRECT_PORT`: Head und Tail des Summary-Inputs erhalten, ausgelassene Mitte explizit markieren und nie den Summarizer selbst ueberladen. |
-| Rolling LLM Summary | [`_generate_summary`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L4582-L5432) | `app/lib/pi/compaction/summary-generator.ts`, `session-summary.ts` | `ADAPTED_PORT`: iterative vorherige Summary, Aux-Modell-Feasibility, Timeout- und Fehlerklassifizierung uebernehmen; Pi-Provider-Aufruf und Sicherheitswrapper bleiben Canvas-native. |
+| Bounded LLM Summary | Aktuelles Hermes: ein bounded Summary-Aufruf fuer `legacy` und `lean`. | `app/lib/pi/compaction/summary-generator.ts`, `session-summary.ts` | `ADAPTED_PORT`: genau ein Aufruf, optionales Aux-Modell mit einmaligem Main-Fallback sowie Timeout- und Fehlerklassifizierung. |
 | Fokus-Compaction | [`_derive_auto_focus_topic`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L5434-L5500), `focus_topic` in [`compress`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/context_compressor.py#L7134-L7211) | Runtime-Compact-Command und UI | `ADAPTED_PORT`: optionaler Fokus beeinflusst Priorisierung, darf aber die Pflichtanker und aktive Aufgabe nicht verdraengen. |
 | Progress-aware Timeout | [`CompressionCommitFence`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/conversation_compression.py#L469-L559), Timeout-Policy in `conversation_compression.py` | `session-compaction-coordinator.ts` | `INVARIANT_ONLY`: Canvas-Commit-Fence bleibt. Ergaenzt werden Idle- und Total-Deadline sowie Summary-Stream-Fortschritt. Ein begonnener DB-Commit wird nicht mitten in der Transaktion verlassen. |
 | Session-Lock und Watermark | Lock-/Watermark-Abschnitt in [`compress_context`](https://github.com/NousResearch/hermes-agent/blob/f293e7206b4ddd66042329442c6afebc19a8808d/agent/conversation_compression.py#L2255-L2520) | `session-compaction-store.ts`, `session-compaction-coordinator.ts` | `INVARIANT_ONLY`: Canvas besitzt bereits dauerhafte Attempt-Zeilen, Unique-Active-Lock, Summary-Revision und Sequence-Fence. Hermes-Faelle fuer parallele Forks und Live-Tail-Adoption werden als Tests portiert. |
@@ -141,7 +149,7 @@ app/lib/pi/compaction/
   prune.ts              Tool-, Medien-, Skill- und Replay-Pruning
   anchors.ts            mechanischer exakter Anchor Index
   summary-input.ts      Redaction, Verbatim-User, Recovery, Bounds
-  summary-generator.ts  Digests und LLM Rolling Summary
+  summary-generator.ts  ein bounded LLM-Summary-Aufruf
   validation.ts         Coverage-, Anchor-, Groessen- und Sendability-Gates
 ```
 

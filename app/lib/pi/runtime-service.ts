@@ -412,7 +412,7 @@ export async function prepareRuntimePrompt(
   timing.mark('getOrCreateRuntime');
   const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context, userId);
   timing.mark('injectStudioImage');
-  const status = runtimeInstance.getStatus();
+  let status = runtimeInstance.getStatus();
 
   if (!promptMessage && !status.canAbort) {
     throw new RuntimeServiceError('Prompt message required when no run is active.', 400);
@@ -421,6 +421,10 @@ export async function prepareRuntimePrompt(
   applyPiRuntimePromptContext(runtimeInstance, context);
   if (!status.canAbort && !runtimeCreated) {
     await runtimeInstance.reloadTools();
+  }
+  if (!status.canAbort) {
+    await runtimeInstance.reloadCompactionPolicyForNextRequest();
+    status = runtimeInstance.getStatus();
   }
   await runtimeInstance.refreshWorkspaceFileTreePrompt();
   timing.mark('applyContextAndReloadTools');

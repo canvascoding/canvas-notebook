@@ -9,7 +9,7 @@ import { readToolAppInvocations, type ToolAppInvocation } from '@/app/lib/tool-a
 import { ToolAppSlotPool } from '@/app/lib/tool-apps/slot-pool';
 import { useMcpAppChatContext } from './McpAppChatContext';
 import { McpReconnectNotice } from './McpReconnectNotice';
-import { ToolAppWidget } from './ToolAppWidget';
+import { ToolAppLoadingSkeleton, ToolAppWidget } from './ToolAppWidget';
 import { BuiltinToolAppActions } from './BuiltinToolAppActions';
 
 const frameSlots = new ToolAppSlotPool(4);
@@ -90,13 +90,15 @@ function ToolAppSlot(props: { invocation: ToolAppInvocation; sessionId: string; 
   useEffect(() => {
     const element = elementRef.current;
     if (!element || !active) return;
+    const content = element.firstElementChild;
+    if (!(content instanceof HTMLElement)) return;
     const observer = new ResizeObserver(([entry]) => {
       const measured = entry.borderBoxSize[0]?.blockSize || entry.contentRect.height;
-      const nextHeight = Math.max(120, Math.ceil(measured || element.offsetHeight));
+      const nextHeight = Math.max(120, Math.ceil(measured || content.offsetHeight));
       retainHeight(props.instanceKey, nextHeight);
       setRetainedHeight((current) => current === nextHeight ? current : nextHeight);
     });
-    observer.observe(element);
+    observer.observe(content);
     return () => observer.disconnect();
   }, [active, props.instanceKey]);
 
@@ -105,8 +107,10 @@ function ToolAppSlot(props: { invocation: ToolAppInvocation; sessionId: string; 
       ? (data, update, refresh) => <BuiltinToolAppActions data={data} update={update} refresh={refresh}
         app={builtinApp}
         sessionId={props.sessionId} agentId={props.agentId} /> : undefined} /> : <div
-      style={{ height: retainedHeight }} className="flex items-center p-3 text-xs text-muted-foreground"
-      role="status">{t('loading')}</div>}
+      style={{ height: retainedHeight }}
+      className="relative my-2 w-full max-w-3xl overflow-hidden rounded-[var(--radius)] border bg-background">
+      <ToolAppLoadingSkeleton label={t('loading')} animated={nearViewport} />
+    </div>}
   </div>;
 }
 

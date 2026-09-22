@@ -1133,7 +1133,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | nodemailer | 10.0.1 | runtime | MIT-0 | allowed |
 | nodemailer | 9.1.1 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
-| NousResearch/hermes-agent session-compaction reference | f293e7206b4ddd66042329442c6afebc19a8808d | runtime | MIT | allowed |
+| NousResearch/hermes-agent session-compaction reference | e2f8a0731bf26e95b31e35d73e71e183a1045b81 | runtime | MIT | allowed |
 | object-assign | 4.1.1 | runtime | MIT | allowed |
 | object-inspect | 1.13.4 | runtime | MIT | allowed |
 | on-exit-leak-free | 2.1.2 | runtime | MIT | allowed |
@@ -14861,7 +14861,7 @@ SOFTWARE.
 
 ### License text 821556e63367
 
-Applies to NousResearch/hermes-agent session-compaction reference@f293e7206b4ddd66042329442c6afebc19a8808d.
+Applies to NousResearch/hermes-agent session-compaction reference@e2f8a0731bf26e95b31e35d73e71e183a1045b81.
 
 Copyright notices:
 

@@ -1,8 +1,17 @@
 # Session Compaction V2 Operations
 
+> **Parity refresh (2026-09-22):** Current Hermes main at
+> `e2f8a0731bf26e95b31e35d73e71e183a1045b81` replaces the older multi-digest
+> lean design with one bounded summary call plus deterministic anchors, user
+> excerpts and recovery pointers. The implementation and rollout plan is
+> [hermes-parity-refresh-plan.md](./hermes-parity-refresh-plan.md). Statements
+> below that keep Lean as a measurement-only variant describe the previous
+> shipping decision and remain as historical rollout evidence until SC-P10
+> through SC-P14 are complete.
+
 ## Shipping decision
 
-Canvas ships the Hermes V2 summary path with the conservative Hermes
+Canvas currently ships the Hermes V2 summary path with the conservative Hermes
 `legacy` tail policy. The deterministic unit selector, exact anchors, rolling
 LLM summary contract, recovery sections, fail-closed validation, retries and
 anti-thrash protection are active. The smaller `lean` tail remains a measured
@@ -19,6 +28,36 @@ This separates two decisions that are easy to conflate:
 Micro-compaction is not part of Canvas V2. There is no environment switch or
 post-turn rewrite loop for it. This preserves the provider prompt-cache prefix
 between episodic compaction boundaries.
+
+## Runtime settings and overrides
+
+Admins configure the tail mode and optional summary route in **AI providers &
+models → Context compaction**. A summary route is always the exact catalog
+identity `providerInstallationId/modelId`, never only a provider id. The model
+picker only offers enabled models from verified provider installations.
+
+The saved setting is organization-scoped (`ai_organization_compaction_settings`)
+and revisioned: one organization can never change another organization's route.
+The legacy instance-wide `pi-runtime-config.json` remains a bootstrap fallback
+only when that organization has not saved a compaction setting. It is not
+written by the admin panel. Saving **Use main model** is explicit and suppresses
+that legacy summary-route fallback for the organization.
+
+Deployment overrides take precedence and are intentionally visible but locked
+in the Settings UI:
+
+- `CANVAS_PI_COMPACTION_TAIL_MODE=legacy|lean`
+- `CANVAS_PI_COMPACTION_SUMMARY_MODEL=<providerInstallationId/modelId>`
+
+An invalid or stale configured summary identity never blocks a session: Canvas
+uses the request's pinned main model. Changes are read at the next safe
+request/run boundary; an already streaming chat or automation is not mutated.
+The settings preview is a default-model budget preview. The in-chat context
+status is authoritative for the actual request because it also includes prompt,
+tool, media and output-reserve costs. It displays only a catalog-and-runtime
+validated auxiliary identity (or `main-model fallback`), plus its source and
+the trigger/tail-target copied from the same request budget snapshot; stale or
+environment-only raw identities are never serialized to the client.
 
 ## Rollout modes
 
@@ -105,3 +144,50 @@ the default.
    the rollback does not delete or rewrite history.
 5. Re-enable `shadow` before returning to `v2` if the incident involved
    summary recall, selection savings or provider behavior.
+
+## P14 canary runbook
+
+Use one canary application process only. Start with the validated V2 summary
+path and the Hermes-compatible legacy tail:
+
+```sh
+CANVAS_PI_COMPACTION_ROLLOUT=v2
+CANVAS_PI_COMPACTION_TAIL_MODE=legacy
+```
+
+For at least 25 eligible compaction attempts, retain the normal attempt rows
+and inspect only the content-free `[PI Compaction]` JSON events. Correlate an
+attempt through its opaque `attemptId`; never add a session ID, prompt, tool
+argument, provider error message or contract fingerprint to log collection.
+The required fields are stage, provider/model route, token counters,
+`durationMs`, terminal state/reason and retry time. The canary passes only if:
+
+- no attempt commits after `aborted`, `stale_snapshot`, idle or total timeout;
+- no `cooldown_active` or `breaker_active` loop repeats provider work;
+- every successful attempt reports a strictly smaller sendable projection;
+- scorecard partition and orphan-tool-group counts remain zero; and
+- observed p95 `attempt_finished.durationMs` is materially below the retired
+  multi-digest baseline. The deterministic fixture baseline is 75 percent
+  lower (375 ms vs 1,500 ms) and guards architectural regressions; it is not a
+  substitute for provider-specific production latency monitoring.
+
+After that legacy-tail canary is stable, enable Lean only on a separate canary
+process:
+
+```sh
+CANVAS_PI_COMPACTION_TAIL_MODE=lean
+```
+
+Do not mix this comparison with a summary-model change. Compare the same
+provider/model mix, context-window bands (small, 256k and large) and tool-rich
+traffic. Require the legacy invariants above plus no recall, cache-read-cost or
+p95-boundary-latency regression before making Lean the organization default.
+
+### Immediate rollback
+
+If Lean has an invariant, recall, provider or latency incident, recreate only
+the affected application process with `CANVAS_PI_COMPACTION_TAIL_MODE=legacy`.
+For a summary-path incident also set `CANVAS_PI_COMPACTION_ROLLOUT=legacy`.
+Do not delete session rows, attempt records, V2 summaries or raw history.
+Keep the correlated `attemptId` telemetry and the authorized session record for
+diagnosis, then return through `shadow` before re-enabling the affected path.

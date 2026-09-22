@@ -9,6 +9,7 @@ import {
   estimatePiToolSchemaTokens,
   serializePiEffectiveToolSchemas,
 } from '@/app/lib/pi/context-budget';
+import type { PiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import {
   composePiHistoryForLlm,
   isPiHistoryCompositionSendable,
@@ -23,6 +24,10 @@ import {
   inspectPiRuntimeCompactionPressure,
   preparePiHermesCompactionCandidate,
 } from '@/app/lib/pi/compaction/runtime-engine';
+import {
+  buildEffectiveToolManifest,
+  effectiveToolManifestHas,
+} from '@/app/lib/pi/effective-tool-manifest';
 
 export type PrepareAutomationHistoryInput = Readonly<{
   sessionId: string;
@@ -42,7 +47,11 @@ export type PrepareAutomationHistoryInput = Readonly<{
   runtimePolicyRevision: number;
   signal: AbortSignal;
   streamFn: StreamFn;
+  summaryModel?: Model<Api>;
+  summaryStreamFn?: StreamFn;
   imageNormalizationOptions?: PiMessageNormalizationOptions;
+  /** Immutable request-bound policy shared with live compaction. */
+  effectiveCompactionPolicy?: PiEffectiveCompactionPolicy;
   force?: boolean;
   bypassCooldown?: boolean;
 }>;
@@ -64,6 +73,10 @@ export async function prepareAutomationHistoryWithCompaction(
   input: PrepareAutomationHistoryInput,
 ): Promise<PreparedAutomationHistory> {
   const toolTokens = estimatePiToolSchemaTokens(input.tools);
+  const sessionSearchAvailable = effectiveToolManifestHas(
+    buildEffectiveToolManifest(input.tools),
+    'session_search',
+  );
   const contextMessages = projectToolOutputBlocks(input.messages, input.model);
   const compose = (selectionMode: 'automatic' | 'hard_limit' | 'full' = 'automatic') => composePiHistoryForLlm({
     messages: contextMessages,
@@ -73,7 +86,11 @@ export async function prepareAutomationHistoryWithCompaction(
     modelMaxTokens: input.model.maxTokens,
     requestOutputTokens: input.requestOutputTokens,
     toolTokens,
+    sessionId: input.sessionId,
+    authorizedSessionId: input.sessionId,
+    sessionSearchAvailable,
     selectionMode,
+    policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
   });
   const preflight = compose('full');
   const roughInspection = inspectPiRuntimeCompactionPressure({
@@ -81,6 +98,7 @@ export async function prepareAutomationHistoryWithCompaction(
     model: input.model,
     outputReserveTokens: input.requestOutputTokens,
     fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
+    policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
   });
   let shouldCompact = input.force === true
     || preflight.softThresholdExceeded
@@ -101,6 +119,7 @@ export async function prepareAutomationHistoryWithCompaction(
       outputReserveTokens: input.requestOutputTokens,
       fixedRequestTokens: input.systemPromptBudgetTokens + toolTokens,
       finalSnapshot: exactPreflight.budgetSnapshot,
+      policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
     }).pressure.shouldCompact;
   }
   if (
@@ -167,8 +186,13 @@ export async function prepareAutomationHistoryWithCompaction(
       sessionId: input.sessionId,
       signal: candidateSignal,
       streamFn: input.streamFn,
+      summaryModel: input.summaryModel,
+      summaryStreamFn: input.summaryStreamFn,
+      authorizedSessionId: input.sessionId,
+      sessionSearchAvailable,
       selectionMode: input.force ? 'force' : 'automatic',
       onSummaryProgress: (progress) => reportProgress(progress),
+      policy: input.effectiveCompactionPolicy?.contextBudgetPolicy,
     }),
   });
   if (result.state === 'succeeded' && result.summary && result.composition) {

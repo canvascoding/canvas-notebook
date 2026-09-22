@@ -1169,6 +1169,23 @@ export const aiRuntimeDefaults = pgTable("ai_runtime_defaults", {
   updatedAt: pgTimestamp("updated_at").notNull(),
 });
 
+/**
+ * Organization-owned compaction preferences. These intentionally live beside
+ * the organization-scoped model catalog rather than in the instance-wide
+ * legacy PI configuration file.
+ */
+export const aiOrganizationCompactionSettings = pgTable("ai_organization_compaction_settings", {
+  organizationId: text("organization_id").primaryKey().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  tailMode: text("tail_mode"),
+  summaryModel: text("summary_model"),
+  revision: bigint("revision", { mode: "number" }).notNull().default(1),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  updatedIdx: index("idx_ai_organization_compaction_settings_updated").on(table.updatedAt),
+}));
+
 export const aiWorkspaceModelPolicies = pgTable("ai_workspace_model_policies", {
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),

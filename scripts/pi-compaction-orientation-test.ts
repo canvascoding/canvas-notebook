@@ -52,17 +52,17 @@ async function main() {
     assistant('Old background. '.repeat(5_000), 2)];
   const prompts: string[] = [];
   const systems: string[] = [];
-  const streamFn: StreamFn = async (_model, context, options) => {
+  const streamFn: StreamFn = async (_model, context) => {
     prompts.push(String(context.messages[0].content));
     systems.push(context.systemPrompt ?? '');
-    return { result: async () => assistant(options?.sessionId?.includes('summary-digest') ? '- Confirmed deadline: 20 October.' : body) } as AssistantMessageEventStream;
+    return { result: async () => assistant(body) } as AssistantMessageEventStream;
   };
   const original = JSON.stringify({ source, recent });
   const result = await generatePiRollingSummaryV2({ messagesToSummarize: source, recentMessages: recent,
     previousSummaryText: null, model, streamFn, sessionId: 'focus-test', focusTopic: 'revised itinerary' });
   assert.ok(result);
-  assert.ok(prompts.length >= 3, 'exercise multiple digests and final summary');
-  assert.doesNotMatch(prompts.at(-1)!, /Old background\./, 'final summary must not receive the raw transcript again after digesting it');
+  assert.equal(prompts.length, 1, 'one-call sampling replaces serial digest generation');
+  assert.match(prompts[0], /Old background\./, 'the single summary receives bounded source records directly');
   for (const prompt of prompts) {
     assert.match(prompt, /December/);
     assert.match(prompt, /Yes, do that/);
@@ -91,11 +91,11 @@ async function main() {
     streamFn: async () => {
       slowCalls++;
       return { result: async () => {
-        await new Promise((resolve) => setTimeout(resolve, 200));
-        return assistant('- One digest.');
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return assistant(body);
       } } as AssistantMessageEventStream;
     } }), (error: unknown) => Boolean(error && typeof error === 'object' && 'reasonCode' in error && error.reasonCode === 'summary_total_timeout'));
-  assert.equal(slowCalls, 2, 'later chunks must share the original attempt deadline');
+  assert.equal(slowCalls, 1, 'a single summary call shares the attempt deadline');
   // A tool-only compacted region must not erase a real task in the retained tail.
   assert.ok(await generatePiRollingSummaryV2({ messagesToSummarize: [unsafe[3]], recentMessages: recent,
     previousSummaryText: null, model, streamFn, sessionId: 'tool-only-region' }));

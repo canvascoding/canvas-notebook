@@ -2,17 +2,19 @@
   "schemaVersion": 1,
   "feature": "hermes-aligned-session-compaction-v2",
   "title": "Hermes-aligned Session Compaction V2",
-  "updatedAt": "2026-09-01",
+  "updatedAt": "2026-09-22",
   "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "reference": {
     "repository": "https://github.com/NousResearch/hermes-agent",
-    "commit": "f293e7206b4ddd66042329442c6afebc19a8808d",
+    "commit": "e2f8a0731bf26e95b31e35d73e71e183a1045b81",
     "license": "MIT",
     "rule": "Every implementation task must name its Hermes source symbol or document an intentional Canvas divergence."
   },
   "documents": [
     "docs/architecture/canvas-notebook/session-compaction-v2/plan.md",
+    "docs/architecture/canvas-notebook/session-compaction-v2/hermes-parity-refresh-plan.md",
+    "docs/architecture/canvas-notebook/session-compaction-v2/operations.md",
     "docs/architecture/canvas-notebook/session-compaction-v2/todo.json"
   ],
   "executionPolicy": {
@@ -80,6 +82,31 @@
       "id": "SC-G09_V2_READY",
       "packageId": "SC-P09",
       "evidence": "Shadow rollout, default decision, rollback, compliance, tests, lint, build and approved E2E are complete."
+    },
+    {
+      "id": "SC-G10_POLICY_REFRESHED",
+      "packageId": "SC-P10",
+      "evidence": "Current Hermes reference, configuration precedence and one shared runtime budget policy are pinned and tested."
+    },
+    {
+      "id": "SC-G11_SINGLE_CALL_SUMMARY",
+      "packageId": "SC-P11",
+      "evidence": "The multi-digest path is gone; one bounded summary call and one explicit main-model fallback satisfy the summary contract."
+    },
+    {
+      "id": "SC-G12_TAIL_MODE_PARITY",
+      "packageId": "SC-P12",
+      "evidence": "Legacy and lean match current Hermes tail, anchor, user-verbatim, tool-stub and recovery invariants."
+    },
+    {
+      "id": "SC-G13_SETTINGS_READY",
+      "packageId": "SC-P13",
+      "evidence": "Persisted admin settings and visible environment overrides resolve identically for live chat and automations."
+    },
+    {
+      "id": "SC-G14_PRODUCTION_READY",
+      "packageId": "SC-P14",
+      "evidence": "Latency, reliability, rollback, observability, build and approved UI gates pass on production-shaped fixtures."
     }
   ],
   "packages": [
@@ -455,6 +482,170 @@
         "Approved Playwright verification passes the runtime-details and manual-compaction-break flows against an isolated migrated PostgreSQL database on localhost:3000"
       ],
       "exitGate": "SC-G09_V2_READY"
+    },
+    {
+      "id": "SC-P10",
+      "order": 10,
+      "title": "Refresh Hermes reference and central compaction policy",
+      "status": "completed",
+      "completedAt": "2026-09-22",
+      "dependsOn": ["SC-P09"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_compute_threshold_tokens",
+        "agent/context_compressor.py:_effective_threshold_percent",
+        "hermes_cli/config_defaults.py compression and auxiliary.compression"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Updated MIT attribution and pinned current Hermes reference",
+        "Central legacy/lean and summary-model configuration resolver",
+        "One immutable request-budget snapshot for live chat, automations, status and logs"
+      ],
+      "verification": [
+        "configuration precedence and invalid-value tests",
+        "small, 256K and large-window threshold parity tests",
+        "live and automation effective-policy equality"
+      ],
+      "completionEvidence": [
+        "The immutable effective compaction policy resolves deployment overrides before persisted admin preferences and product defaults",
+        "Live chat, normal automation compaction and automation overflow recovery use the same request-bound context-budget policy",
+        "Optional compaction configuration is strictly validated without changing existing runtime configuration semantics",
+        "Hermes MIT inventory and notices are pinned to e2f8a0731bf26e95b31e35d73e71e183a1045b81 without unrelated dependency drift",
+        "Policy, live-compaction, automation-history-compaction and focused ESLint checks pass"
+      ],
+      "exitGate": "SC-G10_POLICY_REFRESHED"
+    },
+    {
+      "id": "SC-P11",
+      "order": 11,
+      "title": "Port current Hermes single-call summary path",
+      "status": "completed",
+      "completedAt": "2026-09-22",
+      "dependsOn": ["SC-P10"],
+      "hermesReferences": [
+        "agent/context_compressor.py:_sample_summary_records",
+        "agent/context_compressor.py:_bound_oversized_record",
+        "agent/context_compressor.py:_generate_summary",
+        "agent/conversation_compression.py progress-aware timeout and fallback flow"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Removal of serial digest LLM calls",
+        "Bounded complete-record summary sampling",
+        "Refusal, empty and length-stop rejection",
+        "Dedicated summary model with one main-model fallback"
+      ],
+      "verification": [
+        "one-call and explicit-fallback call-count tests",
+        "summary coverage and newest-record tests",
+        "timeout, refusal, empty and truncation tests"
+      ],
+      "completionEvidence": [
+        "Legacy and Hermes V2 now use one bounded, complete-record summary request in the normal case; the serial digest-model loop and eager digest preparation are absent from production compaction",
+        "Time-distributed sampling preserves record boundaries, explicit gap markers and the newest record while bounding oversized individual records and stripping thinking/media payloads",
+        "An optional summary runtime is resolved through the normal authenticated catalog-policy boundary and falls back exactly once to the pinned main runtime without changing that runtime",
+        "Shared prompts budget against the narrowest candidate context window and the largest native candidate output reserve, including heterogeneous auxiliary/main model pairs",
+        "Empty, refusal-only, length-stopped and non-success results fail closed; idle and total deadlines abort provider work, reserve 40 percent of the attempt for the main fallback and never commit partial state",
+        "Single-call, coverage, newest-record, asymmetric-context, timeout, progress, provider-abort, refusal, truncation, live-runtime and automation-runtime tests pass together with TypeScript, ESLint and diff checks"
+      ],
+      "exitGate": "SC-G11_SINGLE_CALL_SUMMARY"
+    },
+    {
+      "id": "SC-P12",
+      "order": 12,
+      "title": "Complete current Hermes legacy and lean parity",
+      "status": "completed",
+      "completedAt": "2026-09-22",
+      "dependsOn": ["SC-P11"],
+      "hermesReferences": [
+        "agent/context_compressor.py legacy and lean tail budgets",
+        "agent/context_compressor.py lean anchor, verbatim-user and recovery augmentation",
+        "agent/context_compressor.py stale tail tool demotion"
+      ],
+      "portingMode": "ADAPTED_PORT",
+      "deliverables": [
+        "Exact legacy and lean tail selection",
+        "Lean tail hard cap",
+        "Deterministic anchor, user-verbatim, tool-stub and recovery sections",
+        "Searchable in-place raw history across repeated compactions"
+      ],
+      "verification": [
+        "multi-cycle legacy and lean fixtures",
+        "active user and tool-group preservation",
+        "authorized recovery and raw-history tests"
+      ],
+      "completionEvidence": [
+        "Legacy and Lean use distinct Hermes-equivalent inputs: Legacy bounds chronological head/tail text, while Lean samples complete records and adds deterministic anchors, real-user excerpts and authorized recovery guidance",
+        "Both tail formulas obey the 20 percent context-window hard cap; Lean additionally keeps the 10K/2.5-percent/25K target and preserves required user, assistant and atomic tool-group anchors",
+        "Lean projection demotes completed large tool results outside the newest six tool rounds into idempotent stubs; incomplete groups remain protected and durable raw history is never rewritten",
+        "Recovery hints are emitted only when the exact session is authorized and session_search is present in the effective Live or Automation tool manifest",
+        "A production-path two-cycle Automation fixture commits both summaries, advances the watermark, retains raw tool output in the store and projects the same authorized session id in a later Lean recovery stub",
+        "Policy, selection, pruning, recovery, summary, candidate-normalization, Live and Automation suites pass together with TypeScript, ESLint and diff checks"
+      ],
+      "exitGate": "SC-G12_TAIL_MODE_PARITY"
+    },
+    {
+      "id": "SC-P13",
+      "order": 13,
+      "title": "Expose compaction runtime settings and overrides",
+      "status": "completed",
+      "dependsOn": ["SC-P12"],
+      "hermesReferences": [
+        "hermes_cli/config_defaults.py compression.tail_mode",
+        "hermes_cli/config_defaults.py auxiliary.compression"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Persisted admin mode and summary-model settings",
+        "Environment override and visible source",
+        "Effective mode, model, trigger and tail target in runtime status"
+      ],
+      "verification": [
+        "settings API and authorization tests",
+        "environment precedence and restart tests",
+        "localized UI contracts and approved browser verification"
+      ],
+      "completionEvidence": [
+        "Organization-scoped mode and summary-route settings use revision CAS, preserve an explicit main-model decision, and safely seed the first save from a catalog-validated legacy fallback",
+        "Environment overrides remain highest priority; live chat and automations rebind only at a safe idle request boundary and expose resolver-confirmed status without leaking stale identities",
+        "Settings tests cover 401, 403, organization setup, catalog and settings conflicts, unavailable models, store persistence and localized UI contracts",
+        "Live compaction, runtime policy, TypeScript, ESLint and diff checks pass",
+        "Approved browser verification passed the save/reload/restore flow and visual checks at desktop, compact desktop and mobile widths"
+      ],
+      "exitGate": "SC-G13_SETTINGS_READY"
+    },
+    {
+      "id": "SC-P14",
+      "order": 14,
+      "title": "Production hardening, latency evidence and rollout",
+      "status": "completed",
+      "completedAt": "2026-09-22",
+      "dependsOn": ["SC-P13"],
+      "hermesReferences": [
+        "agent/conversation_compression.py leases and commit fences",
+        "agent/context_compressor.py persisted cooldown and anti-thrash",
+        "tests for infinite compaction, timeout and recovery"
+      ],
+      "portingMode": "INVARIANT_ONLY",
+      "deliverables": [
+        "Content-free stage, model, token and duration telemetry",
+        "Production-shaped latency and recovery evidence",
+        "Documented legacy rollback and lean canary rollout"
+      ],
+      "verification": [
+        "targeted compaction, runtime, automation and persistence suites",
+        "TypeScript, ESLint and npm run build",
+        "GitNexus detect_changes against main",
+        "approved Playwright verification"
+      ],
+      "completionEvidence": [
+        "Content-free structured stage telemetry records an opaque attemptId, provider/model route, token counters, duration and terminal reason without provider messages, prompt content, session identifiers or fingerprints",
+        "The deterministic production-shaped scorecard covers tool-rich 32k, 256k and 1M windows, preserves partition and tool-group invariants, and has explicit negative coverage for a truly removed tool result",
+        "One bounded summary call has a deterministic p95 of 375 ms versus 1,500 ms for the removed four-call serial-digest architecture (75 percent reduction)",
+        "Coordinator/store, selection, pruning, summary, live-runtime and automation regressions plus TypeScript, ESLint and the direct Next.js production build pass; the npm build wrapper stops earlier on a pre-existing unrelated third-party-inventory drift, which was not regenerated into this feature change",
+        "Operations document the legacy-tail canary, Lean canary comparison, telemetry acceptance criteria and immediate non-destructive rollback"
+      ],
+      "exitGate": "SC-G14_PRODUCTION_READY"
     }
   ]
 }

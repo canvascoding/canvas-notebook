@@ -35720,8 +35720,8 @@
     },
     {
       "name": "NousResearch/hermes-agent session-compaction reference",
-      "versionOrCommit": "f293e7206b4ddd66042329442c6afebc19a8808d",
-      "sourceUrl": "https://github.com/NousResearch/hermes-agent/tree/f293e7206b4ddd66042329442c6afebc19a8808d",
+      "versionOrCommit": "e2f8a0731bf26e95b31e35d73e71e183a1045b81",
+      "sourceUrl": "https://github.com/NousResearch/hermes-agent/tree/e2f8a0731bf26e95b31e35d73e71e183a1045b81",
       "packagePathOrArtifact": "Hermes-adapted session-compaction portions in app/lib/pi and scripts/fixtures/session-compaction-v2",
       "usage": "runtime",
       "distributedIn": [
@@ -35732,7 +35732,7 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/license-texts/hermes-agent-f293e720-MIT.txt",
+      "licenseTextRef": "docs/compliance/license-texts/hermes-agent-e2f8a073-MIT.txt",
       "licenseTextSha256": "821556e6336796450ab852d375117b48a4887e71d255794fd6318d99982a5ab6",
       "copyrightNotices": [
         "Copyright (c) 2025 Nous Research"
@@ -35740,7 +35740,7 @@
       "modified": true,
       "modificationNotice": "Canvas translates and adapts selected session-compaction algorithms, prompts and behavioral tests to its TypeScript message model, provider contracts and transactional persistence layer.",
       "policyDecision": "allowed",
-      "reviewNotes": "Pinned to the immutable reference commit. Every substantive port must retain a short source header and be mapped in docs/architecture/canvas-notebook/session-compaction-v2/plan.md."
+      "reviewNotes": "Pinned to the immutable current reference commit e2f8a0731bf26e95b31e35d73e71e183a1045b81. Every substantive port must retain a short source header and be mapped in docs/architecture/canvas-notebook/session-compaction-v2/hermes-parity-refresh-plan.md."
     },
     {
       "name": "object-assign",
