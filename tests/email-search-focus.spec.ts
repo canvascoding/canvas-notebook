@@ -9,7 +9,7 @@ async function installSearchFixture(context: BrowserContext) {
   await context.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    if (path === '/api/email/accounts') return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [account] } } });
+    if ((path === '/api/email/accounts' || path === '/api/email/mailboxes')) return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [account] } } });
     if (path === '/api/email/folders') return route.fulfill({ json: { success: true, data: { folders: [
       { id: 'INBOX', path: 'INBOX', name: 'Inbox', role: 'inbox', messageCount: 2, unseenCount: 0 },
       { id: 'Sent', path: 'Sent', name: 'Sent', role: 'sent', messageCount: 1, unseenCount: 0 },

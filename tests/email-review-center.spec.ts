@@ -43,7 +43,7 @@ async function installOutboxFixture(context: BrowserContext, initial: Draft[]) {
         items, sections: { notifications: [], todos: [], todoUnread: [], todoAttention: [], emailAttention: items },
       } } });
     }
-    if (url.pathname === '/api/email/accounts') return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [] } } });
+    if ((url.pathname === '/api/email/accounts' || url.pathname === '/api/email/mailboxes')) return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [] } } });
     const match = url.pathname.match(/^\/api\/(?:workspaces\/[^/]+\/email|email)\/outbox(?:\/([^/]+))?(?:\/(send|reject))?$/u);
     if (!match) {
       if (url.pathname.includes('/email/') && !['GET', 'HEAD'].includes(request.method())) {

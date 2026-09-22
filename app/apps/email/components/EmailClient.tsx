@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2,
   MailWarning,
@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
+import { authClient } from '@/app/lib/auth-client';
 import { parseEmailSearchQuery } from '@/app/lib/email/search-query';
 import { EmailComposeDialog } from '@/app/apps/email/components/EmailComposeDialog';
 import { EmailMailboxHeader } from '@/app/apps/email/components/EmailMailboxHeader';
@@ -65,13 +66,22 @@ export function EmailClient({
 }: EmailClientProps = {}) {
   const t = useTranslations('emails');
   const locale = useLocale();
+  const tm = useTranslations('emailMailboxes');
+  const { data: session } = authClient.useSession();
+  const selectionStorageKey = session?.user.id ? `emails.mailbox:${session.user.id}` : null;
   const setEmailChatContext = useSetEmailChatContext();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const { containerRef, listWidth, availableWidth, mode: layoutMode, setListWidth } = useEmailWorkspaceLayout();
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
+  const [accountsUser, setAccountsUser] = useState<string | null>(null);
+  const accountsUserRef = useRef<string | null>(null);
+  const accountsRequestRef = useRef<AbortController | null>(null);
+  const currentUserRef = useRef(selectionStorageKey);
+  useLayoutEffect(() => { currentUserRef.current = selectionStorageKey; }, [selectionStorageKey]);
   const [emailAllowRemoteImages, setEmailAllowRemoteImages] = useState(false);
   const [emailRemoteImageAllowedSenders, setEmailRemoteImageAllowedSenders] = useState<string[]>([]);
+  const [deniedMailboxKey, setDeniedMailboxKey] = useState<string | null>(null);
   const [activeAccountId, setActiveAccountId] = useState('');
   const [folders, setFolders] = useState<EmailFolder[]>([]);
   const [foldersAccountId, setFoldersAccountId] = useState('');
@@ -127,6 +137,7 @@ export function EmailClient({
     return () => window.removeEventListener('email-focus-change', syncFocus);
   }, [focused]);
   useEffect(() => () => { window.dispatchEvent(new CustomEvent('email-focus-change', { detail: { focused: false } })); }, []);
+  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
   const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
   const [isLoadingFolders, setIsLoadingFolders] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
@@ -163,26 +174,33 @@ export function EmailClient({
   const hasMessagesRef = useRef(false);
   const activeAccountRef = useRef<string>('');
   const activeFolderRef = useRef('INBOX');
+  const composeDraftRef = useRef(false);
   const appliedContextIntentRef = useRef<string | null>(null);
   const appliedSearchToolCallRef = useRef<string | null>(null);
 
   const activeAccount = useMemo(
-    () => accounts.find((account) => account.id === activeAccountId) || accounts[0] || null,
-    [accounts, activeAccountId],
+    () => accountsUser !== selectionStorageKey ? null : accounts.find((account) => (account.workspaceId ? `${account.id}:${account.workspaceId}` : account.id) === activeAccountId) || null,
+    [accounts, accountsUser, activeAccountId, selectionStorageKey],
   );
   const activeFolderName = useMemo(
     () => activeFolder === 'all' ? tSearch('allFolders') : folders.find((folder) => folder.path === activeFolder)?.name || activeFolder,
     [activeFolder, folders, tSearch],
   );
-  const canReadActiveAccount = Boolean(activeAccount && (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost));
+  const mailboxWorkspaceId = activeAccount?.workspaceId || null;
+  const mailboxScopeKey = activeAccount ? `${activeAccount.id}:${mailboxWorkspaceId || 'personal'}` : '';
+  const mailboxScopeRef = useRef(mailboxScopeKey);
+  useLayoutEffect(() => { mailboxScopeRef.current = mailboxScopeKey; }, [mailboxScopeKey]);
+  const canReadActiveAccount = Boolean(deniedMailboxKey !== mailboxScopeKey && activeAccount && (activeAccount.capabilities?.canRead ?? (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost)));
+  const canWriteActiveAccount = Boolean(deniedMailboxKey !== mailboxScopeKey && activeAccount && (activeAccount.capabilities?.canWrite ?? true));
+  const canRunAgent = canWriteActiveAccount && (activeAccount?.capabilities?.canRunAgent ?? true);
   const isStreamingSelectedMessageSummary = Boolean(selectedMessage && streamingSummaryMessageId === selectedMessage.id);
 
   useEffect(() => {
-    activeAccountRef.current = activeAccount?.id || '';
+    activeAccountRef.current = mailboxScopeKey;
     activeFolderRef.current = activeFolder;
     hasMessagesRef.current = messages.length > 0;
     selectedMessageRef.current = selectedMessage;
-  }, [activeAccount?.id, activeFolder, messages.length, selectedMessage]);
+  }, [mailboxScopeKey, activeAccount?.id, activeFolder, messages.length, selectedMessage]);
 
   const stopMessageSummaryStream = useCallback(() => {
     summaryAbortControllerRef.current?.abort();
@@ -308,25 +326,63 @@ export function EmailClient({
   useEffect(() => () => setEmailChatContext(null), [setEmailChatContext]);
 
   const loadAccounts = useCallback(async () => {
+    if (!selectionStorageKey) return;
+    accountsRequestRef.current?.abort();
+    const controller = new AbortController();
+    accountsRequestRef.current = controller;
+    const userChanged = accountsUserRef.current !== selectionStorageKey;
+    if (userChanged) { setAccounts([]); setActiveAccountId(''); clearReader(); setMessages([]); }
     setIsLoadingAccounts(true);
-    setError(null);
+    setAccountsLoadError(null);
     try {
-      const response = await fetch('/api/email/accounts', { credentials: 'include', cache: 'no-store' });
+      const response = await fetch('/api/email/mailboxes', { credentials: 'include', cache: 'no-store', signal: controller.signal });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadAccounts'));
+      if (controller.signal.aborted || currentUserRef.current !== selectionStorageKey) return;
+      accountsUserRef.current = selectionStorageKey;
+      setAccountsUser(selectionStorageKey);
       const nextAccounts = (payload.data?.accounts || []) as EmailAccount[];
       setAccounts(nextAccounts);
       setActiveAccountId((current) => {
-        if (current && nextAccounts.some((account) => account.id === current)) return current;
-        return nextAccounts.find((account) => account.isPrimary)?.id || nextAccounts[0]?.id || '';
+        const key = (account: EmailAccount) => account.workspaceId ? `${account.id}:${account.workspaceId}` : account.id;
+        let saved = userChanged ? '' : current;
+        try { saved ||= window.sessionStorage.getItem(selectionStorageKey) || ''; } catch { /* Session storage is optional. */ }
+        if (saved) return nextAccounts.some(account => key(account) === saved) ? saved : '';
+        const initial = nextAccounts.find(account => account.isPrimary && !account.workspaceId) || nextAccounts[0];
+        return initial ? key(initial) : '';
       });
-      if (nextAccounts.length === 0) setAccountsOpen(true);
+
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : t('errors.loadAccounts'));
+      if (controller.signal.aborted || currentUserRef.current !== selectionStorageKey) return;
+      setAccountsLoadError(loadError instanceof Error ? loadError.message : t('errors.loadAccounts'));
     } finally {
-      setIsLoadingAccounts(false);
+      if (!controller.signal.aborted && currentUserRef.current === selectionStorageKey) setIsLoadingAccounts(false);
     }
-  }, [t]);
+  }, [t, selectionStorageKey, clearReader]);
+
+  const mailboxFetch = useCallback(async (input: string, init: RequestInit = {}) => {
+    const scope = mailboxScopeKey;
+    const url = new URL(input, window.location.origin);
+    if (mailboxWorkspaceId) url.searchParams.set('mailboxWorkspaceId', mailboxWorkspaceId);
+    const body = typeof init.body === 'string' ? JSON.stringify({ ...JSON.parse(init.body), mailboxWorkspaceId }) : init.body;
+    const response = await fetch(url.toString(), { ...init, body });
+    if (mailboxScopeRef.current !== scope) throw new DOMException('Mailbox changed', 'AbortError');
+    if (response.status === 403 || response.status === 409) {
+      setDeniedMailboxKey(scope);
+      clearReader();
+      setMessages([]);
+      setFolders([]);
+      setFoldersAccountId('');
+      void loadAccounts();
+    }
+    return response;
+  }, [mailboxScopeKey, mailboxWorkspaceId, clearReader, loadAccounts]);
+
+  useEffect(() => {
+    if (selectionStorageKey && accountsUserRef.current === selectionStorageKey && activeAccountId) {
+      try { window.sessionStorage.setItem(selectionStorageKey, activeAccountId); } catch { /* Session storage is optional. */ }
+    }
+  }, [selectionStorageKey, activeAccountId]);
 
   const loadEmailPreferences = useCallback(async () => {
     try {
@@ -366,9 +422,15 @@ export function EmailClient({
   }, [emailRemoteImageAllowedSenders, t]);
 
   const selectAccount = (accountId: string) => {
+    if (composeController.draft) {
+      if (composeController.isSubmitting || composeController.isGeneratingAi || !window.confirm(tm('discardDraft'))) return;
+      composeController.close();
+    }
+    setDeniedMailboxKey(null);
     listRequestRef.current?.abort();
     folderRequestRef.current?.abort();
     clearReader();
+    setMessages([]);
     setActiveAccountId(accountId);
     setFoldersAccountId('');
     setActiveFolder('INBOX');
@@ -392,14 +454,14 @@ export function EmailClient({
     setIsLoadingFolders(true);
     setError(null);
     try {
-      const response = await fetch(`/api/email/folders?accountId=${encodeURIComponent(accountId)}`, {
+      const response = await mailboxFetch(`/api/email/folders?accountId=${encodeURIComponent(accountId)}`, {
         credentials: 'include',
         cache: 'no-store',
         signal: controller.signal,
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadFolders'));
-      if (folderRequestRef.current !== controller || activeAccountRef.current !== accountId) return;
+      if (folderRequestRef.current !== controller || activeAccountRef.current !== mailboxScopeKey) return;
       const nextFolders = (payload.data?.folders || []) as EmailFolder[];
       setFolders(nextFolders);
       setFoldersAccountId(accountId);
@@ -413,7 +475,7 @@ export function EmailClient({
     } finally {
       if (folderRequestRef.current === controller) setIsLoadingFolders(false);
     }
-  }, [t]);
+  }, [mailboxFetch, mailboxScopeKey, t]);
 
   const refreshSelectedMessage = useCallback(async () => {
     const current = selectedMessageRef.current;
@@ -428,14 +490,14 @@ export function EmailClient({
     detailRefreshRequestRef.current = controller;
     try {
       const params = new URLSearchParams({ folder });
-      const response = await fetch(
+      const response = await mailboxFetch(
         `/api/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(current.id)}?${params.toString()}`,
         { credentials: 'include', cache: 'no-store', signal: controller.signal },
       );
       const payload = await response.json().catch(() => ({}));
       if (
         detailRefreshRequestRef.current !== controller
-        || activeAccountRef.current !== accountId
+        || activeAccountRef.current !== mailboxScopeKey
         || selectedMessageRef.current?.folder !== current.folder
         || selectedMessageRef.current?.id !== current.id
         || !shouldApplyEmailRefresh({
@@ -464,10 +526,10 @@ export function EmailClient({
       if (controller.signal.aborted || detailRefreshRequestRef.current !== controller) return;
       setError(refreshError instanceof Error ? refreshError.message : t('errors.loadMessage'));
     }
-  }, [activeAccount, activeFolder, cancelDetailFollowUp, scheduleDetailFollowUp, t]);
+  }, [mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, cancelDetailFollowUp, scheduleDetailFollowUp, t]);
 
   const loadMessages = useCallback(async (options?: { background?: boolean; swrFollowUp?: boolean }) => {
-    if (!activeAccount || !canReadActiveAccount || foldersAccountId !== activeAccount.id) return;
+    if (!activeAccount || !canReadActiveAccount || foldersAccountId !== activeAccount?.id) return;
     const scopeKey = emailMessageListScopeKey({
       accountId: activeAccount.id,
       filter: messageFilter,
@@ -490,7 +552,7 @@ export function EmailClient({
     setSearchNotice(null);
     try {
       parseEmailSearchQuery(submittedQuery);
-      const response = await fetch('/api/email/messages/list', {
+      const response = await mailboxFetch('/api/email/messages/list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -508,7 +570,7 @@ export function EmailClient({
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadMessages'));
       if (
         listRequestRef.current !== controller
-        || activeAccountRef.current !== activeAccount.id
+        || activeAccountRef.current !== mailboxScopeKey
         || activeFolderRef.current !== activeFolder
         || !shouldApplyEmailRefresh({
           requestEpoch,
@@ -540,7 +602,7 @@ export function EmailClient({
         setIsRefreshingMessages(false);
       }
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, refreshSelectedMessage, scheduleListFollowUp, submittedQuery, t]);
+  }, [mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, canReadActiveAccount, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, refreshSelectedMessage, scheduleListFollowUp, submittedQuery, t]);
 
   const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
     setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
@@ -548,13 +610,13 @@ export function EmailClient({
   }, []);
 
   const markMessageReadOnOpen = useCallback(async (message: EmailMessageSummary | EmailMessageDetail) => {
-    if (!activeAccount || message.isRead) return;
+    if (!activeAccount || !canWriteActiveAccount || message.isRead) return;
     const folder = message.folder || activeFolder;
     const finishMutation = beginMessageMutation();
     updateMessageReadState(message.id, true);
 
     try {
-      const response = await fetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
+      const response = await mailboxFetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -568,7 +630,7 @@ export function EmailClient({
     } finally {
       finishMutation();
     }
-  }, [activeAccount, activeFolder, beginMessageMutation, loadFolders, t, updateMessageReadState]);
+  }, [mailboxFetch, canWriteActiveAccount, activeAccount, activeFolder, beginMessageMutation, loadFolders, t, updateMessageReadState]);
 
   const loadMessage = useCallback(async (message: EmailMessageSummary, options?: { openDialog?: boolean }) => {
     if (!activeAccount) return;
@@ -593,14 +655,14 @@ export function EmailClient({
     try {
       const params = new URLSearchParams();
       params.set('folder', folder);
-      const response = await fetch(
+      const response = await mailboxFetch(
         `/api/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(message.id)}?${params.toString()}`,
         { credentials: 'include', cache: 'no-store', signal: controller.signal },
       );
       const payload = await response.json().catch(() => ({}));
       if (
         detailRequestRef.current !== controller
-        || activeAccountRef.current !== accountId
+        || activeAccountRef.current !== mailboxScopeKey
         || activeFolderRef.current !== activeFolder
         || !shouldApplyEmailRefresh({
           requestEpoch,
@@ -627,7 +689,7 @@ export function EmailClient({
     } finally {
       if (detailRequestRef.current === controller) setIsLoadingMessage(false);
     }
-  }, [activeAccount, activeFolder, cancelDetailFollowUp, clearMessageSummary, layoutMode, markMessageReadOnOpen, scheduleDetailFollowUp, t]);
+  }, [mailboxFetch, mailboxScopeKey, activeAccount, activeFolder, cancelDetailFollowUp, clearMessageSummary, layoutMode, markMessageReadOnOpen, scheduleDetailFollowUp, t]);
 
   useEffect(() => {
     listFollowUpRunnerRef.current = () => {
@@ -645,7 +707,7 @@ export function EmailClient({
     cancelListFollowUp();
     listRequestEpochRef.current += 1;
     listRequestRef.current?.abort();
-  }, [activeAccount?.id, activeFolder, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, submittedQuery, searchRevision]);
+  }, [mailboxFetch, activeAccount?.id, activeFolder, cancelListFollowUp, foldersAccountId, messageFilter, messagePage, submittedQuery, searchRevision]);
 
   useEffect(() => () => {
     cancelListFollowUp();
@@ -675,6 +737,7 @@ export function EmailClient({
     if (appliedContextIntentRef.current === intentKey) return;
 
     const timeout = window.setTimeout(() => {
+      if (composeDraftRef.current) return;
       const requestedAccountId = contextIntent.accountId;
       if (isLoadingAccounts) return;
       if (requestedAccountId && !accounts.some((account) => account.id === requestedAccountId)) {
@@ -683,10 +746,12 @@ export function EmailClient({
       if (
         requestedAccountId
         && accounts.some((account) => account.id === requestedAccountId)
-        && activeAccountId !== requestedAccountId
+        && (activeAccount?.id !== requestedAccountId || (contextIntent.workspaceId && activeAccount.workspaceId !== contextIntent.workspaceId))
       ) {
         clearReader();
-        setActiveAccountId(requestedAccountId);
+        const requested = accounts.find(account => account.id === requestedAccountId && (!contextIntent.workspaceId || account.workspaceId === contextIntent.workspaceId));
+        if (!requested) return;
+        setActiveAccountId(requested.workspaceId ? `${requested.id}:${requested.workspaceId}` : requested.id);
         setFoldersAccountId('');
         setActiveFolder(contextIntent.folder || 'INBOX');
         setMessagePage(0);
@@ -707,7 +772,7 @@ export function EmailClient({
       // a separate effect. Wait for that reset to finish before opening a deep
       // link; otherwise the reset aborts this detail request and the intent is
       // already marked as applied.
-      if (opensMessage && foldersAccountId !== activeAccount.id) return;
+      if (opensMessage && foldersAccountId !== activeAccount?.id) return;
 
       if (contextIntent.folder && activeFolder !== contextIntent.folder) {
         clearReader();
@@ -797,7 +862,7 @@ export function EmailClient({
       void loadFolders(activeAccount.id);
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [activeAccount, canReadActiveAccount, clearReader, loadFolders]);
+  }, [mailboxFetch, activeAccount, canReadActiveAccount, clearReader, loadFolders]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -849,10 +914,13 @@ export function EmailClient({
   };
 
   const composeController = useEmailComposeController({
+    ownerUserId: session?.user.id || null,
     accounts,
     activeAccount,
     activeFolder,
     activeWorkspaceId,
+    mailboxWorkspaceId,
+    onAccessChanged: loadAccounts,
     contextIntent,
     onError: setError,
     onMessageActionNotice: setMessageActionNotice,
@@ -873,14 +941,18 @@ export function EmailClient({
     submit: submitComposeDraft,
     updateDraft: updateComposeDraft,
   } = composeController;
+  useLayoutEffect(() => { composeDraftRef.current = Boolean(composeDraft); }, [composeDraft]);
 
   const handleMessageAction = useCallback(async (action: EmailMessageActionName, destination?: string) => {
     if (!activeAccount || !selectedMessage) return;
+    if (['summary', 'ai-reply'].includes(action) ? !canRunAgent : !canWriteActiveAccount) return;
+    if (['trash', 'permanent-delete'].includes(action) && activeAccount.capabilities?.canDelete === false) return;
     if (action === 'draft-reply' || action === 'draft-reply-all' || action === 'draft-forward') {
       const mode = action === 'draft-forward' ? 'forward' : action === 'draft-reply-all' ? 'reply-all' : 'reply';
       openComposeDraft(mode, selectedMessage);
       return;
     }
+    if (!canWriteActiveAccount || (['trash', 'permanent-delete'].includes(action) && activeAccount.capabilities?.canDelete === false)) return;
     if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
 
     const folder = selectedMessage.folder || activeFolder;
@@ -900,7 +972,7 @@ export function EmailClient({
 
         try {
           const summaryEndpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/${encodeURIComponent(selectedMessage.id)}/summary?stream=1`;
-          const response = await fetch(summaryEndpoint, {
+          const response = await mailboxFetch(summaryEndpoint, {
             method: 'POST',
             headers: {
               Accept: 'text/event-stream',
@@ -944,7 +1016,7 @@ export function EmailClient({
       const body: Record<string, unknown> = { action, destination, folder, messageId: selectedMessage.id, operation: 'action' };
 
       const endpoint = `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`;
-      const response = await fetch(endpoint, {
+      const response = await mailboxFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -983,10 +1055,11 @@ export function EmailClient({
       finishMutation?.();
       setActiveMessageAction(null);
     }
-  }, [activeAccount, activeFolder, activeWorkspaceId, beginMessageMutation, clearReader, generateAiReplyPreview, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t]);
+  }, [mailboxFetch, canRunAgent, canWriteActiveAccount, activeAccount, activeFolder, activeWorkspaceId, beginMessageMutation, clearReader, generateAiReplyPreview, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t]);
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;
+    if (!canWriteActiveAccount || (['trash', 'permanent-delete'].includes(action) && activeAccount.capabilities?.canDelete === false)) return;
     if (action === 'permanent-delete' && !window.confirm(t('confirmPermanentDelete'))) return;
     if (action === 'move' && !destination) return;
 
@@ -998,7 +1071,7 @@ export function EmailClient({
     const finishMutation = beginMessageMutation();
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await mailboxFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -1029,7 +1102,7 @@ export function EmailClient({
       finishMutation();
       setActiveMessageListAction(null);
     }
-  }, [activeAccount, activeFolder, beginMessageMutation, clearReader, loadFolders, selectedMessageId, t]);
+  }, [mailboxFetch, canWriteActiveAccount, activeAccount, activeFolder, beginMessageMutation, clearReader, loadFolders, selectedMessageId, t]);
 
   const messageOffset = messagePage * MESSAGE_PAGE_SIZE;
   const messageStart = messages.length > 0 ? messageOffset + 1 : 0;
@@ -1204,6 +1277,13 @@ export function EmailClient({
     );
   }
 
+  if (accountsLoadError) {
+    return <section className="m-4 space-y-3 rounded-md border border-destructive/30 p-4" role="alert">
+      <p className="text-sm text-destructive">{accountsLoadError}</p>
+      <Button variant="outline" onClick={() => void loadAccounts()}>{tm('retry')}</Button>
+    </section>;
+  }
+
   if (accounts.length === 0) {
     return (
       <div className="mx-auto flex h-full w-full max-w-4xl flex-col gap-4 overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
@@ -1211,7 +1291,7 @@ export function EmailClient({
         <EmailAccountsCard
           isOpen={true}
           onOpenChange={() => undefined}
-          onAccountsChanged={loadAccounts}
+          onAccountsChanged={() => { setDeniedMailboxKey(null); void loadAccounts(); }}
           presentation="setup"
           onPreviewPreferencesChanged={(preferences) => {
             setEmailAllowRemoteImages(preferences.emailAllowRemoteImages);
@@ -1287,11 +1367,11 @@ export function EmailClient({
 
       {!canReadActiveAccount ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <section className="flex min-h-80 items-center justify-center border border-border bg-card p-6 text-center">
+          <section data-testid={activeAccount?.connectionState === 'reconnect_required' ? 'email-mailbox-repair' : 'email-mailbox-send-only'} className="flex min-h-80 items-center justify-center border border-border bg-card p-6 text-center">
             <div className="max-w-md space-y-3">
               <MailWarning className="mx-auto h-9 w-9 text-muted-foreground" />
-              <h3 className="text-base font-semibold">{t('imapMissingTitle')}</h3>
-              <p className="text-sm leading-6 text-muted-foreground">{t('imapMissingDescription')}</p>
+              <h3 className="text-base font-semibold">{tm(!activeAccount ? 'selectMailbox' : activeAccount.connectionState === 'reconnect_required' ? 'reconnectTitle' : 'sendOnlyTitle')}</h3>
+              <p className="text-sm leading-6 text-muted-foreground">{tm(!activeAccount ? 'selectionRemoved' : activeAccount.connectionState === 'reconnect_required' ? 'reconnectDescription' : 'sendOnlyDescription')}</p>
               <Button type="button" onClick={() => setAccountsOpen(true)}>
                 <Settings className="mr-2 h-4 w-4" />
                 {t('manageAccounts')}
@@ -1346,10 +1426,12 @@ export function EmailClient({
             messageRangeLabel={messageRangeLabel}
             messages={messages}
             onCloseContextMenu={() => setMessageContextMenu(null)}
-            onContextMenu={(message, position) => setMessageContextMenu({ messageId: message.id, ...position })}
+            onContextMenu={(message, position) => canWriteActiveAccount && setMessageContextMenu({ messageId: message.id, ...position })}
             onFolderSidebarOpenChange={changeFolderSidebar}
             onListWidthChange={setListWidth}
             onMessageAction={handleMessageListAction}
+            canWrite={canWriteActiveAccount}
+            canDelete={activeAccount?.capabilities?.canDelete ?? true}
             onOpenMessage={(message, openInDialog) => void loadMessage(message, openInDialog ? { openDialog: true } : undefined)}
             onPageChange={(direction) => {
               listRequestRef.current?.abort();
@@ -1366,8 +1448,10 @@ export function EmailClient({
           {layoutMode === 'wide' && <section className="flex min-h-0 flex-col overflow-hidden border border-border bg-card">
             <EmailMessageViewer
               key={`email-message-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
-              actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
+              actions={selectedMessage ? { canWrite: canWriteActiveAccount, canRunAgent, activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               accountId={activeAccount?.id}
+              mailboxWorkspaceId={mailboxWorkspaceId}
+              onMailboxAccessChanged={() => { setDeniedMailboxKey(mailboxScopeKey); clearReader(); setMessages([]); setFolders([]); setFoldersAccountId(''); void loadAccounts(); }}
               allowRemoteResourcesByDefault={emailAllowRemoteImages}
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
               hasPendingUpdate={Boolean(pendingMessageUpdate)}
@@ -1399,8 +1483,10 @@ export function EmailClient({
             </DialogHeader>
             <EmailMessageViewer
               key={`email-message-dialog-viewer:${activeAccount?.id || ''}:${selectedMessage?.folder || activeFolder}:${selectedMessage?.id || 'empty'}:${readerRevision}`}
-              actions={selectedMessage ? { activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
+              actions={selectedMessage ? { canWrite: canWriteActiveAccount, canRunAgent, activeAction: activeMessageAction, folders, onAction: handleMessageAction } : undefined}
               accountId={activeAccount?.id}
+              mailboxWorkspaceId={mailboxWorkspaceId}
+              onMailboxAccessChanged={() => { setDeniedMailboxKey(mailboxScopeKey); clearReader(); setMessages([]); setFolders([]); setFoldersAccountId(''); void loadAccounts(); }}
               allowRemoteResourcesByDefault={emailAllowRemoteImages}
               allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
               className="bg-card"
@@ -1431,6 +1517,11 @@ export function EmailClient({
         error={composeError}
         isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
+        canGenerateAi={canRunAgent}
+        submitDisabled={!canWriteActiveAccount || composeController.sendUncertain}
+        onOpenOutbox={composeController.sendUncertain ? composeController.openOutbox : undefined}
+        accountId={activeAccount?.id}
+        mailboxWorkspaceId={mailboxWorkspaceId}
         senderAddress={activeAccount?.emailAddress || ''}
         labels={composeDialogLabels}
         locale={locale}
@@ -1452,7 +1543,7 @@ export function EmailClient({
               <EmailAccountsCard
                 isOpen={true}
                 onOpenChange={() => undefined}
-                onAccountsChanged={loadAccounts}
+                onAccountsChanged={() => { setDeniedMailboxKey(null); void loadAccounts(); }}
                 presentation="dialog"
                 onPreviewPreferencesChanged={(preferences) => {
                   setEmailAllowRemoteImages(preferences.emailAllowRemoteImages);

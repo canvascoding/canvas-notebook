@@ -289,7 +289,29 @@ function emailHtmlForPreview(bodyHtmlValue: string | undefined, bodyValue: strin
   return isLikelyHtmlEmailContent(body) ? normalizeEmailHtmlContent(body) : '';
 }
 
+function scopeInlineAttachmentUrls(html: string, accountId?: string, mailboxWorkspaceId?: string | null) {
+  if (!accountId || !mailboxWorkspaceId || typeof window === 'undefined') return html;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const prefix = `/api/email/accounts/${encodeURIComponent(accountId)}/messages/`;
+  doc.querySelectorAll('[src], [href]').forEach(element => {
+    for (const attribute of ['src', 'href']) {
+      const value = element.getAttribute(attribute);
+      if (!value) continue;
+      try {
+        const url = new URL(value, window.location.origin);
+        if (url.origin === window.location.origin && url.pathname.startsWith(prefix) && url.pathname.includes('/attachments/')) {
+          url.searchParams.set('mailboxWorkspaceId', mailboxWorkspaceId);
+          element.setAttribute(attribute, url.toString());
+        }
+      } catch { /* Invalid links are removed by the existing sanitizer. */ }
+    }
+  });
+  return doc.documentElement.outerHTML;
+}
+
 export function EmailMessageBody({
+  accountId,
+  mailboxWorkspaceId,
   allowRemoteResourcesByDefault,
   allowedRemoteResourceSenders,
   message,
@@ -301,6 +323,8 @@ export function EmailMessageBody({
   allowRemoteResourcesByDefault: boolean;
   allowedRemoteResourceSenders: string[];
   message: EmailMessageDetail;
+  accountId?: string;
+  mailboxWorkspaceId?: string | null;
   onAllowRemoteResourcesForSender(sender: string): void;
   remoteImagesBlockedText: string;
   showRemoteImagesText: string;
@@ -308,7 +332,7 @@ export function EmailMessageBody({
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const iframeResizeObserverRef = useRef<ResizeObserver | null>(null);
-  const htmlForPreview = useMemo(() => emailHtmlForPreview(message.bodyHtml, message.body), [message.body, message.bodyHtml]);
+  const htmlForPreview = useMemo(() => scopeInlineAttachmentUrls(emailHtmlForPreview(message.bodyHtml, message.body), accountId, mailboxWorkspaceId), [message.body, message.bodyHtml, accountId, mailboxWorkspaceId]);
   const messageKey = `${message.id}:${htmlForPreview.length}:${message.body?.length || 0}`;
   const senderEmail = extractEmailAddressForCompose(message.from);
   const [remoteResourceState, setRemoteResourceState] = useState({ allow: false, messageKey: '' });
@@ -503,6 +527,8 @@ function EmailAiSplitButton({
 }
 
 export function EmailMessageRowActions({
+  canWrite = true,
+  canDelete = true,
   activeAction,
   contextMenuPosition,
   folders,
@@ -511,6 +537,8 @@ export function EmailMessageRowActions({
   onAction,
   onCloseContextMenu,
 }: {
+  canWrite?: boolean;
+  canDelete?: boolean;
   activeAction: EmailMessageListActionState;
   contextMenuPosition: EmailMessageContextMenuPosition | null;
   folders: EmailFolder[];
@@ -520,7 +548,7 @@ export function EmailMessageRowActions({
   onCloseContextMenu(): void;
 }) {
   const [isMoveOpen, setIsMoveOpen] = useState(false);
-  const isBusy = activeAction?.messageId === message.id;
+  const isBusy = !canWrite || activeAction?.messageId === message.id;
   const isArchiveBusy = isBusy && activeAction?.action === 'archive';
   const isMoveBusy = isBusy && activeAction?.action === 'move';
   const isReadBusy = isBusy && (activeAction?.action === 'mark-read' || activeAction?.action === 'mark-unread');
@@ -539,7 +567,7 @@ export function EmailMessageRowActions({
             size="icon-sm"
             variant="ghost"
             className="h-8 w-8 rounded-r-none"
-            disabled={isBusy}
+            disabled={isBusy || !canDelete}
             aria-label={labels.trash}
             title={labels.trash}
             onClick={() => onAction(message, 'trash')}
@@ -562,6 +590,7 @@ export function EmailMessageRowActions({
         </div>
         <DropdownMenuContent align="end" sideOffset={8} className="w-48">
           <EmailMessageRowActionMenuItems
+            canDelete={canDelete}
             disabled={isBusy}
             labels={labels}
             message={message}
@@ -594,6 +623,7 @@ export function EmailMessageRowActions({
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
           <EmailMessageRowActionMenuItems
+            canDelete={canDelete}
             disabled={isBusy}
             labels={labels}
             message={message}
@@ -644,6 +674,7 @@ export function EmailMessageRowActions({
 }
 
 function EmailMessageRowActionMenuItems({
+  canDelete = true,
   disabled,
   labels,
   message,
@@ -652,6 +683,7 @@ function EmailMessageRowActionMenuItems({
   readAction,
   readLabel,
 }: {
+  canDelete?: boolean;
   disabled: boolean;
   labels: Pick<EmailMessageViewerLabels, 'archive' | 'markRead' | 'markUnread' | 'moveTo' | 'permanentDelete'>;
   message: EmailMessageSummary;
@@ -674,7 +706,7 @@ function EmailMessageRowActionMenuItems({
         {message.isRead ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
         {readLabel}
       </DropdownMenuItem>
-      <DropdownMenuItem disabled={disabled} onSelect={() => onAction(message, 'permanent-delete')} className="text-destructive focus:text-destructive">
+      <DropdownMenuItem disabled={disabled || !canDelete} onSelect={() => onAction(message, 'permanent-delete')} className="text-destructive focus:text-destructive">
         <XCircle className="h-4 w-4" />
         {labels.permanentDelete}
       </DropdownMenuItem>
@@ -684,6 +716,8 @@ function EmailMessageRowActionMenuItems({
 
 export function EmailMessageViewer({
   accountId,
+  mailboxWorkspaceId,
+  onMailboxAccessChanged,
   actions,
   allowRemoteResourcesByDefault,
   allowedRemoteResourceSenders,
@@ -703,6 +737,8 @@ export function EmailMessageViewer({
   unavailable = false,
 }: {
   accountId?: string;
+  mailboxWorkspaceId?: string | null;
+  onMailboxAccessChanged?(): void;
   actions?: EmailMessageViewerActions;
   allowRemoteResourcesByDefault: boolean;
   allowedRemoteResourceSenders: string[];
@@ -767,18 +803,18 @@ export function EmailMessageViewer({
         </div>
         {actions && (
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t border-border/70 pt-2.5">
-            <EmailReplySplitButton actions={actions} labels={labels} />
-            <Button type="button" size="sm" variant="outline" disabled={Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-forward')} title={labels.forward}>
+            {actions.canWrite !== false && <EmailReplySplitButton actions={actions} labels={labels} />}
+            <Button type="button" size="sm" variant="outline" disabled={actions.canWrite === false || Boolean(actions.activeAction)} onClick={() => actions.onAction('draft-forward')} title={labels.forward}>
               {actions.activeAction === 'draft-forward' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Forward className="h-4 w-4" />}
               {labels.forward}
             </Button>
-            <EmailAiSplitButton actions={actions} labels={labels} />
+            {actions.canRunAgent !== false && <EmailAiSplitButton actions={actions} labels={labels} />}
             <label className="sr-only" htmlFor={`email-message-move-${message.id}`}>{labels.moveTo}</label>
             <select
               id={`email-message-move-${message.id}`}
               className="h-8 max-w-full border border-input bg-background px-2 text-sm"
               defaultValue=""
-              disabled={Boolean(actions.activeAction)}
+              disabled={actions.canWrite === false || Boolean(actions.activeAction)}
               onChange={(event) => {
                 const destination = event.target.value;
                 event.target.value = '';
@@ -808,6 +844,8 @@ export function EmailMessageViewer({
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         <EmailMessageBody
+            accountId={accountId}
+            mailboxWorkspaceId={mailboxWorkspaceId}
           allowRemoteResourcesByDefault={allowRemoteResourcesByDefault}
           allowedRemoteResourceSenders={allowedRemoteResourceSenders}
           message={message}
@@ -818,7 +856,9 @@ export function EmailMessageViewer({
         />
         {message.attachments && message.attachments.length > 0 && (
           <EmailAttachmentActions
+            onMailboxAccessChanged={onMailboxAccessChanged}
             accountId={accountId}
+            mailboxWorkspaceId={mailboxWorkspaceId}
             attachments={message.attachments}
             folder={message.folder}
             labels={labels}

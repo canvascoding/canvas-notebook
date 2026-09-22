@@ -327,7 +327,7 @@
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:inbound-attachments": "tsx --conditions react-server scripts/email-inbound-attachments-test.ts && tsx --conditions react-server scripts/email-attachment-batch-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
-    "test:email:mailboxes": "tsx --conditions react-server scripts/email-mailbox-access-test.ts && tsx --conditions react-server scripts/email-mailbox-mutation-route-test.ts && tsx --conditions react-server scripts/email-ai-mailbox-actor-test.ts",
+    "test:email:mailboxes": "tsx --conditions react-server scripts/email-mailbox-access-test.ts && tsx --conditions react-server scripts/email-mailbox-mutation-route-test.ts && tsx --conditions react-server scripts/email-ai-mailbox-actor-test.ts && tsx --conditions react-server scripts/email-tool-mailbox-context-test.ts",
     "test:email:personal-boundaries": "tsx --conditions react-server scripts/email-personal-boundaries-test.ts",
     "test:email:agent-profile": "tsx --conditions react-server scripts/email-agent-profile-test.ts",
     "test:email:workspace-postgres-migration": "tsx --conditions react-server scripts/workspace-email-postgres-migration-test.ts",

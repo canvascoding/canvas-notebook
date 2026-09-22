@@ -1,4 +1,19 @@
 {
+  "emailMailboxes": {
+    "retry": "Erneut versuchen",
+    "personal": "Persönlich",
+    "workspace": "Workspace",
+    "selectMailbox": "Postfach auswählen",
+    "selectionRemoved": "Dieses Postfach ist nicht mehr verfügbar. Wähle ein verfügbares Postfach. Der Absender wurde nicht automatisch geändert.",
+    "discardDraft": "Ungesendeten Entwurf verwerfen und Postfach wechseln?",
+    "reconnectTitle": "Postfach erneut verbinden",
+    "reconnectDescription": "Diese Verbindung ist nicht mehr bereit. Verbinde sie in den E-Mail-Einstellungen erneut oder frage deine Workspace-Administration.",
+    "sendOnlyTitle": "Versand bereit; Empfang noch nicht eingerichtet",
+    "sendOnlyDescription": "Du kannst mit diesem Postfach E-Mails verfassen. Richte IMAP in den Verbindungseinstellungen ein, um E-Mails zu empfangen und zu durchsuchen.",
+    "senderChanged": "Die Postfachzuordnung hat sich geändert. Dein Entwurf bleibt erhalten; prüfe den Absender, bevor du fortfährst.",
+    "sendUncertain": "Das Versandergebnis konnte nicht bestätigt werden. Dein Text bleibt erhalten. Prüfe den Postausgang vor einem erneuten Versand, um doppelte E-Mails zu vermeiden.",
+    "openOutbox": "Postausgang öffnen"
+  },
   "common": {
     "cancel": "Abbrechen",
     "back": "Zurück",

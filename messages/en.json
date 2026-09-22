@@ -1,4 +1,19 @@
 {
+  "emailMailboxes": {
+    "retry": "Retry",
+    "personal": "Personal",
+    "workspace": "Workspace",
+    "selectMailbox": "Choose a mailbox",
+    "selectionRemoved": "This mailbox is no longer available. Choose an accessible mailbox to continue. Your sender has not been changed automatically.",
+    "discardDraft": "Discard the unsent draft and change mailbox?",
+    "reconnectTitle": "Reconnect mailbox",
+    "reconnectDescription": "This connection is no longer ready. Reconnect it in email settings, or ask your workspace administrator.",
+    "sendOnlyTitle": "Sending is ready; receiving is not configured",
+    "sendOnlyDescription": "You can compose emails from this mailbox. Configure IMAP in its connection settings to receive and search emails.",
+    "senderChanged": "The mailbox assignment changed. Your draft is preserved; verify the sender before continuing.",
+    "sendUncertain": "The send result could not be confirmed. Your text is preserved. Check the Outbox before sending again to avoid duplicates.",
+    "openOutbox": "Open Outbox"
+  },
   "common": {
     "cancel": "Cancel",
     "back": "Back",
