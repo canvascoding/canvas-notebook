@@ -35696,7 +35696,7 @@
       "modified": true,
       "modificationNotice": "Canvas translates and adapts selected session-compaction algorithms, prompts and behavioral tests to its TypeScript message model, provider contracts and transactional persistence layer.",
       "policyDecision": "allowed",
-      "reviewNotes": "Pinned to the immutable reference commit. Every substantive port must retain a short source header and be mapped in docs/architecture/canvas-notebook/session-compaction-v2/plan.md."
+      "reviewNotes": "Pinned to the immutable current reference commit e2f8a0731bf26e95b31e35d73e71e183a1045b81. Every substantive port must retain a short source header and be mapped in docs/architecture/canvas-notebook/session-compaction-v2/hermes-parity-refresh-plan.md."
     },
     {
       "name": "object-assign",

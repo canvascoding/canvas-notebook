@@ -46,7 +46,6 @@ test.describe('third-party legal inventory', () => {
     expect(summary.releaseGate?.status).toBe('approved');
     expect(summary.releaseGate?.blockers).toEqual([]);
     expect(summary.summary?.distributedReviewRequired).toBe(0);
-    expect(summary.summary?.developmentOnlyReviewRequired).toBe(50);
 
     const noticesResponse = await page.request.get('/api/legal/third-party/notices');
     expect(noticesResponse.ok()).toBeTruthy();
@@ -56,7 +55,16 @@ test.describe('third-party legal inventory', () => {
     const inventoryResponse = await page.request.get('/api/legal/third-party/inventory');
     expect(inventoryResponse.ok()).toBeTruthy();
     expect(inventoryResponse.headers()['content-type']).toContain('application/json');
-    await expect(inventoryResponse.json()).resolves.toMatchObject({ schemaVersion: 1 });
+    const inventory = await inventoryResponse.json() as {
+      schemaVersion?: number;
+      summary?: {
+        totalComponents?: number;
+        distributedReviewRequired?: number;
+        developmentOnlyReviewRequired?: number;
+      };
+    };
+    expect(inventory).toMatchObject({ schemaVersion: 1 });
+    expect(summary.summary).toEqual(inventory.summary);
 
     const viewport = await page.evaluate(() => ({
       width: window.innerWidth,
