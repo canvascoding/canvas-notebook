@@ -1,3 +1,6 @@
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
+
 const STORAGE_KEY = 'canvas.chat.composerDrafts.v1';
 const MAX_DRAFTS = 30;
 
@@ -38,20 +41,28 @@ function saveDraftMap(map: Record<string, ComposerDraftEntry>) {
   }
 }
 
-export function saveComposerDraft(key: string, text: string) {
+export function composerDraftScope(workspaceId = useWorkspaceStore.getState().activeWorkspaceId): string | null {
+  const auth = openedDocumentAuthScope();
+  return auth && workspaceId ? JSON.stringify([auth.userId, workspaceId]) : null;
+}
+
+export function saveComposerDraft(key: string, text: string, scope = composerDraftScope()) {
+  if (!scope) return;
   const map = loadDraftMap();
-  map[key] = { text, updatedAt: Date.now() };
+  map[JSON.stringify([scope, key])] = { text, updatedAt: Date.now() };
   saveDraftMap(map);
 }
 
-export function loadComposerDraft(key: string): string | null {
+export function loadComposerDraft(key: string, scope = composerDraftScope()): string | null {
+  if (!scope) return null;
   const map = loadDraftMap();
-  return map[key]?.text ?? null;
+  return map[JSON.stringify([scope, key])]?.text ?? null;
 }
 
-export function removeComposerDraft(key: string) {
+export function removeComposerDraft(key: string, scope = composerDraftScope()) {
+  if (!scope) return;
   const map = loadDraftMap();
-  delete map[key];
+  delete map[JSON.stringify([scope, key])];
   saveDraftMap(map);
 }
 

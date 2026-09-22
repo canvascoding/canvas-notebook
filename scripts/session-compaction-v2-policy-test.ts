@@ -1,6 +1,6 @@
 /**
  * Behavioral tests adapted from NousResearch/hermes-agent at
- * f293e7206b4ddd66042329442c6afebc19a8808d.
+ * e2f8a0731bf26e95b31e35d73e71e183a1045b81.
  * Copyright (c) 2025 Nous Research, MIT License.
  * See THIRD_PARTY_NOTICES.md.
  */
@@ -39,7 +39,8 @@ const parity = JSON.parse(fs.readFileSync(
     };
   }>;
 };
-assert.equal(parity.hermesCommit, 'f293e7206b4ddd66042329442c6afebc19a8808d');
+assert.equal(parity.hermesCommit, 'f293e7206b4ddd66042329442c6afebc19a8808d',
+  'historical legacy fixtures remain valid while P12 covers current Lean-only rules');
 
 for (const fixture of parity.cases) {
   const budget = createSessionCompactionBudget(fixture.input);
@@ -105,6 +106,20 @@ assert.equal(createSessionCompactionBudget({
   fixedRequestTokens: 0,
   config: { tailMode: 'lean' },
 }).targetTailTokens, 25_000, 'lean tails use the Hermes 25K cap');
+assert.equal(createSessionCompactionBudget({
+  contextWindowTokens: 16_000,
+  outputReserveTokens: 0,
+  fixedRequestTokens: 0,
+  config: { tailMode: 'lean' },
+}).targetTailTokens, 3_200,
+'the Lean 10K floor cannot consume more than Hermes\' 20% context hard cap');
+assert.equal(createSessionCompactionBudget({
+  contextWindowTokens: 16_000,
+  outputReserveTokens: 0,
+  fixedRequestTokens: 0,
+  config: { targetRatioOfThreshold: 0.5 },
+}).targetTailTokens, 3_200,
+'legacy tails also apply Hermes\' 20% context hard cap after their trigger-ratio formula');
 assert.equal(normalizeHermesThresholdTokensCap('200000'), 200_000);
 assert.equal(normalizeHermesThresholdTokensCap(0), null);
 assert.equal(normalizeHermesThresholdTokensCap('invalid'), null);

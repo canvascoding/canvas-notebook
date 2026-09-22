@@ -71,8 +71,9 @@ export function FileGridView({
     filteredListChildren,
     gridItems,
     gridSelectionOrder,
-    isLoadingTree,
-    isRestoring,
+    hasTreeSnapshot,
+    isInitialTreeLoading,
+    isRefreshingTree,
     isSearching,
     listSelectionOrder,
     loadFileTree,
@@ -323,9 +324,24 @@ export function FileGridView({
     />
   ) : null;
 
-  if (isLoadingTree || isRestoring) {
+  const backgroundStatus = isRefreshingTree ? (
+    <div role="status" aria-label={t('loadingFiles')} data-testid="file-tree-refresh-status"
+      className="pointer-events-none absolute right-2 top-2 z-20 rounded-md border border-border bg-background/90 p-1.5 text-muted-foreground">
+      <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+    </div>
+  ) : treeError && hasTreeSnapshot ? (
+    <div role="alert" className="absolute right-2 top-2 z-20 max-w-[85%] rounded-md border border-destructive/30 bg-background px-2 py-1 text-xs text-destructive">
+      <span>{treeError}</span>
+      <Button type="button" variant="ghost" size="sm" className="ml-2 h-6 px-2 text-xs"
+        onClick={() => { void loadFileTree('.', 0, true); }}>
+        {t('tryAgain')}
+      </Button>
+    </div>
+  ) : null;
+
+  if (isInitialTreeLoading) {
     return (
-      <div className="h-full overflow-hidden p-3 md:p-4" role="status" aria-label={t('loadingFiles')}>
+      <div data-testid="file-tree-loading-skeleton" className="h-full overflow-hidden p-3 md:p-4" role="status" aria-label={t('loadingFiles')}>
         <span className="sr-only">{t('loadingFiles')}</span>
         {browserMode === 'grid' ? (
           <div
@@ -358,7 +374,7 @@ export function FileGridView({
     );
   }
 
-  if (treeError && fileTree.length === 0) {
+  if (treeError && !hasTreeSnapshot) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-4 text-center">
         <AlertCircle className="h-8 w-8 text-destructive" />
@@ -375,6 +391,7 @@ export function FileGridView({
       <div
         ref={containerRef}
         data-file-scroll-container
+        aria-busy={isRefreshingTree || undefined}
         style={{ overflowAnchor: 'none' }}
         className="relative h-full overflow-y-auto focus:outline-none"
         onContextMenu={handleBackgroundContextMenu}
@@ -382,6 +399,7 @@ export function FileGridView({
         tabIndex={0}
         aria-label={browserMode === 'grid' ? t('fileGridLabel') : browserMode === 'list' ? t('fileListLabel') : t('fileTreeLabel')}
       >
+        {backgroundStatus}
         {renderEmptyState()}
         {marqueeOverlay}
         <BackgroundContextMenu onFileOpened={onFileOpened} />
@@ -394,8 +412,9 @@ export function FileGridView({
       <div
         ref={containerRef}
         data-file-scroll-container
+        aria-busy={isRefreshingTree || undefined}
         style={{ overflowAnchor: 'none' }}
-        className="h-full overflow-y-auto p-3 md:p-4 focus:outline-none"
+        className="relative h-full overflow-y-auto p-3 md:p-4 focus:outline-none"
         onContextMenu={handleBackgroundContextMenu}
         onFocus={handleContainerFocus}
         onKeyDown={handleContainerKeyDown}
@@ -403,6 +422,7 @@ export function FileGridView({
         tabIndex={0}
         aria-label={t('fileGridLabel')}
       >
+        {backgroundStatus}
         {searchSummary}
         {gridItems.length === 0 && !searchQuery ? (
           renderEmptyState()
@@ -458,6 +478,7 @@ export function FileGridView({
       <div
         ref={containerRef}
         data-file-scroll-container
+        aria-busy={isRefreshingTree || undefined}
         style={{ overflowAnchor: 'none' }}
         className="relative h-full overflow-y-auto py-2 focus:outline-none"
         tabIndex={0}
@@ -467,6 +488,7 @@ export function FileGridView({
         {...marqueeHandlers}
         aria-label={t('fileListLabel')}
       >
+        {backgroundStatus}
         <div className="px-2">{searchSummary}</div>
         {currentDirectory !== '.' && (
           <button
@@ -543,6 +565,7 @@ export function FileGridView({
     <div
       ref={containerRef}
       data-file-scroll-container
+      aria-busy={isRefreshingTree || undefined}
       style={{ overflowAnchor: 'none' }}
       className="relative h-full overflow-y-auto py-2 focus:outline-none"
       tabIndex={0}
@@ -552,6 +575,7 @@ export function FileGridView({
       {...marqueeHandlers}
       aria-label={t('fileTreeLabel')}
     >
+      {backgroundStatus}
       <div className="px-2">{searchSummary}</div>
       <SidebarProvider className="min-h-0">
         <SidebarGroup className="p-0">

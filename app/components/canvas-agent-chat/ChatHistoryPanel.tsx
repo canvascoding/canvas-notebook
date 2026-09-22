@@ -30,6 +30,7 @@ import type {
   ChatHistorySearchMatch,
 } from '@/app/lib/chat/types';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ChatLoadingSkeleton } from './ChatLoadingSkeleton';
 import { cn } from '@/lib/utils';
 
 const CHAT_HISTORY_GROUP_ORDER: ChatHistoryGroup[] = [
@@ -224,6 +225,8 @@ function ChatHistorySessionRow({
 
 export type ChatHistoryPanelLabels = {
   chatHistory: string;
+  loadingSessions?: string;
+  retry?: string;
   searchSessions: string;
   searchingSessions: string;
   matchInChat: string;
@@ -251,6 +254,9 @@ export type ChatHistoryPanelProps = {
   historySearchQuery: string;
   historySearchMatchesBySessionId: Map<string, ChatHistorySearchMatch>;
   isSearchingHistory: boolean;
+  isLoadingHistory?: boolean;
+  historyError?: string | null;
+  onRetryHistory?: () => void | Promise<void>;
   historyUnreadOnly: boolean;
   historyAgentFilter: string;
   historyAgentOptions: ChatHistoryAgentOption[];
@@ -279,6 +285,9 @@ export function ChatHistoryPanel({
   historySearchQuery,
   historySearchMatchesBySessionId,
   isSearchingHistory,
+  isLoadingHistory = false,
+  historyError,
+  onRetryHistory,
   historyUnreadOnly,
   historyAgentFilter,
   historyAgentOptions,
@@ -417,7 +426,18 @@ export function ChatHistoryPanel({
       </div>
 
       <div className={cn('flex-1 overflow-y-auto p-2.5', isOverlay ? 'pb-[calc(env(safe-area-inset-bottom)+0.75rem)]' : null)}>
-        {history.length === 0 ? (
+        {isLoadingHistory && history.length === 0 ? (
+          <ChatLoadingSkeleton label={labels.loadingSessions ?? labels.searchingSessions} variant="history" />
+        ) : null}
+        {historyError ? (
+          <div role="alert" className="space-y-2 p-3 text-sm text-muted-foreground">
+            <p>{historyError}</p>
+            {onRetryHistory ? <button type="button" disabled={isLoadingHistory} className="underline" onClick={() => { void onRetryHistory(); }}>
+              {labels.retry ?? labels.searchSessions}
+            </button> : null}
+          </div>
+        ) : null}
+        {history.length === 0 && !isLoadingHistory && !historyError ? (
           <div className="p-8 text-center text-sm italic text-muted-foreground">
             {labels.noRecentSessions}
           </div>

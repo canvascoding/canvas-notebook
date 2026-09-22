@@ -1,10 +1,10 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
 import { useEffect, useState, type ComponentType } from 'react';
 
 import { captureClientException } from '@/app/lib/observability/capture-client-exception';
 import { EditorFailureNotice } from './EditorErrorBoundary';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import type { MarkdownEditorProps } from './MarkdownEditor';
 
 export function MarkdownEditor(props: MarkdownEditorProps) {
@@ -57,16 +57,5 @@ function MarkdownEditorLoader({
     return <EditorFailureNotice onRetry={onRetry} />;
   }
 
-  return (
-    <div
-      className="flex h-full min-h-24 items-center justify-center bg-background"
-      role="status"
-      aria-label="Loading Markdown editor"
-    >
-      <Loader2
-        className="h-5 w-5 animate-spin text-muted-foreground"
-        aria-hidden="true"
-      />
-    </div>
-  );
+  return <DocumentLoadingSkeleton label="Loading Markdown editor" />;
 }

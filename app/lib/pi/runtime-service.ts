@@ -36,6 +36,7 @@ import {
   requestedWorkspaceIdFromChatContext,
   workspaceToChatRequestWorkspace,
 } from '@/app/lib/pi/session-workspace-context';
+import { MessageDeliveryError, withMessageDeliveryReceipt } from '@/app/lib/pi/message-delivery-receipt';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
 import {
@@ -79,7 +80,7 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function getErrorStatusCode(error: unknown): number {
-  return error instanceof RuntimeServiceError ? error.statusCode : 500;
+  return error instanceof RuntimeServiceError || error instanceof MessageDeliveryError ? error.statusCode : 500;
 }
 
 export function isValidUserMessage(message: unknown): message is UserAgentMessage {
@@ -411,7 +412,7 @@ export async function prepareRuntimePrompt(
   timing.mark('getOrCreateRuntime');
   const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context, userId);
   timing.mark('injectStudioImage');
-  const status = runtimeInstance.getStatus();
+  let status = runtimeInstance.getStatus();
 
   if (!promptMessage && !status.canAbort) {
     throw new RuntimeServiceError('Prompt message required when no run is active.', 400);
@@ -420,6 +421,10 @@ export async function prepareRuntimePrompt(
   applyPiRuntimePromptContext(runtimeInstance, context);
   if (!status.canAbort && !runtimeCreated) {
     await runtimeInstance.reloadTools();
+  }
+  if (!status.canAbort) {
+    await runtimeInstance.reloadCompactionPolicyForNextRequest();
+    status = runtimeInstance.getStatus();
   }
   await runtimeInstance.refreshWorkspaceFileTreePrompt();
   timing.mark('applyContextAndReloadTools');
@@ -461,11 +466,18 @@ export async function sendMessage(
     const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
 
     if (prepared.promptMessage) {
-      if (prepared.status.canAbort) {
-        return prepared.runtimeInstance.queueFollowUp(prepared.promptMessage, prepared.context);
-      }
-
-      prepared.runtimeInstance.startPrompt(prepared.promptMessage, prepared.context);
+      const promptMessage = prepared.promptMessage;
+      return withMessageDeliveryReceipt({
+        sessionId, userId, runtime: prepared.runtimeInstance,
+        message: message!, context,
+        dispatch: () => {
+          if (prepared.runtimeInstance.getStatus().canAbort) {
+            return prepared.runtimeInstance.queueFollowUp(promptMessage, prepared.context);
+          }
+          prepared.runtimeInstance.startPrompt(promptMessage, prepared.context);
+          return prepared.runtimeInstance.getStatus();
+        },
+      });
     }
 
     return prepared.runtimeInstance.getStatus();
@@ -569,14 +581,17 @@ export async function control(
         {
           const context = await prepareMessageContext();
           await runtimeInstance.refreshWorkspaceFileTreePrompt();
-          // The active run can finish between the client deciding to queue a
-          // follow-up and this serialized control action reaching the runtime.
-          // Preserve the message by starting a normal turn when that happens.
-          if (!runtimeInstance.getStatus().canAbort) {
-            runtimeInstance.startPrompt(message, context);
-            return runtimeInstance.getStatus();
-          }
-          return runtimeInstance.queueFollowUp(message, context);
+          return withMessageDeliveryReceipt({
+            sessionId, userId, runtime: runtimeInstance, message, context: requestContext,
+            dispatch: () => {
+              // The run can finish between queue selection and serialized admission.
+              if (!runtimeInstance.getStatus().canAbort) {
+                runtimeInstance.startPrompt(message, context);
+                return runtimeInstance.getStatus();
+              }
+              return runtimeInstance.queueFollowUp(message, context);
+            },
+          });
         }
       case 'steer':
         if (!isValidUserMessage(message)) {
@@ -585,7 +600,10 @@ export async function control(
         {
           const context = await prepareMessageContext();
           await runtimeInstance.refreshWorkspaceFileTreePrompt();
-          return runtimeInstance.queueSteering(message, context);
+          return withMessageDeliveryReceipt({
+            sessionId, userId, runtime: runtimeInstance, message, context: requestContext, mode: 'steer',
+            dispatch: () => runtimeInstance.queueSteering(message, context),
+          });
         }
       case 'promote_queued_to_steer':
         if (typeof queueItemId !== 'string' || !queueItemId.trim()) {

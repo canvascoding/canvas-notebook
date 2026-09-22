@@ -228,7 +228,7 @@ async function openEditorHistory(page: Page): Promise<void> {
 
 async function attachScreenshot(page: Page, testInfo: TestInfo, name: string): Promise<void> {
   const screenshotPath = testInfo.outputPath(`${name}.png`);
-  await page.screenshot({ path: screenshotPath, type: 'png' });
+  await page.screenshot({ path: screenshotPath, type: 'png', animations: 'disabled' });
   await testInfo.attach(name, { path: screenshotPath, contentType: 'image/png' });
 }
 

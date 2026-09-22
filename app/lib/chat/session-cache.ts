@@ -1,13 +1,17 @@
+import { nextChatSnapshotTimestamp } from '@/app/lib/chat/snapshot-clock';
+import { openedDocumentAuthScope, isOpenedDocumentAuthCurrent, subscribeOpenedDocumentAuthInvalidation, type OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { getChatMessageDbId, getChatMessageSequence, getChatMessageTimestamp } from '@/app/lib/chat/message-metadata';
 import { normalizeSessionRuntimePhase } from '@/app/lib/chat/runtime-message-utils';
-import type { AISession, CachedChatSession, ChatMessage, ChatSessionCacheStore, ChatWorkspaceType } from '@/app/lib/chat/types';
+import type { AISession, CachedChatSession, ChatMessage, ChatWorkspaceType } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { PI_SESSION_TITLE_GENERATION_STATES, type PiSessionTitleGenerationState } from '@/app/lib/pi/session-titles';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
 const CHAT_SESSION_CACHE_VERSION = 1;
-const CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY = 'canvas.chat.sessionMessages.v1';
+const CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY = 'canvas.chat.sessionMessages.v2';
+const LEGACY_CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY = 'canvas.chat.sessionMessages.v1';
+const CHAT_SESSION_CACHE_STORAGE_VERSION = 2;
 const CHAT_SESSION_MESSAGE_CACHE_MAX_ENTRIES = 6;
 const CHAT_SESSION_MESSAGE_CACHE_MAX_MESSAGES = 120;
 const CHAT_SESSION_MESSAGE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -15,6 +19,39 @@ const DEFAULT_MODEL_ID = '';
 
 const inMemoryChatSessionCache = new Map<string, CachedChatSession>();
 let hasHydratedChatSessionCache = false;
+
+const entryAuthScopes = new WeakMap<CachedChatSession, OpenedDocumentAuthScope | null>();
+let cacheAuthScope: OpenedDocumentAuthScope | null = null;
+
+function clearChatSessionCache() {
+  inMemoryChatSessionCache.clear();
+  hasHydratedChatSessionCache = false;
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY);
+    window.sessionStorage.removeItem(LEGACY_CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY);
+  } catch { /* Storage may be unavailable in privacy mode. */ }
+}
+
+subscribeOpenedDocumentAuthInvalidation(() => {
+  clearChatSessionCache();
+  cacheAuthScope = openedDocumentAuthScope();
+});
+
+function currentCacheScope(): OpenedDocumentAuthScope | null {
+  const scope = openedDocumentAuthScope();
+  if (cacheAuthScope !== scope) {
+    // Initial hydration may restore this authenticated session's persisted cache.
+    if (cacheAuthScope) clearChatSessionCache();
+    cacheAuthScope = scope;
+  }
+  return scope;
+}
+
+function tagCacheEntry(entry: CachedChatSession, scope: OpenedDocumentAuthScope | null): CachedChatSession {
+  entryAuthScopes.set(entry, scope);
+  return entry;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -118,20 +155,24 @@ function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
 }
 
 function hydrateChatSessionCacheFromStorage() {
-  if (hasHydratedChatSessionCache || typeof window === 'undefined') {
+  const scope = currentCacheScope();
+  if (!scope || hasHydratedChatSessionCache || typeof window === 'undefined') {
     return;
   }
 
   hasHydratedChatSessionCache = true;
 
   try {
+    window.sessionStorage.removeItem(LEGACY_CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY);
     const stored = window.sessionStorage.getItem(CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY);
     if (!stored) {
       return;
     }
 
     const parsed = JSON.parse(stored) as unknown;
-    if (!isRecord(parsed) || parsed.version !== CHAT_SESSION_CACHE_VERSION || !Array.isArray(parsed.entries)) {
+    if (!isRecord(parsed) || parsed.version !== CHAT_SESSION_CACHE_STORAGE_VERSION || !Array.isArray(parsed.entries)
+      || !isRecord(parsed.auth) || parsed.auth.userId !== scope.userId || parsed.auth.sessionId !== scope.sessionId) {
+      window.sessionStorage.removeItem(CHAT_SESSION_MESSAGE_CACHE_STORAGE_KEY);
       return;
     }
 
@@ -140,7 +181,7 @@ function hydrateChatSessionCacheFromStorage() {
       if (!entry || Date.now() - entry.cachedAt > CHAT_SESSION_MESSAGE_CACHE_TTL_MS) {
         continue;
       }
-      inMemoryChatSessionCache.set(getChatSessionCacheKey(entry.session.agentId, entry.session.sessionId), entry);
+      inMemoryChatSessionCache.set(getChatSessionCacheKey(entry.session.agentId, entry.session.sessionId), tagCacheEntry(entry, scope));
     }
   } catch (error) {
     console.warn('[CanvasAgentChat] Failed to hydrate chat session cache', error);
@@ -159,6 +200,7 @@ function trimCachedMessages(messages: ChatMessage[]): { messages: ChatMessage[];
 }
 
 export function buildCachedChatSessionEntry(params: {
+  authScope?: OpenedDocumentAuthScope | null;
   session: AISession;
   messages: ChatMessage[];
   hasMoreBefore: boolean;
@@ -178,7 +220,7 @@ export function buildCachedChatSessionEntry(params: {
     ? getChatMessageSequence(firstMessage) ?? params.oldestSequence
     : params.oldestSequence;
 
-  return {
+  return tagCacheEntry({
     version: CHAT_SESSION_CACHE_VERSION,
     session: {
       ...params.session,
@@ -189,25 +231,30 @@ export function buildCachedChatSessionEntry(params: {
     oldestTimestamp: trimmedOldestTimestamp,
     oldestMessageId: trimmedOldestMessageId,
     oldestSequence: trimmedOldestSequence,
-    cachedAt: Date.now(),
-  };
+    cachedAt: nextChatSnapshotTimestamp(),
+  }, params.authScope === undefined ? currentCacheScope() : params.authScope);
 }
 
 export function rememberChatSessionCacheEntry(entry: CachedChatSession) {
+  const scope = currentCacheScope();
+  if (!scope || entryAuthScopes.get(entry) !== scope || !isOpenedDocumentAuthCurrent(scope)) return;
+  hydrateChatSessionCacheFromStorage();
   inMemoryChatSessionCache.set(getChatSessionCacheKey(entry.session.agentId, entry.session.sessionId), entry);
 }
 
 export function persistChatSessionCache() {
-  if (typeof window === 'undefined') {
+  const scope = currentCacheScope();
+  if (!scope || typeof window === 'undefined') {
     return;
   }
 
   const entries = Array.from(inMemoryChatSessionCache.values())
-    .filter((entry) => Date.now() - entry.cachedAt <= CHAT_SESSION_MESSAGE_CACHE_TTL_MS)
+    .filter((entry) => entryAuthScopes.get(entry) === scope && Date.now() - entry.cachedAt <= CHAT_SESSION_MESSAGE_CACHE_TTL_MS)
     .sort((a, b) => b.cachedAt - a.cachedAt)
     .slice(0, CHAT_SESSION_MESSAGE_CACHE_MAX_ENTRIES);
-  const store: ChatSessionCacheStore = {
-    version: CHAT_SESSION_CACHE_VERSION,
+  const store = {
+    version: CHAT_SESSION_CACHE_STORAGE_VERSION,
+    auth: { userId: scope.userId, sessionId: scope.sessionId },
     entries,
   };
 
@@ -227,6 +274,7 @@ export function persistChatSessionCache() {
 }
 
 export function readCachedChatSession(agentId: string | null | undefined, sessionId: string): CachedChatSession | null {
+  if (!currentCacheScope()) return null;
   hydrateChatSessionCacheFromStorage();
   const cacheKey = getChatSessionCacheKey(agentId, sessionId);
   const entry = inMemoryChatSessionCache.get(cacheKey) || null;
@@ -241,6 +289,7 @@ export function readCachedChatSession(agentId: string | null | undefined, sessio
 }
 
 export function readLatestCachedChatSession(sessionId: string): CachedChatSession | null {
+  if (!currentCacheScope()) return null;
   hydrateChatSessionCacheFromStorage();
   const entries = Array.from(inMemoryChatSessionCache.values())
     .filter((entry) => entry.session.sessionId === sessionId && Date.now() - entry.cachedAt <= CHAT_SESSION_MESSAGE_CACHE_TTL_MS)
@@ -249,6 +298,7 @@ export function readLatestCachedChatSession(sessionId: string): CachedChatSessio
 }
 
 export function removeCachedChatSession(sessionId: string, agentId?: string | null) {
+  if (!currentCacheScope()) return;
   hydrateChatSessionCacheFromStorage();
   for (const [cacheKey, entry] of inMemoryChatSessionCache.entries()) {
     const matchesSession = entry.session.sessionId === sessionId;
@@ -266,6 +316,8 @@ export function updateCachedChatSessionTitle(
   agentId?: string | null,
   titleGenerationState?: PiSessionTitleGenerationState | null,
 ) {
+  const scope = currentCacheScope();
+  if (!scope) return;
   hydrateChatSessionCacheFromStorage();
   let changed = false;
   for (const [cacheKey, entry] of inMemoryChatSessionCache.entries()) {
@@ -274,15 +326,15 @@ export function updateCachedChatSessionTitle(
     if (!matchesSession || !matchesAgent) {
       continue;
     }
-    inMemoryChatSessionCache.set(cacheKey, {
+    inMemoryChatSessionCache.set(cacheKey, tagCacheEntry({
       ...entry,
       session: {
         ...entry.session,
         title,
         ...(titleGenerationState !== undefined ? { titleGenerationState } : {}),
       },
-      cachedAt: Date.now(),
-    });
+      cachedAt: nextChatSnapshotTimestamp(),
+    }, scope));
     changed = true;
   }
   if (changed) {

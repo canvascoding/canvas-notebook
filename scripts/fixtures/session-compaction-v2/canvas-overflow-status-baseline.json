@@ -84,14 +84,14 @@
   },
   "statusCases": [
     {
-      "id": "idle-provider-actual",
+      "id": "idle-next-request-estimate",
       "input": {
         "lastProviderInputTokens": 140000,
         "nextRequestEstimatedTokens": 185000
       },
       "expectedDisplay": {
-        "source": "actual",
-        "usedTokens": 140000,
+        "source": "next_request",
+        "usedTokens": 185000,
         "contextWindow": 262000
       }
     },
@@ -128,9 +128,11 @@
         "nextRequestBudgetExceeded": false
       },
       "expectedDisplay": {
-        "source": "actual",
-        "usedTokens": 140000,
-        "contextWindow": 262000
+        "source": "history",
+        "usedTokens": 100000,
+        "availableTokens": 200000,
+        "contextWindow": 262000,
+        "percent": 50
       }
     },
     {

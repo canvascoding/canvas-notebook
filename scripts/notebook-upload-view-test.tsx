@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getNotebookQueryClient } from '../app/lib/queries/client';
 import { JSDOM } from 'jsdom';
 import { act, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -23,7 +24,7 @@ function Explorer() {
 }
 
 async function main() {
-  useWorkspaceStore.setState({ activeWorkspaceId: 'view-test' });
+  useWorkspaceStore.setState({ activeWorkspaceId: 'view-test', initialized: true });
   useFileStore.getState().resetWorkspaceView('view-test');
   let holdSearch = false;
   let completeSearch: ((response: Response) => void) | undefined;
@@ -83,4 +84,4 @@ async function main() {
   await act(async () => root.unmount()); dom.window.close();
   console.log('notebook-upload-view-test: ok');
 }
-main().catch((error) => { console.error(error); dom.window.close(); process.exitCode = 1; });
+main().catch((error) => { console.error(error); dom.window.close(); process.exitCode = 1; }).finally(() => { getNotebookQueryClient().clear(); });

@@ -90,9 +90,7 @@ async function main(): Promise<void> {
   let summaryCalls = 0;
   const streamFn: StreamFn = async (_requestedModel, _context, options) => {
     summaryCalls += 1;
-    const text = options?.sessionId?.includes('summary-digest')
-      ? '- Preserved durable automation requests, results, identifiers, and the active tail.'
-      : [
+    const text = [
           '## Active Task',
           'Finish the current automation result.',
           '## Completed Work',
@@ -128,7 +126,7 @@ async function main(): Promise<void> {
   assert.equal(recovered.budgetSnapshot.contextBudgetExceeded, false);
   assert.equal(recovered.budgetSnapshot.payloadBudgetExceeded, false);
   assert.match(recovered.summary.summaryText || '', /canvas-session-summary:v2/);
-  assert.ok(summaryCalls >= 2, 'Hermes V2 must run at least one digest and one rolling-summary call');
+  assert.equal(summaryCalls, 1, 'Hermes V2 compaction uses exactly one summary call');
   assert.ok(
     recovered.messages.some((message) => message.role === 'user' && message.content === activeRequest),
     'the latest automation request must survive transient compaction',

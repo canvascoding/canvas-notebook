@@ -156,6 +156,25 @@ export type RuntimeContextPressure = {
   percentOfTrigger: number;
 };
 
+/** Content-free policy and budget metadata for the current runtime boundary. */
+export type RuntimeCompactionPolicyStatus = {
+  tailMode: 'legacy' | 'lean';
+  summaryRoute: 'configured' | 'main';
+  /** Configured catalog identity; never credentials or prompt content. */
+  configuredSummaryModel: string | null;
+  /** Resolved auxiliary identity, null when the main model is used safely. */
+  activeSummaryModel: string | null;
+  sources: {
+    tailMode: 'default' | 'persisted' | 'environment';
+    summaryModel: 'default' | 'persisted' | 'environment';
+  };
+  /** Copied from this request's existing compaction budget snapshot. */
+  triggerTokens: number | null;
+  /** Copied from this request's existing compaction budget snapshot. */
+  targetTokens: number | null;
+  snapshotSource: RuntimeContextPressure['source'] | null;
+};
+
 export type RuntimeStatus = {
   sessionId: string;
   /** Client-only marker for a phase shown before the runtime confirms it. */
@@ -194,6 +213,7 @@ export type RuntimeStatus = {
   nextRequestBudgetExceeded?: boolean;
   nextRequestEstimateSource?: 'rough_estimate' | 'serialized_request' | null;
   contextPressure?: RuntimeContextPressure;
+  compactionPolicy?: RuntimeCompactionPolicyStatus;
   contextMeasurement?: RuntimeContextMeasurement;
   includedSummary: boolean;
   omittedMessageCount: number;

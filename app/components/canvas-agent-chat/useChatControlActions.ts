@@ -2,6 +2,10 @@
 
 import {
   useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
   type Dispatch,
   type MutableRefObject,
   type RefObject,
@@ -14,10 +18,13 @@ import {
   clearCanvasChatActiveSessionStorage,
   writeCanvasChatActiveSessionStorage,
 } from '@/app/lib/chat/constants';
-import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
+import { composerDraftScope, loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import { createChatSession } from '@/app/lib/chat/session-api';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { persistChatSendHandoff, readChatSendHandoff, removeChatSendHandoff, resolveChatCreation,
+  type ChatCreationDraft, type ChatSendOverride, type ChatSendSnapshot } from '@/app/lib/chat/send-transaction';
 import type { AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
 import type {
   AISession,
@@ -105,6 +112,7 @@ type UseChatControlActionsParams = {
   resetStreamConnection: () => void;
   runtimePhase: RuntimeStatus['phase'] | undefined;
   selectedAgentId: string;
+  sessionId: string | null;
   sessionAgentIdRef: MutableRefObject<string>;
   sessionIdRef: MutableRefObject<string | null>;
   sessionWorkspaceIdRef: MutableRefObject<string | null>;
@@ -138,6 +146,18 @@ type UseChatControlActionsParams = {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   userStartedNewChatRef: MutableRefObject<boolean>;
   wsRequest: WebSocketRequest;
+};
+
+type SendTransaction = {
+  snapshot: ChatSendSnapshot;
+  draft: ChatCreationDraft;
+  auth: ReturnType<typeof openedDocumentAuthScope>;
+  isCurrent: () => boolean;
+  optimisticMessageId: string | null;
+  optimisticAssistantId: string | null;
+  queued: boolean;
+  pending?: Promise<void>;
+  completed: boolean;
 };
 
 function resolveAttachmentCategory(attachment: Attachment): string {
@@ -203,9 +223,9 @@ ${metadataLines.join('\n')}
 }
 
 export function useChatControlActions({
-  activeModel,
-  activeProvider,
-  activeThinkingLevel,
+  activeModel: _activeModel,
+  activeProvider: _activeProvider,
+  activeThinkingLevel: _activeThinkingLevel,
   runtimeSelection,
   hasLocalRuntimeSelection,
   runtimeCatalogRevision,
@@ -234,6 +254,7 @@ export function useChatControlActions({
   resetStreamConnection,
   runtimePhase,
   selectedAgentId,
+  sessionId,
   sessionAgentIdRef,
   sessionIdRef,
   sessionWorkspaceIdRef,
@@ -268,80 +289,120 @@ export function useChatControlActions({
   userStartedNewChatRef,
   wsRequest,
 }: UseChatControlActionsParams) {
-  const ensureSession = useCallback(async () => {
-    if (sessionIdRef.current) {
-      return sessionIdRef.current;
+  const contextKey = JSON.stringify([activeWorkspaceId ?? null, selectedAgentId, sessionId]);
+  const navigationContextRef = useRef(contextKey);
+  const navigationGenerationRef = useRef(0);
+  const activeWorkspaceRef = useRef(activeWorkspaceId ?? null);
+  const draftRef = useRef<ChatCreationDraft>({ id: '' });
+  const transactionsRef = useRef(new Map<string, SendTransaction>());
+  const [sendState, setSendState] = useState<{ contextKey: string; pending: boolean; error: string | null; transaction: SendTransaction } | null>(null);
+  useLayoutEffect(() => {
+    activeWorkspaceRef.current = activeWorkspaceId ?? null;
+    if (navigationContextRef.current !== contextKey) {
+      navigationGenerationRef.current += 1;
+      transactionsRef.current.clear();
+      navigationContextRef.current = contextKey;
+      draftRef.current = { id: crypto.randomUUID() };
     }
+  }, [activeWorkspaceId, contextKey]);
+  useEffect(() => () => { navigationGenerationRef.current += 1; }, []);
 
-    const agentId = selectedAgentId;
-    if (!runtimeSelection || runtimeCatalogRevision === null || runtimePolicyRevision === null) {
-      throw new Error(t('runtimeSelectionUnavailableError'));
+  const startNewChat = useCallback((agentIdOverride?: string, options?: StartNewChatOptions) => {
+    const nextAgentId = agentIdOverride || selectedAgentId;
+    navigationGenerationRef.current += 1;
+    transactionsRef.current.clear();
+    draftRef.current = { id: crypto.randomUUID() };
+    navigationContextRef.current = JSON.stringify([activeWorkspaceId ?? null, nextAgentId, null]);
+    setSendState(null);
+    const currentSessionId = sessionIdRef.current;
+    const currentSessionWorkspaceId = sessionWorkspaceIdRef.current;
+    if (currentSessionId) {
+      writeCanvasChatActiveSessionStorage(currentSessionWorkspaceId ?? activeWorkspaceId, currentSessionId);
     }
-
-    const requestContext = buildRequestContext(currentFilePath);
-
-    const createSessionRequest = {
-      agentId,
-      ...(hasLocalRuntimeSelection ? {
-        runtimeSelection,
-        expectedCatalogRevision: runtimeCatalogRevision,
-        expectedPolicyRevision: runtimePolicyRevision,
-      } : {}),
-      ...(requestContext.workspace ? {
-        workspaceId: requestContext.workspace.workspaceId,
-        workspace: requestContext.workspace,
-      } : {}),
-    };
-    const createSessionPayload = await createChatSession(createSessionRequest);
-
-    if (!createSessionPayload?.success || !createSessionPayload.session?.sessionId) {
-      await refreshRuntimeSelection();
-      throw new Error(createSessionPayload?.error || 'Failed to create session');
+    resetStreamConnection();
+    setRuntimeStatus(null);
+    setSessionId(null);
+    setSessionTitle(null);
+    resetInputHistoryNavigation();
+    if (currentSessionId && input.trim()) {
+      saveComposerDraft(currentSessionId, input, composerDraftScope(currentSessionWorkspaceId ?? activeWorkspaceId));
     }
+    const newChatDraft = loadComposerDraft('__new__');
+    setInput(newChatDraft ?? '');
+    setAttachments([]);
+    sessionIdRef.current = null;
+    sessionWorkspaceIdRef.current = null;
+    sessionAgentIdRef.current = nextAgentId;
+    resetRuntimeMessageRefs();
+    userStartedNewChatRef.current = true;
+    setIsResolvingInitialChatState(false);
+    if (options?.clearActiveSessionStorage !== false) {
+      clearCanvasChatActiveSessionStorage(activeWorkspaceId);
+    }
+    setMessages([]);
+    setHasMoreBefore(false);
+    setOldestTimestamp(null);
+    setOldestSequence(null);
+    setIsLoadingOlder(false);
+    setExpandedRunKeys(new Set());
+    if (!options?.keepHistoryOpen && (isMobile || shouldShowHistoryAsOverlay)) {
+      setShowHistory(false);
+    }
+    setShowMobileDetails(false);
+    setActiveProvider(DEFAULT_PROVIDER_ID);
+    setActiveModel(DEFAULT_MODEL_ID);
+    setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
+  }, [activeWorkspaceId, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setIsResolvingInitialChatState, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
 
-    const nextSessionId = createSessionPayload.session.sessionId as string;
-    const pinnedSelection = createSessionPayload.runtime?.selection ?? runtimeSelection;
-    const createdProvider = createSessionPayload.session.provider || pinnedSelection.providerId || activeProvider;
-    const createdModel = createSessionPayload.session.model || pinnedSelection.modelId || activeModel;
-    const createdThinkingLevel = createSessionPayload.session.thinkingLevel || pinnedSelection.thinkingLevel || activeThinkingLevel;
-
-    sessionWorkspaceIdRef.current = createSessionPayload.session.workspace?.workspaceId
-      ?? requestContext.workspace?.workspaceId
-      ?? activeWorkspaceId
-      ?? null;
-    skipNextSessionStatusRefreshRef.current = nextSessionId;
-    setSessionId(nextSessionId);
-    setActiveProvider(createdProvider);
-    setActiveModel(createdModel);
-    setActiveThinkingLevel(createdThinkingLevel);
-    sessionAgentIdRef.current = agentId;
-
-    const tempTitle = createSessionPayload.session.title || t('newChatTitle');
-    setSessionTitle(tempTitle);
-
-    sessionIdRef.current = nextSessionId;
-
-    const newSession: AISession = {
-      id: Date.now(),
-      sessionId: nextSessionId,
-      title: tempTitle,
-      titleGenerationState: createSessionPayload.session.titleGenerationState ?? 'pending',
-      agentId: createSessionPayload.session.agentId || agentId,
-      model: createdModel,
-      provider: createdProvider,
-      thinkingLevel: createdThinkingLevel,
-      createdAt: new Date().toISOString(),
-      engine: createSessionPayload.session.engine || 'pi',
-      lastMessageAt: new Date().toISOString(),
-      hasUnread: false,
-      workspace: createSessionPayload.session.workspace ?? null,
-      creator: createSessionPayload.session.creator,
-    };
-
-    addSessionToHistory(newSession);
-
-    return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, activeWorkspaceId, addSessionToHistory, buildRequestContext, currentFilePath, hasLocalRuntimeSelection, refreshRuntimeSelection, runtimeCatalogRevision, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
+  const ensureSession = useCallback(async (transaction: SendTransaction) => {
+    const snapshot = transaction.snapshot;
+    if (!snapshot.targetSessionId) {
+      try {
+        snapshot.createdSession = await resolveChatCreation(transaction.draft, snapshot.creationRequest, createChatSession);
+      } catch (error) {
+        if (transaction.isCurrent()) await refreshRuntimeSelection();
+        throw error;
+      }
+      snapshot.targetSessionId = snapshot.createdSession.session!.sessionId!;
+      if (openedDocumentAuthScope() === transaction.auth) persistChatSendHandoff(snapshot);
+    }
+    if (!transaction.isCurrent()) throw new DOMException('The chat changed before the message could be sent.', 'AbortError');
+    const targetSessionId = snapshot.targetSessionId;
+    // Creation changes the composer identity from draft to session. Keep the
+    // in-flight send reachable under both identities until acknowledgement.
+    transactionsRef.current.set(JSON.stringify([snapshot.workspaceId, targetSessionId, snapshot.agentId,
+      snapshot.action, snapshot.text, snapshot.attachments]), transaction);
+    const created = snapshot.createdSession;
+    if (!created?.session || sessionIdRef.current === targetSessionId) return targetSessionId;
+    const pinnedSelection = created.runtime?.selection ?? snapshot.runtimeSelection;
+    const model = created.session.model || pinnedSelection.modelId;
+    const provider = created.session.provider || pinnedSelection.providerId;
+    const thinkingLevel = created.session.thinkingLevel || pinnedSelection.thinkingLevel;
+    const title = created.session.title || t('newChatTitle');
+    sessionWorkspaceIdRef.current = snapshot.workspaceId;
+    sessionAgentIdRef.current = snapshot.agentId;
+    sessionIdRef.current = targetSessionId;
+    skipNextSessionStatusRefreshRef.current = targetSessionId;
+    const attachedContextKey = JSON.stringify([snapshot.workspaceId, snapshot.agentId, targetSessionId]);
+    navigationContextRef.current = attachedContextKey;
+    setSessionId(targetSessionId);
+    setSessionTitle(title);
+    setActiveProvider(provider);
+    setActiveModel(model);
+    setActiveThinkingLevel(thinkingLevel);
+    setSendState((current) => current?.transaction === transaction && transaction.isCurrent()
+      ? { ...current, contextKey: attachedContextKey } : current);
+    addSessionToHistory({
+      id: created.session.id ?? Date.now(), sessionId: targetSessionId, title,
+      titleGenerationState: created.session.titleGenerationState ?? 'pending',
+      agentId: snapshot.agentId, model, provider, thinkingLevel,
+      createdAt: created.session.createdAt ?? new Date().toISOString(), engine: created.session.engine || 'pi',
+      lastMessageAt: created.session.lastMessageAt ?? null, hasUnread: false,
+      workspace: created.session.workspace ?? null, creator: created.session.creator,
+    });
+    return targetSessionId;
+  }, [addSessionToHistory, refreshRuntimeSelection, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef,
+    setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
@@ -351,137 +412,195 @@ export function useChatControlActions({
     context?: ChatRequestContext,
     focusTopic?: string,
   ) => {
+    const requestWorkspaceId = activeWorkspaceRef.current;
+    const generation = navigationGenerationRef.current;
+    const requestAuth = openedDocumentAuthScope();
     const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('control', {
       sessionId: targetSessionId,
       action,
-      ...(message ? { message } : {}),
+      ...(message ? { message, ...('clientMessageId' in message ? { clientMessageId: message.clientMessageId } : {}) } : {}),
       ...(queueItemId ? { queueItemId } : {}),
       ...(context ? { context } : {}),
       ...(focusTopic?.trim() ? { focusTopic: focusTopic.trim() } : {}),
     });
 
+    if (payload.success === false) throw new Error(payload.error || 'Chat action failed.');
     if (payload.status) {
-      setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
+      if (generation === navigationGenerationRef.current && openedDocumentAuthScope() === requestAuth
+        && activeWorkspaceRef.current === requestWorkspaceId
+        && sessionIdRef.current === targetSessionId) {
+        setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
+      }
       return payload.status as RuntimeStatus;
     }
 
     return null;
-  }, [setRuntimeStatusWithReconciliation, wsRequest]);
+  }, [sessionIdRef, setRuntimeStatusWithReconciliation, wsRequest]);
 
-  const scanForImageReferences = useCallback(async (): Promise<Attachment[]> => {
-    return [];
-  }, []);
+  const executeTransaction = useCallback((transaction: SendTransaction): Promise<void> => {
+    if (transaction.pending) return transaction.pending;
+    if (transaction.completed) return Promise.resolve();
+    if (!transaction.isCurrent()) return Promise.reject(new DOMException('The original chat is no longer active.', 'AbortError'));
+    const { snapshot } = transaction;
+    setSendState({ contextKey: navigationContextRef.current, pending: true, error: null, transaction });
+    const run = async () => {
+      try {
+        const targetSessionId = await ensureSession(transaction);
+        if (!transaction.isCurrent()) throw new DOMException('The chat changed before sending.', 'AbortError');
+        if (!transaction.queued) setOptimisticRuntimePhase('streaming', targetSessionId);
+        await ensureSessionSubscribed(targetSessionId);
+        if (!transaction.isCurrent()) throw new DOMException('The chat changed before sending.', 'AbortError');
+        const payload: { success: boolean; status?: RuntimeStatus | null; error?: string } = snapshot.action === 'send'
+          ? await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
+            sessionId: targetSessionId,
+            agentId: snapshot.agentId,
+            clientMessageId: snapshot.message.clientMessageId,
+            message: snapshot.message as unknown as Record<string, unknown>,
+            context: snapshot.context,
+          }, chatRequestTimeoutMs)
+          : { success: true, status: await postControl(targetSessionId, snapshot.action, snapshot.message, undefined, snapshot.context) };
+        if (payload.success === false) throw new Error(payload.error || 'Message could not be sent.');
+        transaction.completed = true;
+        for (const [key, candidate] of transactionsRef.current) {
+          if (candidate === transaction) transactionsRef.current.delete(key);
+        }
+        if (openedDocumentAuthScope() === transaction.auth) {
+          try { removeChatSendHandoff(snapshot); } catch { /* The source handoff is also consumed after acknowledgement. */ }
+        }
+        if (!transaction.isCurrent()) return;
+        touchSessionActivity(targetSessionId, new Date(snapshot.message.timestamp).toISOString());
+        if (transaction.optimisticMessageId) {
+          setMessages((current) => !transaction.isCurrent() ? current : current.map((message) => (
+            message.id === transaction.optimisticMessageId ? { ...message, status: 'sent' as const } : message
+          )));
+        }
+        if (payload.status) setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
+        setSendState((current) => current?.transaction === transaction ? null : current);
+      } catch (error) {
+        if (!transaction.isCurrent()) {
+          throw new DOMException('The chat changed before sending completed.', 'AbortError');
+        }
+        if (transaction.isCurrent()) {
+          if (transaction.optimisticMessageId) {
+            setMessages((current) => !transaction.isCurrent() ? current : current.map((message) => (
+              message.id === transaction.optimisticMessageId ? { ...message, status: 'error' as const } : message
+            )));
+          }
+          if (transaction.optimisticAssistantId) {
+            setMessages((current) => !transaction.isCurrent() ? current : current.filter((message) => message.id !== transaction.optimisticAssistantId));
+            clearCurrentAssistant(transaction.optimisticAssistantId);
+            transaction.optimisticAssistantId = null;
+          }
+          setSendState({ contextKey: navigationContextRef.current, pending: false,
+            error: error instanceof Error ? error.message : String(error), transaction });
+        }
+        throw error;
+      } finally {
+        transaction.pending = undefined;
+      }
+    };
+    transaction.pending = run();
+    return transaction.pending;
+  }, [chatRequestTimeoutMs, clearCurrentAssistant, ensureSession, ensureSessionSubscribed, postControl, setMessages,
+    setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, touchSessionActivity, wsRequest]);
 
   const handleControlAction = useCallback(async (
     action: ChatControlAction,
-    override?: { text: string; attachments: Attachment[] },
+    override?: ChatSendOverride,
   ) => {
-    if (!override && isUploading) {
-      return;
-    }
-
-    const sendShouldQueue = action === 'send' && runtimePhase !== undefined && runtimePhase !== 'idle';
-    const effectiveAction = sendShouldQueue ? 'follow_up' : action;
+    if (!override && isUploading) return;
     const rawText = override?.text ?? input.trim();
-    const baseAttachments = override?.attachments ?? attachments;
-
-    if (!rawText && baseAttachments.length === 0) {
+    const messageAttachments = structuredClone(override?.attachments ?? attachments);
+    if (!rawText && messageAttachments.length === 0) {
+      if (override) throw new Error('The message is empty.');
       return;
     }
-
-    if (!runtimeSelection) {
+    const workspaceId = activeWorkspaceRef.current;
+    if (!workspaceId || (override?.workspaceId && override.workspaceId !== workspaceId)) {
+      throw new DOMException('The message belongs to another workspace.', 'AbortError');
+    }
+    if (!runtimeSelection || runtimeCatalogRevision === null || runtimePolicyRevision === null) {
       throw new Error(t('runtimeSelectionUnavailableError'));
     }
-
-    // Freeze the visible workbench state at send time. Session creation and
-    // attachment processing may take long enough for the user to switch tabs.
-    const requestContextSnapshot = buildRequestContext(currentFilePath);
-
-    if (showHistory && (isMobile || shouldShowHistoryAsOverlay)) {
-      setShowHistory(false);
+    const handoffKey = override?.handoffId ? `handoff:${override.handoffId}` : null;
+    const existingHandoff = handoffKey ? transactionsRef.current.get(handoffKey) : undefined;
+    if (existingHandoff) return executeTransaction(existingHandoff);
+    if (handoffKey) startNewChat(selectedAgentId);
+    if (!draftRef.current.id) draftRef.current.id = crypto.randomUUID();
+    const draft = draftRef.current;
+    const sourceSessionId = sessionIdRef.current;
+    const agentId = sourceSessionId ? sessionAgentIdRef.current || selectedAgentId : selectedAgentId;
+    const key = handoffKey || JSON.stringify([workspaceId, sourceSessionId ?? draft.id, agentId, action, rawText, messageAttachments]);
+    const existing = transactionsRef.current.get(key);
+    if (existing && !existing.completed) return executeTransaction(existing);
+    const generation = navigationGenerationRef.current;
+    const auth = openedDocumentAuthScope();
+    // Every value is captured before session creation or transport awaits.
+    const context = structuredClone(buildRequestContext(currentFilePath));
+    if (context.workspace?.workspaceId !== workspaceId) {
+      throw new DOMException('The document workspace is still changing.', 'AbortError');
     }
-
-    const autoAttachments = override ? [] : await scanForImageReferences();
-    const messageAttachments = [...baseAttachments, ...autoAttachments];
-    const userMessage: Extract<AgentMessage, { role: 'user' }> = {
-      role: 'user',
-      content: buildPromptContent(rawText, messageAttachments),
-      timestamp: Date.now(),
+    const restored = override?.handoffId ? readChatSendHandoff(override.handoffId, workspaceId) : null;
+    const snapshot: ChatSendSnapshot = restored ?? {
+      version: 1, ...(override?.handoffId ? { handoffId: override.handoffId } : {}),
+      workspaceId, agentId, action, text: rawText, attachments: messageAttachments, context,
+      message: { role: 'user', content: buildPromptContent(rawText, messageAttachments), timestamp: Date.now(), clientMessageId: crypto.randomUUID() },
+      runtimeSelection: structuredClone(runtimeSelection), targetSessionId: sourceSessionId,
+      creationRequest: {
+        clientRequestId: draft.id, agentId, workspaceId, workspace: context.workspace,
+        ...(hasLocalRuntimeSelection ? { runtimeSelection: structuredClone(runtimeSelection),
+          expectedCatalogRevision: runtimeCatalogRevision, expectedPolicyRevision: runtimePolicyRevision } : {}),
+      },
     };
-
+    if (restored) draft.id = snapshot.creationRequest.clientRequestId!;
+    persistChatSendHandoff(snapshot);
+    const transaction: SendTransaction = {
+      snapshot, draft, auth,
+      isCurrent: () => generation === navigationGenerationRef.current
+        && openedDocumentAuthScope() === auth && activeWorkspaceRef.current === workspaceId
+        && (sessionIdRef.current === sourceSessionId || sessionIdRef.current === snapshot.targetSessionId)
+        && sessionAgentIdRef.current === snapshot.agentId,
+      optimisticMessageId: null, optimisticAssistantId: null,
+      queued: action === 'follow_up' || (action === 'send' && runtimePhase !== undefined && runtimePhase !== 'idle'),
+      completed: false,
+    };
+    transactionsRef.current.set(key, transaction);
+    if (showHistory && (isMobile || shouldShowHistoryAsOverlay)) setShowHistory(false);
     resetInputHistoryNavigation();
     setInput('');
     setAttachments([]);
-    removeComposerDraft(sessionIdRef.current ?? '__new__');
-
-    const optimisticStatus: ChatMessage['status'] = effectiveAction === 'follow_up'
-      ? 'queued_follow_up'
-      : effectiveAction === 'steer'
-        ? 'queued_steering'
-        : effectiveAction === 'replace'
-          ? 'aborting'
-          : 'pending';
-    const optimisticQueueKind = effectiveAction === 'follow_up'
-      ? 'follow_up'
-      : effectiveAction === 'steer'
-        ? 'steer'
-        : undefined;
-    const optimisticMessageId = effectiveAction === 'follow_up'
-      ? null
-      : appendOptimisticUserMessage(rawText, messageAttachments, optimisticStatus, optimisticQueueKind, userMessage);
-    const optimisticAssistantId = effectiveAction === 'send' ? createAssistantBubble() : null;
-    setIsResolvingInitialChatState(false);
-
-    try {
-      const targetSessionId = await ensureSession();
-      setOptimisticRuntimePhase('streaming', targetSessionId);
-      await ensureSessionSubscribed(targetSessionId);
-      const payload = effectiveAction === 'send'
-        ? await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
-          sessionId: targetSessionId,
-          agentId: sessionAgentIdRef.current || selectedAgentId,
-          message: userMessage as unknown as Record<string, unknown>,
-          context: requestContextSnapshot,
-        }, chatRequestTimeoutMs)
-        : { status: await postControl(
-          targetSessionId,
-          effectiveAction,
-          userMessage,
-          undefined,
-          requestContextSnapshot,
-        ) };
-      touchSessionActivity(targetSessionId, new Date(userMessage.timestamp).toISOString());
-
-      if (optimisticMessageId) {
-        setMessages((prev) => prev.map((message) => (
-          message.id === optimisticMessageId ? { ...message, status: 'sent' as const } : message
-        )));
-      }
-
-      if (payload.status) {
-        setRuntimeStatusWithReconciliation(payload.status as RuntimeStatus);
-      }
-    } catch (error) {
-      if (optimisticMessageId) {
-        setMessages((prev) => prev.map((message) => (
-          message.id === optimisticMessageId ? { ...message, status: 'error' as const } : message
-        )));
-      }
-      if (optimisticAssistantId) {
-        setMessages((prev) => prev.filter((message) => message.id !== optimisticAssistantId));
-        clearCurrentAssistant(optimisticAssistantId);
-      }
-      throw error;
+    removeComposerDraft(sourceSessionId ?? '__new__');
+    const optimisticStatus: ChatMessage['status'] = transaction.queued ? 'queued_follow_up'
+      : action === 'steer' ? 'queued_steering' : action === 'replace' ? 'aborting' : 'pending';
+    if (!transaction.queued) {
+      transaction.optimisticMessageId = appendOptimisticUserMessage(snapshot.text, snapshot.attachments,
+        optimisticStatus, action === 'steer' ? 'steer' : undefined, snapshot.message);
     }
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFilePath, ensureSession, ensureSessionSubscribed, input, isMobile, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, runtimeSelection, scanForImageReferences, selectedAgentId, sessionAgentIdRef, sessionIdRef, setAttachments, setInput, setIsResolvingInitialChatState, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, setShowHistory, shouldShowHistoryAsOverlay, showHistory, t, touchSessionActivity, wsRequest]);
+    if (action === 'send' && !transaction.queued) transaction.optimisticAssistantId = createAssistantBubble();
+    setIsResolvingInitialChatState(false);
+    return executeTransaction(transaction);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, createAssistantBubble, currentFilePath,
+    executeTransaction, hasLocalRuntimeSelection, input, isMobile, isUploading, resetInputHistoryNavigation,
+    runtimeCatalogRevision, runtimePhase, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef,
+    sessionIdRef, setAttachments, setInput, setIsResolvingInitialChatState, setShowHistory, shouldShowHistoryAsOverlay,
+    showHistory, startNewChat, t]);
 
   const handleSend = useCallback(async () => {
+    const generation = navigationGenerationRef.current;
     try {
       await handleControlAction('send');
     } catch (error) {
-      appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
+      if (generation === navigationGenerationRef.current && !(error instanceof DOMException && error.name === 'AbortError')) {
+        appendSystemMessage(t('errorMessage', { message: error instanceof Error ? error.message : String(error) }));
+      }
     }
   }, [appendSystemMessage, handleControlAction, t]);
+
+  const retryFailedSend = useCallback(async () => {
+    if (!sendState?.transaction || sendState.transaction.snapshot.action !== 'send') return;
+    try { await executeTransaction(sendState.transaction); } catch { /* executeTransaction retains the actionable error. */ }
+  }, [executeTransaction, sendState]);
+  const visibleSendState = sendState?.contextKey === contextKey ? sendState : null;
 
   const handlePromoteQueuedMessage = useCallback(async (queueItemId: string) => {
     if (!sessionIdRef.current) return;
@@ -601,47 +720,6 @@ export function useChatControlActions({
     }
   }, [appendCompactionBreak, appendSystemMessage, postControl, sessionIdRef, setRuntimeStatusWithReconciliation, t, wsRequest]);
 
-  const startNewChat = useCallback((agentIdOverride?: string, options?: StartNewChatOptions) => {
-    const nextAgentId = agentIdOverride || selectedAgentId;
-    const currentSessionId = sessionIdRef.current;
-    const currentSessionWorkspaceId = sessionWorkspaceIdRef.current;
-    if (currentSessionId) {
-      writeCanvasChatActiveSessionStorage(currentSessionWorkspaceId ?? activeWorkspaceId, currentSessionId);
-    }
-    resetStreamConnection();
-    setRuntimeStatus(null);
-    setSessionId(null);
-    setSessionTitle(null);
-    resetInputHistoryNavigation();
-    if (currentSessionId && input.trim()) {
-      saveComposerDraft(currentSessionId, input);
-    }
-    const newChatDraft = loadComposerDraft('__new__');
-    setInput(newChatDraft ?? '');
-    setAttachments([]);
-    sessionIdRef.current = null;
-    sessionWorkspaceIdRef.current = null;
-    sessionAgentIdRef.current = nextAgentId;
-    resetRuntimeMessageRefs();
-    userStartedNewChatRef.current = true;
-    setIsResolvingInitialChatState(false);
-    if (options?.clearActiveSessionStorage !== false) {
-      clearCanvasChatActiveSessionStorage(activeWorkspaceId);
-    }
-    setMessages([]);
-    setHasMoreBefore(false);
-    setOldestTimestamp(null);
-    setOldestSequence(null);
-    setIsLoadingOlder(false);
-    setExpandedRunKeys(new Set());
-    if (!options?.keepHistoryOpen && (isMobile || shouldShowHistoryAsOverlay)) {
-      setShowHistory(false);
-    }
-    setShowMobileDetails(false);
-    setActiveProvider(DEFAULT_PROVIDER_ID);
-    setActiveModel(DEFAULT_MODEL_ID);
-    setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
-  }, [activeWorkspaceId, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setIsResolvingInitialChatState, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {
@@ -656,6 +734,11 @@ export function useChatControlActions({
   }, [fetchHistory, resetHistoryState, selectedAgentId, sessionIdRef, setHistoryAgentFilter, setSelectedAgentId, startNewChat]);
 
   return {
+    isSending: Boolean(visibleSendState?.pending),
+    sendError: visibleSendState?.error ?? null,
+    canRetrySend: Boolean(visibleSendState?.error && visibleSendState.transaction.snapshot.action === 'send'
+      && !visibleSendState.transaction.snapshot.handoffId),
+    retryFailedSend,
     handleCompact,
     handleControlAction,
     handleEditQueuedMessage,

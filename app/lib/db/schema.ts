@@ -1169,6 +1169,23 @@ export const aiRuntimeDefaults = pgTable("ai_runtime_defaults", {
   updatedAt: pgTimestamp("updated_at").notNull(),
 });
 
+/**
+ * Organization-owned compaction preferences. These intentionally live beside
+ * the organization-scoped model catalog rather than in the instance-wide
+ * legacy PI configuration file.
+ */
+export const aiOrganizationCompactionSettings = pgTable("ai_organization_compaction_settings", {
+  organizationId: text("organization_id").primaryKey().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  tailMode: text("tail_mode"),
+  summaryModel: text("summary_model"),
+  revision: bigint("revision", { mode: "number" }).notNull().default(1),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  updatedIdx: index("idx_ai_organization_compaction_settings_updated").on(table.updatedAt),
+}));
+
 export const aiWorkspaceModelPolicies = pgTable("ai_workspace_model_policies", {
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
   workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
@@ -1309,6 +1326,21 @@ export const piSessions = pgTable("pi_sessions", {
   delegationIdx: index("idx_pi_sessions_delegation").on(table.userId, table.delegationId),
   sessionKindCheck: check("pi_sessions_session_kind_check", sql`${table.sessionKind} IN ('conversation', 'delegation_worker')`),
   delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
+}));
+
+// Durable admission receipts survive runtime loss; they deliberately store no prompt content.
+// The schema-driven PostgreSQL startup migration creates this additive table and its constraints.
+export const piMessageDeliveryReceipts = pgTable("pi_message_delivery_receipts", {
+  piSessionDbId: bigint("pi_session_db_id", { mode: "number" }).notNull().references(() => piSessions.id, { onDelete: "cascade" }),
+  clientMessageId: text("client_message_id").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  runtimeToken: text("runtime_token").notNull(),
+  state: text("state").notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.piSessionDbId, table.clientMessageId] }),
+  stateCheck: check("pi_message_delivery_receipts_state_check", sql`${table.state} IN ('dispatching', 'accepted')`),
 }));
 
 export const piSessionCompactionAttempts = pgTable("pi_session_compaction_attempts", {

@@ -141,6 +141,10 @@ import {
   type WorkspaceChangedDetail,
 } from '@/app/store/workspace-store';
 import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
+import { isPromptHandoffForNavigation } from '@/app/lib/chat/prompt-handoff';
+import { resolveNotebookEntry } from '@/app/lib/notebook/notebook-entry';
+import { NotebookLoadingSkeleton } from '@/app/components/notebook/NotebookLoadingSkeleton';
+import { NotebookSurfaceMount } from '@/app/components/notebook/NotebookSurfaceMount';
 
 type SurfaceTabProps = {
   active: boolean;
@@ -513,6 +517,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const fileError = useFileStore((fileState) => fileState.fileError);
   const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
   const activeWorkspaceId = useWorkspaceStore((workspaceState) => workspaceState.activeWorkspaceId);
+  const workspaceReady = useWorkspaceStore((workspaceState) => workspaceState.initialized);
   const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const { chatContext: emailChatContext } = useEmailChatContext();
 
@@ -528,7 +533,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   } = useForcedChatSession(routeSessionId);
   const hasStoredInitialPrompt =
     typeof window !== 'undefined'
-    && Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY));
+    && isPromptHandoffForNavigation(window.sessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY, {
+      search: searchParams.toString(), workspaceId: activeWorkspaceId,
+    });
   const shouldForceChatOpen = shouldOpenRouteChat || hasStoredInitialPrompt;
 
   const handleContextOpen = useCallback((surface: NotebookContextSurface) => {
@@ -883,12 +890,24 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       !layout.preferencesHydrated
       || layout.viewportWidth === 0
       || !activeWorkspaceId
+      || !workspaceReady
+      || !workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId)
       || initialNotebookStateResolvedRef.current
     ) {
       return;
     }
     initialNotebookStateResolvedRef.current = true;
     const restoredTabs = hydrateDocumentTabs(activeWorkspaceId);
+    const entry = resolveNotebookEntry({ intent: getNotebookNavigationIntent(searchParams),
+      workspaceId: activeWorkspaceId, workspaceReady, hasInitialPrompt: hasStoredInitialPrompt,
+      restoredPath: restoredTabs.activePath });
+    // Commit the entry surface with tab hydration. Opening a known document ID
+    // can await its location; the default chat must not mount in that interval.
+    if (entry.kind === 'document') dispatch({ type: 'DOCUMENT_OPENED' });
+    if (entry.kind === 'chat' && shouldForceChatOpen) {
+      dispatch({ type: 'SHOW_CHAT' });
+      return;
+    }
     if (routeFilePath) {
       if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
@@ -913,6 +932,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     openNotebookFile,
     routeFilePath,
     shouldForceChatOpen,
+    workspaceReady,
+    routeWorkspaceId,
+    searchParams,
+    hasStoredInitialPrompt,
   ]);
 
   useEffect(() => {
@@ -955,14 +978,27 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
       if (bridgedRequestRef.current?.workspaceId === nextWorkspaceId) return;
-      if (!restoredTabs.activePath) {
+      const intent = getNotebookNavigationIntent(new URLSearchParams(window.location.search));
+      const entry = resolveNotebookEntry({ intent, workspaceId: nextWorkspaceId,
+        workspaceReady: true,
+        hasInitialPrompt: isPromptHandoffForNavigation(window.sessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY, {
+          search: window.location.search, workspaceId: nextWorkspaceId,
+        }),
+        restoredPath: restoredTabs.activePath });
+      if (entry.kind === 'document') dispatch({ type: 'DOCUMENT_OPENED' });
+      if (entry.kind === 'waiting' || intent.path) return;
+      if (entry.kind === 'chat') {
         dispatch({ type: 'SHOW_CHAT' });
         return;
       }
-      openedPathRef.current = restoredTabs.activePath;
+      openedPathRef.current = entry.path;
+      const navigationSearch = window.location.search;
+      const generation = documentOpenGenerationRef.current;
       window.setTimeout(() => {
-        if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId) {
-          void openNotebookFile(restoredTabs.activePath!);
+        if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId
+          && navigationSearch === window.location.search
+          && generation === documentOpenGenerationRef.current) {
+          void openNotebookFile(entry.path);
         }
       }, 0);
     };
@@ -1250,6 +1286,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const chatVisible =
     !documentFocus && (state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet);
   const chatContent = (
+    <NotebookSurfaceMount key={activeWorkspaceId} active={chatVisible}>
     <CanvasAgentChat
       initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
       hideNavHeader
@@ -1261,8 +1298,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       onSessionContextChange={setActiveChatContext}
       onOpenLiveBrowser={openLiveBrowser}
     />
+    </NotebookSurfaceMount>
   );
-  const documentContent = currentFile || isLoadingFile || fileError || missingFilePath
+  const documentContent = <NotebookSurfaceMount key={activeWorkspaceId} active={state.mainSurface === 'document'}>
+    {currentFile || isLoadingFile || fileError || missingFilePath
     ? <FileEditor key={activeWorkspaceId} onClosePreview={handleCloseDocument} />
     : (
       <NotebookEmptyDocumentState
@@ -1271,7 +1310,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           : dispatch({ type: 'SET_EXPLORER', open: true })}
         onOpenChat={showChat}
       />
-    );
+    )}
+  </NotebookSurfaceMount>;
   const surfacePanelIds = {
     chat: layout.isMobile ? 'notebook-mobile-chat' : 'onboarding-notebook-chat',
     document: layout.isMobile ? 'notebook-mobile-document' : 'notebook-desktop-document',
@@ -1496,8 +1536,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             ) : null}
           </div>
 
-          {!layout.preferencesHydrated || layout.viewportWidth === 0 ? (
-            <main className="min-h-0 flex-1 bg-background" />
+          {!layout.preferencesHydrated || layout.viewportWidth === 0 || !workspaceReady
+            || (activeWorkspaceId && documentTabsHydratedFor !== activeWorkspaceId)
+            || !workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId) ? (
+            <NotebookLoadingSkeleton document={Boolean(routeFilePath) && !shouldForceChatOpen} />
           ) : layout.isMobile ? (
             <main className="relative min-h-0 flex-1 overflow-hidden">
               <SurfaceLayer

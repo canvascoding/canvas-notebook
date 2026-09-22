@@ -1,4 +1,8 @@
+import { nextChatSnapshotTimestamp } from '@/app/lib/chat/snapshot-clock';
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
+import { fetchNotebookQuery, notebookQueryKey } from '@/app/lib/queries/client';
+import { chatMessageResource, invalidateChatQueries, seedCreatedChatSession } from '@/app/lib/queries/chat-queries';
+export { fetchChatSessionBootstrap } from '@/app/lib/queries/chat-queries';
 import type {
   AISession,
   ChatHistorySearchResult,
@@ -13,6 +17,8 @@ import type {
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
 export type ChatSessionMessagesPayload = {
+  /** Browser read provenance; always assigned locally, never accepted from the server. */
+  clientReadStartedAt?: number;
   success: boolean;
   messages?: PersistedChatMessage[];
   hasMoreBefore?: boolean;
@@ -23,6 +29,7 @@ export type ChatSessionMessagesPayload = {
 
 export type CreateChatSessionPayload = {
   agentId: string;
+  clientRequestId?: string;
   title?: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
@@ -35,6 +42,7 @@ export type CreateChatSessionPayload = {
 
 export type CreateChatSessionResponse = {
   success: boolean;
+  created?: boolean;
   error?: string;
   code?: string;
   currentCatalogRevision?: number;
@@ -89,14 +97,18 @@ export type ForkChatSessionResponse = {
   };
 };
 
-export async function fetchChatSessions(agentId = 'all', options: { workspaceId?: string | null } = {}): Promise<AISession[]> {
+export async function fetchChatSessions(agentId = 'all', options: { workspaceId?: string | null; signal?: AbortSignal } = {}): Promise<AISession[]> {
   const params = new URLSearchParams({ agentId });
   if (options.workspaceId) {
     params.set('workspaceId', options.workspaceId);
   }
-  const res = await fetch(`/api/sessions?${params.toString()}`);
-  const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
-  return data?.success ? data.sessions || [] : [];
+  return fetchNotebookQuery({ workspaceId: options.workspaceId ?? null, resource: ['chat', 'sessions', agentId],
+    signal: options.signal, staleTime: 15_000, queryFn: async ({ signal }) => {
+      const res = await fetch(`/api/sessions?${params.toString()}`, { signal });
+      const data = await safeFetchJson<{ success: boolean; sessions?: AISession[] }>(res);
+      if (!data?.success || !Array.isArray(data.sessions)) throw new Error('Failed to load chat history.');
+      return data.sessions;
+    } });
 }
 
 export async function searchChatSessions(params: {
@@ -117,14 +129,22 @@ export async function searchChatSessions(params: {
     searchParams.set('unreadOnly', 'true');
   }
 
-  const response = await fetch(`/api/sessions/search?${searchParams.toString()}`, {
-    ...(params.signal ? { signal: params.signal } : {}),
+  return fetchNotebookQuery({
+    workspaceId: params.workspaceId ?? null,
+    resource: ['chat', 'search', params.agentId || 'all', params.query, params.unreadOnly ?? false],
+    signal: params.signal,
+    staleTime: 10_000,
+    queryFn: async ({ signal }) => {
+      const response = await fetch(`/api/sessions/search?${searchParams.toString()}`, { signal });
+      const data = await safeFetchJson<{ success: boolean; results?: ChatHistorySearchResult[] }>(response);
+      if (!data?.success || !Array.isArray(data.results)) throw new Error('Failed to search chat history.');
+      return data.results;
+    },
   });
-  const data = await safeFetchJson<{ success: boolean; results?: ChatHistorySearchResult[] }>(response);
-  return data?.success ? data.results || [] : [];
 }
 
 export async function createChatSession(payload: CreateChatSessionPayload): Promise<CreateChatSessionResponse | null> {
+  const scope = notebookQueryKey(null)[1];
   const res = await fetch('/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -138,6 +158,10 @@ export async function createChatSession(payload: CreateChatSessionPayload): Prom
       error: data?.error || `Failed to create session (HTTP ${res.status})`,
     };
   }
+  void invalidateChatQueries(payload.workspaceId, scope);
+  if (data.created && data.session?.sessionId) {
+    seedCreatedChatSession(data.session, payload.workspaceId ?? payload.workspace?.workspaceId ?? null, scope);
+  }
   return data;
 }
 
@@ -145,6 +169,7 @@ export async function forkChatSession(
   sourceSessionId: string,
   payload: ForkChatSessionPayload,
 ): Promise<ForkChatSessionResponse> {
+  const scope = notebookQueryKey(null)[1];
   const response = await fetch(`/api/sessions/${encodeURIComponent(sourceSessionId)}/fork`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -158,24 +183,31 @@ export async function forkChatSession(
       error: data?.error || `Failed to fork session (HTTP ${response.status})`,
     };
   }
+  void invalidateChatQueries(payload.workspaceId, scope);
   return data;
 }
 
 export async function patchChatSessions(
   payload: Record<string, unknown> | UpdateChatSessionRuntimePayload,
 ): Promise<PatchChatSessionsResponse | null> {
+  const scope = notebookQueryKey(null)[1];
   const res = await fetch('/api/sessions', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  return safeFetchJson<PatchChatSessionsResponse>(res);
+  const data = await safeFetchJson<PatchChatSessionsResponse>(res);
+  if (data?.success) void invalidateChatQueries('workspaceId' in payload && typeof payload.workspaceId === 'string' ? payload.workspaceId : null, scope);
+  return data;
 }
 
 export async function deleteChatSession(agentId: string, sessionId: string): Promise<{ success: boolean } | null> {
+  const scope = notebookQueryKey(null)[1];
   const params = new URLSearchParams({ agentId, sessionId });
   const res = await fetch(`/api/sessions?${params.toString()}`, { method: 'DELETE' });
-  return safeFetchJson<{ success: boolean }>(res);
+  const data = await safeFetchJson<{ success: boolean }>(res);
+  if (data?.success) void invalidateChatQueries(null, scope);
+  return data;
 }
 
 export async function fetchChatSessionMessages(params: {
@@ -208,10 +240,15 @@ export async function fetchChatSessionMessages(params: {
     searchParams.set('workspaceId', params.workspaceId);
   }
 
-  const response = await fetch(`/api/sessions/messages?${searchParams.toString()}`, {
-    ...(params.signal ? { signal: params.signal } : {}),
-    ...(params.cache ? { cache: params.cache } : {}),
-    ...(params.credentials ? { credentials: params.credentials } : {}),
-  });
-  return safeFetchJson<ChatSessionMessagesPayload>(response);
+  return fetchNotebookQuery({ workspaceId: params.workspaceId ?? null, resource: chatMessageResource(params),
+    staleTime: params.cache === 'no-store' ? 0 : 10_000, signal: params.signal,
+    queryFn: async ({ signal }) => {
+      const clientReadStartedAt = nextChatSnapshotTimestamp();
+      const response = await fetch(`/api/sessions/messages?${searchParams.toString()}`, {
+        signal, cache: 'no-store', credentials: params.credentials ?? 'include',
+      });
+      const payload = await safeFetchJson<ChatSessionMessagesPayload>(response);
+      if (!payload?.success || !Array.isArray(payload.messages)) throw new Error('Failed to load chat messages.');
+      return { ...payload, clientReadStartedAt };
+    } });
 }

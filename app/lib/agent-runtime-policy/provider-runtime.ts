@@ -308,6 +308,58 @@ export type ExecutableAgentRuntime = {
   requiresRecreation: () => boolean;
 };
 
+export type CompactionSummaryRuntime = Readonly<{
+  model: Model<Api>;
+  streamFn: ExecutableAgentRuntime['streamFn'];
+  identity: string;
+}>;
+
+/**
+ * Resolves an optional compression route without changing the session's pinned
+ * main runtime. The stored identity is deliberately an exact catalog reference
+ * (`providerInstallationId/modelId`): provider ids alone are ambiguous when a
+ * workspace has multiple installations. Resolution is delegated to the normal
+ * runtime boundary so catalog policy, grants and credentials are revalidated.
+ */
+export async function resolveCompactionSummaryRuntime(input: {
+  primary: ExecutableAgentRuntime;
+  configuredIdentity: string | null | undefined;
+}): Promise<CompactionSummaryRuntime | null> {
+  const configuredIdentity = input.configuredIdentity?.trim();
+  if (!configuredIdentity) return null;
+  const matches = input.primary.resolution.providers
+    .map((provider) => ({ provider, prefix: `${provider.installationId}/` }))
+    .filter(({ prefix }) => configuredIdentity.startsWith(prefix));
+  if (matches.length !== 1) return null;
+  const { provider, prefix } = matches[0];
+  const modelId = configuredIdentity.slice(prefix.length);
+  const catalogModel = provider.models.find((candidate) => candidate.id === modelId);
+  if (!modelId || !catalogModel || !provider.selectable) return null;
+  const currentThinking = input.primary.selection.selection.thinkingLevel;
+  const thinkingLevel = catalogModel.thinkingLevels.includes(currentThinking)
+    ? currentThinking
+    : catalogModel.thinkingLevels[0];
+  if (!thinkingLevel) return null;
+  const requestedSelection: AiRuntimeSelection = {
+    providerInstallationId: provider.installationId,
+    providerId: provider.providerId,
+    modelId,
+    thinkingLevel,
+  };
+  try {
+    const runtime = await resolveExecutableAgentRuntime({
+      ...input.primary.resolution.context,
+      sessionId: null,
+      requestedSelection,
+    });
+    return Object.freeze({ model: runtime.model, streamFn: runtime.streamFn, identity: configuredIdentity });
+  } catch {
+    // A compression route is an optimization. Main-model compaction remains
+    // available when this optional route loses policy, catalog or credentials.
+    return null;
+  }
+}
+
 function snapshotMatchesExecutableSelection(
   snapshot: AiSessionRuntimeSnapshot,
   selection: AiResolvedRuntimeSelection,

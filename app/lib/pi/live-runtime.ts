@@ -16,7 +16,11 @@ import type { Api, AssistantMessage, Context, Message, Model } from '@earendil-w
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { resolveAndPinSessionRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
+import {
+  resolveAndPinSessionRuntime,
+  resolveCompactionSummaryRuntime,
+  type CompactionSummaryRuntime,
+} from '@/app/lib/agent-runtime-policy/provider-runtime';
 import {
   createPiSystemPromptSnapshot,
   ensurePiSessionSystemPromptSnapshot,
@@ -72,6 +76,10 @@ import {
 } from '@/app/lib/pi/compaction/diagnostics';
 import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/policy';
 import {
+  loadPiEffectiveCompactionPolicy,
+  type PiEffectiveCompactionPolicy,
+} from '@/app/lib/pi/compaction/runtime-policy';
+import {
   abortPiSessionCompaction,
   getActivePiSessionCompaction,
   invalidatePiSessionCompaction,
@@ -107,6 +115,7 @@ import {
   type RuntimeContextPressure,
   type RuntimeContextMeasurement,
   type RuntimeCompactionStatus,
+  type RuntimeCompactionPolicyStatus,
 } from '@/app/lib/chat/runtime-status';
 import {
   createToolTailContinuationDecision,
@@ -237,6 +246,7 @@ export type PiRuntimeStatus = {
   nextRequestBudgetExceeded?: boolean;
   nextRequestEstimateSource?: 'rough_estimate' | 'serialized_request' | null;
   contextPressure?: RuntimeContextPressure;
+  compactionPolicy?: RuntimeCompactionPolicyStatus;
   contextMeasurement?: RuntimeContextMeasurement;
   includedSummary: boolean;
   omittedMessageCount: number;
@@ -316,7 +326,18 @@ type RuntimeOptions = {
   resetToolLoopGuard?: () => void;
   requiresRuntimeRecreation?: () => boolean;
   summaryStreamFn?: StreamFn;
+  summaryModel?: Model<Api>;
+  /** Catalog-validated auxiliary identity; omit it for safe main-model fallback. */
+  summaryModelIdentity?: string | null;
+  summaryModelStreamFn?: StreamFn;
   compactionPolicy?: PiCompactionCoordinatorPolicy;
+  /** Immutable request-bound policy shared by status, preflight and compaction. */
+  effectiveCompactionPolicy?: PiEffectiveCompactionPolicy;
+  /** Refreshes the immutable policy only at a caller-proven idle request boundary. */
+  refreshCompactionPolicy?: () => Promise<Readonly<{
+    policy: PiEffectiveCompactionPolicy;
+    summaryRuntime: CompactionSummaryRuntime | null;
+  }>>;
   idleCompaction?: boolean;
   idleCompactionDelayMs?: number;
 };
@@ -453,6 +474,31 @@ function toPercent(used: number, available: number): number {
   return Math.max(0, Math.min(100, Math.round((used / available) * 100)));
 }
 
+/**
+ * Keep runtime-status policy content-free and only expose an auxiliary model
+ * identity after the normal provider resolver accepted it for this session.
+ */
+function runtimeCompactionPolicyStatus(input: {
+  policy: PiEffectiveCompactionPolicy | undefined;
+  activeSummaryModel: string | null | undefined;
+  contextPressure: RuntimeContextPressure | undefined;
+}): RuntimeCompactionPolicyStatus | undefined {
+  if (!input.policy) return undefined;
+  const activeSummaryModel = input.activeSummaryModel ?? null;
+  return Object.freeze({
+    tailMode: input.policy.contextBudgetPolicy.tailMode === 'lean' ? 'lean' : 'legacy',
+    summaryRoute: activeSummaryModel ? 'configured' : 'main',
+    // Never serialize a configured value that could be stale, unavailable, or
+    // deployment-provided. The resolver is the authorization boundary.
+    configuredSummaryModel: activeSummaryModel,
+    activeSummaryModel,
+    sources: input.policy.sources,
+    triggerTokens: input.contextPressure?.triggerTokens ?? null,
+    targetTokens: input.contextPressure?.targetTokens ?? null,
+    snapshotSource: input.contextPressure?.source ?? null,
+  });
+}
+
 function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
   return JSON.stringify({
     phase: status.phase,
@@ -473,6 +519,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     nextRequestBudgetExceeded: status.nextRequestBudgetExceeded,
     nextRequestEstimateSource: status.nextRequestEstimateSource,
     contextPressure: status.contextPressure,
+    compactionPolicy: status.compactionPolicy,
     contextMeasurement: status.contextMeasurement,
     includedSummary: status.includedSummary,
     omittedMessageCount: status.omittedMessageCount,
@@ -487,6 +534,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
 
 type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   reloadTools: () => Promise<void>;
+  reloadCompactionPolicyForNextRequest: () => Promise<void>;
   refreshWorkspaceFileTreePrompt: () => Promise<void>;
   refreshMemoryPrompt: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
@@ -561,7 +609,7 @@ export class LivePiRuntime {
   private browserSnapshotUnsubscribe: (() => void) | null = null;
   agentUnsubscribe: (() => void) | null = null;
 
-  constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
+  constructor(init: RuntimeInit, agent: Agent, private options: RuntimeOptions = {}) {
     this.sessionId = init.sessionId;
     this.userId = init.userId;
     this.statusRevision = currentRuntimeStatusRevision(init.sessionId, init.userId);
@@ -718,7 +766,11 @@ export class LivePiRuntime {
       requestOutputTokens: this.requestOutputTokenCap,
       toolTokens: estimatePiToolSchemaTokens(this.getEffectiveTools()),
       additionalContextTokens,
+      sessionId: this.sessionId,
+      authorizedSessionId: this.sessionId,
+      sessionSearchAvailable: this.hasSessionSearchCapability(),
       selectionMode,
+      policy: this.options?.effectiveCompactionPolicy?.contextBudgetPolicy,
     });
   }
 
@@ -747,7 +799,6 @@ export class LivePiRuntime {
     const ownsStatus = activeAttempt === null;
     const startedAt = Date.now();
     const diagnosticContext = {
-      sessionId: this.sessionId,
       attemptId,
       trigger: input.kind,
       cause: input.cause,
@@ -826,9 +877,14 @@ export class LivePiRuntime {
           sessionId: this.sessionId,
           signal: candidateSignal,
           streamFn: this.options.summaryStreamFn,
+          summaryModel: this.options.summaryModel,
+          summaryStreamFn: this.options.summaryModelStreamFn,
+          authorizedSessionId: this.sessionId,
+          sessionSearchAvailable: this.hasSessionSearchCapability(),
           selectionMode: input.selectionMode ?? 'automatic',
           triggerSnapshot: input.triggerSnapshot,
           focusTopic: input.focusTopic,
+          policy: this.options?.effectiveCompactionPolicy?.contextBudgetPolicy,
           onSummaryProgress: (progress) => {
             reportProgress(progress);
             if (progress.status === 'started' || progress.status === 'completed') {
@@ -975,6 +1031,30 @@ export class LivePiRuntime {
     return this.lastAccessAt;
   }
 
+  /**
+   * The session-operation lock must already prove this is an idle boundary.
+   * Queued and streaming runs deliberately retain their originally pinned
+   * policy to avoid changing compaction halfway through a response.
+   */
+  async reloadCompactionPolicyForNextRequest(): Promise<void> {
+    if (
+      !this.options.refreshCompactionPolicy
+      || this.disposed
+      || this.isRunning
+      || this.agent.state.isStreaming
+      || this.pendingReplace !== null
+    ) return;
+    const refreshed = await this.options.refreshCompactionPolicy();
+    if (this.disposed || this.isRunning || this.agent.state.isStreaming || this.pendingReplace !== null) return;
+    this.options = {
+      ...this.options,
+      effectiveCompactionPolicy: refreshed.policy,
+      summaryModel: refreshed.summaryRuntime?.model,
+      summaryModelIdentity: refreshed.summaryRuntime?.identity ?? null,
+      summaryModelStreamFn: refreshed.summaryRuntime?.streamFn,
+    };
+  }
+
   getRuntimeTempDir() {
     return resolveAgentRuntimeTempDir({
       userId: this.userId,
@@ -1059,6 +1139,11 @@ export class LivePiRuntime {
       nextRequestBudgetExceeded: contextStatus.nextRequestBudgetExceeded,
       nextRequestEstimateSource: contextStatus.nextRequestEstimateSource,
       contextPressure: contextStatus.contextPressure,
+      compactionPolicy: runtimeCompactionPolicyStatus({
+        policy: this.options?.effectiveCompactionPolicy,
+        activeSummaryModel: this.options?.summaryModelIdentity,
+        contextPressure: contextStatus.contextPressure,
+      }),
       contextMeasurement: this.getContextMeasurementCache().metadata,
       includedSummary: composition.includedSummary,
       omittedMessageCount: composition.omittedMessages.length,
@@ -1501,6 +1586,13 @@ export class LivePiRuntime {
       .some((toolName) => effectiveToolManifestHas(manifest, toolName));
   }
 
+  private hasSessionSearchCapability(): boolean {
+    return effectiveToolManifestHas(
+      buildEffectiveToolManifest(this.getEffectiveTools()),
+      'session_search',
+    );
+  }
+
   private getAgentRuntimeTempContextBlock(): string | null {
     if (!this.userId || !this.sessionId) {
       return null;
@@ -1845,7 +1937,9 @@ export class LivePiRuntime {
     }
 
     this.preparedRuntimePayload = null;
-    const maximumAttempts = DEFAULT_PI_CONTEXT_BUDGET_POLICY.maxCompactionAttempts ?? 3;
+    const maximumAttempts = this.options?.effectiveCompactionPolicy?.contextBudgetPolicy.maxCompactionAttempts
+      ?? DEFAULT_PI_CONTEXT_BUDGET_POLICY.maxCompactionAttempts
+      ?? 3;
     let previousLoad = getPiFinalPayloadRetryLoad(prepared.budgetSnapshot);
     let addedContextReserve = input.additionalContextTokens;
     for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
@@ -2248,9 +2342,7 @@ export class LivePiRuntime {
     const projectedMessageCount = contextMessages.filter((message, index) => message !== messages[index]).length;
     if (projectedMessageCount > 0 || projection.pruning.changed || !canSendWithoutCompaction) {
       logPiCompactionDiagnostic('info', 'normalized_preflight', {
-        sessionId: this.sessionId,
-        contextRevision: this.getContextMeasurementCache().metadata.revision,
-        contractFingerprint: exactPreflight.budgetSnapshot.contractFingerprint,
+        stage: 'normalized_preflight',
         messageCount: messages.length,
         projectedMessageCount,
         rawHistoryTokens: messages.reduce((total, message) => total + estimatePiMessageTokens(message), 0),
@@ -2780,8 +2872,9 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   if (!executionContext.organizationId) {
     throw new Error('Complete the app AI runtime setup before starting an agent session.');
   }
+  const organizationId = executionContext.organizationId;
   const executableRuntime = await resolveAndPinSessionRuntime({
-    organizationId: executionContext.organizationId,
+    organizationId,
     userId,
     workspaceId: executionContext.workspaceId,
     workspaceType: executionContext.workspaceType,
@@ -2803,6 +2896,18 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     loadPiSessionWithSummary(sessionId, userId, agentId),
     loadLatestPiSessionInputUsage(sessionId, userId),
   ]);
+  const refreshCompactionPolicy = async () => {
+    const policy = await loadPiEffectiveCompactionPolicy(organizationId);
+    const summaryRuntime = await resolveCompactionSummaryRuntime({
+      primary: executableRuntime,
+      configuredIdentity: policy.summaryModel,
+    });
+    return Object.freeze({ policy, summaryRuntime });
+  };
+  const {
+    policy: effectiveCompactionPolicy,
+    summaryRuntime: compactionSummaryRuntime,
+  } = await refreshCompactionPolicy();
   timing.mark('sessionHistory');
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
@@ -2920,6 +3025,11 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       resetToolLoopGuard: () => toolLoopGuard.reset(),
       requiresRuntimeRecreation: executableRuntime.requiresRecreation,
       summaryStreamFn: executableRuntime.streamFn,
+      summaryModel: compactionSummaryRuntime?.model,
+      summaryModelIdentity: compactionSummaryRuntime?.identity ?? null,
+      summaryModelStreamFn: compactionSummaryRuntime?.streamFn,
+      effectiveCompactionPolicy,
+      refreshCompactionPolicy,
       idleCompaction: process.env.CANVAS_PI_IDLE_COMPACTION_ENABLED === 'true',
     },
   );
@@ -3095,6 +3205,7 @@ export async function dispatchPiRuntimeUserMessage(
     if (!runtimeHandle.created) {
       await runtime.reloadTools();
     }
+    await runtime.reloadCompactionPolicyForNextRequest();
     await runtime.refreshMemoryPrompt();
     await runtime.refreshWorkspaceFileTreePrompt();
     runtime.startPrompt(message, context);
@@ -3235,6 +3346,11 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
       credentialSubjectUserId: userId,
     },
   });
+  const effectiveCompactionPolicy = await loadPiEffectiveCompactionPolicy(executionContext.organizationId);
+  const compactionSummaryRuntime = await resolveCompactionSummaryRuntime({
+    primary: executableRuntime,
+    configuredIdentity: effectiveCompactionPolicy.summaryModel,
+  });
   const model = executableRuntime.model;
   const browserRuntimeContextBlock = buildBrowserRuntimeContextBlock(browserSnapshot);
   const manifest = buildEffectiveToolManifest(tools);
@@ -3328,6 +3444,11 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     nextRequestBudgetExceeded: contextStatus.nextRequestBudgetExceeded,
     nextRequestEstimateSource: contextStatus.nextRequestEstimateSource,
     contextPressure: contextStatus.contextPressure,
+    compactionPolicy: runtimeCompactionPolicyStatus({
+      policy: effectiveCompactionPolicy,
+      activeSummaryModel: compactionSummaryRuntime?.identity ?? null,
+      contextPressure: contextStatus.contextPressure,
+    }),
     contextMeasurement: {
       revision: readRevision,
       measuredRevision: measured.state === 'current' ? readRevision : null,

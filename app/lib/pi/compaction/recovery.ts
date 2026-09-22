@@ -1,6 +1,6 @@
 /**
  * Portions adapted from NousResearch/hermes-agent at
- * f293e7206b4ddd66042329442c6afebc19a8808d.
+ * e2f8a0731bf26e95b31e35d73e71e183a1045b81.
  * Copyright (c) 2025 Nous Research, MIT License.
  * See THIRD_PARTY_NOTICES.md.
  */
@@ -22,7 +22,12 @@ const USER_MESSAGES_BUDGET_CHARACTERS = 24_000;
 const USER_MESSAGE_MAX_CHARACTERS = 4_000;
 const DIGEST_CHUNK_CHARACTERS = 72_000;
 const DIGEST_MAX_CHUNKS = 28;
-const SUMMARY_INPUT_MAX_CHARACTERS = 160_000;
+export const PI_SUMMARY_INPUT_MAX_CHARACTERS = 160_000;
+const SUMMARY_INPUT_MAX_CHARACTERS = PI_SUMMARY_INPUT_MAX_CHARACTERS;
+const SUMMARY_RECORD_MAX_CHARACTERS = 6_000;
+const SUMMARY_RECORD_HEAD_CHARACTERS = 4_000;
+const SUMMARY_RECORD_TAIL_CHARACTERS = 1_500;
+const SUMMARY_SAMPLE_SLICES = 8;
 
 type AnchorPattern = Readonly<{
   label: string;
@@ -71,9 +76,10 @@ export type PiCompactionDigestChunk = Readonly<{
 
 export type PiCompactionRecoveryArtifacts = Readonly<{
   redactedTranscript: string;
+  /** Complete, record-boundary-preserving transcript entries for one-call sampling. */
+  redactedRecords: readonly string[];
   anchorIndex: PiCompactionAnchorIndex;
   verbatimUserSection: string;
-  digestChunks: readonly PiCompactionDigestChunk[];
   recoveryFooter: string;
 }>;
 
@@ -85,6 +91,11 @@ function messageContentText(message: AgentMessage): string {
     if (typeof part === 'string') return [part];
     if (!part || typeof part !== 'object') return [];
     const record = part as unknown as Record<string, unknown>;
+    // Reasoning and media are intentionally not durable history. They are
+    // expensive, can be provider-private, and Hermes keeps the summary input
+    // to visible text plus compact tool-call metadata.
+    if (record.type === 'thinking' || record.type === 'image' || record.type === 'audio'
+      || record.type === 'video' || record.type === 'file') return [];
     if (record.type === 'toolCall') {
       const name = typeof record.name === 'string' ? record.name : 'unknown';
       let serializedArguments = '';
@@ -228,13 +239,28 @@ export function buildPiCompactionVerbatimUserSection(
     + '(Real user messages from the compacted region, quoted verbatim except for mandatory secret redaction.)';
 }
 
-function serializeForDigest(
-  messages: readonly AgentMessage[],
-  knownSecrets: readonly string[],
-  pristineToolContentByCallId: Readonly<Record<string, string>>,
-): string {
+function boundSummaryRecordContent(content: string): string {
+  if (content.length <= SUMMARY_RECORD_MAX_CHARACTERS) return content;
+  const omitted = Math.max(0, content.length - SUMMARY_RECORD_HEAD_CHARACTERS - SUMMARY_RECORD_TAIL_CHARACTERS);
+  return `${content.slice(0, SUMMARY_RECORD_HEAD_CHARACTERS).trimEnd()}\n`
+    + `[...record truncated: ${omitted.toLocaleString('en-US')} chars omitted...]\n`
+    + content.slice(-SUMMARY_RECORD_TAIL_CHARACTERS).trimStart();
+}
+
+/**
+ * Records are deliberately projected before sampling. Splitting the joined
+ * transcript on blank lines is unsafe because a single message may contain
+ * arbitrary Markdown or tool output with blank lines.
+ */
+export function buildPiCompactionSummaryRecords(input: {
+  messages: readonly AgentMessage[];
+  knownSecrets?: readonly string[];
+  pristineToolContentByCallId?: Readonly<Record<string, string>>;
+}): readonly string[] {
+  const knownSecrets = input.knownSecrets ?? [];
+  const pristineToolContentByCallId = input.pristineToolContentByCallId ?? {};
   const rows: string[] = [];
-  messages.forEach((message, index) => {
+  input.messages.forEach((message, index) => {
     if (isPiLowSignalToolResult(message)) return;
     const record = message as unknown as Record<string, unknown>;
     const callId = typeof record.toolCallId === 'string' ? record.toolCallId : '';
@@ -243,9 +269,160 @@ function serializeForDigest(
       : undefined;
     const content = redactPiCompactionText(pristine ?? messageContentText(message), knownSecrets).trim();
     if (!content) return;
-    rows.push(`[message ${index + 1}/${messages.length}][${message.role}] ${content}`);
+    rows.push(`[message ${index + 1}/${input.messages.length}][${message.role}] ${boundSummaryRecordContent(content)}`);
   });
-  return rows.join('\n\n');
+  return Object.freeze(rows);
+}
+
+function serializeForDigest(
+  messages: readonly AgentMessage[],
+  knownSecrets: readonly string[],
+  pristineToolContentByCallId: Readonly<Record<string, string>>,
+): string {
+  return buildPiCompactionSummaryRecords({
+    messages,
+    knownSecrets,
+    pristineToolContentByCallId,
+  }).join('\n\n');
+}
+
+export type PiCompactionSummarySample = Readonly<{
+  records: readonly string[];
+  text: string;
+  inputCharacters: number;
+  sampledCharacters: number;
+  omittedCharacters: number;
+  recordCount: number;
+  sampledRecordCount: number;
+  elidedRecordCount: number;
+}>;
+
+function summaryGapMarker(omittedRecordCount: number): string {
+  return `[...${omittedRecordCount} historical record${omittedRecordCount === 1 ? '' : 's'} omitted; `
+    + 'recover exact details from preserved session history with session_search...]';
+}
+
+function boundSampleRecord(record: string, maximumCharacters: number): string {
+  if (record.length <= maximumCharacters) return record;
+  if (maximumCharacters <= 0) return '';
+  const marker = '\n[...record shortened for summary input...]\n';
+  if (maximumCharacters <= marker.length + 2) return record.slice(-maximumCharacters);
+  const remaining = maximumCharacters - marker.length;
+  const head = Math.ceil(remaining * 0.7);
+  const tail = remaining - head;
+  return `${record.slice(0, head).trimEnd()}${marker}${record.slice(-tail).trimStart()}`.slice(0, maximumCharacters);
+}
+
+function renderSampleRecords(records: readonly string[], indices: readonly number[], maximumCharacters: number): {
+  records: readonly string[];
+  text: string;
+  sampledCharacters: number;
+  sampledRecordCount: number;
+} {
+  let retained = [...indices];
+  while (retained.length > 1 && !sampleRecordsFit(records, retained, maximumCharacters)) {
+    // Dropping an older whole record is safer than clipping framing or the
+    // newest record. The next render carries an explicit leading gap marker.
+    retained = retained.slice(1);
+  }
+  const entries: string[] = [];
+  let previous = -1;
+  for (const index of retained) {
+    const omitted = index - previous - 1;
+    if (omitted > 0) entries.push(summaryGapMarker(omitted));
+    entries.push(records[index]);
+    previous = index;
+  }
+  const joined = entries.join('\n\n');
+  if (joined.length <= maximumCharacters) {
+    return { records: Object.freeze(entries), text: joined,
+      sampledCharacters: retained.reduce((total, index) => total + records[index].length, 0),
+      sampledRecordCount: retained.length };
+  }
+  // Only the newest record remains. Prefer its head and tail over a framing
+  // marker when the model window is exceptionally small.
+  const newest = boundSampleRecord(records[retained[retained.length - 1]], maximumCharacters);
+  return { records: Object.freeze([newest]), text: newest,
+    sampledCharacters: newest.length, sampledRecordCount: 1 };
+}
+
+function sampleRecordsFit(records: readonly string[], indices: readonly number[], maximumCharacters: number): boolean {
+  const entries: string[] = [];
+  let previous = -1;
+  for (const index of indices) {
+    const omitted = index - previous - 1;
+    if (omitted > 0) entries.push(summaryGapMarker(omitted));
+    entries.push(records[index]);
+    previous = index;
+  }
+  return entries.join('\n\n').length <= maximumCharacters;
+}
+
+function initialSampleIndices(recordCount: number): number[] {
+  if (recordCount <= SUMMARY_SAMPLE_SLICES) return Array.from({ length: recordCount }, (_, index) => index);
+  const indices = new Set<number>();
+  for (let slice = 0; slice < SUMMARY_SAMPLE_SLICES; slice += 1) {
+    indices.add(Math.round(slice * (recordCount - 1) / (SUMMARY_SAMPLE_SLICES - 1)));
+  }
+  // The final record contains the newest state and must survive rounding.
+  indices.add(recordCount - 1);
+  return [...indices].sort((left, right) => left - right);
+}
+
+/**
+ * Hermes-style one-call sampling: preserve complete projected records, spread
+ * across the compacted region, then spend unused budget on neighboring records
+ * in round-robin order. The newest record is always one of the anchors.
+ */
+export function samplePiCompactionSummaryRecords(input: {
+  records: readonly string[];
+  maximumCharacters?: number;
+}): PiCompactionSummarySample {
+  const maximumCharacters = Math.max(0, Math.min(
+    PI_SUMMARY_INPUT_MAX_CHARACTERS,
+    Math.floor(input.maximumCharacters ?? PI_SUMMARY_INPUT_MAX_CHARACTERS),
+  ));
+  const inputCharacters = input.records.reduce((total, record) => total + record.length, 0);
+  if (input.records.length === 0 || maximumCharacters === 0) {
+    return Object.freeze({ records: Object.freeze([]), text: '', inputCharacters, sampledCharacters: 0,
+      omittedCharacters: inputCharacters, recordCount: input.records.length, sampledRecordCount: 0,
+      elidedRecordCount: input.records.length });
+  }
+  const selected = new Set(initialSampleIndices(input.records.length));
+  const canFit = (indices: readonly number[]) => sampleRecordsFit(input.records, indices, maximumCharacters);
+  // Avoid overshooting a small model window; newest anchor remains preferred.
+  while (!canFit([...selected].sort((left, right) => left - right)) && selected.size > 1) {
+    const oldest = [...selected].sort((left, right) => left - right)[0];
+    selected.delete(oldest);
+  }
+  const anchorIndices = [...selected].sort((left, right) => left - right);
+  let radius = 1;
+  while (selected.size < input.records.length) {
+    let added = false;
+    for (const anchor of anchorIndices) {
+      for (const candidate of [anchor - radius, anchor + radius]) {
+        if (candidate < 0 || candidate >= input.records.length || selected.has(candidate)) continue;
+        const next = [...selected, candidate].sort((left, right) => left - right);
+        if (!canFit(next)) continue;
+        selected.add(candidate);
+        added = true;
+      }
+    }
+    if (!added) break;
+    radius += 1;
+  }
+  const indices = [...selected].sort((left, right) => left - right);
+  const rendered = renderSampleRecords(input.records, indices, maximumCharacters);
+  return Object.freeze({
+    records: rendered.records,
+    text: rendered.text,
+    inputCharacters,
+    sampledCharacters: rendered.sampledCharacters,
+    omittedCharacters: Math.max(0, inputCharacters - rendered.sampledCharacters),
+    recordCount: input.records.length,
+    sampledRecordCount: rendered.sampledRecordCount,
+    elidedRecordCount: Math.max(0, input.records.length - rendered.sampledRecordCount),
+  });
 }
 
 export function buildPiCompactionDigestChunks(input: {
@@ -343,20 +520,17 @@ export function buildPiCompactionRecoveryArtifacts(input: {
   pristineToolContentByCallId?: Readonly<Record<string, string>>;
 }): PiCompactionRecoveryArtifacts {
   const knownSecrets = input.knownSecrets ?? [];
-  const redactedTranscript = serializeForDigest(
-    input.messages,
+  const redactedRecords = buildPiCompactionSummaryRecords({
+    messages: input.messages,
     knownSecrets,
-    input.pristineToolContentByCallId ?? {},
-  );
+    pristineToolContentByCallId: input.pristineToolContentByCallId,
+  });
+  const redactedTranscript = redactedRecords.join('\n\n');
   return Object.freeze({
     redactedTranscript,
+    redactedRecords,
     anchorIndex: buildPiCompactionAnchorIndex(input.messages, knownSecrets),
     verbatimUserSection: buildPiCompactionVerbatimUserSection(input.messages, knownSecrets),
-    digestChunks: buildPiCompactionDigestChunks({
-      messages: input.messages,
-      knownSecrets,
-      pristineToolContentByCallId: input.pristineToolContentByCallId,
-    }),
     recoveryFooter: buildPiCompactionRecoveryFooter({
       sessionId: input.sessionId,
       authorizedSessionId: input.authorizedSessionId,
