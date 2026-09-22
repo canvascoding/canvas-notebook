@@ -3734,6 +3734,13 @@
         "actionHint": "Resolve the listed issue first, then check again.",
         "action": "Not available yet",
         "reasons": {
+          "managedConfigurationInvalid": "The connection to the Control Plane is not configured correctly. Ask your administrator to check the instance credentials and service address.",
+          "managedChannelUnsupported": "This release channel is not available for managed updates.",
+          "managedWorkerDisabled": "The central update service is disabled. Ask your administrator to enable it in the Control Plane.",
+          "managedReleaseUnavailable": "The Control Plane has not approved an available release for this installation.",
+          "managedHostUnavailable": "The host agent is unavailable. Restore its connection to the Control Plane before updating.",
+          "managedUpdateConflict": "Another update is already running. Wait for it to finish before trying again.",
+          "managedAlreadyCurrent": "This installation already runs the centrally approved version.",
           "currentVersionUnknown": "The installed Canvas version could not be determined reliably.",
           "hostCliVersionUnknown": "The host updater needs to be checked or updated.",
           "minimumVersionNotMet": "A compatible intermediate update is required before this release.",

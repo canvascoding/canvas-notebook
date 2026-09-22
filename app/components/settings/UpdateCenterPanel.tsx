@@ -31,12 +31,34 @@ const ACTIVE_OPERATION_STORAGE_KEY = 'canvas.system-update.operation-id';
 const STATUS_ACCESS_STORAGE_KEY = 'canvas.system-update.status-access';
 const POLL_INTERVAL_MS = 2_000;
 
-type ApiError = { error?: { code?: string; message?: string } };
+type ApiError = { error?: { code?: string; message?: string } | string };
+
+class UpdateRequestError extends Error {
+  constructor(readonly status: number, message: string) { super(message); }
+}
+
+function restoreStatusAccess(value: unknown, operationId: string): SystemUpdateStatusAccess | null {
+  if (!value || typeof value !== 'object') return null;
+  const access = value as SystemUpdateStatusAccess & { operationId?: string };
+  if (access.operationId !== operationId || typeof access.ticket !== 'string' || !access.ticket ||
+      !Number.isFinite(Date.parse(access.expiresAt)) || Date.parse(access.expiresAt) <= Date.now()) return null;
+  if (!access.transport && access.path === `/__canvas-host/operations/${operationId}/events`) return access;
+  // Managed URLs were checked against the configured CP origin before issuing access.
+  // Persist only the canonical operation URL; never accept credentials or URL parameters.
+  try {
+    const url = new URL(access.path);
+    if (access.transport === 'snapshot' && !url.username && !url.password && !url.search && !url.hash &&
+        url.pathname === `/v1/managed/system-updates/${operationId}/status` &&
+        (url.protocol === 'https:' || (url.protocol === 'http:' &&
+          ['localhost', '127.0.0.1', '[::1]', 'host.orb.internal', 'host.docker.internal'].includes(url.hostname)))) return access;
+  } catch { /* Invalid stored status access must not be fetched. */ }
+  return null;
+}
 
 async function readApiJson<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null) as (T & ApiError) | null;
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `Request failed with HTTP ${response.status}.`);
+    throw new UpdateRequestError(response.status, (typeof payload?.error === 'string' ? payload.error : payload?.error?.message) || `Request failed with HTTP ${response.status}.`);
   }
   if (!payload) throw new Error('The server returned an empty response.');
   return payload;
@@ -86,11 +108,13 @@ export function UpdateCenterPanel() {
   const [starting, setStarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [observationError, setObservationError] = useState<string | null>(null);
   const [connectionInterrupted, setConnectionInterrupted] = useState(false);
   const [statusAccess, setStatusAccess] = useState<SystemUpdateStatusAccess | null>(null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
   const observationRef = useRef<SystemUpdateObservation | null>(null);
   const reloadScheduledRef = useRef(false);
+  const statusRetryNotBeforeRef = useRef(0);
   const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadAvailability = useCallback(async () => {
@@ -114,6 +138,7 @@ export function UpdateCenterPanel() {
     setConnectionInterrupted(false);
     setError(null);
     if (isTerminalSystemUpdateStatus(next.status)) {
+      setObservationError(null);
       setActiveOperationId(null);
       setStatusAccess(null);
       try {
@@ -147,8 +172,12 @@ export function UpdateCenterPanel() {
       acceptEvents(operationId, payload.events);
       acceptOperation(payload.operation);
       setConnectionInterrupted(false);
-    } catch {
-      if (!signal.aborted && observationRef.current?.operationId === operationId) setConnectionInterrupted(true);
+    } catch (loadError) {
+      if (signal.aborted || observationRef.current?.operationId !== operationId) return;
+      if (loadError instanceof UpdateRequestError && [401, 403, 404, 410].includes(loadError.status)) {
+        setObservationError(loadError.message);
+        setConnectionInterrupted(false);
+      } else setConnectionInterrupted(true);
     }
   }, [acceptEvents, acceptOperation]);
 
@@ -181,7 +210,7 @@ export function UpdateCenterPanel() {
           const storedAccess = window.sessionStorage.getItem(STATUS_ACCESS_STORAGE_KEY);
           if (storedAccess) {
             const parsed = JSON.parse(storedAccess) as SystemUpdateStatusAccess & { operationId?: string };
-            if (parsed.operationId === storedOperationId && parsed.path === `/__canvas-host/operations/${storedOperationId}/events` && Date.parse(parsed.expiresAt) > Date.now()) setStatusAccess(parsed);
+            setStatusAccess(restoreStatusAccess(parsed, storedOperationId));
           }
         }
       } catch {
@@ -195,7 +224,7 @@ export function UpdateCenterPanel() {
   }, [loadAvailability]);
 
   useEffect(() => {
-    if (!activeOperationId) return;
+    if (!activeOperationId || observationError) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     let request: AbortController | null = null;
@@ -208,7 +237,7 @@ export function UpdateCenterPanel() {
     };
     timer = setTimeout(() => void poll(), 0);
     return () => { disposed = true; clearTimeout(timer); request?.abort(); };
-  }, [loadOperation, activeOperationId]);
+  }, [loadOperation, activeOperationId, observationError]);
 
   useEffect(() => {
     if (!activeOperationId) return;
@@ -218,7 +247,9 @@ export function UpdateCenterPanel() {
       await requestStatusAccess(activeOperationId, controller.signal);
       if (!controller.signal.aborted) timer = setTimeout(() => void refresh(), 60_000);
     };
-    const delay = statusAccess ? Math.max(0, Date.parse(statusAccess.expiresAt) - Date.now() - 60_000) : 0;
+    const delay = statusAccess
+      ? Math.max(0, Date.parse(statusAccess.expiresAt) - Date.now() - 60_000)
+      : Math.max(0, statusRetryNotBeforeRef.current - Date.now());
     timer = setTimeout(() => void refresh(), delay);
     return () => { controller.abort(); clearTimeout(timer); };
   }, [activeOperationId, statusAccess, requestStatusAccess]);
@@ -229,24 +260,39 @@ export function UpdateCenterPanel() {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const connect = async () => {
-      await fetch(`${statusAccess.path}?after=${observationRef.current?.cursor || 0}`, {
-        headers: { Accept: 'text/event-stream', Authorization: `Bearer ${statusAccess.ticket}` },
-        cache: 'no-store',
-        credentials: 'same-origin',
-        signal: controller.signal,
-      }).then((response) => consumeStatusStream(
-        response,
-        streamOperationId,
-        (nextOperation) => { if (!controller.signal.aborted) acceptOperation(nextOperation); },
-        (event) => {
-          if (controller.signal.aborted) return;
-          acceptEvents(streamOperationId, [event]);
-          setConnectionInterrupted(false);
-        },
-      )).catch(() => {
-        // The authenticated application polling continues as the no-Caddy fallback.
-      });
-      if (!controller.signal.aborted && Date.parse(statusAccess.expiresAt) > Date.now()) timer = setTimeout(() => void connect(), POLL_INTERVAL_MS);
+      const snapshot = statusAccess.transport === 'snapshot';
+      let retry = true;
+      try {
+        const response = await fetch(`${statusAccess.path}?after=${observationRef.current?.cursor || 0}`, {
+          headers: { Accept: snapshot ? 'application/json' : 'text/event-stream', Authorization: `Bearer ${statusAccess.ticket}` },
+          cache: 'no-store', credentials: 'omit', redirect: 'error',
+          signal: snapshot ? AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]) : controller.signal,
+        });
+        if ([401, 403, 404, 410].includes(response.status)) {
+          // Stop reusing a rejected/expired ticket; authenticated polling can obtain a fresh one.
+          retry = false;
+          statusRetryNotBeforeRef.current = Date.now() + 60_000;
+          setStatusAccess(null);
+          try { window.sessionStorage.removeItem(STATUS_ACCESS_STORAGE_KEY); } catch { /* Optional storage. */ }
+        } else if (snapshot) {
+          const payload = await readApiJson<SystemUpdateOperationSnapshot>(response);
+          if (!controller.signal.aborted) {
+            acceptEvents(streamOperationId, payload.events);
+            acceptOperation(payload.operation);
+          }
+        } else await consumeStatusStream(
+          response, streamOperationId,
+          (nextOperation) => { if (!controller.signal.aborted) acceptOperation(nextOperation); },
+          (event) => {
+            if (controller.signal.aborted) return;
+            acceptEvents(streamOperationId, [event]);
+            setConnectionInterrupted(false);
+          },
+        );
+      } catch {
+        // The authenticated application polling continues as the fallback.
+      }
+      if (retry && !controller.signal.aborted && Date.parse(statusAccess.expiresAt) > Date.now()) timer = setTimeout(() => void connect(), POLL_INTERVAL_MS);
     };
     timer = setTimeout(() => void connect(), 0);
     return () => {
@@ -268,7 +314,9 @@ export function UpdateCenterPanel() {
       const payload = await readApiJson<{ success: true; operation: SystemUpdateOperationView }>(response);
       observationRef.current = new SystemUpdateObservation(payload.operation.operationId);
       reloadScheduledRef.current = false;
+      statusRetryNotBeforeRef.current = 0;
       setEvents([]);
+      setObservationError(null);
       setStatusAccess(null);
       setActiveOperationId(payload.operation.operationId);
       acceptOperation(payload.operation);
@@ -290,6 +338,7 @@ export function UpdateCenterPanel() {
     observationRef.current = null;
     setActiveOperationId(null);
     setOperation(null);
+    setObservationError(null);
     setEvents([]);
     setConnectionInterrupted(false);
     setStatusAccess(null);
@@ -315,20 +364,21 @@ export function UpdateCenterPanel() {
 
   return (
     <div className="space-y-5">
-      {error && (
+      {(observationError || error) && (
         <Alert variant="destructive">
           <CircleAlert aria-hidden="true" />
           <AlertTitle>{t('errors.title')}</AlertTitle>
           <AlertDescription>
-            <p>{error}</p>
-            <Button variant="outline" size="sm" className="mt-2" onClick={() => void loadAvailability()}>
+            <p>{observationError || error}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => { setObservationError(null); void loadAvailability(); }}>
               <RefreshCw aria-hidden="true" /> {t('retry')}
             </Button>
+            {observationError && <Button variant="ghost" size="sm" className="mt-2" onClick={returnToOverview}>{t('operation.returnToOverview')}</Button>}
           </AlertDescription>
         </Alert>
       )}
 
-      {activeOperationId && !operation ? (
+      {activeOperationId && !operation && !observationError ? (
         <Alert>
           <Loader2 className="animate-spin" aria-hidden="true" />
           <AlertTitle>{t('reconnecting.title')}</AlertTitle>

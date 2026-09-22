@@ -3733,6 +3733,13 @@
         "actionHint": "Behebe zuerst den genannten Punkt und prüfe anschließend erneut.",
         "action": "Noch nicht verfügbar",
         "reasons": {
+          "managedConfigurationInvalid": "Die Verbindung zur Control Plane ist nicht korrekt eingerichtet. Bitte die Instanz-Zugangsdaten und die Service-Adresse vom Administrator prüfen lassen.",
+          "managedChannelUnsupported": "Dieser Release-Kanal ist für verwaltete Updates nicht verfügbar.",
+          "managedWorkerDisabled": "Der zentrale Update-Dienst ist deaktiviert. Bitte vom Administrator in der Control Plane aktivieren lassen.",
+          "managedReleaseUnavailable": "Die Control Plane hat keine verfügbare Version für diese Installation freigegeben.",
+          "managedHostUnavailable": "Der Host-Agent ist nicht erreichbar. Vor dem Update seine Verbindung zur Control Plane wiederherstellen.",
+          "managedUpdateConflict": "Ein anderes Update läuft bereits. Bitte dessen Abschluss abwarten.",
+          "managedAlreadyCurrent": "Diese Installation verwendet bereits die zentral freigegebene Version.",
           "currentVersionUnknown": "Die installierte Canvas-Version konnte nicht zuverlässig ermittelt werden.",
           "hostCliVersionUnknown": "Der Host-Updater muss geprüft oder aktualisiert werden.",
           "minimumVersionNotMet": "Vor diesem Release ist zunächst ein kompatibles Zwischenupdate erforderlich.",

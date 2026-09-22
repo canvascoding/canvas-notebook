@@ -27,6 +27,14 @@ const STAGE_TO_USER_PHASE: Record<SystemUpdateStage, SystemUpdateUserPhase> = {
 };
 
 const READINESS_REASON_KEYS = {
+  managed_configuration_invalid: 'managedConfigurationInvalid',
+  managed_channel_unsupported: 'managedChannelUnsupported',
+  managed_worker_disabled: 'managedWorkerDisabled',
+  managed_release_unavailable: 'managedReleaseUnavailable',
+  managed_host_unavailable: 'managedHostUnavailable',
+  managed_update_conflict: 'managedUpdateConflict',
+  managed_already_current: 'managedAlreadyCurrent',
+  managed_version_unknown: 'currentVersionUnknown',
   current_version_unknown: 'currentVersionUnknown',
   host_cli_version_unknown: 'hostCliVersionUnknown',
   minimum_version_not_met: 'minimumVersionNotMet',

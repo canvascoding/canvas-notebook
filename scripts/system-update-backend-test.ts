@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { SystemUpdateEvent, SystemUpdateOperation } from '../cli/src/core/systemUpdateContract';
+import { resolveSystemUpdateBackend } from '../app/lib/system-updates/backend';
 import { ManualSystemUpdateBackend } from '../app/lib/system-updates/manual-backend';
 import { ManagedSystemUpdateBackend } from '../app/lib/system-updates/managed-backend';
 import { StandaloneSystemUpdateBackend } from '../app/lib/system-updates/standalone-backend';
@@ -151,6 +152,11 @@ async function main(): Promise<void> {
     Object.entries(operation).filter(([key]) => key !== 'targetImageRef'),
   );
   const managedToken = 'managed-instance-token';
+  let statusPathOverride: string | null = null;
+  let redirectRequest = false;
+  let receivedRedirect = false;
+  let managedBaseUrl = '';
+  const ticketExpiry = new Date(Date.now() + 120_000).toISOString();
   const managedRequests: Array<{ authorization?: string; method?: string; url?: string; body?: string }> = [];
   const managedServer = http.createServer((request, response) => {
     const chunks: Buffer[] = [];
@@ -162,7 +168,14 @@ async function main(): Promise<void> {
         url: request.url,
         body: Buffer.concat(chunks).toString('utf8'),
       });
-      if (request.method === 'GET' && request.url === '/v1/managed-system-updates/availability?channel=stable') {
+      if (request.url === '/redirect-target') { receivedRedirect = true; sendJson(response, 200, {}); return; }
+      if (redirectRequest) { response.writeHead(302, { Location: '/redirect-target' }); response.end(); return; }
+      if (request.method === 'POST' && request.url === `/v1/managed/system-updates/${operationId}/status-ticket`) {
+        sendJson(response, 200, { path: statusPathOverride || `${managedBaseUrl}/v1/managed/system-updates/${operationId}/status`,
+          ticket: 'read-only-fixture', expiresAt: ticketExpiry, transport: 'snapshot' });
+        return;
+      }
+      if (request.method === 'GET' && request.url === '/v1/managed/system-updates/availability?channel=stable') {
         sendJson(response, 200, {
           contractVersion: 1,
           mode: 'managed',
@@ -183,15 +196,15 @@ async function main(): Promise<void> {
         });
         return;
       }
-      if (request.method === 'POST' && request.url === '/v1/managed-system-updates') {
+      if (request.method === 'POST' && request.url === '/v1/managed/system-updates') {
         sendJson(response, 202, { operation: managedOperation });
         return;
       }
-      if (request.method === 'GET' && request.url === `/v1/managed-system-updates/${operationId}`) {
+      if (request.method === 'GET' && request.url === `/v1/managed/system-updates/${operationId}`) {
         sendJson(response, 200, { operation: managedOperation });
         return;
       }
-      if (request.method === 'GET' && request.url === `/v1/managed-system-updates/${operationId}/events?after=0`) {
+      if (request.method === 'GET' && request.url === `/v1/managed/system-updates/${operationId}/events?after=0`) {
         sendJson(response, 200, { operation: managedOperation, events: [updateEvent] });
         return;
       }
@@ -205,11 +218,13 @@ async function main(): Promise<void> {
   const address = managedServer.address();
   assert.ok(address && typeof address === 'object');
   const previousControlPlaneUrl = process.env.CANVAS_CONTROL_PLANE_URL;
-  process.env.CANVAS_CONTROL_PLANE_URL = `http://127.0.0.1:${address.port}`;
+  managedBaseUrl = `http://127.0.0.1:${address.port}`;
+  process.env.CANVAS_CONTROL_PLANE_URL = managedBaseUrl;
   try {
     const backend = new ManagedSystemUpdateBackend({
       ...process.env,
       CANVAS_INSTANCE_TOKEN: managedToken,
+      CANVAS_UPDATE_ALLOW_LOCAL_HTTP: 'true',
     });
     const availability = await backend.getAvailability('stable');
     assert.equal(availability.mode, 'managed');
@@ -221,7 +236,23 @@ async function main(): Promise<void> {
     assert.equal('targetImageRef' in started, false);
     assert.equal((await backend.getOperation(operationId)).stage, 'image_pull');
     assert.equal((await backend.getEvents(operationId, 0)).events.length, 1);
-    assert.equal(await backend.createStatusAccess(operationId), null);
+    assert.deepEqual(await backend.createStatusAccess(operationId), {
+      path: `${managedBaseUrl}/v1/managed/system-updates/${operationId}/status`, ticket: 'read-only-fixture', expiresAt: ticketExpiry, transport: 'snapshot',
+    });
+    statusPathOverride = `/v1/managed/system-updates/${operationId}/status`;
+    assert.equal((await backend.createStatusAccess(operationId))?.path, `${managedBaseUrl}${statusPathOverride}`);
+    for (const path of [
+      `https://attacker.example/v1/managed/system-updates/${operationId}/status`,
+      `${managedBaseUrl}/v1/managed/system-updates/${crypto.randomUUID()}/status`,
+      `${managedBaseUrl}/v1/managed/system-updates/${operationId}/status?redirect=evil`,
+    ]) {
+      statusPathOverride = path;
+      await assert.rejects(() => backend.createStatusAccess(operationId), /status access is invalid/u);
+    }
+    redirectRequest = true;
+    await assert.rejects(() => backend.getOperation(operationId));
+    assert.equal(receivedRedirect, false, 'instance tokens must never follow redirects');
+    redirectRequest = false;
     assert.ok(managedRequests.every((request) => request.authorization === `Bearer ${managedToken}`));
     const startRequest = managedRequests.find((request) => request.method === 'POST');
     assert.deepEqual(JSON.parse(startRequest?.body || '{}'), { channel: 'stable', expectedReleaseId: releaseId });
@@ -231,6 +262,29 @@ async function main(): Promise<void> {
     await new Promise<void>((resolve) => managedServer.close(() => resolve()));
   }
 
+  const missingToken = resolveSystemUpdateBackend({ NODE_ENV: 'test', CANVAS_MANAGED_SERVICES_ENABLED: 'true', CANVAS_STANDALONE_UPDATER_ENABLED: 'true' });
+  assert.equal(missingToken.mode, 'managed');
+  const missingAvailability = await missingToken.getAvailability('stable');
+  assert.equal(missingAvailability.ready, false);
+  assert.deepEqual(missingAvailability.reasons, ['managed_configuration_invalid']);
+  await assert.rejects(() => missingToken.startUpdate({ channel: 'stable', expectedReleaseId: crypto.randomUUID() }), /CANVAS_INSTANCE_TOKEN/u);
+  assert.equal(resolveSystemUpdateBackend({ NODE_ENV: 'test', CANVAS_INSTANCE_TOKEN: managedToken }).mode, 'managed');
+  assert.equal(resolveSystemUpdateBackend({ NODE_ENV: 'test', CANVAS_CONTROL_PLANE_URL: 'https://services.example.com' }).mode, 'manual');
+  assert.equal(resolveSystemUpdateBackend({ NODE_ENV: 'test', CANVAS_STANDALONE_UPDATER_ENABLED: 'true' }).mode, 'standalone');
+  for (const [url, optIn, readyConfiguration] of [
+    ['http://host.orb.internal:4001', undefined, false], ['http://host.orb.internal:4001', 'true', true],
+    ['http://127.0.0.1:4001', undefined, false], ['http://example.com', 'true', false],
+    ['https://user:password@example.com', undefined, false], ['https://example.com/path', undefined, false],
+  ] as const) {
+    const backend = new ManagedSystemUpdateBackend({ NODE_ENV: 'test', CANVAS_CONTROL_PLANE_URL: url, CANVAS_INSTANCE_TOKEN: managedToken, CANVAS_UPDATE_ALLOW_LOCAL_HTTP: optIn });
+    if (!readyConfiguration) assert.equal((await backend.getAvailability('stable')).ready, false);
+    else {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () => { throw new Error('local configuration accepted'); };
+      try { await assert.rejects(() => backend.getAvailability('stable'), /local configuration accepted/u); }
+      finally { globalThis.fetch = originalFetch; }
+    }
+  }
   console.log('system update backend test passed');
 }
 
