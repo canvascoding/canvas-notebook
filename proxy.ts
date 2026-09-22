@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCanvasSessionCookie } from '@/app/lib/auth-cookie';
+import { getManagedSystemUpdateOrigin, hasManagedSystemUpdateIntent } from '@/app/lib/managed/control-plane-url-policy';
 import { optionalHtmlPreviewOrigin, isHtmlPreviewHost } from '@/app/lib/html-preview-origin';
 import createIntlMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
@@ -80,6 +81,14 @@ function setCommonHeaders(response: NextResponse) {
     'camera=(), microphone=(), geolocation=()'
   );
 
+  const connectSources = ["'self'", 'ws:', 'wss:', 'https://o4511053822099456.ingest.de.sentry.io', 'https://api.github.com'];
+  if (hasManagedSystemUpdateIntent(process.env)) {
+    try {
+      connectSources.push(getManagedSystemUpdateOrigin(process.env));
+    } catch {
+      // Invalid configuration must not expand CSP; update availability reports it.
+    }
+  }
   const cspHeader = [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://static.cloudflareinsights.com",
@@ -88,7 +97,7 @@ function setCommonHeaders(response: NextResponse) {
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob:",
     "font-src 'self' data: https://fonts.gstatic.com",
-    "connect-src 'self' ws: wss: https://o4511053822099456.ingest.de.sentry.io https://api.github.com",
+    `connect-src ${connectSources.join(' ')}`,
     "worker-src 'self' blob:",
     "frame-ancestors 'self'",
     `frame-src 'self' ${optionalHtmlPreviewOrigin() || ''}`,

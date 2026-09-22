@@ -6,7 +6,7 @@ import {
   type SystemUpdateReleaseChannel,
 } from '@/cli/src/core/systemUpdateContract';
 import packageJson from '@/package.json';
-import { DEFAULT_MANAGED_CONTROL_PLANE_URL } from '@/app/lib/managed/control-plane-url';
+import { getManagedSystemUpdateOrigin } from '@/app/lib/managed/control-plane-url-policy';
 
 import {
   SystemUpdateBackendError,
@@ -85,16 +85,7 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
     let baseUrl = '';
     let error: SystemUpdateBackendError | null = null;
     try {
-      const configured = env.CANVAS_CONTROL_PLANE_URL || env.NEXT_PUBLIC_CANVAS_CONTROL_PLANE_URL || DEFAULT_MANAGED_CONTROL_PLANE_URL;
-      const parsed = new URL(configured.trim().replace(/^ws/iu, 'http'));
-      if (parsed.pathname === '/agent') parsed.pathname = '/';
-      const localHttp = env.CANVAS_UPDATE_ALLOW_LOCAL_HTTP === 'true' &&
-        ['localhost', '127.0.0.1', '[::1]', 'host.orb.internal', 'host.docker.internal'].includes(parsed.hostname);
-      if (parsed.username || parsed.password || parsed.search || parsed.hash || parsed.pathname !== '/' ||
-          (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && localHttp))) {
-        throw new Error('Managed updates require an HTTPS Control Plane origin. Local HTTP requires CANVAS_UPDATE_ALLOW_LOCAL_HTTP=true and an allowed local host.');
-      }
-      baseUrl = parsed.origin;
+      baseUrl = getManagedSystemUpdateOrigin(env);
       if (!this.token) throw new Error('Managed updates require CANVAS_INSTANCE_TOKEN from the Control Plane.');
     } catch (cause) {
       error = new SystemUpdateBackendError(503, 'managed_configuration_invalid', safeErrorMessage(
