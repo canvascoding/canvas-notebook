@@ -1,7 +1,15 @@
 import 'server-only';
 
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
-import type { Api, AssistantMessage, Message, Model, UserMessage } from '@earendil-works/pi-ai';
+import type {
+  Api,
+  AssistantMessage,
+  AssistantMessageEvent,
+  AssistantMessageEventStream,
+  Message,
+  Model,
+  UserMessage,
+} from '@earendil-works/pi-ai';
 
 import {
   composePiHistoryForLlm,
@@ -22,6 +30,8 @@ import {
   type PiSummaryMode,
   type PiSummaryProgressEvent,
 } from './compaction/summary-generator';
+import type { SessionCompactionTailMode } from './compaction/policy';
+import { boundPiCompactionSummaryInput } from './compaction/recovery';
 import { logPiCompactionDiagnostic } from './compaction/diagnostics';
 import { buildPiSummaryOrientation, PI_SUMMARY_RELEVANCE_POLICY } from './compaction/orientation';
 
@@ -37,6 +47,9 @@ export type PreparePiHistoryContextOptions = {
   sessionId?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  /** Optional authenticated compression route; must be paired atomically. */
+  summaryModel?: Model<Api>;
+  summaryStreamFn?: StreamFn;
   summaryMode?: PiSummaryMode;
   focusTopic?: string | null;
   knownSecrets?: readonly string[];
@@ -58,7 +71,11 @@ export type SummarizeHistoryInput = {
   sessionId?: string;
   signal?: AbortSignal;
   streamFn?: StreamFn;
+  summaryModel?: Model<Api>;
+  summaryStreamFn?: StreamFn;
   summaryMode?: PiSummaryMode;
+  /** Independent tail policy; summaryMode selects the generator rollout only. */
+  tailMode?: SessionCompactionTailMode;
   focusTopic?: string | null;
   knownSecrets?: readonly string[];
   authorizedSessionId?: string | null;
@@ -99,8 +116,11 @@ const SUMMARY_UPDATE_PROMPT = [
 const SUMMARY_MESSAGE_TEXT_LIMIT = 6000;
 const SUMMARY_TOOL_TEXT_LIMIT = 3000;
 const SUMMARY_TOOL_ARGUMENT_LIMIT = 1200;
-const SUMMARY_OUTPUT_TOKENS = 1200;
 const SUMMARY_INPUT_SAFETY_TOKENS = 512;
+const SUMMARY_RECORD_PROMPT_OVERHEAD_TOKENS = 128;
+const DEFAULT_LEGACY_SUMMARY_IDLE_TIMEOUT_MS = 120_000;
+const DEFAULT_LEGACY_SUMMARY_TOTAL_TIMEOUT_MS = 300_000;
+const AUXILIARY_LEGACY_ATTEMPT_DEADLINE_FRACTION = 0.6;
 
 function assertSummaryGenerationActive(signal?: AbortSignal): void {
   if (signal?.aborted) {
@@ -206,6 +226,170 @@ function estimateSummaryMessageTokens(message: UserMessage): number {
   }, 24);
 }
 
+/**
+ * We intentionally omit an adapter maxTokens option so providers retain their
+ * native reasoning headroom. Reserve that same native allowance while fitting
+ * the prompt; otherwise a token-dense small-context model can receive an
+ * already-overflowing legacy summary request.
+ */
+function legacySummaryPromptFits(input: {
+  model: Model<Api>;
+  systemPrompt: string;
+  messages: readonly UserMessage[];
+}): boolean {
+  const available = input.model.contextWindow
+    - input.model.maxTokens
+    - SUMMARY_INPUT_SAFETY_TOKENS;
+  const promptTokens = estimateTextTokens(input.systemPrompt)
+    + input.messages.reduce((total, message) => total + estimateSummaryMessageTokens(message), 0);
+  return available > promptTokens + 32;
+}
+
+function legacySummaryTimeout<T>(milliseconds: number, reasonCode: PiSummaryTimeoutError['reasonCode'], message: string): {
+  promise: Promise<T>;
+  cancel: () => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const promise = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new PiSummaryTimeoutError(reasonCode, message)), Math.max(1, milliseconds));
+  });
+  return {
+    promise,
+    cancel: () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+    },
+  };
+}
+
+function resettableLegacyIdleTimeout(milliseconds: number): {
+  promise: Promise<never>;
+  reset: () => void;
+  cancel: () => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let rejectTimeout: ((reason?: unknown) => void) | null = null;
+  const promise = new Promise<never>((_resolve, reject) => {
+    rejectTimeout = reject;
+  });
+  const reset = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => rejectTimeout?.(new PiSummaryTimeoutError(
+      'summary_idle_timeout',
+      'Legacy summary stream idle timeout.',
+    )), Math.max(1, milliseconds));
+  };
+  reset();
+  return {
+    promise,
+    reset,
+    cancel: () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      rejectTimeout = null;
+    },
+  };
+}
+
+/** One result consumption; optional iteration observes progress only. */
+async function awaitLegacySummaryResult(input: {
+  stream: AssistantMessageEventStream;
+  aborted: Promise<never>;
+  idleTimeoutMs: number;
+  totalTimeoutMs: number;
+  onEvent?: (event: AssistantMessageEvent) => void;
+}): Promise<AssistantMessage> {
+  const idle = resettableLegacyIdleTimeout(input.idleTimeoutMs);
+  const total = legacySummaryTimeout<AssistantMessage>(
+    input.totalTimeoutMs,
+    'summary_total_timeout',
+    'Legacy summary stream total timeout.',
+  );
+  const candidate = input.stream as AssistantMessageEventStream & Partial<AsyncIterable<AssistantMessageEvent>>;
+  let active = true;
+  const tracker = typeof candidate[Symbol.asyncIterator] === 'function'
+    ? (async () => {
+      for await (const event of candidate) {
+        if (!active) return;
+        idle.reset();
+        input.onEvent?.(event);
+      }
+    })().catch(() => undefined)
+    : null;
+  try {
+    return await Promise.race([input.stream.result(), idle.promise, total.promise, input.aborted]);
+  } finally {
+    active = false;
+    idle.cancel();
+    total.cancel();
+    void tracker;
+  }
+}
+
+async function callLegacySummaryModel(input: {
+  streamFn: StreamFn;
+  model: Model<Api>;
+  context: { systemPrompt: string; messages: UserMessage[] };
+  sessionId?: string;
+  sessionSuffix: string;
+  signal?: AbortSignal;
+  idleTimeoutMs: number;
+  totalTimeoutMs: number;
+  onProgress?: (event: PiSummaryProgressEvent) => void;
+}): Promise<AssistantMessage> {
+  assertSummaryGenerationActive(input.signal);
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort(input.signal?.reason);
+  input.signal?.addEventListener('abort', forwardAbort, { once: true });
+  const aborted = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener('abort', () => {
+      reject(controller.signal.reason ?? new Error('Summary generation was aborted.'));
+    }, { once: true });
+  });
+  void aborted.catch(() => undefined);
+  const setupTimeout = legacySummaryTimeout<AssistantMessageEventStream>(
+    input.totalTimeoutMs,
+    'summary_total_timeout',
+    'Legacy summary provider setup timeout.',
+  );
+  try {
+    const stream = await Promise.race([
+      input.streamFn(input.model, input.context, {
+        temperature: 0,
+        // Keep native provider headroom; prompt fitting reserves it above.
+        sessionId: input.sessionId ? `${input.sessionId}:${input.sessionSuffix}` : undefined,
+        // The bridged controller observes caller cancellation and is also
+        // aborted by this helper on idle/total timeout, so the provider never
+        // keeps running after a fail-closed legacy attempt.
+        signal: controller.signal,
+      }),
+      setupTimeout.promise,
+      aborted,
+    ]);
+    setupTimeout.cancel();
+    assertSummaryGenerationActive(input.signal);
+    const remainingTotalTimeoutMs = Math.max(1, input.totalTimeoutMs - (Date.now() - startedAt));
+    return await awaitLegacySummaryResult({
+      stream,
+      aborted,
+      idleTimeoutMs: input.idleTimeoutMs,
+      totalTimeoutMs: remainingTotalTimeoutMs,
+      onEvent: (event) => input.onProgress?.({
+        stage: 'summary',
+        status: 'streaming',
+        completed: 0,
+        total: 1,
+        eventType: event.type,
+      }),
+    });
+  } finally {
+    setupTimeout.cancel();
+    input.signal?.removeEventListener('abort', forwardAbort);
+    controller.abort();
+  }
+}
+
 function truncateSummaryMessageToBudget(message: UserMessage, tokenBudget: number): UserMessage {
   if (estimateSummaryMessageTokens(message) <= tokenBudget || typeof message.content !== 'string') {
     return message;
@@ -307,7 +491,10 @@ export async function summarizePiSessionHistory({
   sessionId,
   signal,
   streamFn,
+  summaryModel,
+  summaryStreamFn,
   summaryMode = 'legacy',
+  tailMode = 'legacy',
   focusTopic,
   knownSecrets,
   authorizedSessionId,
@@ -334,6 +521,9 @@ export async function summarizePiSessionHistory({
       knownSecrets,
       signal,
       streamFn,
+      summaryModel,
+      summaryStreamFn,
+      tailMode,
       idleTimeoutMs: summaryIdleTimeoutMs,
       totalTimeoutMs: summaryTotalTimeoutMs,
       onProgress: onSummaryProgress,
@@ -349,76 +539,109 @@ export async function summarizePiSessionHistory({
     return previousSummaryText?.trim() || null;
   }
 
-  let nextSummary = previousSummaryText?.trim() || null;
+  const hasAuxiliaryRoute = Boolean(summaryModel && summaryStreamFn);
+  const preferredModel = hasAuxiliaryRoute ? summaryModel! : model;
+  const promptBudgetModels = hasAuxiliaryRoute ? [preferredModel, model] : [model];
   const baseTokens = estimateTextTokens(SUMMARY_SYSTEM_PROMPT)
     + estimateTextTokens(SUMMARY_UPDATE_PROMPT)
-    + SUMMARY_OUTPUT_TOKENS
     + SUMMARY_INPUT_SAFETY_TOKENS;
-  const availableInputTokens = model.contextWindow - baseTokens - estimateTextTokens(orientation.text) - 24;
+  // Both routes share the same legacy prompt. Use the smaller candidate
+  // budget so a large auxiliary context cannot prevent the main fallback.
+  const availableInputTokens = Math.min(...promptBudgetModels.map((candidateModel) => (
+    candidateModel.contextWindow
+      - baseTokens
+      - candidateModel.maxTokens
+      - estimateTextTokens(orientation.text)
+      - 24
+  )));
   if (availableInputTokens <= 0) {
     return null;
   }
 
-  const pendingMessages = [...sanitizedMessages];
-  while (pendingMessages.length > 0) {
-    assertSummaryGenerationActive(signal);
-    const rawPriorSummaryRecord = nextSummary
-      ? wrapUntrustedSummaryRecord('prior_internal_summary', truncateForSummary(nextSummary, Math.floor(availableInputTokens * 0.4)), 0)
-      : null;
-    const priorSummaryRecord = rawPriorSummaryRecord
-      ? truncateSummaryMessageToBudget(rawPriorSummaryRecord, Math.floor(availableInputTokens * 0.4))
-      : null;
-    const batchBudget = availableInputTokens - (priorSummaryRecord ? estimateSummaryMessageTokens(priorSummaryRecord) : 0);
-    if (batchBudget <= 24) {
-      return null;
-    }
-    const boundedBatch: UserMessage[] = [];
-    let batchTokens = 0;
-    while (pendingMessages.length > 0) {
-      const nextMessage = truncateSummaryMessageToBudget(pendingMessages[0], batchBudget);
-      const nextTokens = estimateSummaryMessageTokens(nextMessage);
-      if (boundedBatch.length > 0 && batchTokens + nextTokens > batchBudget) {
-        break;
+  const priorSummaryRecord = previousSummaryText?.trim()
+    ? wrapUntrustedSummaryRecord(
+      'prior_internal_summary',
+      truncateForSummary(previousSummaryText, Math.floor(availableInputTokens * 0.25)),
+      0,
+    )
+    : null;
+  const priorTokens = priorSummaryRecord ? estimateSummaryMessageTokens(priorSummaryRecord) : 0;
+  const recordBudgetCharacters = Math.max(
+    0,
+    (availableInputTokens - priorTokens - SUMMARY_RECORD_PROMPT_OVERHEAD_TOKENS) * 4,
+  );
+  if (recordBudgetCharacters <= 0) return null;
+  // Hermes legacy uses a bounded head/tail transcript. Lean's sampling and
+  // deterministic appendices are deliberately confined to the V2 generator.
+  const boundedRecords = boundPiCompactionSummaryInput(
+    sanitizedMessages.map((message) => String(message.content)).join('\n\n'),
+    recordBudgetCharacters,
+  );
+  if (!boundedRecords) return null;
+  const context: { systemPrompt: string; messages: UserMessage[] } = {
+    systemPrompt: SUMMARY_SYSTEM_PROMPT,
+    messages: [
+      ...(orientation.text ? [{ role: 'user' as const, content: orientation.text, timestamp: 0 }] : []),
+      ...(priorSummaryRecord ? [priorSummaryRecord] : []),
+      wrapUntrustedSummaryRecord('conversation_records', boundedRecords, Date.now()),
+      { role: 'user', content: SUMMARY_UPDATE_PROMPT, timestamp: Date.now() },
+    ],
+  };
+  const candidates = hasAuxiliaryRoute
+    ? [
+      { model: preferredModel, stream: summaryStreamFn!, suffix: 'summary', fallback: false },
+      { model, stream: streamFn, suffix: 'summary-main-fallback', fallback: true },
+    ]
+    : [{ model, stream: streamFn, suffix: 'summary', fallback: false }];
+  const attemptDeadline = Date.now() + (summaryTotalTimeoutMs ?? DEFAULT_LEGACY_SUMMARY_TOTAL_TIMEOUT_MS);
+  for (const candidate of candidates) {
+    try {
+      if (!legacySummaryPromptFits({
+        model: candidate.model,
+        systemPrompt: context.systemPrompt,
+        messages: context.messages,
+      })) {
+        // Do not pass a prompt that cannot coexist with the provider's native
+        // output reserve. A later main-model fallback may still fit.
+        continue;
       }
-      boundedBatch.push(nextMessage);
-      batchTokens += nextTokens;
-      pendingMessages.shift();
-    }
-    assertSummaryGenerationActive(signal);
-    const summaryStream = await streamFn(
-      model,
-      {
-        systemPrompt: SUMMARY_SYSTEM_PROMPT,
-        messages: [
-          ...(orientation.text ? [{ role: 'user' as const, content: orientation.text, timestamp: 0 }] : []),
-          ...(priorSummaryRecord ? [priorSummaryRecord] : []),
-          ...boundedBatch,
-          { role: 'user', content: SUMMARY_UPDATE_PROMPT, timestamp: Date.now() },
-        ],
-      },
-      {
-        temperature: 0,
-        maxTokens: Math.max(256, Math.min(model.maxTokens, SUMMARY_OUTPUT_TOKENS)),
-        sessionId: sessionId ? `${sessionId}:summary` : undefined,
+      const remainingTotalTimeoutMs = attemptDeadline - Date.now();
+      if (remainingTotalTimeoutMs <= 0) return null;
+      const fallbackReserveMs = Math.ceil((summaryTotalTimeoutMs ?? DEFAULT_LEGACY_SUMMARY_TOTAL_TIMEOUT_MS)
+        * (1 - AUXILIARY_LEGACY_ATTEMPT_DEADLINE_FRACTION));
+      if (hasAuxiliaryRoute && !candidate.fallback && remainingTotalTimeoutMs <= fallbackReserveMs) {
+        continue;
+      }
+      const candidateTimeoutMs = hasAuxiliaryRoute && !candidate.fallback
+        ? Math.max(1, remainingTotalTimeoutMs - fallbackReserveMs)
+        : remainingTotalTimeoutMs;
+      onSummaryProgress?.({ stage: 'summary', status: 'started', completed: 0, total: 1 });
+      const summaryMessage = await callLegacySummaryModel({
+        streamFn: candidate.stream,
+        model: candidate.model,
+        context,
+        sessionId,
+        sessionSuffix: candidate.suffix,
         signal,
-      },
-    );
-    assertSummaryGenerationActive(signal);
-    const summaryMessage = await summaryStream.result();
-    assertSummaryGenerationActive(signal);
-
-    if (summaryMessage.stopReason === 'error' || summaryMessage.stopReason === 'aborted') {
-      return null;
+        idleTimeoutMs: summaryIdleTimeoutMs ?? DEFAULT_LEGACY_SUMMARY_IDLE_TIMEOUT_MS,
+        totalTimeoutMs: candidateTimeoutMs,
+        onProgress: onSummaryProgress,
+      });
+      assertSummaryGenerationActive(signal);
+      if (summaryMessage.stopReason !== 'stop' || String(summaryMessage.stopReason).toLowerCase() === 'length') continue;
+      const text = extractAssistantText(summaryMessage);
+      if (!text || /^(?:(?:i|we)(?:'m|\s+are|\s+am)?\s+(?:sorry,?\s+)?(?:cannot|can't|are unable to|am unable to|are not able to|am not able to)|as an ai(?:\s+(?:language model|assistant))?[,;:]?\s+(?:i\s+)?(?:cannot|can't|am unable to)|i\s+(?:must\s+)?refuse)\b/iu.test(text)) continue;
+      onSummaryProgress?.({ stage: 'summary', status: 'completed', completed: 1, total: 1 });
+      return truncateForSummary(text, Math.floor(availableInputTokens * 0.45));
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      // The auxiliary route gets exactly one main-model fallback while the
+      // original attempt deadline still has room. A main timeout is terminal
+      // and fails closed without committing any partial summary.
+      if (error instanceof PiSummaryTimeoutError && (!hasAuxiliaryRoute || candidate.fallback)) return null;
     }
-
-    const text = extractAssistantText(summaryMessage);
-    if (!text) {
-      return null;
-    }
-    nextSummary = truncateForSummary(text, Math.floor(availableInputTokens * 0.45));
   }
-
-  return nextSummary;
+  return null;
 }
 
 export async function preparePiHistoryContext({
@@ -433,6 +656,8 @@ export async function preparePiHistoryContext({
   sessionId,
   signal,
   streamFn,
+  summaryModel,
+  summaryStreamFn,
   summaryMode = 'legacy',
   focusTopic,
   knownSecrets,
@@ -449,6 +674,7 @@ export async function preparePiHistoryContext({
   let summaryUpdated = false;
   let summaryFailed = false;
   let summaryFailureReason: PreparePiHistoryContextResult['summaryFailureReason'];
+  const tailMode: SessionCompactionTailMode = policy?.tailMode === 'lean' ? 'lean' : 'legacy';
   let composition = composePiHistoryForLlm({
     messages,
     summary: nextSummary,
@@ -458,6 +684,9 @@ export async function preparePiHistoryContext({
     requestOutputTokens,
     toolTokens,
     additionalContextTokens,
+    sessionId,
+    authorizedSessionId,
+    sessionSearchAvailable,
     selectionMode,
     policy,
   });
@@ -503,7 +732,10 @@ export async function preparePiHistoryContext({
       sessionId,
       signal,
       streamFn,
+      summaryModel,
+      summaryStreamFn,
       summaryMode,
+      tailMode,
       focusTopic,
       knownSecrets,
       authorizedSessionId,
@@ -538,6 +770,9 @@ export async function preparePiHistoryContext({
         requestOutputTokens,
         toolTokens,
         additionalContextTokens,
+        sessionId,
+        authorizedSessionId,
+        sessionSearchAvailable,
         selectionMode,
         policy,
       });
@@ -550,7 +785,6 @@ export async function preparePiHistoryContext({
     summaryFailed = true;
     if (error instanceof PiSummaryTimeoutError) summaryFailureReason = error.reasonCode;
     console.warn('[PI Summary] Summary candidate generation failed.', {
-      sessionId: sessionId ?? null,
       errorName: error instanceof Error ? error.name : 'UnknownError',
     });
   }
@@ -570,6 +804,9 @@ export async function preparePiHistoryContext({
       requestOutputTokens,
       toolTokens,
       additionalContextTokens,
+      sessionId,
+      authorizedSessionId,
+      sessionSearchAvailable,
       selectionMode: 'full',
       policy,
     });
@@ -582,7 +819,7 @@ export async function preparePiHistoryContext({
     const shrinks = after.minimumRequiredTokens < before.minimumRequiredTokens
       && after.minimumRequiredBytes < before.minimumRequiredBytes;
     logPiCompactionDiagnostic(fits && shrinks ? 'info' : 'warn', 'summary_effective_context_checked', {
-      sessionId: sessionId ?? null,
+      stage: 'effective_context_validation',
       attemptId: compactionAttemptId ?? null,
       beforeTokens: before.minimumRequiredTokens,
       afterTokens: after.minimumRequiredTokens,
@@ -615,6 +852,9 @@ export async function preparePiHistoryContext({
       requestOutputTokens,
       toolTokens,
       additionalContextTokens,
+      sessionId,
+      authorizedSessionId,
+      sessionSearchAvailable,
       selectionMode: 'hard_limit',
       policy,
     });

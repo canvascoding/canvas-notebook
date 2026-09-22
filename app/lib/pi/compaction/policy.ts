@@ -1,6 +1,6 @@
 /**
  * Portions adapted from NousResearch/hermes-agent at
- * f293e7206b4ddd66042329442c6afebc19a8808d.
+ * e2f8a0731bf26e95b31e35d73e71e183a1045b81.
  * Copyright (c) 2025 Nous Research, MIT License.
  * See THIRD_PARTY_NOTICES.md.
  */
@@ -21,6 +21,7 @@ export const HERMES_COMPACTION_DEFAULTS = Object.freeze({
   leanTailContextRatio: 0.025,
   leanTailFloorTokens: 10_000,
   leanTailCapTokens: 25_000,
+  tailMaxContextFraction: 0.20,
 });
 
 export type SessionCompactionTailMode = 'legacy' | 'lean';
@@ -236,13 +237,21 @@ export function createSessionCompactionBudget(input: {
       Math.min(
         effectiveInputBudgetTokens,
         HERMES_COMPACTION_DEFAULTS.leanTailCapTokens,
+        Math.floor(contextWindowTokens * HERMES_COMPACTION_DEFAULTS.tailMaxContextFraction),
         Math.max(
           HERMES_COMPACTION_DEFAULTS.leanTailFloorTokens,
           Math.floor(contextWindowTokens * HERMES_COMPACTION_DEFAULTS.leanTailContextRatio),
         ),
       ),
     )
-    : Math.max(1, Math.floor(triggerTokens * targetRatioOfThreshold));
+    : Math.max(
+      1,
+      Math.min(
+        effectiveInputBudgetTokens,
+        Math.floor(contextWindowTokens * HERMES_COMPACTION_DEFAULTS.tailMaxContextFraction),
+        Math.floor(triggerTokens * targetRatioOfThreshold),
+      ),
+    );
 
   return Object.freeze({
     contextWindowTokens,

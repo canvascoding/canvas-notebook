@@ -6,6 +6,47 @@ export type PiThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'x
 
 export type OllamaMode = 'local' | 'cloud';
 
+/**
+ * Global, admin-managed preferences for session compaction. These values do
+ * not contain provider credentials; a deployment may override them for an
+ * immediate operational rollback.
+ */
+export type PiCompactionRuntimeConfig = {
+  tailMode?: 'legacy' | 'lean';
+  /** Exact catalog reference: `providerInstallationId/modelId`. */
+  summaryModel?: string | null;
+};
+
+export type PiCompactionSummaryModelIdentity = Readonly<{
+  providerInstallationId: string;
+  modelId: string;
+}>;
+
+/**
+ * The catalog installation id never contains `/`; model ids commonly do.
+ * Split only at the first separator so identities such as
+ * `aip_123/anthropic/claude-sonnet` remain lossless.
+ */
+export function parsePiCompactionSummaryModelIdentity(
+  value: unknown,
+): PiCompactionSummaryModelIdentity | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (
+    !normalized
+    || normalized.length > 512
+    || /[\u0000-\u001F\u007F]/u.test(normalized)
+  ) {
+    return null;
+  }
+  const separatorIndex = normalized.indexOf('/');
+  if (separatorIndex < 1 || separatorIndex === normalized.length - 1) return null;
+  const providerInstallationId = normalized.slice(0, separatorIndex);
+  const modelId = normalized.slice(separatorIndex + 1);
+  if (/\s/u.test(providerInstallationId) || /\s/u.test(modelId) || !providerInstallationId || !modelId) return null;
+  return Object.freeze({ providerInstallationId, modelId });
+}
+
 export interface PiProviderConfig {
   id: string; // e.g., 'openrouter', 'anthropic', 'google', 'ollama', 'groq'
   model: string;
@@ -36,6 +77,7 @@ export interface PiRuntimeConfig {
   qmd?: {
     allowExpensiveQueryMode?: boolean;
   };
+  compaction?: PiCompactionRuntimeConfig;
   updatedAt: string;
   updatedBy: string;
 }
@@ -85,6 +127,7 @@ export const DEFAULT_PI_CONFIG: PiRuntimeConfig = {
 };
 
 export function normalizePiRuntimeConfig(config: PiRuntimeConfig): PiRuntimeConfig {
+  const { compaction: configuredCompaction, ...configWithoutCompaction } = config;
   const providers = Object.fromEntries(
     Object.entries(config.providers).map(([providerId, providerConfig]) => {
       const normalizedProviderConfig = {
@@ -96,9 +139,21 @@ export function normalizePiRuntimeConfig(config: PiRuntimeConfig): PiRuntimeConf
     }),
   );
 
+  const compaction = configuredCompaction && typeof configuredCompaction === 'object'
+    ? {
+      ...(configuredCompaction.tailMode === 'legacy' || configuredCompaction.tailMode === 'lean'
+        ? { tailMode: configuredCompaction.tailMode }
+        : {}),
+      ...(parsePiCompactionSummaryModelIdentity(configuredCompaction.summaryModel)
+        ? { summaryModel: configuredCompaction.summaryModel!.trim() }
+        : {}),
+    }
+    : undefined;
+
   return {
-    ...config,
+    ...configWithoutCompaction,
     providers,
+    ...(compaction && Object.keys(compaction).length > 0 ? { compaction } : {}),
   };
 }
 
@@ -170,6 +225,21 @@ export function validatePiConfig(config: unknown): string | null {
         typeof candidate.qmd.allowExpensiveQueryMode !== 'boolean'))
   ) {
     return 'qmd.allowExpensiveQueryMode must be a boolean when provided.';
+  }
+
+  if (candidate.compaction !== undefined) {
+    if (typeof candidate.compaction !== 'object' || candidate.compaction === null) {
+      return 'compaction must be an object when provided.';
+    }
+    const compaction = candidate.compaction as Partial<PiCompactionRuntimeConfig>;
+    if (compaction.tailMode !== undefined && compaction.tailMode !== 'legacy' && compaction.tailMode !== 'lean') {
+      return 'compaction.tailMode must be either "legacy" or "lean" when provided.';
+    }
+    if (compaction.summaryModel !== undefined && compaction.summaryModel !== null) {
+      if (!parsePiCompactionSummaryModelIdentity(compaction.summaryModel)) {
+        return 'compaction.summaryModel must be an exact providerInstallationId/modelId identity when provided.';
+      }
+    }
   }
 
   return null;

@@ -6,19 +6,17 @@
  */
 
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 import {
   boundPiCompactionSummaryInput,
   buildPiCompactionAnchorIndex,
-  buildPiCompactionDigestChunks,
   buildPiCompactionRecoveryArtifacts,
   buildPiCompactionRecoveryFooter,
   buildPiCompactionVerbatimUserSection,
   redactPiCompactionText,
-  renderPiCompactionChunkDigests,
+  samplePiCompactionSummaryRecords,
 } from '../app/lib/pi/compaction/recovery';
 
 function assistant(text: string): AgentMessage {
@@ -69,6 +67,14 @@ function main(): void {
       + 'Reference https://example.com/docs?view=ok.',
     ),
     assistant('TypeError cannot serialize app/lib/pi/history-budget.ts; keep the database busy error exact.'),
+    {
+      ...assistant('Visible assistant result.'),
+      content: [
+        { type: 'thinking', thinking: 'PRIVATE-THINKING-MUST-NOT-SURVIVE' },
+        { type: 'image', data: 'base64-media-must-not-survive', mimeType: 'image/png' },
+        { type: 'text', text: 'Visible assistant result.' },
+      ],
+    } as unknown as AgentMessage,
     {
       role: 'assistant',
       content: [{
@@ -128,21 +134,23 @@ function main(): void {
     sessionSearchAvailable: true,
     knownSecrets: [knownSecret],
   });
-  assert.ok(artifacts.digestChunks.length >= 3, 'large transcripts are split into chronological chunks');
-  assert.ok(artifacts.digestChunks.length <= 28);
-  assert.equal(
-    artifacts.digestChunks.map((chunk) => chunk.content).join(''),
-    artifacts.redactedTranscript,
-    'chronological chunks cover the sanitized digest transcript without gaps',
-  );
-  artifacts.digestChunks.forEach((chunk, index) => {
-    assert.equal(chunk.ordinal, index + 1);
-    assert.equal(chunk.total, artifacts.digestChunks.length);
-    assert.equal(chunk.digest, createHash('sha256').update(chunk.content).digest('hex'));
-    assert.equal(chunk.content.includes(knownSecret), false);
-    assert.equal(chunk.content.includes(apiKey), false);
-    assert.equal(chunk.content.includes('exit code 0'), false, 'low-signal tool acks do not starve digests');
+  assert.ok(artifacts.redactedRecords.length >= 4);
+  assert.equal(artifacts.redactedTranscript, artifacts.redactedRecords.join('\n\n'));
+  assert.ok(artifacts.redactedRecords.some((record) => record.includes('tail-of-historical-findings')),
+    'oversized records retain their newest tail');
+  assert.ok(artifacts.redactedRecords.every((record) => !record.includes(knownSecret) && !record.includes(apiKey)));
+  assert.ok(artifacts.redactedRecords.some((record) => record.includes('Visible assistant result.')));
+  assert.ok(artifacts.redactedRecords.every((record) => !record.includes('PRIVATE-THINKING-MUST-NOT-SURVIVE')
+    && !record.includes('base64-media-must-not-survive')),
+  'thinking and media do not enter the summary sample');
+  assert.equal(artifacts.redactedRecords.some((record) => record.includes('exit code 0')), false,
+    'low-signal tool acknowledgements do not consume sample budget');
+  const sample = samplePiCompactionSummaryRecords({
+    records: artifacts.redactedRecords,
+    maximumCharacters: 1_000,
   });
+  assert.ok(sample.text.length <= 1_000);
+  assert.match(sample.text, /session_search/u);
   assert.match(artifacts.recoveryFooter, /session_search\(query='<keywords>', session_id='session_allowed'\)/u);
 
   assert.equal(buildPiCompactionRecoveryFooter({
@@ -157,22 +165,6 @@ function main(): void {
     sessionSearchAvailable: false,
     compactedMessageCount: 10,
   }), '', 'the footer is omitted when session_search is unavailable');
-
-  const rebuiltChunks = buildPiCompactionDigestChunks({ messages, knownSecrets: [knownSecret] });
-  const rendered = renderPiCompactionChunkDigests({
-    chunks: rebuiltChunks,
-    bodies: rebuiltChunks.map((chunk) => `Digest for ${chunk.digest.slice(0, 8)} ${knownSecret}`),
-    knownSecrets: [knownSecret],
-  });
-  assert.equal(rendered.includes(knownSecret), false, 'LLM digest output is redacted before persistence');
-  assert.match(rendered, /Segment 1\//u);
-  assert.throws(
-    () => renderPiCompactionChunkDigests({
-      chunks: [...rebuiltChunks].reverse(),
-      bodies: rebuiltChunks.map(() => 'body'),
-    }),
-    /chronological order/u,
-  );
 
   const boundedInput = boundPiCompactionSummaryInput(
     `HEAD-SENTINEL\n${'m'.repeat(200_000)}\nTAIL-SENTINEL`,

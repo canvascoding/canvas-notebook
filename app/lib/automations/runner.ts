@@ -5,6 +5,7 @@ import type { Api, ProviderId } from '@earendil-works/pi-ai';
 
 import {
   resolveAndPinSessionRuntime,
+  resolveCompactionSummaryRuntime,
   resolveExecutableAgentRuntime,
   type ExecutableAgentRuntime,
 } from '@/app/lib/agent-runtime-policy/provider-runtime';
@@ -17,6 +18,7 @@ import {
   withPiRequestOutputTokenCap,
   type PiContextBudgetSnapshot,
 } from '@/app/lib/pi/context-budget';
+import { loadPiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import { projectAgentEventForExternal } from '@/app/lib/pi/visual-data-projection';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
@@ -555,6 +557,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       };
       let currentSystemPrompt = systemPrompt;
       let automationSummary = initialSessionSummary;
+      const effectiveCompactionPolicy = await loadPiEffectiveCompactionPolicy(runtimeContext.organizationId);
+      let compactionSummaryRuntime = await resolveCompactionSummaryRuntime({
+        primary: executableRuntime,
+        configuredIdentity: effectiveCompactionPolicy.summaryModel,
+      });
       const prepareHistoryForRuntime = (
         runtime: ExecutableAgentRuntime,
         overrides: {
@@ -581,7 +588,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           runtimePolicyRevision: runtime.selection.policyRevision,
           signal: overrides.signal ?? executionSignal,
           streamFn: runtime.streamFn,
+          summaryModel: compactionSummaryRuntime?.model,
+          summaryStreamFn: compactionSummaryRuntime?.streamFn,
           imageNormalizationOptions: automationImageNormalizationOptions,
+          effectiveCompactionPolicy,
           force: overrides.force,
           bypassCooldown: overrides.bypassCooldown,
         })
@@ -615,6 +625,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               if (error instanceof SessionRuntimeContextRevisionConflictError && attempt === 0) {
                 assertAutomationExecutionActive(executionSignal);
                 executableRuntime = await resolveExecutableAgentRuntime({ ...runtimeContext, sessionId: null });
+                compactionSummaryRuntime = await resolveCompactionSummaryRuntime({
+                  primary: executableRuntime,
+                  configuredIdentity: effectiveCompactionPolicy.summaryModel,
+                });
                 assertAutomationExecutionActive(executionSignal);
                 provider = executableRuntime.selection.selection.providerId;
                 model = executableRuntime.model;
@@ -629,6 +643,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
           assertAutomationExecutionActive(executionSignal);
           executableRuntime = await resolveAndPinSessionRuntime({ ...runtimeContext, sessionId: piSessionId });
+          compactionSummaryRuntime = await resolveCompactionSummaryRuntime({
+            primary: executableRuntime,
+            configuredIdentity: effectiveCompactionPolicy.summaryModel,
+          });
           provider = executableRuntime.selection.selection.providerId;
           model = executableRuntime.model;
         }
@@ -668,8 +686,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             sessionId: piSessionId,
             signal,
             streamFn: executableRuntime.streamFn,
+            summaryModel: compactionSummaryRuntime?.model,
+            summaryStreamFn: compactionSummaryRuntime?.streamFn,
             imageNormalizationOptions: automationImageNormalizationOptions,
             initialSnapshot,
+            effectiveCompactionPolicy,
           });
           if (recovered) transientAutomationSummary = recovered.summary;
           return recovered;

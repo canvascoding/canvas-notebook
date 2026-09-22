@@ -72,23 +72,71 @@ function lastMatchingMessage(
   return null;
 }
 
-function countPartitionLosses(
+function toolResultReplacementKey(message: AgentMessage): string | null {
+  if (message.role !== 'toolResult') return null;
+  const record = message as unknown as Record<string, unknown>;
+  const toolCallId = typeof record.toolCallId === 'string' ? record.toolCallId : '';
+  const toolName = typeof record.toolName === 'string' ? record.toolName : '';
+  const timestamp = typeof record.timestamp === 'number' ? record.timestamp : 0;
+  return toolCallId ? `${toolCallId}\u0000${toolName}\u0000${timestamp}` : null;
+}
+
+function isLeanToolResultRecoveryStub(message: AgentMessage): boolean {
+  if (message.role !== 'toolResult') return false;
+  const record = message as unknown as { content?: unknown; toolName?: unknown };
+  if (!Array.isArray(record.content) || record.content.length !== 1) return false;
+  const part = record.content[0];
+  if (
+    !part || typeof part !== 'object'
+    || (part as { type?: unknown }).type !== 'text'
+    || typeof (part as { text?: unknown }).text !== 'string'
+  ) return false;
+  const toolName = typeof record.toolName === 'string' && record.toolName.trim()
+    ? record.toolName.trim()
+    : 'tool';
+  const escapedToolName = toolName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const characterCount = '(?:0|[1-9]\\d{0,2}(?:,\\d{3})*)';
+  const recoveryHint = "(?: Recover with session_search\\(query='<keywords>', session_id='[A-Za-z0-9._:-]{1,128}'\\)\\.)?";
+  const marker = new RegExp(
+    `^\\[${escapedToolName}\\] output demoted at compaction — ${characterCount} chars preserved in session history\\.${recoveryHint}$`,
+  );
+  return marker.test((part as { text: string }).text);
+}
+
+/**
+ * Counts genuine projection losses. Lean is allowed to replace an old retained
+ * tool result with its deterministic recovery stub, but it may never erase a
+ * message or use that exception for an arbitrary replacement.
+ */
+export function countPiCompactionHistoryPartitionLosses(
   source: readonly AgentMessage[],
   kept: readonly AgentMessage[],
   omitted: readonly AgentMessage[],
 ): number {
-  const expected = new Map<AgentMessage, number>();
-  const actual = new Map<AgentMessage, number>();
-  for (const message of source) expected.set(message, (expected.get(message) ?? 0) + 1);
-  for (const message of [...kept, ...omitted]) {
-    actual.set(message, (actual.get(message) ?? 0) + 1);
+  const actual = [...kept, ...omitted];
+  const consumed = new Set<number>();
+  let unmatchedExpected = 0;
+  for (const expected of source) {
+    const identicalIndex = actual.findIndex((candidate, index) => (
+      !consumed.has(index) && candidate === expected
+    ));
+    if (identicalIndex >= 0) {
+      consumed.add(identicalIndex);
+      continue;
+    }
+    const key = toolResultReplacementKey(expected);
+    const replacementIndex = key === null ? -1 : actual.findIndex((candidate, index) => (
+      !consumed.has(index)
+      && toolResultReplacementKey(candidate) === key
+      && isLeanToolResultRecoveryStub(candidate)
+    ));
+    if (replacementIndex >= 0) {
+      consumed.add(replacementIndex);
+      continue;
+    }
+    unmatchedExpected += 1;
   }
-  const messages = new Set([...expected.keys(), ...actual.keys()]);
-  let losses = 0;
-  for (const message of messages) {
-    losses += Math.abs((expected.get(message) ?? 0) - (actual.get(message) ?? 0));
-  }
-  return losses;
+  return unmatchedExpected + (actual.length - consumed.size);
 }
 
 function incompleteToolCallIds(messages: readonly AgentMessage[]): Set<string> {
@@ -151,7 +199,7 @@ function evaluateVariant(
       ? Math.floor(expectedSavingsTokens * 10_000 / originalTokens)
       : 0,
     targetHistoryTokens: composition.targetHistoryTokens,
-    historyPartitionLossCount: countPartitionLosses(
+    historyPartitionLossCount: countPiCompactionHistoryPartitionLosses(
       sourceMessages,
       composition.keptMessages,
       composition.omittedMessages,

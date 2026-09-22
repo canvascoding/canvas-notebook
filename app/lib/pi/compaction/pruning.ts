@@ -1,6 +1,6 @@
 /**
  * Portions adapted from NousResearch/hermes-agent at
- * f293e7206b4ddd66042329442c6afebc19a8808d.
+ * e2f8a0731bf26e95b31e35d73e71e183a1045b81.
  * Copyright (c) 2025 Nous Research, MIT License.
  * See THIRD_PARTY_NOTICES.md.
  */
@@ -21,6 +21,8 @@ const DEFAULT_PROTECTED_TAIL_MESSAGES = 20;
 const DEFAULT_KEEP_NEWEST_TOOL_IMAGES = 3;
 const PRESSURE_KEEP_RECENT_MESSAGES = 3;
 const STALE_REPLAY_KEYS = ['codex_reasoning_items'] as const;
+const LEAN_TAIL_KEEP_TOOL_ROUNDS = 6;
+const LEAN_TAIL_DEMOTE_MINIMUM_CHARACTERS = 1_500;
 
 type MessageRecord = Record<string, unknown>;
 
@@ -44,6 +46,12 @@ export type PiPruningResult = Readonly<{
   afterTokens: number;
   reclaimedTokens: number;
   nextRearmTokens: number | null;
+}>;
+
+export type PiLeanTailToolDemotionResult = Readonly<{
+  messages: readonly AgentMessage[];
+  changed: boolean;
+  demotedResultCount: number;
 }>;
 
 export function createPiSkillPrunedMarker(skillName: string): string {
@@ -275,6 +283,100 @@ export function isPiLowSignalToolResult(message: AgentMessage): boolean {
 
 export function filterPiLowSignalToolRows(messages: readonly AgentMessage[]): AgentMessage[] {
   return messages.filter((message) => !isPiLowSignalToolResult(message));
+}
+
+/**
+ * Lean's compact recency tail must not be held hostage by old, large tool
+ * results. This is a projection-only operation: durable history remains
+ * untouched and the stub tells the model where exact content can be recovered.
+ *
+ * It is intentionally separate from generic pre-compaction pruning. Legacy
+ * callers retain their existing pruning semantics, while Lean invokes this
+ * after the atomic tail boundary is known.
+ */
+export function demotePiLeanTailToolResults(input: {
+  messages: readonly AgentMessage[];
+  tailMessages: readonly AgentMessage[];
+  sessionId?: string;
+  authorizedSessionId?: string | null;
+  sessionSearchAvailable?: boolean;
+}): PiLeanTailToolDemotionResult {
+  if (input.messages.length === 0 || input.tailMessages.length === 0) {
+    return Object.freeze({ messages: input.messages, changed: false, demotedResultCount: 0 });
+  }
+  const tailMessageSet = new Set(input.tailMessages);
+  const tailIndexes = input.messages.flatMap((message, index) => (
+    tailMessageSet.has(message) ? [index] : []
+  ));
+  if (tailIndexes.length === 0) {
+    return Object.freeze({ messages: input.messages, changed: false, demotedResultCount: 0 });
+  }
+
+  const tailStart = tailIndexes[0];
+  const activeToolMessages = new Set(
+    buildPiHistoryUnits(input.messages)
+      .filter((unit) => {
+        if (unit.kind !== 'tool_group') return false;
+        return !unit.toolChainComplete;
+      })
+      .flatMap((unit) => [...unit.messages]),
+  );
+
+  const protectedResultIndexes = new Set<number>();
+  let roundsSeen = 0;
+  let previousResultIndex: number | null = null;
+  for (let index = input.messages.length - 1; index >= tailStart; index -= 1) {
+    const message = input.messages[index];
+    if (!tailMessageSet.has(message) || message.role !== 'toolResult') continue;
+    if (previousResultIndex === null || previousResultIndex - index > 1) roundsSeen += 1;
+    previousResultIndex = index;
+    if (roundsSeen > LEAN_TAIL_KEEP_TOOL_ROUNDS) break;
+    protectedResultIndexes.add(index);
+  }
+
+  const canRecover = Boolean(
+    input.sessionSearchAvailable
+    && input.sessionId
+    && input.authorizedSessionId === input.sessionId,
+  );
+  const safeSessionId = canRecover
+    ? input.sessionId!.replace(/[^A-Za-z0-9._:-]/gu, '').slice(0, 128)
+    : '';
+  const result = [...input.messages];
+  let demotedResultCount = 0;
+  for (let index = tailStart; index < input.messages.length; index += 1) {
+    const original = input.messages[index];
+    if (
+      !tailMessageSet.has(original)
+      || original.role !== 'toolResult'
+      || protectedResultIndexes.has(index)
+      || activeToolMessages.has(original)
+    ) continue;
+    const content = asRecord(original).content;
+    if (hasImageContent(content)) continue;
+    const text = contentText(content);
+    if (
+      text.length < LEAN_TAIL_DEMOTE_MINIMUM_CHARACTERS
+      || text.startsWith(PI_SKILL_PRUNED_MARKER_PREFIX)
+      || text.startsWith('[Duplicate tool output')
+      || text.includes('output pruned (')
+      || text.includes('output demoted at compaction')
+    ) continue;
+    const toolName = String(asRecord(original).toolName ?? 'tool').trim() || 'tool';
+    const recoveryHint = safeSessionId
+      ? ` Recover with session_search(query='<keywords>', session_id='${safeSessionId}').`
+      : '';
+    result[index] = cloneToolResultWithText(
+      original,
+      `[${toolName}] output demoted at compaction — ${text.length.toLocaleString('en-US')} chars preserved in session history.${recoveryHint}`,
+    );
+    demotedResultCount += 1;
+  }
+  return Object.freeze({
+    messages: demotedResultCount > 0 ? Object.freeze(result) : input.messages,
+    changed: demotedResultCount > 0,
+    demotedResultCount,
+  });
 }
 
 /** Deterministic, idempotent and savings-gated pruning. No LLM is involved. */
