@@ -2,6 +2,8 @@
 
 import {
   useEffect,
+  useState,
+  useCallback,
   useRef,
   type Dispatch,
   type MutableRefObject,
@@ -11,6 +13,7 @@ import { useTranslations } from 'next-intl';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { isRecord } from '@/app/lib/chat/message-content';
+import { fetchChatSessionBootstrap } from '@/app/lib/chat/session-api';
 import { readLatestCachedChatSession } from '@/app/lib/chat/session-cache';
 import type {
   AISession,
@@ -148,7 +151,6 @@ export function useChatSessionBootstrap({
   handleControlAction,
   activeWorkspaceId,
   hasLoadedSessionListRef,
-  historyLength,
   initialPrompt,
   initialPromptConsumedRef,
   initialPromptStorageKey,
@@ -157,7 +159,6 @@ export function useChatSessionBootstrap({
   isRuntimeSelectionLoading,
   isWorkspaceNavigationPending,
   loadSession,
-  loadSessionList,
   requestedSessionCleanupRef,
   resolvedRequestedSessionId,
   selectedAgentId,
@@ -165,13 +166,17 @@ export function useChatSessionBootstrap({
   sessionId,
   sessionIdRef,
   setHistoryAgentFilter,
-  setHistoryAndLatest,
   setIsResolvingInitialChatState,
   setSelectedAgentId,
   showHistory,
   t,
   userStartedNewChatRef,
 }: UseChatSessionBootstrapParams) {
+  const [initialSessionFailure, setInitialSessionFailure] = useState<{
+    message: string; workspaceId: string | null; sessionId: string | null; requestedSessionId: string | null;
+  } | null>(null);
+  const [retryVersion, setRetryVersion] = useState(0);
+  const retryInitialSession = useCallback(() => setRetryVersion((value) => value + 1), []);
   const requestedSessionLoadIdRef = useRef(0);
   const restoredSessionLoadIdRef = useRef(0);
 
@@ -234,10 +239,10 @@ export function useChatSessionBootstrap({
 
   useEffect(() => {
     if (isWorkspaceNavigationPending) return;
-    if (showHistory && historyLength === 0 && !isLoadingHistory) {
+    if (showHistory && !hasLoadedSessionListRef.current && !isLoadingHistory) {
       void fetchHistory();
     }
-  }, [showHistory, historyLength, fetchHistory, isLoadingHistory, isWorkspaceNavigationPending]);
+  }, [showHistory, fetchHistory, hasLoadedSessionListRef, isLoadingHistory, isWorkspaceNavigationPending]);
 
   useEffect(() => {
     if (isWorkspaceNavigationPending) return;
@@ -253,59 +258,45 @@ export function useChatSessionBootstrap({
     let cancelled = false;
     const isCurrentRequest = () => !cancelled && requestedSessionLoadIdRef.current === requestId;
 
+    const controller = new AbortController();
+    const startingSessionId = sessionIdRef.current;
     const loadRequestedSession = async () => {
       try {
-        const cachedEntry = readLatestCachedChatSession(resolvedRequestedSessionId);
-        if (cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)) {
-          if (!isCurrentRequest()) return;
-          addSessionToHistory(cachedEntry.session);
-          await loadSession(cachedEntry.session);
-          if (!isCurrentRequest()) return;
-          if (!forcedSessionId) {
-            requestedSessionCleanupRef.current = resolvedRequestedSessionId;
-            clearSessionParamFromUrl();
-          }
-          void loadSessionList()
-            .then((sessions) => {
-              if (!isCurrentRequest()) return;
-              setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
-            })
-            .catch((err) => {
-              console.error('Failed to refresh requested session history', err);
-            });
-          return;
-        }
-
-        const sessions = await loadSessionList();
+        await Promise.resolve();
         if (!isCurrentRequest()) return;
-        if (sessions.length > 0) {
-          setHistoryAndLatest(sessions);
-          const targetSession = sessions.find((session: AISession) => session.sessionId === resolvedRequestedSessionId);
-          if (targetSession) {
-            await loadSession(targetSession);
-            if (!isCurrentRequest()) return;
-            if (!forcedSessionId) {
-              requestedSessionCleanupRef.current = resolvedRequestedSessionId;
-              clearSessionParamFromUrl();
-            }
-          }
+        setInitialSessionFailure(null);
+        const cachedEntry = readLatestCachedChatSession(resolvedRequestedSessionId);
+        const targetSession = cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)
+          ? cachedEntry.session
+          : (await fetchChatSessionBootstrap({ sessionId: resolvedRequestedSessionId,
+              workspaceId: activeWorkspaceId, signal: controller.signal })).session;
+        if (!isCurrentRequest() || userStartedNewChatRef.current
+          || sessionIdRef.current !== startingSessionId) return;
+        addSessionToHistory(targetSession);
+        await loadSession(targetSession);
+        if (!isCurrentRequest()) return;
+        // URL cleanup can tear down this effect; finish the loading state first.
+        setIsResolvingInitialChatState(false);
+        if (!forcedSessionId) {
+          requestedSessionCleanupRef.current = resolvedRequestedSessionId;
+          clearSessionParamFromUrl();
         }
       } catch (err) {
-        if (isCurrentRequest()) {
-          console.error('Failed to load requested session', err);
-        }
+        if (isCurrentRequest()) setInitialSessionFailure({
+          message: err instanceof Error ? err.message : String(err), workspaceId: activeWorkspaceId ?? null,
+          sessionId: sessionIdRef.current, requestedSessionId: resolvedRequestedSessionId,
+        });
       } finally {
-        if (isCurrentRequest()) {
-          setIsResolvingInitialChatState(false);
-        }
+        if (isCurrentRequest()) setIsResolvingInitialChatState(false);
       }
     };
 
     void loadRequestedSession();
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, isWorkspaceNavigationPending, loadSession, loadSessionList, requestedSessionCleanupRef, resolvedRequestedSessionId, setHistoryAndLatest, setIsResolvingInitialChatState, userStartedNewChatRef]);
+  }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, isWorkspaceNavigationPending, loadSession, requestedSessionCleanupRef, resolvedRequestedSessionId, retryVersion, sessionIdRef, setIsResolvingInitialChatState, userStartedNewChatRef]);
 
   useEffect(() => {
     if (isWorkspaceNavigationPending) return;
@@ -316,7 +307,7 @@ export function useChatSessionBootstrap({
     if (initialPromptConsumedRef.current) return;
     if (resolvedRequestedSessionId) return;
     if (userStartedNewChatRef.current) return;
-    if (sessionId) return;
+    if (sessionIdRef.current) return;
 
     const storedSessionId = readCanvasChatActiveSessionStorage(activeWorkspaceId);
     if (!storedSessionId) {
@@ -329,48 +320,34 @@ export function useChatSessionBootstrap({
     let cancelled = false;
     const isCurrentRequest = () => !cancelled && restoredSessionLoadIdRef.current === requestId;
 
+    const controller = new AbortController();
     const restoreSession = async () => {
       try {
+        await Promise.resolve();
+        if (!isCurrentRequest()) return;
+        setInitialSessionFailure(null);
         const cachedEntry = readLatestCachedChatSession(storedSessionId);
-        if (cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)) {
-          if (!isCurrentRequest()) return;
-          addSessionToHistory(cachedEntry.session);
-          await loadSession(cachedEntry.session);
-          if (!isCurrentRequest()) return;
-          void loadSessionList()
-            .then((sessions) => {
-              if (!isCurrentRequest()) return;
-              setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
-            })
-            .catch((err) => {
-              console.error('Failed to refresh restored session history', err);
-            });
-          return;
-        }
-
-        const sessions = await loadSessionList();
-        if (!isCurrentRequest() || sessionIdRef.current) return;
-        if (sessions.length > 0) {
-          setHistoryAndLatest(sessions);
-          const targetSession = sessions.find((s: AISession) => s.sessionId === storedSessionId);
-          if (targetSession) {
-            await loadSession(targetSession);
-          }
-        }
+        const targetSession = cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)
+          ? cachedEntry.session
+          : (await fetchChatSessionBootstrap({ sessionId: storedSessionId,
+              workspaceId: activeWorkspaceId, signal: controller.signal })).session;
+        if (!isCurrentRequest() || sessionIdRef.current || userStartedNewChatRef.current) return;
+        addSessionToHistory(targetSession);
+        await loadSession(targetSession);
       } catch (err) {
-        if (isCurrentRequest()) {
-          console.error('Failed to restore previous session', err);
-        }
+        if (isCurrentRequest()) setInitialSessionFailure({
+          message: err instanceof Error ? err.message : String(err), workspaceId: activeWorkspaceId ?? null,
+          sessionId: sessionIdRef.current, requestedSessionId: resolvedRequestedSessionId,
+        });
       } finally {
-        if (isCurrentRequest()) {
-          setIsResolvingInitialChatState(false);
-        }
+        if (isCurrentRequest()) setIsResolvingInitialChatState(false);
       }
     };
 
     void restoreSession();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [
     activeWorkspaceId,
@@ -380,11 +357,9 @@ export function useChatSessionBootstrap({
     initialPromptStorageKey,
     isWorkspaceNavigationPending,
     loadSession,
-    loadSessionList,
     resolvedRequestedSessionId,
-    sessionId,
+    retryVersion,
     sessionIdRef,
-    setHistoryAndLatest,
     setIsResolvingInitialChatState,
     userStartedNewChatRef,
   ]);
@@ -394,4 +369,11 @@ export function useChatSessionBootstrap({
       requestedSessionCleanupRef.current = null;
     }
   }, [requestedSessionCleanupRef, resolvedRequestedSessionId]);
+
+  const initialSessionError = initialSessionFailure
+    && initialSessionFailure.workspaceId === (activeWorkspaceId ?? null)
+    && initialSessionFailure.sessionId === sessionId
+    && initialSessionFailure.requestedSessionId === resolvedRequestedSessionId
+    ? initialSessionFailure.message : null;
+  return { initialSessionError, retryInitialSession };
 }

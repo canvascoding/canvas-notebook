@@ -108,7 +108,7 @@ Editoren erhalten Änderungen über ihre Collaboration-/Konfliktlogik.
 
 - [x] Plan dokumentieren.
 - [x] 1. Gemeinsame Query-Grundlage und eindeutige Notebook-Navigation.
-- [ ] 2. Bestehende Chats, Bootstrap, Nachrichtenabgleich und Pagination.
+- [x] 2. Bestehende Chats, Bootstrap, Nachrichtenabgleich und Pagination.
 - [ ] 3. Neue Chats, Startseiten-Übergabe und Idempotenz.
 - [ ] 4. Dokumente, Reviews und durchgängige Skeletons.
 - [ ] Abschließende Integration, Build und zulässige UI-Prüfung.
@@ -135,3 +135,13 @@ Prüfungen: `notebook-query-client-test`, `workspace-query-test`,
 `notebook-layout-state-test`, `chat-navigation-intent-test`,
 `notebook-chat-context-test`, `tsc --noEmit`, gezieltes ESLint und
 `git diff --check` erfolgreich. Browserfreigabe noch ausstehend.
+
+Schritt 2: Gezielter autorisierter Session-Bootstrap mit erster Nachrichtenseite;
+gemeinsame Listen-, Such- und Nachrichtenqueries. Erhalten geladener Seiten und
+Live-Änderungen, zusammengefasste Refreshs, Navigations-/Workspace-Prüfungen auch
+bei Pagination. Getrennte Skeleton-, Leer- und Fehlerzustände mit Retry.
+Prüfungen: `chat-query-test`, `chat-reconciliation-test`,
+`chat-message-request-race-test`, `chat-bootstrap-history-races-test`,
+`chat-session-bootstrap-test` (PGlite), bestehende Render-Key-, Scroll-, History-
+und Workspace-Regressionen, `tsc --noEmit --incremental false`, gezieltes ESLint
+und `git diff --check` erfolgreich. Browserfreigabe noch ausstehend.
