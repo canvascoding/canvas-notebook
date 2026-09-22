@@ -558,7 +558,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
 
       config = await reset();
       const operationId = '8767a5c7-1a6d-4768-b760-d1c7d42fe095';
-      const eventLines = await captureStdout(() => update(context, docker, config, false, {
+      const eventLines = await captureStdout(() => update(context, docker, config, true, {
         image: targetImage,
         eventStream: true,
         operationId,
@@ -568,6 +568,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
         sequence: number;
         stage: string;
         status: string;
+        activity?: { kind: string; healthy?: boolean };
       });
       assert.ok(events.length >= 10);
       assert.equal(events.every((event) => event.operationId === operationId), true);
@@ -575,6 +576,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.ok(events.some((event) => event.stage === 'image_pull' && event.status === 'succeeded'));
       assert.ok(events.some((event) => event.stage === 'container_recreate' && event.status === 'succeeded'));
       assert.ok(events.some((event) => event.stage === 'health_verification' && event.status === 'succeeded'));
+      assert.ok(events.some((event) => event.activity?.kind === 'health_check' && event.activity.healthy));
       assert.ok(events.some((event) => event.stage === 'version_verification' && event.status === 'succeeded'));
       assert.equal(events.at(-1)?.stage, 'completed');
       assert.equal(events.at(-1)?.status, 'succeeded');
@@ -590,7 +592,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
 
       config = await reset();
       runner.healthMode = 'new-unhealthy';
-      const failedEventLines = await captureStdout(() => update(context, docker, config, false, {
+      const failedEventLines = await captureStdout(() => update(context, docker, config, true, {
         image: targetImage,
         eventStream: true,
         operationId: '9e4ec8d8-c11c-4cf8-804f-52fcb5fe6e19',
@@ -599,6 +601,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
         stage: string;
         status: string;
         errorCode?: string;
+        activity?: { kind: string; healthy?: boolean };
       });
       assert.equal(process.exitCode, 1);
       assert.ok(failedEvents.some((event) => (
@@ -607,6 +610,8 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
         && event.errorCode === 'health_verification_failed'
       )));
       assert.ok(failedEvents.some((event) => event.stage === 'rollback' && event.status === 'succeeded'));
+      assert.ok(failedEvents.some((event) => event.stage === 'health_verification' && event.activity?.healthy === false));
+      assert.ok(failedEvents.some((event) => event.stage === 'rollback' && event.activity?.healthy === true));
       assert.equal(failedEvents.at(-1)?.stage, 'completed');
       assert.equal(failedEvents.at(-1)?.status, 'failed');
       assert.equal(runner.runningImageId, 'old-image-id');

@@ -100,6 +100,16 @@ export interface SystemUpdateSignedReleaseManifest {
   signature: SystemUpdateManifestSignature;
 }
 
+/** Activity confirms execution/observation, not completion or percentage progress. */
+export interface SystemUpdateActivity {
+  kind: 'keepalive' | 'health_check';
+  elapsedMs: number;
+  attempt?: number;
+  maxAttempts?: number;
+  healthy?: boolean;
+  remainingMs?: number;
+}
+
 export interface SystemUpdateEvent {
   contractVersion: typeof SYSTEM_UPDATE_CONTRACT_VERSION;
   eventId: string;
@@ -110,6 +120,7 @@ export interface SystemUpdateEvent {
   message: string;
   occurredAt: string;
   errorCode?: SystemUpdateErrorCode;
+  activity?: SystemUpdateActivity;
 }
 
 export interface SystemUpdateOperation {
@@ -343,6 +354,27 @@ export function validateSystemUpdateEvent(input: unknown): SystemUpdateValidatio
   if (input.errorCode !== undefined && !isMember(SYSTEM_UPDATE_ERROR_CODES, input.errorCode)) {
     return { ok: false, error: 'Update event error code is invalid.' };
   }
+  let activity: SystemUpdateActivity | undefined;
+  if (input.activity !== undefined) {
+    const value = input.activity;
+    if (!isRecord(value) || input.status !== 'running'
+      || (value.kind !== 'keepalive' && value.kind !== 'health_check')
+      || !Number.isSafeInteger(value.elapsedMs) || Number(value.elapsedMs) < 0
+      || ['attempt', 'maxAttempts', 'remainingMs'].some((key) => value[key] !== undefined
+        && (!Number.isSafeInteger(value[key]) || Number(value[key]) < (key === 'remainingMs' ? 0 : 1)))
+      || (value.healthy !== undefined && typeof value.healthy !== 'boolean')
+      || (value.attempt !== undefined && value.maxAttempts !== undefined && Number(value.attempt) > Number(value.maxAttempts))) {
+      return { ok: false, error: 'Update event activity is invalid.' };
+    }
+    activity = {
+      kind: value.kind,
+      elapsedMs: Number(value.elapsedMs),
+      ...(value.attempt === undefined ? {} : { attempt: Number(value.attempt) }),
+      ...(value.maxAttempts === undefined ? {} : { maxAttempts: Number(value.maxAttempts) }),
+      ...(value.healthy === undefined ? {} : { healthy: value.healthy as boolean }),
+      ...(value.remainingMs === undefined ? {} : { remainingMs: Number(value.remainingMs) }),
+    };
+  }
 
   return {
     ok: true,
@@ -356,6 +388,7 @@ export function validateSystemUpdateEvent(input: unknown): SystemUpdateValidatio
       message: input.message,
       occurredAt: input.occurredAt,
       ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode }),
+      ...(activity === undefined ? {} : { activity }),
     },
   };
 }

@@ -7,6 +7,7 @@ export const CONFIG_SCHEMA_VERSION = 1;
 export const CLI_COMMANDS = [
   'help',
   'version',
+  'capabilities',
   'install',
   'update',
   'start',

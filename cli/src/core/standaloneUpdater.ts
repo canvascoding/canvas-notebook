@@ -221,6 +221,7 @@ async function executeCliUpdate(
     const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
     let processing = Promise.resolve();
     let protocolError: Error | null = null;
+    let applyAcknowledged = false;
     lines.on('line', (line) => {
       if (protocolError) return;
       if (Buffer.byteLength(line, 'utf8') > 16 * 1024) {
@@ -240,8 +241,9 @@ async function executeCliUpdate(
           throw new Error(event.ok ? 'Canvas CLI returned an event for another operation.' : event.error);
         }
         await onEvent(event.value);
-        if (event.value.stage === 'image_pull' && event.value.status === 'running') {
+        if (!applyAcknowledged && event.value.stage === 'image_pull' && event.value.status === 'running') {
           if (signal.aborted) throw new Error('Update was canceled before apply.');
+          applyAcknowledged = true;
           child.stdin.end(`${systemUpdateApplyAcknowledgement(operation.operationId)}\n`);
         }
       }).catch((error) => {

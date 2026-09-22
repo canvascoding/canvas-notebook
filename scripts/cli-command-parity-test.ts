@@ -447,8 +447,13 @@ async function runDifferentialContract(): Promise<void> {
     assert.equal(typescriptVersion.configSchemaVersion, 1);
     assert.deepEqual(
       sortedUnique(typescriptVersion.commands as string[]),
-      sortedUnique([...contract.typescriptTopLevelCommands, 'help', 'version']),
+      sortedUnique([...contract.typescriptTopLevelCommands, 'help', 'version', 'capabilities']),
     );
+    const capabilities = JSON.parse((await runTypescript(['capabilities', '--json'])).stdout);
+    assert.equal(capabilities.cliGeneration, 'typescript');
+    assert.equal(capabilities.cliVersion, expectedCliVersion);
+    assert.deepEqual(capabilities.updateEventStream, { format: 'ndjson', contractVersion: 1, activityIntervalMs: 5000 });
+    assert.deepEqual(typescriptVersion.updateEventStream, capabilities.updateEventStream);
     for (const alias of ['-V', '--version']) {
       const aliasOutput = await runTypescript([alias, '--json']);
       assert.equal((JSON.parse(aliasOutput.stdout) as Record<string, unknown>).cliVersion, expectedCliVersion);

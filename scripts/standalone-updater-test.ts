@@ -454,6 +454,52 @@ process.exit(2);
     }
   });
 
+  await withTempDirectory(async (directory) => {
+    const { resolver } = await signedReleaseFixture(directory);
+    const cliPath = path.join(directory, 'fake-update-cli');
+    await fs.writeFile(cliPath, `#!${process.execPath}
+const { randomUUID } = require('node:crypto');
+const operationId = process.argv[process.argv.indexOf('--operation-id') + 1];
+let sequence = 0;
+const emit = (stage, status, activity) => process.stdout.write(JSON.stringify({
+  contractVersion: 1, operationId, eventId: randomUUID(), sequence: ++sequence,
+  stage, status, message: 'Update test', occurredAt: new Date().toISOString(),
+  ...(activity ? { activity } : {}),
+}) + '\\n');
+emit('image_pull', 'running');
+process.stdin.once('data', (chunk) => {
+  if (chunk.toString().trim() !== 'canvas-update-apply:' + operationId) process.exit(9);
+  setTimeout(() => {
+    emit('image_pull', 'running', { kind: 'keepalive', elapsedMs: 5000 });
+    setTimeout(() => {
+      emit('image_pull', 'running', { kind: 'keepalive', elapsedMs: 10000 });
+      emit('image_pull', 'succeeded');
+      emit('completed', 'succeeded');
+    }, 50);
+  }, 50);
+});
+`, { mode: 0o700 });
+    const journal = new StandaloneUpdateJournal(path.join(directory, 'journal'));
+    const updater = new StandaloneUpdater({
+      env: { ...process.env, CANVAS_CLI_PATH: cliPath },
+      journal, releaseResolver: resolver,
+      now: () => new Date('2026-09-04T10:00:00.000Z'),
+      currentVersion: async () => ({ appVersion: '2026.9.4', cliVersion: '2026.9.5' }),
+      prepareHostCli: async () => undefined,
+    });
+    await updater.initialize();
+    const started = await updater.startUpdate({ channel: 'stable' });
+    for (let attempt = 0; attempt < 500 && updater.busy; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(updater.busy, false);
+    assert.equal((await updater.getOperation(started.operationId))?.status, 'succeeded',
+      'repeated image-pull activity must not write the apply acknowledgement to an ended stdin');
+    const events = await journal.readEvents(started.operationId);
+    assert.equal(events.filter((event) => event.activity?.kind === 'keepalive').length, 2);
+    assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3, 4, 5]);
+  });
+
   console.log('standalone-updater-test: ok');
 }
 

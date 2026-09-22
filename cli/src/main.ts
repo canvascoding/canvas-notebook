@@ -57,8 +57,8 @@ import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate
 import { ServiceManager } from './core/service';
 import { runStandaloneUpdaterFromEnvironment, triggerStandaloneUpdateFromHost } from './core/standaloneUpdater';
 import { isSwapCommand, SwapManager, validateSwapConfig, type SwapStatus } from './core/swap';
-import { type SystemUpdateErrorCode, type SystemUpdateStage } from './core/systemUpdateContract';
-import { SystemUpdateEventReporter } from './core/systemUpdateReporter';
+import { SYSTEM_UPDATE_CONTRACT_VERSION, type SystemUpdateErrorCode, type SystemUpdateStage } from './core/systemUpdateContract';
+import { SYSTEM_UPDATE_ACTIVITY_INTERVAL_MS, SystemUpdateEventReporter } from './core/systemUpdateReporter';
 import { beginSystemUpdateApply } from './core/systemUpdateApplyGate';
 import type { CanvasCliConfig, RuntimeContext, StatusJson } from './core/types';
 import { CLI_COMMANDS, CLI_GENERATION, CONFIG_SCHEMA_VERSION, resolveCliVersion } from './core/version';
@@ -148,6 +148,7 @@ function printHelp(): void {
 
 Commands:
   version [--json]                 Show CLI build information and capabilities
+  capabilities [--json]            Show protocol capabilities without Docker access
   install [--database postgres] [--postgres-mode managed|external] [--database-url-stdin|--database-url-file <path>] [--pgvector required|optional|disabled] [--runtime personal|team]
                                   Generate config, pull image, start container
   update [--image <name@sha256>] [--require-pinned] [--backup-required] [--event-stream] [--operation-id <uuid>]
@@ -228,6 +229,7 @@ async function printVersion(
     cliGeneration: CLI_GENERATION,
     configSchemaVersion: CONFIG_SCHEMA_VERSION,
     commands: [...CLI_COMMANDS],
+    updateEventStream: updateEventStreamCapability(),
   };
   if (json) {
     console.log(JSON.stringify(payload));
@@ -245,6 +247,10 @@ async function printVersion(
   console.log(`Running image ID: ${payload.runningImageId || 'not running'}`);
   console.log(`Running app version: ${payload.appVersion || 'unknown'}`);
   console.log(`Container started: ${payload.runningStartedAt || 'not running'}`);
+}
+
+function updateEventStreamCapability() {
+  return { format: 'ndjson', contractVersion: SYSTEM_UPDATE_CONTRACT_VERSION, activityIntervalMs: SYSTEM_UPDATE_ACTIVITY_INTERVAL_MS };
 }
 
 async function appendLog(context: RuntimeContext, message: string): Promise<void> {
@@ -733,6 +739,7 @@ export async function update(
     reporter.succeeded('operation_lock', 'Exclusive Canvas update access acquired.');
     reporter.succeeded('release_verification', 'Immutable Canvas Notebook image reference verified.');
     reporter.skipped('host_cli_capabilities', 'Host CLI capability verification completed before update execution.');
+    reporter.running('config_preflight', 'Inspecting the current Canvas Notebook runtime.');
     const previousContainer = await docker.containerId(config);
     previousImageId = await docker.containerImageId(previousContainer);
     if (postgresRuntimeDesired(config)) {
@@ -778,6 +785,7 @@ export async function update(
     });
     await docker.pull(runConfig, machineOutput ? 'pipe' : 'inherit', remainingUpdateTime(deadline, true), targetEnvironment);
     reporter.succeeded('image_pull', 'Pinned Canvas Notebook image pulled.');
+    reporter.running('container_recreate', 'Checking whether the Canvas Notebook container needs recreation.');
     if (await docker.needsRecreate(runConfig)) {
       phase = 'apply';
       appliedNewImage = true;
@@ -799,8 +807,10 @@ export async function update(
     phase = 'health';
     reporter.running('health_verification', 'Waiting for Canvas Notebook health.');
     const forwardHealthTimeout = remainingUpdateTime(deadline, true);
-    await docker.waitUntilHealthy(runConfig, boundedHealthAttempts(forwardHealthTimeout), forwardHealthTimeout);
+    await docker.waitUntilHealthy(runConfig, boundedHealthAttempts(forwardHealthTimeout), forwardHealthTimeout,
+      (activity) => reporter.healthCheck(activity));
     reporter.succeeded('health_verification', 'Canvas Notebook is healthy.');
+    reporter.running('version_verification', 'Verifying and recording the running Canvas Notebook image.');
     if (options.image) {
       phase = 'finalize';
       const finalizeTimeout = remainingUpdateTime(deadline, true);
@@ -817,7 +827,6 @@ export async function update(
       await writeEnvFiles(persisted, composePath(persisted.dataDir, context.platform));
     }
     phase = 'verify';
-    reporter.running('version_verification', 'Verifying the running Canvas Notebook image.');
     const runningContainer = await docker.containerId(runConfig);
     const [expectedImageId, runningImageId] = await Promise.all([
       docker.imageId(targetImage),
@@ -826,14 +835,15 @@ export async function update(
     if (!expectedImageId || !runningImageId || expectedImageId !== runningImageId) {
       throw new Error('Running Canvas Notebook image does not match the requested update image.');
     }
-    reporter.succeeded('version_verification', 'Running Canvas Notebook image verified.');
+    reporter.running('version_verification', 'Finalizing the verified Canvas Notebook image, routing, and cleanup.');
     phase = 'proxy';
     await options.syncProxy?.(runConfig);
     await docker.pruneUnusedImages(remainingUpdateTime(deadline, true));
     await appendLog(context, 'update completed');
+    reporter.succeeded('version_verification', 'Running Canvas Notebook image verified.');
     reporter.succeeded('completed', 'Canvas Notebook update completed successfully.');
-    if (json) console.log(JSON.stringify({ success: true, recreated, healthy: true, rolledBack: false }));
-    else if (options.eventStream) return;
+    if (options.eventStream) return;
+    else if (json) console.log(JSON.stringify({ success: true, recreated, healthy: true, rolledBack: false }));
     else console.log(`Canvas Notebook is healthy: ${docker.healthUrl(runConfig)}`);
   } catch (error) {
     const failure = systemUpdateFailure(phase, error);
@@ -859,7 +869,8 @@ export async function update(
           remainingUpdateTime(deadline, false),
         );
         const rollbackHealthTimeout = remainingUpdateTime(deadline, false);
-        await docker.waitUntilHealthy(rollback, boundedHealthAttempts(rollbackHealthTimeout), rollbackHealthTimeout);
+        await docker.waitUntilHealthy(rollback, boundedHealthAttempts(rollbackHealthTimeout), rollbackHealthTimeout,
+          (activity) => reporter.healthCheck(activity));
         rolledBack = true;
         reporter.succeeded('rollback', 'Previous Canvas Notebook image restored.');
       } catch {
@@ -873,7 +884,7 @@ export async function update(
       : (appliedNewImage
         ? 'Updated image failed and the previous image could not be restored.'
         : `Update failed during ${phase}; the running container was not changed.`);
-    if (json) {
+    if (json && !options.eventStream) {
       console.log(JSON.stringify({ success: false, phase: failurePhase, error: message, rolledBack }));
       process.exitCode = 1;
       return;
@@ -884,6 +895,8 @@ export async function update(
       return;
     }
     throw new Error(message);
+  } finally {
+    reporter.dispose();
   }
 }
 
@@ -1866,6 +1879,19 @@ async function main(): Promise<void> {
   const runner = new SpawnCommandRunner();
   const docker = new DockerManager(runner, context);
   const services = new ServiceManager(runner, context);
+
+  // Capability negotiation must work even when Docker or the application is down.
+  if (parsed.command === 'capabilities') {
+    if (parsed.args.length) throw new Error('Usage: canvas-notebook capabilities --json');
+    console.log(JSON.stringify({
+      cliVersion: await resolveCliVersion(),
+      cliGeneration: CLI_GENERATION,
+      configSchemaVersion: CONFIG_SCHEMA_VERSION,
+      commands: [...CLI_COMMANDS],
+      updateEventStream: updateEventStreamCapability(),
+    }));
+    return;
+  }
 
   const versionCommand = parsed.versionRequested || parsed.command === 'version';
   if (!parsed.noBanner && parsed.command !== 'help' && !versionCommand) printBanner(context);

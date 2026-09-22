@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { runOrThrow } from './process';
 import type { CanvasCliConfig, CommandRunner, RuntimeContext, StatusJson } from './types';
 import { resolveCliVersion } from './version';
+import type { SystemUpdateActivity } from './systemUpdateContract';
 
 export class DockerManager {
   constructor(
@@ -117,12 +118,20 @@ export class DockerManager {
     config: CanvasCliConfig,
     maxAttempts = Number(process.env.CANVAS_HEALTH_MAX_ATTEMPTS || 180),
     timeoutMs?: number,
+    onAttempt?: (activity: Omit<SystemUpdateActivity, 'kind'>) => void,
   ): Promise<void> {
+    const startedAt = performance.now();
     const deadline = timeoutMs === undefined ? null : Date.now() + Math.max(1, timeoutMs);
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const remaining = deadline === null ? 3000 : deadline - Date.now();
       if (remaining <= 0) break;
-      if (await this.isHealthy(config, Math.min(3000, remaining))) return;
+      const healthy = await this.isHealthy(config, Math.min(3000, remaining));
+      onAttempt?.({
+        attempt, maxAttempts, healthy,
+        elapsedMs: Math.max(0, Math.floor(performance.now() - startedAt)),
+        ...(deadline === null ? {} : { remainingMs: Math.max(0, deadline - Date.now()) }),
+      });
+      if (healthy) return;
       if (deadline !== null && deadline - Date.now() <= 0) break;
       await delay(deadline === null ? 1000 : Math.min(1000, Math.max(1, deadline - Date.now())));
     }
