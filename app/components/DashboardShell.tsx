@@ -901,6 +901,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const entry = resolveNotebookEntry({ intent: getNotebookNavigationIntent(searchParams),
       workspaceId: activeWorkspaceId, workspaceReady, hasInitialPrompt: hasStoredInitialPrompt,
       restoredPath: restoredTabs.activePath });
+    // Commit the entry surface with tab hydration. Opening a known document ID
+    // can await its location; the default chat must not mount in that interval.
+    if (entry.kind === 'document') dispatch({ type: 'DOCUMENT_OPENED' });
     if (entry.kind === 'chat' && shouldForceChatOpen) {
       dispatch({ type: 'SHOW_CHAT' });
       return;
@@ -982,6 +985,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           search: window.location.search, workspaceId: nextWorkspaceId,
         }),
         restoredPath: restoredTabs.activePath });
+      if (entry.kind === 'document') dispatch({ type: 'DOCUMENT_OPENED' });
       if (entry.kind === 'waiting' || intent.path) return;
       if (entry.kind === 'chat') {
         dispatch({ type: 'SHOW_CHAT' });
