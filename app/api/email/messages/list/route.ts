@@ -1,3 +1,4 @@
+import { EmailSearchQueryError } from '@/app/lib/email/search-query';
 import { after, NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
@@ -27,6 +28,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to list email messages';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message, ...(error instanceof EmailSearchQueryError ? { code: error.code } : {}) }, { status: error instanceof EmailSearchQueryError ? 400 : 500 });
   }
 }
