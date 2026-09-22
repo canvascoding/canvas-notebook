@@ -1,6 +1,7 @@
 # Notebook: gemeinsame Queries und stabile Ladezustände
 
-Stand: 2026-09-22. Status: Umsetzung begonnen.
+Stand: 2026-09-22. Status: Vier Umsetzungsschritte abgeschlossen;
+Regressionstests und Produktionsbuild erfolgreich, Browserabnahme ausstehend.
 
 ## Ziel
 
@@ -139,7 +140,8 @@ Editoren erhalten Änderungen über ihre Collaboration-/Konfliktlogik.
 - [x] 2. Bestehende Chats, Bootstrap, Nachrichtenabgleich und Pagination.
 - [x] 3. Neue Chats, Startseiten-Übergabe und Idempotenz.
 - [x] 4. Dokumente, Reviews und durchgängige Skeletons.
-- [ ] Abschließende Integration, Build und zulässige UI-Prüfung.
+- [x] Abschließende Integration und Produktionsbuild.
+- [ ] Browser-/E2E-Abnahme nach ausdrücklicher Freigabe.
 
 Jeder abgeschlossene Schritt wird separat geprüft und committed. Subagenten
 übernehmen abgegrenzte Arbeiten innerhalb des aktiven Schritts oder vorbereitende
@@ -213,3 +215,19 @@ Prüfungen: `document-query-test`, `review-query-consistency-test`,
 Nachrichten-Races, bestehende Review-/Editor-/Dateiöffnungs-/Collaboration-Tests,
 vollständiger Typecheck, gezieltes ESLint und Diff-Prüfung erfolgreich.
 Komponententests laufen mit JSDOM; eine echte Browserprüfung bleibt offen.
+
+Abschließende Änderungsprüfung: GitNexus nach Neuindexierung gegen `main`
+ausgeführt; 88 betroffene Dateien und 17 erkannte Abläufe. Die Gesamtreichweite
+wird wegen der zentral genutzten Client-/Session-Funktionen als kritisch
+eingestuft. Der Scope umfasst die geplanten Navigation-, Query-, Chat-,
+Datei- und Review-Änderungen samt Tests und Dokumentation.
+
+Die Lizenzinventur wurde für `@tanstack/query-core` und `@tanstack/react-query`
+aktualisiert; Compliance-Test und Release-Gate sind erfolgreich. Keine
+Container gebaut und kein Deployment durchgeführt.
+
+`npm run build` erfolgreich (Exit 0), einschließlich Lizenzprüfung, Turbopack-
+Kompilierung, TypeScript und Routengenerierung. Ohne lokale Runtime-Env meldet
+der Build fehlende Auth-/Direct-MCP-Basis-URLs sowie Yjs-/Node-Warnungen; diese
+haben den Build nicht abgebrochen. Eine laufende App mit Login und echte
+Browser-Netzwerksequenzen wurden damit nicht geprüft.
