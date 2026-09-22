@@ -291,3 +291,62 @@ export async function snapshotAgentWorkspaceEmailAttachments(
     };
   }));
 }
+
+export class BrowserEmailAttachmentError extends Error {
+  readonly status = 400;
+  readonly code = 'INVALID_EMAIL_ATTACHMENT';
+  constructor(message: string) { super(message); this.name = 'BrowserEmailAttachmentError'; }
+}
+
+/** Snapshot browser selections under the actor's file permissions, never the mailbox owner's. */
+export async function snapshotBrowserEmailAttachments(value: unknown, input: {
+  userId: string;
+  attachmentWorkspaceId?: unknown;
+  mailboxWorkspaceId: string;
+}): Promise<EmailAttachmentInput[]> {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new BrowserEmailAttachmentError('Email attachments must be a list.');
+  if (value.some(item => item && typeof item === 'object' && (item.disposition === 'inline' || item.contentId))) {
+    throw new BrowserEmailAttachmentError('Inline images are not supported in shared mailboxes. Add images as file attachments.');
+  }
+  const attachments = normalizeEmailAttachmentInputs(value);
+  if (attachments.length !== value.length) throw new BrowserEmailAttachmentError('Invalid email attachment selection.');
+  if (!attachments.length) return [];
+  const { resolveAgentSessionWorkspaceForUser } = await import('@/app/lib/pi/session-workspace-context');
+  const { getUploadAccessGrant } = await import('@/app/lib/files/upload-access-store');
+  let fileOptions: WorkspaceFileOperationOptions | undefined;
+  if (attachments.some(attachment => attachment.source === 'workspace')) {
+    const workspaceId = typeof input.attachmentWorkspaceId === 'string' ? input.attachmentWorkspaceId.trim() : '';
+    if (!workspaceId) throw new BrowserEmailAttachmentError('Select the workspace containing these attachments.');
+    try {
+      const workspace = await resolveAgentSessionWorkspaceForUser({ userId: input.userId, workspaceId, permissions: ['canRead'] });
+      fileOptions = { workspace };
+    } catch { throw new BrowserEmailAttachmentError('You no longer have access to the attachment workspace. Select the files again.'); }
+  }
+  for (const attachment of attachments) {
+    if (attachment.source !== 'upload') continue;
+    const grant = await getUploadAccessGrant(attachment.uploadId || '');
+    if (!grant) throw new BrowserEmailAttachmentError('The selected upload is unavailable. Upload it again.');
+    if (grant.ownerUserId !== input.userId) {
+      if (!grant.workspaceId) throw new BrowserEmailAttachmentError('You do not have access to the selected upload.');
+      try { await resolveAgentSessionWorkspaceForUser({ userId: input.userId, workspaceId: grant.workspaceId, permissions: ['canRead'] }); }
+      catch { throw new BrowserEmailAttachmentError('You no longer have access to the selected upload.'); }
+    }
+  }
+  try {
+    const metadata = await Promise.all(attachments.map(attachment => resolveAttachmentMetadata(attachment, fileOptions)));
+    assertAttachmentLimit(metadata);
+    const resolved = await Promise.all(metadata.map(attachment => readAttachmentContent(attachment, fileOptions)));
+    assertAttachmentLimit(resolved);
+    return await Promise.all(resolved.map(async attachment => {
+      const uploaded = await saveUploadBuffer(attachment.content, attachment.name, attachment.mimeType, {
+        maxBytes: EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES,
+        ownerUserId: input.userId,
+        workspaceId: input.mailboxWorkspaceId,
+      });
+      return { source: 'upload' as const, uploadId: uploaded.id, name: attachment.name, mimeType: attachment.mimeType, size: attachment.size, disposition: 'attachment' as const };
+    }));
+  } catch (error) {
+    throw new BrowserEmailAttachmentError(error instanceof Error ? error.message : 'Unable to prepare attachments. Select the files again.');
+  }
+}

@@ -6,6 +6,7 @@ import { createPiTestDatabase } from './helpers/pi-test-database';
 let database: Awaited<ReturnType<typeof createPiTestDatabase>>;
 const secrets = new Map<string, unknown>();
 let writes = 0;
+const corruptSecrets = new Set<string>();
 const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
 const originalLoad = internals._load;
 internals._load = (request, parent, isMain) => {
@@ -15,7 +16,7 @@ internals._load = (request, parent, isMain) => {
   if (request === '@/app/lib/email/secret-store') return {
     emailAccountSecretRef: (userId: string, id: string) => `${userId}/${id}`,
     writeEmailAccountSecret: async (ref: string, value: unknown) => { writes++; secrets.set(ref, value); },
-    readEmailAccountSecret: async (ref: string) => secrets.get(ref),
+    readEmailAccountSecret: async (ref: string) => { if (corruptSecrets.has(ref)) throw new Error('Invalid secret JSON'); return secrets.get(ref); },
     deleteEmailAccountSecret: async (ref: string) => { secrets.delete(ref); },
   };
   return originalLoad(request, parent, isMain);
@@ -73,6 +74,20 @@ async function main() {
   await assert.rejects(() => store.getEmailAccountForUser('owner'), /No active email account/);
   assert.equal((await database.db.query.emailAccounts.findFirst({ where: eq(emailAccounts.id, 'business') }))?.isPrimary, false);
   assert.deepEqual(await store.listEmailAccountRecordsForUser('other'), []);
+  const repair = await store.upsertSmtpEmailAccount({ userId: 'other', emailAddress: 'repair@example.test', secret });
+  const repairInput = { accountId: repair.id, emailAddress: repair.emailAddress, smtpHost: 'smtp.example.test', smtpPort: 465, smtpSecure: true, smtpUsername: 'repair' };
+  for (const broken of ['missing', 'corrupt']) {
+    await store.setStoredEmailAccountStatus(repair, 'expired');
+    if (broken === 'missing') secrets.delete(repair.secretRef); else corruptSecrets.add(repair.secretRef);
+    const beforeRepair = writes;
+    await assert.rejects(() => smtp.saveSmtpEmailAccount('other', repairInput), /SMTP password is required/);
+    assert.equal(writes, beforeRepair, 'Incomplete repair must not replace credentials');
+    const restored = await smtp.saveSmtpEmailAccount('other', { ...repairInput, smtpPassword: 'new-fixture-password' });
+    assert.equal(restored.status, 'active'); assert.equal(restored.id, repair.id);
+    assert.equal(writes, beforeRepair + 1);
+    assert.equal((secrets.get(repair.secretRef) as { smtp: { password: string } }).smtp.password, 'new-fixture-password');
+    corruptSecrets.delete(repair.secretRef);
+  }
   console.log('Personal email account boundaries passed (isolated PostgreSQL schema; no provider calls).');
 }
 let failed = false;

@@ -32,6 +32,7 @@ export type PublicEmailAccount = {
   displayName: string | null;
   isPrimary: boolean;
   status: string;
+  connectionState?: 'ready' | 'send_only' | 'reconnect_required';
   workspaceId: string | null;
   scope: string | null;
   expiresAt: string | null;
@@ -96,6 +97,9 @@ export function publicStoredEmailAccount(
     displayName: account.displayName || null,
     isPrimary: Boolean(account.isPrimary),
     status: account.status,
+    connectionState: secret === undefined ? undefined : account.status !== 'active' || !secret
+      ? 'reconnect_required'
+      : secret.authType === 'smtp_imap' && !secret.imap ? 'send_only' : 'ready',
     workspaceId: mailbox?.workspaceId || null,
     scope: secret?.authType === 'oauth' ? secret.scope || null : null,
     expiresAt: secret?.authType === 'oauth' ? secret.expiresAt || null : null,

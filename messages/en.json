@@ -1,5 +1,7 @@
 {
   "emailMailboxes": {
+    "attachmentWorkspaceChanged": "The workspace has changed since this draft was opened. Switch back to the original workspace for these files, or remove them. To use files from a different workspace, start a new draft. Uploaded attachments remain available.",
+    "sharedInlineImages": "Inline images are not yet supported for shared mailboxes. Add images as file attachments instead.",
     "setupTitle": "Set up your email",
     "setupDescription": "Read, search and send from one place. Choose whether this address belongs to you or is shared with a team. You can set this up later.",
     "personalOwnership": "Your own mailbox belongs to your user account. This also includes an address you use alone for freelance or professional work.",

@@ -1,3 +1,4 @@
+import { BrowserEmailAttachmentError } from '@/app/lib/email/attachments';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
@@ -24,6 +25,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     const data = await updateBrowserEmailDraft(session.user.id, draftId, body);
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof BrowserEmailAttachmentError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: 400 });
     if (error instanceof OutboxSendError) return NextResponse.json({ success: false, error: error.message, code: error.code, data: error.draft }, { status: error.status });
     const message = error instanceof Error ? error.message : 'Failed to update email draft';
     return NextResponse.json({ success: false, error: message }, { status: error instanceof EmailMailboxAccessError ? error.status : 500 });

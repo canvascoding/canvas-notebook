@@ -85,7 +85,7 @@ function requireUser(context: EmailAgentToolsContext) {
 }
 
 async function requireWorkspaceMailbox(userId: string, workspaceId: string, mailboxId: string): Promise<AgentMailbox> {
-  await resolveAgentSessionWorkspaceForUser({ userId, workspaceId, permissions: ['canRead'] });
+  await resolveAgentSessionWorkspaceForUser({ userId, workspaceId, permissions: ['canRead', 'canRunAgent'] });
   const [mailbox] = await db.select({
     id: workspaceEmailMailboxes.id,
     accountId: emailAccounts.id,
@@ -169,7 +169,7 @@ async function listAccessibleMailboxes(context: EmailAgentToolsContext) {
     });
   }
   if (!context.workspaceId) return personal;
-  await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: context.workspaceId, permissions: ['canRead'] });
+  await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: context.workspaceId, permissions: ['canRead', 'canRunAgent'] });
   const workspace = await db.select({
     id: workspaceEmailMailboxes.id, accountId: emailAccounts.id, emailAddress: emailAccounts.emailAddress,
     displayName: emailAccounts.displayName, provider: emailAccounts.provider,

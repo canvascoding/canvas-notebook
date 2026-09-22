@@ -7,6 +7,7 @@ let database: Awaited<ReturnType<typeof createPiTestDatabase>>;
 const calls: Array<{ userId: string; accountId: string }> = [];
 const checkedWorkspaces: string[] = [];
 let allowMailboxWorkspace = true;
+let canRunMailboxAgent = true;
 const internal = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
 const originalLoad = internal._load;
 internal._load = (request, parent, isMain) => {
@@ -14,10 +15,12 @@ internal._load = (request, parent, isMain) => {
   if (request === '@/app/lib/email/secret-store') return {};
   if (request === '@/app/lib/pi/tool-runtime-helpers') return { getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error) };
   if (request === '@/app/lib/db') return database;
-  if (request === '@/app/lib/pi/session-workspace-context') return { resolveAgentSessionWorkspaceForUser: async ({ userId, workspaceId }: { userId: string; workspaceId: string }) => {
+  if (request === '@/app/lib/pi/session-workspace-context') return { resolveAgentSessionWorkspaceForUser: async ({ userId, workspaceId, permissions }: { userId: string; workspaceId: string; permissions: string[] }) => {
     assert.equal(userId, 'viewer'); checkedWorkspaces.push(workspaceId);
     if (workspaceId !== 'mail-workspace' || !allowMailboxWorkspace) throw new Error('Workspace access denied.');
-    return { workspaceId, permissions: { canRead: true } };
+    assert.deepEqual(permissions, ['canRead', 'canRunAgent']);
+    if (permissions.includes('canRunAgent') && !canRunMailboxAgent) throw new Error('Workspace agent access denied.');
+    return { workspaceId, permissions: { canRead: true, canRunAgent: canRunMailboxAgent } };
   } };
   if (request === '@/app/lib/email/service') return { readEmailMessage: async (userId: string, accountId: string) => { calls.push({ userId, accountId }); return { message: { id: 'message', subject: 'Fixture' } }; } };
   if (['@/app/lib/email/attachment-batch', '@/app/lib/email/attachment-workspace-save', '@/app/lib/email/attachments', '@/app/lib/email/workspace-inbox-outbox'].includes(request)) return {};
@@ -43,6 +46,14 @@ async function main() {
   assert.match(JSON.stringify(listed), /mailbox-work/);
   await invoke('email_read_message', { mailboxId: 'mailbox-work', mailboxWorkspaceId: 'mail-workspace', messageId: 'message' });
   assert.deepEqual(calls, [{ userId: 'owner', accountId: 'work' }], 'Explicit mailbox workspace wins over the unrelated chat workspace; provider owner stays server-resolved');
+  canRunMailboxAgent = false;
+  const forbiddenRead = await invoke('email_read_message', { mailboxId: 'mailbox-work', mailboxWorkspaceId: 'mail-workspace', messageId: 'message' });
+  const forbiddenList = await invoke('email_list_mailboxes', { mailboxWorkspaceId: 'mail-workspace' });
+  assert.match(JSON.stringify(forbiddenRead), /Workspace agent access denied/);
+  assert.match(JSON.stringify(forbiddenList), /Workspace agent access denied/);
+  assert.doesNotMatch(JSON.stringify(forbiddenList), /mailbox-work/);
+  assert.equal(calls.length, 1, 'Read permission alone cannot grant a cross-workspace agent provider access');
+  canRunMailboxAgent = true;
   const failedDefault = await invoke('email_read_message', { mailboxId: 'mailbox-work', messageId: 'message' });
   assert.match(JSON.stringify(failedDefault), /Workspace access denied/); assert.equal(calls.length, 1);
   await invoke('email_read_message', { mailboxId: 'account:personal', messageId: 'message' });
@@ -57,6 +68,11 @@ async function main() {
   const before = checkedWorkspaces.length;
   await bound.find(tool => tool.name === 'email_list_mailboxes')!.execute('bound', { mailboxWorkspaceId: 'chat-workspace' } as never);
   assert.deepEqual(checkedWorkspaces.slice(before), ['mail-workspace'], 'Automation remains server-pinned despite client workspace arguments');
+  canRunMailboxAgent = false;
+  const boundDenied = await bound.find(tool => tool.name === 'email_read_message')!.execute('bound', { messageId: 'message' } as never);
+  assert.match(JSON.stringify(boundDenied), /Workspace agent access denied/);
+  assert.equal(calls.length, 2, 'Bound automation also respects revoked agent permissions');
+  canRunMailboxAgent = true;
   await database.db.update(workspaceEmailMailboxes).set({ status: 'archived' }).where(eq(workspaceEmailMailboxes.id, 'mailbox-work'));
   await invoke('email_read_message', { mailboxId: 'mailbox-work', mailboxWorkspaceId: 'mail-workspace', messageId: 'message' });
   assert.equal(calls.length, 2, 'Archived assignment cannot reach provider');

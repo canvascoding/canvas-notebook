@@ -83,6 +83,7 @@ export function useEmailComposeController({
   const tm = useTranslations('emailMailboxes');
   const [sendUncertain, setSendUncertain] = useState(false);
   const draftMailboxRef = useRef<string | null>(null);
+  const attachmentWorkspaceRef = useRef<string | null>(null);
   const mailboxKey = activeAccount ? `${activeAccount.id}:${mailboxWorkspaceId || 'personal'}` : null;
   const openOutbox = useCallback(() => { void openEmailReview(); }, []);
   const [draftOwner, setDraftOwner] = useState<string | null>(null);
@@ -164,15 +165,17 @@ export function useEmailComposeController({
     setAgentStatus(null);
     setDraftOwner(ownerUserId);
     draftMailboxRef.current = mailboxKey;
+    attachmentWorkspaceRef.current = activeWorkspaceId;
     setSendUncertain(false);
     setDraft({ ...buildDraft(mode, message, body, aiGenerated), ...initialUpdates });
     onMessageDialogOpenChange(false);
-  }, [ownerUserId, mailboxKey, buildDraft, onError, onMessageActionNotice, onMessageDialogOpenChange]);
+  }, [activeWorkspaceId, ownerUserId, mailboxKey, buildDraft, onError, onMessageActionNotice, onMessageDialogOpenChange]);
 
   const openNewDraft = useCallback(() => {
     if (!activeAccount || activeAccount.capabilities?.canWrite === false) return;
     setDraftOwner(ownerUserId);
     draftMailboxRef.current = mailboxKey;
+    attachmentWorkspaceRef.current = activeWorkspaceId;
     setSendUncertain(false);
     setError(null);
     onError(null);
@@ -196,7 +199,7 @@ export function useEmailComposeController({
       usedContext: [],
     });
     onMessageDialogOpenChange(false);
-  }, [ownerUserId, mailboxKey, activeAccount, activeFolder, onError, onMessageActionNotice, onMessageDialogOpenChange]);
+  }, [activeWorkspaceId, ownerUserId, mailboxKey, activeAccount, activeFolder, onError, onMessageActionNotice, onMessageDialogOpenChange]);
 
   useEffect(() => {
     if (!contextIntent?.draftId || contextIntent.status !== 'complete' || contextIntent.view !== 'review-draft') return;
@@ -212,12 +215,22 @@ export function useEmailComposeController({
   }, [contextIntent]);
 
   const updateDraft = useCallback((updates: ComposeDraftUpdates) => {
+    if (updates.attachments && attachmentWorkspaceRef.current !== activeWorkspaceId) {
+      const previousFiles = draft?.attachments.filter(attachment => attachment.source === 'workspace') || [];
+      const nextFiles = updates.attachments.filter(attachment => attachment.source === 'workspace');
+      const removingFiles = nextFiles.length < previousFiles.length
+        && nextFiles.every(attachment => previousFiles.some(previous => previous.id === attachment.id && previous.path === attachment.path));
+      if (nextFiles.length && !removingFiles) {
+        setError(tm('attachmentWorkspaceChanged'));
+        return;
+      }
+    }
     if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {
       setAgentEvents([]);
       setAgentStatus(null);
     }
     setDraft((current) => current ? { ...current, ...updates } : current);
-  }, []);
+  }, [activeWorkspaceId, draft, tm]);
 
   const close = useCallback(() => {
     if (isSubmitting || isGeneratingAi) return;
@@ -407,6 +420,10 @@ export function useEmailComposeController({
   const submit = useCallback(async () => {
     if (!draft || !activeAccount || sendUncertain || activeAccount.capabilities?.canWrite === false) return;
     if (draftMailboxRef.current !== mailboxKey) { setError(tm('senderChanged')); return; }
+    if (draft.attachments.some(attachment => attachment.source === 'workspace') && attachmentWorkspaceRef.current !== activeWorkspaceId) {
+      setError(tm('attachmentWorkspaceChanged'));
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
     onError(null);
@@ -429,6 +446,7 @@ export function useEmailComposeController({
           ? {
               accountId: activeAccountId,
               mailboxWorkspaceId,
+              attachmentWorkspaceId: attachmentWorkspaceRef.current,
               attachments,
               body: bodyHtml,
               cc: splitRecipientInput(draft.ccText),
@@ -438,6 +456,7 @@ export function useEmailComposeController({
             }
           : {
               mailboxWorkspaceId,
+              attachmentWorkspaceId: attachmentWorkspaceRef.current,
               bodyOverride: draft.body,
               bodyOverrideHtml: bodyHtml,
               attachments,
@@ -474,7 +493,7 @@ export function useEmailComposeController({
     } finally {
       setIsSubmitting(false);
     }
-  }, [sendUncertain, onAccessChanged, tm, mailboxKey, mailboxWorkspaceId, activeAccount, draft, onError, onMessageActionNotice, t]);
+  }, [sendUncertain, onAccessChanged, tm, mailboxKey, mailboxWorkspaceId, activeAccount, activeWorkspaceId, draft, onError, onMessageActionNotice, t]);
 
   return {
     sendUncertain,

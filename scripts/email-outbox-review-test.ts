@@ -50,6 +50,10 @@ async function main() {
     await assert.rejects(outbox.sendWorkspaceOutboxDraft({ userId: 'reviewer', workspaceId: 'workspace', draftId: humanCreated.id, expectedVersion: humanCreated.version }, { sendMessage: async () => { throw new Error('Policy should prevent transport'); } }), (error: unknown) => (error as { code: string }).code === 'SEND_POLICY_BLOCKED');
     assert.equal((await outbox.findWorkspaceOutboxDraft('reviewer', 'workspace', humanCreated.id))?.status, 'send_failed');
     const compose = await import('../app/lib/email/mailbox-compose');
+    const beforeInline = (await outbox.listWorkspaceOutboxDrafts('reviewer', 'workspace')).length;
+    await assert.rejects(compose.sendBrowserEmailMessage('reviewer', { accountId: 'account', mailboxWorkspaceId: 'workspace', to: ['allowed@example.test'], subject: 'Inline image', body: '<p><img src="cid:image"></p>', is_HTML: true }), (error: unknown) => (error as { status: number }).status === 400);
+    assert.equal((await outbox.listWorkspaceOutboxDrafts('reviewer', 'workspace')).length, beforeInline, 'Unsupported inline content must fail before creating an Outbox entry');
+    assert.equal(browserTransportCalls, 0);
     await assert.rejects(compose.sendBrowserEmailMessage('reviewer', { accountId: 'account', mailboxWorkspaceId: 'workspace', to: ['blocked@outside.test'], subject: 'Manual browser send', body: 'Recover me' }), (error: unknown) => (error as { code: string }).code === 'SEND_POLICY_BLOCKED');
     const failedManual = (await outbox.listWorkspaceOutboxDrafts('reviewer', 'workspace')).find(draft => draft.subject === 'Manual browser send');
     assert.ok(failedManual); assert.equal(failedManual.origin, 'human'); assert.equal(failedManual.status, 'send_failed'); assert.equal(failedManual.assignedUserId, 'reviewer');

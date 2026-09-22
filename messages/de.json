@@ -1,5 +1,7 @@
 {
   "emailMailboxes": {
+    "attachmentWorkspaceChanged": "Das Workspace wurde seit dem Öffnen dieses Entwurfs gewechselt. Wechsle für diese Workspace-Dateien zum ursprünglichen Workspace zurück oder entferne sie. Dateien aus einem anderen Workspace benötigen einen neuen Entwurf. Hochgeladene Anhänge kannst du weiterhin verwenden.",
+    "sharedInlineImages": "Bilder direkt im Nachrichtentext werden für gemeinsame Postfächer noch nicht unterstützt. Füge Bilder stattdessen als Datei-Anhang hinzu.",
     "setupTitle": "E-Mail einrichten",
     "setupDescription": "Lesen, suchen und versenden an einem Ort. Wähle zuerst, ob diese Adresse dir gehört oder mit einem Team geteilt wird. Du kannst sie auch später einrichten.",
     "personalOwnership": "Dein eigenes Postfach gehört zu deinem Benutzerkonto. Dazu zählt auch eine Adresse, die du allein beruflich oder selbstständig nutzt.",

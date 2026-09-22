@@ -1,3 +1,4 @@
+import { BrowserEmailAttachmentError } from '@/app/lib/email/attachments';
 import { createMailboxAiReplyDraft } from '@/app/lib/email/mailbox-ai';
 import { createBrowserEmailDerivedDraft } from '@/app/lib/email/mailbox-compose';
 import { resolveEmailMailboxAccess, EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
@@ -166,7 +167,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     const access = await resolveEmailMailboxAccess({
       userId: session.user.id, accountId, mailboxWorkspaceId: body.mailboxWorkspaceId,
-      operation: action === 'permanent-delete' ? 'delete'
+      operation: action === 'permanent-delete' || action === 'trash' ? 'delete'
         : operation === 'summary' || operation === 'ai-reply' || operation === 'ai-reply-preview' ? 'ai' : 'write',
     });
     workspaceId = access.workspaceId || workspaceId;
@@ -313,7 +314,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (operation === 'draft') {
       if (!mode) throw new Error('Unsupported email draft mode.');
-      data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, mailboxWorkspaceId: access.workspaceId, messageId, folder, mode, overrides: {
+      data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, mailboxWorkspaceId: access.workspaceId, attachmentWorkspaceId: (body as { attachmentWorkspaceId?: unknown }).attachmentWorkspaceId, messageId, folder, mode, overrides: {
         attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
         bodyOverrideHtml: optionalStringValue((body as { bodyOverrideHtml?: unknown }).bodyOverrideHtml),
@@ -326,7 +327,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (operation === 'send') {
       if (!mode) throw new Error('Unsupported email send mode.');
-      data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, mailboxWorkspaceId: access.workspaceId, messageId, folder, mode, overrides: {
+      data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, mailboxWorkspaceId: access.workspaceId, attachmentWorkspaceId: (body as { attachmentWorkspaceId?: unknown }).attachmentWorkspaceId, messageId, folder, mode, overrides: {
         attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
         bodyOverrideHtml: optionalStringValue((body as { bodyOverrideHtml?: unknown }).bodyOverrideHtml),
@@ -368,6 +369,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof BrowserEmailAttachmentError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: 400 });
     if (error instanceof OutboxSendError) return NextResponse.json({ success: false, error: error.message, code: error.code, data: error.draft }, { status: error.status });
     logEmailClientEvent('error', 'message_action_failed', {
       accountId,

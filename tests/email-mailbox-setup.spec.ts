@@ -17,6 +17,7 @@ async function installFixture(context: BrowserContext, initialAccounts: Mailbox[
   await context.route('https://api.github.com/repos/canvascoding/canvas-notebook/releases/latest', route => route.fulfill({ json: { tag_name: '0.0.0', body: '', html_url: 'https://github.com/canvascoding/canvas-notebook/releases' } }));
   await context.route('**/api/**', async route => {
     const req = route.request(); const url = new URL(req.url()); const path = url.pathname;
+    if (path.startsWith('/api/user-hints')) return route.fulfill({ json: { page: 'emails', version: 1, completed: true, currentHintKey: null, hints: [] } });
     if (!path.includes('/email/') && path !== '/api/email/mailboxes') return route.continue();
     const body = req.method() === 'POST' || req.method() === 'PATCH' ? (req.postDataJSON() || {}) as Record<string, unknown> : {};
     state.requests.push({ path, workspace: body.mailboxWorkspaceId ?? url.searchParams.get('mailboxWorkspaceId'), body });
@@ -99,6 +100,8 @@ test.describe('Central email mailboxes', () => {
       await page.getByRole('button', { name: /^(Compose|Verfassen|Neue E-Mail)$/i }).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog.getByText('support@example.test', { exact: true })).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'Insert image', exact: true })).toBeDisabled();
+      await expect(dialog.getByTestId('email-shared-inline-image-help')).toBeVisible();
       await page.locator('#email-compose-to').fill('allowed@example.test');
       await page.locator('#email-compose-to').press('Enter');
       await page.locator('#email-compose-subject').fill('Preserve this message');
@@ -153,11 +156,11 @@ test.describe('Central email mailboxes', () => {
     } finally { await context.close(); }
   });
 
-  for (const connectionState of ['reconnect_required', 'send_only']) {
+  for (const connectionState of ['reconnect_required', 'send_only', 'missing_credentials']) {
     test(`${connectionState} offers repair without querying unavailable inbox`, async ({ browser }) => {
       const context = await createAuthenticatedContext(browser);
       const account = mailbox('repair');
-      account.connectionState = connectionState;
+      account.connectionState = connectionState === 'missing_credentials' ? 'reconnect_required' : connectionState;
       account.capabilities.canRead = false;
       account.capabilities.canWrite = connectionState === 'send_only';
       account.status = connectionState === 'reconnect_required' ? 'expired' : 'active';

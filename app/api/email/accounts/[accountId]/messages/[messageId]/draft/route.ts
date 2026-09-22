@@ -1,3 +1,4 @@
+import { BrowserEmailAttachmentError } from '@/app/lib/email/attachments';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
@@ -35,9 +36,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await request.json().catch(() => ({}));
     const folder = stringValue((body as { folder?: unknown }).folder);
     const mode = draftMode((body as { mode?: unknown }).mode);
-    const data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, messageId, folder, mode, mailboxWorkspaceId: body.mailboxWorkspaceId });
+    const data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, messageId, folder, mode, mailboxWorkspaceId: body.mailboxWorkspaceId, attachmentWorkspaceId: body.attachmentWorkspaceId });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof BrowserEmailAttachmentError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: 400 });
     if (isImapMailboxChangedError(error)) {
       return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status });
     }

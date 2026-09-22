@@ -160,7 +160,9 @@ function draftInputFromStored(draft: Awaited<ReturnType<typeof getStoredEmailDra
 async function readExistingSmtpSecretForInput(userId: string, input: SmtpAccountInput): Promise<EmailAccountSmtpSecret | null> {
   if (!input.accountId) return null;
   const existingAccount = await getPersonalEmailAccountForUser(userId, input.accountId);
-  const secret = await readStoredEmailAccountSecret(existingAccount);
+  if (existingAccount.authType !== 'smtp_imap' || existingAccount.provider !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
+  const secret = await readStoredEmailAccountSecret(existingAccount).catch(() => null);
+  if (!secret) return null;
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   return secret;
 }

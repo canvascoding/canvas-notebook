@@ -5,17 +5,21 @@ import { NextRequest } from 'next/server';
 const calls: Array<{ kind: string; args: unknown[] }> = [];
 let denyAccess = false;
 let denyMessage = false;
+let denyDelete = false;
 class EmailMailboxAccessError extends Error { status = 403; }
 const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
 const originalLoad = internals._load;
 internals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
   if (request === '@/app/lib/auth') return { auth: { api: { getSession: async () => ({ user: { id: 'actor' } }) } } };
+  if (request === '@/app/lib/email/ai-route-guard') return { requireEmailAiRouteSession: async () => ({ user: { id: 'actor' } }) };
+  if (request === '@/app/lib/email/mailbox-ai' || request === '@/app/lib/email/mailbox-compose') return {};
+  if (request === '@/app/lib/email/logging') return { logEmailClientEvent: () => {} };
   if (request === '@/app/lib/email/mailbox-access') return {
     EmailMailboxAccessError,
-    resolveEmailMailboxAccess: async (input: { mailboxWorkspaceId?: string }) => {
+    resolveEmailMailboxAccess: async (input: { mailboxWorkspaceId?: string; operation: string }) => {
       calls.push({ kind: 'access', args: [input] });
-      if (denyAccess) throw new EmailMailboxAccessError('Permission removed');
+      if (denyAccess || (denyDelete && input.operation === 'delete')) throw new EmailMailboxAccessError('Permission removed');
       return { accountOwnerId: 'owner', accountId: 'account', workspaceId: input.mailboxWorkspaceId || null, readOptions: { enforceReadPolicy: Boolean(input.mailboxWorkspaceId) } };
     },
   };
@@ -56,6 +60,17 @@ async function main() {
   calls.length = 0;
   assert.equal((await run('mark-read', false)).status, 200);
   assert.deepEqual(calls.map(call => call.kind), ['access', 'setEmailMessageRead'], 'Personal mutation keeps its current direct flow');
+  const mixed = await import('../app/api/email/accounts/[accountId]/messages/actions/route');
+  denyDelete = true;
+  for (const action of ['trash', 'permanent-delete']) {
+    calls.length = 0;
+    const request = new NextRequest('http://localhost/api/email/accounts/account/messages/actions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operation: 'action', action, folder: 'INBOX', messageId: 'message', mailboxWorkspaceId: 'work' }) });
+    assert.equal((await mixed.POST(request, { params: Promise.resolve({ accountId: 'account' }) })).status, 403);
+    assert.deepEqual(calls.map(call => call.kind), ['access'], 'Central mutation endpoint denies deleted messages before provider access');
+    calls.length = 0;
+    assert.equal((await run(action)).status, 403);
+    assert.deepEqual(calls.map(call => call.kind), ['access']);
+  }
   console.log('Mailbox mutation route passed: actor and owner separation, permissions, read-policy ordering, all eight operations.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => { internals._load = originalLoad; });

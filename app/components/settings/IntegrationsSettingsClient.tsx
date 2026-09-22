@@ -185,6 +185,7 @@ type EmailAccount = {
   displayName: string | null;
   isPrimary: boolean;
   status: string;
+  connectionState?: 'ready' | 'send_only' | 'reconnect_required';
   smtpHost?: string | null;
   smtpPort?: number | null;
   smtpSecure?: boolean | null;
@@ -2203,6 +2204,7 @@ export function EmailAccountsCard({
         {accounts.length > 0 && (
           <div className="space-y-3">
             {accounts.map((account) => {
+              const needsReconnect = account.status !== 'active' || account.connectionState === 'reconnect_required';
               const draft = drafts[account.id] || { readFrom: '', sendTo: '' };
               const detailsOpen = Boolean(openAccountDetailsById[account.id]);
               const policyOpen = Boolean(openAccountPolicyById[account.id]);
@@ -2239,19 +2241,19 @@ export function EmailAccountsCard({
                             <Badge variant="outline" className="font-normal text-muted-foreground">{t('capabilities.sendOnly')}</Badge>
                           )}
                         </div>
-                        {account.status !== 'active' && (
+                        {needsReconnect && (
                           <p className="mt-3 max-w-xl text-sm text-muted-foreground">{t('repair.reconnectDescription')}</p>
                         )}
-                        {account.status === 'active' && account.authType === 'smtp_imap' && !account.imapHost && (
+                        {!needsReconnect && account.authType === 'smtp_imap' && !account.imapHost && (
                           <p className="mt-3 max-w-xl text-sm text-muted-foreground">{t('repair.sendOnlyDescription')}</p>
                         )}
                       </div>
 
                       <div className="flex shrink-0 flex-wrap items-center gap-2 self-end sm:self-auto">
-                        {(account.status !== 'active' || (account.authType === 'smtp_imap' && !account.imapHost)) && (
+                        {(needsReconnect || (account.authType === 'smtp_imap' && !account.imapHost)) && (
                           <Button type="button" variant="outline" size="sm" disabled={activeAction !== null}
                             onClick={() => account.authType === 'smtp_imap' ? editSmtpAccount(account) : void startOAuth(account.provider === 'microsoft' ? 'microsoft' : 'google')}>
-                            {account.status !== 'active' ? t('repair.reconnect') : t('repair.addInbox')}
+                            {needsReconnect ? t('repair.reconnect') : t('repair.addInbox')}
                           </Button>
                         )}
                         <CollapsibleTrigger asChild>
@@ -2280,7 +2282,7 @@ export function EmailAccountsCard({
                                 </DropdownMenuItem>
                               </>
                             )}
-                            {!account.isPrimary && account.status === 'active' && (
+                            {!account.isPrimary && !needsReconnect && (
                               <DropdownMenuItem onSelect={() => void setMainEmail(account.id)}>
                                 <Star />
                                 {t('setMainEmail')}

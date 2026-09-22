@@ -2,6 +2,7 @@ import { expect, test, type BrowserContext } from '@playwright/test';
 import { createAuthenticatedContext } from './helpers/managed-test-context';
 
 async function installSearchFixture(context: BrowserContext) {
+  await context.route('**/api/user-hints**', route => route.fulfill({ json: { page: 'emails', version: 1, completed: true, currentHintKey: null, hints: [] } }));
   const searches: Array<Record<string, unknown>> = [];
   const blockedWrites: string[] = [];
   const detailFolders: string[] = [];
@@ -9,6 +10,7 @@ async function installSearchFixture(context: BrowserContext) {
   await context.route('**/api/**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path.startsWith('/api/user-hints')) return route.fulfill({ json: { page: 'emails', version: 1, completed: true, currentHintKey: null, hints: [] } });
     if ((path === '/api/email/accounts' || path === '/api/email/mailboxes')) return route.fulfill({ json: { success: true, data: { mode: 'local', accounts: [account] } } });
     if (path === '/api/email/folders') return route.fulfill({ json: { success: true, data: { folders: [
       { id: 'INBOX', path: 'INBOX', name: 'Inbox', role: 'inbox', messageCount: 2, unseenCount: 0 },

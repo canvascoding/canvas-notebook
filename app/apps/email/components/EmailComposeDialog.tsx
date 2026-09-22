@@ -590,6 +590,7 @@ export function EmailComposeDialog({
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-compose-body">{labels.composeBodyLabel}</label>
                     <EmailHtmlEditor
+                      allowInlineImages={!mailboxWorkspaceId}
                       attachments={draft.attachments}
                       id="email-compose-body"
                       value={draft.bodyHtml}
@@ -599,6 +600,7 @@ export function EmailComposeDialog({
                       disabled={isSubmitting || isGeneratingAi}
                     />
                   </div>
+                  {mailboxWorkspaceId && <p data-testid="email-shared-inline-image-help" className="text-xs leading-5 text-muted-foreground">{tm('sharedInlineImages')}</p>}
                   <EmailAttachmentPanel attachments={displayedAttachments} disabled={isSubmitting || isGeneratingAi} labels={labels} onChange={updateDisplayedAttachments} />
                   {error ? <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"><p className="break-words">{error}</p></div> : null}
                 </section>
