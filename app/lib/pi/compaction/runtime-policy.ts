@@ -5,7 +5,11 @@ import {
   validatePiContextBudgetPolicy,
   type PiContextBudgetPolicy,
 } from '../context-budget';
-import type { PiRuntimeConfig } from '../config';
+import {
+  parsePiCompactionSummaryModelIdentity,
+  type PiRuntimeConfig,
+} from '../config';
+import { readPiOrganizationCompactionSettings } from './settings-store';
 
 export const PI_COMPACTION_TAIL_MODE_ENV = 'CANVAS_PI_COMPACTION_TAIL_MODE';
 export const PI_COMPACTION_SUMMARY_MODEL_ENV = 'CANVAS_PI_COMPACTION_SUMMARY_MODEL';
@@ -22,6 +26,11 @@ export type PiEffectiveCompactionPolicy = Readonly<{
 }>;
 
 type PiRuntimeCompactionConfig = Pick<PiRuntimeConfig, 'compaction'>;
+type PiOrganizationCompactionConfig = {
+  configured?: boolean;
+  tailMode?: 'legacy' | 'lean' | null;
+  summaryModel?: string | null;
+};
 type Environment = Readonly<Record<string, string | undefined>>;
 
 function normalizeTailMode(value: unknown): 'legacy' | 'lean' | null {
@@ -32,16 +41,9 @@ function normalizeTailMode(value: unknown): 'legacy' | 'lean' | null {
 
 /** Model identities are configuration, never credentials or provider secrets. */
 export function normalizePiCompactionSummaryModel(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const normalized = value.trim();
-  if (
-    !normalized
-    || normalized.length > 512
-    || /[\u0000-\u001F\u007F]/u.test(normalized)
-  ) {
-    return null;
-  }
-  return normalized;
+  return parsePiCompactionSummaryModelIdentity(value)
+    ? (value as string).trim()
+    : null;
 }
 
 /**
@@ -50,17 +52,27 @@ export function normalizePiCompactionSummaryModel(value: unknown): string | null
  * back from lean to legacy without modifying persisted settings.
  */
 export function resolvePiEffectiveCompactionPolicy(input: {
+  /** Organization-owned settings are the persisted source for new sessions. */
+  organizationConfig?: PiOrganizationCompactionConfig | null;
+  /** Instance-wide legacy/bootstrap fallback while organizations migrate. */
   runtimeConfig?: PiRuntimeCompactionConfig | null;
   environment?: Environment;
 } = {}): PiEffectiveCompactionPolicy {
   const environment = input.environment ?? process.env;
-  const persisted = input.runtimeConfig?.compaction;
+  const organizationConfig = input.organizationConfig;
+  const legacyConfig = input.runtimeConfig?.compaction;
   const environmentTailMode = normalizeTailMode(environment[PI_COMPACTION_TAIL_MODE_ENV]);
-  const persistedTailMode = normalizeTailMode(persisted?.tailMode);
+  const persistedTailMode = organizationConfig?.configured
+    ? normalizeTailMode(organizationConfig.tailMode)
+    : normalizeTailMode(legacyConfig?.tailMode);
   const environmentSummaryModel = normalizePiCompactionSummaryModel(
     environment[PI_COMPACTION_SUMMARY_MODEL_ENV],
   );
-  const persistedSummaryModel = normalizePiCompactionSummaryModel(persisted?.summaryModel);
+  const persistedSummaryModel = organizationConfig?.configured
+    ? normalizePiCompactionSummaryModel(organizationConfig.summaryModel)
+    : normalizePiCompactionSummaryModel(legacyConfig?.summaryModel);
+  const hasPersistedSummaryDecision = organizationConfig?.configured === true
+    || persistedSummaryModel !== null;
 
   const tailMode = environmentTailMode
     ?? persistedTailMode
@@ -76,12 +88,21 @@ export function resolvePiEffectiveCompactionPolicy(input: {
     summaryModel,
     sources: Object.freeze({
       tailMode: environmentTailMode ? 'environment' : persistedTailMode ? 'persisted' : 'default',
-      summaryModel: environmentSummaryModel ? 'environment' : persistedSummaryModel ? 'persisted' : 'default',
+      summaryModel: environmentSummaryModel ? 'environment' : hasPersistedSummaryDecision ? 'persisted' : 'default',
     }),
   });
 }
 
-export async function loadPiEffectiveCompactionPolicy(): Promise<PiEffectiveCompactionPolicy> {
+export async function loadPiEffectiveCompactionPolicy(
+  organizationId: string,
+): Promise<PiEffectiveCompactionPolicy> {
   const { readPiRuntimeConfig } = await import('@/app/lib/agents/storage');
-  return resolvePiEffectiveCompactionPolicy({ runtimeConfig: await readPiRuntimeConfig() });
+  const [legacyRuntimeConfig, organizationSettings] = await Promise.all([
+    readPiRuntimeConfig(),
+    readPiOrganizationCompactionSettings(organizationId),
+  ]);
+  return resolvePiEffectiveCompactionPolicy({
+    runtimeConfig: legacyRuntimeConfig,
+    organizationConfig: organizationSettings,
+  });
 }

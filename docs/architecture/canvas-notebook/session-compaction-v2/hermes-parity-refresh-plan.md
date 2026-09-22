@@ -44,12 +44,27 @@ Prioritaet:
 Neue Deployment-Schalter:
 
 - `CANVAS_PI_COMPACTION_TAIL_MODE=legacy|lean`
-- `CANVAS_PI_COMPACTION_SUMMARY_MODEL=<provider/model identity>`
+- `CANVAS_PI_COMPACTION_SUMMARY_MODEL=<providerInstallationId/modelId>`
 
 Der Environment-Override ist ein Betriebs- und Rollbackmechanismus. Die
-persistierte Einstellung wird im Runtime-Settings-Bereich gepflegt. Secrets
-bleiben in der Integrationsverwaltung und duerfen weder in dieser Einstellung
-noch in Telemetrie gespeichert werden.
+persistierte Einstellung wird organisationsbezogen und revisionsgesichert in
+`ai_organization_compaction_settings` gepflegt; die globale
+`pi-runtime-config.json` ist nur ein Legacy-/Bootstrap-Fallback fuer
+Organisationen ohne eigene Einstellung. Secrets bleiben in der
+Integrationsverwaltung und duerfen weder in dieser Einstellung noch in
+Telemetrie gespeichert werden.
+
+`summaryModel` ist immer die exakte Katalogreferenz
+`providerInstallationId/modelId` (der Modellteil darf weitere `/` enthalten).
+Beim Speichern wird sie gegen einen aktivierten, erfolgreichen Provider und
+ein aktiviertes Modell aus dem aktuellen Katalog geprueft. Wird eine vorher
+gueltige Referenz spaeter stale, deaktiviert oder nicht mehr aufloesbar, ist
+dies kein Compaction-Fehler: der Lauf faellt sicher auf das gepinnte
+Hauptmodell zurueck. Ein aktiver Environment-Override wird im Settings-Bereich
+mit seiner Quelle angezeigt und sperrt nur das betreffende persistierte Feld.
+Der echte Chat-Runtime-Status zeigt nur eine vom Runtime-Resolver bestaetigte
+Identitaet; eine stale oder nicht verfuegbare rohe Referenz wird nie an Clients
+serialisiert.
 
 ## Modussemantik
 
@@ -156,8 +171,20 @@ Verlauf.
 - laufende Sessions uebernehmen die neue Policy nur an sicheren
   Request-Grenzen.
 
+Der Settings-Status zeigt effektiven Modus, Modellpfad und die jeweilige
+Herkunft. Die Budget-Vorschau basiert auf dem App-Standardmodell; die
+Kontextanzeige im Chat bleibt fuer jede Anfrage autoritativ, weil sie
+Systemprompt, Tools, Medien und Outputreserve einbezieht.
+
 Gate: Einstellung, Override, Neustart und Legacy-Rollback sind API-, Contract-
 und nach Freigabe UI-getestet.
+
+Status: abgeschlossen. Die organisationsbezogene, revisionsgesicherte
+Einstellung übernimmt beim ersten Speichern sichere Legacy-Fallbackwerte,
+bewahrt eine explizite Hauptmodell-Entscheidung und wird an der nächsten
+inaktiven Request-Grenze neu gebunden. API-/Berechtigungs-/Konflikttests,
+Live-Runtime-Integration und Browserprüfungen in Desktop-, kompakter Desktop-
+und Mobile-Breite sind grün.
 
 ### SC-P14: Produktionshaertung und Rollout
 

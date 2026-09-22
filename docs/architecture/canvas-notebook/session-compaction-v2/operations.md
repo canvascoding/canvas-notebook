@@ -29,6 +29,36 @@ Micro-compaction is not part of Canvas V2. There is no environment switch or
 post-turn rewrite loop for it. This preserves the provider prompt-cache prefix
 between episodic compaction boundaries.
 
+## Runtime settings and overrides
+
+Admins configure the tail mode and optional summary route in **AI providers &
+models → Context compaction**. A summary route is always the exact catalog
+identity `providerInstallationId/modelId`, never only a provider id. The model
+picker only offers enabled models from verified provider installations.
+
+The saved setting is organization-scoped (`ai_organization_compaction_settings`)
+and revisioned: one organization can never change another organization's route.
+The legacy instance-wide `pi-runtime-config.json` remains a bootstrap fallback
+only when that organization has not saved a compaction setting. It is not
+written by the admin panel. Saving **Use main model** is explicit and suppresses
+that legacy summary-route fallback for the organization.
+
+Deployment overrides take precedence and are intentionally visible but locked
+in the Settings UI:
+
+- `CANVAS_PI_COMPACTION_TAIL_MODE=legacy|lean`
+- `CANVAS_PI_COMPACTION_SUMMARY_MODEL=<providerInstallationId/modelId>`
+
+An invalid or stale configured summary identity never blocks a session: Canvas
+uses the request's pinned main model. Changes are read at the next safe
+request/run boundary; an already streaming chat or automation is not mutated.
+The settings preview is a default-model budget preview. The in-chat context
+status is authoritative for the actual request because it also includes prompt,
+tool, media and output-reserve costs. It displays only a catalog-and-runtime
+validated auxiliary identity (or `main-model fallback`), plus its source and
+the trigger/tail-target copied from the same request budget snapshot; stale or
+environment-only raw identities are never serialized to the client.
+
 ## Rollout modes
 
 | Mode | User-visible summary path | Deterministic pruning | Shadow scorecard | Intended use |

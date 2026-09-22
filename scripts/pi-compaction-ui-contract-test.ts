@@ -140,6 +140,25 @@ const warningStatus = {
     state: 'current' as const,
   },
 };
+const resolvedPolicyStatus = {
+  ...warningStatus,
+  compactionPolicy: {
+    tailMode: 'lean' as const,
+    summaryRoute: 'configured' as const,
+    configuredSummaryModel: 'aip_0123456789abcdef01234567/openai/gpt-5',
+    activeSummaryModel: 'aip_0123456789abcdef01234567/openai/gpt-5',
+    sources: { tailMode: 'persisted' as const, summaryModel: 'environment' as const },
+    triggerTokens: warningStatus.contextPressure.triggerTokens,
+    targetTokens: warningStatus.contextPressure.targetTokens,
+    snapshotSource: warningStatus.contextPressure.source,
+  },
+} satisfies RuntimeStatus;
+assert.equal(resolvedPolicyStatus.compactionPolicy?.triggerTokens, warningStatus.contextPressure.triggerTokens,
+  'policy status must copy the same request-bound trigger snapshot, never recalculate a new budget');
+assert.equal(resolvedPolicyStatus.compactionPolicy?.targetTokens, warningStatus.contextPressure.targetTokens,
+  'policy status must copy the same request-bound tail target, never recalculate a new budget');
+assert.doesNotMatch(JSON.stringify(resolvedPolicyStatus), /sk-[A-Za-z0-9]/u,
+  'runtime policy status must remain content- and secret-free');
 assert.equal(shouldShowChatContextWarning(warningStatus), true, 'stable idle pressure should remain visible');
 for (const phase of ['streaming', 'running_tool', 'aborting'] as const) {
   assert.equal(
@@ -276,6 +295,10 @@ for (const key of [
   'compactionStatusSummaryProviderError',
   'compactionStatusSummaryIdleTimeout',
   'compactionStatusSummaryTotalTimeout',
+  'contextCompactionPolicyMode',
+  'contextCompactionPolicySummaryRoute',
+  'contextCompactionPolicySources',
+  'contextCompactionPolicyBudget',
 ]) {
   assert.ok(en.chat[key], `missing English chat translation: ${key}`);
   assert.ok(de.chat[key], `missing German chat translation: ${key}`);

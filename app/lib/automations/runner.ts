@@ -557,7 +557,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       };
       let currentSystemPrompt = systemPrompt;
       let automationSummary = initialSessionSummary;
-      const effectiveCompactionPolicy = await loadPiEffectiveCompactionPolicy();
+      const effectiveCompactionPolicy = await loadPiEffectiveCompactionPolicy(runtimeContext.organizationId);
       let compactionSummaryRuntime = await resolveCompactionSummaryRuntime({
         primary: executableRuntime,
         configuredIdentity: effectiveCompactionPolicy.summaryModel,

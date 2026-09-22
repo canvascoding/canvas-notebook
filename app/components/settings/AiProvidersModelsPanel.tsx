@@ -45,6 +45,8 @@ import {
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
+import { PiCompactionSettingsPanel } from './PiCompactionSettingsPanel';
+
 import {
   AiProviderCatalogCard,
   type AiProviderCatalogCardCopy,
@@ -1019,6 +1021,8 @@ export function AiProvidersModelsPanel({
           {message}
         </div>
       )}
+
+      <PiCompactionSettingsPanel locale={locale} />
 
       <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/[0.055] via-background to-background py-0 shadow-sm" data-testid="chat-default-card">
         <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">

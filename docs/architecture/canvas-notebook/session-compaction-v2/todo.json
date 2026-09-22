@@ -588,7 +588,7 @@
       "id": "SC-P13",
       "order": 13,
       "title": "Expose compaction runtime settings and overrides",
-      "status": "pending",
+      "status": "completed",
       "dependsOn": ["SC-P12"],
       "hermesReferences": [
         "hermes_cli/config_defaults.py compression.tail_mode",
@@ -605,7 +605,13 @@
         "environment precedence and restart tests",
         "localized UI contracts and approved browser verification"
       ],
-      "completionEvidence": [],
+      "completionEvidence": [
+        "Organization-scoped mode and summary-route settings use revision CAS, preserve an explicit main-model decision, and safely seed the first save from a catalog-validated legacy fallback",
+        "Environment overrides remain highest priority; live chat and automations rebind only at a safe idle request boundary and expose resolver-confirmed status without leaking stale identities",
+        "Settings tests cover 401, 403, organization setup, catalog and settings conflicts, unavailable models, store persistence and localized UI contracts",
+        "Live compaction, runtime policy, TypeScript, ESLint and diff checks pass",
+        "Approved browser verification passed the save/reload/restore flow and visual checks at desktop, compact desktop and mobile widths"
+      ],
       "exitGate": "SC-G13_SETTINGS_READY"
     },
     {

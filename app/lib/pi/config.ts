@@ -13,8 +13,39 @@ export type OllamaMode = 'local' | 'cloud';
  */
 export type PiCompactionRuntimeConfig = {
   tailMode?: 'legacy' | 'lean';
+  /** Exact catalog reference: `providerInstallationId/modelId`. */
   summaryModel?: string | null;
 };
+
+export type PiCompactionSummaryModelIdentity = Readonly<{
+  providerInstallationId: string;
+  modelId: string;
+}>;
+
+/**
+ * The catalog installation id never contains `/`; model ids commonly do.
+ * Split only at the first separator so identities such as
+ * `aip_123/anthropic/claude-sonnet` remain lossless.
+ */
+export function parsePiCompactionSummaryModelIdentity(
+  value: unknown,
+): PiCompactionSummaryModelIdentity | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (
+    !normalized
+    || normalized.length > 512
+    || /[\u0000-\u001F\u007F]/u.test(normalized)
+  ) {
+    return null;
+  }
+  const separatorIndex = normalized.indexOf('/');
+  if (separatorIndex < 1 || separatorIndex === normalized.length - 1) return null;
+  const providerInstallationId = normalized.slice(0, separatorIndex);
+  const modelId = normalized.slice(separatorIndex + 1);
+  if (/\s/u.test(providerInstallationId) || /\s/u.test(modelId) || !providerInstallationId || !modelId) return null;
+  return Object.freeze({ providerInstallationId, modelId });
+}
 
 export interface PiProviderConfig {
   id: string; // e.g., 'openrouter', 'anthropic', 'google', 'ollama', 'groq'
@@ -113,8 +144,8 @@ export function normalizePiRuntimeConfig(config: PiRuntimeConfig): PiRuntimeConf
       ...(configuredCompaction.tailMode === 'legacy' || configuredCompaction.tailMode === 'lean'
         ? { tailMode: configuredCompaction.tailMode }
         : {}),
-      ...(typeof configuredCompaction.summaryModel === 'string' && configuredCompaction.summaryModel.trim()
-        ? { summaryModel: configuredCompaction.summaryModel.trim() }
+      ...(parsePiCompactionSummaryModelIdentity(configuredCompaction.summaryModel)
+        ? { summaryModel: configuredCompaction.summaryModel!.trim() }
         : {}),
     }
     : undefined;
@@ -205,13 +236,8 @@ export function validatePiConfig(config: unknown): string | null {
       return 'compaction.tailMode must be either "legacy" or "lean" when provided.';
     }
     if (compaction.summaryModel !== undefined && compaction.summaryModel !== null) {
-      if (
-        typeof compaction.summaryModel !== 'string'
-        || !compaction.summaryModel.trim()
-        || compaction.summaryModel.length > 512
-        || /[\u0000-\u001F\u007F]/u.test(compaction.summaryModel)
-      ) {
-        return 'compaction.summaryModel must be a non-empty model identity of at most 512 characters when provided.';
+      if (!parsePiCompactionSummaryModelIdentity(compaction.summaryModel)) {
+        return 'compaction.summaryModel must be an exact providerInstallationId/modelId identity when provided.';
       }
     }
   }
