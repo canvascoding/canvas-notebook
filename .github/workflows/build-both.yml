@@ -162,7 +162,7 @@ jobs:
           docker cp "$container_id:/app/docs/compliance/sharp-linkage.json" runtime-compliance/amd64/sharp-linkage-linux-amd64.json
           docker cp "$container_id:/app/THIRD_PARTY_NOTICES.md" runtime-compliance/amd64/THIRD_PARTY_NOTICES.md
           docker cp "$container_id:/app/docs/compliance/third-party-components.json" runtime-compliance/amd64/third-party-components.json
-          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.3.tar.xz" runtime-compliance/amd64/vips-8.18.3.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz" runtime-compliance/amd64/vips-8.18.6.tar.xz
           docker rm "$container_id"
           trap - EXIT
           node scripts/runtime-component-inventory-test.mjs \
@@ -171,7 +171,7 @@ jobs:
             docs/compliance/docker-native-distribution-policy.json
           cmp THIRD_PARTY_NOTICES.md runtime-compliance/amd64/THIRD_PARTY_NOTICES.md
           cmp docs/compliance/third-party-components.json runtime-compliance/amd64/third-party-components.json
-          echo "f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146  runtime-compliance/amd64/vips-8.18.3.tar.xz" | sha256sum -c -
+          echo "3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e  runtime-compliance/amd64/vips-8.18.6.tar.xz" | sha256sum -c -
 
       - name: Upload amd64 native compliance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -272,7 +272,7 @@ jobs:
           docker cp "$container_id:/app/docs/compliance/sharp-linkage.json" runtime-compliance/arm64/sharp-linkage-linux-arm64.json
           docker cp "$container_id:/app/THIRD_PARTY_NOTICES.md" runtime-compliance/arm64/THIRD_PARTY_NOTICES.md
           docker cp "$container_id:/app/docs/compliance/third-party-components.json" runtime-compliance/arm64/third-party-components.json
-          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.3.tar.xz" runtime-compliance/arm64/vips-8.18.3.tar.xz
+          docker cp "$container_id:/usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz" runtime-compliance/arm64/vips-8.18.6.tar.xz
           docker rm "$container_id"
           trap - EXIT
           node scripts/runtime-component-inventory-test.mjs \
@@ -281,7 +281,7 @@ jobs:
             docs/compliance/docker-native-distribution-policy.json
           cmp THIRD_PARTY_NOTICES.md runtime-compliance/arm64/THIRD_PARTY_NOTICES.md
           cmp docs/compliance/third-party-components.json runtime-compliance/arm64/third-party-components.json
-          echo "f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146  runtime-compliance/arm64/vips-8.18.3.tar.xz" | sha256sum -c -
+          echo "3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e  runtime-compliance/arm64/vips-8.18.6.tar.xz" | sha256sum -c -
 
       - name: Upload arm64 native compliance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -351,7 +351,7 @@ jobs:
             runtime-compliance/arm64/sharp-linkage-linux-arm64.json
           cmp runtime-compliance/amd64/THIRD_PARTY_NOTICES.md runtime-compliance/arm64/THIRD_PARTY_NOTICES.md
           cmp runtime-compliance/amd64/third-party-components.json runtime-compliance/arm64/third-party-components.json
-          cmp runtime-compliance/amd64/vips-8.18.3.tar.xz runtime-compliance/arm64/vips-8.18.3.tar.xz
+          cmp runtime-compliance/amd64/vips-8.18.6.tar.xz runtime-compliance/arm64/vips-8.18.6.tar.xz
 
       - name: Package native compliance evidence
         run: |
@@ -362,7 +362,7 @@ jobs:
           cp runtime-compliance/amd64/sharp-linkage-linux-amd64.json "dist-native-compliance/${asset}/linux-amd64/"
           cp runtime-compliance/arm64/runtime-components-linux-arm64.json "dist-native-compliance/${asset}/linux-arm64/"
           cp runtime-compliance/arm64/sharp-linkage-linux-arm64.json "dist-native-compliance/${asset}/linux-arm64/"
-          cp runtime-compliance/amd64/vips-8.18.3.tar.xz "dist-native-compliance/${asset}/"
+          cp runtime-compliance/amd64/vips-8.18.6.tar.xz "dist-native-compliance/${asset}/"
           cp Dockerfile requirements/runtime-python.txt THIRD_PARTY_NOTICES.md "dist-native-compliance/${asset}/"
           cp docs/compliance/third-party-components.json \
              docs/compliance/docker-native-distribution-policy.json \

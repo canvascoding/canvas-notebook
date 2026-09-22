@@ -3,8 +3,8 @@
 This file is generated from `package-lock.json`, installed package license files,
 versioned overrides, and the bundled non-npm component inventory.
 
-- Canvas Notebook version: 2026.9.22.1
-- Lockfile SHA-256: `ad8bcc72cb1b8af0eabd964c12e41a48bea8b4223517ca023e650ea3f17230a5`
+- Canvas Notebook version: 2026.9.22.2
+- Lockfile SHA-256: `3b69d3f47e408bc69e567592a3025226ca7533e72d80efc23c13b6f046b52952`
 - Distributed components: 1447
 - Release gate: **approved**
 
@@ -26,7 +26,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | seed-skill:skill-creator | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:theme-factory | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:web-artifacts-builder | repository-version | asset | Apache-2.0 | allowed |
-| canvas-built-libvips | 8.18.3 / f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146 | native | LGPL-2.1-or-later | allowed |
+| canvas-built-libvips | 8.18.6 / 3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e | native | LGPL-2.1-or-later | allowed |
 | docker-global-npm:@npmcli/agent | 4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367 | native | ISC | allowed |
 | docker-global-npm:@sigstore/verify | 3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3 | native | Apache-2.0 | allowed |
 | docker-global-npm:err-code | 2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a | native | MIT | allowed |
@@ -10164,7 +10164,7 @@ THE SOFTWARE.
 
 ### License text 592987e85102
 
-Applies to canvas-built-libvips@8.18.3 / f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146.
+Applies to canvas-built-libvips@8.18.6 / 3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e.
 
 ```text
                   GNU LESSER GENERAL PUBLIC LICENSE

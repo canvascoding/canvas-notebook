@@ -115,7 +115,6 @@ const nativeDistributionPolicy = readJson(nativeDistributionPolicyPath);
 function sharpBuilds() {
   return [
     path.join(appRoot, 'node_modules/sharp'),
-    path.join(appRoot, 'node_modules/next/node_modules/sharp'),
   ].map((packageDirectory) => {
     const packageJson = readJson(path.join(packageDirectory, 'package.json'));
     if (!packageJson?.version) return null;

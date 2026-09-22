@@ -3,8 +3,8 @@
 ARG NPM_VERSION=11.11.0
 ARG NODE_BASE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 ARG DEBIAN_SNAPSHOT=20260716T000000Z
-ARG LIBVIPS_VERSION=8.18.3
-ARG LIBVIPS_SHA256=f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146
+ARG LIBVIPS_VERSION=8.18.6
+ARG LIBVIPS_SHA256=3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e
 
 FROM ${NODE_BASE_IMAGE} AS canvas-base
 ARG DEBIAN_SNAPSHOT
@@ -74,8 +74,8 @@ RUN set -eux; \
     libpng16-16 librsvg2-2 libtiff6 libwebp7 libwebpdemux2 libwebpmux3 zlib1g; \
   rm -rf /var/lib/apt/lists/*
 COPY --from=libvips-build /opt/libvips-root/usr/local/ /usr/local/
-COPY --from=libvips-build /tmp/vips-8.18.3.tar.xz /usr/share/canvas-notebook/corresponding-source/vips-8.18.3.tar.xz
-RUN ldconfig && vips --version | grep -Fx vips-8.18.3
+COPY --from=libvips-build /tmp/vips-8.18.6.tar.xz /usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz
+RUN ldconfig && vips --version | grep -Fx vips-8.18.6
 
 FROM app-base AS deps
 WORKDIR /app
@@ -104,7 +104,6 @@ COPY patches ./patches
 # tolerates existing upstream React peer ranges without changing the lockfile.
 RUN npm ci --force --loglevel=warn \
   && npm --prefix node_modules/sharp run build \
-  && npm --prefix node_modules/next/node_modules/sharp run build \
   && find node_modules -type d -path '*/@img/sharp-*' -prune -exec rm -rf '{}' +
 
 FROM app-base AS builder

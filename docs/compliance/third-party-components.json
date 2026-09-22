@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.9.22.1",
-  "lockfileSha256": "ad8bcc72cb1b8af0eabd964c12e41a48bea8b4223517ca023e650ea3f17230a5",
+  "packageVersion": "2026.9.22.2",
+  "lockfileSha256": "3b69d3f47e408bc69e567592a3025226ca7533e72d80efc23c13b6f046b52952",
   "summary": {
     "totalComponents": 1965,
     "npmComponents": 1941,
@@ -10342,9 +10342,9 @@
     },
     {
       "name": "canvas-built-libvips",
-      "versionOrCommit": "8.18.3 / f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146",
-      "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz",
-      "packagePathOrArtifact": "/usr/local/lib/libvips*.so* and /usr/share/canvas-notebook/corresponding-source/vips-8.18.3.tar.xz",
+      "versionOrCommit": "8.18.6 / 3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e",
+      "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.6/vips-8.18.6.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/libvips*.so* and /usr/share/canvas-notebook/corresponding-source/vips-8.18.6.tar.xz",
       "usage": "native",
       "distributedIn": [
         "docker-image",
@@ -10359,7 +10359,7 @@
       "policyDecision": "allowed",
       "reviewNotes": "Canvas builds the unmodified, SHA-256-verified upstream source as a replaceable shared library. The exact source archive is embedded in every Docker image and published with tagged native-compliance evidence; both sharp addons are rebuilt locally and CI verifies their dynamic /usr/local linkage plus a real image conversion on linux/amd64 and linux/arm64. Replacement instructions are in docs/compliance/sharp-libvips-relinking.md.",
       "reviewedBy": "Frank Alexander Weber",
-      "reviewedAt": "2026-07-17"
+      "reviewedAt": "2026-09-22"
     },
     {
       "name": "docker-global-npm:@npmcli/agent",
@@ -31791,7 +31791,7 @@
     {
       "name": "is-fs-case-sensitive",
       "versionOrCommit": "2.0.0",
-      "sourceUrl": "https://github.com/privatenumber/is-fs-case-sensitive/tree/57dda42908e1e988b4de615c4f737c145c2bf153",
+      "sourceUrl": "privatenumber/is-fs-case-sensitive",
       "packagePathOrArtifact": "node_modules/is-fs-case-sensitive",
       "usage": "runtime",
       "distributedIn": [
@@ -31802,14 +31802,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/is-fs-case-sensitive@2.0.0",
+      "licenseTextRef": "node_modules/is-fs-case-sensitive/LICENSE",
       "licenseTextSha256": "10c904a49af44409b073532e45a53fd4df19bdf26eaf9afc7917258c2b354382",
       "copyrightNotices": [
         "Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/is-fs-case-sensitive/-/is-fs-case-sensitive-2.0.0.tgz#LICENSE Published source revision: 57dda42908e1e988b4de615c4f737c145c2bf153"
+      "policyDecision": "allowed"
     },
     {
       "name": "is-glob",
@@ -35883,7 +35882,7 @@
     {
       "name": "openai",
       "versionOrCommit": "7.20.0",
-      "sourceUrl": "https://github.com/openai/openai-node/tree/1672b1c0befbae5b87b6b57e5b3eef5b600f3b5d",
+      "sourceUrl": "github:openai/openai-node",
       "packagePathOrArtifact": "node_modules/@composio/core/node_modules/openai",
       "usage": "runtime",
       "distributedIn": [
@@ -35894,7 +35893,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@composio/core/node_modules/openai@7.20.0",
+      "licenseTextRef": "node_modules/@composio/core/node_modules/openai/LICENSE",
       "licenseTextSha256": "636eb7d79da9bb6d515a4b3fd417aa26679eb3cf16396ddab4bc55fa74e616e4",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -35902,8 +35901,7 @@
         "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/openai/-/openai-7.20.0.tgz#LICENSE Published source revision: 1672b1c0befbae5b87b6b57e5b3eef5b600f3b5d"
+      "policyDecision": "allowed"
     },
     {
       "name": "opensrc",

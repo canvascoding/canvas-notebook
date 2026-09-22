@@ -21,10 +21,8 @@ function ldd(filePath) {
 }
 
 const directRequire = createRequire(path.join(appRoot, 'package.json'));
-const nextRequire = createRequire(path.join(appRoot, 'node_modules/next/package.json'));
 const sharpModules = [
   { packagePath: 'node_modules/sharp', sharp: directRequire('sharp') },
-  { packagePath: 'node_modules/next/node_modules/sharp', sharp: nextRequire('sharp') },
 ];
 
 const evidence = [];

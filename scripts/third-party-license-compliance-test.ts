@@ -129,10 +129,10 @@ assert.equal(sharpUsageOverride.usage, 'development-only');
 assert.deepEqual(sharpUsageOverride.distributedIn, ['source-development-install']);
 assert.match(sharpUsageOverride.reason, /does not redistribute/u);
 
-assert.equal(nativeDistributionPolicy.libvips.version, '8.18.3');
+assert.equal(nativeDistributionPolicy.libvips.version, '8.18.6');
 assert.equal(nativeDistributionPolicy.libvips.license, 'LGPL-2.1-or-later');
 assert.equal(nativeDistributionPolicy.libvips.linkage, 'shared');
-assert.deepEqual(nativeDistributionPolicy.libvips.sharpVersions.sort(), ['0.35.2', '0.35.3']);
+assert.deepEqual(nativeDistributionPolicy.libvips.sharpVersions.sort(), ['0.35.4']);
 assert.deepEqual(nativeDistributionPolicy.excludedPrebuiltPackagePrefixes, ['@img/sharp-']);
 assert.match(
   fs.readFileSync(nativeDistributionPolicy.libvips.licenseTextPath, 'utf8'),
@@ -156,7 +156,6 @@ for (const requiredDockerFragment of [
   '--libdir=lib --buildtype=release',
   'SHARP_FORCE_GLOBAL_LIBVIPS=1',
   'npm --prefix node_modules/sharp run build',
-  'npm --prefix node_modules/next/node_modules/sharp run build',
   "find node_modules -type d -path '*/@img/sharp-*'",
   '--require-hashes -r /app/requirements/runtime-python.txt',
   'capture-runtime-component-inventory.mjs',
@@ -201,7 +200,7 @@ for (const requiredWorkflowFragment of [
   'runtime-multiarch-compliance-test.mjs',
   'sharp-linkage-linux-amd64.json',
   'sharp-linkage-linux-arm64.json',
-  'vips-8.18.3.tar.xz',
+  'vips-8.18.6.tar.xz',
   'Package native compliance evidence',
   'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
   'Package portable CLI release asset',
