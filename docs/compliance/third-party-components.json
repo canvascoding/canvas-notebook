@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.9.21.1",
-  "lockfileSha256": "821ae06adcbd7afc5f7ce8798ce307c6f40be7771f810d17a77360eb72b21b11",
+  "packageVersion": "2026.9.22.1",
+  "lockfileSha256": "ad8bcc72cb1b8af0eabd964c12e41a48bea8b4223517ca023e650ea3f17230a5",
   "summary": {
     "totalComponents": 1965,
     "npmComponents": 1941,
@@ -31791,7 +31791,7 @@
     {
       "name": "is-fs-case-sensitive",
       "versionOrCommit": "2.0.0",
-      "sourceUrl": "privatenumber/is-fs-case-sensitive",
+      "sourceUrl": "https://github.com/privatenumber/is-fs-case-sensitive/tree/57dda42908e1e988b4de615c4f737c145c2bf153",
       "packagePathOrArtifact": "node_modules/is-fs-case-sensitive",
       "usage": "runtime",
       "distributedIn": [
@@ -31802,13 +31802,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/is-fs-case-sensitive/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/is-fs-case-sensitive@2.0.0",
       "licenseTextSha256": "10c904a49af44409b073532e45a53fd4df19bdf26eaf9afc7917258c2b354382",
       "copyrightNotices": [
         "Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/is-fs-case-sensitive/-/is-fs-case-sensitive-2.0.0.tgz#LICENSE Published source revision: 57dda42908e1e988b4de615c4f737c145c2bf153"
     },
     {
       "name": "is-glob",
@@ -35882,7 +35883,7 @@
     {
       "name": "openai",
       "versionOrCommit": "7.20.0",
-      "sourceUrl": "github:openai/openai-node",
+      "sourceUrl": "https://github.com/openai/openai-node/tree/1672b1c0befbae5b87b6b57e5b3eef5b600f3b5d",
       "packagePathOrArtifact": "node_modules/@composio/core/node_modules/openai",
       "usage": "runtime",
       "distributedIn": [
@@ -35893,7 +35894,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@composio/core/node_modules/openai/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@composio/core/node_modules/openai@7.20.0",
       "licenseTextSha256": "636eb7d79da9bb6d515a4b3fd417aa26679eb3cf16396ddab4bc55fa74e616e4",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -35901,7 +35902,8 @@
         "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/openai/-/openai-7.20.0.tgz#LICENSE Published source revision: 1672b1c0befbae5b87b6b57e5b3eef5b600f3b5d"
     },
     {
       "name": "opensrc",

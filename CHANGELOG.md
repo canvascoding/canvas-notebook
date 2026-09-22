@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.22.1] - 2026-09-22
+
+### Added
+
+- Added durable, permission-aware proposal review projections, comparisons, batch evaluation, and managed collaboration diagnostics for the File Version Review Center.
+- Added a global memory-review workflow with secure review APIs, notification links, and decision handling.
+
+### Changed
+
+- Hardened Composio transport, provider error handling, execution lifecycle, and connection readiness.
+- Improved agent-chat context notices, Studio prompt rendering, and proposal review reliability.
+
+### Fixed
+
+- Restored chat attachment preview fallback behavior and synchronized security dependency lockfiles.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.21.1] - 2026-09-21
 
 ### Added

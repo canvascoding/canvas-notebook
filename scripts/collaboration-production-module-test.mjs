@@ -52,6 +52,7 @@ if (!process.argv.includes('--probe')) {
   let unregisterTs;
   try {
     const route = await require(entryPath);
+    await route.routeModule.ensureUserland();
     assert.equal(typeof route.routeModule?.userland.POST, 'function');
     const runtime = require(path.join(root, '.next/server/chunks/[turbopack]_runtime.js'))(routePath);
     // Use the actual helpers registered by the built endpoint, not a second
