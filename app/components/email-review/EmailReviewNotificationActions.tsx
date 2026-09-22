@@ -20,8 +20,8 @@ export function EmailReviewNotificationActions({ item, surface, compact = false,
   const reject = async () => {
     if (busy || rejecting) return;
     setRejecting(true);
-    try { await rejectEmailReviewTarget(target); toast.success(t('rejected')); }
-    catch (error) { toast.error(error instanceof Error ? error.message : t('rejectFailed')); }
+    try { await rejectEmailReviewTarget(target); toast.success(t('rejected'), { position: 'bottom-right' }); }
+    catch (error) { toast.error(error instanceof Error ? error.message : t('rejectFailed'), { position: 'bottom-right' }); }
     finally { setRejecting(false); }
   };
   return <span className="flex shrink-0 items-center gap-1">

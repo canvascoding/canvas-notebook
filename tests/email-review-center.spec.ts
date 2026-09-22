@@ -23,6 +23,7 @@ function draft(id: string, subject: string, overrides: Partial<Draft> = {}): Dra
 
 async function installOutboxFixture(context: BrowserContext, initial: Draft[]) {
   context.setDefaultTimeout(15_000);
+  await context.route('https://api.github.com/repos/canvascoding/canvas-notebook/releases/latest', route => route.fulfill({ json: { tag_name: '0.0.0', html_url: 'https://github.com/canvascoding/canvas-notebook/releases', body: '' } }));
   const drafts = new Map(initial.map((item) => [item.id, { ...item }]));
   const writes: Array<{ id: string; action: string; body: Record<string, unknown>; path: string }> = [];
   const unexpected: string[] = [];
@@ -91,8 +92,9 @@ test.describe('Global email review', () => {
     try {
       await openDraft(page, 'review-first');
       const dialog = page.getByTestId('email-review-host');
-      await expect(dialog.getByText('sender@example.test', { exact: true }).last()).toBeVisible();
+      await expect(dialog.getByTestId('email-review-summary').getByText('sender@example.test', { exact: true })).toBeVisible();
       await expect(dialog.locator('.ProseMirror strong')).toHaveText('formatted recipient');
+      await dialog.getByTestId('email-review-recipient-details').click();
       await expect(dialog.getByTestId('email-review-bcc')).toHaveValue('blind@example.test');
       await dialog.getByTestId('email-review-subject').fill('Updated proposal');
       await dialog.getByTestId('email-review-draft-review-next').click();
@@ -123,6 +125,7 @@ test.describe('Global email review', () => {
       await expect.poll(() => fixture.drafts.get('policy')?.status).toBe('send_failed');
       await expect(dialog.getByTestId('email-review-policy-error')).toBeVisible();
       await expect(dialog.locator('a[href*="settings"]')).toBeVisible();
+      await dialog.getByTestId('email-review-recipient-details').click();
       await dialog.getByTestId('email-review-to').fill('fixed@example.test');
       await dialog.getByTestId('email-review-send').click();
       await expect.poll(() => fixture.drafts.get('policy')?.status).toBe('sent');
@@ -143,7 +146,7 @@ test.describe('Global email review', () => {
     try {
       await openDraft(page, 'workspace-proposal', workspace!.id);
       const dialog = page.getByTestId('email-review-host');
-      await expect(dialog.getByText('team@example.test', { exact: true }).last()).toBeVisible();
+      await expect(dialog.getByTestId('email-review-summary').getByText('team@example.test', { exact: true })).toBeVisible();
       await dialog.getByTestId('email-review-send').click();
       await expect.poll(() => fixture.drafts.get('workspace-proposal')?.status).toBe('sent');
       expect(fixture.writes.find((write) => write.action === 'send')?.path).toBe(`/api/workspaces/${workspace!.id}/email/outbox/workspace-proposal/send`);
@@ -197,14 +200,55 @@ test.describe('Global email review', () => {
     } finally { await context.close(); }
   });
 
+  for (const viewport of [{ width: 320, height: 640 }, { width: 1024, height: 600 }]) {
+    test(`German review actions and content fit ${viewport.width}px`, async ({ browser }, testInfo) => {
+      const context = await createAuthenticatedContext(browser, { viewport });
+      await installOutboxFixture(context, [draft('german-focus', 'Langer Betreff zur Prüfung der Darstellung', { body: '<p>Wichtiger Nachrichtentext ist sofort sichtbar.</p>'.repeat(30) })]);
+      const page = await context.newPage();
+      const browserErrors: string[] = [];
+      page.on('pageerror', error => browserErrors.push(error.message));
+      page.on('console', message => { if (message.type() === 'error') browserErrors.push(`${message.text()} ${message.location().url}`); });
+      try {
+        await page.goto('/de?outboxDraft=german-focus', { waitUntil: 'domcontentloaded' });
+        const dialog = page.getByTestId('email-review-host');
+        await expect(dialog).toBeVisible();
+        const send = dialog.getByTestId('email-review-send');
+        await expect(send).toContainText('senden');
+        for (const id of ['email-review-send', 'email-review-reject']) {
+          const control = dialog.getByTestId(id);
+          await expect(control).toBeInViewport();
+          expect(await control.evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+        }
+        const editor = await dialog.locator('.ProseMirror').boundingBox();
+        expect(editor!.y).toBeLessThan(viewport.height - 180);
+        await page.screenshot({ path: testInfo.outputPath(`email-review-de-${viewport.width}.png`), animations: 'disabled' });
+        expect(browserErrors).toEqual([]);
+      } finally { await context.close(); }
+    });
+  }
+
   test('uncertain delivery is read-only on mobile', async ({ browser }, testInfo) => {
-    const context = await createAuthenticatedContext(browser, { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+    const context = await createAuthenticatedContext(browser, { viewport: { width: 390, height: 640 }, isMobile: true, hasTouch: true });
     const fixture = await installOutboxFixture(context, [draft('uncertain', 'Uncertain proposal', { status: 'send_uncertain', errorCode: 'SEND_UNCERTAIN', errorMessage: 'Delivery could not be confirmed. Check Sent mail before taking further action.', failedAt: new Date().toISOString() })]);
     const page = await context.newPage();
     try {
       await openDraft(page, 'uncertain');
       const dialog = page.getByTestId('email-review-host');
+      await expect(dialog.getByTestId('email-review-policy-error')).toBeVisible();
+      await expect(dialog.getByTestId('email-review-to')).not.toBeVisible();
+      for (const id of ['email-review-summary', 'email-review-send', 'email-review-reject']) {
+        const box = await dialog.getByTestId(id).boundingBox();
+        expect(box!.y).toBeGreaterThanOrEqual(0);
+        expect(box!.y + box!.height).toBeLessThanOrEqual(640);
+      }
+      const editor = await dialog.locator('.ProseMirror').boundingBox();
+      expect(editor!.y).toBeLessThan(440);
+      await page.screenshot({ path: testInfo.outputPath('email-review-mobile-initial.png'), animations: 'disabled' });
+      await dialog.getByText(/Error details and help|Fehlerdetails und Hilfe/).click();
       await expect(dialog.getByText(/Delivery could not be confirmed/)).toBeVisible();
+      await dialog.getByTestId('email-review-content').evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await expect(dialog.getByTestId('email-review-policy-error')).toBeInViewport();
+      await expect(dialog.getByTestId('email-review-send')).toBeInViewport();
       await expect(dialog.getByTestId('email-review-subject')).toBeDisabled();
       await expect(dialog.getByTestId('email-review-send')).toBeDisabled();
       await expect(dialog.getByTestId('email-review-reject')).toBeDisabled();

@@ -1,12 +1,13 @@
 'use client';
 
 import type { FormEvent } from 'react';
-import { Inbox, Loader2, PenLine, RefreshCw, Search, Settings, Star } from 'lucide-react';
+import { Inbox, Loader2, PenLine, RefreshCw, Settings, Star, Focus } from 'lucide-react';
 
 import type { EmailAccount } from '@/app/apps/email/components/email-client-types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { EmailSearchBar } from './EmailSearchBar';
+import { useTranslations } from 'next-intl';
 
 export type EmailMailboxHeaderLabels = {
   account: string;
@@ -31,7 +32,7 @@ export function EmailMailboxHeader({
   onQueryChange,
   onRefresh,
   onSearch,
-  query,
+  query, submittedQuery, scope, searchNotice, onSearchQuery, onResetSearch, onScopeChange, focused, onFocus,
 }: {
   accounts: EmailAccount[];
   activeAccount: EmailAccount | null;
@@ -46,7 +47,16 @@ export function EmailMailboxHeader({
   onRefresh(): void;
   onSearch(event: FormEvent<HTMLFormElement>): void;
   query: string;
+  submittedQuery: string;
+  scope: 'folder' | 'all';
+  searchNotice: string | null;
+  onSearchQuery(value: string): void;
+  onResetSearch(): void;
+  onScopeChange(value: 'folder' | 'all'): void;
+  focused: boolean;
+  onFocus(): void;
 }) {
+  const tSearch = useTranslations('emailSearch');
   return (
     <>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -70,6 +80,7 @@ export function EmailMailboxHeader({
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button data-testid="email-focus-toggle" type="button" variant={focused ? 'secondary' : 'ghost'} size="icon-sm" aria-pressed={focused} aria-label={tSearch(focused ? 'exitFocus' : 'focus')} title={tSearch(focused ? 'exitFocus' : 'focus')} onClick={onFocus}><Focus className="size-4" /></Button>
           {accounts.length > 1 ? (
             <>
               <label className="sr-only" htmlFor="email-account-header-switcher">{labels.account}</label>
@@ -117,12 +128,7 @@ export function EmailMailboxHeader({
         </div>
       </div>
 
-      <form onSubmit={onSearch} className="flex gap-2">
-        <Input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder={labels.searchPlaceholder} className="h-9" />
-        <Button type="submit" size="icon-sm" className="h-9 w-9 shrink-0" disabled={!canRead || isLoadingMessages} aria-label={labels.search} title={labels.search}>
-          <Search className="h-4 w-4" />
-        </Button>
-      </form>
+      <EmailSearchBar query={query} submittedQuery={submittedQuery} scope={scope} disabled={!canRead} refreshing={isLoadingMessages || isRefreshingMessages} placeholder={labels.searchPlaceholder} notice={searchNotice} onChange={onQueryChange} onSubmit={onSearch} onApply={onSearchQuery} onReset={onResetSearch} onScopeChange={onScopeChange} />
     </>
   );
 }

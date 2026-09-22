@@ -90,6 +90,7 @@ type ChatDockShellProps = {
   hintPage?: string;
   hintEnabled?: boolean;
   defaultChatVisible?: boolean;
+  focusEventName?: string;
   chatVisibleStorageKey?: string;
   chatWidthStorageKey?: string;
   headerCenter?: ReactNode;
@@ -109,6 +110,7 @@ export function ChatDockShell({
   hintPage = '',
   hintEnabled = true,
   defaultChatVisible = true,
+  focusEventName,
   chatVisibleStorageKey = `${storageKeyPrefix}.chatVisible`,
   chatWidthStorageKey = `${storageKeyPrefix}.chatWidth`,
   headerCenter,
@@ -129,6 +131,7 @@ export function ChatDockShell({
   const shouldOpenRouteChat = navigationIntent.shouldOpenChat;
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const [chatVisible, setChatVisible] = useState(defaultChatVisible);
+  const focusRestoreRef = useRef<{ visible: boolean; mode: DesktopChatMode; mobile: boolean } | null>(null);
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -153,7 +156,7 @@ export function ChatDockShell({
   }, [chatVisibleStorageKey, chatWidthStorageKey, defaultChatVisible]);
 
   useEffect(() => {
-    if (!hasMounted) return;
+    if (!hasMounted || focusRestoreRef.current) return;
     window.localStorage.setItem(chatVisibleStorageKey, String(chatVisible));
   }, [chatVisible, chatVisibleStorageKey, hasMounted]);
 
@@ -180,6 +183,37 @@ export function ChatDockShell({
     window.addEventListener('resize', handleViewport);
     return () => window.removeEventListener('resize', handleViewport);
   }, []);
+
+  useEffect(() => {
+    if (!focusEventName) return;
+    const focus = (event: Event) => {
+      const detail = (event as CustomEvent<{ focused: boolean; preserveChat?: boolean }>).detail;
+      const focused = Boolean(detail?.focused);
+      if (focused) {
+        focusRestoreRef.current ??= { visible: chatVisible, mode: desktopChatMode, mobile: mobileChatOpen };
+        setChatVisible(false);
+        setMobileChatOpen(false);
+      } else if (focusRestoreRef.current) {
+        const previous = focusRestoreRef.current;
+        focusRestoreRef.current = null;
+        if (!detail?.preserveChat) {
+          setChatVisible(previous.visible);
+          setDesktopChatMode(previous.mode);
+          setMobileChatOpen(previous.mobile);
+        } else {
+          try { window.localStorage.setItem(chatVisibleStorageKey, String(chatVisible)); } catch { /* Storage is optional. */ }
+        }
+      }
+    };
+    window.addEventListener(focusEventName, focus);
+    return () => window.removeEventListener(focusEventName, focus);
+  }, [focusEventName, chatVisible, desktopChatMode, mobileChatOpen, chatVisibleStorageKey]);
+
+  useEffect(() => {
+    if (focusEventName && focusRestoreRef.current && (chatVisible || mobileChatOpen)) {
+      window.dispatchEvent(new CustomEvent(focusEventName, { detail: { focused: false, preserveChat: true } }));
+    }
+  }, [chatVisible, mobileChatOpen, focusEventName]);
 
   const openDesktopChat = useCallback((mode: DesktopChatMode) => {
     setDesktopChatMode(mode);

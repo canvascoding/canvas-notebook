@@ -1,6 +1,23 @@
 # Plan: fokussiertes E-Mail-UI und verlässliche Suche
 
-Stand: 22.09.2026. Analyse und Plan, keine Produktänderungen in diesem Schritt.
+Stand: 22.09.2026. Umsetzung abgeschlossen; die ursprünglichen Befunde und Anforderungen unten dokumentieren die Ausgangslage.
+
+## Umsetzung und Abnahme
+
+- Gemeinsamer Suchparser und Provider-Adapter umgesetzt, einschließlich AND/OR, Phrasen, Klammern und Feldsuche. API und Agent verwenden dieselbe Syntax; ungültige Eingaben liefern HTTP 400.
+- Suchbereich, Optionen, Hilfe, Zurücksetzen, Trefferhervorhebung und wiederholtes Absenden umgesetzt. Langsame Antworten überschreiben keine neuere Suche; Treffer aus anderen Ordnern öffnen korrekt.
+- Fokusansicht schließt optionale Seitenbereiche und stellt sie wieder her. Manuelles Öffnen beendet den Fokusmodus; Ordnerpräferenz wird gespeichert.
+- Kompakter Postausgang-Einstieg und aufklappbare Review-Details. Absender, Betreff, Fehlerstatus und Hauptaktionen bleiben sichtbar; mobile Beschriftungen brechen um.
+- 15 Playwright-Szenarien bestanden, einschließlich deutscher 320-Pixel-Ansicht, 1024 × 600, Suchoptionen, veralteter Antworten, Fokuswiederherstellung und bestehender Versand-/Ablehnungsabläufe. E-Mail-Provider und Versand wurden im Browser simuliert.
+- Vier neue Backend-Testgruppen bestanden: Suchgrammatik, OAuth-Provider, IMAP sowie Managed-Vertrag (`npm run test:email:search`). Bestehende Review-, IMAP-, Cache-, Suchkontext- und Lesefluss-Regressionstests bestanden; TypeScript und gezieltes ESLint bestanden.
+- Abschließender Produktionsbuild erfolgreich; die letzte Benachrichtigungsübersetzung ist im Build-Artefakt enthalten. Deutsche 320-/1024-Pixel-Prüfungen melden keine Browserfehler.
+
+### Bewusste Grenzen
+
+- Live-Suche mit echten Gmail-/Microsoft-/IMAP-Konten wurde nicht ausgeführt; die Provider-Verträge sind mit kontrollierten Transporten getestet. Kein echter E-Mail-Versand und kein Containerbuild.
+- Provider-Wort-/Phrasenmatching kann abweichen. Microsoft-Suchgrenze: 1.000 Ergebnisse. OAuth-Kandidatenscans und IMAP-Gesamtsuche sind begrenzt; Teilmengen erhalten einen sichtbaren Hinweis statt einer vorgetäuschten Gesamtzahl. IMAP: höchstens 100 Ordner, 1.000 Kandidaten pro Ordner und 2.000 insgesamt bei Gesamtsuche.
+- Ältere Managed-Server unterstützen den neuen Vertrag noch nicht: Operatoren, Felder, Gesamtsuche, Filter und weitere Seiten verlangen `searchSyntaxVersion: 1` in der Antwort. Bis zum Control-Plane-Update zeigt die App eine konkrete Fehlermeldung; einfache Legacy-Suchen zeigen ihre unbestätigte Abdeckung an.
+- Aktive Suchen umgehen den bisherigen Listen-Cache, weil dieser Fortsetzungs- und Einschränkungsmetadaten nicht speichert. Der Cache für gewöhnliches lokales Postfach-Browsing bleibt erhalten.
 
 ## Verifizierter Status
 

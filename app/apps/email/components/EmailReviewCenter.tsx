@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowRight, Inbox, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { emailReviewTarget, loadEmailReviewQueue, type EmailReviewEntry } from '@/app/lib/email/review-client';
+import { loadEmailReviewQueue, type EmailReviewEntry } from '@/app/lib/email/review-client';
 import { openEmailReview } from '@/app/store/email-review-store';
 
 /** The email application is an entry point; review state lives in the root host. */
@@ -53,23 +52,18 @@ export function EmailReviewCenter({ focusRequestKey }: { focusRequestKey?: strin
     void openEmailReview();
   }, [focusRequestKey]);
 
-  const next = queue[0];
   const failedCount = queue.filter((entry) => entry.status === 'send_failed' || entry.status === 'send_uncertain').length;
-  return <section className="shrink-0 border bg-card" aria-label={t('queue')} aria-busy={loading}>
-    <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-      <Inbox className="size-5 shrink-0 text-muted-foreground" />
-      <div className="min-w-0 flex-1"><h2 className="text-sm font-semibold">{t('title')}</h2><p className="text-xs text-muted-foreground">{t('description')}</p></div>
-      <Badge variant="secondary">{queue.length}</Badge>
-      <Button variant="ghost" size="icon" disabled={loading} aria-label={t('refresh')} onClick={() => void load()}><RefreshCw className={cn('size-4', loading && 'animate-spin')} /></Button>
-      <Button data-testid="email-app-review-open" size="sm" onClick={() => void openEmailReview()}>{t('openOutbox')}<ArrowRight className="size-4" /></Button>
+  return <section className="shrink-0 border-b bg-card" aria-label={t('queue')} aria-busy={loading}>
+    <div className="flex min-w-0 items-center gap-2 px-3 py-1.5">
+      <Button data-testid="email-app-review-open" variant="ghost" size="sm" className="min-w-0 justify-start gap-2 px-1.5" onClick={() => void openEmailReview()}>
+        <Inbox className="size-4 shrink-0 text-muted-foreground" />
+        <span className="truncate">{t('openOutbox')}</span>
+        <span className="rounded bg-muted px-1.5 text-xs tabular-nums">{queue.length}</span>
+        <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+      </Button>
+      {failedCount > 0 && <Button data-testid="email-app-review-failed" variant="ghost" size="sm" className="shrink-0 text-destructive" onClick={() => void openEmailReview(undefined, { filter: 'failed' })}><AlertCircle className="size-4" /><span className="tabular-nums">{failedCount}</span> {t('failed')}</Button>}
+      <Button className="ml-auto shrink-0" variant="ghost" size="icon" disabled={loading} aria-label={t('refresh')} onClick={() => void load()}><RefreshCw className={cn('size-4', loading && 'animate-spin')} /></Button>
     </div>
     {error && <p role="alert" className="border-t bg-destructive/5 px-4 py-2 text-xs text-destructive">{error}</p>}
-    <div className="flex flex-wrap items-center gap-3 border-t px-4 py-3">
-      {next ? <button type="button" className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void openEmailReview(emailReviewTarget(next))}>
-        <p className="truncate text-sm font-medium">{next.subject || t('noSubject')}</p>
-        <p className="mt-1 truncate text-xs text-muted-foreground">{next.senderAddress || t('unknownSender')} → {next.to.join(', ') || t('noRecipients')}</p>
-      </button> : <p className="flex-1 text-sm text-muted-foreground">{loading ? t('loading') : t('empty')}</p>}
-      <Button data-testid="email-app-review-failed" variant="outline" size="sm" onClick={() => void openEmailReview(undefined, { filter: 'failed' })}><AlertCircle className="size-4" />{t('failed')} <span className="tabular-nums">{failedCount}</span></Button>
-    </div>
   </section>;
 }
