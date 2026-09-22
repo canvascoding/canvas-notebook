@@ -6,6 +6,7 @@ import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import {
   configSecretState,
   composeEnvText,
+  containerEnvText,
   configureRuntimeAndDatabase,
   createDefaultConfig,
   isPinnedImageReference,
@@ -330,6 +331,27 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.match(String(postgresConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=managed$/m);
+    for (const vectorFlag of [false, 'false']) {
+      const personalConfig = structuredClone(postgresConfig);
+      personalConfig.env.CANVAS_VECTOR_PROVIDER = 'none';
+      personalConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED = vectorFlag;
+      const normalizedPersonal = materializeConfig(personalConfig);
+      assert.equal(normalizedPersonal.env.CANVAS_POSTGRES_VECTOR_ENABLED, vectorFlag);
+      assert.equal(materializeConfig(normalizedPersonal).env.CANVAS_POSTGRES_VECTOR_ENABLED, vectorFlag);
+      assert.equal(normalizedPersonal.env.CANVAS_POSTGRES_REQUIRED, true);
+      assert.equal(normalizedPersonal.env.CANVAS_POSTGRES_IMAGE, postgresConfig.env.CANVAS_POSTGRES_IMAGE);
+      assert.match(containerEnvText(normalizedPersonal), /^CANVAS_POSTGRES_VECTOR_ENABLED=false$/m);
+    }
+    const unsetVectorConfig = structuredClone(postgresConfig);
+    delete unsetVectorConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED;
+    assert.equal(materializeConfig(unsetVectorConfig).env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
+    for (const vectorFlag of [true, false]) {
+      const externalConfig = structuredClone(postgresConfig);
+      externalConfig.env.CANVAS_POSTGRES_MODE = 'external';
+      externalConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED = vectorFlag;
+      assert.equal(materializeConfig(externalConfig).env.CANVAS_POSTGRES_VECTOR_ENABLED, vectorFlag);
+    }
+
     const missingPostgresCredentials = configureRuntimeAndDatabase(config, { database: 'postgres' });
     missingPostgresCredentials.env.DATABASE_URL = '';
     missingPostgresCredentials.env.CANVAS_POSTGRES_PASSWORD = '';
@@ -348,6 +370,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(teamConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
     assert.equal(teamConfig.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.equal(teamConfig.env.CANVAS_POSTGRES_REQUIRED, true);
+    assert.equal(teamConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
 
     const preparedPostgres = materializePostgresInfrastructureConfig(config);
     assert.equal(preparedPostgres.env.CANVAS_DATABASE_PROVIDER, 'postgres');
