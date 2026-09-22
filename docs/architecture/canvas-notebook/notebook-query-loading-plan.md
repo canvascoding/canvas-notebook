@@ -1,7 +1,7 @@
 # Notebook: gemeinsame Queries und stabile Ladezustände
 
 Stand: 2026-09-22. Status: Vier Umsetzungsschritte abgeschlossen;
-Regressionstests und Produktionsbuild erfolgreich, Browserabnahme ausstehend.
+Regressionstests, Produktionsbuild und gezielte Browserabnahme erfolgreich.
 
 ## Ziel
 
@@ -70,9 +70,10 @@ Anzeige gemountet; danach bleiben sie innerhalb desselben Workspaces erhalten.
   ausgewählte Vergleich geladen. Weitere Timeline-/Diff-Seiten erst bei
   Bedarf, gebunden an dieselbe Dokument- und Vorschlagsversion.
 
-Das beschreibt den implementierten Abhängigkeitsgraphen. Reale Netzwerkzeiten
-und visuelle Übergänge wurden noch nicht in einer freigegebenen Browsersitzung
-vermessen.
+Die Browserabnahme bestätigt diese Abhängigkeiten einschließlich verzögerter
+Antworten und des Dokument-Kaltstarts ohne Chat-Abfragen. Ein systematischer
+Performance-Benchmark wurde nicht durchgeführt; Abläufe und visuelle Evidenz
+sind im [E2E-Prüfprotokoll](notebook-query-loading-e2e.md) dokumentiert.
 
 ## Bestehende Chats
 
@@ -141,7 +142,7 @@ Editoren erhalten Änderungen über ihre Collaboration-/Konfliktlogik.
 - [x] 3. Neue Chats, Startseiten-Übergabe und Idempotenz.
 - [x] 4. Dokumente, Reviews und durchgängige Skeletons.
 - [x] Abschließende Integration und Produktionsbuild.
-- [ ] Browser-/E2E-Abnahme nach ausdrücklicher Freigabe.
+- [x] Gezielte Browser-/E2E-Abnahme nach ausdrücklicher Freigabe.
 
 Jeder abgeschlossene Schritt wird separat geprüft und committed. Subagenten
 übernehmen abgegrenzte Arbeiten innerhalb des aktiven Schritts oder vorbereitende
@@ -231,3 +232,10 @@ Kompilierung, TypeScript und Routengenerierung. Ohne lokale Runtime-Env meldet
 der Build fehlende Auth-/Direct-MCP-Basis-URLs sowie Yjs-/Node-Warnungen; diese
 haben den Build nicht abgebrochen. Eine laufende App mit Login und echte
 Browser-Netzwerksequenzen wurden damit nicht geprüft.
+
+Nachfolgende Browserabnahme: 18 gezielte Playwright-Fälle bestanden, ergänzt um
+einen echten Startseiten-Prompt mit Ollama-Antwort und visuelle Desktop-/Mobil-
+Prüfung. Dabei gefundene Fehler in der Startseiten-Sortierung und dem Mounten
+eines ausgeblendeten Chats beim Dokument-Kaltstart wurden separat korrigiert
+und mit Regressionen abgesichert. Details, Setupkorrektur, Testhelfer-Anpassungen
+und Grenzen der Abnahme stehen im [E2E-Prüfprotokoll](notebook-query-loading-e2e.md).
