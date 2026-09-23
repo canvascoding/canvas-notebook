@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.23.3] - 2026-09-23
+
+### Fixed
+
+- Made Control Plane release registration read assets from the immutable release ID supplied by GitHub's release event.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.23.2] - 2026-09-23
 
 ### Changed
