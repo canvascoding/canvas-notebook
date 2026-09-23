@@ -21,8 +21,6 @@ import type {
   EmailComposeDraft,
   EmailComposeMode,
   EmailMessageDetail,
-  EmailOutboxDraft,
-  WorkspaceInboxCase,
 } from '@/app/apps/email/components/email-client-types';
 import {
   readEmailAiDraftStream,
@@ -36,6 +34,7 @@ import {
   composeEmailEditorBodyValuesFromAiResult,
   sanitizeEmailEditorHtml,
 } from '@/app/lib/email/html-editor-content';
+import { openEmailReview } from '@/app/store/email-review-store';
 import type { NotebookEmailContextIntent } from '@/app/lib/notebook/context-surface';
 
 type ComposeDraftUpdates = Partial<Pick<
@@ -53,52 +52,48 @@ type ComposeDraftUpdates = Partial<Pick<
   | 'usedContext'
 >>;
 
-type SearchParamsReader = {
-  get(name: string): string | null;
-};
-
 type UseEmailComposeControllerOptions = {
+  ownerUserId: string | null;
   accounts: EmailAccount[];
   activeAccount: EmailAccount | null;
   activeFolder: string;
   activeWorkspaceId: string | null;
+  mailboxWorkspaceId: string | null;
+  onAccessChanged(): Promise<void>;
   contextIntent: NotebookEmailContextIntent | null;
   onError: (error: string | null) => void;
   onMessageActionNotice: (notice: string | null) => void;
   onMessageDialogOpenChange: (open: boolean) => void;
-  searchParams: SearchParamsReader;
 };
 
 export function useEmailComposeController({
+  ownerUserId,
   accounts,
   activeAccount,
   activeFolder,
   activeWorkspaceId,
+  mailboxWorkspaceId,
+  onAccessChanged,
   contextIntent,
   onError,
   onMessageActionNotice,
   onMessageDialogOpenChange,
-  searchParams,
 }: UseEmailComposeControllerOptions) {
   const t = useTranslations('emails');
+  const tm = useTranslations('emailMailboxes');
+  const [sendUncertain, setSendUncertain] = useState(false);
+  const draftMailboxRef = useRef<string | null>(null);
+  const attachmentWorkspaceRef = useRef<string | null>(null);
+  const mailboxKey = activeAccount ? `${activeAccount.id}:${mailboxWorkspaceId || 'personal'}` : null;
+  const openOutbox = useCallback(() => { void openEmailReview(); }, []);
+  const [draftOwner, setDraftOwner] = useState<string | null>(null);
   const [draft, setDraft] = useState<EmailComposeDraft | null>(null);
-  const [outboxEditing, setOutboxEditing] = useState<{
-    id: string;
-    accountId: string;
-    senderAddress: string;
-    version: number;
-    scope: 'personal' | 'workspace';
-    workspaceId?: string;
-  } | null>(null);
-  const [reviewCase, setReviewCase] = useState<WorkspaceInboxCase | null>(null);
-  const [reviewCenterRevision, setReviewCenterRevision] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [agentEvents, setAgentEvents] = useState<EmailComposeAgentToolEvent[]>([]);
   const [agentStatus, setAgentStatus] = useState<string | null>(null);
   const [isGeneratingAi, setIsGeneratingAi] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const openedOutboxDraftRef = useRef<string | null>(null);
-  const openingOutboxDraftRef = useRef<string | null>(null);
+  const handledReviewIntentRef = useRef<string | null>(null);
 
   const composeAiStageLabel = useCallback((stage: EmailAiStreamStage | undefined, fallback?: string) => {
     if (stage === 'reading_context') return t('composeAiReadingContext');
@@ -168,11 +163,20 @@ export function useEmailComposeController({
     onMessageActionNotice(null);
     setAgentEvents([]);
     setAgentStatus(null);
+    setDraftOwner(ownerUserId);
+    draftMailboxRef.current = mailboxKey;
+    attachmentWorkspaceRef.current = activeWorkspaceId;
+    setSendUncertain(false);
     setDraft({ ...buildDraft(mode, message, body, aiGenerated), ...initialUpdates });
     onMessageDialogOpenChange(false);
-  }, [buildDraft, onError, onMessageActionNotice, onMessageDialogOpenChange]);
+  }, [activeWorkspaceId, ownerUserId, mailboxKey, buildDraft, onError, onMessageActionNotice, onMessageDialogOpenChange]);
 
   const openNewDraft = useCallback(() => {
+    if (!activeAccount || activeAccount.capabilities?.canWrite === false) return;
+    setDraftOwner(ownerUserId);
+    draftMailboxRef.current = mailboxKey;
+    attachmentWorkspaceRef.current = activeWorkspaceId;
+    setSendUncertain(false);
     setError(null);
     onError(null);
     onMessageActionNotice(null);
@@ -195,161 +199,49 @@ export function useEmailComposeController({
       usedContext: [],
     });
     onMessageDialogOpenChange(false);
-  }, [activeFolder, onError, onMessageActionNotice, onMessageDialogOpenChange]);
-
-  const openWorkspaceOutboxDraft = useCallback((outboxDraft: EmailOutboxDraft, workspaceId = activeWorkspaceId) => {
-    if (!workspaceId) return;
-    const bodyValues = composeEmailEditorBodyValues(outboxDraft.body);
-    setError(null);
-    onError(null);
-    setAgentEvents([]);
-    setAgentStatus(null);
-    setReviewCase(outboxDraft.reviewCase || null);
-    setOutboxEditing({
-      id: outboxDraft.id,
-      accountId: outboxDraft.accountId,
-      senderAddress: outboxDraft.senderAddress
-        || accounts.find((account) => account.id === outboxDraft.accountId)?.emailAddress
-        || '',
-      version: outboxDraft.version,
-      scope: 'workspace',
-      workspaceId,
-    });
-    setDraft({
-      aiGenerated: true,
-      aiMode: 'workspace-agent',
-      aiPrompt: '',
-      aiTone: 'casual',
-      attachments: outboxDraft.attachments || [],
-      ...bodyValues,
-      ccText: composeRecipientText(outboxDraft.cc),
-      contextFiles: [],
-      mode: 'compose',
-      subject: outboxDraft.subject,
-      toText: composeRecipientText(outboxDraft.to),
-      usedContext: [],
-    });
-  }, [accounts, activeWorkspaceId, onError]);
-
-  const openPersonalOutboxDraft = useCallback((outboxDraft: EmailOutboxDraft) => {
-    const bodyValues = composeEmailEditorBodyValues(outboxDraft.body);
-    setError(null);
-    onError(null);
-    setAgentEvents([]);
-    setAgentStatus(null);
-    setReviewCase(null);
-    setOutboxEditing({
-      id: outboxDraft.id,
-      accountId: outboxDraft.accountId,
-      senderAddress: outboxDraft.senderAddress
-        || accounts.find((account) => account.id === outboxDraft.accountId)?.emailAddress
-        || '',
-      version: outboxDraft.version,
-      scope: 'personal',
-    });
-    setDraft({
-      aiGenerated: true,
-      aiMode: 'workspace-agent',
-      aiPrompt: '',
-      aiTone: 'casual',
-      attachments: outboxDraft.attachments || [],
-      ...bodyValues,
-      ccText: composeRecipientText(outboxDraft.cc),
-      contextFiles: [],
-      mode: 'compose',
-      subject: outboxDraft.subject,
-      toText: composeRecipientText(outboxDraft.to),
-      usedContext: [],
-    });
-  }, [accounts, onError]);
-
-  const openOutboxDraftById = useCallback(async ({
-    draftId,
-    scope,
-    workspaceId,
-  }: {
-    draftId: string;
-    scope?: 'personal' | 'workspace';
-    workspaceId?: string;
-  }) => {
-    const isWorkspaceDraft = scope === 'workspace' || Boolean(workspaceId);
-    if (isWorkspaceDraft && !workspaceId) return false;
-    const endpoint = isWorkspaceDraft
-      ? `/api/workspaces/${encodeURIComponent(workspaceId!)}/email/outbox`
-      : '/api/email/outbox';
-    const response = await fetch(endpoint, { credentials: 'include', cache: 'no-store' });
-    const payload = await response.json().catch(() => null) as { success?: boolean; data?: EmailOutboxDraft[] } | null;
-    if (!response.ok || !payload?.success) return false;
-    const outboxDraft = payload.data?.find((item) => item.id === draftId);
-    if (!outboxDraft) return false;
-    if (isWorkspaceDraft) openWorkspaceOutboxDraft(outboxDraft, workspaceId);
-    else openPersonalOutboxDraft(outboxDraft);
-    return true;
-  }, [openPersonalOutboxDraft, openWorkspaceOutboxDraft]);
+  }, [activeWorkspaceId, ownerUserId, mailboxKey, activeAccount, activeFolder, onError, onMessageActionNotice, onMessageDialogOpenChange]);
 
   useEffect(() => {
-    const draftId = contextIntent?.draftId;
-    if (
-      !draftId
-      || contextIntent.status !== 'complete'
-      || contextIntent.view !== 'review-draft'
-      || openedOutboxDraftRef.current === draftId
-      || openingOutboxDraftRef.current === draftId
-    ) return;
-    openingOutboxDraftRef.current = draftId;
-    void openOutboxDraftById({
-      draftId,
-      scope: contextIntent.scope,
-      workspaceId: contextIntent.workspaceId,
-    }).then((opened) => {
-      if (opened) openedOutboxDraftRef.current = draftId;
-    }).finally(() => {
-      if (openingOutboxDraftRef.current === draftId) openingOutboxDraftRef.current = null;
+    if (!contextIntent?.draftId || contextIntent.status !== 'complete' || contextIntent.view !== 'review-draft') return;
+    const key = `${contextIntent.toolCallId || contextIntent.toolName}:${contextIntent.draftId}`;
+    if (handledReviewIntentRef.current === key) return;
+    handledReviewIntentRef.current = key;
+    const scope = contextIntent.scope || (contextIntent.workspaceId ? 'workspace' : 'personal');
+    void openEmailReview({
+      draftId: contextIntent.draftId,
+      scope,
+      workspaceId: scope === 'workspace' ? contextIntent.workspaceId : undefined,
     });
-  }, [contextIntent, openOutboxDraftById]);
-
-  useEffect(() => {
-    const draftId = searchParams.get('outboxDraft')?.trim();
-    if (
-      !draftId
-      || openedOutboxDraftRef.current === draftId
-      || openingOutboxDraftRef.current === draftId
-    ) return;
-    const workspaceId = searchParams.get('workspaceId')?.trim();
-    openingOutboxDraftRef.current = draftId;
-    const clearOpeningDraft = () => {
-      if (openingOutboxDraftRef.current === draftId) openingOutboxDraftRef.current = null;
-    };
-    void openOutboxDraftById({
-      draftId,
-      scope: workspaceId ? 'workspace' : 'personal',
-      workspaceId,
-    }).then((opened) => {
-      if (opened) openedOutboxDraftRef.current = draftId;
-      clearOpeningDraft();
-    }).catch(clearOpeningDraft);
-  }, [openOutboxDraftById, searchParams]);
+  }, [contextIntent]);
 
   const updateDraft = useCallback((updates: ComposeDraftUpdates) => {
+    if (updates.attachments && attachmentWorkspaceRef.current !== activeWorkspaceId) {
+      const previousFiles = draft?.attachments.filter(attachment => attachment.source === 'workspace') || [];
+      const nextFiles = updates.attachments.filter(attachment => attachment.source === 'workspace');
+      const removingFiles = nextFiles.length < previousFiles.length
+        && nextFiles.every(attachment => previousFiles.some(previous => previous.id === attachment.id && previous.path === attachment.path));
+      if (nextFiles.length && !removingFiles) {
+        setError(tm('attachmentWorkspaceChanged'));
+        return;
+      }
+    }
     if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {
       setAgentEvents([]);
       setAgentStatus(null);
     }
     setDraft((current) => current ? { ...current, ...updates } : current);
-  }, []);
+  }, [activeWorkspaceId, draft, tm]);
 
   const close = useCallback(() => {
     if (isSubmitting || isGeneratingAi) return;
     setDraft(null);
-    setOutboxEditing(null);
-    setReviewCase(null);
     setError(null);
     setAgentEvents([]);
     setAgentStatus(null);
   }, [isGeneratingAi, isSubmitting]);
 
   const generateAiBody = useCallback(async () => {
-    if (!activeAccount || !draft || !draft.aiPrompt.trim()) return;
+    if (!activeAccount || !draft || !draft.aiPrompt.trim() || activeAccount.capabilities?.canRunAgent === false || draftMailboxRef.current !== mailboxKey) return;
     setIsGeneratingAi(true);
     setError(null);
     onError(null);
@@ -360,6 +252,7 @@ export function useEmailComposeController({
     try {
       const requestBody = {
         accountId: activeAccount.id,
+        mailboxWorkspaceId,
         cc: splitRecipientInput(draft.ccText),
         contextFiles: draft.contextFiles.map((file) => ({ name: file.name, path: file.path })),
         currentBody: draft.body,
@@ -480,7 +373,7 @@ export function useEmailComposeController({
     } finally {
       setIsGeneratingAi(false);
     }
-  }, [activeAccount, activeWorkspaceId, draft, onError, onMessageActionNotice, t, updateQuickAiProgress]);
+  }, [mailboxKey, mailboxWorkspaceId, activeAccount, activeWorkspaceId, draft, onError, onMessageActionNotice, t, updateQuickAiProgress]);
 
   const generateAiReplyPreview = useCallback(async (message: EmailMessageDetail, folder: string) => {
     if (!activeAccount) return;
@@ -495,6 +388,7 @@ export function useEmailComposeController({
         headers: { Accept: 'text/event-stream', 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
+          mailboxWorkspaceId,
           folder,
           messageId: message.id,
           operation: 'ai-reply-preview',
@@ -521,58 +415,15 @@ export function useEmailComposeController({
     } finally {
       setIsGeneratingAi(false);
     }
-  }, [activeAccount, activeWorkspaceId, openDraft, t, updateQuickAiProgress]);
-
-  const persistOutboxDraft = useCallback(async () => {
-    if (!draft || !outboxEditing) throw new Error(t('errors.updateMessage'));
-    const bodyHtml = sanitizeEmailEditorHtml(draft.bodyHtml) || plainTextToEmailHtml(draft.body);
-    const attachments = pruneUnreferencedInlineEmailAttachments(draft.attachments, bodyHtml);
-    const basePath = outboxEditing.scope === 'workspace'
-      ? `/api/workspaces/${encodeURIComponent(outboxEditing.workspaceId || '')}/email/outbox/${encodeURIComponent(outboxEditing.id)}`
-      : `/api/email/outbox/${encodeURIComponent(outboxEditing.id)}`;
-    const response = await fetch(basePath, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({
-        expectedVersion: outboxEditing.version,
-        subject: draft.subject,
-        body: bodyHtml,
-        to: splitRecipientInput(draft.toText),
-        cc: splitRecipientInput(draft.ccText),
-        bcc: [],
-        attachments,
-        status: 'editing',
-      }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
-    const version = Number(payload.data?.version);
-    if (!Number.isFinite(version)) throw new Error(t('errors.updateMessage'));
-    setOutboxEditing((current) => current && current.id === outboxEditing.id ? { ...current, version } : current);
-    return { basePath, version, isWorkspaceOutbox: outboxEditing.scope === 'workspace' };
-  }, [draft, outboxEditing, t]);
-
-  const save = useCallback(async () => {
-    if (!outboxEditing) return;
-    setIsSubmitting(true);
-    setError(null);
-    try {
-      await persistOutboxDraft();
-      onMessageActionNotice(t('composeDraftSaved'));
-    } catch (saveError) {
-      const message = isFetchNetworkError(saveError)
-        ? t('errors.actionRequest')
-        : saveError instanceof Error ? saveError.message : t('errors.updateMessage');
-      setError(message);
-      onError(message);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [onError, onMessageActionNotice, outboxEditing, persistOutboxDraft, t]);
+  }, [mailboxWorkspaceId, activeAccount, activeWorkspaceId, openDraft, t, updateQuickAiProgress]);
 
   const submit = useCallback(async () => {
-    if (!draft || (!outboxEditing && !activeAccount)) return;
+    if (!draft || !activeAccount || sendUncertain || activeAccount.capabilities?.canWrite === false) return;
+    if (draftMailboxRef.current !== mailboxKey) { setError(tm('senderChanged')); return; }
+    if (draft.attachments.some(attachment => attachment.source === 'workspace') && attachmentWorkspaceRef.current !== activeWorkspaceId) {
+      setError(tm('attachmentWorkspaceChanged'));
+      return;
+    }
     setIsSubmitting(true);
     setError(null);
     onError(null);
@@ -582,25 +433,6 @@ export function useEmailComposeController({
       const isNewCompose = draft.mode === 'compose';
       const bodyHtml = sanitizeEmailEditorHtml(draft.bodyHtml) || plainTextToEmailHtml(draft.body);
       const attachments = pruneUnreferencedInlineEmailAttachments(draft.attachments, bodyHtml);
-      if (outboxEditing) {
-        const saved = await persistOutboxDraft();
-        const response = await fetch(`${saved.basePath}/send`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({ expectedVersion: saved.version }),
-        });
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
-        setOutboxEditing(null);
-        setReviewCase(null);
-        if (saved.isWorkspaceOutbox) setReviewCenterRevision((current) => current + 1);
-        setDraft(null);
-        setError(null);
-        onMessageActionNotice(t('messageSent'));
-        return;
-      }
-
       const activeAccountId = activeAccount?.id;
       if (!activeAccountId) return;
 
@@ -613,6 +445,8 @@ export function useEmailComposeController({
         body: JSON.stringify(isNewCompose
           ? {
               accountId: activeAccountId,
+              mailboxWorkspaceId,
+              attachmentWorkspaceId: attachmentWorkspaceRef.current,
               attachments,
               body: bodyHtml,
               cc: splitRecipientInput(draft.ccText),
@@ -621,6 +455,8 @@ export function useEmailComposeController({
               to: splitRecipientInput(draft.toText),
             }
           : {
+              mailboxWorkspaceId,
+              attachmentWorkspaceId: attachmentWorkspaceRef.current,
               bodyOverride: draft.body,
               bodyOverrideHtml: bodyHtml,
               attachments,
@@ -635,40 +471,44 @@ export function useEmailComposeController({
             }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updateMessage'));
+      if (!response.ok || !payload.success) {
+        if (mailboxWorkspaceId && !payload.data?.id && (response.ok || response.status >= 500)) setSendUncertain(true);
+        if (mailboxWorkspaceId && payload.data?.id) {
+          setDraft(null);
+          void openEmailReview({ scope: 'workspace', workspaceId: mailboxWorkspaceId, draftId: payload.data.id });
+        }
+        if (response.status === 403 || response.status === 409) void onAccessChanged();
+        throw new Error(payload.error || t('errors.updateMessage'));
+      }
       setDraft(null);
       setError(null);
       onMessageActionNotice(t(draft.aiGenerated ? 'aiReplySent' : 'messageSent'));
     } catch (submitError) {
+      if (mailboxWorkspaceId && isFetchNetworkError(submitError)) setSendUncertain(true);
       const message = isFetchNetworkError(submitError)
-        ? t('errors.actionRequest')
+        ? (mailboxWorkspaceId ? tm('sendUncertain') : t('errors.actionRequest'))
         : submitError instanceof Error ? submitError.message : t('errors.updateMessage');
       setError(message);
       onError(message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [activeAccount, draft, onError, onMessageActionNotice, outboxEditing, persistOutboxDraft, t]);
+  }, [sendUncertain, onAccessChanged, tm, mailboxKey, mailboxWorkspaceId, activeAccount, activeWorkspaceId, draft, onError, onMessageActionNotice, t]);
 
   return {
+    sendUncertain,
+    openOutbox,
     agentEvents,
     agentStatus,
     close,
-    draft,
+    draft: draftOwner === ownerUserId ? draft : null,
     error,
     generateAiBody,
     generateAiReplyPreview,
     isGeneratingAi,
     isSubmitting,
-    isWorkspaceOutboxReview: Boolean(outboxEditing),
     openDraft,
     openNewDraft,
-    openPersonalOutboxDraft,
-    openWorkspaceOutboxDraft,
-    outboxSenderAddress: outboxEditing?.senderAddress || '',
-    reviewCase,
-    reviewCenterRevision,
-    save,
     submit,
     updateDraft,
   };

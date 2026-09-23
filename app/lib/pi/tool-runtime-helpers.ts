@@ -49,6 +49,7 @@ import type { AgentBashWorkingDirectory } from '@/app/lib/pi/agent-bash-runtime'
 import { resolveToolOutputReference } from '@/app/lib/pi/tool-output-store';
 import { maybeCleanupToolOutputOrphans } from '@/app/lib/pi/tool-output-maintenance';
 import { prepareToolOutput } from '@/app/lib/pi/tool-output-preparation';
+import { attachChatFileReferences } from '@/app/lib/pi/chat-file-references';
 
 export const execAsync = promisify(exec);
 
@@ -92,7 +93,8 @@ export function wrapToolWithExecutionContext(
       async () => {
         await maybeCleanupToolOutputOrphans(context);
         const result = await execute(toolCallId, params, signal, onUpdate);
-        return prepareToolOutput({ result, identity: context, toolCallId, toolName: scopedTool.name });
+        return prepareToolOutput({ result: attachChatFileReferences(result, scopedTool.name, toolCallId, context),
+          identity: context, toolCallId, toolName: scopedTool.name });
       },
     ),
   };

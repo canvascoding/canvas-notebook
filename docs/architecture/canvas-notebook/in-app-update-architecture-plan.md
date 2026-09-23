@@ -1,8 +1,16 @@
 # In-App-Update-Architektur fuer Canvas Notebook
 
-Stand: 2026-09-04
+Stand: 2026-09-22
 
-Status: Implementiert in acht abgeschlossenen Phasen
+Status: Notebook-/Standalone-Grundlagen implementiert; Managed-Pfad lokal Ende zu Ende abgenommen.
+
+Die am 2026-09-22 festgestellten Luecken zwischen Notebook, Control Plane und
+Host-Agent wurden implementiert und mit realem Browser, Agent und CLI auf einer
+OrbStack-VM geprueft. Erfolg und verifizierter Rollback sind nachgewiesen.
+Verbindliche Schnittstellen stehen im
+[Managed-Settings-Update-Umsetzungsplan](managed-settings-update-implementation.md),
+Laufzeitnachweise, Testzustand und Abnahmegrenzen im
+[Abnahmeprotokoll](managed-settings-update-acceptance.md).
 
 ## Ziel
 
@@ -433,7 +441,7 @@ Migrationsvertrag einhalten:
 - Postflight prueft angewandte Migrationen, Health und effektive Version,
 - Rollback-Erfolg wird erst nach Health- und Versionsverifikation gemeldet.
 
-## Umsetzung in abgeschlossenen Phasen
+## Umsetzungsphasen
 
 ### Phase 1: Updatevertrag
 

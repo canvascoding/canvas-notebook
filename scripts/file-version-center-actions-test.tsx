@@ -1,3 +1,5 @@
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import { fileVersionTestRouter } from './file-version-test-router';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { act } from 'react';
@@ -5,6 +7,7 @@ import { createRoot } from 'react-dom/client';
 import { NextIntlClientProvider } from 'next-intl';
 
 import messages from '../messages/en.json';
+import { getNotebookQueryClient } from '../app/lib/queries/client';
 import {
   FileVersionActionController,
   FileVersionActionError,
@@ -363,7 +366,7 @@ async function componentCase(): Promise<void> {
   root = createRoot(document.getElementById('root')!);
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <FileVersionCenterHost />
+      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
   await act(async () => {
@@ -423,7 +426,7 @@ async function componentCase(): Promise<void> {
   root = createRoot(document.getElementById('root')!);
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <FileVersionCenterHost />
+      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
   await act(async () => {
@@ -470,4 +473,5 @@ async function main(): Promise<void> {
   console.log('file-version-center-actions-test: ok');
 }
 
-void main().catch((error) => { console.error(error); process.exitCode = 1; });
+void main().catch((error) => { console.error(error); process.exitCode = 1; })
+  .finally(() => getNotebookQueryClient().clear());

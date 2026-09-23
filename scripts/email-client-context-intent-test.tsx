@@ -43,6 +43,8 @@ const folders = ['INBOX', 'Archive'].map((name) => ({
 globalThis.fetch = (async (input, init) => {
   const url = String(input);
   let data: unknown;
+  if (url.endsWith('/api/auth/get-session')) return Response.json(null);
+  if (url === '/api/workspaces') return Response.json({ success: true, workspaces: [] });
   if (url === '/api/email/accounts') data = { accounts };
   else if (url === '/api/user-preferences') data = {};
   else if (url === '/api/email/outbox') data = [];

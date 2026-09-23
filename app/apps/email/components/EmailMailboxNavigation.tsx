@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { emailSearchHighlightTerms, highlightEmailSearchText } from './email-search-highlight';
 
 export type EmailMailboxNavigationLabels = {
   folders: string;
@@ -62,12 +63,15 @@ export function EmailMailboxNavigation({
   onFolderSidebarOpenChange,
   onListWidthChange,
   onMessageAction,
+  canWrite = true,
+  canDelete = true,
   onOpenMessage,
   onPageChange,
   onSelectFolder,
   onToggleUnreadFilter,
   selectedMessageId,
   viewerLabels,
+  searchQuery = '',
 }: {
   activeFolder: string;
   activeFolderName: string;
@@ -89,6 +93,8 @@ export function EmailMailboxNavigation({
   onContextMenu(message: EmailMessageSummary, position: EmailMessageContextMenuPosition): void;
   onFolderSidebarOpenChange(open: boolean): void;
   onListWidthChange(width: number): void;
+  canWrite?: boolean;
+  canDelete?: boolean;
   onMessageAction(message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string): void;
   onOpenMessage(message: EmailMessageSummary, openInDialog: boolean): void;
   onPageChange(direction: 'next' | 'previous'): void;
@@ -96,7 +102,9 @@ export function EmailMailboxNavigation({
   onToggleUnreadFilter(): void;
   selectedMessageId: string | null;
   viewerLabels: EmailMessageViewerLabels;
+  searchQuery?: string;
 }) {
+  const terms = emailSearchHighlightTerms(searchQuery);
   return (
     <>
       {layoutMode === 'wide' && isFolderSidebarOpen ? (
@@ -232,15 +240,18 @@ export function EmailMailboxNavigation({
                 <span className={cn('mt-1.5 h-2 w-2 rounded-full', message.isRead === false ? 'bg-primary' : 'bg-transparent')} aria-hidden="true" />
                 <div className="min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <div className={cn('min-w-0 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>{message.from || labels.unknownSender}</div>
+                    <div className={cn('min-w-0 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>{highlightEmailSearchText(message.from || labels.unknownSender, terms)}</div>
                     <div className="shrink-0 text-[11px] text-muted-foreground">{formatDate(message.date)}</div>
                   </div>
-                  <div className={cn('mt-1 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>{message.subject || labels.noSubject}</div>
-                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{message.snippet}</p>
+                  <div className={cn('mt-1 truncate text-sm', message.isRead === false ? 'font-semibold text-foreground' : 'font-medium')}>{highlightEmailSearchText(message.subject || labels.noSubject, terms)}</div>
+                  {searchQuery && Boolean(message.to?.length) && <p className="mt-1 truncate text-xs text-muted-foreground">→ {highlightEmailSearchText(Array.isArray(message.to) ? message.to.join(', ') : message.to || '', terms)}</p>}
+                  <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{highlightEmailSearchText(message.snippet || '', terms)}</p>
                 </div>
               </button>
               <div className="flex shrink-0 items-start px-2 py-2">
                 <EmailMessageRowActions
+                  canWrite={canWrite}
+                  canDelete={canDelete}
                   activeAction={activeMessageListAction}
                   contextMenuPosition={messageContextMenu?.messageId === message.id ? messageContextMenu : null}
                   folders={folders}

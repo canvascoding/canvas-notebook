@@ -1,3 +1,5 @@
+import { EmailMailboxAccessError, resolveEmailMailboxAccess } from '@/app/lib/email/mailbox-access';
+import { EmailSearchQueryError } from '@/app/lib/email/search-query';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
@@ -17,10 +19,14 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const body = await request.json().catch(() => ({}));
-    const data = await searchEmail(session.user.id, body, { enforceReadPolicy: false });
+    const access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId: body.accountId, mailboxWorkspaceId: body.mailboxWorkspaceId, operation: 'read' });
+    const data = await searchEmail(access.accountOwnerId, { ...body, accountId: access.accountId }, access.readOptions);
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof EmailMailboxAccessError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     const message = error instanceof Error ? error.message : 'Failed to search email';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message, ...(error instanceof EmailSearchQueryError ? { code: error.code } : {}) }, { status: error instanceof EmailSearchQueryError ? 400 : 500 });
   }
 }

@@ -10,6 +10,9 @@ export type EmailChatContextMessage = {
 };
 
 export type EmailChatContextAccount = {
+  accountScope?: 'personal' | 'workspace';
+  workspaceId?: string | null;
+  workspaceName?: string | null;
   id?: string;
   emailAddress?: string | null;
 };
@@ -29,6 +32,9 @@ export function buildEmailPageChatContext(params: {
   return {
     currentPage: params.pathname || '/emails',
     emailContext: {
+      accountScope: params.account?.accountScope,
+      mailboxWorkspaceId: params.account?.workspaceId,
+      workspaceName: params.account?.workspaceName,
       accountEmail: params.account?.emailAddress || undefined,
       accountId: params.account?.id || undefined,
       filter: params.filter,

@@ -1,3 +1,4 @@
+import { readChatFileReferences } from '@/app/lib/chat/tool-file-references';
 import type { Attachment, ChatMessage } from '@/app/lib/chat/types';
 
 function areAttachmentsEquivalent(current: Attachment[] | undefined, next: Attachment[] | undefined): boolean {
@@ -59,6 +60,8 @@ export function areChatMessagesEquivalent(current: ChatMessage, next: ChatMessag
     current.isCollapsed === next.isCollapsed &&
     current.autoCollapsedAtEnd === next.autoCollapsedAtEnd &&
     current.previewText === next.previewText &&
+    JSON.stringify(readChatFileReferences((current.piMessage as { details?: unknown } | undefined)?.details)) ===
+      JSON.stringify(readChatFileReferences((next.piMessage as { details?: unknown } | undefined)?.details)) &&
     areAttachmentsEquivalent(current.attachments, next.attachments) &&
     areCompactMetaEquivalent(current.compactMeta, next.compactMeta) &&
     areComposioAuthMetaEquivalent(current.composioAuthMeta, next.composioAuthMeta)

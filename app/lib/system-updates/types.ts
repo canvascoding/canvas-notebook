@@ -38,6 +38,7 @@ export interface SystemUpdateOperationSnapshot {
 }
 
 export interface SystemUpdateStatusAccess {
+  transport?: 'snapshot';
   path: string;
   ticket: string;
   expiresAt: string;

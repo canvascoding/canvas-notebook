@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
 import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
+import { stripInternalProjectionNotices } from '@/app/lib/chat/display-text';
 import type { Attachment, ChatMessage, PersistedToolCallPart } from '@/app/lib/chat/types';
 import { isCompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage } from '@/app/lib/pi/custom-messages';
 import { toMediaUrl, toPreviewUrl, toUploadMediaUrl, toUploadPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
@@ -168,7 +169,7 @@ export function extractPiMessageText(piMessage?: AgentMessage | null, options?: 
   const messageContent = getPiMessageContent(piMessage);
   if (!Array.isArray(messageContent)) {
     const text = typeof messageContent === 'string' ? messageContent : '';
-    const strippedText = stripThinkingTags(text);
+    const strippedText = stripThinkingTags(piMessage.role === 'user' ? text : stripInternalProjectionNotices(text));
     return options?.hideAttachmentMetadata ? stripAttachmentBlocks(strippedText) : strippedText;
   }
 
@@ -178,7 +179,7 @@ export function extractPiMessageText(piMessage?: AgentMessage | null, options?: 
     .join('\n');
 
   if (textContent) {
-    const strippedText = stripThinkingTags(textContent);
+    const strippedText = stripThinkingTags(piMessage.role === 'user' ? textContent : stripInternalProjectionNotices(textContent));
     const visibleText = options?.hideAttachmentMetadata ? stripAttachmentBlocks(strippedText) : strippedText;
     return normalizeMessageStart(visibleText);
   }
@@ -196,10 +197,10 @@ export function extractToolResultText(content: unknown[] | undefined): string {
   }
 
   return normalizeMessageStart(
-    content
+    stripInternalProjectionNotices(content
       .map((part) => (isTextPart(part) ? part.text : ''))
       .filter(Boolean)
-      .join('\n'),
+      .join('\n')),
   );
 }
 

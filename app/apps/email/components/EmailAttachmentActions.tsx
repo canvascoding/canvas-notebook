@@ -46,16 +46,18 @@ type EmailAttachmentActionLabels = Pick<
   | 'unknownAttachmentType'
 >;
 
-function attachmentEndpoint(accountId: string, messageId: string, folder?: string) {
+function attachmentEndpoint(accountId: string, messageId: string, folder?: string, mailboxWorkspaceId?: string | null) {
   const params = new URLSearchParams();
   if (folder) params.set('folder', folder);
+  if (mailboxWorkspaceId) params.set('mailboxWorkspaceId', mailboxWorkspaceId);
   const base = `/api/email/accounts/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(messageId)}/attachments`;
   return params.size ? `${base}?${params.toString()}` : base;
 }
 
-function attachmentDownloadUrl(accountId: string, messageId: string, attachmentId: string, folder?: string) {
+function attachmentDownloadUrl(accountId: string, messageId: string, attachmentId: string, folder?: string, mailboxWorkspaceId?: string | null) {
   const params = new URLSearchParams();
   if (folder) params.set('folder', folder);
+  if (mailboxWorkspaceId) params.set('mailboxWorkspaceId', mailboxWorkspaceId);
   const base = `${attachmentEndpoint(accountId, messageId)}/${encodeURIComponent(attachmentId)}`;
   return params.size ? `${base}?${params.toString()}` : base;
 }
@@ -73,12 +75,16 @@ function compactByteSize(size: number | null | undefined) {
 
 export function EmailAttachmentActions({
   accountId,
+  mailboxWorkspaceId,
+  onMailboxAccessChanged,
   attachments,
   folder,
   labels,
   messageId,
 }: {
   accountId?: string;
+  mailboxWorkspaceId?: string | null;
+  onMailboxAccessChanged?(): void;
   attachments: EmailAttachment[];
   folder?: string;
   labels: EmailAttachmentActionLabels;
@@ -112,12 +118,14 @@ export function EmailAttachmentActions({
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          mailboxWorkspaceId,
           attachmentIds: selectedAttachmentIds,
           folder,
           targetPath: selectedDir,
           targetWorkspaceId,
         }),
       });
+      if (response.status === 403 || response.status === 409) onMailboxAccessChanged?.();
       const payload = await response.json() as { error?: string; savedCount?: number; success?: boolean };
       if (!response.ok || !payload.success) throw new Error(payload.error || labels.attachmentsSaveFailed);
       const savedCount = typeof payload.savedCount === 'number' ? payload.savedCount : selectedAttachmentIds.length;
@@ -132,7 +140,7 @@ export function EmailAttachmentActions({
   };
 
   const allAttachmentIds = downloadableAttachments.map((attachment) => attachment.id);
-  const allDownloadUrl = accountId ? attachmentEndpoint(accountId, messageId, folder) : null;
+  const allDownloadUrl = accountId ? attachmentEndpoint(accountId, messageId, folder, mailboxWorkspaceId) : null;
 
   return (
     <div className="mt-5 border-t border-border pt-4">
@@ -171,7 +179,7 @@ export function EmailAttachmentActions({
         {attachments.map((attachment) => {
           const canDownload = attachment.downloadable !== false && Boolean(accountId && attachment.id);
           const downloadUrl = canDownload
-            ? attachmentDownloadUrl(accountId!, messageId, attachment.id, folder)
+            ? attachmentDownloadUrl(accountId!, messageId, attachment.id, folder, mailboxWorkspaceId)
             : null;
           const sizeLabel = compactByteSize(attachment.size);
           return (

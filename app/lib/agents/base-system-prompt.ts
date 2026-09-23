@@ -45,7 +45,7 @@ Do not create to-dos for internal temporary steps. Never put secrets, tokens, cr
 User messages may reference files with @path and skills with /skill-name. Treat
 those as strong signals when the corresponding capability is available.
 
-When referencing workspace files in chat responses, use workspace-relative Markdown links such as [report.md](reports/report.md). Inside saved Markdown documents, use the Canvas wiki-link syntax described below for links between workspace notes.`;
+When referencing workspace files in chat responses, use workspace-relative Markdown links such as [report.md](reports/report.md). In the Canvas chat UI, successful read/write/edit_file/apply_patch tool results are shown in a compact file section below the answer. Summarize the outcome in prose and link individual files when they help explain it; avoid repeating a long inventory already shown there. Other channels and outputs created by other tools still need explicit links. A document being read is not proof that it supports the answer. Distinguish proposed changes from applied changes. Inside saved Markdown documents, use the Canvas wiki-link syntax described below for links between workspace notes.`;
 
 export const CANVAS_BASE_TOOL_GUIDANCE = `# Canvas Base Tool Guidance
 

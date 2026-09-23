@@ -1,0 +1,22 @@
+{
+  "contractVersion": 1,
+  "mode": "managed",
+  "platform": "canvas-installer",
+  "channel": "stable",
+  "currentVersion": "2026.9.22.3",
+  "updateAvailable": false,
+  "ready": false,
+  "reasons": [
+    "managed_already_current"
+  ],
+  "release": {
+    "releaseId": "b3890846-d740-4656-b9ce-12c4fd2ab3bb",
+    "version": "2026.9.22.3",
+    "publishedAt": "2026-09-22T20:05:53.328Z",
+    "backupRequired": false,
+    "releaseNotesUrl": "https://github.com/canvascoding/canvas-notebook/releases/tag/v2026.9.22.3"
+  },
+  "instructions": [
+    "Updates are executed by the VM host agent and coordinated by the Control Plane."
+  ]
+}

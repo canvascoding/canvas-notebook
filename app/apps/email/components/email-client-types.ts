@@ -2,6 +2,12 @@ import type { EmailAttachmentDraft } from '@/app/lib/email/attachment-types';
 
 export type EmailAccount = {
   id: string;
+  accountScope?: 'personal' | 'workspace';
+  mailboxId?: string | null;
+  workspaceId?: string | null;
+  workspaceName?: string | null;
+  connectionState?: 'ready' | 'send_only' | 'reconnect_required';
+  capabilities?: { canRead: boolean; canWrite: boolean; canManage: boolean; canDelete: boolean; canRunAgent: boolean };
   provider: string;
   authType: string;
   emailAddress: string;
@@ -60,6 +66,9 @@ export type EmailFolder = {
 
 export type EmailMessageSummary = {
   id: string;
+  to?: string[] | string;
+  cc?: string[] | string;
+  bcc?: string[] | string;
   uid?: string;
   folder?: string;
   from: string;
@@ -284,6 +293,8 @@ export type EmailMessageContextMenuPosition = {
 };
 
 export type EmailMessageViewerActions = {
+  canWrite?: boolean;
+  canRunAgent?: boolean;
   activeAction: EmailMessageActionName | null;
   folders: EmailFolder[];
   onAction(action: EmailMessageActionName, destination?: string): void;

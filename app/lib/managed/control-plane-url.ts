@@ -1,6 +1,7 @@
 import 'server-only';
 
-export const DEFAULT_MANAGED_CONTROL_PLANE_URL = 'https://api.canvasnotebook.app';
+import { DEFAULT_MANAGED_CONTROL_PLANE_URL } from './control-plane-url-policy';
+export { DEFAULT_MANAGED_CONTROL_PLANE_URL } from './control-plane-url-policy';
 
 export function getManagedControlPlaneBaseUrl(): string | null {
   const configured =

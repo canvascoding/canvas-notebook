@@ -1,0 +1,1774 @@
+[
+  {
+    "at": "2026-09-22T20:00:51.921Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates",
+    "status": 200
+  },
+  {
+    "at": "2026-09-22T20:00:52.493Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates",
+    "status": 202
+  },
+  {
+    "at": "2026-09-22T20:00:52.687Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "host_cli_capabilities",
+    "eventCount": 2
+  },
+  {
+    "at": "2026-09-22T20:00:52.693Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status-access",
+    "status": 201
+  },
+  {
+    "at": "2026-09-22T20:00:52.706Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "host_cli_capabilities",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:00:54.798Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 11
+  },
+  {
+    "at": "2026-09-22T20:00:54.800Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 11
+  },
+  {
+    "at": "2026-09-22T20:00:56.811Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:00:56.906Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:00:58.831Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 13
+  },
+  {
+    "at": "2026-09-22T20:00:58.947Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:00.866Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:00.957Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:02.907Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:02.964Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:04.923Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 2
+  },
+  {
+    "at": "2026-09-22T20:01:04.969Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:06.959Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:06.975Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:08.989Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:09.008Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:11.002Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:11.043Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:13.013Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:13.083Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:15.025Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:15.099Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:17.036Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:17.146Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:19.046Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:19.180Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:21.061Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:21.217Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:23.067Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:23.237Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:25.077Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:25.268Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:27.087Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:27.290Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:29.099Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:29.332Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:31.111Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:31.381Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:33.122Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:33.391Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:35.130Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:35.426Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:37.139Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:37.468Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:39.148Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:39.508Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:41.159Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:41.533Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:43.172Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:43.546Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:45.178Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:45.555Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:47.185Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:47.585Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:49.193Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:49.601Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:51.204Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:51.636Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:53.207Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:53.670Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:55.223Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:55.707Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:57.232Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:57.727Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:01:59.236Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:01:59.748Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:01.240Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:01.772Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:03.246Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:03.794Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:05.250Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:05.814Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:07.255Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:07.824Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:09.260Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:09.846Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:11.265Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:11.863Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:13.269Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:13.883Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:15.273Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:15.902Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:17.281Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:17.932Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:19.287Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:19.956Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:21.291Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:21.965Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:23.297Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:23.996Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:25.302Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:26.019Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:27.308Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:28.062Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:29.312Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:30.079Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:31.318Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:32.089Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:33.323Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:34.108Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:35.327Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:36.128Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:37.329Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:38.148Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:39.333Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:40.168Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:41.336Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:42.178Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:43.339Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:44.196Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:45.345Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:46.216Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:47.355Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:48.252Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:49.359Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:50.271Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:51.363Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:52.298Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:53.367Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:54.332Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:55.372Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:56.362Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:57.377Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:02:58.398Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:02:59.381Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:00.419Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:01.389Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:02.437Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:03.393Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:04.456Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:05.397Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:06.474Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:07.402Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:08.506Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:09.406Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:10.526Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:11.415Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:12.564Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:13.423Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:14.603Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:15.434Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:16.612Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:17.447Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:18.649Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:19.457Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:20.681Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:21.467Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:22.705Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:23.476Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:24.744Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:25.487Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:26.782Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:27.505Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:28.816Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:29.515Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:30.853Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:31.525Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:32.887Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:33.536Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:34.929Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:35.541Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:36.946Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:37.553Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:38.972Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:39.561Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:41.012Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:41.571Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:43.038Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:43.575Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:45.055Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:45.583Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:47.069Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:47.592Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:49.079Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:49.608Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:51.100Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:51.617Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:53.131Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:53.631Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:55.157Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:55.640Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:57.174Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:57.651Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:03:59.193Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "container_recreate",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:03:59.660Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:01.242Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 2
+  },
+  {
+    "at": "2026-09-22T20:04:01.673Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:03.276Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:03.683Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:05.314Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:05.687Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:07.355Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:07.696Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:09.388Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:09.701Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:11.399Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:11.707Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:13.415Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:13.713Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:15.440Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:15.723Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:17.455Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:17.733Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:19.493Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:19.747Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:21.513Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:21.756Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:23.539Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:23.764Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:25.564Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:25.770Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:27.589Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:27.775Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:29.625Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:29.783Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:31.644Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:31.791Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:33.659Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:33.812Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:35.699Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:35.824Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:37.739Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:37.837Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:39.754Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:39.841Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:41.775Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:41.851Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:43.835Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:43.857Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:45.861Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:45.866Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:47.866Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:47.874Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:49.871Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:49.884Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:51.878Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:51.896Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:53.882Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:53.908Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:55.890Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:55.962Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:57.895Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "failed": "net::ERR_EMPTY_RESPONSE"
+  },
+  {
+    "at": "2026-09-22T20:04:57.971Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:04:59.981Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:05:00.321Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/events",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "running",
+    "stage": "rollback",
+    "eventCount": 0
+  },
+  {
+    "at": "2026-09-22T20:05:01.996Z",
+    "path": "http://host.orb.internal:4001/v1/managed/system-updates/dd603edf-80ae-47a5-8b14-58eb0a17573b/status",
+    "status": 200,
+    "operationId": "dd603edf-80ae-47a5-8b14-58eb0a17573b",
+    "operationStatus": "rolled_back",
+    "stage": "completed",
+    "eventCount": 4
+  },
+  {
+    "at": "2026-09-22T20:05:02.107Z",
+    "path": "http://127.0.0.1:3100/api/admin/system-updates",
+    "status": 200
+  }
+]

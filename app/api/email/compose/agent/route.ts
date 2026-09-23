@@ -1,3 +1,4 @@
+import { resolveEmailMailboxAccess, EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 
@@ -21,16 +22,18 @@ export async function POST(request: NextRequest) {
   const requestId = crypto.randomUUID();
   const startedAt = Date.now();
   let body: Record<string, unknown>;
+  let access: Awaited<ReturnType<typeof resolveEmailMailboxAccess>>;
   try {
     body = await readEmailAiJsonObject(request);
+    access = await resolveEmailMailboxAccess({ userId: session.user.id, accountId: typeof body.accountId === 'string' ? body.accountId : undefined, mailboxWorkspaceId: body.mailboxWorkspaceId, operation: 'ai' });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Invalid Email AI request body';
     return NextResponse.json(
       { success: false, error: message },
-      { status: emailAiRequestBodyErrorStatus(error) ?? 500 },
+      { status: error instanceof EmailMailboxAccessError ? error.status : emailAiRequestBodyErrorStatus(error) ?? 500 },
     );
   }
-  const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() || undefined : undefined;
+  const workspaceId = access.workspaceId || (typeof body.workspaceId === 'string' ? body.workspaceId.trim() || undefined : undefined);
   const input = { ...body, workspaceId } as EmailComposeAgentInput;
   const accountId = typeof body.accountId === 'string' ? body.accountId : '';
   const messageId = typeof body.messageId === 'string' ? body.messageId : '';
@@ -56,7 +59,7 @@ export async function POST(request: NextRequest) {
       };
 
       try {
-        await runEmailWorkspaceComposeAgent(session.user.id, input, emit, abortController.signal);
+        await runEmailWorkspaceComposeAgent(session.user.id, input, emit, abortController.signal, { accountOwnerId: access.accountOwnerId, enforceReadPolicy: access.readOptions.enforceReadPolicy });
         logEmailClientEvent('info', 'compose_agent_succeeded', {
           accountId,
           durationMs: Date.now() - startedAt,

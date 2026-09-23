@@ -33,7 +33,7 @@ const filteredHistory: ChatHistoryGroups = {
   older: [],
 };
 
-const html = renderToStaticMarkup(
+const panel = (
   <ChatHistoryPanel
     variant="sidebar"
     history={[titleSession, contentSession]}
@@ -91,8 +91,9 @@ const html = renderToStaticMarkup(
     onRenameSession={() => undefined}
     onMarkSessionAsUnread={() => undefined}
     onDeleteSession={() => undefined}
-  />,
+  />
 );
+const html = renderToStaticMarkup(panel);
 
 assert.ok(html.indexOf('Title matches') < html.indexOf('Matches in chats'));
 assert.ok(html.indexOf('Quarterly launch') < html.indexOf('Creative review'));
@@ -100,3 +101,13 @@ assert.match(html, /In chat:/);
 assert.match(html, /The quarterly campaign uses blue\./);
 
 console.log('chat-history-search-ui-test: ok');
+
+const emptyGroups = Object.fromEntries(Object.keys(filteredHistory).map((key) => [key, []])) as unknown as ChatHistoryGroups;
+const loadingHtml = renderToStaticMarkup(React.cloneElement(panel, {
+  history: [], filteredHistory: emptyGroups, isLoadingHistory: true,
+}));
+assert.match(loadingHtml, /chat-history-skeleton/);
+assert.doesNotMatch(loadingHtml, /No sessions/);
+const refreshingHtml = renderToStaticMarkup(React.cloneElement(panel, { isLoadingHistory: true }));
+assert.match(refreshingHtml, /Quarterly launch/);
+assert.doesNotMatch(refreshingHtml, /chat-history-skeleton/);

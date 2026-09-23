@@ -27,7 +27,8 @@ import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/regis
 import { listAgentAccessForUser, requireAgentAccess } from '@/app/lib/agents/access';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
-import { createPiSessionWithRuntimeSnapshot } from '@/app/lib/pi/session-store';
+import { readPiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/runtime-store';
+import { createPiSessionWithRuntimeSnapshot, PiSessionClientRequestConflictError } from '@/app/lib/pi/session-store';
 import {
   findOwnedPiSessionForRuntime,
   isPiSessionInWorkspace,
@@ -49,6 +50,7 @@ import { AiRuntimeInputError, runtimeErrorResponse } from '@/app/lib/agent-runti
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 
 type CreateSessionPayload = {
+  clientRequestId?: string;
   title?: string;
   model?: string;
   thinkingLevel?: string;
@@ -145,6 +147,9 @@ async function resolveDefaultModel(): Promise<AgentId> {
 }
 
 function sessionRuntimeErrorResponse(error: unknown) {
+  if (error instanceof PiSessionClientRequestConflictError) {
+    return NextResponse.json({ success: false, code: 'SESSION_REQUEST_CONFLICT', error: error.message }, { status: 409 });
+  }
   if (error instanceof Error && error.message === 'Agent not found.') {
     return NextResponse.json(
       { success: false, code: 'AGENT_NOT_FOUND', error: 'Agent not found.' },
@@ -496,6 +501,11 @@ export async function POST(request: NextRequest) {
       );
     }
     const payload = rawPayload as CreateSessionPayload;
+    if (payload.clientRequestId !== undefined && (
+      typeof payload.clientRequestId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(payload.clientRequestId)
+    )) {
+      return NextResponse.json({ success: false, code: 'INVALID_SESSION_INPUT', error: 'Invalid clientRequestId.' }, { status: 400 });
+    }
     const sessionId = buildSessionId();
     const title = normalizeTitle(payload.title, DEFAULT_SESSION_TITLE);
     const hasExplicitTitle = typeof payload.title === 'string' && payload.title.trim().length > 0;
@@ -552,6 +562,69 @@ export async function POST(request: NextRequest) {
         }, { status: 409 });
       }
 
+      const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
+      const normalizedChannelId = normalizeStoredChannelId(channelId);
+      const channelSessionKey = typeof payload.channelSessionKey === 'string'
+        ? payload.channelSessionKey
+        : webChannelSessionKey(session.user.id);
+      const finishCreation = async (
+        inserted: typeof piSessions.$inferSelect,
+        created: boolean,
+        resolution?: Awaited<ReturnType<typeof prepareSessionRuntimeSnapshot>>['resolution'],
+      ) => {
+        // Read the stored snapshot even after a concurrent first-request race.
+        const runtime = await readPiSessionRuntimeSnapshot({
+          sessionId: inserted.sessionId, userId: session.user.id, agentId: requestedAgentId,
+        });
+        if (!runtime) throw new Error('The created session has no runtime snapshot.');
+        await ensureSessionChannelLink({
+          sessionId: inserted.sessionId, userId: session.user.id, channelId: normalizedChannelId,
+          channelSessionKey: channelSessionKey || webChannelSessionKey(session.user.id),
+          displayName: inserted.title || title, isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
+        });
+        if (created) {
+          await recordAuditEvent({
+            organizationId: workspace.organizationId, workspaceId: workspace.workspaceId,
+            userId: session.user.id, agentId: requestedAgentId, sessionId: inserted.sessionId,
+            source: 'agent-runtime', eventType: 'user', entityType: 'pi_session', entityId: inserted.sessionId,
+            action: 'pi_session_runtime.pin', status: 'success',
+            summary: 'AI runtime selection pinned for a new chat session.',
+            metadata: {
+              catalogRevision: runtime.catalogRevision, policyRevision: runtime.policyRevision,
+              selectionSource: runtime.selectionSource, selection: runtime.selection,
+            },
+          });
+        }
+        return NextResponse.json({
+          success: true, created,
+          session: {
+            id: inserted.id, sessionId: inserted.sessionId, title: inserted.title,
+            titleGenerationState: inserted.titleGenerationState, agentId: inserted.agentId,
+            model: inserted.model, provider: inserted.provider, thinkingLevel: inserted.thinkingLevel,
+            createdAt: inserted.createdAt, lastMessageAt: inserted.lastMessageAt, lastViewedAt: inserted.lastViewedAt,
+            hasUnread: hasUnreadAssistantResponse(inserted.lastMessageAt, inserted.lastViewedAt),
+            engine: 'pi', workspace: storedPiSessionWorkspaceToSummary(inserted),
+            creator: { name: session.user.name || null, email: session.user.email || null },
+          },
+          runtime,
+          ...(created && resolution ? { resolution } : {}),
+        });
+      };
+      if (payload.clientRequestId) {
+        const existingRequests = await db.query.piSessions.findMany({ where: and(
+          eq(piSessions.userId, session.user.id), eq(piSessions.clientRequestId, payload.clientRequestId),
+        ), limit: 2 });
+        if (existingRequests.length > 1) throw new PiSessionClientRequestConflictError();
+        const existing = existingRequests[0];
+        if (existing) {
+          if (existing.agentId !== requestedAgentId || existing.workspaceId !== workspace.workspaceId) {
+            throw new PiSessionClientRequestConflictError();
+          }
+          // A lost response remains replayable after catalog or policy revisions change.
+          return await finishCreation(existing, false);
+        }
+      }
+
       const context = {
         organizationId: workspace.organizationId,
         userId: session.user.id,
@@ -584,17 +657,11 @@ export async function POST(request: NextRequest) {
         workspaceId: workspace.workspaceId,
         projectId: workspace.projectId,
       });
-      const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
-      const normalizedChannelId = normalizeStoredChannelId(channelId);
-      const channelSessionKey = typeof payload.channelSessionKey === 'string'
-        ? payload.channelSessionKey
-        : normalizedChannelId === WEB_CHANNEL_ID
-          ? webChannelSessionKey(session.user.id)
-          : null;
       const workspaceFields = workspaceToPiSessionFields(workspace);
 
       const inserted = await createPiSessionWithRuntimeSnapshot({
         sessionId,
+        clientRequestId: payload.clientRequestId,
         userId: session.user.id,
         agentId: requestedAgentId,
         title,
@@ -604,50 +671,11 @@ export async function POST(request: NextRequest) {
         systemPromptSnapshot: promptSnapshot,
       });
 
-      await ensureSessionChannelLink({
-        sessionId,
-        userId: session.user.id,
-        channelId: normalizedChannelId,
-        channelSessionKey: channelSessionKey || webChannelSessionKey(session.user.id),
-        displayName: title,
-        isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
-      });
+      return await finishCreation(inserted, inserted.sessionId === sessionId, prepared.resolution);
+    }
 
-      await recordAuditEvent({
-        organizationId: workspace.organizationId,
-        workspaceId: workspace.workspaceId,
-        userId: session.user.id,
-        agentId: requestedAgentId,
-        sessionId,
-        source: 'agent-runtime',
-        eventType: 'user',
-        entityType: 'pi_session',
-        entityId: sessionId,
-        action: 'pi_session_runtime.pin',
-        status: 'success',
-        summary: 'AI runtime selection pinned for a new chat session.',
-        metadata: {
-          catalogRevision: prepared.snapshot.catalogRevision,
-          policyRevision: prepared.snapshot.policyRevision,
-          selectionSource: prepared.snapshot.selectionSource,
-          selection: prepared.snapshot.selection,
-        },
-      });
-
-      return NextResponse.json({
-        success: true,
-        session: {
-          ...inserted,
-          engine: 'pi',
-          workspace: storedPiSessionWorkspaceToSummary(inserted),
-          creator: {
-            name: session.user.name || null,
-            email: session.user.email || null,
-          },
-        },
-        runtime: prepared.snapshot,
-        resolution: prepared.resolution,
-      });
+    if (payload.clientRequestId) {
+      return NextResponse.json({ success: false, code: 'LEGACY_SESSION_CREATION_UNAVAILABLE', error: 'New chats require the PI session engine.' }, { status: 410 });
     }
 
     const requestedModel = resolveRequestedModel(payload.agentId ?? payload.model);

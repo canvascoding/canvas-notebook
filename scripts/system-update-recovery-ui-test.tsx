@@ -37,17 +37,28 @@ async function main() {
   const { UpdateCenterPanel } = await import('../app/components/settings/UpdateCenterPanel');
   const originalFetch = globalThis.fetch;
   try {
-    for (const mode of ['sse', 'managed'] as const) {
+    for (const mode of ['sse', 'managed', 'snapshot'] as const) {
       const beforeReload = reloads;
       dom.window.localStorage.setItem(key, id);
       dom.window.sessionStorage.clear();
       if (mode === 'sse') dom.window.sessionStorage.setItem(ticketKey, JSON.stringify({ operationId: id,
         path: `/__canvas-host/operations/${id}/events`, ticket: 'fixture', expiresAt: new Date(Date.now() + 120_000).toISOString() }));
+      if (mode === 'snapshot') dom.window.sessionStorage.setItem(ticketKey, JSON.stringify({ operationId: id,
+        path: `https://control.example.com/v1/managed/system-updates/${id}/status`, ticket: 'fixture',
+        transport: 'snapshot', expiresAt: new Date(Date.now() + 120_000).toISOString() }));
+      let directCount = 0;
       let pollCount = 0;
       let stream: ReadableStreamDefaultController<Uint8Array> | null = null;
       let delayedPoll: ((response: Response) => void) | null = null;
       globalThis.fetch = async (input, options) => {
         const url = String(input);
+        if (url.startsWith('https://control.example.com/')) {
+          assert.equal(new Headers(options?.headers).get('authorization'), 'Bearer fixture');
+          assert.equal(options?.credentials, 'omit');
+          assert.equal(options?.redirect, 'error');
+          directCount++;
+          return json({ operation: directCount === 1 ? verifying : succeeded, events: [] });
+        }
         if (url.startsWith('/__canvas-host/')) {
           assert.equal(new Headers(options?.headers).get('authorization'), 'Bearer fixture');
           return new Response(new ReadableStream({ start(controller) {
@@ -57,6 +68,7 @@ async function main() {
         }
         if (url.includes('/events?')) {
           pollCount++;
+          if (mode === 'snapshot') throw new Error('Notebook remains unavailable');
           if (mode === 'managed') {
             if (pollCount === 1) throw new Error('App restarting');
             return json({ success: true, operation: succeeded, events: [] });
@@ -84,6 +96,61 @@ async function main() {
         await until(() => reloads === beforeReload + 1);
         assert.equal(dom.window.sessionStorage.getItem(ticketKey), null);
         if (mode === 'managed') assert.equal(pollCount, 2, 'REST must retry even when the first operation load fails');
+        if (mode === 'snapshot') assert.equal(directCount, 2, 'Direct CP snapshots must survive Notebook downtime');
+      } finally { await act(async () => root.unmount()); container.remove(); }
+    }
+    // A rejected direct ticket must not create an immediate issue/reject renewal loop.
+    {
+      dom.window.localStorage.setItem(key, id);
+      dom.window.sessionStorage.setItem(ticketKey, JSON.stringify({ operationId: id,
+        path: `https://control.example.com/v1/managed/system-updates/${id}/status`, ticket: 'expired-fixture',
+        transport: 'snapshot', expiresAt: new Date(Date.now() + 120_000).toISOString() }));
+      let directCount = 0;
+      let issuedCount = 0;
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url.startsWith('https://control.example.com/')) { directCount++; return new Response(null, { status: 401 }); }
+        if (url.endsWith('/status-access')) { issuedCount++; return json({ success: true, access: null }); }
+        if (url.includes('/events?')) return json({ success: true, operation: verifying, events: [] });
+        throw new Error('Availability unavailable');
+      };
+      const container = document.createElement('div'); document.body.append(container);
+      const root = createRoot(container);
+      await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><UpdateCenterPanel /></NextIntlClientProvider>));
+      try {
+        await until(() => directCount === 1 && dom.window.sessionStorage.getItem(ticketKey) === null);
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 100)); });
+        assert.equal(issuedCount, 0, 'rejected tickets should wait before renewal');
+        assert.equal(directCount, 1);
+      } finally { await act(async () => root.unmount()); container.remove(); }
+    }
+    for (const status of [401, 403, 404, 410]) {
+      dom.window.localStorage.setItem(key, id);
+      dom.window.sessionStorage.clear();
+      let pollCount = 0;
+      globalThis.fetch = async (input) => {
+        const url = String(input);
+        if (url.includes('/events?')) {
+          pollCount++;
+          return pollCount === 1
+            ? new Response(JSON.stringify({ error: { message: `Permanent status ${status}` } }), { status })
+            : json({ success: true, operation: succeeded, events: [] });
+        }
+        if (url.endsWith('/status-access')) return json({ success: true, access: null });
+        throw new Error('Availability unavailable');
+      };
+      const container = document.createElement('div'); document.body.append(container);
+      const root = createRoot(container);
+      await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><UpdateCenterPanel /></NextIntlClientProvider>));
+      try {
+        await until(() => Boolean(container.textContent?.includes(`Permanent status ${status}`)));
+        assert.ok(!container.textContent?.includes(messages.settings.updates.reconnecting.title), 'permanent errors must leave reconnect spinner');
+        assert.ok(container.textContent?.includes(messages.settings.updates.operation.returnToOverview));
+        const retry = Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.includes(messages.settings.updates.retry));
+        assert.ok(retry);
+        await act(async () => retry.click());
+        await until(() => dom.window.localStorage.getItem(key) === null);
+        assert.equal(pollCount, 2, 'retry must resume observation');
       } finally { await act(async () => root.unmount()); container.remove(); }
     }
   } finally { globalThis.fetch = originalFetch; dom.window.close(); }

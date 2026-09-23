@@ -202,31 +202,23 @@ async function main() {
       });
     }) as typeof fetch;
 
-    const retryInvalidation = new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        unsubscribe();
-        reject(new Error('Timed out waiting for background file-reference revalidation'));
-      }, 2_500);
-      const unsubscribe = subscribeToFileReferenceValidationInvalidation((event) => {
-        if (event.workspaceId !== 'workspace-a' || event.path !== 'generated/eventual.md') return;
-        clearTimeout(timeout);
-        unsubscribe();
-        resolve();
-      });
+    let invalidations = 0;
+    const unsubscribe = subscribeToFileReferenceValidationInvalidation((event) => {
+      if (event.workspaceId === 'workspace-a' && event.path === 'generated/eventual.md') invalidations += 1;
     });
-
     assert.deepEqual(await validateFileReference('generated/eventual.md', fileTree), {
-      path: 'generated/eventual.md',
-      type: 'missing',
-      exists: false,
+      path: 'generated/eventual.md', type: 'missing', exists: false,
     });
-    await retryInvalidation;
-    assert.deepEqual(await validateFileReference('generated/eventual.md', fileTree), {
-      path: 'generated/eventual.md',
-      type: 'file',
-      exists: true,
+    await new Promise(resolve => setTimeout(resolve, 1_100));
+    assert.equal(invalidations, 0, 'missing references must not schedule background retries');
+    assert.equal(eventualValidationFetches, 1);
+    invalidateFileReferenceValidationCache({ workspaceId: 'workspace-a', path: 'generated/eventual.md' });
+    assert.equal(invalidations, 1, 'actual file mutations still invalidate references');
+    unsubscribe();
+    assert.deepEqual(await validateFileReference('generated/eventual.md', fileTree, { preferFresh: true }), {
+      path: 'generated/eventual.md', type: 'file', exists: true,
     });
-    assert.equal(eventualValidationFetches, 2, 'missing references should revalidate in the background');
+    assert.equal(eventualValidationFetches, 2);
 
     assert.equal(getFileDisplayName({ name: 'loaded.md', type: 'file' }), 'loaded');
     assert.equal(getFileDisplayPath('docs/loaded.md'), 'docs/loaded');

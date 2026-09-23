@@ -390,7 +390,14 @@ interface FileStoreState {
   revalidateDirectory: (dirPath: string, workspaceId?: string | null, immediate?: boolean) => Promise<void>;
   refreshVisibleTree: () => Promise<void>;
   loadSubdirectory: (dirPath: string, noCache?: boolean, expand?: boolean, workspaceId?: string | null) => Promise<void>;
-  loadFile: (path: string, noCache?: boolean, workspaceId?: string | null, expectedDocumentId?: string, canApply?: () => boolean) => Promise<FileLoadResult>;
+  loadFile: (
+    path: string,
+    noCache?: boolean,
+    workspaceId?: string | null,
+    expectedDocumentId?: string,
+    canApply?: () => boolean,
+    updateExplorerSelection?: boolean,
+  ) => Promise<FileLoadResult>;
   refreshCurrentFileContent: (path: string, options?: { allowDirty?: boolean }) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string, options?: OpenWorkspaceFileOptions) => Promise<OpenWorkspaceFileResult>;
   closeFile: (path: string, options?: {
@@ -741,7 +748,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     await loadDirectorySnapshot(dirPath, SUBDIRECTORY_TREE_DEPTH, noCache, workspaceId, false);
   },
 
-  loadFile: async (path: string, noCache = false, requestedWorkspaceId?: string | null, expectedDocumentId?: string, canApply?: () => boolean) => {
+  loadFile: async (
+    path: string,
+    noCache = false,
+    requestedWorkspaceId?: string | null,
+    expectedDocumentId?: string,
+    canApply?: () => boolean,
+    updateExplorerSelection = true,
+  ) => {
     const authScope = openedDocumentAuthScope();
     const workspaceId = requestedWorkspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
@@ -811,7 +825,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         collaboration: data.collaboration ?? null,
       };
       set((state) => ({
-        selectedNode: { path, type: 'file', name: fileName },
+        ...(updateExplorerSelection
+          ? { selectedNode: { path, type: 'file' as const, name: fileName } }
+          : {}),
         currentFile: loadedFile,
         pendingExternalFile: null, documentSyncStatus: 'idle',
         currentFileWorkspaceId: workspaceId,
@@ -839,7 +855,9 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
               ? {
                   currentFile: null,
                   currentFileWorkspaceId: null,
-                  selectedNode: state.selectedNode?.path === path ? null : state.selectedNode,
+                  ...(updateExplorerSelection
+                    ? { selectedNode: state.selectedNode?.path === path ? null : state.selectedNode }
+                    : {}),
                 }
               : {}),
             isLoadingFile: false,
@@ -1018,6 +1036,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         error: documentOpenCheck.error,
       };
     }
+    const shouldRevealInExplorer = options.explorerBehavior !== 'preserve';
     const openRequestId = get().openFileRequestId + 1;
     // Even selecting the already open file cancels an older in-flight load.
     set((state) => ({
@@ -1025,8 +1044,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       fileLoadRequestId: state.fileLoadRequestId + 1,
       isLoadingFile: false,
       loadingFilePath: null,
-      searchQuery: '',
-      browserReveal: options.revealInTree === false ? null : { path: normalizedPath, workspaceId, requestId: openRequestId, status: 'loading' },
+      ...(shouldRevealInExplorer ? { searchQuery: '' } : {}),
+      browserReveal: shouldRevealInExplorer && options.revealInTree !== false
+        ? { path: normalizedPath, workspaceId, requestId: openRequestId, status: 'loading' }
+        : null,
     }));
 
     const isLatestOpen = () => (
@@ -1055,7 +1076,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const parentDir = getParentDirectory(normalizedPath);
     const parentDirs = getParentDirectories(normalizedPath);
 
-    const revealPromise: Promise<WorkspaceFileRevealResult> = options.revealInTree === false
+    const revealPromise: Promise<WorkspaceFileRevealResult> = !shouldRevealInExplorer || options.revealInTree === false
       ? Promise.resolve({ status: 'skipped' })
       : (async (): Promise<WorkspaceFileRevealResult> => {
           try {
@@ -1099,7 +1120,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     );
     const loadPromise: Promise<FileLoadResult> = alreadyOpen
       ? Promise.resolve({ status: 'loaded', path: normalizedPath, file: get().currentFile as CurrentFile })
-      : get().loadFile(normalizedPath, true, workspaceId, options.expectedDocumentId, isLatestOpen);
+      : get().loadFile(
+          normalizedPath,
+          true,
+          workspaceId,
+          options.expectedDocumentId,
+          isLatestOpen,
+          shouldRevealInExplorer,
+        );
 
     const [loadResult, reveal] = await Promise.all([loadPromise, revealPromise]);
     if (!isLatestOpen() || loadResult.status === 'superseded') {
@@ -1110,19 +1138,21 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return loadResult;
     }
 
-    const selectedNode = findNodeInTree(normalizedPath, get().fileTree) ?? {
-      path: normalizedPath,
-      type: 'file' as const,
-      name: normalizedPath.split('/').pop() || normalizedPath,
-    };
-    set({ selectedNode, currentDirectory: parentDir, lastSelectedPath: normalizedPath,
-      isMultiSelectMode: false, multiSelectPaths: new Set<string>(),
-      browserReveal: reveal.status === 'skipped' ? null : {
-        path: normalizedPath, workspaceId, requestId: openRequestId,
-        status: reveal.status, ...(reveal.status === 'failed' ? { error: reveal.error } : {}),
-      },
-    });
-    persistExplorerState({ currentDirectory: parentDir, expandedDirs: get().expandedDirs }, workspaceId);
+    if (shouldRevealInExplorer) {
+      const selectedNode = findNodeInTree(normalizedPath, get().fileTree) ?? {
+        path: normalizedPath,
+        type: 'file' as const,
+        name: normalizedPath.split('/').pop() || normalizedPath,
+      };
+      set({ selectedNode, currentDirectory: parentDir, lastSelectedPath: normalizedPath,
+        isMultiSelectMode: false, multiSelectPaths: new Set<string>(),
+        browserReveal: reveal.status === 'skipped' ? null : {
+          path: normalizedPath, workspaceId, requestId: openRequestId,
+          status: reveal.status, ...(reveal.status === 'failed' ? { error: reveal.error } : {}),
+        },
+      });
+      persistExplorerState({ currentDirectory: parentDir, expandedDirs: get().expandedDirs }, workspaceId);
+    }
     get().mobileFileOpened(normalizedPath, options.transitionId);
     if (workspaceId) void recordOpenedWorkspaceFile(workspaceId, normalizedPath);
     return { status: 'opened', path: normalizedPath, reveal };

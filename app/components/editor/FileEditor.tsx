@@ -48,28 +48,23 @@ import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { MediaViewer } from './MediaViewer';
 import { EditorErrorBoundary } from './EditorErrorBoundary';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import type { OfficeEditorRef } from './OfficeEditor';
 import dynamic from 'next/dynamic';
 import { useShallow } from 'zustand/react/shallow';
 
 const OfficeEditor = dynamic(() => import('./OfficeEditor').then(mod => mod.OfficeEditor), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center bg-background">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  ),
+  loading: () => <EditorModuleLoadingSkeleton />,
 });
 
-const DocxWorkspaceEditor = dynamic(() => import('./DocxWorkspaceEditor').then(mod => mod.DocxWorkspaceEditor), { ssr: false });
+const DocxWorkspaceEditor = dynamic(() => import('./DocxWorkspaceEditor').then(mod => mod.DocxWorkspaceEditor), {
+  ssr: false, loading: () => <EditorModuleLoadingSkeleton />,
+});
 
 const ExcalidrawEditor = dynamic(() => import('./ExcalidrawEditor').then(mod => mod.ExcalidrawEditor), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center bg-background">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  ),
+  loading: () => <EditorModuleLoadingSkeleton />,
 });
 
 const MARKDOWN_EXTENSIONS = new Set(['md', 'mdx', 'markdown']);
@@ -274,54 +269,12 @@ function FileHeaderTooltip({ children, label }: { children: ReactElement; label:
 
 function FileLoadingSkeleton({ path }: { path: string | null }) {
   const t = useTranslations('notebook');
-  const fileName = path?.split('/').filter(Boolean).pop() || t('loadingPreview');
+  return <DocumentLoadingSkeleton path={path} label={t('loadingPreview')} showHeader />;
+}
 
-  return (
-    <div data-testid="file-loading-skeleton" className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <Skeleton className="h-4 w-10 shrink-0" />
-          <div className="min-w-0">
-            <div className="truncate text-xs font-medium text-foreground">{fileName}</div>
-            <div className="mt-1 text-[11px] text-muted-foreground">{t('loadingPreview')}</div>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Skeleton className="h-6 w-16" />
-          <Skeleton className="h-6 w-6" />
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-4">
-        <div className="mx-auto flex h-full max-w-3xl flex-col gap-5">
-          <div className="space-y-3">
-            <Skeleton className="h-7 w-3/5" />
-            <Skeleton className="h-4 w-4/5" />
-            <Skeleton className="h-4 w-2/3" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-[92%]" />
-              <Skeleton className="h-4 w-[96%]" />
-              <Skeleton className="h-4 w-[84%]" />
-            </div>
-            <Skeleton className="hidden h-24 sm:block" />
-          </div>
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-[88%]" />
-            <Skeleton className="h-4 w-[94%]" />
-            <Skeleton className="h-4 w-[76%]" />
-          </div>
-          <div className="mt-auto grid grid-cols-3 gap-3">
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-            <Skeleton className="h-16" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+function EditorModuleLoadingSkeleton() {
+  const t = useTranslations('notebook');
+  return <DocumentLoadingSkeleton label={t('loadingPreview')} />;
 }
 
 function ImageLoadingSkeleton({ path }: { path: string | null }) {
@@ -363,6 +316,7 @@ function ImageLoadingSkeleton({ path }: { path: string | null }) {
 
 interface FileEditorProps {
   onClosePreview?: () => void;
+  onRevealInExplorer?: () => void;
 }
 
 class SupersededEditorOperation extends Error {}
@@ -377,7 +331,7 @@ function captureEditorScope() {
 
 type HtmlViewMode = 'code' | 'preview';
 
-export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
+export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
   const {
     currentFile,
@@ -1326,6 +1280,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             ) : null}
             <FileActionsDropdown
               node={currentFileNode}
+              onRevealInExplorer={onRevealInExplorer}
               showCreateActions={false}
               showMultiSelectActions={false}
               versionLineageId={currentFile.revision?.lineageId ?? collaboration?.latestRevision?.lineageId}

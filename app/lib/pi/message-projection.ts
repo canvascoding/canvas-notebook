@@ -1,3 +1,4 @@
+import { readChatFileReferences } from '@/app/lib/chat/tool-file-references';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { resizeTextReadResult } from './text-read-result';
 import { parseFileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
@@ -330,7 +331,17 @@ export function projectAgentMessageForLoadedContext(
   if (mode === 'raw') return message;
   if (message.role === 'toolResult') {
     const ranged = resizeTextReadResult(message, getTextLimit(mode)) ?? message;
-    const projected = compactToolResultMessage(ranged, mode, rawContentLength);
+    let projected = compactToolResultMessage(ranged, mode, rawContentLength);
+    const references = readChatFileReferences(message.details);
+    if (references && mode === 'display') projected = { ...projected, details: {
+      ...(projected as { details?: Record<string, unknown> }).details, chatFileReferences: references,
+    } } as AgentMessage;
+    // UI receipts are not additional model evidence and need no context tokens.
+    const projectedDetails = (projected as { details?: unknown }).details;
+    if (mode === 'context' && isRecord(projectedDetails)) {
+      const { chatFileReferences: _uiReferences, ...contextDetails } = projectedDetails;
+      projected = { ...projected, details: contextDetails } as AgentMessage;
+    }
     const view = (message.details as { toolOutputView?: unknown } | undefined)?.toolOutputView;
     // A server-created view is bounded independently; legacy details truncation
     // must not silently corrupt its text or its exact pagination coordinates.

@@ -1,3 +1,4 @@
+import { parseEmailSearchQuery, compileImapEmailSearch, andImapEmailSearch, EmailSearchQueryError } from '@/app/lib/email/search-query';
 import 'server-only';
 
 import type { Readable } from 'node:stream';
@@ -131,6 +132,9 @@ type ImapEmailListInput = {
 };
 
 type ImapReadPolicyOptions = {
+  /** Internal all-folder merge requires date sorting before per-folder pagination. */
+  sortByDate?: boolean;
+  searchCandidateLimit?: number;
   enforceReadPolicy?: boolean;
 };
 
@@ -264,7 +268,8 @@ function policyForAccount(account: StoredEmailAccount): EmailPolicy {
 }
 
 function normalizeSearchQuery(query: string | undefined): string {
-  return (query || '').trim().replace(/\s+/gu, ' ').slice(0, SEARCH_QUERY_MAX_LENGTH);
+  parseEmailSearchQuery(query);
+  return (query || '').normalize('NFC').trim();
 }
 
 function normalizeLimit(limit: number | undefined): number {
@@ -440,20 +445,16 @@ function filterForInput(input: ImapEmailListInput): ImapMessageFilter {
 }
 
 function searchObjectForInput(input: ImapEmailListInput): SearchObject {
-  const query = normalizeSearchQuery(input.query);
   const filter = filterForInput(input);
-  const search: SearchObject = query ? { text: query } : {};
-
+  const search: SearchObject = {};
   if (filter === 'unread') search.seen = false;
   if (filter === 'answered') search.answered = true;
   if (filter === 'unanswered') search.answered = false;
   if (filter === 'flagged') search.flagged = true;
-
   const from = input.from?.trim();
   if (from) search.from = from.slice(0, SEARCH_QUERY_MAX_LENGTH);
-
-  if (Object.keys(search).length === 0 || filter === 'attachments') search.all = true;
-  return search;
+  const expression = compileImapEmailSearch(parseEmailSearchQuery(input.query));
+  return Object.keys(search).length ? andImapEmailSearch(expression, search) : expression;
 }
 
 type ImapBodyStructureNode = {
@@ -707,91 +708,100 @@ export async function listImapEmailFolders(account: StoredEmailAccount) {
   };
 }
 
-export async function listImapEmailMessages(account: StoredEmailAccount, input: ImapEmailListInput, options?: ImapReadPolicyOptions) {
+type ImapListMessage = {
+  id: string; uid: string; folder: string; threadId: string; from: string; to: string[]; cc: string[];
+  subject: string; date: string | null; size: number | null; flags: string[];
+  isRead: boolean; isAnswered: boolean; isFlagged: boolean; hasAttachments: boolean; snippet: string;
+};
+type ImapListResult = {
+  account: ReturnType<typeof publicImapAccount>; folder: string; messages: ImapListMessage[];
+  scannedCount?: number; uidValidity?: string; total: number | null; offset: number; limit: number; hasMore: boolean; nextOffset: number | null; searchNotice?: string;
+};
+
+export async function listImapEmailMessages(account: StoredEmailAccount, input: ImapEmailListInput, options?: ImapReadPolicyOptions): Promise<ImapListResult> {
+  const query = normalizeSearchQuery(input.query);
+  const limit = options?.sortByDate ? Math.min(Math.max(Number.isFinite(input.limit) ? Math.trunc(Number(input.limit)) : 10, 1), 1000) : normalizeLimit(input.limit);
+  const offset = normalizeOffset(input.offset);
+  if (input.folder === 'all') {
+    const { folders, account: publicAccount } = await listImapEmailFolders(account);
+    if (folders.length > 100) throw new EmailSearchQueryError('This mailbox has more than 100 folders. Select a folder to narrow the search.');
+    const messages: ImapListMessage[] = [];
+    const notices = new Set<string>();
+    let complete = true;
+    let total = 0;
+    let scannedCount = 0;
+    for (const folder of folders) {
+      if (scannedCount >= 2000) {
+        complete = false;
+        notices.add('All-folder search reached its 2000-candidate limit before checking every folder. Select a folder or narrow the query.');
+        break;
+      }
+      const page = await listImapEmailMessages(account, { ...input, folder: folder.path, offset: 0, limit: Math.min(1000, offset + limit + 1) },
+        { ...options, sortByDate: true, searchCandidateLimit: Math.min(1000, 2000 - scannedCount) });
+      messages.push(...page.messages);
+      scannedCount += page.scannedCount || 0;
+      if (page.searchNotice) notices.add(page.searchNotice);
+      if (page.total === null) complete = false;
+      else total += page.total;
+    }
+    messages.sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')) || left.id.localeCompare(right.id));
+    const hasMore = messages.length > offset + limit;
+    return { account: publicAccount, folder: 'all', messages: messages.slice(offset, offset + limit),
+      offset, limit, total: complete ? total : null, hasMore, nextOffset: hasMore ? offset + limit : null,
+      ...(notices.size ? { searchNotice: [...notices].join(' ') } : {}),
+    };
+  }
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   requireImapSecret(secret);
-  const query = normalizeSearchQuery(input.query);
-  const limit = normalizeLimit(input.limit);
-  const offset = normalizeOffset(input.offset);
   const filter = filterForInput(input);
   const policy = policyForAccount(account);
   const enforceReadPolicy = options?.enforceReadPolicy !== false;
-
   const result = await withImapMailbox(secret, input.folder, async (client, folder) => {
     const uidValidity = getImapMailboxUidValidity(client);
-    const found = await client.search(query ? searchObjectForInput({ ...input, query }) : searchObjectForInput(input), { uid: true });
+    const found = await client.search(searchObjectForInput({ ...input, query }), { uid: true });
     const ordered = (found || []).slice().reverse();
-    const candidateLimit = filter === 'attachments' ? Math.max(limit * 8, 200) : limit;
-    const uids = ordered.slice(offset, offset + candidateLimit);
-    if (uids.length === 0) {
-      return {
-        folder,
-        uidValidity,
-        messages: [],
-        total: ordered.length,
-        offset,
-        limit,
-      };
+    const normalized: ImapListMessage[] = [];
+    const scanLimit = Math.min(ordered.length, options?.sortByDate ? (options.searchCandidateLimit || 1000) : Math.max(offset + limit + 1, 1000));
+    let scanned = 0;
+    while (scanned < scanLimit && (options?.sortByDate || normalized.length < offset + limit + 1)) {
+      const uids = ordered.slice(scanned, Math.min(scanned + 100, scanLimit));
+      const loaded: FetchMessageObject[] = [];
+      for await (const message of client.fetch(uids, {
+        uid: true, flags: true, envelope: true, internalDate: true, size: true,
+        bodyStructure: true, source: { maxLength: SEARCH_SOURCE_MAX_BYTES }, threadId: true,
+      }, { uid: true })) loaded.push(message);
+      scanned += uids.length;
+      const order = new Map(uids.map((uid, index) => [uid, index]));
+      loaded.sort((left, right) => (order.get(left.uid) ?? 0) - (order.get(right.uid) ?? 0));
+      for (const message of loaded) {
+        const from = firstAddress(message.envelope);
+        if (enforceReadPolicy && !isEmailAddressAllowed(from, policy.readFrom)) continue;
+        const hasAttachments = hasAttachmentBodyStructure(message.bodyStructure);
+        if (filter === 'attachments' && !hasAttachments) continue;
+        const flags = publicFlags(message.flags);
+        normalized.push({
+          id: createImapMessageReference(folder, uidValidity, message.uid), uid: String(message.uid), folder,
+          threadId: message.threadId || String(message.uid), from,
+          to: formatAddressList(message.envelope?.to), cc: formatAddressList(message.envelope?.cc),
+          subject: message.envelope?.subject || '', date: isoDate(message.envelope?.date || message.internalDate),
+          size: message.size || null, flags, isRead: hasFlag(flags, '\\Seen'),
+          isAnswered: hasFlag(flags, '\\Answered'), isFlagged: hasFlag(flags, '\\Flagged'), hasAttachments,
+          snippet: await snippetFromSource(message.source),
+        });
+      }
     }
-
-    const loaded: FetchMessageObject[] = [];
-    for await (const message of client.fetch(uids, {
-      uid: true,
-      flags: true,
-      envelope: true,
-      internalDate: true,
-      size: true,
-      bodyStructure: true,
-      source: { maxLength: SEARCH_SOURCE_MAX_BYTES },
-      threadId: true,
-    }, { uid: true })) {
-      loaded.push(message);
-    }
-
-    const order = new Map(uids.map((uid, index) => [uid, index]));
-    loaded.sort((left, right) => (order.get(left.uid) ?? 0) - (order.get(right.uid) ?? 0));
-
-    const normalized = [];
-    for (const message of loaded) {
-      const from = firstAddress(message.envelope);
-      if (enforceReadPolicy && !isEmailAddressAllowed(from, policy.readFrom)) continue;
-      const hasAttachments = hasAttachmentBodyStructure(message.bodyStructure);
-      if (filter === 'attachments' && !hasAttachments) continue;
-      const flags = publicFlags(message.flags);
-      normalized.push({
-        id: createImapMessageReference(folder, uidValidity, message.uid),
-        uid: String(message.uid),
-        folder,
-        threadId: message.threadId || String(message.uid),
-        from,
-        to: formatAddressList(message.envelope?.to),
-        cc: formatAddressList(message.envelope?.cc),
-        subject: message.envelope?.subject || '',
-        date: isoDate(message.envelope?.date || message.internalDate),
-        size: message.size || null,
-        flags,
-        isRead: hasFlag(flags, '\\Seen'),
-        isAnswered: hasFlag(flags, '\\Answered'),
-        isFlagged: hasFlag(flags, '\\Flagged'),
-        hasAttachments,
-        snippet: await snippetFromSource(message.source),
-      });
-    }
-    return {
-      folder,
-      uidValidity,
-      messages: normalized.slice(0, limit),
-      total: ordered.length,
-      offset,
-      limit,
+    if (options?.sortByDate) normalized.sort((left, right) => String(right.date || '').localeCompare(String(left.date || '')) || left.id.localeCompare(right.id));
+    const hasMore = normalized.length > offset + limit;
+    const bounded = scanned >= scanLimit && scanned < ordered.length;
+    const notices = [bounded ? `Search checked ${scanLimit} candidates. Narrow the search to find further matches.` : '',
+      enforceReadPolicy ? 'Results are restricted by this mailbox’s read policy.' : ''].filter(Boolean);
+    return { folder, uidValidity, scannedCount: scanned, messages: normalized.slice(offset, offset + limit), total: scanned === ordered.length ? normalized.length : null,
+      offset, limit, hasMore, nextOffset: hasMore ? offset + limit : null,
+      ...(notices.length ? { searchNotice: notices.join(' ') } : {}),
     };
   });
-
-  return {
-    account: publicImapAccount(account, secret),
-    ...result,
-  };
+  return { account: publicImapAccount(account, secret), ...result };
 }
 
 export async function searchImapEmail(account: StoredEmailAccount, input: ImapEmailListInput) {

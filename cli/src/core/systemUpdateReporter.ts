@@ -49,6 +49,7 @@ export class SystemUpdateEventReporter {
     status: SystemUpdateStageStatus,
     message: string,
     errorCode?: SystemUpdateErrorCode,
+    rollbackImageVerified?: true,
     activity?: SystemUpdateActivity,
   ): SystemUpdateEvent | null {
     if (!this.enabled) return null;
@@ -65,6 +66,7 @@ export class SystemUpdateEventReporter {
       occurredAt: this.now().toISOString(),
       ...(errorCode ? { errorCode } : {}),
       ...(activity ? { activity } : {}),
+      ...(rollbackImageVerified ? { rollbackImageVerified } : {}),
     };
     const validated = validateSystemUpdateEvent(event);
     if (!validated.ok) throw new Error(validated.error);
@@ -74,7 +76,7 @@ export class SystemUpdateEventReporter {
       this.timer = setInterval(() => {
         const active = this.active;
         if (!active) return;
-        this.emit(active.stage, 'running', active.message, undefined, {
+        this.emit(active.stage, 'running', active.message, undefined, undefined, {
           kind: 'keepalive',
           elapsedMs: Math.max(0, Math.floor(performance.now() - active.startedAt)),
         });
@@ -99,7 +101,7 @@ export class SystemUpdateEventReporter {
       && active.lastHealthAt !== undefined && now - active.lastHealthAt < this.activityIntervalMs) return;
     active.lastHealthAt = now;
     this.emit(active.stage, 'running', details.healthy ? 'Canvas Notebook health check passed.' : 'Waiting for Canvas Notebook health.',
-      undefined, { ...details, kind: 'health_check' });
+      undefined, undefined, { ...details, kind: 'health_check' });
   }
 
   running(stage: SystemUpdateStage, message: string): SystemUpdateEvent | null {

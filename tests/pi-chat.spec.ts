@@ -2928,4 +2928,160 @@ contentKind: document
       })
       .toContain('READY');
   });
+
+  for (const viewport of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'mobile', width: 390, height: 844 }]) {
+    test(`should keep tool file references compact and stable on ${viewport.name}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const sessionId = `sess-reference-summary-${viewport.name}`;
+      const timestamp = Date.now();
+      const references = Array.from({ length: 14 }, (_, index) => ({
+        workspaceId: 'pending-workspace', path: `reports/Report-${String(index + 1).padStart(2, '0')}.odt`,
+        kind: index === 1 ? 'changed' : 'created', toolCallId: 'references-write',
+      }));
+      const readReferences = Array.from({ length: 3 }, (_, index) => ({
+        workspaceId: 'pending-workspace', path: `inputs/Brief-${index + 1}.pdf`, kind: 'read', toolCallId: `references-read-${index}`,
+      }));
+      const outputDetails = { chatFileReferences: { version: 1, references } };
+      const reply = 'Die Dokumente sind fertig. reports/example-only.odt ist nur ein Beispiel.\n\n[absolute server path omitted from persisted chat history]';
+      const assistant = {
+        id: 7, sequence: 7, role: 'assistant', content: [{ type: 'text', text: reply }],
+        api: 'mock', provider: 'mock', model: 'mock-model', usage: EMPTY_USAGE, stopReason: 'stop', timestamp: timestamp + 7,
+      };
+      const toolResults = [
+        { id: 3, sequence: 3, role: 'toolResult', toolName: 'apply_patch', toolCallId: 'references-write', content: [{ type: 'text', text: 'Created 14 reports.' }], details: outputDetails, isError: false, timestamp: timestamp + 3 },
+        ...readReferences.map((reference, index) => ({
+          id: index + 4, sequence: index + 4, role: 'toolResult', toolName: 'read', toolCallId: reference.toolCallId,
+          content: [{ type: 'text', text: 'Read briefing.' }], details: { chatFileReferences: { version: 1, references: [reference] } }, isError: false, timestamp: timestamp + index + 4,
+        })),
+      ];
+      const persisted = [
+        { id: 1, sequence: 1, role: 'user', content: 'Erstelle die Dokumente aus meinen Briefings.', timestamp },
+        { ...assistant, id: 2, sequence: 2, timestamp: timestamp + 1, stopReason: 'toolUse', content: [
+          { type: 'toolCall', id: 'references-write', name: 'apply_patch', arguments: { patch: 'mock patch' } },
+          ...readReferences.map((reference) => ({ type: 'toolCall', id: reference.toolCallId, name: 'read', arguments: { path: reference.path } })),
+        ] },
+        ...toolResults, assistant,
+      ];
+      let historyReads = 0;
+      let createdSession: Record<string, unknown> | null = null;
+      const historyPage = () => ({ success: true, messages: persisted, hasMoreBefore: false, oldestMessageId: 1, oldestSequence: 1, oldestTimestamp: persisted[0].timestamp });
+      await mockEmptyChatBootstrap(page, { sessionId, title: 'Document references' });
+      await page.route('**/api/sessions/messages?**', async (route) => {
+        historyReads += 1;
+        await route.fulfill({ json: historyPage() });
+      });
+      await page.route(`**/api/sessions/${sessionId}/bootstrap?**`, async (route) => {
+        historyReads += 1;
+        await route.fulfill({ json: { success: true, session: { ...createdSession,
+          workspace: { workspaceId: references[0].workspaceId, workspaceType: 'personal', workspaceName: 'Personal Workspace' },
+        }, messages: historyPage() } });
+      });
+      await page.route('**/api/files/exists?**', async (route) => {
+        const filePath = new URL(route.request().url()).searchParams.get('path');
+        await route.fulfill({ json: { success: true, data: { path: filePath, exists: true, type: 'file' } } });
+      });
+      await setupMockWebSocket(page, {
+        sessionId,
+        onSendMessage: (message, context) => {
+          expect(typeof message.timestamp).toBe('number');
+          persisted[0].timestamp = message.timestamp as number;
+          const workspaceId = (context?.workspace as { workspaceId?: string } | undefined)?.workspaceId;
+          expect(workspaceId).toBeTruthy();
+          [...references, ...readReferences].forEach((reference) => { reference.workspaceId = workspaceId!; });
+        },
+        agentEvents: [
+          ...toolResults.flatMap((result) => [
+            { type: 'tool_execution_start', toolCallId: result.toolCallId, toolName: result.toolName, args: {} },
+            { type: 'tool_execution_end', toolCallId: result.toolCallId, toolName: result.toolName, result: { content: result.content, details: result.details }, isError: false },
+          ]),
+          { type: 'message_start', message: assistant },
+          { type: 'message_end', message: assistant },
+          { type: 'agent_end' },
+          { type: 'runtime_status', status: createMockRuntimeStatus(sessionId) },
+        ],
+      });
+      await page.goto('/notebook?chat=open');
+      await startFreshChat(page);
+      await page.getByTestId('chat-input').fill('Erstelle die Dokumente aus meinen Briefings.');
+      const creationResponse = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/sessions' && response.request().method() === 'POST');
+      await page.getByTestId('chat-send').click();
+      createdSession = (await (await creationResponse).json()).session;
+
+      const panel = page.getByTestId('chat-file-references');
+      const items = panel.getByTestId('chat-file-reference-item');
+      await expect(panel).toHaveCount(1);
+      await expect(items).toHaveCount(3);
+      await expect(panel).toContainText('17');
+      await expect(page.getByTestId('chat-message-assistant')).not.toContainText('omitted from');
+      await expect(panel.locator('[data-path="reports/example-only.odt"]')).toHaveCount(0);
+      await expect(panel.locator('[data-path^="inputs/"]')).toHaveCount(0);
+      await panel.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`references-${viewport.name}-collapsed.png`) });
+      await panel.getByTestId('chat-file-references-expand').click();
+      await expect(items).toHaveCount(14);
+      await panel.getByTestId('chat-file-references-search').fill('Report-14');
+      await expect(items).toHaveCount(1);
+      await expect(items.first()).toHaveAttribute('data-path', 'reports/Report-14.odt');
+      await panel.getByTestId('chat-file-references-search').fill('not-a-document');
+      await expect(items).toHaveCount(0);
+      await panel.getByTestId('chat-file-references-search').fill('');
+      await panel.getByTestId('chat-read-references-toggle').click();
+      await expect(items).toHaveCount(17);
+      await panel.scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`references-${viewport.name}-expanded.png`) });
+      // The chat's scrollport extends behind its absolute composer. Browser
+      // scrollIntoViewIfNeeded checks that larger box, not the unoccluded area.
+      // Scroll as a user would, outside the results' nested scrolling list.
+      const composer = page.getByTestId('chat-input').locator('xpath=ancestor::div[contains(@class, "bottom-0")][1]');
+      const scrollRegionBounds = await page.getByTestId('chat-scroll-region').boundingBox();
+      const composerBounds = await composer.boundingBox();
+      const lastReadBounds = await items.last().boundingBox();
+      expect(scrollRegionBounds).not.toBeNull();
+      expect(composerBounds).not.toBeNull();
+      expect(lastReadBounds).not.toBeNull();
+      await page.mouse.move(scrollRegionBounds!.x + scrollRegionBounds!.width - 4, scrollRegionBounds!.y + 24);
+      await page.mouse.wheel(0, Math.max(120, lastReadBounds!.y + lastReadBounds!.height - composerBounds!.y + 24));
+      await expect.poll(async () => {
+        const row = await items.last().boundingBox();
+        const overlay = await composer.boundingBox();
+        return Boolean(row && overlay && row.y + row.height <= overlay.y);
+      }).toBe(true);
+      await expect.poll(() => items.last().evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        return hit !== null && element.contains(hit);
+      })).toBe(true);
+      await page.screenshot({ path: testInfo.outputPath(`references-${viewport.name}-reads.png`) });
+      const bounds = await panel.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width + 1);
+
+      const readsBeforeRefresh = historyReads;
+      await page.evaluate((targetSessionId) => {
+        window.dispatchEvent(new CustomEvent('agent_event', { detail: { sessionId: targetSessionId, event: { type: 'message_saved' } } }));
+      }, sessionId);
+      await expect.poll(() => historyReads).toBeGreaterThan(readsBeforeRefresh);
+      await expect(items).toHaveCount(17);
+      await expect(panel.getByTestId('chat-read-references-toggle')).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.getByTestId('chat-message-assistant').last()).not.toContainText('omitted from');
+
+      await panel.getByTestId('chat-read-references-toggle').click();
+      await expect(items).toHaveCount(14);
+      await panel.getByTestId('chat-file-references-expand').click();
+      await expect(items).toHaveCount(3);
+
+      const readsBeforeReload = historyReads;
+      await page.goto(`/notebook?chat=open&session=${sessionId}`);
+      await expect.poll(() => historyReads).toBeGreaterThan(readsBeforeReload);
+      await expect(panel).toHaveCount(1, { timeout: 15000 });
+      await expect(items).toHaveCount(3);
+      await panel.getByTestId('chat-file-references-expand').click();
+      await expect(items).toHaveCount(14);
+      await panel.getByTestId('chat-read-references-toggle').click();
+      await expect(items).toHaveCount(17);
+      await expect(panel.locator('[data-path="reports/example-only.odt"]')).toHaveCount(0);
+    });
+  }
+
 });

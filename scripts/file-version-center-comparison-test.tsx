@@ -1,3 +1,4 @@
+import { getNotebookQueryClient } from '../app/lib/queries/client';
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { act } from 'react';
@@ -395,4 +396,4 @@ async function main() {
   console.log('file-version-center-comparison-test: ok');
 }
 
-void main().catch((error) => { console.error(error); process.exitCode = 1; });
+void main().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => getNotebookQueryClient().clear());

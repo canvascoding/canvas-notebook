@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeftRight, Inbox, Loader2, Lock, Pencil, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 
 import {
   AlertDialog,
@@ -66,6 +67,8 @@ export function WorkspaceManagementCard({
 }: WorkspaceManagementCardProps) {
   const t = useTranslations('settings.workspacePanel.management');
   const workspaceTypesT = useTranslations('workspaces.types');
+  const mailboxWorkspaceId = useSearchParams().get('mailboxWorkspaceId');
+  const [dismissedMailboxWorkspaceId, setDismissedMailboxWorkspaceId] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDeeplinkDismissed, setCreateDeeplinkDismissed] = useState(false);
@@ -86,6 +89,9 @@ export function WorkspaceManagementCard({
   const projectFeaturesEnabled = useWorkspaceStore((state) => state.projectFeaturesEnabled);
 
   const effectiveTeamFeaturesEnabled = teamFeaturesEnabled || storeTeamFeaturesEnabled;
+  const selectedMailboxWorkspace = mailboxTarget || (mailboxWorkspaceId !== dismissedMailboxWorkspaceId
+    ? workspaces.find(workspace => workspace.id === mailboxWorkspaceId && workspace.status === 'active' && workspace.permissions.canManageWorkspace)
+    : null);
   const hasOrganizationWorkspace = workspaces.some(
     (workspace) => workspace.type === 'organization' && workspace.status === 'active',
   );
@@ -370,11 +376,14 @@ export function WorkspaceManagementCard({
       />
 
       <WorkspaceMailboxAssignmentDialog
-        open={Boolean(mailboxTarget)}
+        open={Boolean(selectedMailboxWorkspace)}
         onOpenChange={(open) => {
-          if (!open) setMailboxTarget(null);
+          if (!open) {
+            setMailboxTarget(null);
+            setDismissedMailboxWorkspaceId(mailboxWorkspaceId);
+          }
         }}
-        workspace={mailboxTarget ? { id: mailboxTarget.id, name: mailboxTarget.name } : null}
+        workspace={selectedMailboxWorkspace ? { id: selectedMailboxWorkspace.id, name: selectedMailboxWorkspace.name } : null}
       />
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {

@@ -1,0 +1,76 @@
+{
+  "checkedAt": "2026-09-22T19:36:50.134Z",
+  "operationId": "692f4a98-7d82-423a-8a19-3fead610a592",
+  "tests": [
+    {
+      "test": "valid_authenticated_snapshot",
+      "httpStatus": 200,
+      "cors": "http://localhost:3100",
+      "code": null,
+      "status": "failed",
+      "stage": "config_preflight",
+      "errorCode": "update_execution_failed",
+      "rolledBack": false,
+      "lastSequence": 36,
+      "eventCount": 36
+    },
+    {
+      "test": "expired_ticket_readable_401",
+      "httpStatus": 401,
+      "cors": "http://localhost:3100",
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "tampered_ticket_readable_401",
+      "httpStatus": 401,
+      "cors": "http://localhost:3100",
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "missing_ticket_readable_401",
+      "httpStatus": 401,
+      "cors": "http://localhost:3100",
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "ticket_for_different_operation_denied",
+      "httpStatus": 401,
+      "cors": "http://localhost:3100",
+      "code": "status_ticket_invalid"
+    },
+    {
+      "test": "valid_signed_other_vm_denied",
+      "httpStatus": 404,
+      "cors": "http://localhost:3100",
+      "code": "operation_not_found"
+    },
+    {
+      "test": "wrong_origin_denied",
+      "httpStatus": 403,
+      "cors": null,
+      "code": null
+    },
+    {
+      "test": "cursor_tail",
+      "httpStatus": 200,
+      "cors": "http://localhost:3100",
+      "code": null,
+      "status": "failed",
+      "stage": "config_preflight",
+      "errorCode": "update_execution_failed",
+      "rolledBack": false,
+      "lastSequence": 36,
+      "eventCount": 1
+    },
+    {
+      "test": "exact_origin_preflight",
+      "httpStatus": 204,
+      "cors": "http://localhost:3100"
+    },
+    {
+      "test": "wrong_origin_preflight",
+      "httpStatus": 403,
+      "cors": null
+    }
+  ]
+}

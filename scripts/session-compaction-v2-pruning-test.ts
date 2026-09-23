@@ -9,13 +9,16 @@ import assert from 'node:assert/strict';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
+import { DEFAULT_PI_CONTEXT_BUDGET_POLICY } from '../app/lib/pi/context-budget';
 import {
   createPiSkillPrunedMarker,
+  demotePiLeanTailToolResults,
   filterPiLowSignalToolRows,
   isPiLowSignalToolResult,
   PI_SKILL_PRUNED_MARKER_PREFIX,
   prunePiSessionHistory,
 } from '../app/lib/pi/compaction/pruning';
+import { composePiHistoryForLlm } from '../app/lib/pi/history-budget';
 
 function assistant(content: unknown, extra: Record<string, unknown> = {}): AgentMessage {
   return {
@@ -211,6 +214,96 @@ function main(): void {
     false,
     'skill marker names are sanitized before prompt reinjection',
   );
+
+  const leanTail: AgentMessage[] = Array.from({ length: 8 }, (_, index) => [
+    call(`lean-${index}`, 'web_search', { query: `historical query ${index}` }),
+    result(`lean-${index}`, 'web_search', `historical web result ${index}: ${'detail '.repeat(350)}`),
+  ]).flat();
+  leanTail.push(user('Use the newest research result for the active answer.'));
+  const leanOriginal = JSON.stringify(leanTail);
+  const leanDemoted = demotePiLeanTailToolResults({
+    messages: leanTail,
+    tailMessages: leanTail,
+    sessionId: 'lean-tail-session',
+    authorizedSessionId: 'lean-tail-session',
+    sessionSearchAvailable: true,
+  });
+  assert.equal(leanDemoted.changed, true);
+  assert.equal(leanDemoted.demotedResultCount, 2,
+    'only tool rounds older than Hermes\' six-round Lean floor are demoted');
+  assert.match(textOf(leanDemoted.messages[1]), /output demoted at compaction/u);
+  assert.match(textOf(leanDemoted.messages[1]), /session_search\(query='<keywords>', session_id='lean-tail-session'\)/u);
+  assert.equal(textOf(leanDemoted.messages[13]).includes('output demoted at compaction'), false,
+    'the six newest tool rounds remain verbatim');
+  assert.equal(JSON.stringify(leanTail), leanOriginal, 'Lean tail demotion never mutates durable raw history');
+  assert.equal(demotePiLeanTailToolResults({
+    messages: leanDemoted.messages,
+    tailMessages: leanDemoted.messages,
+    sessionId: 'lean-tail-session',
+    authorizedSessionId: 'lean-tail-session',
+    sessionSearchAvailable: true,
+  }).changed, false, 'Lean tool stubs are idempotent across compaction cycles');
+  assert.doesNotMatch(textOf(demotePiLeanTailToolResults({
+    messages: leanTail,
+    tailMessages: leanTail,
+    sessionId: 'lean-tail-session',
+    authorizedSessionId: 'another-session',
+    sessionSearchAvailable: true,
+  }).messages[1]), /session_search/u, 'an unauthorized tail projection never receives a recovery pointer');
+
+  const sameTurnRounds: AgentMessage[] = [user('Research this before answering the active request.')];
+  for (let index = 0; index < 8; index += 1) {
+    sameTurnRounds.push(
+      call(`same-turn-${index}`, 'web_search', { query: `current turn ${index}` }),
+      result(`same-turn-${index}`, 'web_search', `current result ${index}: ${'detail '.repeat(350)}`),
+    );
+  }
+  const sameTurnRaw = JSON.stringify(sameTurnRounds);
+  const leanPolicy = {
+    ...DEFAULT_PI_CONTEXT_BUDGET_POLICY,
+    tailMode: 'lean' as const,
+    protectFirstMessages: 0,
+  };
+  const composedWithRecovery = composePiHistoryForLlm({
+    messages: sameTurnRounds,
+    summary: { summaryText: null, summaryUpdatedAt: null, summaryThroughTimestamp: null, summaryThroughSequence: null, summaryRevision: 0 },
+    systemPromptTokens: 10,
+    contextWindow: 64_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 1_000,
+    toolTokens: 0,
+    sessionId: 'same-turn-tail-session',
+    authorizedSessionId: 'same-turn-tail-session',
+    sessionSearchAvailable: true,
+    selectionMode: 'force',
+    policy: leanPolicy,
+  });
+  assert.match(textOf(composedWithRecovery.llmMessages.find((message) => (
+    message.role === 'toolResult' && message.toolCallId === 'same-turn-0'
+  ))!), /output demoted at compaction.*session_search/u,
+  'completed tool groups after the newest user turn still demote beyond Hermes\' six-round floor');
+  assert.equal(textOf(composedWithRecovery.llmMessages.find((message) => (
+    message.role === 'toolResult' && message.toolCallId === 'same-turn-7'
+  ))!).includes('output demoted at compaction'), false);
+  const composedWithoutRecovery = composePiHistoryForLlm({
+    messages: sameTurnRounds,
+    summary: { summaryText: null, summaryUpdatedAt: null, summaryThroughTimestamp: null, summaryThroughSequence: null, summaryRevision: 0 },
+    systemPromptTokens: 10,
+    contextWindow: 64_000,
+    modelMaxTokens: 1_000,
+    requestOutputTokens: 1_000,
+    toolTokens: 0,
+    sessionId: 'same-turn-tail-session',
+    authorizedSessionId: 'same-turn-tail-session',
+    sessionSearchAvailable: false,
+    selectionMode: 'force',
+    policy: leanPolicy,
+  });
+  assert.doesNotMatch(textOf(composedWithoutRecovery.llmMessages.find((message) => (
+    message.role === 'toolResult' && message.toolCallId === 'same-turn-0'
+  ))!), /session_search/u, 'disabled session_search is never advertised by a Lean tail stub');
+  assert.equal(JSON.stringify(sameTurnRounds), sameTurnRaw,
+    'composed Lean tail stubs preserve the durable transcript for later search and compaction cycles');
 
   console.log('session-compaction-v2-pruning-test: ok');
 }

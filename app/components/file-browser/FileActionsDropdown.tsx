@@ -10,6 +10,7 @@ import {
   Download,
   FilePlus,
   FolderPlus,
+  FolderSearch,
   FolderInput,
   ImagePlus,
   Images,
@@ -83,6 +84,7 @@ interface FileActionsDropdownProps {
   onAfterDelete?: (node: FileNode) => void;
   onAfterRename?: (oldPath: string, newPath: string, node: FileNode) => void;
   onAfterMove?: (oldPath: string, newPath: string, node: FileNode) => void;
+  onRevealInExplorer?: () => void;
   versionLineageId?: string | null;
   versionCenterSource?: FileVersionMenuSource;
 }
@@ -99,6 +101,7 @@ export function FileActionsDropdown({
   onAfterDelete,
   onAfterRename,
   onAfterMove,
+  onRevealInExplorer,
   versionLineageId,
   versionCenterSource = 'file_browser',
 }: FileActionsDropdownProps) {
@@ -570,6 +573,12 @@ export function FileActionsDropdown({
               <DropdownMenuSeparator />
             </>
           )}
+          {onRevealInExplorer ? (
+            <DropdownMenuItem onSelect={onRevealInExplorer} disabled={!node}>
+              <FolderSearch className="h-4 w-4" />
+              {t('revealInFileBrowser')}
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem onSelect={handleCopyPath} disabled={!node}>
             <Copy className="h-4 w-4" />
             {t('copyPath')}

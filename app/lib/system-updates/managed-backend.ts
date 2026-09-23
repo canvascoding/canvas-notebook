@@ -5,7 +5,8 @@ import {
   type SystemUpdateEvent,
   type SystemUpdateReleaseChannel,
 } from '@/cli/src/core/systemUpdateContract';
-import { getManagedControlPlaneBaseUrl } from '@/app/lib/managed/control-plane-url';
+import packageJson from '@/package.json';
+import { getManagedSystemUpdateOrigin } from '@/app/lib/managed/control-plane-url-policy';
 
 import {
   SystemUpdateBackendError,
@@ -77,26 +78,26 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
   private readonly baseUrl: string;
   private readonly token: string;
 
+  private readonly configurationError: SystemUpdateBackendError | null;
+
   constructor(env: NodeJS.ProcessEnv = process.env) {
-    const configuredUrl = getManagedControlPlaneBaseUrl();
-    const token = env.CANVAS_INSTANCE_TOKEN?.trim();
-    if (!configuredUrl || !token) {
-      throw new SystemUpdateBackendError(503, 'control_plane_unavailable', 'Managed Control Plane update service is not configured.');
-    }
-    let parsed: URL;
+    this.token = env.CANVAS_INSTANCE_TOKEN?.trim() || '';
+    let baseUrl = '';
+    let error: SystemUpdateBackendError | null = null;
     try {
-      parsed = new URL(configuredUrl);
-    } catch {
-      throw new SystemUpdateBackendError(503, 'control_plane_unavailable', 'Managed Control Plane URL is invalid.');
+      baseUrl = getManagedSystemUpdateOrigin(env);
+      if (!this.token) throw new Error('Managed updates require CANVAS_INSTANCE_TOKEN from the Control Plane.');
+    } catch (cause) {
+      error = new SystemUpdateBackendError(503, 'managed_configuration_invalid', safeErrorMessage(
+        cause instanceof Error ? cause.message : null, 'Managed Control Plane configuration is invalid.',
+      ));
     }
-    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname))) {
-      throw new SystemUpdateBackendError(503, 'control_plane_unavailable', 'Managed Control Plane URL must use HTTPS.');
-    }
-    this.baseUrl = configuredUrl.replace(/\/+$/u, '');
-    this.token = token;
+    this.baseUrl = baseUrl;
+    this.configurationError = error;
   }
 
   private async request(method: 'GET' | 'POST', requestPath: string, body?: unknown): Promise<unknown> {
+    if (this.configurationError) throw this.configurationError;
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -109,6 +110,7 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
         },
         body: body === undefined ? undefined : JSON.stringify(body),
         cache: 'no-store',
+        redirect: 'error',
         signal: controller.signal,
       });
       const buffer = await response.arrayBuffer();
@@ -143,8 +145,13 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
   }
 
   async getAvailability(channel: SystemUpdateReleaseChannel): Promise<SystemUpdateAvailability> {
+    if (this.configurationError) return {
+      contractVersion: 1, mode: 'managed', platform: 'canvas-installer', channel,
+      currentVersion: packageJson.version || null, updateAvailable: null, ready: false,
+      reasons: [this.configurationError.code], release: null, instructions: [],
+    };
     return parseAvailability(
-      await this.request('GET', `/v1/managed-system-updates/availability?channel=${encodeURIComponent(channel)}`),
+      await this.request('GET', `/v1/managed/system-updates/availability?channel=${encodeURIComponent(channel)}`),
       channel,
     );
   }
@@ -153,7 +160,7 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
     if (!input.expectedReleaseId) {
       throw new SystemUpdateBackendError(400, 'request_invalid', 'Expected managed release ID is required.');
     }
-    const response = await this.request('POST', '/v1/managed-system-updates', input);
+    const response = await this.request('POST', '/v1/managed/system-updates', input);
     const operation = typeof response === 'object' && response !== null
       ? (response as { operation?: unknown }).operation
       : null;
@@ -161,15 +168,19 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
   }
 
   async getOperation(operationId: string): Promise<SystemUpdateOperationView> {
-    const response = await this.request('GET', `/v1/managed-system-updates/${encodeURIComponent(operationId)}`);
+    const response = await this.request('GET', `/v1/managed/system-updates/${encodeURIComponent(operationId)}`);
     const operation = typeof response === 'object' && response !== null
       ? (response as { operation?: unknown }).operation
       : null;
-    return parseOperation(operation);
+    const parsed = parseOperation(operation);
+    if (parsed.operationId !== operationId) {
+      throw new SystemUpdateBackendError(502, 'control_plane_protocol_invalid', 'Control Plane returned another update operation.');
+    }
+    return parsed;
   }
 
   async getEvents(operationId: string, afterSequence: number): Promise<SystemUpdateOperationSnapshot> {
-    const response = await this.request('GET', `/v1/managed-system-updates/${encodeURIComponent(operationId)}/events?after=${afterSequence}`);
+    const response = await this.request('GET', `/v1/managed/system-updates/${encodeURIComponent(operationId)}/events?after=${afterSequence}`);
     if (typeof response !== 'object' || response === null || Array.isArray(response)) {
       throw new SystemUpdateBackendError(502, 'control_plane_protocol_invalid', 'Control Plane update snapshot is invalid.');
     }
@@ -181,7 +192,16 @@ export class ManagedSystemUpdateBackend implements SystemUpdateBackend {
     return { operation, events: parseEvents(candidate.events, operationId) };
   }
 
-  async createStatusAccess(_operationId: string): Promise<SystemUpdateStatusAccess | null> {
-    return null;
+  async createStatusAccess(operationId: string): Promise<SystemUpdateStatusAccess | null> {
+    const response = await this.request('POST', `/v1/managed/system-updates/${encodeURIComponent(operationId)}/status-ticket`);
+    const access = response as Partial<SystemUpdateStatusAccess> | null;
+    const relativePath = `/v1/managed/system-updates/${encodeURIComponent(operationId)}/status`;
+    const expectedPath = `${this.baseUrl}${relativePath}`;
+    if (!access || (access.path !== expectedPath && access.path !== relativePath) || access.transport !== 'snapshot' ||
+        typeof access.ticket !== 'string' || !access.ticket || access.ticket.length > 8192 || /[\r\n]/u.test(access.ticket) ||
+        typeof access.expiresAt !== 'string' || !Number.isFinite(Date.parse(access.expiresAt)) || Date.parse(access.expiresAt) <= Date.now()) {
+      throw new SystemUpdateBackendError(502, 'control_plane_protocol_invalid', 'Control Plane status access is invalid.');
+    }
+    return { path: expectedPath, ticket: access.ticket, expiresAt: access.expiresAt, transport: 'snapshot' };
   }
 }

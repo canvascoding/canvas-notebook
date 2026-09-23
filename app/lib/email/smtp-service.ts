@@ -2,6 +2,7 @@ import 'server-only';
 
 import {
   getEmailAccountForUser,
+  getPersonalEmailAccountForUser,
   publicStoredEmailAccount,
   readStoredEmailAccountSecret,
   upsertSmtpEmailAccount,
@@ -92,7 +93,11 @@ export function normalizeSmtpAccountInput(input: SmtpAccountInput, existingSecre
   const imapHost = normalizeOptionalHost(input.imapHost, 'IMAP host');
   const imapPort = normalizeOptionalPort(input.imapPort, 'IMAP port');
   const imapUsername = input.imapUsername ? normalizeRequiredSmtpString(input.imapUsername, 'IMAP username') : undefined;
-  const imapPassword = input.imapPassword ? normalizeRequiredSmtpString(input.imapPassword, 'IMAP password') : existingSecret?.imap?.password;
+  // A cleared IMAP section means send-only. Reuse its password only while
+  // the connection is still configured; otherwise edits could never disable it.
+  const imapPassword = input.imapPassword
+    ? normalizeRequiredSmtpString(input.imapPassword, 'IMAP password')
+    : (imapHost || imapPort || imapUsername) ? existingSecret?.imap?.password : undefined;
 
   if ((imapHost || imapPort || imapUsername || imapPassword) && (!imapHost || !imapPort || !imapUsername || !imapPassword)) {
     throw new Error('IMAP host, port, username, and password are all required when IMAP is configured.');
@@ -154,8 +159,10 @@ function draftInputFromStored(draft: Awaited<ReturnType<typeof getStoredEmailDra
 
 async function readExistingSmtpSecretForInput(userId: string, input: SmtpAccountInput): Promise<EmailAccountSmtpSecret | null> {
   if (!input.accountId) return null;
-  const existingAccount = await getEmailAccountForUser(userId, input.accountId);
-  const secret = await readStoredEmailAccountSecret(existingAccount);
+  const existingAccount = await getPersonalEmailAccountForUser(userId, input.accountId);
+  if (existingAccount.authType !== 'smtp_imap' || existingAccount.provider !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
+  const secret = await readStoredEmailAccountSecret(existingAccount).catch(() => null);
+  if (!secret) return null;
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
   return secret;
 }
@@ -195,7 +202,7 @@ export async function testSmtpConnection(userId: string, input: SmtpAccountInput
 }
 
 export async function testStoredSmtpEmailAccount(userId: string, accountId: string) {
-  const account = await getEmailAccountForUser(userId, accountId);
+  const account = await getPersonalEmailAccountForUser(userId, accountId);
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP/IMAP account.');
 

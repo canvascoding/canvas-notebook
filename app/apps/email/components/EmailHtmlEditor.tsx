@@ -58,6 +58,8 @@ type EmailHtmlEditorProps = {
   onChange?: (value: { html: string; text: string }) => void;
   onAttachmentsChange?: (attachments: EmailAttachmentDraft[]) => void;
   placeholder?: string;
+  toolbarVisible?: boolean;
+  allowInlineImages?: boolean;
   value: string;
 };
 
@@ -142,7 +144,7 @@ function getActiveTableCellAlign(editor: Editor): ToolbarState['cellAlign'] {
   return align === 'left' || align === 'center' || align === 'right' ? align : null;
 }
 
-function createEmailEditorExtensions() {
+function createEmailEditorExtensions(allowInlineImages: boolean) {
   return [
     StarterKit.configure({
       code: false,
@@ -160,9 +162,7 @@ function createEmailEditorExtensions() {
       linkOnPaste: true,
       openOnClick: false,
     }),
-    Image.configure({
-      allowBase64: false,
-    }),
+    ...(allowInlineImages ? [Image.configure({ allowBase64: false })] : []),
     TableKit.configure({
       table: {
         resizable: false,
@@ -686,11 +686,13 @@ function EmailTableDialog({
 }
 
 function EmailHtmlToolbar({
+  allowInlineImages,
   attachments,
   disabled,
   editor,
   onAttachmentsChange,
 }: {
+  allowInlineImages: boolean;
   attachments: EmailAttachmentDraft[];
   disabled: boolean;
   editor: Editor | null;
@@ -823,7 +825,7 @@ function EmailHtmlToolbar({
         </TooltipIconButton>
         <TooltipIconButton
           label={t('editorImageDialogTitle')}
-          disabled={!canUseCommands || !onAttachmentsChange}
+          disabled={!allowInlineImages || !canUseCommands || !onAttachmentsChange}
           onClick={() => setImageDialogOpen(true)}
         >
           <ImageIcon />
@@ -941,13 +943,13 @@ function EmailHtmlToolbar({
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}
       />
-      <EmailImageDialog
+      {allowInlineImages && <EmailImageDialog
         attachments={attachments}
         editor={editor}
         onAttachmentsChange={onAttachmentsChange}
         open={imageDialogOpen}
         onOpenChange={setImageDialogOpen}
-      />
+      />}
       <EmailTableDialog open={tableDialogOpen} onOpenChange={setTableDialogOpen} onInsert={insertTable} />
     </TooltipProvider>
   );
@@ -960,9 +962,11 @@ export function EmailHtmlEditor({
   onAttachmentsChange,
   onChange,
   placeholder,
+  toolbarVisible = true,
+  allowInlineImages = true,
   value,
 }: EmailHtmlEditorProps) {
-  const extensions = useMemo(() => createEmailEditorExtensions(), []);
+  const extensions = useMemo(() => createEmailEditorExtensions(allowInlineImages), [allowInlineImages]);
   const [initialValue] = useState(() => sanitizeEmailEditorHtml(value));
   const latestValueRef = useRef(initialValue);
   const applyingExternalValueRef = useRef(false);
@@ -972,6 +976,19 @@ export function EmailHtmlEditor({
     content: initialValue || '<p></p>',
     editable: !disabled,
     editorProps: {
+      // Disabling the image extension rejects HTML image nodes as well. File
+      // paste/drop must also be consumed so browsers cannot insert them outside
+      // the document schema or navigate away from an unsent draft.
+      handlePaste: (_view, event) => {
+        if (allowInlineImages || !Array.from(event.clipboardData?.files || []).some(file => file.type.startsWith('image/'))) return false;
+        event.preventDefault();
+        return true;
+      },
+      handleDrop: (_view, event) => {
+        if (allowInlineImages || !Array.from(event.dataTransfer?.files || []).some(file => file.type.startsWith('image/'))) return false;
+        event.preventDefault();
+        return true;
+      },
       attributes: {
         ...(id ? { id } : {}),
         ...(placeholder ? { 'aria-label': placeholder } : {}),
@@ -987,7 +1004,7 @@ export function EmailHtmlEditor({
       latestValueRef.current = html;
       onChange?.({ html, text: emailEditorText(html) });
     },
-  });
+  }, [allowInlineImages]);
 
   useEffect(() => {
     editor?.setEditable(!disabled);
@@ -1013,12 +1030,13 @@ export function EmailHtmlEditor({
         disabled && 'opacity-70',
       )}
     >
-      <EmailHtmlToolbar
+      {toolbarVisible && <EmailHtmlToolbar
+        allowInlineImages={allowInlineImages}
         attachments={attachments}
         disabled={disabled}
         editor={editor}
         onAttachmentsChange={onAttachmentsChange}
-      />
+      />}
       <div className="relative min-h-0 flex-1">
         {isEmpty && placeholder ? (
           <div className="pointer-events-none absolute left-3 top-3 text-sm text-muted-foreground">

@@ -815,7 +815,7 @@ export async function update(
       phase = 'finalize';
       const finalizeTimeout = remainingUpdateTime(deadline, true);
       const persisted = await readConfig(context);
-      if (previousConfigImage.includes('@sha256:')) {
+      if (options.eventStream || managedByControlPlane(config) || previousConfigImage.includes('@sha256:')) {
         persisted.image = targetImage;
       } else {
         const targetImageId = await docker.imageId(targetImage);
@@ -871,8 +871,13 @@ export async function update(
         const rollbackHealthTimeout = remainingUpdateTime(deadline, false);
         await docker.waitUntilHealthy(rollback, boundedHealthAttempts(rollbackHealthTimeout), rollbackHealthTimeout,
           (activity) => reporter.healthCheck(activity));
+        const restoredContainer = await docker.containerId(rollback);
+        const restoredImageId = await docker.containerImageId(restoredContainer);
+        if (!restoredImageId || restoredImageId !== previousImageId) {
+          throw new Error('Rollback container does not run the previous Canvas Notebook image.');
+        }
         rolledBack = true;
-        reporter.succeeded('rollback', 'Previous Canvas Notebook image restored.');
+        reporter.emit('rollback', 'succeeded', 'Previous Canvas Notebook image restored and verified.', undefined, true);
       } catch {
         rolledBack = false;
         reporter.failed('rollback', 'Previous Canvas Notebook image could not be restored.', 'rollback_failed');

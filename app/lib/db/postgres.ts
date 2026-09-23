@@ -1163,6 +1163,9 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin_run_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin_agent_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS outbox_status text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS outbox_error_code text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS outbox_error_message text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS outbox_failed_at bigint');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 1');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS assigned_user_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS editing_by_user_id text');

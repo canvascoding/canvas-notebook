@@ -1,3 +1,4 @@
+import { parseEmailSearchQuery, normalizeEmailSearchQuery, EMAIL_SEARCH_SYNTAX_VERSION, EmailSearchQueryError } from '@/app/lib/email/search-query';
 import 'server-only';
 
 import {
@@ -82,6 +83,7 @@ import {
 import { saveSmtpEmailAccount, testSmtpConnection, testStoredSmtpEmailAccount, type SmtpAccountInput } from '@/app/lib/email/smtp-service';
 
 type EmailSearchInput = {
+  offset?: number;
   accountId?: string;
   folder?: string;
   filter?: string;
@@ -96,6 +98,8 @@ type EmailMessageListInput = EmailSearchInput & {
 };
 
 type EmailReadPolicyOptions = {
+  /** Authenticated actor for AI/files; provider ownership may differ for shared mailboxes. */
+  actorUserId?: string;
   enforceReadPolicy?: boolean;
   workspaceId?: string | null;
   cacheMode?: EmailCacheMode;
@@ -440,8 +444,8 @@ function effectiveListFolder(input: EmailMessageListInput, provider: string): st
 }
 
 function effectiveListQuery(input: EmailMessageListInput, provider: string): string {
-  const query = (input.query || '').normalize('NFC').trim();
-  return normalizeEmailCacheProvider(provider) === 'imap' ? query.replace(/\s+/gu, ' ').slice(0, 250) : query;
+  void provider;
+  return `v${EMAIL_SEARCH_SYNTAX_VERSION}:${normalizeEmailSearchQuery(input.query)}`;
 }
 
 function effectiveListFilter(input: EmailMessageListInput) {
@@ -470,19 +474,37 @@ async function invalidateLocalOAuthMailboxResult<T>(userId: string, result: T): 
   return result;
 }
 
-export async function searchEmail(userId: string, input: EmailSearchInput, options?: EmailReadPolicyOptions) {
-  const managedAccount = await findManagedEmailAccount(userId, input.accountId);
-  if (managedAccount) {
-    const payload = await managedEmailRequest<ManagedEmailSearchResponse>('/v1/managed/email/search', {
-      method: 'POST',
-      body: JSON.stringify({ ...input, accountId: managedAccount.id }),
-    }, managedEmailScope(userId));
-    return {
-      ...payload,
-      account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
-      messages: Array.isArray(payload.messages) ? payload.messages.map((message) => normalizeManagedMessage(message, input.folder || 'INBOX')) : [],
-    };
+async function loadManagedEmailSearch(userId: string, managedAccount: ManagedEmailAccount, input: EmailMessageListInput) {
+  const expression = parseEmailSearchQuery(input.query);
+  const limit = effectiveListLimit(input, true);
+  const offset = Math.min(Math.max((Number.isFinite(input.offset) ? Math.trunc(Number(input.offset)) : 0), 0), 10_000);
+  const folder = effectiveListFolder(input, managedAccount.provider);
+  const payload = await managedEmailRequest<ManagedEmailSearchResponse>('/v1/managed/email/search', {
+    method: 'POST',
+    body: JSON.stringify({ ...input, accountId: managedAccount.id, folder, limit, offset,
+      searchSyntaxVersion: EMAIL_SEARCH_SYNTAX_VERSION, searchExpression: expression }),
+  }, managedEmailScope(userId));
+  const acknowledged = payload.searchSyntaxVersion === EMAIL_SEARCH_SYNTAX_VERSION;
+  const requiresContract = Boolean(expression && (expression.type !== 'term' || expression.field))
+    || folder === 'all' || offset > 0 || Boolean(input.filter && input.filter !== 'all') || Boolean(input.from || input.hasAttachments);
+  if (!acknowledged && requiresContract) {
+    throw new EmailSearchQueryError('This managed mailbox needs an updated search service for operators, field searches, filters, all folders or further pages. Use a simple term or update the Control Plane.');
   }
+  const messages = Array.isArray(payload.messages) ? payload.messages.map((message) => normalizeManagedMessage(message, folder)) : [];
+  const hasMore = acknowledged && payload.hasMore === true;
+  return {
+    ...payload, account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
+    folder, messages, total: acknowledged && typeof payload.total === 'number' ? payload.total : null,
+    offset, limit, hasMore,
+    nextOffset: hasMore ? (typeof payload.nextOffset === 'number' && payload.nextOffset > offset ? payload.nextOffset : offset + limit) : null,
+    ...(!acknowledged ? { searchNotice: 'Managed compatibility mode: folder, recipient/body coverage and further pages are not confirmed. Update the Control Plane for complete search support.' } : {}),
+  };
+}
+
+export async function searchEmail(userId: string, input: EmailSearchInput, options?: EmailReadPolicyOptions) {
+  parseEmailSearchQuery(input.query);
+  const managedAccount = await findManagedEmailAccount(userId, input.accountId);
+  if (managedAccount) return loadManagedEmailSearch(userId, managedAccount, input);
   return searchLocalEmail(userId, input, options);
 }
 
@@ -510,29 +532,6 @@ async function loadManagedEmailMessage(
   };
 }
 
-async function loadEmailDetailPrefetchRequests(
-  requests: EmailDetailPrefetchRequest[],
-  load: (request: EmailDetailPrefetchRequest) => Promise<EmailDetailPayload>,
-): Promise<EmailDetailPrefetchLoadResult[]> {
-  const results: Array<EmailDetailPrefetchLoadResult | null> = Array.from(
-    { length: requests.length },
-    () => null,
-  );
-  let nextIndex = 0;
-  async function worker() {
-    while (nextIndex < requests.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      try {
-        results[index] = { request: requests[index], payload: await load(requests[index]) };
-      } catch {
-        results[index] = null;
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(3, requests.length) }, () => worker()));
-  return results.filter((result): result is EmailDetailPrefetchLoadResult => result !== null);
-}
 
 function scheduleEmailDetailPrefetch(input: {
   userId: string;
@@ -580,78 +579,13 @@ function scheduleEmailDetailPrefetch(input: {
 }
 
 export async function listEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
+  parseEmailSearchQuery(input.query);
   const managedAccount = await findManagedEmailAccount(userId, input.accountId);
-  if (managedAccount) {
-    const useCache = shouldUseEmailCache(options);
-    const limit = useCache
-      ? effectiveListLimit(input, true)
-      : Math.min(Math.max(input.limit || 10, 1), 25);
-    const folder = useCache
-      ? effectiveListFolder(input, managedAccount.provider)
-      : input.folder || 'INBOX';
-    const load = async () => {
-      const payload = await managedEmailRequest<ManagedEmailSearchResponse>('/v1/managed/email/search', {
-        method: 'POST',
-        body: JSON.stringify({
-          accountId: managedAccount.id,
-          query: input.query,
-          limit,
-        }),
-      }, managedEmailScope(userId));
-      const messages = Array.isArray(payload.messages)
-        ? payload.messages.map((message) => normalizeManagedMessage(message, folder))
-        : [];
-      return {
-        account: payload.account ? normalizeManagedAccount(payload.account) : undefined,
-        folder,
-        messages,
-        total: null,
-        offset: 0,
-        limit,
-      };
-    };
-    if (!useCache) return load();
-    const store = await getRuntimeEmailCacheStore();
-    const mailbox = {
-      userId,
-      accountId: managedAccount.id,
-      accountSource: 'managed' as const,
-      provider: managedAccount.provider,
-    };
-    const result = await readThroughEmailList<EmailListPayload>({
-      runtime: { store, scheduleBackgroundTask: options?.scheduleBackgroundTask },
-      mailbox,
-      scope: {
-        folder,
-        filter: effectiveListFilter(input),
-        query: effectiveListQuery(input, managedAccount.provider),
-        offset: 0,
-        limit,
-      },
-      load,
-      fromCache: (messages, total) => ({
-        account: managedAccount,
-        folder,
-        messages,
-        total,
-        offset: 0,
-        limit,
-      }),
-    });
-    scheduleEmailDetailPrefetch({
-      userId,
-      accountId: managedAccount.id,
-      options,
-      offset: 0,
-      store,
-      mailbox,
-      messages: Array.isArray(result.messages) ? result.messages : [],
-      load: (requests) => loadEmailDetailPrefetchRequests(
-        requests,
-        (request) => loadManagedEmailMessage(userId, managedAccount, request.messageId, request.folder),
-      ),
-    });
-    return result;
+  if (managedAccount) return loadManagedEmailSearch(userId, managedAccount, input);
+  // Search paging/limits are part of its response; the current list cache stores only messages/total.
+  // Bypass it instead of losing continuation metadata or replaying stale queries.
+  if (input.query?.trim() || input.folder === 'all' || (input.filter && input.filter !== 'all') || input.from || input.hasAttachments) {
+    return listLocalEmailMessages(userId, input, options);
   }
 
   if (shouldUseEmailCache(options)) {

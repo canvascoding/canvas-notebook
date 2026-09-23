@@ -2,6 +2,8 @@
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
+import { authClient } from '@/app/lib/auth-client';
+import { isPromptHandoffForNavigation } from '@/app/lib/chat/prompt-handoff';
 import { toast } from 'sonner';
 import {
   Loader2,
@@ -10,6 +12,7 @@ import {
 import { ChatComposer } from '@/app/components/canvas-agent-chat/ChatComposer';
 import { ChatDelegationPanel } from '@/app/components/canvas-agent-chat/ChatDelegationPanel';
 import { ChatHeader } from '@/app/components/canvas-agent-chat/ChatHeader';
+import { ChatLoadingSkeleton } from '@/app/components/canvas-agent-chat/ChatLoadingSkeleton';
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
 import { ChatRuntimeNotice } from '@/app/components/canvas-agent-chat/ChatRuntimeNotice';
@@ -151,6 +154,8 @@ export default function CanvasAgentChat({
   onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
+  const tCommon = useTranslations('common');
+  const authSession = authClient.useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
@@ -288,7 +293,9 @@ export default function CanvasAgentChat({
       return false;
     }
     const hasStoredInitialPrompt = Boolean(
-      initialPromptStorageKey && window.sessionStorage.getItem(initialPromptStorageKey),
+      initialPromptStorageKey && isPromptHandoffForNavigation(window.sessionStorage, initialPromptStorageKey, {
+        search: window.location.search, workspaceId: activeWorkspaceId,
+      }),
     );
     const hasStoredSession = Boolean(readCanvasChatActiveSessionStorage(activeWorkspaceId));
     return hasStoredInitialPrompt || hasStoredSession;
@@ -367,6 +374,7 @@ export default function CanvasAgentChat({
     historyAgentFilter,
     historyAgentOptions,
     historyGroupLabels,
+    historyError,
     historyPanelLabels,
     historyRef,
     historySearchQuery,
@@ -461,7 +469,7 @@ export default function CanvasAgentChat({
   } = useChatComposerDraft({
     input,
     messages,
-    sessionIdRef,
+    sessionId,
     setInput,
     textareaRef,
   });
@@ -646,6 +654,10 @@ export default function CanvasAgentChat({
   }, [pathname, router]);
 
   const {
+    isSending,
+    sendError,
+    canRetrySend,
+    retryFailedSend,
     handleCompact,
     handleControlAction,
     handleEditQueuedMessage,
@@ -687,6 +699,7 @@ export default function CanvasAgentChat({
     resetStreamConnection,
     runtimePhase,
     selectedAgentId,
+    sessionId,
     sessionAgentIdRef,
     sessionIdRef,
     sessionWorkspaceIdRef,
@@ -722,7 +735,7 @@ export default function CanvasAgentChat({
     wsRequest,
   });
 
-  const { cancelSessionLoad, loadOlderMessages, loadSession } = useChatSessionMessages({
+  const { cancelSessionLoad, isLoadingMessages, loadOlderMessages, loadSession } = useChatSessionMessages({
     activeModel,
     activeProvider,
     activeThinkingLevel,
@@ -958,7 +971,7 @@ export default function CanvasAgentChat({
     }
   }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
-  useChatSessionBootstrap({
+  const { initialSessionError, retryInitialSession } = useChatSessionBootstrap({
     addSessionToHistory,
     appendSystemMessage,
     clearSessionParamFromUrl,
@@ -973,6 +986,7 @@ export default function CanvasAgentChat({
     initialPromptStorageKey,
     isLoadingHistory,
     isResolvingInitialChatState,
+    isAuthReady: !authSession.isPending,
     isRuntimeSelectionLoading,
     isWorkspaceNavigationPending,
     loadSession,
@@ -1127,7 +1141,7 @@ export default function CanvasAgentChat({
   const isModelConfigured = Boolean(runtimeSelection);
   const primaryActionDisabled = primaryActionIsStop
     ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
-    : isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
+    : isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
   const isModelConfigurationLoading = isRuntimeSelectionLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const isHistoryOverlayOpen = showHistory && shouldShowHistoryAsOverlay;
@@ -1135,8 +1149,8 @@ export default function CanvasAgentChat({
   const scrollButtonOffset = isHistoryOverlayOpen ? 16 : composerHeight + 16;
   const isCompactComposer = composerWidth > 0 && composerWidth < 520;
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
-  const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
-  const showStarterScreen = messages.length === 0 && !sessionId && !isResolvingInitialChatState;
+  const showInitialChatLoader = messages.length === 0 && (isResolvingInitialChatState || isLoadingMessages);
+  const showStarterScreen = messages.length === 0 && !sessionId && !showInitialChatLoader && !initialSessionError;
   const activeSession = history.find((session) => session.sessionId === sessionId);
   const activeSessionAgentId = activeSession?.agentId || selectedAgentId;
   useEffect(() => {
@@ -1229,6 +1243,9 @@ export default function CanvasAgentChat({
   ), [availableAgents]);
 
   const historyPanelProps: Omit<ChatHistoryPanelProps, 'variant' | 'width' | 'onBackToChat'> = {
+    isLoadingHistory,
+    historyError,
+    onRetryHistory: fetchHistory,
     history,
     filteredHistory,
     historySearchQuery,
@@ -1406,13 +1423,20 @@ export default function CanvasAgentChat({
           }}
         >
           <div ref={scrollContentRef} className="min-h-full space-y-4">
-            {showInitialChatLoader && (
-            <div className="flex min-h-full items-center justify-center py-8">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{t('loadingSessions')}</span>
+            {initialSessionError ? (
+              <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-4 text-sm">
+                <p>{initialSessionError}</p>
+                <button type="button" onClick={retryInitialSession} className="underline">{tCommon('retry')}</button>
               </div>
-            </div>
+            ) : null}
+            {canRetrySend && sendError && !initialSessionError ? (
+              <div role="alert" className="space-y-2 rounded-md border border-destructive/30 p-4 text-sm">
+                <p>{sendError}</p>
+                <button type="button" disabled={isSending} onClick={() => void retryFailedSend()} className="underline">{tCommon('retry')}</button>
+              </div>
+            ) : null}
+            {showInitialChatLoader && (
+              <ChatLoadingSkeleton label={t('loadingSessions')} />
             )}
 
             {showStarterScreen && (

@@ -21,7 +21,7 @@ import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-worksp
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const ACTIVE_CASE_STATUSES = ['new', 'in_progress', 'awaiting_review', 'needs_routing'] as const;
-const ACTIVE_DRAFT_STATUSES = ['awaiting_review', 'editing', 'send_failed'] as const;
+const ACTIVE_DRAFT_STATUSES = ['prepared', 'awaiting_review', 'editing', 'send_failed', 'send_uncertain'] as const;
 
 export type EmailAttentionTarget =
   | {
@@ -51,11 +51,12 @@ export type EmailAttentionItem = {
 type DraftRow = typeof emailDrafts.$inferSelect;
 
 function normalizePriority(value: string | null | undefined): 'normal' | 'high' {
-  return value === 'high' || value === 'urgent' || value === 'send_failed' ? 'high' : 'normal';
+  return value === 'high' || value === 'urgent' || value === 'send_failed' || value === 'send_uncertain' ? 'high' : 'normal';
 }
 
 function draftDetail(draft: DraftRow): string {
-  if (draft.outboxStatus === 'send_failed') return 'Email send failed';
+  if (draft.outboxStatus === 'send_uncertain') return 'Email delivery is uncertain. Check the sent mailbox before taking further action.';
+  if (draft.outboxStatus === 'send_failed') return draft.outboxErrorMessage || 'Email send failed';
   if (draft.outboxStatus === 'editing') return 'Email draft is being reviewed';
   return 'Email review required';
 }
@@ -114,7 +115,7 @@ async function listWorkspaceAttention(input: {
     db.query.emailDrafts.findMany({
       where: and(
         eq(emailDrafts.workspaceId, workspace.workspaceId),
-        inArray(emailDrafts.origin, ['automation', 'agent']),
+        inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
         inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
       ),
       orderBy: [desc(emailDrafts.updatedAt), desc(emailDrafts.id)],
@@ -131,7 +132,7 @@ async function listWorkspaceAttention(input: {
       title: emailCase.subject,
       detail: caseDetail({ status: emailCase.status, draft }),
       occurredAt: occurredAt.toISOString(),
-      priority: draft?.outboxStatus === 'send_failed' ? 'high' : normalizePriority(emailCase.priority),
+      priority: draft && normalizePriority(draft.outboxStatus) === 'high' ? 'high' : normalizePriority(emailCase.priority),
       attentionRequired: true,
       target: {
         kind: 'email',
@@ -193,7 +194,7 @@ async function listPersonalAttention(input: {
       title: emailCase.subject,
       detail: caseDetail({ status: emailCase.status, draft }),
       occurredAt: occurredAt.toISOString(),
-      priority: draft?.outboxStatus === 'send_failed' ? 'high' : normalizePriority(emailCase.priority),
+      priority: draft && normalizePriority(draft.outboxStatus) === 'high' ? 'high' : normalizePriority(emailCase.priority),
       attentionRequired: true,
       target: {
         kind: 'email',
@@ -278,13 +279,13 @@ export async function countEmailAttention(input: {
     )),
     db.select({ total: count() }).from(emailDrafts).where(and(
       eq(emailDrafts.workspaceId, workspace.workspaceId),
-      inArray(emailDrafts.origin, ['automation', 'agent']),
+      inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
       isNull(emailDrafts.inboxCaseId),
       inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
     )),
     db.select({ total: countDistinct(emailDrafts.inboxCaseId) }).from(emailDrafts).where(and(
       eq(emailDrafts.workspaceId, workspace.workspaceId),
-      inArray(emailDrafts.origin, ['automation', 'agent']),
+      inArray(emailDrafts.origin, ['automation', 'agent', 'human']),
       notInArray(emailDrafts.inboxCaseId, activeCaseIds),
       inArray(emailDrafts.outboxStatus, ACTIVE_DRAFT_STATUSES),
     )),

@@ -213,6 +213,15 @@ async function main(): Promise<void> {
     },
     touch: () => undefined,
   });
+  assert.equal((runtime as unknown as { hasSessionSearchCapability: () => boolean }).hasSessionSearchCapability(), false,
+    'live compaction sees no session-search recovery when the effective tool list omits it');
+  const runtimeInternals = runtime as unknown as Record<string, unknown>;
+  runtimeInternals.getEffectiveTools = () => [{
+    name: 'session_search', label: 'Session search', description: 'Recover authorized session history.',
+  }];
+  assert.equal((runtime as unknown as { hasSessionSearchCapability: () => boolean }).hasSessionSearchCapability(), true,
+    'live compaction enables recovery only when session_search is effective for the turn');
+  runtimeInternals.getEffectiveTools = () => [];
 
   const statusRuntime = Object.create(LivePiRuntime.prototype) as Record<string, unknown>;
   Object.assign(statusRuntime, {
@@ -259,6 +268,14 @@ async function main(): Promise<void> {
     lastCompactionKind: null,
     lastCompactionOmittedCount: 0,
     statusRevision: 1,
+    options: {
+      summaryModelIdentity: 'aip_0123456789abcdef01234567/openai/gpt-5',
+      effectiveCompactionPolicy: {
+        contextBudgetPolicy: { tailMode: 'lean' },
+        summaryModel: 'aip_0123456789abcdef01234567/openai/gpt-5',
+        sources: { tailMode: 'persisted', summaryModel: 'environment' },
+      },
+    },
     getCompactionScope: () => ({ sessionId, userId, agentId: 'canvas-agent', workspaceId: null }),
   });
   Object.defineProperties(statusRuntime, {
@@ -270,6 +287,77 @@ async function main(): Promise<void> {
   assert.equal(idleStatus.nextRequestEstimatedTokens, 162_000, 'idle status must expose a fresh rough request projection instead of the stale payload');
   assert.equal((idleStatus.contextPressure as { source: string }).source, 'rough_estimate');
   assert.equal((idleStatus.contextPressure as { percentOfTrigger: number }).percentOfTrigger, 83);
+  assert.deepEqual(idleStatus.compactionPolicy, {
+    tailMode: 'lean',
+    summaryRoute: 'configured',
+    configuredSummaryModel: 'aip_0123456789abcdef01234567/openai/gpt-5',
+    activeSummaryModel: 'aip_0123456789abcdef01234567/openai/gpt-5',
+    sources: { tailMode: 'persisted', summaryModel: 'environment' },
+    triggerTokens: 120_000,
+    targetTokens: 24_000,
+    snapshotSource: 'rough_estimate',
+  }, 'live policy status must expose a resolved identity and copy the active request snapshot');
+  statusRuntime.options = {
+    summaryModelIdentity: null,
+    effectiveCompactionPolicy: {
+      contextBudgetPolicy: { tailMode: 'lean' },
+      // Deliberately syntactically plausible but not resolver-approved.
+      summaryModel: 'sk-secret/never-serialize-this',
+      sources: { tailMode: 'environment', summaryModel: 'environment' },
+    },
+  };
+  const unavailableRouteStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
+  assert.deepEqual(unavailableRouteStatus.compactionPolicy, {
+    tailMode: 'lean',
+    summaryRoute: 'main',
+    configuredSummaryModel: null,
+    activeSummaryModel: null,
+    sources: { tailMode: 'environment', summaryModel: 'environment' },
+    triggerTokens: 120_000,
+    targetTokens: 24_000,
+    snapshotSource: 'rough_estimate',
+  }, 'an unavailable or environment-provided identity must use main fallback without serializing raw configuration');
+  statusRuntime.options = {
+    summaryModelIdentity: 'aip_0123456789abcdef01234567/openai/gpt-5',
+    effectiveCompactionPolicy: {
+      contextBudgetPolicy: { tailMode: 'lean' },
+      summaryModel: 'aip_0123456789abcdef01234567/openai/gpt-5',
+      sources: { tailMode: 'persisted', summaryModel: 'environment' },
+    },
+  };
+  let boundaryRefreshes = 0;
+  statusRuntime.options = {
+    refreshCompactionPolicy: async () => {
+      boundaryRefreshes += 1;
+      return {
+        policy: {
+          contextBudgetPolicy: { tailMode: 'legacy' },
+          summaryModel: null,
+          sources: { tailMode: 'environment', summaryModel: 'default' },
+        },
+        summaryRuntime: null,
+      };
+    },
+  };
+  await (statusRuntime as { reloadCompactionPolicyForNextRequest: () => Promise<void> }).reloadCompactionPolicyForNextRequest();
+  assert.equal(boundaryRefreshes, 1, 'idle request boundaries must refresh the current organization policy');
+  assert.deepEqual((statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus().compactionPolicy, {
+    tailMode: 'legacy', summaryRoute: 'main', configuredSummaryModel: null, activeSummaryModel: null,
+    sources: { tailMode: 'environment', summaryModel: 'default' },
+    triggerTokens: 120_000, targetTokens: 24_000, snapshotSource: 'rough_estimate',
+  });
+  statusRuntime.isRunning = true;
+  await (statusRuntime as { reloadCompactionPolicyForNextRequest: () => Promise<void> }).reloadCompactionPolicyForNextRequest();
+  assert.equal(boundaryRefreshes, 1, 'streaming or queued turns must retain their originally bound policy');
+  statusRuntime.isRunning = false;
+  statusRuntime.options = {
+    summaryModelIdentity: 'aip_0123456789abcdef01234567/openai/gpt-5',
+    effectiveCompactionPolicy: {
+      contextBudgetPolicy: { tailMode: 'lean' },
+      summaryModel: 'aip_0123456789abcdef01234567/openai/gpt-5',
+      sources: { tailMode: 'persisted', summaryModel: 'environment' },
+    },
+  };
   statusRuntime.isRunning = true;
   const activeStatus = (statusRuntime as { getStatus: () => Record<string, unknown> }).getStatus();
   assert.equal(activeStatus.lastProviderInputTokens, 140_000);

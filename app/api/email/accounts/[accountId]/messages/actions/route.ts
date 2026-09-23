@@ -1,15 +1,18 @@
+import { BrowserEmailAttachmentError } from '@/app/lib/email/attachments';
+import { createMailboxAiReplyDraft } from '@/app/lib/email/mailbox-ai';
+import { createBrowserEmailDerivedDraft } from '@/app/lib/email/mailbox-compose';
+import { resolveEmailMailboxAccess, EmailMailboxAccessError } from '@/app/lib/email/mailbox-access';
 import { NextRequest, NextResponse } from 'next/server';
+import { OutboxSendError } from '@/app/lib/email/outbox-errors';
 import crypto from 'crypto';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 
 import {
   archiveEmailMessage,
-  createEmailAiReplyDraft,
-  createEmailDerivedDraft,
   deleteEmailMessagePermanently,
   generateEmailAiReplyBody,
   moveEmailMessage,
-  sendEmailDerivedMessage,
+  readEmailMessage,
   setEmailMessageAnswered,
   setEmailMessageRead,
   streamEmailAiReplyBody,
@@ -140,7 +143,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const body = await readEmailAiJsonObject(request);
     messageId = requiredString(body.messageId, 'messageId');
     folder = stringValue(body.folder);
-    const workspaceId = stringValue(body.workspaceId);
+    let workspaceId = stringValue(body.workspaceId);
     operation = operationValue(body.operation);
     let data: unknown;
 
@@ -161,6 +164,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       action = actionValue((body as { action?: unknown }).action);
       destination = stringValue((body as { destination?: unknown }).destination);
     }
+
+    const access = await resolveEmailMailboxAccess({
+      userId: session.user.id, accountId, mailboxWorkspaceId: body.mailboxWorkspaceId,
+      operation: action === 'permanent-delete' || action === 'trash' ? 'delete'
+        : operation === 'summary' || operation === 'ai-reply' || operation === 'ai-reply-preview' ? 'ai' : 'write',
+    });
+    workspaceId = access.workspaceId || workspaceId;
+    const readOptions = { ...access.readOptions, actorUserId: session.user.id, workspaceId };
 
     logEmailClientEvent('info', 'message_action_requested', {
       accountId,
@@ -197,12 +208,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           try {
             emit({ type: 'status', stage: 'reading_context', label: 'Reading email context' });
             const data = await streamEmailAiReplyBody(
-              session.user.id,
+              access.accountOwnerId,
               accountId,
               messageId,
               folder,
               instruction,
-              { enforceReadPolicy: false, signal: abortController.signal, workspaceId },
+              { ...readOptions, signal: abortController.signal },
             );
 
             emit({ type: 'status', stage: 'writing', label: 'Drafting reply' });
@@ -278,39 +289,32 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     if (operation === 'summary') {
       data = await summarizeEmailMessage(
-        session.user.id,
+        access.accountOwnerId,
         accountId,
         messageId,
         folder,
-        { enforceReadPolicy: false, workspaceId },
+        readOptions,
       );
     }
 
     if (operation === 'ai-reply') {
-      data = await createEmailAiReplyDraft(
-        session.user.id,
-        accountId,
-        messageId,
-        folder,
-        optionalStringValue((body as { instruction?: unknown }).instruction),
-        { enforceReadPolicy: false, workspaceId },
-      );
+      data = await createMailboxAiReplyDraft({ userId: session.user.id, access, messageId, folder, instruction: optionalStringValue((body as { instruction?: unknown }).instruction), workspaceId });
     }
 
     if (operation === 'ai-reply-preview') {
       data = await generateEmailAiReplyBody(
-        session.user.id,
+        access.accountOwnerId,
         accountId,
         messageId,
         folder,
         optionalStringValue((body as { instruction?: unknown }).instruction),
-        { enforceReadPolicy: false, workspaceId },
+        readOptions,
       );
     }
 
     if (operation === 'draft') {
       if (!mode) throw new Error('Unsupported email draft mode.');
-      data = await createEmailDerivedDraft(session.user.id, accountId, messageId, folder, mode, {
+      data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, mailboxWorkspaceId: access.workspaceId, attachmentWorkspaceId: (body as { attachmentWorkspaceId?: unknown }).attachmentWorkspaceId, messageId, folder, mode, overrides: {
         attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
         bodyOverrideHtml: optionalStringValue((body as { bodyOverrideHtml?: unknown }).bodyOverrideHtml),
@@ -318,12 +322,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         is_HTML: Boolean((body as { is_HTML?: unknown }).is_HTML),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
-      }, { enforceReadPolicy: false, deliveryOrigin: 'human' });
+      } }, false);
     }
 
     if (operation === 'send') {
       if (!mode) throw new Error('Unsupported email send mode.');
-      data = await sendEmailDerivedMessage(session.user.id, accountId, messageId, folder, mode, {
+      data = await createBrowserEmailDerivedDraft(session.user.id, { accountId, mailboxWorkspaceId: access.workspaceId, attachmentWorkspaceId: (body as { attachmentWorkspaceId?: unknown }).attachmentWorkspaceId, messageId, folder, mode, overrides: {
         attachments: normalizeEmailAttachmentInputs((body as { attachments?: unknown }).attachments),
         bodyOverride: optionalStringValue((body as { bodyOverride?: unknown }).bodyOverride),
         bodyOverrideHtml: optionalStringValue((body as { bodyOverrideHtml?: unknown }).bodyOverrideHtml),
@@ -331,20 +335,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         is_HTML: Boolean((body as { is_HTML?: unknown }).is_HTML),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
-      }, { enforceReadPolicy: false, deliveryOrigin: 'human' });
+      } }, operation === 'send');
     }
 
     if (operation === 'action') {
-      if (action === 'archive') data = await archiveEmailMessage(session.user.id, accountId, messageId, folder);
-      if (action === 'trash') data = await trashEmailMessage(session.user.id, accountId, messageId, folder);
-      if (action === 'permanent-delete') data = await deleteEmailMessagePermanently(session.user.id, accountId, messageId, folder);
-      if (action === 'mark-read') data = await setEmailMessageRead(session.user.id, accountId, messageId, folder, true);
-      if (action === 'mark-unread') data = await setEmailMessageRead(session.user.id, accountId, messageId, folder, false);
-      if (action === 'mark-answered') data = await setEmailMessageAnswered(session.user.id, accountId, messageId, folder, true);
-      if (action === 'clear-answered') data = await setEmailMessageAnswered(session.user.id, accountId, messageId, folder, false);
+      if (access.workspaceId) await readEmailMessage(access.accountOwnerId, accountId, messageId, folder, access.readOptions);
+      if (action === 'archive') data = await archiveEmailMessage(access.accountOwnerId, accountId, messageId, folder);
+      if (action === 'trash') data = await trashEmailMessage(access.accountOwnerId, accountId, messageId, folder);
+      if (action === 'permanent-delete') data = await deleteEmailMessagePermanently(access.accountOwnerId, accountId, messageId, folder);
+      if (action === 'mark-read') data = await setEmailMessageRead(access.accountOwnerId, accountId, messageId, folder, true);
+      if (action === 'mark-unread') data = await setEmailMessageRead(access.accountOwnerId, accountId, messageId, folder, false);
+      if (action === 'mark-answered') data = await setEmailMessageAnswered(access.accountOwnerId, accountId, messageId, folder, true);
+      if (action === 'clear-answered') data = await setEmailMessageAnswered(access.accountOwnerId, accountId, messageId, folder, false);
       if (action === 'move') {
         if (!destination) throw new Error('A destination folder is required.');
-        data = await moveEmailMessage(session.user.id, accountId, messageId, folder, destination);
+        data = await moveEmailMessage(access.accountOwnerId, accountId, messageId, folder, destination);
       }
     }
 
@@ -364,6 +369,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof BrowserEmailAttachmentError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: 400 });
+    if (error instanceof OutboxSendError) return NextResponse.json({ success: false, error: error.message, code: error.code, data: error.draft }, { status: error.status });
     logEmailClientEvent('error', 'message_action_failed', {
       accountId,
       action,
@@ -387,7 +394,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const message = error instanceof Error ? error.message : 'Failed to update email message';
     return NextResponse.json(
       { success: false, error: message },
-      { status: emailAiRequestBodyErrorStatus(error) ?? 500 },
+      { status: error instanceof EmailMailboxAccessError ? error.status : emailAiRequestBodyErrorStatus(error) ?? 500 },
     );
   }
 }

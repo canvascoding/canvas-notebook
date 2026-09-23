@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { parseChatFileReferences } from '@/app/lib/chat/tool-file-references';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 type UnknownRecord = Record<string, unknown>;
@@ -78,6 +79,11 @@ function projectVisualValue(value: unknown, purpose: 'persistence' | 'external-e
 
   const projected: UnknownRecord = {};
   for (const [key, entry] of Object.entries(value)) {
+    if (key === 'chatFileReferences') {
+      const references = parseChatFileReferences(entry);
+      if (references) projected[key] = references;
+      continue;
+    }
     // Runtime-resolved host paths never need persistence. Canonical Canvas data
     // paths remain useful in later turns and are safe within the session scope.
     if (key === 'resolvedPath') continue;

@@ -119,7 +119,7 @@ export async function readNotificationAttention(input: {
     (left.priority === 'high' ? 0 : 1) - (right.priority === 'high' ? 0 : 1)
     || right.occurredAt.localeCompare(left.occurredAt)
     || right.id.localeCompare(left.id)
-  )).slice(0, 6);
+  ));
 
   const eventItems = events.items.map((item) => ({
     ...item,
@@ -147,7 +147,7 @@ export async function readNotificationAttention(input: {
     sections: {
       notifications: notificationItems,
       todoAttention,
-      emailAttention,
+      emailAttention: emailAttention.slice(0, 6),
     },
   };
 }

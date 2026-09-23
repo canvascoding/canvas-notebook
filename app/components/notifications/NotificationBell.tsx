@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import {
   notificationHref,
+  emailReviewTargetFromNotification,
   decideMemoryNotification,
   memoryReviewTargetFromNotification,
   openFileChangeReviewNotification,
@@ -36,6 +37,8 @@ import {
   type NotificationMutation,
 } from './notification-actions';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
+import { openEmailReview } from '@/app/store/email-review-store';
+import { EmailReviewNotificationActions } from '@/app/components/email-review/EmailReviewNotificationActions';
 import { openMemoryReview } from '@/app/store/memory-review-store';
 import {
   readNotificationSummary,
@@ -71,6 +74,7 @@ function isDismissible(item: NotificationItem) {
 
 export function NotificationBell() {
   const t = useTranslations('notifications');
+  const emailT = useTranslations('emailReview');
   const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<NotificationSummary | null>(null);
@@ -191,6 +195,8 @@ export function NotificationBell() {
 
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
+    const emailTarget = emailReviewTargetFromNotification(item);
+    if (emailTarget) { await openEmailReview(emailTarget); return; }
     if (item.target.kind === 'memory') {
       const targets = notificationItems
         .filter((candidate) => candidate.target.kind === 'memory')
@@ -260,6 +266,7 @@ export function NotificationBell() {
       <div key={`${item.workspaceId}:${item.id}`} className="group flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
         <button
           type="button"
+          data-testid={item.target.kind === 'email' && item.target.draftId ? `notification-email-open-${item.target.draftId}` : undefined}
           className="flex min-w-0 flex-1 items-start gap-2 text-left"
           onClick={() => void openItem(item)}
         >
@@ -286,6 +293,7 @@ export function NotificationBell() {
             </span>
           </span>
         </button>
+        {emailReviewTargetFromNotification(item) && <EmailReviewNotificationActions item={item} surface="notification" compact onOpen={() => setOpen(false)} />}
         {isTodo && item.todoStatus === 'open' ? (
           <Button
             variant="ghost"
@@ -389,7 +397,7 @@ export function NotificationBell() {
                 <section aria-labelledby="notification-center-email-review">
                   <h3 id="notification-center-email-review" className="px-2 pb-1 text-xs font-semibold text-muted-foreground">{t('sections.emailReview')}</h3>
                   <div className="space-y-1">{emailItems.map(renderItem)}</div>
-                  <Link href="/emails" className="mt-1 block px-2 py-1 text-xs font-medium text-primary hover:underline">{t('openEmails')}</Link>
+                  <Button data-testid="notification-email-open-outbox" variant="link" size="sm" className="mt-1 h-auto px-2 py-1 text-xs" onClick={() => { setOpen(false); void openEmailReview(); }}>{emailT('openOutbox')}{summary?.counts.emailAttention ? ` (${summary.counts.emailAttention})` : ''}</Button>
                 </section>
               ) : null}
             </div>

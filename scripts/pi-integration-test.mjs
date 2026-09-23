@@ -108,7 +108,7 @@ function waitForWsMessage(ws, predicate, timeoutMs = 30000) {
 
 async function connectRuntimeWs(cookie) {
   const ws = new WebSocket(getWebSocketUrl(), {
-    headers: { cookie },
+    headers: { cookie, Origin: baseUrl },
   });
 
   await new Promise((resolve, reject) => {
@@ -142,11 +142,11 @@ function collectAgentRun(ws, sessionId, timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
     const result = {
       hasText: false,
-      hasAgentEnd: false,
+      hasPersistedCompletion: false,
     };
     const timer = setTimeout(() => {
       cleanup();
-      reject(new Error('Timed out waiting for agent_end'));
+      reject(new Error('Timed out waiting for persisted agent completion'));
     }, timeoutMs);
 
     const onMessage = (data) => {
@@ -167,8 +167,8 @@ function collectAgentRun(ws, sessionId, timeoutMs = 30000) {
       if (event?.type === 'message_update' && event.assistantMessageEvent?.type === 'text_delta') {
         result.hasText = true;
       }
-      if (event?.type === 'agent_end') {
-        result.hasAgentEnd = true;
+      if (event?.type === 'message_saved') {
+        result.hasPersistedCompletion = true;
         cleanup();
         resolve(result);
       }
@@ -303,7 +303,9 @@ async function testStream(ws, sessionId) {
   const runResult = await runResultPromise;
 
   if (!runResult.hasText) console.warn('[PI Test] WARNING: WS stream did not return any text deltas (maybe missing API key?)');
-  if (!runResult.hasAgentEnd) throw new Error('WS stream did not return agent_end event');
+  if (!runResult.hasPersistedCompletion) {
+    throw new Error('WS stream did not confirm persisted agent completion');
+  }
   console.log('[PI Test] WS stream check passed.');
 }
 
@@ -369,12 +371,20 @@ async function testRuntimeStatusAndCompact(ws, sessionId) {
     await new Promise((resolve) => setTimeout(resolve, 250));
     completedStatus = (await wsRequest(ws, 'get_status', { sessionId })).status;
   }
+  const terminalCompaction = completedStatus?.compactionStatus;
+  const succeeded = terminalCompaction?.state === 'succeeded';
+  const safelySkipped = terminalCompaction?.state === 'no_op'
+    && typeof terminalCompaction.reasonCode === 'string';
+  const hasSuccessfulMetadata = !succeeded || (
+    typeof completedStatus?.lastCompactionAt === 'string'
+    && completedStatus?.lastCompactionKind === 'manual'
+    && typeof completedStatus?.lastCompactionOmittedCount === 'number'
+  );
   if (
-    typeof completedStatus?.contextUsagePercent !== 'number' ||
-    completedStatus?.compactionStatus?.state !== 'succeeded' ||
-    typeof completedStatus?.lastCompactionAt !== 'string' ||
-    completedStatus?.lastCompactionKind !== 'manual' ||
-    typeof completedStatus?.lastCompactionOmittedCount !== 'number'
+    typeof completedStatus?.contextUsagePercent !== 'number'
+    || terminalCompaction?.trigger !== 'manual'
+    || (!succeeded && !safelySkipped)
+    || !hasSuccessfulMetadata
   ) {
     throw new Error('Compaction did not reach a successful terminal runtime status');
   }

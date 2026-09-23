@@ -1,11 +1,13 @@
 'use client';
 
 import React, { FormEvent, useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { getPathname } from '@/i18n/navigation';
+import { getPathname, useRouter } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { createPromptHandoff, persistPromptHandoff } from '@/app/lib/chat/prompt-handoff';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
@@ -61,6 +63,7 @@ function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
 
 export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = {}) {
   const locale = useLocale();
+  const router = useRouter();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
   const [prompt, setPrompt] = useState('');
@@ -68,6 +71,8 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   const [mode, setMode] = useState<HomePromptMode>('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => selectActiveWorkspace(state)?.id ?? null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [agentListState, setAgentListState] = useState<{
     workspaceId: string | null;
@@ -91,7 +96,6 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   const [imagePreprocessProgressItems, setImagePreprocessProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const isUploading = pendingUploads > 0;
-  const notebookHref = getPathname({ href: '/notebook', locale });
   const studioHref = getPathname({ href: '/studio', locale });
   const isStudioMode = mode === 'studio';
   const handleModeChange = (nextMode: HomePromptMode) => {
@@ -449,24 +453,34 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
       return;
     }
 
+    if (submittingRef.current) return;
+    const workspace = useWorkspaceStore.getState();
+    if (!workspace.initialized || !activeWorkspaceId || workspace.activeWorkspaceId !== activeWorkspaceId) {
+      setSubmitError(tChat('errorMessage', { message: 'Select a workspace before starting this chat.' }));
+      return;
+    }
+    const auth = openedDocumentAuthScope();
+    if (!auth) {
+      setSubmitError(tChat('errorMessage', { message: 'Your sign-in is still loading. Please try again.' }));
+      return;
+    }
+    submittingRef.current = true;
     setIsSubmitting(true);
+    setSubmitError(null);
 
     try {
-      clearCanvasChatActiveSessionStorage();
-      const data = {
-        prompt: normalizedPrompt,
-        attachments: attachments,
-        agentId: effectiveSelectedAgentId,
-      };
-      window.sessionStorage.setItem(
-        CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY,
-        JSON.stringify(data)
-      );
+      const payload = createPromptHandoff({ prompt: normalizedPrompt, attachments,
+        agentId: effectiveSelectedAgentId, workspaceId: activeWorkspaceId, auth });
+      persistPromptHandoff(window.sessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY, payload);
+      clearCanvasChatActiveSessionStorage(activeWorkspaceId);
+      router.push({ pathname: '/notebook', query: {
+        workspaceId: activeWorkspaceId, chat: 'open', handoff: payload.handoffId,
+      } });
     } catch (error) {
-      console.error('Failed to persist initial Canvas Chat prompt.', error);
+      setSubmitError(error instanceof Error ? error.message : tChat('errorMessage', { message: String(error) }));
+      submittingRef.current = false;
+      setIsSubmitting(false);
     }
-
-    window.location.assign(notebookHref);
   };
 
   useEffect(() => {
@@ -566,6 +580,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
             {tChat('uploadingFiles')}
           </div>
         )}
+        {submitError ? <div role="alert" className="text-xs text-destructive">{submitError}</div> : null}
         {uploadError && (
           <div className="text-xs text-destructive">{uploadError}</div>
         )}

@@ -1,6 +1,15 @@
 import { redactPiCompactionText } from './recovery';
 
 const MAX_DIAGNOSTIC_TEXT_CHARACTERS = 1_200;
+const SAFE_OPERATIONAL_ERROR_CODES = new Set([
+  'ABORT_ERR',
+  'EAI_AGAIN',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+]);
 
 export type PiCompactionDiagnosticLevel = 'info' | 'warn' | 'error';
 
@@ -14,16 +23,30 @@ export function sanitizePiCompactionDiagnosticText(
 
 export function getPiCompactionErrorDiagnostics(
   error: unknown,
-  knownSecrets: readonly string[] = [],
+  _knownSecrets: readonly string[] = [],
 ): Record<string, string | number> {
+  const safeErrorName = (value: unknown, fallback: string): string => {
+    const candidate = typeof value === 'string' ? value.trim() : '';
+    return new Set([
+      'Error', 'TypeError', 'RangeError', 'AbortError', 'TimeoutError',
+      'PiSummaryTimeoutError', 'PiCompactionPersistenceConflictError',
+    ]).has(candidate) ? candidate : fallback;
+  };
+  const safeErrorCode = (value: string): string => {
+    const candidate = value.trim();
+    return SAFE_OPERATIONAL_ERROR_CODES.has(candidate) ? candidate : 'present';
+  };
   if (error instanceof Error) {
     const record = error as Error & { code?: unknown; status?: unknown };
     const diagnostics: Record<string, string | number> = {
-      errorName: error.name || 'Error',
-      errorMessage: sanitizePiCompactionDiagnosticText(error.message, knownSecrets),
+      // Provider messages frequently echo a prompt, attachment name, or tool
+      // input. Attempt telemetry is an operational signal, never a transcript.
+      errorName: safeErrorName(error.name, 'ProviderError'),
     };
     if (typeof record.code === 'string' || typeof record.code === 'number') {
-      diagnostics.errorCode = sanitizePiCompactionDiagnosticText(String(record.code), knownSecrets);
+      diagnostics.errorCode = typeof record.code === 'number'
+        ? record.code
+        : safeErrorCode(record.code);
     }
     if (typeof record.status === 'number') diagnostics.errorStatus = record.status;
     return diagnostics;
@@ -32,20 +55,18 @@ export function getPiCompactionErrorDiagnostics(
   if (typeof error === 'string') {
     return {
       errorName: 'NonErrorFailure',
-      errorMessage: sanitizePiCompactionDiagnosticText(error, knownSecrets),
     };
   }
 
   if (error && typeof error === 'object') {
     const record = error as Record<string, unknown>;
     const diagnostics: Record<string, string | number> = {
-      errorName: typeof record.name === 'string' ? record.name : 'UnknownError',
+      errorName: safeErrorName(record.name, 'UnknownError'),
     };
-    if (typeof record.message === 'string') {
-      diagnostics.errorMessage = sanitizePiCompactionDiagnosticText(record.message, knownSecrets);
-    }
     if (typeof record.code === 'string' || typeof record.code === 'number') {
-      diagnostics.errorCode = sanitizePiCompactionDiagnosticText(String(record.code), knownSecrets);
+      diagnostics.errorCode = typeof record.code === 'number'
+        ? record.code
+        : safeErrorCode(record.code);
     }
     if (typeof record.status === 'number') diagnostics.errorStatus = record.status;
     return diagnostics;

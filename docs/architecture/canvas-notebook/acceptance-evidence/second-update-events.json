@@ -1,0 +1,381 @@
+{
+  "operation": {
+    "contractVersion": 1,
+    "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+    "status": "failed",
+    "stage": "config_preflight",
+    "targetVersion": "2026.9.22.3",
+    "currentVersion": "2026.9.22.3",
+    "startedAt": "2026-09-22T19:53:55.044Z",
+    "updatedAt": "2026-09-22T19:55:49.112Z",
+    "completedAt": "2026-09-22T19:55:49.112Z",
+    "rolledBack": false,
+    "errorCode": "update_execution_failed",
+    "error": "Notebook domain does not match required update postflight config",
+    "lastSequence": 36
+  },
+  "events": [
+    {
+      "contractVersion": 1,
+      "eventId": "3407f90c-15b5-4a03-8fd0-237b647ffaf4",
+      "sequence": 1,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "request_validation",
+      "status": "pending",
+      "message": "Update queued",
+      "occurredAt": "2026-09-22T19:53:54.864Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "9cec3b55-f73a-48ed-af12-af1569899ab3",
+      "sequence": 2,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "request_validation",
+      "status": "running",
+      "message": "Validating central update request",
+      "occurredAt": "2026-09-22T19:53:54.967Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "764f4233-6cc4-4b9c-a9bd-0be3ee0d56b4",
+      "sequence": 3,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "host_cli_capabilities",
+      "status": "succeeded",
+      "message": "Canvas Notebook update dispatched to the VM agent",
+      "occurredAt": "2026-09-22T19:53:55.134Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "d3733537-383d-4475-b080-c597d49df38d",
+      "sequence": 4,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "request_validation",
+      "status": "succeeded",
+      "message": "Central update request validated",
+      "occurredAt": "2026-09-22T19:53:54.967Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "0a05fd51-b476-4ec0-ae25-bda33d1e106a",
+      "sequence": 5,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "operation_lock",
+      "status": "running",
+      "message": "Waiting for exclusive Canvas update access",
+      "occurredAt": "2026-09-22T19:53:54.967Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "847be305-7970-4e77-9efd-4b5b4478ad3b",
+      "sequence": 6,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "operation_lock",
+      "status": "succeeded",
+      "message": "Exclusive Canvas update access acquired",
+      "occurredAt": "2026-09-22T19:53:54.970Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "6f267308-d7ef-42b0-8fae-618e5cd9c9c1",
+      "sequence": 7,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "request_validation",
+      "status": "running",
+      "message": "Disabling legacy Canvas Notebook auto-update services",
+      "occurredAt": "2026-09-22T19:53:54.970Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "757c4c65-8c6c-4931-bdb0-70338221010e",
+      "sequence": 8,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "request_validation",
+      "status": "succeeded",
+      "message": "Legacy Canvas Notebook auto-update services are disabled",
+      "occurredAt": "2026-09-22T19:53:55.804Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "71433331-e52c-4958-b17f-8f585b6bfd45",
+      "sequence": 9,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "host_cli_capabilities",
+      "status": "running",
+      "message": "Checking Canvas Notebook Host CLI capabilities",
+      "occurredAt": "2026-09-22T19:53:55.807Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "5069a09b-167c-480f-88b1-34ccf0a7cba8",
+      "sequence": 10,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "host_cli_capabilities",
+      "status": "succeeded",
+      "message": "Host CLI safety capabilities verified",
+      "occurredAt": "2026-09-22T19:53:56.115Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "21d63f09-80d2-4eb9-a986-ea1d5507e32e",
+      "sequence": 11,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "config_preflight",
+      "status": "running",
+      "message": "Applying managed Control Plane configuration before the update",
+      "occurredAt": "2026-09-22T19:53:56.115Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "1db99136-1d28-4144-8ce6-b210d5d2db46",
+      "sequence": 12,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "config_preflight",
+      "status": "succeeded",
+      "message": "Managed Control Plane preflight configuration applied",
+      "occurredAt": "2026-09-22T19:53:56.119Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "2e9dbf51-df8b-4ba8-bcf9-d90855f0fce3",
+      "sequence": 13,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "container_recreate",
+      "status": "running",
+      "message": "Starting the pinned Canvas Notebook update",
+      "occurredAt": "2026-09-22T19:53:56.119Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "e7f745c0-90e5-4c8f-a09c-df7ec189a314",
+      "sequence": 14,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "request_validation",
+      "status": "running",
+      "message": "Validating Canvas Notebook update request.",
+      "occurredAt": "2026-09-22T19:54:00.892Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "7e3dc580-d7ad-4499-978c-80cfb43af1c9",
+      "sequence": 15,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "request_validation",
+      "status": "succeeded",
+      "message": "Canvas Notebook update request validated.",
+      "occurredAt": "2026-09-22T19:54:00.893Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "2793b715-bf2e-4ea7-9969-b4ec15b2feb4",
+      "sequence": 16,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "operation_lock",
+      "status": "succeeded",
+      "message": "Exclusive Canvas update access acquired.",
+      "occurredAt": "2026-09-22T19:54:00.893Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "8894e7cd-225b-4a7f-b863-b4ac6b8a15d0",
+      "sequence": 17,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "release_verification",
+      "status": "succeeded",
+      "message": "Immutable Canvas Notebook image reference verified.",
+      "occurredAt": "2026-09-22T19:54:00.893Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "99da5c6a-fa13-45ee-823c-affd1e6548ef",
+      "sequence": 18,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "host_cli_capabilities",
+      "status": "skipped",
+      "message": "Host CLI capability verification completed before update execution.",
+      "occurredAt": "2026-09-22T19:54:00.893Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "2976b360-b60b-4475-87a8-b90fa12a3620",
+      "sequence": 19,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "database_preflight",
+      "status": "running",
+      "message": "Checking PostgreSQL update readiness.",
+      "occurredAt": "2026-09-22T19:54:01.022Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "67b22b21-aace-4bb1-98dc-fc35cecaa7db",
+      "sequence": 20,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "database_preflight",
+      "status": "succeeded",
+      "message": "PostgreSQL update readiness verified.",
+      "occurredAt": "2026-09-22T19:54:54.495Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "4873a7d0-4d24-4546-b685-42c8078d8cd8",
+      "sequence": 21,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "config_preflight",
+      "status": "running",
+      "message": "Preparing Canvas Notebook runtime configuration.",
+      "occurredAt": "2026-09-22T19:54:54.496Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "5391dde2-6342-4d25-a692-2234a0269cbe",
+      "sequence": 22,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "config_preflight",
+      "status": "succeeded",
+      "message": "Canvas Notebook runtime configuration prepared.",
+      "occurredAt": "2026-09-22T19:54:54.500Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "21bd8604-85f5-415e-bec6-1f415ad77d9e",
+      "sequence": 23,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "backup",
+      "status": "skipped",
+      "message": "This update does not require a CLI-managed backup.",
+      "occurredAt": "2026-09-22T19:54:54.500Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "10c17703-6115-4fe6-a2b2-4e3397fe1f0f",
+      "sequence": 24,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "image_pull",
+      "status": "running",
+      "message": "Pulling the pinned Canvas Notebook image.",
+      "occurredAt": "2026-09-22T19:54:54.501Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "dac5b77d-49ba-4c8c-93df-5af817e98dae",
+      "sequence": 25,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "image_pull",
+      "status": "succeeded",
+      "message": "Pinned Canvas Notebook image pulled.",
+      "occurredAt": "2026-09-22T19:54:54.947Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "e5a81c60-ffcf-4e73-93b2-898f59c6045a",
+      "sequence": 26,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "container_recreate",
+      "status": "running",
+      "message": "Recreating the Canvas Notebook container.",
+      "occurredAt": "2026-09-22T19:54:55.047Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "e6056fc7-c0f0-499e-bbd1-4c20667e2faf",
+      "sequence": 27,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "container_recreate",
+      "status": "succeeded",
+      "message": "Canvas Notebook container recreated.",
+      "occurredAt": "2026-09-22T19:54:56.162Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "9f236221-15d2-4449-afb9-38bd9fa58865",
+      "sequence": 28,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "health_verification",
+      "status": "running",
+      "message": "Waiting for Canvas Notebook health.",
+      "occurredAt": "2026-09-22T19:54:56.162Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "bb0b2b46-6d67-4ff6-ae68-2424b552df5c",
+      "sequence": 29,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "health_verification",
+      "status": "succeeded",
+      "message": "Canvas Notebook is healthy.",
+      "occurredAt": "2026-09-22T19:55:47.780Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "9cbea0e2-e13a-4b8d-b205-bd2cfff70fcf",
+      "sequence": 30,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "version_verification",
+      "status": "running",
+      "message": "Verifying the running Canvas Notebook image.",
+      "occurredAt": "2026-09-22T19:55:47.786Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "ef09a215-f6b8-458f-8349-3b71e86abf5f",
+      "sequence": 31,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "version_verification",
+      "status": "succeeded",
+      "message": "Running Canvas Notebook image verified.",
+      "occurredAt": "2026-09-22T19:55:47.876Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "9d551044-1a01-4ac3-982c-17f54abf2c0e",
+      "sequence": 32,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "version_verification",
+      "status": "succeeded",
+      "message": "Canvas Notebook update completed successfully.",
+      "occurredAt": "2026-09-22T19:55:47.952Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "77285f68-f669-470d-92c2-803b13295a4b",
+      "sequence": 33,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "container_recreate",
+      "status": "succeeded",
+      "message": "Pinned Canvas Notebook update command completed",
+      "occurredAt": "2026-09-22T19:55:47.991Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "9b159fb0-ccb3-4911-82c2-5d1c8203f85e",
+      "sequence": 34,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "config_preflight",
+      "status": "running",
+      "message": "Applying and confirming Control Plane configuration after the update",
+      "occurredAt": "2026-09-22T19:55:47.991Z"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "1529c19e-b66c-4b8f-a12b-92df51c80139",
+      "sequence": 35,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "config_preflight",
+      "status": "failed",
+      "message": "Notebook domain does not match required update postflight config",
+      "occurredAt": "2026-09-22T19:55:49.103Z",
+      "errorCode": "update_execution_failed"
+    },
+    {
+      "contractVersion": 1,
+      "eventId": "e97350ce-78e3-4a15-8b11-88d8cf6428a1",
+      "sequence": 36,
+      "operationId": "78631e5b-58a3-4998-bce1-b3d976f7fb3f",
+      "stage": "config_preflight",
+      "status": "failed",
+      "message": "Notebook domain does not match required update postflight config",
+      "occurredAt": "2026-09-22T19:55:49.112Z",
+      "errorCode": "update_execution_failed"
+    }
+  ]
+}

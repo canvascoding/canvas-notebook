@@ -328,6 +328,13 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(postgresConfig.env.CANVAS_DATABASE_PROVIDER, 'postgres');
     assert.equal(postgresConfig.env.CANVAS_POSTGRES_MODE, 'managed');
     assert.equal(postgresConfig.env.CANVAS_POSTGRES_VECTOR_ENABLED, true);
+    for (const explicitValue of [false, 'false']) {
+      const vectorDisabled = materializeConfig({
+        ...postgresConfig,
+        env: { ...postgresConfig.env, CANVAS_POSTGRES_VECTOR_ENABLED: explicitValue },
+      });
+      assert.equal(vectorDisabled.env.CANVAS_POSTGRES_VECTOR_ENABLED, explicitValue);
+    }
     assert.match(String(postgresConfig.env.DATABASE_URL), /^postgresql:\/\/canvas:/);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^COMPOSE_PROFILES=postgres$/m);
     assert.match(composeEnvText(postgresConfig, composePath(postgresConfig.dataDir, 'linux')), /^CANVAS_POSTGRES_MODE=managed$/m);
@@ -603,6 +610,18 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.ok(events.some((event) => event.stage === 'version_verification' && event.status === 'succeeded'));
       assert.equal(events.at(-1)?.stage, 'completed');
       assert.equal(events.at(-1)?.status, 'succeeded');
+      assert.equal((JSON.parse(await readFile(paths.configFile, 'utf8')) as { image: string }).image, targetImage);
+      assert.ok((await readFile(paths.composeEnvFile, 'utf8')).includes(`CANVAS_IMAGE=${targetImage}\n`));
+      assert.equal(runner.calls.some((call) => call.args[0] === 'image' && call.args[1] === 'tag'), false);
+
+      config = await reset();
+      config.env.CANVAS_MANAGED_SERVICES_ENABLED = true;
+      await writeConfig(config);
+      const managedSuccess = await captureConsole(() => update(context, docker, config, true, { image: targetImage }));
+      assert.equal(JSON.parse(managedSuccess.at(-1) || '{}').success, true);
+      assert.equal((JSON.parse(await readFile(paths.configFile, 'utf8')) as { image: string }).image, targetImage);
+      assert.ok((await readFile(paths.composeEnvFile, 'utf8')).includes(`CANVAS_IMAGE=${targetImage}\n`));
+      assert.equal(runner.calls.some((call) => call.args[0] === 'image' && call.args[1] === 'tag'), false);
 
       config = await reset();
       runner.healthMode = 'new-unhealthy';
@@ -625,6 +644,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
         status: string;
         errorCode?: string;
         activity?: { kind: string; healthy?: boolean };
+        rollbackImageVerified?: true;
       });
       assert.equal(process.exitCode, 1);
       assert.ok(failedEvents.some((event) => (
@@ -635,9 +655,38 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
       assert.ok(failedEvents.some((event) => event.stage === 'rollback' && event.status === 'succeeded'));
       assert.ok(failedEvents.some((event) => event.stage === 'health_verification' && event.activity?.healthy === false));
       assert.ok(failedEvents.some((event) => event.stage === 'rollback' && event.activity?.healthy === true));
+      assert.equal(failedEvents.find((event) => event.stage === 'rollback' && event.status === 'succeeded')?.rollbackImageVerified, true);
       assert.equal(failedEvents.at(-1)?.stage, 'completed');
       assert.equal(failedEvents.at(-1)?.status, 'failed');
       assert.equal(runner.runningImageId, 'old-image-id');
+
+      config = await reset();
+      const originalContainerImageId = docker.containerImageId.bind(docker);
+      let proxyFailed = false;
+      let rollbackImageInspections = 0;
+      docker.containerImageId = async (containerId) => {
+        if (!proxyFailed) return originalContainerImageId(containerId);
+        rollbackImageInspections += 1;
+        return 'unexpected-restored-image';
+      };
+      try {
+        const wrongRollbackLines = await captureStdout(() => update(context, docker, config, false, {
+          image: targetImage,
+          eventStream: true,
+          operationId: '156f381c-53c1-4c08-95e7-9afcce05ac1c',
+          syncProxy: async () => { proxyFailed = true; throw new Error('Proxy failed after image verification'); },
+        }));
+        const wrongRollbackEvents = wrongRollbackLines.map((line) => JSON.parse(line) as {
+          stage: string; status: string; errorCode?: string;
+        });
+        assert.equal(process.exitCode, 1);
+        assert.equal(rollbackImageInspections, 1, 'rollback must inspect the restored image after its health check');
+        assert.ok(wrongRollbackEvents.some((event) => event.stage === 'rollback' && event.errorCode === 'rollback_failed'));
+        assert.equal(wrongRollbackEvents.some((event) => event.stage === 'rollback' && event.status === 'succeeded'), false);
+        assert.equal(wrongRollbackEvents.at(-1)?.errorCode, 'rollback_failed');
+      } finally {
+        docker.containerImageId = originalContainerImageId;
+      }
 
       config = await reset();
       const freshPostgresConfig = materializePostgresInfrastructureConfig(config);

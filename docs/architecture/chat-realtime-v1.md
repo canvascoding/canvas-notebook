@@ -23,3 +23,11 @@ The server supports multiple simultaneous session subscriptions per connection. 
 Inbound messages are size-limited and runtime-validated before dispatch. Logs contain lifecycle metadata, request IDs, session IDs, action names, and message kinds; they must not contain mobile tickets, credentials, prompts, attachment contents, or notification previews.
 
 Any incompatible wire-format change requires a new protocol version. Additive server events and optional fields may remain in `canvas-chat-v1` when older clients safely ignore them.
+
+## Chat file references
+
+Completed workspace file tools may include `details.chatFileReferences` with `version: 1`, a bounded `references` array and optional `omittedCount`. Each entry contains `workspaceId`, a workspace-relative `path`, `toolCallId`, and `kind` (`read`, `created`, `changed`, `review_required`, or `unchanged`). The server captures this receipt before output budgeting and host-path redaction. Live events, persistence and display projection preserve it; model-context projection excludes these UI-only fields.
+
+Clients bind receipts to the session workspace and completed tool call, deduplicate within user-message segments and render one compact section at the end of each completed segment. Receipts describe historical operations, not current existence, permissions or proposal lifecycle; opening/reviewing still uses the authorized APIs. Older clients ignore the optional field. See [the design and verification record](chat-file-references.md).
+
+Saved-history refreshes are scoped to session, agent and workspace, with one active request and a coalesced trailing refresh. Responses must pass generation checks; snapshot-aware reconciliation preserves messages changed by live events after the request started. Loading older pages uses the same scope fence, and refreshing the newest page preserves previously loaded older messages and their pagination cursor.

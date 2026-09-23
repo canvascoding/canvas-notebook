@@ -28,6 +28,9 @@ async function main() {
       'closed_at', 'created_at', 'updated_at',
     ]);
     assert.ok(columns.get('email_drafts')?.includes('outbox_status'));
+    for (const column of ['outbox_error_code', 'outbox_error_message', 'outbox_failed_at']) {
+      assert.ok(columns.get('email_drafts')?.includes(column), `Missing persisted failure column: ${column}`);
+    }
     assert.ok(columns.get('email_drafts')?.includes('personal_inbox_case_id'));
     assert.ok(columns.get('personal_email_inbox_cases')?.includes('email_account_id'));
 

@@ -84,8 +84,8 @@ async function main() {
   );
   assert.match(
     chatControlActions,
-    /agentId:\s*sessionAgentIdRef\.current \|\| selectedAgentId/u,
-    'the selected session agent must be sent with the first WebSocket message',
+    /agentId:\s*snapshot\.agentId/u,
+    'the frozen session agent must be sent with the first WebSocket message',
   );
   assert.match(
     websocketServer,

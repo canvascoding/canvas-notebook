@@ -1,4 +1,5 @@
 import 'server-only';
+import { readChatFileReferences } from '@/app/lib/chat/tool-file-references';
 
 import type { AgentToolResult } from '@earendil-works/pi-agent-core';
 import { storeToolOutput, type ToolOutputIdentity } from './tool-output-store';
@@ -81,6 +82,8 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   // Built-in saved reads already have exact offset budgets; never create a read loop.
   if (input.toolName === 'read' && (result.details as { toolOutputReadWindow?: unknown } | null)?.toolOutputReadWindow) return result;
   if (input.toolName === 'read' && (result.details as { toolOutputRead?: boolean } | null)?.toolOutputRead === true) return result;
+  const references = readChatFileReferences(result.details);
+  const referenceDetails = references ? { chatFileReferences: references } : {};
   const builtins = readBuiltinToolAppMessages({ ...result, role: 'toolResult', toolName: input.toolName, toolCallId: input.toolCallId });
   const builtin = builtins[0];
   let builtinDetails: Record<string, unknown> = {};
@@ -113,7 +116,7 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
     return markPreparedToolOutput({ ...result, content: [
       { type: 'text', text: modelText },
       ...result.content.filter(block => block.type !== 'text'),
-    ], details: { ...compactDetails(result.details), ...builtinDetails, toolOutput: {
+    ], details: { ...compactDetails(result.details), ...builtinDetails, ...referenceDetails, toolOutput: {
       version: 1, policyVersion: TOOL_OUTPUT_POLICY_VERSION, rawChars: text.length, modelChars: modelText.length, storedBytes: 0,
       references: [], storageError: 'Original output could not be serialized.',
     } } });
@@ -164,6 +167,6 @@ export async function prepareToolOutput(input: ToolOutputPreparationContext & {
   metadata.modelChars = modelText.length;
   return markPreparedToolOutput({ ...result,
     content: [{ type: 'text', text: modelText }, ...result.content.filter(block => block.type !== 'text')],
-    details: { ...compactDetails(result.details), ...builtinDetails, toolOutput: metadata },
+    details: { ...compactDetails(result.details), ...builtinDetails, ...referenceDetails, toolOutput: metadata },
   });
 }

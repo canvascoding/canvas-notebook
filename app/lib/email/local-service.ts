@@ -1,4 +1,5 @@
 import 'server-only';
+import { parseEmailSearchQuery, compileGmailEmailSearch, compileMicrosoftEmailSearch, matchesEmailSearch, emailSearchBodySnippet, EmailSearchQueryError } from '@/app/lib/email/search-query';
 
 import crypto from 'crypto';
 import path from 'path';
@@ -152,6 +153,8 @@ type OAuthConfig = {
 };
 
 type EmailMessageListInput = {
+  from?: string;
+  hasAttachments?: boolean;
   accountId?: string;
   folder?: string;
   query?: string;
@@ -161,6 +164,8 @@ type EmailMessageListInput = {
 };
 
 type EmailReadPolicyOptions = {
+  /** Authenticated actor for AI/files; provider ownership may differ for shared mailboxes. */
+  actorUserId?: string;
   enforceReadPolicy?: boolean;
   workspaceId?: string | null;
 };
@@ -988,112 +993,159 @@ export async function listLocalEmailFolders(userId: string, accountId?: string) 
   }
 }
 
+function isGmailSearchBodyPart(payload: Record<string, unknown>): boolean {
+  const headers = payload.headers as Array<{ name?: string; value?: string }> | undefined;
+  return !payload.filename && !/^attachment(?:;|$)/iu.test(gmailHeader(headers, 'Content-Disposition').trim());
+}
+
+function gmailSearchBodyText(payload: Record<string, unknown> | undefined): string {
+  if (!payload || !isGmailSearchBodyPart(payload)) return '';
+  const mime = String(payload.mimeType || '');
+  const body = payload.body as { data?: string } | undefined;
+  if (mime === 'text/plain' || mime === 'text/html') {
+    const text = body?.data ? decodeBase64Url(body.data) : '';
+    return mime === 'text/html' ? htmlToPlainText(text) : text;
+  }
+  const parts = Array.isArray(payload.parts) ? payload.parts as Array<Record<string, unknown>> : [];
+  if (mime === 'multipart/alternative') {
+    const plain = parts.find((part) => part.mimeType === 'text/plain' && isGmailSearchBodyPart(part));
+    if (plain) return gmailSearchBodyText(plain);
+  }
+  return parts.map(gmailSearchBodyText).filter(Boolean).join('\n\n');
+}
+
+async function loadGmailSearchBody(messageId: string, payload: Record<string, unknown> | undefined, token: string): Promise<void> {
+  if (!payload || !isGmailSearchBodyPart(payload)) return;
+  const body = payload.body as { attachmentId?: string; data?: string; size?: number } | undefined;
+  if (body?.attachmentId && !body.data && ['text/plain', 'text/html'].includes(String(payload.mimeType || ''))) {
+    if ((body.size || 0) > 10 * 1024 * 1024) throw new EmailSearchQueryError('A message body exceeds the search size limit. Narrow the search instead of returning incomplete matches.');
+    const attachment = await gmailFetch(`messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(body.attachmentId)}`, token);
+    if (typeof attachment.data !== 'string') throw new Error('Email provider did not return the complete message body.');
+    body.data = attachment.data;
+  }
+  for (const part of Array.isArray(payload.parts) ? payload.parts as Array<Record<string, unknown>> : []) {
+    await loadGmailSearchBody(messageId, part, token);
+  }
+}
+
 export async function listLocalEmailMessages(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
+  const expression = parseEmailSearchQuery(input.query);
   const account = await findLocalEmailAccount(userId, input.accountId);
   const enforceReadPolicy = options?.enforceReadPolicy !== false;
-  if (account.authType === 'smtp_imap') {
-    return listImapEmailMessages(account, input, { enforceReadPolicy });
-  }
+  if (account.authType === 'smtp_imap') return listImapEmailMessages(account, input, { enforceReadPolicy });
   const token = await validAccessToken(account);
-  const limit = Math.min(Math.max(input.limit || 10, 1), 50);
-  const offset = Math.min(Math.max(input.offset || 0, 0), 10_000);
-  const query = input.query || '';
-  let messages: Array<Record<string, unknown>> = [];
-  if (account.provider === 'google') {
-    const search = new URLSearchParams({ maxResults: String(limit + offset), q: query });
-    const folder = (input.folder || '').trim();
-    if (folder && folder !== 'all') search.append('labelIds', folder);
-    if (input.filter === 'unread') search.append('labelIds', 'UNREAD');
-    const list = await gmailFetch(`messages?${search.toString()}`, token);
-    const ids = Array.isArray(list.messages) ? list.messages.slice(offset, offset + limit) as Array<{ id?: string }> : [];
-    const loaded = await Promise.all(ids.map((item) => gmailFetch(`messages/${item.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`, token)));
-    messages = loaded.map((message) => {
-      const payload = message.payload as Record<string, unknown> | undefined;
-      const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
-      const labelIds = Array.isArray(message.labelIds) ? message.labelIds.map(String) : [];
-      return {
-        id: String(message.id || ''),
-        uid: String(message.id || ''),
-        folder: input.folder || 'INBOX',
-        threadId: String(message.threadId || ''),
-        from: gmailHeader(headers, 'From'),
-        to: [gmailHeader(headers, 'To')].filter(Boolean),
-        cc: [gmailHeader(headers, 'Cc')].filter(Boolean),
-        subject: gmailHeader(headers, 'Subject'),
-        date: gmailHeader(headers, 'Date'),
-        flags: [],
-        isRead: !labelIds.includes('UNREAD'),
-        isAnswered: false,
-        isFlagged: false,
-        hasAttachments: false,
-        snippet: String(message.snippet || ''),
-      };
-    });
-  } else {
-    const folder = (input.folder || '').trim();
-    const pathPrefix = folder && folder !== 'inbox'
-      ? `mailFolders/${encodeURIComponent(folder)}/`
-      : '';
-    const params = new URLSearchParams({
-      '$top': String(limit),
-      '$skip': String(offset),
-      '$select': 'id,conversationId,from,subject,receivedDateTime,bodyPreview,isRead,hasAttachments',
-      '$orderby': 'receivedDateTime desc',
-    });
-    if (query.trim()) {
-      params.set('$search', `"${query.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`);
-    }
-    if (input.filter === 'unread') {
-      params.set('$filter', 'isRead eq false');
-    }
-    const result = await microsoftFetch(`${pathPrefix}messages?${params.toString()}`, token, query.trim() ? { headers: { ConsistencyLevel: 'eventual' } } : undefined);
-    const values = Array.isArray(result.value) ? result.value as Record<string, unknown>[] : [];
-    messages = values.map((message) => {
-      const from = message.from as { emailAddress?: { address?: string } } | undefined;
-      return {
-        id: String(message.id || ''),
-        uid: String(message.id || ''),
-        folder: input.folder || 'inbox',
-        threadId: String(message.conversationId || ''),
-        from: from?.emailAddress?.address || '',
-        to: [],
-        cc: [],
-        subject: String(message.subject || ''),
-        date: String(message.receivedDateTime || ''),
-        flags: [],
-        isRead: message.isRead !== false,
-        isAnswered: false,
-        isFlagged: false,
-        hasAttachments: message.hasAttachments === true,
-        snippet: String(message.bodyPreview || ''),
-      };
-    });
-  }
+  const limit = Math.min(Math.max((Number.isFinite(input.limit) ? Math.trunc(Number(input.limit)) : 10), 1), 50);
+  const offset = Math.min(Math.max((Number.isFinite(input.offset) ? Math.trunc(Number(input.offset)) : 0), 0), 10_000);
+  const folder = (input.folder || (account.provider === 'microsoft' ? 'inbox' : 'INBOX')).trim();
   const policy = policyForAccount(account);
+  const filter = input.hasAttachments ? 'attachments' : input.filter || 'all';
+  if (filter === 'answered' || filter === 'unanswered') {
+    throw new EmailSearchQueryError('This provider does not expose a reliable answered status. Choose another filter.');
+  }
+  const selected: Array<Record<string, unknown>> = [];
+  let scanned = 0;
+  let hasProviderPage = true;
+  let cursor = '';
+  let pages = 0;
+  const seenCursors = new Set<string>();
+  const scanLimit = expression && account.provider === 'microsoft' ? 1000 : Math.min(Math.max(offset + limit + 1, 1000), 10_000);
+  while (hasProviderPage && selected.length < offset + limit + 1 && scanned < scanLimit && pages < 100) {
+    pages++;
+    let loaded: Array<Record<string, unknown>>;
+    if (account.provider === 'google') {
+      const query = [compileGmailEmailSearch(expression), filter === 'unread' ? 'is:unread' : '', filter === 'flagged' ? 'is:starred' : '', filter === 'attachments' ? 'has:attachment' : ''].filter(Boolean).join(' ');
+      const params = new URLSearchParams({ maxResults: String(Math.min(50, scanLimit - scanned)), q: query });
+      if (folder !== 'all') params.append('labelIds', folder);
+      else params.set('includeSpamTrash', 'true');
+      if (cursor) params.set('pageToken', cursor);
+      const page = await gmailFetch(`messages?${params}`, token);
+      const ids = Array.isArray(page.messages) ? page.messages as Array<{ id?: string }> : [];
+      loaded = [];
+      // Keep detail fan-out bounded. Full MIME is needed for body-only and free-field verification.
+      for (let start = 0; start < ids.length; start += 10) {
+        loaded.push(...await Promise.all(ids.slice(start, start + 10).map((item) => gmailFetch(`messages/${encodeURIComponent(String(item.id))}?${expression || filter === 'attachments' ? 'format=full' : 'format=metadata&metadataHeaders=From&metadataHeaders=To&metadataHeaders=Cc&metadataHeaders=Bcc&metadataHeaders=Subject&metadataHeaders=Date'}`, token))));
+      }
+      cursor = typeof page.nextPageToken === 'string' ? page.nextPageToken : '';
+    } else {
+      const params = new URLSearchParams({
+        '$top': String(Math.min(100, scanLimit - scanned)),
+        '$select': 'id,parentFolderId,conversationId,from,toRecipients,ccRecipients,bccRecipients,subject,receivedDateTime,bodyPreview,isRead,hasAttachments,flag',
+      });
+      if (expression) params.set('$search', JSON.stringify(compileMicrosoftEmailSearch(expression)));
+      else params.set('$orderby', 'receivedDateTime desc');
+      const prefix = folder === 'all' ? '' : `mailFolders/${encodeURIComponent(folder)}/`;
+      const page = await microsoftFetch(cursor || `${prefix}messages?${params}`, token);
+      loaded = Array.isArray(page.value) ? page.value as Array<Record<string, unknown>> : [];
+      const nextLink = typeof page['@odata.nextLink'] === 'string' ? page['@odata.nextLink'] : '';
+      if (nextLink && !nextLink.startsWith('https://graph.microsoft.com/v1.0/me/')) throw new Error('Invalid Microsoft email paging URL.');
+      cursor = nextLink.replace('https://graph.microsoft.com/v1.0/me/', '');
+    }
+    hasProviderPage = Boolean(cursor);
+    if (cursor && seenCursors.has(cursor)) throw new Error('Email provider repeated a paging cursor. Narrow the search and retry.');
+    if (cursor) seenCursors.add(cursor);
+    scanned += loaded.length;
+    for (const raw of loaded) {
+      let message: Record<string, unknown>;
+      if (account.provider === 'google') {
+        const payload = raw.payload as Record<string, unknown> | undefined;
+        if (expression) await loadGmailSearchBody(String(raw.id || ''), payload, token);
+        const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
+        const labels = Array.isArray(raw.labelIds) ? raw.labelIds.map(String) : [];
+        const fields = {
+          from: gmailHeader(headers, 'From'), to: gmailHeader(headers, 'To'),
+          cc: gmailHeader(headers, 'Cc'), bcc: gmailHeader(headers, 'Bcc'), subject: gmailHeader(headers, 'Subject'),
+          body: gmailSearchBodyText(payload),
+        };
+        if (!matchesEmailSearch(expression, fields)) continue;
+        message = {
+          id: String(raw.id || ''), uid: String(raw.id || ''), folder, threadId: String(raw.threadId || ''),
+          from: fields.from, to: [fields.to].filter(Boolean), cc: [fields.cc].filter(Boolean), bcc: [fields.bcc].filter(Boolean),
+          subject: fields.subject, date: gmailHeader(headers, 'Date'), flags: [],
+          isRead: !labels.includes('UNREAD'), isAnswered: false, isFlagged: labels.includes('STARRED'),
+          hasAttachments: gmailMessageAttachmentParts(payload).length > 0, snippet: emailSearchBodySnippet(expression, fields.body, String(raw.snippet || '')),
+        };
+      } else {
+        const from = raw.from as { emailAddress?: { address?: string; name?: string } } | undefined;
+        const addresses = (value: unknown): string[] => Array.isArray(value) ? value.map((item) => {
+          const address = item?.emailAddress;
+          return address?.name ? `${address.name} <${address.address || ''}>` : String(address?.address || '');
+        }) : [];
+        message = {
+          id: String(raw.id || ''), uid: String(raw.id || ''), folder: String(raw.parentFolderId || folder),
+          threadId: String(raw.conversationId || ''), from: from?.emailAddress?.address || '',
+          to: addresses(raw.toRecipients), cc: addresses(raw.ccRecipients), bcc: addresses(raw.bccRecipients),
+          subject: String(raw.subject || ''), date: String(raw.receivedDateTime || ''), flags: [],
+          isRead: raw.isRead !== false, isAnswered: false,
+          isFlagged: (raw.flag as { flagStatus?: string } | undefined)?.flagStatus === 'flagged',
+          hasAttachments: raw.hasAttachments === true, snippet: String(raw.bodyPreview || ''),
+        };
+      }
+      if (enforceReadPolicy && !isEmailAddressAllowed(String(message.from || ''), policy.readFrom)) continue;
+      if (input.from && !String(message.from || '').toLowerCase().includes(input.from.toLowerCase())) continue;
+      if (filter === 'unread' && message.isRead) continue;
+      if (filter === 'flagged' && !message.isFlagged) continue;
+      if (filter === 'attachments' && !message.hasAttachments) continue;
+      selected.push(message);
+    }
+    if (loaded.length === 0 && !cursor) break;
+  }
+  const hasMore = selected.length > offset + limit;
+  const bounded = pages >= 100 || (scanned >= scanLimit && (hasProviderPage || Boolean(expression && account.provider === 'microsoft')));
+  const notices = [
+    expression ? 'Search uses the provider’s word and phrase matching; partial words can differ between providers.' : '',
+    bounded ? `Search checked at most ${scanLimit} provider results. Narrow the search to find further matches.` : '',
+    enforceReadPolicy ? 'Results are restricted by this mailbox’s read policy.' : '',
+  ].filter(Boolean);
   return {
-    account: await publicLocalEmailAccount(account),
-    folder: input.folder || (account.provider === 'microsoft' ? 'inbox' : 'INBOX'),
-    messages: enforceReadPolicy
-      ? messages.filter((message) => isEmailAddressAllowed(String(message.from || ''), policy.readFrom))
-      : messages,
-    total: null,
-    offset,
-    limit,
+    account: await publicLocalEmailAccount(account), folder,
+    messages: selected.slice(offset, offset + limit), total: hasProviderPage || bounded ? null : selected.length,
+    offset, limit, hasMore, nextOffset: hasMore ? offset + limit : null,
+    ...(notices.length ? { searchNotice: notices.join(' ') } : {}),
   };
 }
 
-export async function searchLocalEmail(userId: string, input: {
-  accountId?: string;
-  folder?: string;
-  filter?: string;
-  query?: string;
-  limit?: number;
-}, options?: EmailReadPolicyOptions) {
-  const result = await listLocalEmailMessages(userId, input, options);
-  return {
-    account: result.account,
-    messages: result.messages,
-  };
+export async function searchLocalEmail(userId: string, input: EmailMessageListInput, options?: EmailReadPolicyOptions) {
+  return listLocalEmailMessages(userId, input, options);
 }
 
 export async function readLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
@@ -1428,7 +1480,7 @@ export async function deleteLocalEmailMessagePermanently(userId: string, account
 export async function summarizeLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, options);
   const summary = await summarizeEmailWithAi(
-    { userId, workspaceId: options?.workspaceId },
+    { userId: options?.actorUserId ?? userId, workspaceId: options?.workspaceId },
     result.message as Record<string, unknown>,
   );
   return {
@@ -1448,7 +1500,7 @@ export async function streamLocalEmailMessageSummary(
   const { signal, ...readOptions } = options || {};
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, readOptions);
   const events = await summarizeEmailWithAiStream(
-    { userId, workspaceId: options?.workspaceId },
+    { userId: options?.actorUserId ?? userId, workspaceId: options?.workspaceId },
     result.message as Record<string, unknown>,
     { signal },
   );
@@ -1490,7 +1542,7 @@ export async function createLocalEmailDerivedDraft(
 export async function generateLocalEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, options);
   const body = await draftEmailReplyWithAi(
-    { userId, workspaceId: options?.workspaceId },
+    { userId: options?.actorUserId ?? userId, workspaceId: options?.workspaceId },
     result.message as Record<string, unknown>,
     instruction,
   );
@@ -1512,7 +1564,7 @@ export async function streamLocalEmailAiReplyBody(
   const { signal, ...readOptions } = options || {};
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, readOptions);
   const events = await draftEmailReplyWithAiStream(
-    { userId, workspaceId: options?.workspaceId },
+    { userId: options?.actorUserId ?? userId, workspaceId: options?.workspaceId },
     result.message as Record<string, unknown>,
     instruction,
     { signal },
@@ -1529,7 +1581,7 @@ export async function generateLocalEmailComposeBody(userId: string, input: Email
   const messageResult = input.messageId
     ? await readLocalEmailMessage(userId, account.id, input.messageId, input.folder, options)
     : null;
-  const body = await draftEmailComposeWithAi({ userId, workspaceId: input.workspaceId ?? options?.workspaceId }, {
+  const body = await draftEmailComposeWithAi({ userId: options?.actorUserId ?? userId, workspaceId: input.workspaceId ?? options?.workspaceId }, {
     cc: input.cc || [],
     currentBody: input.currentBody,
     instruction: input.instruction,
@@ -1556,7 +1608,7 @@ export async function streamLocalEmailComposeBody(
   const messageResult = input.messageId
     ? await readLocalEmailMessage(userId, account.id, input.messageId, input.folder, readOptions)
     : null;
-  const events = await draftEmailComposeWithAiStream({ userId, workspaceId: input.workspaceId ?? options?.workspaceId }, {
+  const events = await draftEmailComposeWithAiStream({ userId: options?.actorUserId ?? userId, workspaceId: input.workspaceId ?? options?.workspaceId }, {
     cc: input.cc || [],
     currentBody: input.currentBody,
     instruction: input.instruction,

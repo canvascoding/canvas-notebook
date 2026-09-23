@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { OutboxSendError } from '@/app/lib/email/outbox-errors';
 import { auth } from '@/app/lib/auth';
 import { sendWorkspaceOutboxDraft } from '@/app/lib/email/workspace-inbox-outbox';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -17,6 +18,9 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     const data = await sendWorkspaceOutboxDraft({ userId: session.user.id, workspaceId: id, draftId, expectedVersion });
     return NextResponse.json({ success: true, data });
   } catch (error) {
+    if (error instanceof OutboxSendError) {
+      return NextResponse.json({ success: false, error: error.message, code: error.code, data: error.draft }, { status: error.status });
+    }
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Failed to send outbox draft.' }, { status: 409 });
   }
 }

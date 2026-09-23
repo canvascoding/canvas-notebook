@@ -207,11 +207,17 @@ async function acceptInUi(fixture: Fixture, review: Operation): Promise<Operatio
   const retry = panel.getByRole('button', {
     name: /^(Try again|Erneut versuchen|Refresh timeline|Timeline aktualisieren)$/u,
   });
-  await expect(accept.or(retry)).toBeVisible({ timeout: 20_000 });
-  if (await retry.isVisible()) {
-    await retry.click();
-    await expect(accept).toBeVisible({ timeout: 20_000 });
+  // A retained comparison can finish refreshing between visibility and click.
+  await expect.poll(async () => await accept.isEnabled().catch(() => false)
+    || await retry.isVisible(), { timeout: 20_000 }).toBe(true);
+  if (!await accept.isEnabled().catch(() => false)) {
+    try {
+      await retry.click({ timeout: 2_000 });
+    } catch (error) {
+      if (!await accept.isEnabled().catch(() => false)) throw error;
+    }
   }
+  await expect(accept).toBeEnabled({ timeout: 20_000 });
   const pending = fixture.owner.waitForResponse((response) => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `${operationUrl(review)}/accept`, { timeout: 30_000 });
   await accept.click();

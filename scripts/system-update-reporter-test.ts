@@ -32,6 +32,13 @@ assert.throws(
   /must be a UUID/u,
 );
 
+const verifiedRollback = reporter.emit('rollback', 'succeeded', 'Previous image verified.', undefined, true);
+assert.equal(verifiedRollback?.rollbackImageVerified, true);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, rollbackImageVerified: false }).ok, false);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, stage: 'completed' }).ok, false);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, status: 'failed' }).ok, false);
+assert.equal(validateSystemUpdateEvent({ ...verifiedRollback, rollbackImageVerified: undefined }).ok, true);
+
 async function testActivity() {
   const capabilities = JSON.parse(execFileSync(process.execPath, [
     '--import', 'tsx', path.resolve('cli/src/main.ts'), 'capabilities', '--json',

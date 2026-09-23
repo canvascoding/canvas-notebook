@@ -15,7 +15,9 @@ import { WorkspaceNavigationSync } from '@/app/components/workspaces/WorkspaceNa
 import { workspaceAppearanceInitScript } from '@/app/lib/workspaces/appearance-theme-init';
 import { WebSocketProvider } from '@/app/components/websocket-provider';
 import { FileVersionCenterHost } from '@/app/components/file-version-center/FileVersionCenterHost';
+import { EmailReviewHost } from '@/app/components/email-review/EmailReviewHost';
 import { MemoryReviewHost } from '@/app/components/memory-review/MemoryReviewHost';
+import { NotebookQueryProvider } from '@/app/components/NotebookQueryProvider';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
 import {routing} from '@/i18n/routing';
@@ -94,6 +96,7 @@ export default async function LocaleLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <NextIntlClientProvider messages={messages}>
+          <NotebookQueryProvider>
           <AppThemeProvider>
             <WorkspaceAppearanceProvider>
               <Suspense fallback={null}>
@@ -104,11 +107,15 @@ export default async function LocaleLayout({
                   {children}
                   <FileVersionCenterHost />
                   <MemoryReviewHost />
+                  <Suspense fallback={null}>
+                    <EmailReviewHost />
+                  </Suspense>
                   <Toaster richColors position="top-right" />
                 </WebSocketProvider>
               </TerminalAvailabilityProvider>
             </WorkspaceAppearanceProvider>
           </AppThemeProvider>
+          </NotebookQueryProvider>
         </NextIntlClientProvider>
       </body>
     </html>
