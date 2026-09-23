@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.9.23.1",
-  "lockfileSha256": "ad0a6d9c14b04118945c2d52b8d2b45d61ad2d90f4d91649b85f6a4b66a5bd71",
+  "packageVersion": "2026.9.23.2",
+  "lockfileSha256": "54fae206d96b14c253f0c8aaa50ca943d2e8f855ce63c0b2fe918cb179424402",
   "summary": {
     "totalComponents": 1967,
     "npmComponents": 1943,
@@ -21589,14 +21589,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tanstack/query-core@5.103.2",
+      "licenseTextRef": "node_modules/@tanstack/query-core/LICENSE",
       "licenseTextSha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7",
       "copyrightNotices": [
         "Copyright (c) 2021-present Tanner Linsley"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@tanstack/query-core/-/query-core-5.103.2.tgz#LICENSE"
+      "policyDecision": "allowed"
     },
     {
       "name": "@tanstack/react-query",
@@ -21612,14 +21611,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tanstack/react-query@5.103.2",
+      "licenseTextRef": "node_modules/@tanstack/react-query/LICENSE",
       "licenseTextSha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7",
       "copyrightNotices": [
         "Copyright (c) 2021-present Tanner Linsley"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@tanstack/react-query/-/react-query-5.103.2.tgz#LICENSE"
+      "policyDecision": "allowed"
     },
     {
       "name": "@testing-library/dom",

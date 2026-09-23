@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.23.2] - 2026-09-23
+
+### Changed
+
+- Reissued the release package with verified GitHub asset availability for Control Plane registration.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.23.1] - 2026-09-23
 
 ### Added
