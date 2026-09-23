@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.23.1] - 2026-09-23
+
+### Added
+
+- Added organization-level agent compaction controls, runtime policy diagnostics, and Hermes-compatible summary recovery.
+- Added structured chat file references with path validation, compact tool cards, and durable reconciliation across history and live events.
+- Added an editable global email review queue, advanced mailbox search, shared workspace mailbox access, and attachment actions.
+
+### Changed
+
+- Improved notebook entry loading, query sharing, navigation recovery, dashboard chat ordering, and file-explorer state preservation.
+- Improved managed Control Plane update integration, status reporting, CSP policy handling, and verified rollback evidence.
+
+### Fixed
+
+- Stabilized chat bootstrap, session creation, prompt handoffs, message pagination, and stale refresh handling.
+- Restored strict third-party license inventory validation.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.22.3] - 2026-09-22
 
 ### Added

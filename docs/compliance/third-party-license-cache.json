@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "e1d4d9fb6cb7600e001fb7e5203fbb6cb8baeda8a61f92396368bd7b12aab6a5",
+  "lockfileSha256": "ad0a6d9c14b04118945c2d52b8d2b45d61ad2d90f4d91649b85f6a4b66a5bd71",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.70": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",
@@ -6400,6 +6400,42 @@
       "copyrightNotices": [
         "Copyright (c) 2015-2020 Formidable Labs.",
         "Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,"
+      ]
+    },
+    "node_modules/@tanstack/query-core@5.103.2": {
+      "packagePath": "node_modules/@tanstack/query-core",
+      "name": "@tanstack/query-core",
+      "version": "5.103.2",
+      "packageResolved": "https://registry.npmjs.org/@tanstack/query-core/-/query-core-5.103.2.tgz",
+      "packageIntegrity": "sha512-I8DkFXls5jXLqtm8+QpOhEmG07hIblhSZFzafg9wHsMSEvMzULy9hK17wU1T/ahfhMbtITJhbxutwwCoihkR7A==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/TanStack/query",
+      "sourceRevision": null,
+      "verificationSource": "https://registry.npmjs.org/@tanstack/query-core/-/query-core-5.103.2.tgz#LICENSE",
+      "verificationNote": null,
+      "licenseFileName": "LICENSE",
+      "licenseText": "MIT License\n\nCopyright (c) 2021-present Tanner Linsley\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2021-present Tanner Linsley"
+      ]
+    },
+    "node_modules/@tanstack/react-query@5.103.2": {
+      "packagePath": "node_modules/@tanstack/react-query",
+      "name": "@tanstack/react-query",
+      "version": "5.103.2",
+      "packageResolved": "https://registry.npmjs.org/@tanstack/react-query/-/react-query-5.103.2.tgz",
+      "packageIntegrity": "sha512-B+fWiYZBc+0uUD5zDZAeLw9dKj7XEsdnuu6zRZ+no6LNKpeE3P3bJ+N6HINjcIlWR6fW3vUoTneEaGa2V6ehqw==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/TanStack/query",
+      "sourceRevision": null,
+      "verificationSource": "https://registry.npmjs.org/@tanstack/react-query/-/react-query-5.103.2.tgz#LICENSE",
+      "verificationNote": null,
+      "licenseFileName": "LICENSE",
+      "licenseText": "MIT License\n\nCopyright (c) 2021-present Tanner Linsley\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) 2021-present Tanner Linsley"
       ]
     }
   }
