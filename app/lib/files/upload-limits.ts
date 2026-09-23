@@ -1,4 +1,6 @@
 export const WORKSPACE_UPLOAD_CHUNK_SIZE = 16 * 1024 * 1024;
+// Browser requests must fit through upload proxies with a 10 MiB body limit.
+export const WORKSPACE_UPLOAD_BROWSER_CHUNK_SIZE = 8 * 1024 * 1024;
 export const WORKSPACE_UPLOAD_MAX_FILES = 1_000;
 export const WORKSPACE_UPLOAD_MAX_FILE_BYTES = 5 * 1024 * 1024 * 1024;
 export const WORKSPACE_UPLOAD_MAX_TOTAL_BYTES = 20 * 1024 * 1024 * 1024;

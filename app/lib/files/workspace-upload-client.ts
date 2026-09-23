@@ -2,6 +2,7 @@
 
 import { joinWorkspacePath } from './path-utils';
 import {
+  WORKSPACE_UPLOAD_BROWSER_CHUNK_SIZE,
   WORKSPACE_UPLOAD_CHUNK_SIZE,
   WORKSPACE_UPLOAD_MAX_RETRIES,
   formatUploadBytes,
@@ -124,7 +125,7 @@ function uploadErrorMessage(params: {
   }
   if (params.status === 413) {
     return new WorkspaceUploadRequestError(
-      `The server or reverse proxy rejected the upload as too large (HTTP 413). The chunk was ${formatUploadBytes(WORKSPACE_UPLOAD_CHUNK_SIZE)}; check the proxy request-body limit if this repeats.`,
+      `The server or reverse proxy rejected the upload as too large (HTTP 413). The chunk was at most ${formatUploadBytes(WORKSPACE_UPLOAD_BROWSER_CHUNK_SIZE)}; check the proxy request-body limit if this repeats.`,
       params.status,
       code ?? 'UPLOAD_PROXY_LIMIT',
     );
@@ -304,7 +305,7 @@ export async function uploadWorkspaceFilesInChunks(params: {
   const sessionId = created.upload.id;
   const chunkBytes = Math.max(1, Math.min(
     created.limits?.chunkBytes ?? WORKSPACE_UPLOAD_CHUNK_SIZE,
-    WORKSPACE_UPLOAD_CHUNK_SIZE,
+    WORKSPACE_UPLOAD_BROWSER_CHUNK_SIZE,
   ));
 
   try {
