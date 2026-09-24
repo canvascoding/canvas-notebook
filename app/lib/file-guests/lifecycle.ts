@@ -10,5 +10,5 @@ export async function revokeFileGuestPathScope(transaction: SqlConnection, input
         challenge_hash = NULL, updated_at = $1
     WHERE workspace_id = $2 AND status = 'active'
       AND (path = $3 OR left(path, char_length($3) + 1) = $3 || '/')
-  `, [Math.floor(input.nowMs / 1000), input.workspaceId, input.path]);
+  `, [input.nowMs, input.workspaceId, input.path]);
 }
