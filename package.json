@@ -480,7 +480,7 @@
     "test:collaboration:projection": "tsx scripts/collaboration-projection-scheduler-test.ts && tsx scripts/collaboration-projection-runtime-test.ts && tsx --conditions react-server scripts/collaboration-projection-repository-test.ts && tsx --conditions react-server scripts/collaboration-projection-fence-test.ts && tsx scripts/collaboration-projection-client-test.tsx && tsx --conditions react-server scripts/collaboration-projection-request-test.ts",
     "test:server:http-lifecycle": "node scripts/http-request-lifecycle-test.cjs",
     "test:collaboration:access": "tsx --conditions react-server scripts/collaboration-access-revocation-test.ts",
-    "test:file-guests": "tsx --conditions=react-server scripts/file-guest-update-test.ts && tsx --conditions=react-server scripts/file-guest-access-test.ts",
+    "test:file-guests": "tsx --conditions=react-server scripts/file-guest-lifecycle-timestamp-test.ts && tsx --conditions=react-server scripts/file-guest-update-test.ts && tsx --conditions=react-server scripts/file-guest-access-test.ts",
     "test:collaboration:checkpoint-errors": "tsx scripts/collaboration-checkpoint-errors-test.ts",
     "test:collaboration:presence": "tsx --conditions react-server scripts/file-presence-policy-test.ts",
     "test:collaboration:agent": "tsx --conditions react-server scripts/file-agent-coauthoring-test.ts && tsx scripts/collaboration-agent-operations-client-test.ts && tsx scripts/collaboration-agent-target-decorations-test.ts",

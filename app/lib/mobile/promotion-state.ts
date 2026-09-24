@@ -153,16 +153,16 @@ function preservedPromotionFields() {
   };
 }
 
-function latestPromotionAuditFields(lastAction: string, nowSeconds: number) {
+function latestPromotionAuditFields(lastAction: string, nowMilliseconds: number) {
   return {
     lastAction: sql<string>`case
       when ${mobileAppPromotionStates.promotionVersion} != ${MOBILE_APP_PROMOTION_VERSION}
-        or ${mobileAppPromotionStates.updatedAt} <= ${nowSeconds}
+        or ${mobileAppPromotionStates.updatedAt} <= ${nowMilliseconds}
         then ${lastAction}
       else ${mobileAppPromotionStates.lastAction}
     end`,
     updatedAt: sql<Date>`case
-      when ${mobileAppPromotionStates.updatedAt} < ${nowSeconds} then ${nowSeconds}
+      when ${mobileAppPromotionStates.updatedAt} < ${nowMilliseconds} then ${nowMilliseconds}
       else ${mobileAppPromotionStates.updatedAt}
     end`,
   };
@@ -176,7 +176,7 @@ export async function recordMobileAppPromotionAction(input: {
 }): Promise<{ recorded: boolean; status: MobileAppPromotionStatus }> {
   const now = input.now ?? new Date();
   const rolloutEnabled = input.rolloutEnabled ?? isMobileAppPromotionRolloutEnabled();
-  const nowSeconds = Math.floor(now.getTime() / 1_000);
+  const nowMilliseconds = now.getTime();
 
   if (input.action.action === 'shown') {
     const snapshot = await loadPromotionSnapshot(input.userId);
@@ -200,7 +200,7 @@ export async function recordMobileAppPromotionAction(input: {
           else 1
         end`,
         lastShownAt: now,
-        ...latestPromotionAuditFields('shown', nowSeconds),
+        ...latestPromotionAuditFields('shown', nowMilliseconds),
       },
       setWhere: or(
         ne(mobileAppPromotionStates.promotionVersion, MOBILE_APP_PROMOTION_VERSION),
@@ -226,9 +226,9 @@ export async function recordMobileAppPromotionAction(input: {
     }
   } else if (input.action.action === 'dismissed') {
     const dismissedUntil = new Date(now.getTime() + MOBILE_APP_PROMOTION_REPEAT_DELAY_MS);
-    const dismissedUntilSeconds = Math.floor(dismissedUntil.getTime() / 1_000);
+    const dismissedUntilMilliseconds = dismissedUntil.getTime();
     const extendedUntil = new Date(now.getTime() + MOBILE_APP_PROMOTION_EXTENDED_DELAY_MS);
-    const extendedUntilSeconds = Math.floor(extendedUntil.getTime() / 1_000);
+    const extendedUntilMilliseconds = extendedUntil.getTime();
     const lastAction = input.action.source === 'legacy' ? 'dismissed:legacy' : 'dismissed:dialog';
 
     await db.insert(mobileAppPromotionStates).values({
@@ -257,19 +257,19 @@ export async function recordMobileAppPromotionAction(input: {
             then case
               when ${mobileAppPromotionStates.promotionVersion} != ${MOBILE_APP_PROMOTION_VERSION}
                 or ${mobileAppPromotionStates.dismissedUntil} is null
-                or ${mobileAppPromotionStates.dismissedUntil} < ${extendedUntilSeconds}
-                then ${extendedUntilSeconds}
+                or ${mobileAppPromotionStates.dismissedUntil} < ${extendedUntilMilliseconds}
+                then ${extendedUntilMilliseconds}
               else ${mobileAppPromotionStates.dismissedUntil}
             end
           else case
             when ${mobileAppPromotionStates.promotionVersion} != ${MOBILE_APP_PROMOTION_VERSION}
               or ${mobileAppPromotionStates.dismissedUntil} is null
-              or ${mobileAppPromotionStates.dismissedUntil} < ${dismissedUntilSeconds}
-              then ${dismissedUntilSeconds}
+              or ${mobileAppPromotionStates.dismissedUntil} < ${dismissedUntilMilliseconds}
+              then ${dismissedUntilMilliseconds}
             else ${mobileAppPromotionStates.dismissedUntil}
           end
         end`,
-        ...latestPromotionAuditFields(lastAction, nowSeconds),
+        ...latestPromotionAuditFields(lastAction, nowMilliseconds),
       },
     });
   } else if (input.action.action === 'permanently_dismissed') {
@@ -286,14 +286,14 @@ export async function recordMobileAppPromotionAction(input: {
           when ${mobileAppPromotionStates.promotionVersion} = ${MOBILE_APP_PROMOTION_VERSION}
             and ${mobileAppPromotionStates.permanentlyDismissedAt} is not null
             then ${mobileAppPromotionStates.permanentlyDismissedAt}
-          else ${nowSeconds}
+          else ${nowMilliseconds}
         end`,
-        ...latestPromotionAuditFields('permanently_dismissed', nowSeconds),
+        ...latestPromotionAuditFields('permanently_dismissed', nowMilliseconds),
       },
     });
   } else {
     const dismissedUntil = new Date(now.getTime() + MOBILE_APP_PROMOTION_CTA_DELAY_MS);
-    const dismissedUntilSeconds = Math.floor(dismissedUntil.getTime() / 1_000);
+    const dismissedUntilMilliseconds = dismissedUntil.getTime();
     const lastAction = `cta_clicked:${input.action.kind}`;
 
     await db.insert(mobileAppPromotionStates).values({
@@ -309,18 +309,18 @@ export async function recordMobileAppPromotionAction(input: {
         dismissedUntil: sql<Date>`case
           when ${mobileAppPromotionStates.promotionVersion} != ${MOBILE_APP_PROMOTION_VERSION}
             or ${mobileAppPromotionStates.dismissedUntil} is null
-            or ${mobileAppPromotionStates.dismissedUntil} < ${dismissedUntilSeconds}
-            then ${dismissedUntilSeconds}
+            or ${mobileAppPromotionStates.dismissedUntil} < ${dismissedUntilMilliseconds}
+            then ${dismissedUntilMilliseconds}
           else ${mobileAppPromotionStates.dismissedUntil}
         end`,
         ctaClickedAt: sql<Date>`case
           when ${mobileAppPromotionStates.promotionVersion} != ${MOBILE_APP_PROMOTION_VERSION}
             or ${mobileAppPromotionStates.ctaClickedAt} is null
-            or ${mobileAppPromotionStates.ctaClickedAt} < ${nowSeconds}
-            then ${nowSeconds}
+            or ${mobileAppPromotionStates.ctaClickedAt} < ${nowMilliseconds}
+            then ${nowMilliseconds}
           else ${mobileAppPromotionStates.ctaClickedAt}
         end`,
-        ...latestPromotionAuditFields(lastAction, nowSeconds),
+        ...latestPromotionAuditFields(lastAction, nowMilliseconds),
       },
     });
   }
