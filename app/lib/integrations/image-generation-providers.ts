@@ -9,6 +9,7 @@ import {
   BACKGROUND_OPTIONS,
   OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_FLARE_IMAGE_MODEL_ID,
   OPENAI_ASPECT_RATIOS,
   OPENAI_MODERATION_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
@@ -107,6 +108,12 @@ const OPENAI_MODELS: ImageModelOption[] = [
     label: '🎨 Best Quality',
     shortLabel: 'GPT Image 2.5 Sunburst',
     description: 'OpenAI\'s most capable image model, optimized for generation and precise reference-based editing.',
+  },
+  {
+    id: OPENAI_FLARE_IMAGE_MODEL_ID,
+    label: '⚡ Fast Generation',
+    shortLabel: 'GPT Image 2.5 Flare',
+    description: 'Fast, high-quality image generation for everyday use.',
   },
 ];
 
