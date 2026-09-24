@@ -21,6 +21,7 @@ import { OpenAIImageFormatPicker } from './OpenAIImageFormatPicker';
 import {
   PROVIDERS,
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_FLARE_IMAGE_MODEL_ID,
   OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_MODERATION_OPTIONS,
   QUALITY_OPTIONS,
@@ -337,6 +338,8 @@ export function ControlBar({
                     : provider === 'openai'
                       ? m.id === OPENAI_IMAGE_MODEL_ID
                         ? 'GPT Image 2.5 Sunburst — Best Quality'
+                        : m.id === OPENAI_FLARE_IMAGE_MODEL_ID
+                          ? 'GPT Image 2.5 Flare — Fast Generation'
                         : m.id
                       : m.id === GEMINI_FLASH_IMAGE_MODEL_ID
                         ? 'Gemini 3.1 Flash — Best Quality & Features'

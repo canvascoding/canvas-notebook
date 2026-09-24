@@ -68,6 +68,7 @@ export function getImageSizesForModel(model: string): readonly string[] {
 }
 
 export const OPENAI_IMAGE_MODEL_ID = 'gpt-image-2.5-sunburst';
+export const OPENAI_FLARE_IMAGE_MODEL_ID = 'gpt-image-2.5-flare';
 export const OPENAI_LEGACY_IMAGE_MODEL_ALIASES: Record<string, string> = {
   'gpt-image-2': OPENAI_IMAGE_MODEL_ID,
   'gpt-image-2-2026-04-21': OPENAI_IMAGE_MODEL_ID,
@@ -80,6 +81,7 @@ export function normalizeOpenAIImageModelId(model: string): string {
 
 export const OPENAI_MODELS = [
   { id: OPENAI_IMAGE_MODEL_ID, optionKey: 'gptImage25Sunburst' as const },
+  { id: OPENAI_FLARE_IMAGE_MODEL_ID, optionKey: 'gptImage25Flare' as const },
 ] as const;
 
 export const VIDEO_MODELS = [
@@ -206,8 +208,9 @@ export function getOpenAIImageRequestValidationError(
 ): string | null {
   if (options.model !== undefined) {
     if (typeof options.model !== 'string') return 'Model must be a string.';
-    if (normalizeOpenAIImageModelId(options.model) !== OPENAI_IMAGE_MODEL_ID) {
-      return `Model must be ${OPENAI_IMAGE_MODEL_ID}.`;
+    const model = normalizeOpenAIImageModelId(options.model);
+    if (!OPENAI_MODELS.some(({ id }) => id === model)) {
+      return `Model must be one of: ${OPENAI_MODELS.map(({ id }) => id).join(', ')}.`;
     }
   }
 

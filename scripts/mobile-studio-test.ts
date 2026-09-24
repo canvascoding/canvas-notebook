@@ -39,6 +39,17 @@ assert.equal(request.stream, true);
 assert.equal(request.partial_images, 3);
 assert.equal(request.image_size, '3840x2160');
 
+const flareRequest = parseMobileStudioGenerationRequest({
+  mode: 'image',
+  provider: 'openai',
+  model: 'gpt-image-2.5-flare',
+  prompt: 'A quick product mockup',
+  quality: 'xhigh',
+  imageSize: '1536x1024',
+});
+assert.equal(flareRequest.model, 'gpt-image-2.5-flare');
+assert.equal(flareRequest.quality, 'xhigh');
+
 const customFormatRequest = parseMobileStudioGenerationRequest({
   mode: 'image',
   provider: 'openai',

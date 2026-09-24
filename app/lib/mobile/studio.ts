@@ -11,6 +11,7 @@ import {
 import {
   BACKGROUND_OPTIONS,
   OPENAI_IMAGE_MODEL_ID,
+  OPENAI_FLARE_IMAGE_MODEL_ID,
   OPENAI_IMAGE_FORMAT_PRESETS,
   OPENAI_IMAGE_SIZE_LIMITS,
   OPENAI_INPUT_FIDELITY_OPTIONS,
@@ -366,6 +367,7 @@ function modelLabel(modelId: string): string {
     'gemini-3.1-flash-image': 'Gemini Flash Image',
     'gemini-3-pro-image': 'Gemini Pro Image',
     [OPENAI_IMAGE_MODEL_ID]: 'GPT Image 2.5 Sunburst',
+    [OPENAI_FLARE_IMAGE_MODEL_ID]: 'GPT Image 2.5 Flare',
     'veo-3.1-generate-preview': 'Veo 3.1 Quality',
     'veo-3.1-fast-generate-preview': 'Veo 3.1 Fast',
     'veo-3.1-lite-generate-preview': 'Veo 3.1 Lite',
