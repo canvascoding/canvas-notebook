@@ -2,6 +2,12 @@
 
 Stand: 2026-09-21
 
+Konkretisierung vom 2026-09-25: [Konfliktauflösung im Review Center](./conflict-resolution-implementation-plan.md)
+legt den Nutzerablauf A → B/C, die Umsetzung innerhalb von FVRC-1006..1008 und
+FVRC-1200..1203 sowie zusätzliche CR-Abnahmetests fest. Der bisherige Aufgabenstatus
+ändert sich dadurch nicht. Verständliche Konfliktanzeige und fertige manuelle
+Konfliktlösung werden als getrennte Meilensteine abgenommen.
+
 Status: konkreter Verbesserungsplan, noch keine Implementierungs- oder Produktionsabnahme.
 Die Aufgaben und ihr Status werden ausschließlich in [`todo.json`](./todo.json) geführt.
 Dieser Plan konkretisiert die offenen Tasks `FVRC-1005` bis `FVRC-1008` und ergänzt

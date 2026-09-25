@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "feature": "file-version-review-center",
   "title": "File Version & Review Center",
-  "updatedAt": "2026-09-21",
+  "updatedAt": "2026-09-25",
   "status": "in_progress",
   "repository": "canvasstudios-notebook",
   "documents": [
@@ -16,6 +16,7 @@
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-storage-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/proposal-graph-mechanics-v1.md",
     "docs/architecture/canvas-notebook/file-version-review-center/merge-reliability-plan.md",
+    "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
     "docs/architecture/canvas-notebook/file-version-review-center/todo.json"
   ],
   "scope": {
@@ -1536,8 +1537,12 @@
           "status": "planned",
           "area": "frontend",
           "dependsOn": ["FVRC-1005"],
+          "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
+          "additionalVerificationScenarios": ["CR-01", "CR-02", "CR-03", "CR-04", "CR-05", "CR-06", "CR-10", "CR-12", "CR-21", "CR-22"],
           "verificationScenarios": ["PG-U01", "PG-U02", "PG-U03", "PG-U04", "PG-U05", "PG-U06", "PG-U07", "PG-U08", "PG-U09", "PG-U10", "PG-U11", "MR-02", "MR-03", "MR-11", "MR-12", "MR-15", "MR-19", "MR-21"],
           "deliverables": [
+            "Center auf die vorhandene Graphprojektion und aktuelle Compare-Auswertung umstellen; fehlende autorisierte Aktionsadapter zum bestehenden Orchestrator integrieren, bis 1008 capability-gesperrt",
+            "A -> B/C -> C angenommen: B automatisch neu auswerten und als konkreten Konflikt zeigen; Current-/Graph-Wechsel, fehlende Grundlage und Transportfehler getrennt behandeln",
             "Gruppierte Root-, Kind-, Ersatz- und Alternativkarten in der Review-Sektion",
             "Beziehungs-, Include-, Rebase-, Blockierungs- und Konflikttexte unabhaengig von Farbe",
             "Explizite Aktionen inklusive Parent, nur Parent, Detach, Replace, Alternative und Zweig ablehnen",
@@ -1573,6 +1578,7 @@
           "status": "planned",
           "area": "entrypoints-notifications",
           "dependsOn": ["FVRC-1006"],
+          "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
           "verificationScenarios": ["PG-S24", "PG-U01", "PG-U05", "PG-U06", "PG-U12", "MR-17"],
           "deliverables": [
             "Exakte historische Widget-Referenz mit aktuellem Status und explizitem Nachfolger-Link",
@@ -1601,8 +1607,11 @@
           "status": "planned",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
+          "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
+          "additionalVerificationScenarios": ["CR-01", "CR-02", "CR-03", "CR-04", "CR-05", "CR-06", "CR-10", "CR-12", "CR-16", "CR-17", "CR-18", "CR-21", "CR-22"],
           "verificationScenarios": ["PG-S16", "PG-S17", "PG-S18", "PG-S19", "PG-S20", "PG-S21", "PG-S24", "PG-S27", "PG-S28", "PG-S29", "PG-S30", "PG-S32", "PG-S33", "PG-S34", "PG-U09", "PG-U10", "PG-U11", "PG-U12", "MR-01", "MR-02", "MR-03", "MR-04", "MR-05", "MR-06", "MR-07", "MR-08", "MR-09", "MR-10", "MR-11", "MR-12", "MR-13", "MR-14", "MR-15", "MR-16", "MR-17", "MR-18", "MR-19", "MR-20", "MR-21", "MR-22", "MR-23", "MR-24"],
           "deliverables": [
+            "Gewoehnliche Markdown-Agententools und Altvorschlaege im tatsaechlichen UI-/API-Pfad pruefen; Kern-Fixtures allein belegen keine produktive Graphanbindung",
             "Komplette 46-Faelle-Testmatrix aus proposal-graph-scenarios.md mit Commit-bezogener Evidence",
             "Metriken und inhaltsfreie Logs fuer Graphgroesse, Rebase, Blockierung, Konflikt und Apply",
             "Feature-Flag-Ringe mit Legacy-Routenschutz vor Beziehungserstellung und gemeinsamer Aktivierung von Closure, Recovery und Propagation",
@@ -1646,11 +1655,14 @@
           "status": "planned",
           "area": "architecture-storage",
           "dependsOn": ["FVRC-1008"],
+          "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
+          "additionalVerificationScenarios": ["CR-09", "CR-15", "CR-17", "CR-19", "CR-24"],
           "verificationScenarios": ["MR-25", "MR-28", "MR-31"],
           "deliverables": [
             "Versionierter benutzer-/workspace-/lineagegebundener Entwurf mit fester Proposal-Auswahl, Basis-/Current-/Evaluationsreferenzen, Ergebnisartefakt und CAS",
             "Additive Migration, Retention-Pins, Groessenlimits, Ablauf/Bereinigung und Rechteverlustregeln",
-            "Expliziter Resolution-Nachweis je Original: unveraendert uebernommen, veraendert aufgeloest, aktuell behalten oder nicht einbezogen",
+            "Expliziter Resolution-Nachweis je Original und entscheidbarem Bereich: unveraendert uebernommen, teilweise uebernommen, veraendert aufgeloest, aktuell behalten, nachweisbar bereits enthalten oder nicht einbezogen",
+            "Abgeschlossene Teiluebernahme eindeutig vom aktiven Legacy-Status partially_applied abgrenzen; kein erneut annehmbarer Rest nach abgeschlossener Resolution",
             "Kompatibilitaetsprojektion fuer alte Clients; Entwurf ist kein replaces-Vorschlag und schliesst kein Original vorzeitig"
           ],
           "acceptanceCriteria": [
@@ -1670,9 +1682,12 @@
           "status": "planned",
           "area": "domain-services",
           "dependsOn": ["FVRC-1200"],
+          "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
+          "additionalVerificationScenarios": ["CR-07", "CR-08", "CR-09", "CR-11", "CR-12", "CR-13", "CR-14", "CR-15", "CR-16", "CR-18", "CR-20"],
           "verificationScenarios": ["MR-26", "MR-27", "MR-29", "MR-30", "MR-31"],
           "deliverables": [
             "Strukturierte Konfliktstellen mit verfuegbarer Basis, aktuellem Inhalt, Vorschlag und Ergebnis",
+            "Konfliktfreie Wirkung im Ergebnisentwurf erhalten; abhaengige Bereiche gemeinsam entscheiden; mehrere kollidierende Vorschlaege ohne versteckten Reihenfolgengewinner aufbereiten",
             "Aktuell behalten, Vorschlag uebernehmen und manuell kombinieren als explizite Entscheidungen auf versioniertem Entwurf",
             "Identitaetserhaltender Kandidat mit Schema-/Roundtrippruefung auf aktuellem Snapshot; keine stille Whole-Document-Ersetzung",
             "Erneute Validierung gespeicherter Entscheidungen bei Peer-Edit; angepasste Vorschlaege und Nachfahren korrekt neu auswerten",
@@ -1696,9 +1711,12 @@
           "status": "planned",
           "area": "frontend",
           "dependsOn": ["FVRC-1201"],
+          "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
+          "additionalVerificationScenarios": ["CR-01", "CR-02", "CR-07", "CR-08", "CR-09", "CR-13", "CR-14", "CR-19", "CR-22", "CR-23"],
           "verificationScenarios": ["MR-25", "MR-26", "MR-27", "MR-28"],
           "deliverables": [
-            "Konfliktliste, Ausgang/Aktuell/Vorschlag/Ergebnis und manuelle Ergebnisbearbeitung im globalen Popup",
+            "Konfliktliste, Aktuell/Vorschlag/Ergebnis und manuelle Ergebnisbearbeitung im globalen Popup; Ausgangsbasis optional einblenden",
+            "Gespeicherte Entwuerfe aus der Vorschlagskarte wiederaufnehmen; Save-Fehler und ungespeicherte Aenderungen beim Schliessen ehrlich behandeln, laufenden Abschluss nach Wiederoeffnen abfragen",
             "Mobile Tabs, tastaturfaehige Entscheidungen, Autosave-/Wiederaufnahmezustand und Zahl offener Konflikte",
             "Abschluss in zwei Schritten: Zusammenfuehrung pruefen, Gesamtdiff bestaetigen; Konsequenzen fuer Originale sichtbar",
             "Diagnose, Entwurfsverwerfen und exakte Audit-/Nachfolgereferenzen ohne zweiten Review-Workflow"
@@ -1720,18 +1738,20 @@
           "status": "planned",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1202"],
+          "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
+          "additionalVerificationScenarios": ["CR-01", "CR-02", "CR-03", "CR-04", "CR-05", "CR-06", "CR-07", "CR-08", "CR-09", "CR-10", "CR-11", "CR-12", "CR-13", "CR-14", "CR-15", "CR-16", "CR-17", "CR-18", "CR-19", "CR-20", "CR-21", "CR-22", "CR-23", "CR-24"],
           "verificationScenarios": ["MR-25", "MR-26", "MR-27", "MR-28", "MR-29", "MR-30", "MR-31", "MR-32"],
           "deliverables": [
             "Finalisierung ueber vorhandenen Action-Orchestrator und Collaboration-Apply; Resolution-Receipt mit atomarer Auditbindung",
             "Lost-response-, Restart-, Rechteverlust- und Concurrent-Finalize-Absicherung ohne zweite Wirkung",
-            "MR-25..MR-32 und vollstaendige P10-Regression mit Commit-/Build-bezogener Evidence",
+            "MR-25..MR-32, CR-01..CR-24 und vollstaendige P10-Regression mit Commit-/Build-bezogener Evidence; echter End-to-End-Abschluss statt Nachweis einer sicheren Sperre",
             "Separate serverseitige Capability, Canary und datenbewahrender Rollback fuer manuelle Aufloesung"
           ],
           "acceptanceCriteria": [
             "Ein inhaltsaendernder Abschluss erzeugt genau eine logische Inhaltsrevision; reines Aktuell-behalten keine leere Version.",
             "Unsichere Persistenz bleibt sichtbar in Recovery, statt Originale vorzeitig als erledigt auszugeben.",
             "Rollback bewahrt Entwuerfe, Artefakte und History; unbekannte Resolution-Zustaende werden von alten Clients nicht angewendet.",
-            "MR-25 bis MR-32 und saemtliche P10-Gates bestehen ohne Pflicht-Skips; Produktionsaktivierung erfolgt nur gesondert autorisiert."
+            "MR-25 bis MR-32, CR-01 bis CR-24 und saemtliche P10-Gates bestehen ohne Pflicht-Skips; Produktionsaktivierung erfolgt nur gesondert autorisiert."
           ],
           "verification": [
             "Reale PostgreSQL-/Yjs-Concurrency und Crash-Grenztests, Security- und Retention-Regressionen",
