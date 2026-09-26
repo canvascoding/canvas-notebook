@@ -532,3 +532,28 @@ Gesamtmatrixläufe, frisches Produktionsimage und P12 bleiben offen. Kein
 Produktcode, keine Dependencies, Runtime-Env oder Container geändert; kein
 Push und keine Produktionsaktivierung. Generierte `AGENTS.md`-/`CLAUDE.md`-
 Änderungen gehören nicht zum Test-Commit.
+
+### Restore und verlorene Voraussetzungen: vier Browserfälle
+
+[Ordinary restore prerequisite results](ordinary-restore-prerequisite-results.md)
+dokumentiert vier weitere bestandene E2E-Fälle auf unverändertem Produktcode
+`542c99dc2`: Personal/Team mit tatsächlichem UI-Restore auf die Version vor P1,
+jeweils mit und ohne anschließendes Wiederherstellen des gleichen P1-Textes.
+Die abhängigen Vorschläge entstehen vorher über gewöhnliche Werkzeuge. P2
+bleibt nach Verlust des von P1 eingefügten Absatzbezugs offen, aber mit genauer
+Graph-Diagnose `prerequisite_lost` und ohne Annahmeaktion. P1 bleibt historisch
+angewendet. Gleicher Text mit neuer Block-ID berechtigt nicht zur Übernahme.
+
+Der alte signierte Annahmeauftrag scheitert mit 409/`PROPOSAL_CURRENT_CHANGED`
+ohne weiteren Inhaltseffekt; identische Restore-Wiederholungen liefern dasselbe
+Ergebnis ohne zusätzliche Revision. Geprüft sind exakte Texte, Block-Identität,
+Lebenszyklen, +2/+3 Revisionen und konkrete UI-Diagnose statt Legacy-Timeline-
+Fehler. Der erste Lauf fand einen mehrdeutigen Test-Locator, nicht einen
+Produktfehler; nach dessen Eingrenzung bestanden alle vier Einzeltests.
+
+TypeScript, fokussiertes ESLint und unabhängiger Quell-Review bestanden. Keine
+Review-429-/5xx-Antwort und kein Skip in den abschließenden seriellen Läufen.
+PG-S11/MR-10 erhalten nur diesen konkreten Restore-Nachweis; sichere Blockierung
+wird nicht als erfolgreicher Konflikt-Merge gezählt. Gesamtgate, zwei volle
+Matrixläufe, frisches Produktionsimage, Mehrprozess-/Crash-Prüfungen und P12
+bleiben offen. Kein Push, Container-Rebuild oder Produktiv-Rollout.
