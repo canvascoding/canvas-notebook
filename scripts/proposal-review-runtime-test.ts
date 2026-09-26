@@ -44,6 +44,8 @@ function harness(input: { proposalOwners?: Array<{ proposal_id: string; initiate
   const writes: string[] = [];
   const sql: FileVersionCenterTransaction = {
     query: async <Row>(statement: string) => {
+      if (statement.includes('SELECT id FROM file_collaboration_lineages')) return { rows: [{ id: target.lineageId }] as Row[] };
+      if (statement.includes('SELECT document_id FROM collaboration_yjs_states')) return { rows: [{ document_id: target.documentId }] as Row[] };
       if (statement.includes('FROM collaboration_documents')) return { rows: [identity()] as Row[] };
       if (statement.includes('FROM file_change_proposals')) return { rows: (input.proposalOwners ?? []) as Row[] };
       throw new Error(`Unexpected query: ${statement.slice(0, 60)}`);

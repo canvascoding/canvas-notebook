@@ -12,6 +12,9 @@ import type {
   FileVersionTimelineEntryV1,
   FileVersionTimelineResponseV1,
 } from '../app/lib/file-version-center/contracts/v1';
+import type { ProposalReviewSummaryResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-summary-v1';
+import { observeOpenedDocumentAuth, openedDocumentAuthScope,
+  invalidateOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 
 const dom = new JSDOM('<!doctype html><html><body><button id="origin">Open</button><div id="root"></div></body></html>', {
   url: 'https://canvas.test/en/notebook?workspaceId=workspace-one&panel=files#active-file',
@@ -117,6 +120,18 @@ function response(
   };
 }
 
+function legacySummary(body: string | undefined): Response {
+  const request = JSON.parse(body ?? '{}') as { operationIds?: string[] };
+  return Response.json({
+    contractVersion: 1,
+    target: { workspaceId: 'workspace-one', lineageId: 'lineage-one', documentId: 'document-one' },
+    current: null,
+    graphRevision: null,
+    items: (request.operationIds ?? []).map((operationId) => ({ mode: 'legacy', operationId })),
+    checkedAt: Date.now(),
+  });
+}
+
 async function settle(): Promise<void> {
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
 }
@@ -137,8 +152,10 @@ async function main() {
   const { openVersionCenter } = await import('../app/store/file-version-center-store');
 
   let timelineAttempts = 0;
-  globalThis.fetch = async (input) => {
+  let resolveAttempts = 0;
+  globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if (url.endsWith('/proposals/summary')) return legacySummary(String(init?.body));
     if (url.endsWith('/timeline')) {
       timelineAttempts += 1;
       if (timelineAttempts === 1) {
@@ -150,6 +167,7 @@ async function main() {
       }
       return Response.json(response([currentEntry, revisionEntry], { hasMore: false, nextCursor: null }));
     }
+    resolveAttempts += 1;
     return Response.json(response([agentEntry, conflictEntry], { hasMore: true, nextCursor: 'cursor-one' }));
   };
 
@@ -161,6 +179,23 @@ async function main() {
   ));
   await act(async () => { openVersionCenter(request); });
   await settle();
+  await act(async () => {
+    observeOpenedDocumentAuth({ data: { user: { id: 'user-one' }, session: { id: 'session-one' } } });
+    invalidateOpenedDocumentAuth();
+  });
+  assert.ok(openedDocumentAuthScope(), 'component fixture has an authenticated review scope');
+  await settle();
+  const beforeExternalRefresh = resolveAttempts;
+  await act(async () => {
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((resolve) => setTimeout(resolve, 220));
+  });
+  await settle();
+  assert.equal(resolveAttempts, beforeExternalRefresh + 1,
+    'focus and visibility events coalesce into one authoritative timeline refresh');
+  assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), 'revision-old',
+    'background reconciliation preserves the pending review selection');
 
   const layout = document.querySelector('[data-testid="file-version-center-responsive-layout"]');
   assert.ok(layout?.className.includes('grid-cols-1') && layout.className.includes('md:grid-cols'),
@@ -201,7 +236,7 @@ async function main() {
     && !agentButton?.className.includes('focus-visible:ring-offset'),
   'keyboard focus stays visible without growing beyond the timeline card gutter');
   assert.ok(agentButton?.querySelector('[class*="dark:text-violet"]'), 'agent accents define a dark-theme token');
-  assert.match(agentButton?.textContent ?? '', /Needs review/iu, 'agent status is visible as text, not color alone');
+  assert.match(agentButton?.textContent ?? '', /Needs review/iu, 'explicitly legacy agent status is visible as text, not color alone');
   const conflictButton = document.querySelector<HTMLButtonElement>('[data-entry-status="semantic_conflict"]');
   assert.ok(conflictButton?.className.includes('amber') && /Conflict/iu.test(conflictButton.textContent ?? ''),
     'conflicts combine an amber accent with an icon and visible status');
@@ -247,6 +282,7 @@ async function main() {
     initialView?: string;
   }> = [];
   globalThis.fetch = async (input, init) => {
+    if (String(input).endsWith('/proposals/summary')) return legacySummary(String(init?.body));
     if (!String(input).endsWith('/resolve')) {
       return Response.json(response([conflictEntry, currentEntry], { hasMore: false, nextCursor: null }));
     }
@@ -337,7 +373,152 @@ async function main() {
   assert.equal(document.querySelector('[data-testid="file-version-center-responsive-layout"]'), null,
     'a disabled rollout cannot mount the master-detail review UI');
 
+  let raceSummaryReads = 0;
+  let raceTimelineReads = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith('/proposals/summary')) {
+      raceSummaryReads += 1;
+      return raceSummaryReads === 1
+        ? Response.json({ error: { code: 'PROPOSAL_CURRENT_CHANGED' } }, { status: 409 })
+        : legacySummary(String(init?.body));
+    }
+    if (url.endsWith('/resolve')) raceTimelineReads += 1;
+    return Response.json(response([agentEntry, conflictEntry, currentEntry], { hasMore: false, nextCursor: null }));
+  };
+  await act(async () => { openVersionCenter({ ...request, target: { ...request.target },
+    selectedEntry: undefined, initialView: 'reviews' }); });
+  await settle();
+  await settle();
+  await settle();
+  assert.equal(raceTimelineReads, 2, 'typed current-change summary race triggers exactly one fresh timeline read');
+  assert.equal(raceSummaryReads, 2, 'the fresh timeline automatically supplies one new sibling-card summary');
+  assert.match(document.querySelector<HTMLButtonElement>('[data-operation-id="operation-one"]')?.textContent ?? '', /Needs review/iu,
+    'a sibling card recovers its verified status without a click or tab-focus event');
+
+  raceSummaryReads = 0;
+  raceTimelineReads = 0;
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.endsWith('/proposals/summary')) {
+      raceSummaryReads += 1;
+      return Response.json({ error: { code: 'PROPOSAL_GRAPH_CHANGED' } }, { status: 409 });
+    }
+    if (url.endsWith('/resolve')) raceTimelineReads += 1;
+    return Response.json(response([agentEntry, conflictEntry, currentEntry], { hasMore: false, nextCursor: null }));
+  };
+  await act(async () => { openVersionCenter({ ...request,
+    target: { kind: 'document', workspaceId: 'workspace-one', documentId: 'document-one' },
+    selectedEntry: undefined, initialView: 'reviews' }); });
+  await settle();
+  await settle();
+  await settle();
+  assert.equal(raceTimelineReads, 2, 'a repeated graph-change race has one bounded timeline retry');
+  assert.equal(raceSummaryReads, 2, 'a repeated graph-change race does not loop summary reads');
+  assert.match(document.querySelector<HTMLButtonElement>('[data-operation-id="operation-one"]')?.textContent ?? '', /Review status unavailable/iu,
+    'after the bounded retry, sibling cards fail closed with a manual retry affordance');
+  raceSummaryReads = 0;
+  raceTimelineReads = 0;
+  globalThis.fetch = async (input) => {
+    if (String(input).endsWith('/proposals/summary')) {
+      raceSummaryReads += 1;
+      return Response.json({ error: { code: 'FVRC_TRANSPORT_ERROR' } }, { status: 429 });
+    }
+    if (String(input).endsWith('/resolve')) raceTimelineReads += 1;
+    return Response.json(response([agentEntry, conflictEntry, currentEntry], { hasMore: false, nextCursor: null }));
+  };
+  const manualSummaryRetry = document.querySelector<HTMLButtonElement>('nav[aria-label] [role="alert"] button');
+  assert.ok(manualSummaryRetry);
+  await act(async () => { manualSummaryRetry.click(); });
+  await settle();
+  assert.equal(raceSummaryReads, 1, 'a rate-limited manual retry never starts automatic summary requests');
+  assert.equal(raceTimelineReads, 0, 'a 429 response never triggers an automatic timeline refresh');
+  globalThis.fetch = async (input) => String(input).endsWith('/proposals/summary')
+    ? Response.json({ error: { code: 'PROPOSAL_ACCESS_DENIED' } }, { status: 403 })
+    : Response.json(response([agentEntry, conflictEntry, currentEntry], { hasMore: false, nextCursor: null }));
+  const deniedSummaryRetry = document.querySelector<HTMLButtonElement>('nav[aria-label] [role="alert"] button');
+  assert.ok(deniedSummaryRetry);
+  await act(async () => { deniedSummaryRetry.click(); });
+  await settle();
+  assert.equal(document.querySelector('[data-testid="file-version-center-responsive-layout"]'), null,
+    'summary access revocation purges the cached timeline and selected comparison');
+  assert.equal(document.querySelector('[data-operation-id="operation-one"]'), null,
+    'a denied summary cannot leave private sibling cards visible');
+  assert.doesNotMatch(document.body.textContent ?? '', /Notes\/roadmap\.md/u,
+    'the revoked document path is not retained from the old resolution');
+
   await act(async () => root.unmount());
+  const { FileVersionTimeline } = await import('../app/components/file-version-center/FileVersionTimeline');
+  const secondReview = { ...agentEntry, id: 'operation-two', operationId: 'operation-two' };
+  const selectedReviewTimeline = response([agentEntry, secondReview, currentEntry], { hasMore: false, nextCursor: null });
+  const selectedReview = reconcileFileVersionTimelineSelection({
+    request: { ...request, selectedEntry: { kind: 'agent_operation', id: agentEntry.id }, initialView: 'reviews' },
+    timeline: selectedReviewTimeline,
+  });
+  const graphProposal = (proposalId: string, operationId: string, relation: 'root' | 'dependency') => ({
+    proposalId, operationId, rootProposalId: 'proposal-one',
+    parentProposalId: relation === 'root' ? null : 'proposal-one', relation,
+    relationships: { dependency: null, replacesProposalId: null, choiceGroupId: null },
+    lifecycle: 'open' as const, createdAt: 1, createdByActorId: 'actor-one',
+  });
+  const summaryItems = [
+    { mode: 'graph', operationId: 'operation-one', proposal: graphProposal('proposal-one', 'operation-one', 'root'),
+      status: 'clean', reasonCode: null },
+    { mode: 'graph', operationId: 'operation-two', proposal: graphProposal('proposal-two', 'operation-two', 'dependency'),
+      status: 'conflicted', reasonCode: 'PROPOSAL_BATCH_CONFLICT' },
+  ] satisfies ProposalReviewSummaryResponseV1['items'];
+  const cardRoot = createRoot(document.getElementById('root')!);
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={selectedReviewTimeline} selection={selectedReview}
+      evaluatedReview={{ operationId: agentEntry.operationId, status: 'clean', reasonCode: null }}
+      reviewSummary={summaryItems}
+      onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  const selectedCard = document.querySelector<HTMLButtonElement>('[data-entry-kind="agent_operation"][aria-pressed="true"]');
+  const otherCard = document.querySelector<HTMLButtonElement>('[data-operation-id="operation-two"]');
+  assert.match(selectedCard?.textContent ?? '', /Root proposal[\s\S]*Ready to apply/iu,
+    'the inspected operation card shows its evaluated status');
+  assert.match(otherCard?.textContent ?? '', /Dependent proposal[\s\S]*Conflicting changes[\s\S]*overlaps changes in the current document/iu,
+    'an uninspected dependent card shows its independently evaluated graph conflict and reason');
+  assert.equal(otherCard?.getAttribute('aria-pressed'), 'false', 'the conflicting card is not the inspected selection');
+  assert.equal(document.querySelectorAll('[data-testid="file-version-review-branch"]').length, 1,
+    'server-projected parent and child appear together in a labelled Review branch');
+  await act(async () => { selectedCard?.focus(); });
+  assert.equal(document.activeElement, selectedCard);
+  const reviewGroupRoots = new Map(summaryItems.map((item) => [item.operationId, item.proposal.rootProposalId]));
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={selectedReviewTimeline} selection={selectedReview}
+      reviewGroupRoots={reviewGroupRoots}
+      reviewSummaryError="Review status unavailable" onRetryReviewSummary={() => {}}
+      onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  const unverifiedCard = document.querySelector<HTMLButtonElement>('[data-operation-id="operation-two"]');
+  assert.equal(document.querySelector<HTMLButtonElement>('[data-operation-id="operation-one"]'), selectedCard,
+    'a same-document refresh keeps the selected review node mounted');
+  assert.equal(document.activeElement, selectedCard, 'background refresh does not steal keyboard focus');
+  assert.match(unverifiedCard?.textContent ?? '', /Review status unavailable/iu);
+  assert.equal(unverifiedCard?.getAttribute('data-entry-status'), null,
+    'a failed summary never exposes a stale legacy conflict as an evaluated result');
+  assert.doesNotMatch(unverifiedCard?.textContent ?? '', /\+4|Conflicting changes|Needs review/iu);
+  assert.equal(selectedCard?.getAttribute('data-entry-status'), null,
+    'structural grouping never carries an old ready-to-accept claim through revalidation');
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={selectedReviewTimeline} selection={selectedReview}
+      reviewSummary={summaryItems} onSelect={() => {}} onLoadMore={() => {}}
+      loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.equal(document.querySelector<HTMLButtonElement>('[data-operation-id="operation-one"]'), selectedCard,
+    'the revalidated review keeps the same focused DOM node');
+  assert.equal(document.activeElement, selectedCard);
+  assert.equal(selectedCard?.getAttribute('data-entry-status'), 'clean');
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={selectedReviewTimeline} selection={selectedReview}
+      reviewSummary={[{ mode: 'legacy', operationId: 'operation-one' }, { mode: 'legacy', operationId: 'operation-two' }]}
+      onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.match(document.querySelector<HTMLButtonElement>('[data-operation-id="operation-two"]')?.textContent ?? '', /Needs review/iu,
+    'the old timeline status appears only after the server explicitly declares legacy mode');
+  await act(async () => cardRoot.unmount());
   console.log('file-version-center-timeline-test: ok');
 }
 

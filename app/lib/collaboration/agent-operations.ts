@@ -1503,6 +1503,8 @@ export type ProposalGraphCandidateApplyInput = {
   initiatedByUserId: string;
   actorId: string;
   actorDisplayName: string;
+  /** Review approvals use the authenticated user session, not an agent run. */
+  actorType?: 'agent' | 'user';
   actorSessionId?: string;
   representation: ProposalYjsRepresentation;
   expectedCurrent: ProposalCurrentProofV1;
@@ -1578,6 +1580,9 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
   if (!input.workspace.permissions.canWrite || input.workspace.workspaceId !== input.scope.workspaceId) {
     throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_ACCESS_DENIED', 'Workspace write permission is required.');
   }
+  if (input.actorType === 'user' && (!input.actorSessionId || input.actorId !== input.initiatedByUserId)) {
+    throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_ACCESS_DENIED', 'A review approval requires its authenticated user session.');
+  }
   const candidate = prepareProposalCandidate(input);
   return serialized(input.scope.documentId, async () => {
     const database = createAgentOperationDatabase();
@@ -1609,6 +1614,7 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
       row = await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'applying' });
       let resultingSnapshot: Uint8Array | null = null;
       let appliedCurrent: ProposalCurrentProofV1 | null = null;
+      let candidateCallbackEntered = false;
       try {
         await runCollaborationDirectConnection({
           documentId: row.document_id,
@@ -1620,10 +1626,13 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
           workspace: input.workspace,
           actorId: input.actorId,
           actorDisplayName: input.actorDisplayName,
+          actorType: input.actorType ?? 'agent',
+          versionSource: 'agent_apply',
           initiatedByUserId: input.initiatedByUserId,
           operationId: input.actionId,
           actorSessionId: input.actorSessionId,
         }, (doc) => {
+          candidateCallbackEntered = true;
           const live = proposalYjsCurrentProof({
             update: Y.encodeStateAsUpdate(doc), representation: input.representation, revisionId: input.expectedCurrent.revisionId,
           });
@@ -1664,11 +1673,16 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
           } });
         });
       } catch (error) {
-        if (error instanceof ProposalActionDefinitelyUnappliedError) {
+        const unapplied = error instanceof ProposalActionDefinitelyUnappliedError ? error
+          : !candidateCallbackEntered ? new ProposalActionDefinitelyUnappliedError(
+            error instanceof AgentDirectConnectionAuthorizationError ? 'PROPOSAL_ACCESS_DENIED' : 'PROPOSAL_CONTENT_UNAVAILABLE',
+            'The candidate action stopped before document mutation began.',
+          ) : null;
+        if (unapplied) {
           row = await transitionOperation({ database, row, expectedStatuses: ['applying'], status: 'cancelled',
             fields: { error_code: 'proposal_action_not_applied' } }).catch(() => row);
         }
-        throw error;
+        throw unapplied ?? error;
       }
       const durable = await waitForProposalCandidateDurability({ database, row, workspace: input.workspace, candidate,
         baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });

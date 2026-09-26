@@ -55,6 +55,9 @@ function harness() {
   const history: Array<{ content: string; stateVector: string | Uint8Array | null | undefined }> = [];
   let historyAvailable = true;
   let directConnectionCalls = 0;
+  let directConnectionInput: Record<string, unknown> | null = null;
+  let directConnectionFailure: 'authorization-before' | 'connection-before' | 'after-callback' | null = null;
+  class AgentDirectConnectionAuthorizationError extends Error {}
   let recoveryScanEnabled = false;
   const filename = path.resolve('app/lib/collaboration/agent-operations.ts');
   const require = createRequire(filename);
@@ -123,14 +126,20 @@ function harness() {
     if (name === './persistence') return { loadCollaborationState: async () => ({ ...state }) };
     if (name === './server-runtime') return { Y };
     if (name === './direct-connection') return {
-      AgentDirectConnectionAuthorizationError: class extends Error {},
-      runCollaborationDirectConnection: async (_input: unknown, apply: (doc: Y.Doc) => string, onApplied?: (value: string) => Promise<void>) => {
+      AgentDirectConnectionAuthorizationError,
+      runCollaborationDirectConnection: async (input: Record<string, unknown>, apply: (doc: Y.Doc) => string, onApplied?: (value: string) => Promise<void>) => {
         directConnectionCalls++;
+        directConnectionInput = input;
+        if (directConnectionFailure === 'authorization-before') {
+          throw new AgentDirectConnectionAuthorizationError('Session authorization failed before opening the room.');
+        }
+        if (directConnectionFailure === 'connection-before') throw new Error('Room connection unavailable before callback.');
         const live = new Y.Doc({ gc: false });
         try {
           Y.applyUpdate(live, state.yjsState);
           const result = apply(live);
           state = { ...state, yjsState: Y.encodeStateAsUpdate(live), stateVector: Y.encodeStateVector(live), persistedAt: 200, documentSequence: 8 };
+          if (directConnectionFailure === 'after-callback') throw new Error('Connection acknowledgement lost after callback.');
           await onApplied?.(result);
           return result;
         } finally { live.destroy(); }
@@ -180,7 +189,9 @@ function harness() {
   return { agent: compiledModule.exports as typeof Agent, row, history, actionReceipt, candidateUpdate, expectedCurrent,
     persistCandidate, recordAppliedCallback, applyIndependentEdit, setHistoryAvailable: (value: boolean) => { historyAvailable = value; },
     setRecoveryScanEnabled: (value: boolean) => { recoveryScanEnabled = value; },
+    setDirectConnectionFailure: (value: typeof directConnectionFailure) => { directConnectionFailure = value; },
     get directConnectionCalls() { return directConnectionCalls; },
+    get directConnectionInput() { return directConnectionInput; },
     currentText: () => { const doc = new Y.Doc(); try { Y.applyUpdate(doc, state.yjsState); return doc.getText('content').toString(); } finally { doc.destroy(); } },
     close: () => { source.destroy(); candidate.destroy(); } };
 }
@@ -198,6 +209,67 @@ test('graph candidate action applies only its exact live base, proves durable by
     assert.equal(h.currentText(), 'after'); assert.equal(h.row.status, 'persisted_yjs');
     assert.equal(h.row.version_revision_id, 'candidate-revision'); assert.equal(h.row.checkpoint_revision_id, null);
     assert.equal(h.history.length, 1); assert.equal(h.history[0]!.content, 'after');
+  } finally { h.close(); }
+});
+
+test('pre-callback direct-connection authorization and availability failures are definitely unapplied', async () => {
+  for (const [failure, code] of [
+    ['authorization-before', 'PROPOSAL_ACCESS_DENIED'],
+    ['connection-before', 'PROPOSAL_CONTENT_UNAVAILABLE'],
+  ] as const) {
+    const h = harness();
+    try {
+      h.setDirectConnectionFailure(failure);
+      await assert.rejects(h.agent.applyProposalGraphCandidateOperation(candidateActionInput(h)), {
+        name: 'ProposalActionDefinitelyUnappliedError', code,
+      });
+      assert.equal(h.directConnectionCalls, 1);
+      assert.equal(h.currentText(), 'before');
+      assert.equal(h.row.status, 'cancelled');
+      assert.equal(h.row.error_code, 'proposal_action_not_applied');
+      assert.equal(h.history.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('a direct-connection failure after entering the mutation callback remains uncertain', async () => {
+  const h = harness();
+  try {
+    h.setDirectConnectionFailure('after-callback');
+    await assert.rejects(h.agent.applyProposalGraphCandidateOperation(candidateActionInput(h)), {
+      message: 'Connection acknowledgement lost after callback.',
+    });
+    assert.equal(h.currentText(), 'after');
+    assert.equal(h.row.status, 'applying');
+    assert.equal(h.history.length, 0);
+  } finally { h.close(); }
+});
+
+test('a user review apply forwards its actual user session and retains agent-change history provenance', async () => {
+  const h = harness();
+  try {
+    h.row.actor_id = 'user';
+    await h.agent.applyProposalGraphCandidateOperation({ ...candidateActionInput(h), actorId: 'user',
+      actorType: 'user', actorSessionId: 'authenticated-reviewer-session' });
+    assert.equal(h.directConnectionInput?.actorType, 'user');
+    assert.equal(h.directConnectionInput?.actorSessionId, 'authenticated-reviewer-session');
+    assert.equal(h.directConnectionInput?.versionSource, 'agent_apply');
+    assert.equal(h.currentText(), 'after');
+    assert.equal(h.history.length, 1);
+  } finally { h.close(); }
+});
+
+test('a user review without its user session or with an unrelated actor is definitely unapplied', async () => {
+  const h = harness();
+  try {
+    const input = { ...candidateActionInput(h), actorType: 'user' as const, actorId: 'user' };
+    await assert.rejects(h.agent.applyProposalGraphCandidateOperation({ ...input, actorSessionId: undefined }),
+      { name: 'ProposalActionDefinitelyUnappliedError', code: 'PROPOSAL_ACCESS_DENIED' });
+    await assert.rejects(h.agent.applyProposalGraphCandidateOperation({ ...input, actorId: 'other-user' }),
+      { name: 'ProposalActionDefinitelyUnappliedError', code: 'PROPOSAL_ACCESS_DENIED' });
+    assert.equal(h.directConnectionCalls, 0);
+    assert.equal(h.currentText(), 'before');
+    assert.equal(h.history.length, 0);
   } finally { h.close(); }
 });
 

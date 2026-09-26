@@ -1534,7 +1534,8 @@
           "id": "FVRC-1006",
           "order": 6,
           "title": "Proposal-Hierarchie und eindeutige Aktionen im globalen Center umsetzen",
-          "status": "planned",
+          "status": "done",
+          "completedAt": "2026-09-26",
           "area": "frontend",
           "dependsOn": ["FVRC-1005"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
@@ -1569,6 +1570,12 @@
             "Komponenten- und Interaktionstests fuer jede Beziehung und Aktion",
             "Responsive Layout- und Accessibility-Tests mit echten Scroll-/Clipping-Messungen gemaess PG-U09",
             "Playwright oder Chrome gemaess vorliegender Nutzerfreigabe und Repository-Regeln"
+          ],
+          "evidence": [
+            "Das globale Center nutzt autorisierte Graph-Auswertung, exakte Einzel-/Batch-Auswahl, Dependency-Closure, sichtbare Alternativfolgen, historische Status, Detach/Replace und dauerhafte Action-Recovery. Echte Inhaltskonflikte sind vom technischen Fehler und fehlender Grundlage getrennt; Diagnose bleibt redigiert und standardmaessig geschlossen.",
+            "Reale Browsernachweise auf dem einzelnen verwalteten Host-Dev-Stack unter Port 3000: B/C in beiden Reihenfolgen, zehn gemeinsam, drei plus sieben in Personal und Team, 26 paginierte plus ein spaeter Vorschlag, Parent/Kind/Alternativen, No-op, verlorene Apply-Antwort, Rechteentzug, Peer-/Offline-Aenderungen sowie verspaetete Antwort ueber einen tatsaechlichen Datei-/Workspace-Wechsel. Persistierte Bytes, Receipt-Anzahl und exakte Revisionsdifferenzen wurden geprueft; keine gelockerten Limits und keine Hintergrund-500/429.",
+            "Bei der Verifikation wurden gemeinsame PostgreSQL-Lockreihenfolge, dauerhaftes Dateilesen, Current-Pagination, Zugriffsfilter, Peer-Refresh-Fokus und mobile Leseflaeche korrigiert. 320/390/768/1280, DE/EN, Light/Dark, Touch, Tastatur und mindestens 192px wirklich sichtbarer Vergleich auch bei offenem Confirm bestehen. Native Screenreader-/Zoom-Bedienung ist nicht behauptet.",
+            "Build, Produktionsmodul-Paritaet, Komponenten-/API-/Domain-Regressionssuites, reale PostgreSQL-Concurrency, TypeScript, Lint (null Fehler, sieben vorhandene Warnungen), git diff --check und GitNexus-Scopepruefung bestanden. Details: docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1006/results.md. Keine Container-Recreation, kein Push, keine Produktionsaktivierung; 1007/1008 und P12 bleiben offen."
           ]
         },
         {

@@ -27,6 +27,7 @@ import {
   type ProposalNodeV1,
 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import { createProposalGraphStorage } from '../app/lib/file-version-center/proposal-storage';
+import { proposalYjsCurrentProof } from '../app/lib/file-version-center/proposal-yjs-candidate';
 
 type ProposalStorage = ReturnType<typeof createProposalGraphStorage>;
 type ProposalStorageTransaction = Parameters<Parameters<ProposalStorage['withLockedGraph']>[2]>[0];
@@ -455,6 +456,68 @@ async function runStorageBehaviorScenarios(database: ProposalGraphStorageTestDat
   const retainedAncestorBytes = await storage.withLockedGraph(scope, {}, (transaction) => transaction.readArtifact(ancestorOnlyPayload));
   assert.equal(Buffer.from(retainedAncestorBytes).toString('utf8'), '{"retention":"ancestor-only"}',
     'a terminal ancestor remains pinned while an open descendant depends on it');
+
+  // An empty-effect completion has a real current/candidate Yjs identity and
+  // persisted witnesses, but never writes content. Exercise the SQL reservation
+  // path, then roll it back so the remaining action cases retain this graph.
+  const unchangedDocument = new Y.Doc();
+  unchangedDocument.getText('content').insert(0, 'Already present');
+  const unchangedBytes = Y.encodeStateAsUpdate(unchangedDocument);
+  unchangedDocument.destroy();
+  const unchangedCurrent = proposalYjsCurrentProof({
+    update: unchangedBytes, representation: 'plain_text', revisionId: 'proposal-v0',
+  });
+  const unchangedCandidate = await storage.withLockedGraph(scope, {}, (transaction) =>
+    transaction.putArtifact('yjs_full_update_v1', unchangedBytes));
+  assert.equal(unchangedCandidate.sha256, unchangedCurrent.fullStateHash,
+    'a no-op candidate is byte-identical to the authoritative Yjs update');
+  const satisfiedEvaluation = parseProposalEvaluationV1({
+    ...evaluation, evaluationId: 'stored-evaluation-empty-effect', proposalId: 'stored-p1',
+    current: unchangedCurrent, status: 'empty_effect',
+    effectiveCandidate: unchangedCandidate,
+    anchorMap: fixtures.parent.source.anchorMap,
+    effectPreconditions: fixtures.parent.authoredCandidate.effectPreconditions,
+  });
+  await storage.withLockedGraph(scope, {}, (transaction) => transaction.putEvaluation(satisfiedEvaluation));
+  const satisfiedFence = parseProposalActionFenceV1({
+    contractVersion: 1, fenceId: 'stored-fence-empty-effect', scope,
+    actor: { userId: 'proposal-owner', actorId: 'main', authorizationRevision: 'access-1' },
+    actionType: 'complete_satisfied', current: unchangedCurrent, graphRevision: afterCas.graphRevision,
+    evaluationId: satisfiedEvaluation.evaluationId, effectiveCandidateHash: unchangedCandidate.sha256,
+    closure: [{ proposalId: 'stored-p1', casVersion: 1,
+      candidateHash: fixtures.parent.authoredCandidate.cumulativeCandidate.sha256 }],
+    closureHash: '1'.repeat(64), selectedProposalIds: ['stored-p1'], applyProposalIds: [],
+    batchHash: '2'.repeat(64), choiceResolutions: [], requestDigest: '3'.repeat(64),
+    issuedAt: 100, expiresAt: 60_100,
+  });
+  const satisfiedReceipt = parseProposalActionReceiptV1({
+    contractVersion: 1, actionId: 'stored-action-empty-effect', scope, actorId: 'proposal-owner',
+    actionType: 'complete_satisfied', requestDigest: satisfiedFence.requestDigest,
+    idempotencyKeyHash: '4'.repeat(64), affectedProposalIds: ['stored-p1'], operationId: null,
+    createdAt: clock, updatedAt: clock, phase: 'prepared', result: null, errorCode: null,
+  });
+  const rollbackReservation = new Error('rollback completed no-op reservation');
+  await assert.rejects(storage.withLockedGraph(scope, { actionId: satisfiedReceipt.actionId }, async (transaction) => {
+    assert.deepEqual(await transaction.reserveAction(satisfiedReceipt, { fence: satisfiedFence, creation: null }), satisfiedReceipt,
+      'a witnessed empty effect may reserve a metadata-only completion');
+    throw rollbackReservation;
+  }), (error) => error === rollbackReservation);
+  assert.equal(await storage.withLockedGraph(scope, {}, (transaction) => transaction.getAction(satisfiedReceipt.actionId)), null);
+  for (const [status, anchorMap, effectPreconditions, label] of [
+    ['clean', satisfiedEvaluation.anchorMap, satisfiedEvaluation.effectPreconditions, 'wrong status'],
+    ['empty_effect', null, satisfiedEvaluation.effectPreconditions, 'missing anchor witness'],
+    ['empty_effect', satisfiedEvaluation.anchorMap, null, 'missing effect witness'],
+  ] as const) {
+    const rejectedEvaluation = parseProposalEvaluationV1({
+      ...satisfiedEvaluation, evaluationId: `stored-evaluation-empty-rejected-${label.replaceAll(' ', '-')}`,
+      status, anchorMap, effectPreconditions,
+    });
+    await storage.withLockedGraph(scope, {}, (transaction) => transaction.putEvaluation(rejectedEvaluation));
+    const rejectedFence = { ...satisfiedFence, evaluationId: rejectedEvaluation.evaluationId };
+    await assert.rejects(storage.withLockedGraph(scope, { actionId: satisfiedReceipt.actionId }, (transaction) =>
+      transaction.reserveAction(satisfiedReceipt, { fence: rejectedFence, creation: null })),
+    code('PROPOSAL_CANDIDATE_CHANGED'), `${label} cannot reserve a satisfied completion`);
+  }
 
   const fence = parseProposalActionFenceV1({
     contractVersion: 1, fenceId: 'stored-fence-p2', scope,

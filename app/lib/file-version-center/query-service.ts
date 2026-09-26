@@ -76,6 +76,7 @@ type ResolvedRow = {
 type AgentRow = {
   operation_id: string;
   status: Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' }>['status'];
+  graph_closed: boolean;
   actor_id: string;
   actor_name: string | null;
   created_at: number | string;
@@ -99,7 +100,7 @@ type RevisionRow = {
 };
 
 type TimelineCursor =
-  | { version: 1; phase: 'reviews'; updatedAt: number; id: string; selectedOperationId?: string }
+  | { version: 1; phase: 'reviews'; updatedAt: number; id: string; selectedOperationId?: string; currentIncluded?: boolean }
   | { version: 1; phase: 'current' }
   | { version: 1; phase: 'revisions'; createdAt: number; revisionNumber: number; id: string };
 
@@ -144,6 +145,7 @@ function decodeCursor(value: string | undefined): TimelineCursor | null {
       || !Number.isSafeInteger(cursor.updatedAt)
       || cursor.updatedAt! < 0
       || (cursor.selectedOperationId !== undefined && !validId(cursor.selectedOperationId))
+      || (cursor.currentIncluded !== undefined && typeof cursor.currentIncluded !== 'boolean')
     )) throw new Error();
     if (cursor.phase === 'revisions' && (!validId(cursor.id ?? '') || !Number.isSafeInteger(cursor.createdAt)
       || cursor.createdAt! < 0 || !Number.isSafeInteger(cursor.revisionNumber) || cursor.revisionNumber! < 1)) throw new Error();
@@ -309,7 +311,7 @@ function agentEntry(row: AgentRow, access: FileVersionCenterAccess): FileVersion
       displayName: safeDisplayName(row.actor_name, row.actor_id),
     },
     status: row.status as Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' }>['status'],
-    actionsAllowed: Boolean(actionable && access.canWrite
+    actionsAllowed: Boolean(actionable && !row.graph_closed && access.canWrite
       && (row.initiated_by_user_id === access.userId || access.canManageWorkspace)),
   };
 }
@@ -465,9 +467,23 @@ export function createFileVersionCenterQueryService(options: {
         : undefined;
 
       const entries: FileVersionTimelineEntryV1[] = [];
-      let phase: TimelineCursor['phase'] = cursor?.phase ?? 'reviews';
+      // A current-phase cursor means that current was the final item of the
+      // preceding page. Resuming it must advance, including with limit = 1.
+      let phase: TimelineCursor['phase'] = cursor?.phase === 'current' ? 'revisions' : cursor?.phase ?? 'reviews';
       let hasMore = false;
       let nextCursor: string | null = null;
+      // Review status needs an authoritative current anchor on the first page,
+      // even when pending proposals fill the page. Preserve one-entry cursors
+      // and old clients' cursors, which still reach current in their old order.
+      const pinCurrent = !cursor && limit > 1;
+      const currentIncluded = pinCurrent || (cursor?.phase === 'reviews' && cursor.currentIncluded === true);
+      const reviewLimit = limit - (pinCurrent ? 1 : 0);
+      const currentEntry: FileVersionTimelineEntryV1 = {
+        kind: 'current', id: 'current', observedAt: new Date(observed.observedAt).toISOString(),
+        revisionId: observed.fence.revisionId,
+        ...(observed.fence.stateVectorHash ? { stateVectorHash: observed.fence.stateVectorHash } : {}),
+        sha256: observed.fence.sha256, sizeBytes: observed.sizeBytes,
+      };
 
       if (phase === 'reviews') {
         const reviewCursor = cursor?.phase === 'reviews' ? cursor : null;
@@ -476,19 +492,31 @@ export function createFileVersionCenterQueryService(options: {
           : null;
         if (selectedOperationId) {
           const selected = await database.transaction((transaction) => transaction.query<AgentRow>(`
-            SELECT operation.operation_id, operation.status, operation.actor_id,
+            SELECT operation.operation_id, operation.status, operation.actor_id, selected_graph.closed AS graph_closed,
               COALESCE(agent.name, agent.email) AS actor_name,
               operation.created_at, operation.updated_at, operation.initiated_by_user_id
             FROM collaboration_agent_operations operation
             INNER JOIN collaboration_documents document
               ON document.id = operation.document_id AND document.workspace_id = operation.workspace_id
             LEFT JOIN "user" agent ON agent.id = operation.actor_id
+            CROSS JOIN LATERAL (
+              SELECT EXISTS (
+                SELECT 1 FROM file_change_proposals proposal
+                INNER JOIN file_proposal_graphs graph ON graph.graph_id = proposal.graph_id
+                WHERE proposal.operation_id = operation.operation_id AND proposal.lifecycle <> 'open'
+                  AND graph.workspace_id = operation.workspace_id AND graph.lineage_id = document.lineage_id
+                  AND graph.document_id = operation.document_id
+                  AND graph.lifecycle_generation = operation.document_lifecycle_generation
+                  AND graph.schema_version = operation.schema_version
+              ) AS closed
+            ) selected_graph
             WHERE operation.workspace_id = $1 AND document.lineage_id = $2
               AND document.status = 'active'
               AND operation.operation_id = $3
               AND (operation.initiated_by_user_id = $4 OR $5::boolean)
               AND (
-                operation.status IN ('needs_review', 'semantic_conflict')
+                selected_graph.closed
+                OR operation.status IN ('needs_review', 'semantic_conflict')
                 OR (
                   operation.status = 'partially_applied'
                   AND COALESCE(operation.error_code, '') <> 'persistence_degraded'
@@ -506,7 +534,7 @@ export function createFileVersionCenterQueryService(options: {
               )
             LIMIT 1
           `, [target.workspaceId, target.lineageId, selectedOperationId,
-            input.access.userId, Boolean(input.access.canManageWorkspace)]));
+            input.access.userId, Boolean(input.access.canManageWorkspace && input.workspace.permissions.canManageWorkspace)]));
           const selectedRow = selected.rows[0];
           if (!selectedRow) {
             throw new FileVersionCenterContractError(
@@ -518,7 +546,7 @@ export function createFileVersionCenterQueryService(options: {
         }
 
         const excludedSelectedOperationId = selectedOperationId ?? reviewCursor?.selectedOperationId ?? null;
-        const remainingReviews = limit - entries.length;
+        const remainingReviews = reviewLimit - entries.length;
         if (remainingReviews === 0) {
           hasMore = true;
           nextCursor = encodeCursor({
@@ -527,11 +555,12 @@ export function createFileVersionCenterQueryService(options: {
             updatedAt: Number.MAX_SAFE_INTEGER,
             id: 'z',
             ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}),
+            ...(currentIncluded ? { currentIncluded: true } : {}),
           });
         }
         const reviews = remainingReviews > 0
           ? await database.transaction((transaction) => transaction.query<AgentRow>(`
-          SELECT operation.operation_id, operation.status, operation.actor_id,
+          SELECT operation.operation_id, operation.status, operation.actor_id, FALSE AS graph_closed,
             COALESCE(agent.name, agent.email) AS actor_name,
             operation.created_at, operation.updated_at, operation.initiated_by_user_id
           FROM collaboration_agent_operations operation
@@ -540,46 +569,45 @@ export function createFileVersionCenterQueryService(options: {
           LEFT JOIN "user" agent ON agent.id = operation.actor_id
           WHERE operation.workspace_id = $1 AND document.lineage_id = $2
             AND operation.status IN ('needs_review', 'partially_applied', 'semantic_conflict')
+            AND (operation.initiated_by_user_id = $7 OR $8::boolean)
+            AND NOT EXISTS (
+              SELECT 1 FROM file_change_proposals proposal
+              WHERE proposal.operation_id = operation.operation_id AND proposal.lifecycle <> 'open'
+            )
             AND ($3::bigint IS NULL OR (operation.updated_at, operation.operation_id) < ($3, $4))
             AND ($5::text IS NULL OR operation.operation_id <> $5)
           ORDER BY operation.updated_at DESC, operation.operation_id DESC
           LIMIT $6
         `, [target.workspaceId, target.lineageId, reviewCursor?.updatedAt ?? null,
-          reviewCursor?.id ?? null, excludedSelectedOperationId, remainingReviews + 1]))
+          reviewCursor?.id ?? null, excludedSelectedOperationId, remainingReviews + 1,
+          input.access.userId, Boolean(input.access.canManageWorkspace && input.workspace.permissions.canManageWorkspace)]))
           : { rows: [] as AgentRow[] };
         entries.push(...reviews.rows.slice(0, remainingReviews).map((row) => agentEntry(row, input.access)));
         if (reviews.rows.length > remainingReviews) {
           const last = reviews.rows[remainingReviews - 1]!;
           hasMore = true;
           nextCursor = encodeCursor({ version: 1, phase: 'reviews', updatedAt: checkedInteger(last.updated_at), id: last.operation_id,
-            ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}) });
-        } else if (!hasMore && entries.length === limit) {
+            ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}),
+            ...(currentIncluded ? { currentIncluded: true } : {}) });
+        } else if (!hasMore && entries.length === reviewLimit) {
           hasMore = true;
           const last = reviews.rows.at(-1)!;
           nextCursor = encodeCursor({ version: 1, phase: 'reviews', updatedAt: checkedInteger(last.updated_at), id: last.operation_id,
-            ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}) });
+            ...(excludedSelectedOperationId ? { selectedOperationId: excludedSelectedOperationId } : {}),
+            ...(currentIncluded ? { currentIncluded: true } : {}) });
         } else if (!hasMore) {
           phase = 'current';
         }
       }
 
+      if (pinCurrent) entries.push(currentEntry);
       if (!hasMore && phase === 'current' && entries.length < limit) {
-        entries.push({
-          kind: 'current',
-          id: 'current',
-          observedAt: new Date(observed.observedAt).toISOString(),
-          revisionId: observed.fence.revisionId,
-          ...(observed.fence.stateVectorHash ? { stateVectorHash: observed.fence.stateVectorHash } : {}),
-          sha256: observed.fence.sha256,
-          sizeBytes: observed.sizeBytes,
-        });
+        if (!currentIncluded) entries.push(currentEntry);
         phase = 'revisions';
         if (entries.length === limit) {
           hasMore = true;
           nextCursor = encodeCursor({ version: 1, phase: 'current' });
         }
-      } else if (cursor?.phase === 'current') {
-        phase = 'revisions';
       }
 
       if (!hasMore && phase === 'revisions' && entries.length < limit) {

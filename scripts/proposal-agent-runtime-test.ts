@@ -324,7 +324,12 @@ async function main() {
     h.resetLive();
     passed('final current-proof check catches changes after node insertion and rolls back both durable records');
 
-    assert.ok(h.statements.some((sql) => sql.includes('FOR UPDATE OF document,lineage,state')));
+    const lineageLock = h.statements.findIndex((sql) => sql.includes('SELECT id FROM file_collaboration_lineages') && sql.includes('FOR UPDATE'));
+    const documentLock = h.statements.findIndex((sql, index) => index > lineageLock
+      && sql.includes('SELECT lineage_id FROM collaboration_documents') && sql.includes('FOR UPDATE'));
+    const stateLock = h.statements.findIndex((sql, index) => index > documentLock
+      && sql.includes('SELECT document_id FROM collaboration_yjs_states') && sql.includes('FOR UPDATE'));
+    assert.ok(lineageLock >= 0 && documentLock > lineageLock && stateLock > documentLock);
     assert.ok(h.statements.some((sql) => sql.includes('file_proposal_graphs') && sql.includes('FOR UPDATE')));
     assert.ok(h.statements.some((sql) => sql.includes('proposal.proposal_id=ANY($6::text[])')));
     assert.ok(h.statements.some((sql) => sql.includes("proposal.node_json->'relationships' AS authored_relationships")));

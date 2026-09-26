@@ -104,7 +104,7 @@ function plainRef(ref: ProposalArtifactReferenceV1): ProposalArtifactReferenceV1
 function fullRef(ref: ProposalArtifactReferenceV1): ProposalSnapshotReferenceV1 {
   return { ...plainRef(ref), encoding: 'yjs_full_update_v1' };
 }
-function view(update: Uint8Array, representation: ProposalYjsRepresentation): ProposalProvenanceView {
+export function proposalSourceView(update: Uint8Array, representation: ProposalYjsRepresentation): ProposalProvenanceView {
   // Current proof also rejects pending causal data and invalid representations.
   proposalYjsCurrentProof({ update, representation, revisionId: null });
   const doc = new Y.Doc({ gc: false });
@@ -122,10 +122,29 @@ function sourceReceipt(update: Uint8Array, representation: ProposalYjsRepresenta
   return { contractVersion: 1, kind: 'proposal_source_identity', representation, snapshotSha256: hash(update),
     structureHash: proof.structureHash, stateVectorHash: proof.stateVectorHash, deleteSetHash: proof.deleteSetHash };
 }
-async function persistSourceSnapshot(graph: ProposalGraphStorageTransaction, update: Uint8Array, representation: ProposalYjsRepresentation) {
+export async function persistProposalSourceSnapshot(graph: ProposalGraphStorageTransaction, update: Uint8Array, representation: ProposalYjsRepresentation) {
   const snapshot = fullRef(await graph.putArtifact('yjs_full_update_v1', update));
   const anchorMap = plainRef(await graph.putArtifact('json_v1', encodeJson(sourceReceipt(update, representation))));
   return { snapshot, anchorMap };
+}
+
+/** Shared authoring persistence for agent and explicitly reviewed user transformations. */
+export async function persistProposalAuthoredCandidate(input: {
+  graph: ProposalGraphStorageTransaction;
+  source: ProposalSourceProofV1;
+  sourceUpdate: Uint8Array;
+  representation: ProposalYjsRepresentation;
+  targets: AgentTextTarget[];
+}): Promise<{ authoredCandidate: ProposalNodeV1['authoredCandidate']; content: string }> {
+  const authored = authorProposalYjsCandidate({ representation: input.representation,
+    sourceUpdate: input.sourceUpdate, targets: input.targets });
+  const envelope: WitnessEnvelope = { contractVersion: 1, kind: 'proposal_candidate_witnesses',
+    effectPreconditions: decodeJson(authored.effectPreconditions), anchorMap: decodeJson(authored.anchorMap) };
+  const effectPreconditions = plainRef(await input.graph.putArtifact('json_v1', encodeJson(envelope)));
+  const incrementalPayload = plainRef(await input.graph.putArtifact('json_v1', authored.incrementalPayload));
+  const cumulativeCandidate = fullRef(await input.graph.putArtifact('yjs_full_update_v1', authored.cumulativeCandidate));
+  return { authoredCandidate: { incrementalPayload, cumulativeCandidate, effectPreconditions,
+    sourceProofHash: hashProposalValue(input.source) }, content: authored.content };
 }
 
 /** Source identity receipts and per-proposal effect witnesses have distinct owners. */
@@ -193,7 +212,7 @@ async function storedPreview(transaction: ProposalProvenanceTransaction, node: P
   }
   const source = await transaction.graph.readArtifact(node.source.snapshot);
   const candidate = await transaction.graph.readArtifact(node.authoredCandidate.cumulativeCandidate);
-  return preview(view(source, representation).content, view(candidate, representation).content);
+    return preview(proposalSourceView(source, representation).content, proposalSourceView(candidate, representation).content);
 }
 
 /**
@@ -217,13 +236,13 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
         let source: ProposalSourceProofV1; let sourceUpdate = current.update;
         if (input.proposalId === null) {
           source = { kind: 'authoritative', scope: input.scope, current: currentProof,
-            ...await persistSourceSnapshot(transaction.graph, sourceUpdate, current.representation) };
+            ...await persistProposalSourceSnapshot(transaction.graph, sourceUpdate, current.representation) };
         } else {
           const selected = graph.nodes.find((node) => node.proposalId === input.proposalId);
           if (!selected) fail(Codes.sourceInvalid, 'The exact proposal is unavailable in this document.');
           const result = await evaluateSource({ transaction, current, graph, selected, authorize: dependencies.authorize });
           sourceUpdate = result.candidateUpdate;
-          const refs = await persistSourceSnapshot(transaction.graph, sourceUpdate, current.representation);
+          const refs = await persistProposalSourceSnapshot(transaction.graph, sourceUpdate, current.representation);
           const evaluatedAt = now();
           const evaluation: ProposalEvaluationV1 = { contractVersion: 1, evaluationId: createId(), proposalId: selected.proposalId,
             scope: input.scope, current: currentProof, graphRevision: graph.graphRevision, status: result.status,
@@ -235,7 +254,7 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
             authoredCandidateHash: selected.authoredCandidate.cumulativeCandidate.sha256,
             evaluationId: evaluation.evaluationId, candidateHash: refs.snapshot.sha256 };
         }
-        const result = view(sourceUpdate, current.representation);
+        const result = proposalSourceView(sourceUpdate, current.representation);
         return { ...result, sourceStateVector: Buffer.from(Y.encodeStateVectorFromUpdate(sourceUpdate)).toString('base64'),
           metadata: parseProposalToolReadResultV1({ contractVersion: 1, source,
           contentSha256: hash(result.content), graphRevision: graph.graphRevision }) };
@@ -341,19 +360,13 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
           if (!isDeepStrictEqual(relationshipPlan.relationships.dependency, dependency)
             || relationshipPlan.relationships.replacesProposalId !== (request.replaces?.proposalId ?? null)) fail(Codes.sourceInvalid, 'Relationship policy changed the declared source.');
         }
-        const sourceView = view(sourceUpdate, current.representation);
+        const sourceView = proposalSourceView(sourceUpdate, current.representation);
         const targets = await input.buildTargets({ ...sourceView, update: Uint8Array.from(sourceUpdate), representation: current.representation });
-        const authored = authorProposalYjsCandidate({ representation: current.representation, sourceUpdate, targets });
-        const envelope: WitnessEnvelope = { contractVersion: 1, kind: 'proposal_candidate_witnesses',
-          effectPreconditions: decodeJson(authored.effectPreconditions), anchorMap: decodeJson(authored.anchorMap) };
-        // One combined bound prevents splitting an oversized witness across two
-        // individually valid JSON artifacts. Source receipt remains independent.
-        const effectPreconditions = plainRef(await transaction.graph.putArtifact('json_v1', encodeJson(envelope)));
-        const incrementalPayload = plainRef(await transaction.graph.putArtifact('json_v1', authored.incrementalPayload));
-        const cumulativeCandidate = fullRef(await transaction.graph.putArtifact('yjs_full_update_v1', authored.cumulativeCandidate));
+        const authored = await persistProposalAuthoredCandidate({ graph: transaction.graph,
+          source: request.source, sourceUpdate, representation: current.representation, targets });
         const node = parseProposalNodeV1({ contractVersion: 1, proposalId, operationId, scope: input.scope, casVersion: 1,
           source: request.source, relationships: relationshipPlan?.relationships ?? { dependency, replacesProposalId: null, choiceGroupId: null },
-          authoredCandidate: { incrementalPayload, cumulativeCandidate, effectPreconditions, sourceProofHash: hashProposalValue(request.source) },
+          authoredCandidate: authored.authoredCandidate,
           lifecycle: 'open', createdAt: now(), createdByActorId: input.actorId });
         const beforeInsert = await transaction.loadCurrent(); sameScope(beforeInsert.scope, input.scope);
         if (beforeInsert.representation !== current.representation || !isDeepStrictEqual(currentProof,

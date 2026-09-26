@@ -21,7 +21,7 @@ export interface AgentDirectConnectionInput {
   operationId: string;
   actorType?: 'agent' | 'user';
   actorSessionId?: string;
-  versionSource?: 'automatic_checkpoint' | 'restore';
+  versionSource?: 'automatic_checkpoint' | 'restore' | 'agent_apply';
   versionBaseRevisionId?: string | null;
   versionSourceSessionId?: string | null;
 }

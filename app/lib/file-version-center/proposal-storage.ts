@@ -453,7 +453,9 @@ function createGraphTransaction(input: {
           || !request.fence.selectedProposalIds.includes(evaluation.proposalId)
           || evaluation.expiresAt <= now()
           || (['accept', 'batch_accept'].includes(receipt.actionType) && !['clean', 'clean_rebased'].includes(evaluation.status))
-          || (receipt.actionType === 'complete_satisfied' && evaluation.status !== 'satisfied_elsewhere')) {
+          || (receipt.actionType === 'complete_satisfied'
+            && (!['satisfied_elsewhere', 'empty_effect'].includes(evaluation.status)
+              || !evaluation.anchorMap || !evaluation.effectPreconditions))) {
           fail(Codes.candidateChanged, 'Approved evaluation is unavailable or differs from the shown current state.');
         }
         await pin({ actionId: receipt.actionId }, evaluationArtifacts(evaluation));

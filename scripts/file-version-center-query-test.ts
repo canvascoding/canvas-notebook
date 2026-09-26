@@ -201,7 +201,7 @@ async function main(): Promise<void> {
       limit: 2,
     });
     assert.deepEqual(first.entries.map((entry) => entry.kind === 'agent_operation' ? entry.operationId : entry.kind),
-      ['operation-new', 'operation-old']);
+      ['operation-new', 'current'], 'current remains visible before loading additional review pages');
     assert.equal(first.page.hasMore, true);
 
     const second = await service.timeline({
@@ -212,7 +212,8 @@ async function main(): Promise<void> {
       limit: 2,
     });
     assert.deepEqual(second.entries.map((entry) => entry.kind === 'revision' ? entry.revisionId : entry.kind),
-      ['current', 'revision-3']);
+      ['agent_operation', 'revision-3']);
+    assert.equal(second.entries[0]?.id, 'operation-old');
     assert.equal(second.page.hasMore, true);
 
     const pinned = await service.timeline({
@@ -246,6 +247,19 @@ async function main(): Promise<void> {
     });
     assert.equal(afterPinned.entries.some((entry) => entry.kind === 'agent_operation' && entry.operationId === 'operation-old'), false,
       'the pinned review is not duplicated on later pages');
+    const singleEntryIds = pinned.entries.map((entry) => entry.id);
+    let singleCursor = pinned.page.nextCursor;
+    while (singleCursor) {
+      const page = await service.timeline({
+        target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+        access: access(), workspace: workspace(), cursor: singleCursor, limit: 1,
+      });
+      assert.ok(page.entries.length <= 1);
+      singleEntryIds.push(...page.entries.map((entry) => entry.id));
+      assert.ok(singleEntryIds.length <= 6, 'one-entry pagination must advance beyond current');
+      singleCursor = page.page.hasMore ? page.page.nextCursor : null;
+    }
+    assert.deepEqual(singleEntryIds, ['operation-old', 'operation-new', 'current', 'revision-3', 'revision-2', 'revision-1']);
 
     const directApplyFailure = await service.timeline({
       target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
@@ -313,6 +327,7 @@ async function main(): Promise<void> {
       `, [id, 1_000 - index]);
     }
     const pagedOperationIds: string[] = [];
+    let currentEntries = 0;
     let pageCursor: string | undefined;
     let pageNumber = 0;
     do {
@@ -324,6 +339,10 @@ async function main(): Promise<void> {
         ...(pageCursor ? { cursor: pageCursor } : {}),
         limit: 25,
       });
+      assert.ok(page.entries.length <= 25, 'pinning current must not exceed the page envelope');
+      const pageCurrent = page.entries.filter((entry) => entry.kind === 'current');
+      currentEntries += pageCurrent.length;
+      if (pageNumber === 0) assert.equal(pageCurrent.length, 1, 'many pending reviews cannot hide current on another page');
       pagedOperationIds.push(...page.entries.flatMap((entry) => (
         entry.kind === 'agent_operation' ? [entry.operationId] : []
       )));
@@ -339,6 +358,7 @@ async function main(): Promise<void> {
       'operation-new',
     ], 'pinning an old exact review preserves ordering without loss or duplication across pages');
     assert.equal(new Set(pagedOperationIds).size, pagedOperationIds.length);
+    assert.equal(currentEntries, 1, 'the pinned current anchor is not duplicated on continuation pages');
 
     await postgres.exec(`
       INSERT INTO file_revisions (
@@ -369,6 +389,15 @@ async function main(): Promise<void> {
     assert.equal(readOnly.capabilities.reason, 'read_only');
     assert.equal(readOnly.entries.filter((entry) => entry.kind === 'agent_operation')
       .every((entry) => !entry.actionsAllowed), true);
+    const foreignReviewer = await service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      access: { ...access(), userId: 'other', canManageWorkspace: false },
+      workspace: workspace(), limit: 25,
+    });
+    assert.equal(foreignReviewer.entries.some((entry) => entry.kind === 'agent_operation'), false,
+      'a timeline cannot include proposals that its owner-scoped review summary is forbidden to read');
+    assert.equal(foreignReviewer.entries.some((entry) => entry.kind === 'current'), true,
+      'proposal-level restrictions do not revoke authorized document history');
 
     const disabledService = createFileVersionCenterQueryService({
       database: database(postgres),
@@ -406,6 +435,47 @@ async function main(): Promise<void> {
       workspace: workspace(),
       cursor: tamperedCursor,
     }), (error: unknown) => error instanceof FileVersionCenterContractError && error.code === 'FVRC_INVALID_REQUEST');
+    const malformedPinnedCurrent = `v1.${Buffer.from(JSON.stringify({
+      version: 1, phase: 'reviews', updatedAt: 1, id: 'operation-new', currentIncluded: 'true',
+    })).toString('base64url')}`;
+    await assert.rejects(service.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      access: access(), workspace: workspace(), cursor: malformedPinnedCurrent,
+    }), (error: unknown) => error instanceof FileVersionCenterContractError && error.code === 'FVRC_INVALID_REQUEST');
+    // Graph completion is authoritative even when the immutable source operation still says needs_review.
+    const graphScope = { workspaceId: 'workspace-a', lineageId: 'lineage-a', documentId: 'document-a', lifecycleGeneration: 1, schemaVersion: 1 };
+    await postgres.exec(`INSERT INTO file_proposal_graphs (graph_id,workspace_id,lineage_id,document_id,lifecycle_generation,schema_version,created_at,updated_at)
+      VALUES ('graph-a','workspace-a','lineage-a','document-a',1,1,1,1)`);
+    await postgres.query(`INSERT INTO file_change_proposals (proposal_id,graph_id,operation_id,cas_version,lifecycle,node_json,created_at,updated_at)
+      VALUES ('proposal-new','graph-a','operation-new',1,'applied',$1::jsonb,1,1)`, [JSON.stringify({ contractVersion: 1,
+      proposalId: 'proposal-new', operationId: 'operation-new', lifecycle: 'applied', casVersion: 1,
+      scope: graphScope, source: { scope: graphScope }, relationships: {} })]);
+    const completedTimeline = await service.timeline({ target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      access: access(), workspace: workspace(), limit: 50 });
+    assert.equal(completedTimeline.entries.some(entry => entry.kind === 'agent_operation' && entry.operationId === 'operation-new'), false);
+    const completedSelected = await service.timeline({ target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-new' }, access: access(), workspace: workspace(), limit: 1 });
+    assert.equal(completedSelected.entries[0]?.id, 'operation-new',
+      'an exact historical link remains inspectable after the graph closes');
+    assert.equal(completedSelected.entries[0]?.kind === 'agent_operation' ? completedSelected.entries[0].actionsAllowed : true, false,
+      'a closed graph proposal is read-only even when the original operation still says needs_review');
+    const managerSelected = await service.timeline({ target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-new' },
+      access: { ...access(), userId: 'other', canManageWorkspace: true }, workspace: workspace(), limit: 1 });
+    assert.equal(managerSelected.entries[0]?.id, 'operation-new');
+    assert.equal(managerSelected.entries[0]?.kind === 'agent_operation' ? managerSelected.entries[0].actionsAllowed : true, false);
+    const afterCompletedSelected = await service.timeline({ target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      access: access(), workspace: workspace(), cursor: completedSelected.page.nextCursor!, limit: 50 });
+    assert.equal(afterCompletedSelected.entries.some(entry => entry.kind === 'agent_operation' && entry.operationId === 'operation-new'), false,
+      'an explicitly selected closed proposal is not duplicated in active-review pagination');
+    await staleExactSelection(exactSelection({ operationId: 'operation-new', access: { ...access(), userId: 'other', canManageWorkspace: false } }));
+    await staleExactSelection(exactSelection({ operationId: 'operation-new', lineageId: 'lineage-reused' }));
+    await postgres.exec("UPDATE collaboration_agent_operations SET status = 'checkpointed_file' WHERE operation_id = 'operation-new'");
+    const terminalSelected = await service.timeline({ target: { kind: 'lineage', workspaceId: 'workspace-a', lineageId: 'lineage-a' },
+      selectedEntry: { kind: 'agent_operation', id: 'operation-new' }, access: access(), workspace: workspace(), limit: 1 });
+    assert.equal(terminalSelected.entries[0]?.id, 'operation-new',
+      'a closed graph historical link survives a later terminal legacy operation status');
+    assert.equal(terminalSelected.entries[0]?.kind === 'agent_operation' ? terminalSelected.entries[0].actionsAllowed : true, false);
     console.log('file-version-center-query-test: ok');
   } finally {
     await postgres.close();

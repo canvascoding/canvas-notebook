@@ -203,3 +203,64 @@ test('does not read artifacts whose immutable source proof was tampered with', a
     assert.equal(reads.length, 0);
   } finally { doc.destroy(); }
 });
+
+test('CR-04: a preceding insertion rebases by Yjs identity without losing independent current text', async () => {
+  const { doc, artifacts, graph } = setup();
+  try {
+    doc.getText('content').insert(0, 'Inserted before target.\n');
+    const current = update(doc);
+    const { transaction } = memoryTransaction(graph, artifacts);
+    const result = await evaluateProposalReview({ scope, selectedProposalIds: ['p1'], transaction,
+      loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-shifted', update: current }),
+      confirmCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-shifted', update: current }),
+      authorize: async () => undefined });
+    assert.equal(result.status, 'clean_rebased');
+    assert.equal(result.actionability, 'accept');
+    assert.equal(result.candidateContent, 'Inserted before target.\nA=10 B=2');
+    assert.deepEqual(update(doc), current, 'evaluation must not mutate the authoritative Yjs snapshot');
+  } finally { doc.destroy(); }
+});
+
+test('CR-05: deleting and recreating equal text cannot revive the original proposal target', async () => {
+  const { doc, artifacts, graph } = setup();
+  try {
+    const text = doc.getText('content');
+    text.delete(0, 3);
+    text.insert(0, 'A=1');
+    assert.equal(text.toString(), 'A=1 B=2');
+    const current = update(doc);
+    const { transaction } = memoryTransaction(graph, artifacts);
+    const result = await evaluateProposalReview({ scope, selectedProposalIds: ['p1'], transaction,
+      loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-recreated', update: current }),
+      authorize: async () => undefined });
+    assert.equal(result.status, 'conflicted');
+    assert.equal(result.actionability, 'none');
+    assert.equal(result.candidateContent, null);
+    assert.deepEqual(update(doc), current);
+  } finally { doc.destroy(); }
+});
+
+for (const preserveIdentity of [true, false]) {
+  test(`CR-10: ${preserveIdentity ? 'proven contained effect is metadata-only' : 'foreign equal-looking effect grants no approval'}`, async () => {
+    const { doc, artifacts, graph } = setup();
+    try {
+      if (preserveIdentity) Y.applyUpdate(doc, artifacts.get(graph.nodes[0]!.authoredCandidate.cumulativeCandidate.ref)!);
+      else {
+        const text = doc.getText('content');
+        text.delete(0, text.length);
+        text.insert(0, 'A=10 B=2');
+      }
+      assert.equal(doc.getText('content').toString(), 'A=10 B=2');
+      const current = update(doc);
+      const { transaction } = memoryTransaction(graph, artifacts);
+      const result = await evaluateProposalReview({ scope, selectedProposalIds: ['p1'], transaction,
+        loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-after', update: current }),
+        authorize: async () => undefined });
+      assert.equal(result.status, preserveIdentity ? 'satisfied_elsewhere' : 'conflicted');
+      assert.equal(result.actionability, preserveIdentity ? 'complete_satisfied' : 'none');
+      assert.deepEqual(result.appliedProposalIds, []);
+      assert.equal(result.candidateContent, preserveIdentity ? 'A=10 B=2' : null);
+      assert.deepEqual(update(doc), current);
+    } finally { doc.destroy(); }
+  });
+}

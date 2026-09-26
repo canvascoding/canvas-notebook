@@ -69,6 +69,7 @@ function harness(currentAvailable = true, materializeThrows = false) {
   let recoverFailure = false;
   let applyDefinitelyUnapplied = false;
   let recoverDefinitelyUnapplied = false;
+  let materializeFailure = materializeThrows;
   let evaluationProposalId = 'p2';
   let evaluationSelectionHash: string | undefined;
   let satisfiedEvaluationStatus: 'satisfied_elsewhere' | 'empty_effect' | 'clean' = 'satisfied_elsewhere';
@@ -130,7 +131,7 @@ function harness(currentAvailable = true, materializeThrows = false) {
       return { operationId: input.actionId, revisionId: 'revision-v1', current: { ...currentProofFixture, revisionId: 'revision-v1' } as ProposalCurrentProofV1 };
     },
     materializeCreation: async ({ creation, actorId, now }) => {
-      if (materializeThrows) throw new Error('creation transaction failed');
+      if (materializeFailure) throw new Error('creation transaction failed');
       return { ...creation, lifecycle: 'open', casVersion: 1, createdAt: now, createdByActorId: actorId };
     }, signingSecret: secret, now: () => clock, createId: (() => { let id = 0; return () => `action-${++id}`; })(),
   });
@@ -141,6 +142,7 @@ function harness(currentAvailable = true, materializeThrows = false) {
     setEvaluationProposalId: (proposalId: string) => { evaluationProposalId = proposalId; },
     setEvaluationSelectionHash: (selectionHash: string | undefined) => { evaluationSelectionHash = selectionHash; },
     setSatisfiedEvaluationStatus: (status: typeof satisfiedEvaluationStatus) => { satisfiedEvaluationStatus = status; },
+    setMaterializeFailure: (failed: boolean) => { materializeFailure = failed; },
     action: (id: string) => actions.get(id) ?? null };
 }
 
@@ -281,10 +283,29 @@ test('replace and detach create the exact prepared proposal atomically', async (
   assert.deepEqual(detached.result?.createdProposalIds, ['detached-new']);
 });
 
+test('a persisted prepared metadata action completes after a lost finalization response', async () => {
+  const h = harness(true, true);
+  const approved = metadataRequest('detach', detachedCreation);
+  await assert.rejects(h.orchestrator.execute(approved), /creation transaction failed/u);
+  const reserved = [...h.state().nodes].map((node) => node.proposalId);
+  assert.deepEqual(reserved, ['p1', 'p2', 'p3']);
+  h.setMaterializeFailure(false);
+  const recovered = await h.orchestrator.recoverMetadata(proposalScopeFixture, 'action-1');
+  assert.equal(recovered.phase, 'succeeded');
+  assert.deepEqual(recovered.result?.createdProposalIds, ['detached-new']);
+  const retry = await h.orchestrator.execute(approved);
+  assert.deepEqual(retry, recovered);
+  assert.equal(h.state().nodes.filter((node) => node.proposalId === 'detached-new').length, 1);
+});
+
 test('complete_satisfied requires and records the satisfied evaluation', async () => {
   const h = harness();
+  h.setEvaluationSelectionHash(hashProposalEvaluationSelectionV1({
+    selectedProposalIds: ['p2'], closureProposalIds: ['p1', 'p2', 'p3'], applyProposalIds: ['p1', 'p2'], graphRevision: 3,
+  }));
   const completed = await h.orchestrator.execute(metadataRequest('complete_satisfied'));
   assert.equal(completed.result?.resolutions[0]?.lifecycle, 'satisfied_elsewhere');
+  assert.deepEqual(h.state().nodes.map((node) => node.lifecycle), ['open', 'satisfied_elsewhere', 'open']);
 
   const empty = harness();
   empty.setSatisfiedEvaluationStatus('empty_effect');
@@ -294,6 +315,14 @@ test('complete_satisfied requires and records the satisfied evaluation', async (
   const wrong = harness();
   wrong.setSatisfiedEvaluationStatus('clean');
   await assert.rejects(wrong.orchestrator.execute(metadataRequest('complete_satisfied')), {
+    code: 'PROPOSAL_CANDIDATE_CHANGED',
+  });
+
+  const wrongClosure = harness();
+  wrongClosure.setEvaluationSelectionHash(hashProposalEvaluationSelectionV1({
+    selectedProposalIds: ['p2'], closureProposalIds: ['p2'], applyProposalIds: [], graphRevision: 3,
+  }));
+  await assert.rejects(wrongClosure.orchestrator.execute(metadataRequest('complete_satisfied')), {
     code: 'PROPOSAL_CANDIDATE_CHANGED',
   });
 });

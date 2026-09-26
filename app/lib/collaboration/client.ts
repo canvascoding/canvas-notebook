@@ -96,6 +96,32 @@ export type CollaborationDocument = {
 };
 
 const registry = new Map<string, RegistryEntry>();
+const reviewReadinessListeners = new Set<() => void>();
+
+/** Observe an existing local session only; this never creates or joins a document. */
+export function subscribeOpenCollaborationReviewReadiness(listener: () => void): () => void {
+  reviewReadinessListeners.add(listener);
+  return () => { reviewReadinessListeners.delete(listener); };
+}
+
+export function readOpenCollaborationReviewReadiness(input: {
+  workspaceId: string | null | undefined; documentId: string | null | undefined; authScope: OpenedDocumentAuthScope | null;
+}): 'absent' | 'pending' | 'persisted' {
+  if (!input.workspaceId || !input.documentId || !input.authScope) return 'absent';
+  let found = false;
+  for (const entry of registry.values()) {
+    if (entry.lifecycle.signal.aborted || entry.authScope !== input.authScope
+      || entry.key.split('\0')[0] !== input.workspaceId || entry.session?.documentId !== input.documentId
+      || entry.session.user.id !== input.authScope.userId) continue;
+    found = true;
+    if (!hasCurrentPersistedSnapshot(entry) || entry.clientState.connection === 'denied') return 'pending';
+  }
+  return found ? 'persisted' : 'absent';
+}
+
+function emitReviewReadiness(): void {
+  for (const listener of reviewReadinessListeners) listener();
+}
 
 /** The host proves the current file lifetime; the registry proves the native
  * document, authenticated session and local hydration belong to that lifetime. */
@@ -217,7 +243,7 @@ function disposeEntry(entry: RegistryEntry): void {
     entry.provider?.destroy();
     void Promise.resolve(entry.persistence?.destroy()).catch(() => undefined);
     entry.doc.destroy();
-    if (registry.get(entry.key) === entry) registry.delete(entry.key);
+    if (registry.get(entry.key) === entry) { registry.delete(entry.key); emitReviewReadiness(); }
   })().catch(() => {
     // A failed local commit must not discard the last surviving copy. Reopening
     // the document reuses this registry entry; its next close retries the backup.
@@ -231,6 +257,7 @@ function disposeEntry(entry: RegistryEntry): void {
 
 function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
+  emitReviewReadiness();
 }
 
 function transition(entry: RegistryEntry, event: TextCollaborationClientEvent): void {
@@ -856,6 +883,7 @@ function takeRetainedEntry(key: string, workspaceId: string, session: Collaborat
   registry.delete(entry.key);
   entry.key = key;
   registry.set(key, entry);
+  emitReviewReadiness();
   return entry;
 }
 
@@ -889,6 +917,7 @@ export function useCollaborationDocument(input: {
     if (!entry) {
       entry = createEntry(key, input.path, input.representation, input.workspaceId, input.session);
       registry.set(key, entry);
+      emitReviewReadiness();
     } else if (input.session) {
       try { adoptEntryLocation(entry, input.path, input.session); }
       catch (error) { transition(entry, { type: 'degraded', code: COLLABORATION_FAILURE_CODES.generationChanged,

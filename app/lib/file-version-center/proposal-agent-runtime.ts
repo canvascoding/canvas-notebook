@@ -12,6 +12,7 @@ import { prepareProposalAgentOperation } from '../collaboration/agent-operations
 import { Y } from '../collaboration/server-runtime';
 import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterTransaction } from './database';
 import { createProposalGraphStorage } from './proposal-storage';
+import { lockProposalDocumentIdentityRows } from './proposal-document-identity-lock';
 import { createProposalProvenanceService, type ProposalProvenanceAuthorization } from './proposal-provenance-service';
 import { proposalYjsCurrentProof, type ProposalYjsRepresentation } from './proposal-yjs-candidate';
 import {
@@ -82,6 +83,9 @@ export async function createRuntimeProposalAgentService(input: {
     || state.organizationId !== (workspace.organizationId ?? null) || state.path !== input.path) fail(Codes.staleLifecycle, 'The collaborative document is unavailable in this path and workspace.');
 
   const readScopedRow = async (sql: FileVersionCenterTransaction, lock: boolean): Promise<ScopedRow> => {
+    const lockedLineageId = lock ? await lockProposalDocumentIdentityRows(sql, {
+      documentId: input.documentId, workspaceId: workspace.workspaceId,
+    }) : null;
     const row = (await sql.query<ScopedRow>(`SELECT document.lineage_id, document.workspace_id AS document_workspace_id,
       document.path AS document_path, document.status AS document_status, document.provider,
       lineage.workspace_id AS lineage_workspace_id, lineage.path AS lineage_path, lineage.status AS lineage_status,
@@ -89,9 +93,10 @@ export async function createRuntimeProposalAgentService(input: {
       state.document_sequence,state.status,state.degraded
       FROM collaboration_documents document JOIN file_collaboration_lineages lineage ON lineage.id=document.lineage_id
       JOIN collaboration_yjs_states state ON state.document_id=document.id
-      WHERE document.id=$1 AND document.workspace_id=$2 AND lineage.workspace_id=$2 AND state.workspace_id=$2
-      ${lock ? 'FOR UPDATE OF document,lineage,state' : ''}`, [input.documentId, workspace.workspaceId])).rows[0];
+      WHERE document.id=$1 AND document.workspace_id=$2 AND lineage.workspace_id=$2 AND state.workspace_id=$2`,
+    [input.documentId, workspace.workspaceId])).rows[0];
     if (!row || row.document_status !== 'active' || row.lineage_status !== 'active' || row.status !== 'active'
+      || (lock && lockedLineageId !== row.lineage_id)
       || row.provider !== 'yjs' || row.degraded === true || Number(row.degraded) === 1
       || row.organization_id !== state.organizationId || row.path !== input.path || row.document_path !== input.path || row.lineage_path !== input.path
       || row.representation !== state.representation || Number(row.lifecycle_generation) !== state.lifecycleGeneration

@@ -40,6 +40,7 @@ import { cn } from '@/lib/utils';
 
 import { FileVersionLoadingSkeleton } from './FileVersionLoadingSkeleton';
 import { FileVersionActions } from './FileVersionActions';
+import { GraphReviewComparison, type GraphReviewCardStatus } from './GraphReviewComparison';
 
 type CandidateEntry = Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' | 'revision' }>;
 type TimelineRefreshState = 'idle' | 'refreshing' | 'confirmed_stale' | 'failed';
@@ -551,6 +552,8 @@ export function FileVersionComparison({
   selection,
   onTimelineInvalidate,
   onContinue,
+  onGraphReviewStatus,
+  localSyncPending = false,
   isRevalidating = false,
   isStale = false,
 }: {
@@ -559,6 +562,8 @@ export function FileVersionComparison({
   selection: FileVersionTimelineSelection;
   onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
   onContinue: () => void;
+  onGraphReviewStatus?: (status: GraphReviewCardStatus | null) => void;
+  localSyncPending?: boolean;
   isRevalidating?: boolean;
   isStale?: boolean;
 }) {
@@ -572,6 +577,11 @@ export function FileVersionComparison({
 
   return (
     <main className="flex min-h-[24rem] min-w-0 flex-col bg-background md:min-h-0">
+      {localSyncPending ? <div role="status" data-testid="graph-review-local-sync-pending"
+        className="flex items-start gap-2 border-b border-amber-500/35 bg-amber-500/[0.06] px-4 py-3 text-xs text-amber-900 dark:text-amber-100">
+        <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        <span>{t('graph.localSyncPending')}</span>
+      </div> : null}
       {metadataOnly ? (
         <EmptyComparison
           testId="file-version-metadata-only"
@@ -583,6 +593,33 @@ export function FileVersionComparison({
               {t('actions.continue')}
             </Button>
           )}
+        />
+      ) : selection.state === 'selected' && selected?.kind === 'agent_operation' ? (
+        <GraphReviewComparison
+          key={identity}
+          request={request}
+          document={timeline.document}
+          operationId={selected.operationId}
+          legacy={current ? <LoadedComparison
+            request={request}
+            current={current}
+            entry={selected}
+            restoreAllowed={timeline.capabilities.restore}
+            lineageId={timeline.document.lineageId}
+            timelineRefreshing={isRevalidating}
+            timelineStale={isStale}
+            onTimelineInvalidate={onTimelineInvalidate}
+            onContinue={onContinue}
+          /> : <EmptyComparison
+            icon={<RefreshCw className="size-4" aria-hidden="true" />}
+            title={t('currentUnavailable')}
+            description={t('loadCurrentDescription')}
+          />}
+          isRevalidating={isRevalidating}
+          isStale={isStale}
+          onTimelineInvalidate={onTimelineInvalidate}
+          onContinue={onContinue}
+          onReviewStatus={onGraphReviewStatus}
         />
       ) : !timeline.capabilities.compare ? (
         <EmptyComparison

@@ -147,6 +147,7 @@ async function main() {
   let staleCurrentAttempts = 0;
   const requestedCursors: Array<string | undefined> = [];
   globalThis.fetch = async (_input, init) => {
+    if (String(_input).endsWith('/proposals/review')) return Response.json({ contractVersion: 1, mode: 'legacy' });
     const body = JSON.parse(String(init?.body)) as { cursor?: string; candidate: { kind: string; id?: string } };
     requestedCursors.push(body.cursor);
     if (body.candidate.id === 'operation-stale-current') {
@@ -370,6 +371,27 @@ async function main() {
     'a still-stale proposal gets a clear post-refresh decision state');
   assert.ok([...document.querySelectorAll('button')].some((candidate) => /Refresh timeline/u.test(candidate.textContent ?? '')),
     'the authoritative refresh remains available for another explicit check');
+
+  await act(async () => root.render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <FileVersionComparison
+        request={staleRequest}
+        timeline={{ ...timeline, entries: [staleEntry, currentEntry, revisionEntry] }}
+        selection={{ key: 'agent_operation:operation-stale', entry: staleEntry, state: 'selected' }}
+        localSyncPending
+        isStale
+        onTimelineInvalidate={() => {}}
+        onContinue={() => {}}
+      />
+    </NextIntlClientProvider>,
+  ));
+  await settle();
+  const localSyncBanner = document.querySelector('[data-testid="graph-review-local-sync-pending"]');
+  assert.ok(localSyncBanner, 'the same local synchronization warning wraps graph and explicit legacy modes');
+  assert.match(localSyncBanner.textContent ?? '', /local document changes.*still syncing.*durably saved/i);
+  assert.equal([...document.querySelectorAll<HTMLButtonElement>('button')].some((candidate) =>
+    /Accept change/u.test(candidate.textContent ?? '') && !candidate.disabled), false,
+  'unsynchronized local content cannot expose a live accepting action');
 
   await act(async () => root.unmount());
   const compatibilityRoot = createRoot(document.getElementById('root')!);

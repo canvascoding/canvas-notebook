@@ -328,6 +328,7 @@ async function componentCase(): Promise<void> {
   let resolveCount = 0;
   globalThis.fetch = async (input, init) => {
     const url = String(input);
+    if (url.endsWith('/proposals/review')) return Response.json({ contractVersion: 1, mode: 'legacy' });
     if (url.endsWith('/resolve')) {
       resolveCount += 1;
       return Response.json({
