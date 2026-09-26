@@ -106,6 +106,9 @@ Visuell geprüft: [Widget-Nachfolgerauswahl](./chat-successor-choice.png),
   Erneuter Einzeltest: `/tmp/fvrc1007-pure-deletions-known-failure.log`
   (`durability === 'persisted_yjs'` nicht für alle Ergebnisse erfüllt);
   gezielter grüner Listing-Test: `/tmp/fvrc1007-operation-list-r1.log`.
+  Nachtrag FVRC-1008: als unvollständiger Testaufbau identifiziert und mit
+  unveränderter Erfolgsassertion plus negativem History-Capture-Test korrigiert;
+  siehe [Härtungszwischenstand](../fvrc-1008/hardening-progress.md).
 - Die komplette 46-Fälle-Matrix inklusive gewöhnlicher Agententools,
   Rollout-/Rollback-Ringe, zusätzliche große paginierte Einstiegskombinationen
   und Betriebsmetriken bleibt FVRC-1008. Der freie PR-artige Konflikteditor ist

@@ -42,6 +42,9 @@ function harness(count = 10) {
   let reviewCount = 0;
   let grantCount = 0;
   let directCount = 0;
+  let historyCaptureCount = 0;
+  let failHistoryCapture = false;
+  const historyCaptures: { documentId: string; documentSequence: number; source: string }[] = [];
   let leased = 0;
   let opened = 0;
   let maxLeased = 0;
@@ -115,6 +118,15 @@ function harness(count = 10) {
     if (name === '@/app/lib/db') return { openDb };
     if (name === './server-runtime') return { Y };
     if (name === './persistence') return { loadCollaborationState: async (documentId: string) => nestedRead(() => ({ ...states[indexFor(documentId)] })) };
+    if (name === '@/app/lib/file-version-center/history-service') return { fileVersionHistoryService: {
+      capturePersistedCollaboration: async (input: { state: { documentId: string; documentSequence: number }; source: string }) => {
+        await nestedRead(() => undefined);
+        historyCaptureCount++;
+        historyCaptures.push({ documentId: input.state.documentId, documentSequence: input.state.documentSequence, source: input.source });
+        if (failHistoryCapture) throw new Error('EXPECTED_HISTORY_CAPTURE_ERROR');
+        return { outcome: 'captured', revision: { id: `revision-${historyCaptureCount}` }, binding: {} };
+      },
+    } };
     if (name === './document-access') return { readCurrentCollaborationDocument: async (input: { documentId: string; read: (doc: Y.Doc) => unknown }) => {
       await nestedRead(() => undefined); reviewCount++; await reviews.promise;
       return input.read(docs[indexFor(input.documentId)]);
@@ -167,6 +179,8 @@ function harness(count = 10) {
   return { agent, docs, rows, states, targets, addReviews, firstReads, reviews, grants,
     listSql: () => listSql,
     stats: () => ({ leased, opened, maxLeased, waiting: waiting.length, reviewCount, grantCount, directCount }),
+    historyCaptures: () => historyCaptures.map((capture) => ({ ...capture })),
+    failHistoryCapture: () => { failHistoryCapture = true; },
     fail: (method: typeof failMethod) => { failMethod = method; },
     nestedRead,
     persist: () => states.forEach((state, index) => {
@@ -234,10 +248,47 @@ test('ten actual direct pure deletions keep pool capacity during grant and durab
     assert.equal(h.stats().leased, 0); assert.equal(h.stats().waiting, 0);
     assert(h.docs.every((doc) => doc.getText('content').toString() === ''));
     assert([...h.rows.values()].every((row) => row.status === 'applied_to_ydoc'), 'unpersisted deletes are not confirmed');
-    await h.nestedRead(() => undefined); h.persist();
+    await h.nestedRead(() => undefined);
+    assert.equal(h.historyCaptures().length, 0, 'durable history capture must wait until persisted bytes contain the deletion');
+    h.persist();
     const result = await pending;
     assert(result.every((entry) => entry.durability === 'persisted_yjs'));
+    assert.equal(h.historyCaptures().length, 10, 'each persisted Yjs receipt is captured through the immutable version-history boundary');
+    assert.deepEqual(h.historyCaptures().sort((left, right) => left.documentId.localeCompare(right.documentId)),
+      h.states.map((state) => ({ documentId: state.documentId, documentSequence: 2, source: 'agent_apply' })));
     assert.equal(h.rows.size, 10); assert.equal(h.stats().directCount, 10); assert.equal(h.stats().leased, 0);
+  } finally { h.close(); await pending.catch(() => {}); }
+});
+
+test('direct deletion is not certified durable when immutable version-history capture fails', async () => {
+  const h = harness(1);
+  const state = h.states[0]!;
+  const pending = h.agent.applyPersistedAgentTextOperation({
+    documentId: state.documentId, workspace, initiatedByUserId: 'user', actorId: 'agent', actorSessionId: 'session',
+    actorDisplayName: 'Agent', idempotencyKey: 'history-failure', runGeneration: 1, targets: [h.targets[0]],
+    documentPath: state.path, documentRepresentation: 'plain_text', documentLifecycleGeneration: 1, documentSchemaVersion: 1,
+  });
+  try {
+    await until(() => h.stats().grantCount === 1);
+    h.grants.resolve();
+    await until(() => h.stats().directCount === 1);
+    assert.equal([...h.rows.values()][0]?.status, 'applied_to_ydoc');
+    h.failHistoryCapture();
+    h.persist();
+    const result = await pending;
+    assert.equal(h.historyCaptures().length, 1);
+    assert.equal(result.durability, 'applied_to_ydoc');
+    assert.equal(result.operationStatus, 'partially_applied');
+    assert.notEqual(result.durability, 'persisted_yjs');
+    assert(result.conflicts.some((conflict) => conflict.code === 'persistence_degraded'));
+    assert.equal(h.docs[0]?.getText('content').toString(), '', 'the rejected history capture does not undo an already-persisted pure deletion');
+    const persistedDoc = new Y.Doc();
+    try {
+      Y.applyUpdate(persistedDoc, h.states[0]!.yjsState);
+      assert.equal(persistedDoc.getText('content').toString(), '', 'the persisted Yjs bytes still contain the deletion');
+    } finally { persistedDoc.destroy(); }
+    assert.equal([...h.rows.values()][0]?.status, 'partially_applied');
+    assert.equal(h.stats().leased, 0);
   } finally { h.close(); await pending.catch(() => {}); }
 });
 
