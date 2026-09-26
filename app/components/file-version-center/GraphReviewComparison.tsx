@@ -328,7 +328,11 @@ export function GraphReviewComparison({
   const reviewActionAllowed = Boolean(session?.capability.write && session.context && selectedOpen)
     && !choosingBranch && !reviewPending && !actionBusy && !actionIdentity;
   const metadataActionAllowed = reviewActionAllowed && !transformBusy && !transformPreview;
-  const contentActionAllowed = metadataActionAllowed && session?.context?.reasonCode === null;
+  const comparisonComplete = Boolean(displayCompare?.binding
+    && displayCompare.status === session?.status && displayCompare.diagnosis.availability === 'available'
+    && (displayCompare.candidate.contentAvailable || displayCompare.candidate.noEffect)
+    && !displayCompare.page.hasMore && displayCompare.page.nextCursor === null && !compareBusy && !compareError);
+  const contentActionAllowed = metadataActionAllowed && session?.context?.reasonCode === null && comparisonComplete;
   // Detaching explicitly removes the rejected prerequisite; replacing preserves it.
   // Both paths still require a server-verified preview and a fresh signed creation fence.
   const transformContextAllowed = {
@@ -604,6 +608,12 @@ export function GraphReviewComparison({
       }, controller.signal);
       if (controller.signal.aborted || generation !== generationRef.current) return;
       if (!next.binding || JSON.stringify(next.binding) !== JSON.stringify(displayCompare.binding)) {
+        throw new Error(t('graph.comparisonChanged'));
+      }
+      if (next.diagnosis.availability !== 'available') {
+        throw new Error(t(reasonKey(next.diagnosis.reasonCode)));
+      }
+      if (next.status !== displayCompare.status || !next.candidate.contentAvailable) {
         throw new Error(t('graph.comparisonChanged'));
       }
       setCompare({ ...next, hunks: [...displayCompare.hunks, ...next.hunks] });
@@ -893,13 +903,6 @@ export function GraphReviewComparison({
             </div>
           </div>
           <GraphHunks hunks={displayCompare.hunks} />
-          {displayCompare.page.hasMore || compareError ? <div>
-            {compareError ? <p role="alert" className="mb-2 text-xs text-destructive">{compareError}</p> : null}
-            <Button type="button" variant="outline" size="sm" disabled={compareBusy || reviewPending} onClick={() => { void loadMore(); }}>
-              {compareBusy ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FileDiff className="size-4" aria-hidden="true" />}
-              {t('loadMoreHunks')}
-            </Button>
-          </div> : null}
         </> : clean ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
           <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
           <AlertTitle>{t('graph.compareUnavailable')}</AlertTitle>
@@ -909,6 +912,20 @@ export function GraphReviewComparison({
       </div>
     </div>
     <div data-testid="graph-review-footer" className="min-w-0 shrink-0 space-y-3 border-t bg-muted/15 px-4 py-3 sm:px-5 [&_button]:h-auto [&_button]:min-h-8 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:break-words [&_button]:whitespace-normal [&_button]:px-3 [&_button]:py-2 [&_button]:text-center [&_button]:leading-tight">
+      {available && displayCompare && (displayCompare.page.hasMore || compareError) ? <div
+        className="flex min-w-0 flex-wrap items-center justify-between gap-2" data-testid="graph-review-incomplete">
+        <div className="min-w-0 flex-1 text-xs">
+          <p role="status" className="text-muted-foreground">{t('graph.reviewIncomplete')}</p>
+          {compareError ? <p role="alert" className="mt-1 text-destructive">{compareError}</p> : null}
+        </div>
+        <Button type="button" variant="outline" size="sm" disabled={compareBusy || reviewPending} onClick={() => { void loadMore(); }}>
+          {compareBusy ? <LoaderCircle className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <FileDiff className="size-4" aria-hidden="true" />}
+          {t('loadMoreHunks')}
+        </Button>
+        {compareError ? <Button type="button" variant="outline" size="sm" disabled={compareBusy || reviewPending} onClick={refresh}>
+          <RefreshCw className="size-4" aria-hidden="true" />{t('graph.refreshComparison')}
+        </Button> : null}
+      </div> : null}
       {actionIdentity ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]" data-testid="graph-review-pending-action">
         <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
         <AlertTitle>{actionBusy ? t('graph.durability.submitting')

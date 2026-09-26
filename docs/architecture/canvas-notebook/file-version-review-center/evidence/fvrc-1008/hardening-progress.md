@@ -5,6 +5,20 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Vollständige Diff-Seiten vor der Annahme
+
+Ein gewöhnlicher 65-Hunk-Vorschlag war nach den ersten 64 Hunks bereits
+annehmbar. Die UI sperrt Inhaltsannahme/Bestätigung jetzt, bis alle gebundenen
+Vergleichsseiten verfügbar sind. Bei Seitenfehlern bleibt die Vorschau erhalten;
+„Vergleich aktualisieren“ startet eine neue Prüfung. Personal und Team prüfen
+zusätzlich einen reinen Graphwechsel bei unverändertem Current: alte Seite und
+alte Freigabe bleiben gesperrt, frische vollständige Vorschau lässt nur den
+gewählten Vorschlag mit exakt einer Revision zu. Team wurde bei 390 Pixeln
+geprüft; der bestehende Nullwirkungsabschluss bleibt funktionsfähig.
+Details: [ordinary-diff-pages-results.md](ordinary-diff-pages-results.md).
+Die Browser-Paging-/Graph-only-Lücken von MR-20/MR-15 sind damit auf Host-Dev
+abgedeckt; übrige Limits und die vollständige FVRC-1008-Abnahme bleiben offen.
+
 ## Ergänzung: Nachgewiesene Nullwirkung statt falschem Vergleichsfehler
 
 Der gewöhnliche Personal-/Team-Test für eine offene Kette „10 → 12 → 10“

@@ -8474,6 +8474,8 @@
       "contextBlocked": "The relationship review is blocked",
       "historicalDescription": "This is the exact historical proposal. Its decision is final; it cannot be accepted, rejected, or transformed here. Inspect an explicitly linked successor separately.",
       "comparisonChanged": "The reviewed comparison changed. Refresh the review.",
+      "reviewIncomplete": "The comparison is not complete yet. Load the remaining changes before accepting.",
+      "refreshComparison": "Refresh comparison",
       "selectionChanged": "The frozen proposal selection changed. Refresh the review.",
       "noVisibleHunks": "No changed lines appear in this comparison.",
       "noEffect": {

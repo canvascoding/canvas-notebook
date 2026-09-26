@@ -71,8 +71,8 @@ const cleanAll = {
 };
 const scope = { workspaceId: target.workspaceId, lineageId: target.lineageId, documentId: target.documentId,
   lifecycleGeneration: 1, schemaVersion: 1 };
-function preparedAction(actionType: 'batch_accept' | 'reject' | 'branch_reject' | 'complete_satisfied', selectedProposalIds: string[]) {
-  const applies = actionType === 'batch_accept';
+function preparedAction(actionType: 'accept' | 'batch_accept' | 'reject' | 'branch_reject' | 'complete_satisfied', selectedProposalIds: string[]) {
+  const applies = actionType === 'accept' || actionType === 'batch_accept';
   return { fence: { contractVersion: 1, fenceId: `fence-${actionType}`, scope,
     actor: { userId: 'actor-one', actorId: 'actor-one', authorizationRevision: 'auth-one' }, actionType,
     current: applies || actionType === 'complete_satisfied' ? hashes : null, graphRevision: 2,
@@ -1148,6 +1148,186 @@ async function main() {
     assert.equal(closedStatuses.find((value) => value?.lifecycle === lifecycle)?.lifecycle, lifecycle,
       'the selected exact closed operation forwards its authorized lifecycle to the timeline');
   }
+
+  const pageHunks = (prefix: string, start: number, count: number) => Array.from({ length: count }, (_, offset) => {
+    const index = start + offset;
+    return { id: `${prefix}-hunk-${index}`, oldStart: index * 2, oldLines: 0, newStart: index * 2,
+      newLines: 1, lines: [{ kind: 'addition' as const, oldLineNumber: null, newLineNumber: index * 2,
+        text: `${prefix}-visible-${index}` }] };
+  });
+  const pagedSession = (selectedProposalIds: string[]) => {
+    const compare = { ...cleanAll.compare,
+      binding: { ...cleanAll.compare.binding, selectedProposalIds },
+      status: 'clean' as const, candidate: { contentAvailable: true, noEffect: false },
+      summary: { additions: 65, deletions: 0, unchanged: 455 },
+      hunks: pageHunks(selectedProposalIds.join('-'), 1, 64),
+      page: { hasMore: true, nextCursor: `cursor-${selectedProposalIds.join('-')}` },
+      diagnosis: { availability: 'available' as const, reasonCode: null },
+    };
+    const context = { ...cleanAll.context,
+      proposals: cleanAll.context.proposals.map(item => item.proposalId === 'proposal-one'
+        ? { ...item, operationId: 'operation-one' } : item),
+      selectedProposalIds, dependencyProposalIds: [], applyProposalIds: [...selectedProposalIds],
+      closingAlternativeProposalIds: [], reasonCode: null,
+    };
+    return { ...cleanAll, selectedProposalIds, status: 'clean' as const, reasonCode: null, compare, context,
+      actions: { accept: preparedAction(selectedProposalIds.length > 1 ? 'batch_accept' : 'accept', selectedProposalIds),
+        ...(selectedProposalIds.length === 1 ? { reject: preparedAction('reject', selectedProposalIds) } : {}) },
+      capability: { write: true } };
+  };
+  const pageSessionSingle = pagedSession(['proposal-one']);
+  const pageSessionAll = pagedSession(['proposal-one', 'proposal-two']);
+  const lastPage = (session: ReturnType<typeof pagedSession>) => ({
+    contractVersion: 1, binding: session.compare.binding, status: 'clean',
+    candidate: { contentAvailable: true, noEffect: false },
+    summary: session.compare.summary, hunks: pageHunks('last-page', 65, 1),
+    page: { hasMore: false, nextCursor: null }, diagnosis: { availability: 'available', reasonCode: null },
+  });
+  const buttonMatching = (pattern: RegExp) => [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find(button => pattern.test(button.textContent ?? ''));
+  let comparePosts = 0;
+  let releaseLatePage: ((response: Response) => void) | null = null;
+  const compareRequests: Array<Record<string, unknown>> = [];
+  globalThis.fetch = async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/compare')) {
+      comparePosts += 1;
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      compareRequests.push(body);
+      return new Promise<Response>(resolve => { releaseLatePage = resolve; });
+    }
+    const body = JSON.parse(String(init?.body)) as { selection: { kind: string; proposalIds?: string[] } };
+    return Response.json(body.selection.kind === 'all' ? pageSessionAll : pageSessionSingle);
+  };
+  await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <GraphReviewComparison key="hunk-pagination-late-page" request={request} document={target} operationId="operation-one"
+      legacy={<div data-testid="legacy-review">Legacy</div>} isRevalidating={false} isStale={false}
+      onTimelineInvalidate={() => {}} onContinue={() => {}} />
+  </NextIntlClientProvider>); });
+  await settle();
+  const graphReview = document.querySelector('[data-testid="graph-review-comparison"]')!;
+  const acceptSingle = buttonMatching(/^Accept change$/u);
+  assert.ok(acceptSingle);
+  assert.equal(acceptSingle.disabled, true, 'an approval fence cannot approve unseen comparison pages');
+  const rejectSingle = buttonMatching(/^Reject proposal$/u);
+  assert.ok(rejectSingle && !rejectSingle.disabled, 'metadata rejection remains available while the diff is incomplete');
+  assert.equal(graphReview.querySelectorAll('[data-testid="graph-review-hunks"] section').length, 64);
+  const reviewAll = buttonMatching(/Review all changes/u);
+  assert.ok(reviewAll);
+  await act(async () => { reviewAll.click(); });
+  await settle();
+  assert.equal(buttonMatching(/^Accept all changes$/u)?.disabled, true);
+  assert.equal(graphReview.querySelector('[data-testid="graph-review-incomplete"]') !== null, true);
+  const loadMore = buttonMatching(/^Load more changes$/u);
+  assert.ok(loadMore && !loadMore.disabled);
+  await act(async () => { loadMore.click(); });
+  await settle();
+  assert.equal(buttonMatching(/^Accept all changes$/u)?.disabled, true, 'approval stays disabled while the bound page is in flight');
+  assert.equal(buttonMatching(/^Load more changes$/u)?.disabled, true);
+  assert.equal(buttonMatching(/^Confirm action$/u), undefined, 'no confirmation can approve a partial preview');
+  assert.equal(comparePosts, 1);
+  assert.deepEqual(compareRequests[0], {
+    contractVersion: 1, target, selectedProposalIds: pageSessionAll.selectedProposalIds,
+    binding: pageSessionAll.compare.binding, cursor: pageSessionAll.compare.page.nextCursor, limit: 64,
+  }, 'the follow-up request carries the exact selection, current proof, graph revision, and cursor');
+  const pagedThisChange = buttonMatching(/^This change$/u);
+  assert.ok(pagedThisChange);
+  await act(async () => { pagedThisChange.click(); });
+  await settle();
+  assert.match(document.body.textContent ?? '', /1 proposal selected/u);
+  assert.equal(buttonMatching(/^Accept change$/u)?.disabled, true, 'new selection starts from its own incomplete first page');
+  const latePage = releaseLatePage as ((response: Response) => void) | null;
+  assert.ok(latePage);
+  await act(async () => {
+    latePage!(Response.json(lastPage(pageSessionAll)));
+    await new Promise(resolve => setTimeout(resolve, 10));
+  });
+  await settle();
+  assert.equal(graphReview.querySelectorAll('[data-testid="graph-review-hunks"] section').length, 64,
+    'a late page for the previous selection cannot append to the new comparison');
+  assert.doesNotMatch(graphReview.textContent ?? '', /last-page-visible-65/u);
+  assert.equal(buttonMatching(/^Accept change$/u)?.disabled, true, 'a stale page cannot unlock the new selection');
+
+  let successfulPage: ((response: Response) => void) | null = null;
+  globalThis.fetch = async (input, init) => {
+    const path = String(input);
+    if (path.endsWith('/compare')) {
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      compareRequests.push(body);
+      return new Promise<Response>(resolve => { successfulPage = resolve; });
+    }
+    const body = JSON.parse(String(init?.body)) as { selection: { kind: string } };
+    return Response.json(body.selection.kind === 'all' ? pageSessionAll : pageSessionSingle);
+  };
+  const loadSelectedMore = buttonMatching(/^Load more changes$/u);
+  assert.ok(loadSelectedMore);
+  await act(async () => { loadSelectedMore.click(); });
+  await settle();
+  assert.equal(buttonMatching(/^Accept change$/u)?.disabled, true);
+  await act(async () => {
+    successfulPage!(Response.json(lastPage(pageSessionSingle)));
+    await new Promise(resolve => setTimeout(resolve, 10));
+  });
+  await settle();
+  assert.equal(graphReview.querySelectorAll('[data-testid="graph-review-hunks"] section').length, 65,
+    'the exact matching final page is appended once');
+  assert.equal(buttonMatching(/^Load more changes$/u), undefined);
+  const enabledAccept = buttonMatching(/^Accept change$/u);
+  assert.ok(enabledAccept && !enabledAccept.disabled, 'a complete, correctly bound diff enables its prepared acceptance');
+  await act(async () => { enabledAccept.click(); });
+  assert.equal(buttonMatching(/^Confirm action$/u)?.disabled, false, 'confirmation is enabled only after the full diff is loaded');
+  const cancelPageAction = buttonMatching(/^Cancel$/u);
+  assert.ok(cancelPageAction);
+  await act(async () => { cancelPageAction.click(); });
+
+  for (const failureKind of ['transport', 'unavailable', 'changed-binding'] as const) {
+    let caseReviewPosts = 0;
+    let caseComparePosts = 0;
+    globalThis.fetch = async (input, init) => {
+      const path = String(input);
+      if (path.endsWith('/compare')) {
+        caseComparePosts += 1;
+        if (failureKind === 'transport') throw new Error('compare unavailable');
+        if (failureKind === 'unavailable') return Response.json({ contractVersion: 1, binding: null, status: 'clean',
+          candidate: { contentAvailable: false, noEffect: false }, summary: { additions: 0, deletions: 0, unchanged: 0 },
+          hunks: [], page: { hasMore: false, nextCursor: null },
+          diagnosis: { availability: 'unavailable', reasonCode: 'PROPOSAL_CANDIDATE_CHANGED' } });
+        const altered = { ...lastPage(pageSessionSingle), binding: { ...pageSessionSingle.compare.binding, graphRevision: 77 } };
+        return Response.json(altered);
+      }
+      const body = JSON.parse(String(init?.body)) as { selection: { kind: string } };
+      caseReviewPosts += 1;
+      return Response.json(body.selection.kind === 'all' ? pageSessionAll : pageSessionSingle);
+    };
+    await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <GraphReviewComparison key={`hunk-pagination-${failureKind}`} request={request} document={target} operationId="operation-one"
+        legacy={<div data-testid="legacy-review">Legacy</div>} isRevalidating={false} isStale={false}
+        onTimelineInvalidate={() => {}} onContinue={() => {}} />
+    </NextIntlClientProvider>); });
+    await settle();
+    const firstPageReview = document.querySelector('[data-testid="graph-review-comparison"]')!;
+    const moreButton = buttonMatching(/^Load more changes$/u);
+    assert.ok(moreButton);
+    await act(async () => { moreButton.click(); });
+    await settle();
+    assert.equal(caseReviewPosts, 1);
+    assert.equal(caseComparePosts, 1);
+    assert.equal(firstPageReview.querySelectorAll('[data-testid="graph-review-hunks"] section').length, 64,
+      `${failureKind}: failed later pages never append partial or mismatched hunks`);
+    assert.equal(buttonMatching(/^Accept change$/u)?.disabled, true,
+      `${failureKind}: a failed, unavailable, or differently bound page cannot authorize acceptance`);
+    assert.ok(firstPageReview.querySelector('[data-testid="graph-review-incomplete"]'));
+    assert.ok(buttonMatching(/^Refresh comparison$/u), `${failureKind}: the reviewer can request a fresh comparison`);
+    const refreshComparison = buttonMatching(/^Refresh comparison$/u)!;
+    await act(async () => { refreshComparison.click(); });
+    await settle();
+    assert.equal(caseReviewPosts, 2, `${failureKind}: recovery starts with a new authoritative review session`);
+    assert.equal(firstPageReview.querySelectorAll('[data-testid="graph-review-hunks"] section').length, 64,
+      `${failureKind}: refresh discards failed-page state and requires pagination again`);
+    assert.equal(buttonMatching(/^Accept change$/u)?.disabled, true);
+    assert.ok(buttonMatching(/^Load more changes$/u));
+  }
+
   await act(async () => { root.unmount(); });
   console.log('Graph review comparison component tests passed.');
 }

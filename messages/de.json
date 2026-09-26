@@ -8473,6 +8473,8 @@
       "contextBlocked": "Die Beziehungsprüfung ist blockiert",
       "historicalDescription": "Dies ist der exakte historische Vorschlag. Seine Entscheidung ist abgeschlossen; er kann hier nicht angenommen, abgelehnt oder umgewandelt werden. Prüfe einen ausdrücklich verlinkten Nachfolger separat.",
       "comparisonChanged": "Der geprüfte Vergleich hat sich geändert. Bitte aktualisieren.",
+      "reviewIncomplete": "Der Vergleich ist noch nicht vollständig. Lade vor dem Annehmen die übrigen Änderungen.",
+      "refreshComparison": "Vergleich aktualisieren",
       "selectionChanged": "Die festgelegte Vorschlagsauswahl hat sich geändert. Bitte aktualisieren.",
       "noVisibleHunks": "In diesem Vergleich werden keine geänderten Zeilen angezeigt.",
       "noEffect": {
