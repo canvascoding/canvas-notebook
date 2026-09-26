@@ -557,3 +557,23 @@ PG-S11/MR-10 erhalten nur diesen konkreten Restore-Nachweis; sichere Blockierung
 wird nicht als erfolgreicher Konflikt-Merge gezählt. Gesamtgate, zwei volle
 Matrixläufe, frisches Produktionsimage, Mehrprozess-/Crash-Prüfungen und P12
 bleiben offen. Kein Push, Container-Rebuild oder Produktiv-Rollout.
+
+### Abgelehnte Voraussetzung: ausdrückliches Ablösen im Browser
+
+[Ordinary rejected-parent detach results](ordinary-rejected-parent-detach-results.md)
+dokumentiert einen real reproduzierten UI-Fehler und den begrenzten Fix:
+Bei `PROPOSAL_DEPENDENCY_BLOCKED` war nicht nur Annehmen, sondern auch das
+ausdrückliche Ablösen eines offenen Nachfolgers gesperrt. Start und Bestätigung
+unterscheiden jetzt Ablösen von Ersetzen. Nur Ablösen erlaubt diesen konkreten
+Kontextfehler; alle anderen Sperren und die Server-Freigaben bleiben erhalten.
+
+Personal und Team bestehen den gewöhnlichen Werkzeugpfad P1 ablehnen → P2
+ablösen → neuen Vorschlag prüfen und separat annehmen. P1s Kostenänderung wird
+nicht übernommen, nur P2s Lieferzeitänderung. Volltext, ursprüngliche Block-IDs,
+explizite Beziehungen, identischer Erstellungs-Retry, Lebenszyklen und genau
+eine Inhaltsrevision sind belegt. Bestehende normale Ablösen-/Ersetzen-E2E,
+Review-UI-/Server-Suiten, TypeScript, ESLint und Produktionsbuild bestehen.
+
+PG-S05/PG-S14 erhalten den konkreten positiven Browsernachweis; Gesamtgate und
+P12 bleiben offen. Der einzige Stack wurde nicht neu gebaut. Getestet wurde
+aktueller Host-Dev-Code auf 3000, nicht das ältere Notebook-Image auf 3100.

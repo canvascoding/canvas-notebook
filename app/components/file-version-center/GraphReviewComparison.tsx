@@ -329,7 +329,13 @@ export function GraphReviewComparison({
     && !choosingBranch && !reviewPending && !actionBusy && !actionIdentity;
   const metadataActionAllowed = reviewActionAllowed && !transformBusy && !transformPreview;
   const contentActionAllowed = metadataActionAllowed && session?.context?.reasonCode === null;
-  const transformActionAllowed = reviewActionAllowed && session?.context?.reasonCode === null
+  // Detaching explicitly removes the rejected prerequisite; replacing preserves it.
+  // Both paths still require a server-verified preview and a fresh signed creation fence.
+  const transformContextAllowed = {
+    detach: session?.context?.reasonCode === null || session?.context?.reasonCode === 'PROPOSAL_DEPENDENCY_BLOCKED',
+    replace: session?.context?.reasonCode === null,
+  };
+  const transformActionAllowed = reviewActionAllowed
     && session?.selectedProposalIds.length === 1 && !allIntent && !transformBusy && !transformPreview;
   useLayoutEffect(() => {
     const view = {};
@@ -612,7 +618,7 @@ export function GraphReviewComparison({
   }, [compareBusy, displayCompare, reviewPending, session, t]);
 
   const startTransform = async (kind: TransformKind) => {
-    if (!transformActionAllowed || !session?.context) return;
+    if (!transformActionAllowed || !transformContextAllowed[kind] || !session?.context) return;
     const sourceProposalId = session.selectedProposalIds[0];
     const generation = generationRef.current;
     const controller = new AbortController();
@@ -715,7 +721,7 @@ export function GraphReviewComparison({
     if (!transformPreview || !reviewActionAllowed || !session || reviewPending
       || transformPreview.sessionKey !== key || transformPreview.generation !== generationRef.current) return;
     const { preview } = transformPreview;
-    if (session.context?.reasonCode !== null || session.selectedProposalIds.length !== 1
+    if (!transformContextAllowed[preview.kind] || session.selectedProposalIds.length !== 1
       || session.selectedProposalIds[0] !== preview.sourceProposalId) return;
     const action: ProposalReviewActionApiRequestV1 = {
       contractVersion: 1, target: request.target,
@@ -970,10 +976,10 @@ export function GraphReviewComparison({
             <Check className="size-4" aria-hidden="true" />{t('graph.completeSatisfied')}
           </Button> : null}
           {session.capability.write && session.selectedProposalIds.length === 1 && !allIntent && !historicalProposal ? <>
-            <Button type="button" variant="outline" size="sm" disabled={!transformActionAllowed}
+            <Button type="button" variant="outline" size="sm" disabled={!transformActionAllowed || !transformContextAllowed.detach}
               onClick={(event) => { transformReturnFocusRef.current = event.currentTarget;
                 transformFocusRequestedRef.current = true; void startTransform('detach'); }}>{t('graph.transform.detach.start')}</Button>
-            <Button type="button" variant="outline" size="sm" disabled={!transformActionAllowed}
+            <Button type="button" variant="outline" size="sm" disabled={!transformActionAllowed || !transformContextAllowed.replace}
               onClick={(event) => { transformReturnFocusRef.current = event.currentTarget;
                 transformFocusRequestedRef.current = true; void startTransform('replace'); }}>{t('graph.transform.replace.start')}</Button>
           </> : null}

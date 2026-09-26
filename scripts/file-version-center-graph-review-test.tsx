@@ -8,6 +8,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import messages from '../messages/en.json';
 import type { FileVersionCenterRequestV1 } from '../app/lib/file-version-center/contracts/v1';
 import type { ProposalReviewActionApiRequestV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
+import { PROPOSAL_GRAPH_ERROR_CODES as Codes } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import { rootProposalFixture } from './fixtures/proposal-graph-contract-v1';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -409,7 +410,15 @@ async function main() {
   assert.equal(actionState.readGraphReviewActionIdentity(pendingKey), null, 'failed POST clears only its terminal identity');
   assert.match(document.body.textContent ?? '', /The action could not be completed/);
 
-  for (const kind of ['detach', 'replace'] as const) {
+  const rejectedParentContext = { ...singleContext, reasonCode: Codes.dependencyBlocked,
+    proposals: [{ ...proposal('proposal-one', 'rejected-parent', 'dependency'), operationId: 'operation-one',
+      relationships: { dependency: { proposalId: 'rejected-parent', candidateHash: 'f'.repeat(64) },
+        replacesProposalId: null, choiceGroupId: null } },
+    { ...proposal('rejected-parent', null, 'root'), lifecycle: 'rejected' }],
+    dependencyProposalIds: ['rejected-parent'], applyProposalIds: [] };
+  for (const [kind, context] of [
+    ['detach', singleContext], ['replace', singleContext], ['detach', rejectedParentContext],
+  ] as const) {
     const posted: Array<ProposalReviewActionApiRequestV1> = [];
     const previewRequests: Array<{ kind: string; sourceProposalId: string; expectedGraphRevision: number }> = [];
     globalThis.fetch = async (input, init) => {
@@ -427,10 +436,12 @@ async function main() {
           idempotencyKeyHash: 'a'.repeat(64), affectedProposalIds: ['proposal-one'],
           operationId: null, createdAt: 1, updatedAt: 2, phase: 'prepared', result: null, errorCode: null });
       }
-      return Response.json({ ...conflict, context: singleContext, capability: { write: true } });
+      return Response.json({ ...conflict, context, capability: { write: true },
+        ...(context.reasonCode === Codes.dependencyBlocked ? { status: 'blocked_by_parent',
+          reasonCode: Codes.dependencyBlocked, diagnosis: { ...diagnosis, reasonCode: Codes.dependencyBlocked } } : {}) });
     };
     await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <GraphReviewComparison key={`transform-${kind}`} request={request} document={target} operationId="operation-one"
+      <GraphReviewComparison key={`transform-${kind}-${context.reasonCode}`} request={request} document={target} operationId="operation-one"
         legacy={<div data-testid="legacy-review">Legacy</div>} isRevalidating={false} isStale={false}
         onTimelineInvalidate={() => {}} onContinue={() => {}} />
     </NextIntlClientProvider>); });
@@ -438,6 +449,12 @@ async function main() {
     const startLabel = kind === 'detach' ? 'Check a separate proposal' : 'Check a replacement proposal';
     const start = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes(startLabel));
     assert.ok(start);
+    assert.equal(start.disabled, false, 'an open child can be explicitly detached from its rejected parent');
+    if (context.reasonCode === Codes.dependencyBlocked) {
+      const replacement = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Check a replacement proposal'));
+      assert.ok(replacement?.disabled, 'replacement must not retain a rejected prerequisite');
+      assert.equal([...document.querySelectorAll('button')].some((button) => button.textContent?.includes('Accept change')), false);
+    }
     await act(async () => { start.focus(); start.click(); });
     await settle();
     assert.equal(previewRequests.length, 1);
@@ -473,6 +490,56 @@ async function main() {
     assert.equal(posted[0].action.creation?.creationKind, kind === 'detach' ? 'detached' : 'replacement');
     assert.ok(document.querySelector('[data-testid="graph-review-pending-action"]'),
       'prepared creation receipt remains pending durability');
+    actionState.forgetGraphReviewAction(pendingKey);
+  }
+  for (const reasonCode of Object.values(Codes).filter((code) => code !== Codes.dependencyBlocked)) {
+    let previewRequests = 0;
+    globalThis.fetch = async (input) => {
+      if (String(input).endsWith('/transform/preview')) previewRequests += 1;
+      return Response.json({ ...conflict, context: { ...singleContext, reasonCode }, capability: { write: true } });
+    };
+    await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <GraphReviewComparison key={`transform-denied-${reasonCode}`} request={request} document={target} operationId="operation-one"
+        legacy={null} isRevalidating={false} isStale={false} onTimelineInvalidate={() => {}} onContinue={() => {}} />
+    </NextIntlClientProvider>); });
+    await settle();
+    const controls = [...document.querySelectorAll('button')].filter((button) => /Check a (separate|replacement) proposal/u.test(button.textContent ?? ''));
+    assert.equal(controls.length, 2);
+    for (const button of controls) {
+      assert.equal(button.disabled, true, `${reasonCode} must not be treated as a recoverable dependency`);
+      await act(async () => { button.click(); });
+    }
+    assert.equal(previewRequests, 0, 'unavailable or unauthorized context must not initiate transformations');
+  }
+  for (const guard of ['readonly', 'stale', 'revalidating', 'historical', 'pending', 'all', 'branch'] as const) {
+    let transformRequests = 0;
+    if (guard === 'pending') actionState.rememberGraphReviewAction(pendingKey, exactAction);
+    globalThis.fetch = async (input) => {
+      const path = String(input);
+      if (path.endsWith('/transform/preview') || path.endsWith('/actions')) transformRequests += 1;
+      if (path.endsWith('/actions/status')) return Response.json({ receipt: null, checkedAt: Date.now() });
+      return Response.json({ ...conflict, status: 'blocked_by_parent', reasonCode: Codes.dependencyBlocked,
+        diagnosis: { ...diagnosis, reasonCode: Codes.dependencyBlocked }, capability: { write: guard !== 'readonly' },
+        context: { ...rejectedParentContext, proposals: rejectedParentContext.proposals.map((item) =>
+          guard === 'historical' && item.proposalId === 'proposal-one' ? { ...item, lifecycle: 'rejected' } : item) } });
+    };
+    await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <GraphReviewComparison key={`blocked-transform-guard-${guard}`} request={guard === 'branch' ? { ...request, branchOverview: true } : request}
+        document={target} operationId="operation-one" legacy={null} isRevalidating={guard === 'revalidating'}
+        isStale={guard === 'stale'} onTimelineInvalidate={() => {}} onContinue={() => {}} />
+    </NextIntlClientProvider>); });
+    await settle();
+    if (guard === 'all') {
+      const reviewAll = [...document.querySelectorAll('button')].find((button) => button.textContent?.includes('Review all changes'));
+      assert.ok(reviewAll && !reviewAll.disabled);
+      await act(async () => { reviewAll.click(); });
+      await settle();
+    }
+    const controls = [...document.querySelectorAll('button')].filter((button) => /Check a (separate|replacement) proposal/u.test(button.textContent ?? ''));
+    assert.equal(controls.filter((button) => !button.disabled).length, 0,
+      `dependency recovery cannot bypass the ${guard} guard, even for one selected proposal`);
+    for (const button of controls) await act(async () => { button.click(); });
+    assert.equal(transformRequests, 0);
     actionState.forgetGraphReviewAction(pendingKey);
   }
   let unexpectedCreationReceipt: Record<string, unknown> | null = null;
