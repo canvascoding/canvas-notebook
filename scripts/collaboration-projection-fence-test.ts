@@ -37,6 +37,7 @@ function seedRow(doc: Y.Doc) {
     document_sequence: 2, persisted_at: 1, checkpointed_at: 1, checkpoint_sequence: 1,
     canonical_hash: 'old', serialized_hash: 'old', newline_style: 'lf', has_bom: false,
     degraded: false, status: 'active',
+    room_owner_epoch: 0, room_owner_token: null, room_owner_backend_pid: null, room_owner_backend_start: null,
   };
 }
 type Row = ReturnType<typeof seedRow>;

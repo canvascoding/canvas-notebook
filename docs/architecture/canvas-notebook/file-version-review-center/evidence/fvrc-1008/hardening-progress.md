@@ -891,3 +891,17 @@ zwischenzeitlicher lokaler Änderungen, Schutz ersetzter Räume und ausbleibende
 Disconnect-/Store-Deadlocks. PGlite und getrennte PostgreSQL-Backends bestehen;
 Einzelheiten und das neue Größenlimit samt Rollout-Preflight stehen im Nachweis.
 Mehrprozess-Owner und atomarer Kandidatencommit vor Live-Publish bleiben offen.
+
+### Getesteter Ownership-Baustein vor Live-Integration
+
+[Room owner primitive results](room-owner-primitive-results.md) dokumentiert
+die additive Epoch-/Token-/Backend-Identität, eine dedizierte PostgreSQL-Sitzung
+mit mehreren Advisory-Locks und den optional gefenceten monotonen Store.
+Echte PostgreSQL-Sitzungen prüfen Konkurrenz, Zeilensperren, Verbindungsverlust,
+verlorene COMMIT-Antwort und erfolgreiche Weiterarbeit nach Übernahme. Sieben
+Fehlerinjektionsfälle decken zusätzlich Queue-Sättigung und Timeout ab.
+
+Es existiert noch kein Runtime-Claim. Admission, Live-Raum-Lifecycle, alle
+übrigen Schreiber und der atomare Kandidatencommit bleiben zwingende nächste
+Schritte. Kein gemischter Betrieb mit alten Servern bei späterer Aktivierung.
+Dieser Baustein schließt FVRC-1008 oder die Crashlücke nicht ab.

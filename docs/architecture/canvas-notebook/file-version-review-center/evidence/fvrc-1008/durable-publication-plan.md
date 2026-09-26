@@ -67,6 +67,13 @@ veralteter Owner erforderlich. Ein Lease-Ablauf allein berechtigt einen alten
 Owner nicht zu weiteren Writes. Browser-Reconnect und Offline-Caches müssen
 ohne Verlust unabhängiger Nutzeränderungen getestet werden.
 
+Das [getestete PostgreSQL-Ownership-Primitiv](room-owner-primitive-results.md)
+ergänzt inzwischen Epoch-/Token-/Backend-Fencing und den optional gefenceten
+monotonen Store. Es wird noch von keinem Live-Raum beansprucht. Admission,
+Unload, Lifecycle-Entzug, alle weiteren Binärschreiber und ein versionsgebundenes
+Aktivierungsgate bleiben vor Cutover zwingend zu integrieren. Die additive
+Migration allein aktiviert keine Ownership und schließt die Crashlücke nicht.
+
 ### 3. Atomarer Commit, dann Live-Veröffentlichung (offen)
 
 Unter den gültigen Fences den exakten Live-Zustand in eine temporäre Y.Doc

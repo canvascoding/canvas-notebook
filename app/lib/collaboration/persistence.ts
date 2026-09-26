@@ -28,6 +28,7 @@ import {
 } from './runtime-state';
 import { Y } from './server-runtime';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
+import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence } from './room-owner';
 
 export interface PersistedCollaborationState {
   documentId: string;
@@ -76,6 +77,10 @@ export type SafeMarkdownNormalizationCheckpoint = {
 };
 
 type StateRow = {
+  room_owner_epoch: number;
+  room_owner_token: string | null;
+  room_owner_backend_pid: number | null;
+  room_owner_backend_start: string | null;
   document_id: string;
   workspace_id: string;
   organization_id: string | null;
@@ -285,11 +290,13 @@ export async function persistCollaborationYDoc(
   expectedLifecycleGeneration: number,
   doc: YTypes.Doc,
   expectedIdentity?: CollaborationPersistenceIdentity,
+  ownerFence?: CollaborationRoomOwnerFence,
 ): Promise<CollaborationPersistenceResult> {
   // Capture before yielding: the room can receive more edits while we wait for
   // a connection/row lock. Never encode the mutable room again inside this save.
   const update = Y.encodeStateAsUpdate(doc);
   const identity = expectedIdentity ? { ...expectedIdentity } : undefined;
+  const fence = ownerFence ? { ...ownerFence, scope: { ...ownerFence.scope } } : undefined;
   const database = await openDb();
   let transactionOpen = false;
   let commitStarted = false;
@@ -316,6 +323,7 @@ export async function persistCollaborationYDoc(
       ))) {
       throw new CollaborationStateStaleError(documentId, expectedLifecycleGeneration);
     }
+    await assertCollaborationRoomOwnerFence(database, current, fence);
     const merged = mergeCollaborationPersistenceUpdates(bytes(current.yjs_state), update);
     let row = current;
     if (merged.disposition !== 'unchanged') {

@@ -1617,6 +1617,7 @@
           "scenarioMatrix": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/scenario-matrix.md",
           "recoveryHardeningPlan": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/durable-publication-plan.md",
           "monotonicStoreEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/monotonic-store-results.md",
+          "roomOwnerPrimitiveEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/room-owner-primitive-results.md",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
