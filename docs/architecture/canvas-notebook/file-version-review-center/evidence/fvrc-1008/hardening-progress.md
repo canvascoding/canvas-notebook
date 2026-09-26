@@ -5,6 +5,17 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Dokumentidentität nach Pfadänderung
+
+Der neue gewöhnliche Tool-/Browserfall für Personal und Team prüft Rename,
+Move, Wiederverwendung des alten Pfads sowie Kopien im selben/anderen Workspace.
+Die Original-Lineage bleibt annehmbar; die drei anderen Dateien übernehmen
+weder Graph noch Freigabe. Exakter gemeinsamer Root-/Child-Merge, +1 Revision,
+Block-IDs, idempotenter Retry und unveränderte Kopien sind nachgewiesen.
+Details und Grenzen: [ordinary-location-results.md](ordinary-location-results.md).
+PG-S27 ist für den authentifizierten Datei-API-Pfad abgedeckt; MR-17 bleibt wegen
+des separaten Delete/Recreate-Falls teilweise offen. Keine Änderung am Produktcode.
+
 ## Bereits erneut geprüft
 
 | Prüfung | Ergebnis | Nachweis und Grenze |
