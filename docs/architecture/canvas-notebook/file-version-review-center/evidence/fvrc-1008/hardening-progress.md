@@ -709,3 +709,26 @@ Testannahmen aus Entwicklungsläufen sind im Nachweis getrennt dokumentiert,
 ohne Produktprüfungen zu lockern. PG-S21 bleibt für das abschließende Live-
 Preflight-Rennen offen. Gesamtmatrix, Produktionsimage und manueller
 Konflikteditor P12 sind damit nicht abgenommen; kein Containerneubau oder Push.
+
+### Verschobene Zielabsätze mit zusätzlicher Löschung und Einfügung
+
+[Ordinary block move results](ordinary-block-move-results.md) schließt die
+konkrete Browserlücke CR-04/MR-05: Zwei gewöhnliche blockgebundene Vorschläge
+werden vor echten Editoränderungen angelegt. Danach wird der Zielabsatz per
+Tastatur verschoben, ein unabhängiger Entwurfsabsatz gelöscht und ein neuer
+Hinweis vor dem Ziel eingefügt. Auch nach Editor-Reload behalten die bestehenden
+Absätze ihre IDs; der neue Hinweis erhält eine neue Identität.
+
+Vier finale Fälle bestehen auf unverändertem Produktcode in Personal und Team:
+Lieferzeit/Kosten einzeln (+2 Revisionen) und gemeinsam (+1). Der vollständige
+Endtext ist in allen Fällen identisch, Verschiebung und Benutzeränderungen
+bleiben erhalten. Alte vorbereitete Einzel-/Batchannahmen werden ohne Mutation
+abgelehnt; neue Vorschau und Bestätigung verwenden den aktuellen Stand.
+Der unabhängige Testreview führte zu stärkeren sichtbaren Batch-Diff-Assertions;
+alle vier Kombinationen wurden auf diesem finalen Spec ausgeführt.
+
+86 fokussierte Editor-/BlockTree-/Yjs-Kandidatentests, TypeScript ohne
+inkrementellen Cache und ESLint bestehen. Die vollständige Gesamtmatrix,
+Mehrprozess-/Crash-Fälle, Produktionsimage und manueller Konflikteditor P12
+bleiben offen. Kein Produkt-, Dependency- oder Env-Fix war für diesen
+Grenzfall erforderlich; kein Containerneubau, Push oder Rollout.
