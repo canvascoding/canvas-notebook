@@ -5,6 +5,26 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Reine Löschung bis zum leeren Dokument
+
+Vier neue gewöhnliche Personal-/Team-Browserfälle prüfen Teil- und
+Volltextlöschung in einem Rich-Paragraphen. Der Zustandsvektor bleibt gleich,
+Inhalts-/Struktur-/Delete-Set-Proof ändern sich. Ein separater lesender Prozess
+weist die vollständige PostgreSQL-Binärpersistenz nach; auch der leere Inhalt
+bekommt eine verfügbare 0-Byte-Historyversion, genau eine Revision und einen
+idempotenten Aktionsbeleg. Historischer Link und UI-Reload schreiben nichts
+erneut. Details: [ordinary-deletion-results.md](ordinary-deletion-results.md).
+Keine Produktkorrektur war nötig; ergänzt wurden Test und optionaler lokaler
+Persistenzleser. Crash-/Recovery-Grenzen und strukturelle Blocklöschung werden
+nicht aus diesem erfolgreichen Textlöschfall abgeleitet.
+
+Die Nachweise zeigen unterschiedliche vollständige Binärhashes von Kandidat
+und GC-bereinigter Persistenz bei gleicher Wirkung. Der normale Dauerhaftigkeits-
+Nachweis prüft korrekt integrierte Clocks und Delete-Ranges. Für PG-S19 ist nun
+konkret der Crash im Status `applying` vor Speicherung des Operationssnapshots
+zu prüfen: dessen Recovery verlangt weiterhin exakte Full-State-Proof-Gleichheit
+und könnte eine bereits erfolgte Löschung nach GC konservativ blockieren.
+
 ## Ergänzung: Vollständige Diff-Seiten vor der Annahme
 
 Ein gewöhnlicher 65-Hunk-Vorschlag war nach den ersten 64 Hunks bereits
