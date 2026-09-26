@@ -577,3 +577,39 @@ Review-UI-/Server-Suiten, TypeScript, ESLint und Produktionsbuild bestehen.
 PG-S05/PG-S14 erhalten den konkreten positiven Browsernachweis; Gesamtgate und
 P12 bleiben offen. Der einzige Stack wurde nicht neu gebaut. Getestet wurde
 aktueller Host-Dev-Code auf 3000, nicht das ältere Notebook-Image auf 3100.
+
+### Gemeinsame Vorfahren, dreistufige Ketten und kollidierende Geschwister
+
+[Ordinary closure results](ordinary-closure-results.md) dokumentiert zehn weitere
+bestandene Browserfälle auf unverändertem Produktcode `dbdfcae3b`. In Personal
+und Team werden gewöhnliche `read`-/`edit_file`-Werkzeuge mit `tiptap_blocks`
+verwendet: zwei kompatible Kinder desselben P1 als Batch oder nach P1-Annahme,
+eine dreistufige Kette als Batch oder durch alleinige Auswahl ihres letzten
+Kindes, sowie zwei kollidierende Kinder mit anschließend ausdrücklich neu
+geprüfter Einzelannahme. Gemeinsame Voraussetzungen werden genau einmal
+angewendet; bereits übernommene Vorfahren bleiben im Beleg, aber nicht in der
+neuen Anwendungs-/Abschlussmenge. Exakte Texte, Block-IDs, Aktionsbelege,
+Lebenszyklen, Idempotenz und +1/+2 Revisionen sind geprüft.
+
+Beim kollidierenden Sammel-Merge bleibt auch der konfliktfreie Parent-Anteil
+unangetastet. Erst die eigene Vorschau und Bestätigung von P2 übernimmt P1+P2
+in genau einer Revision; P3 bleibt offen und mit konkreter Konfliktdiagnose
+gesperrt. Das ist ein erfolgreicher sicherer Teil-Merge, kein Nachweis für den
+noch ausstehenden manuellen Konflikteditor.
+
+Die Testentwicklung korrigierte drei Annahmen: Geschwisterkomposition ist
+`clean_rebased`, ein neuer Geschwistervorschlag benötigt nach Graphänderung einen
+frischen P1-Quellbeleg, und abgeschlossene Geschwister werden über ihre exakte
+Operation geprüft statt in fremdem aktivem Kontext vorausgesetzt. Keine
+Produktsicherheitsprüfung wurde gelockert. Alle zehn finalen Läufe bestanden
+seriell ohne Skip oder beobachteten Review-429-/5xx-Fehler. JSON-Belege wurden
+unabhängig ausgewertet, repräsentative Erfolgs-/Konfliktansichten visuell geprüft.
+Ein unabhängiger Subagenten-Quellreview fand keinen wesentlichen Testfehler.
+
+TypeScript ohne inkrementellen Cache, fokussiertes ESLint, Graphmodell-,
+Kandidaten- und Orchestrator-Suites bestehen. PGlite-Storage-Regressionsprüfungen
+bleiben getrennt von den Browserfällen auf echtem verwaltetem PostgreSQL.
+PG-S07/PG-S13/MR-11/MR-12 sind nur für die konkret geprüften Orakel aktualisiert.
+FVRC-1008 bleibt in Arbeit; P12, zwei Gesamtmatrixläufe und die Prüfung eines
+frischen Produktionsimages bleiben offen. Keine Produkt-, Dependency-, Env-
+oder Containeränderung, kein Push und keine Produktionsaktivierung.
