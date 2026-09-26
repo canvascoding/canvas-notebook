@@ -39,9 +39,11 @@ type RuntimeService = { scope: ProposalDocumentScopeV1; service: {
   readExact(input: { scope: ProposalDocumentScopeV1; proposalId: string | null }): Promise<{
     metadata: ProposalToolReadResultV1; content: string; structure: unknown; sourceStateVector: string }>;
   create(input: CreationInput): Promise<Created>;
+  createIndependent(input: Omit<CreationInput, 'proposal'> & { allowCreate: boolean }): Promise<Created | null>;
 } };
 type Runtime = {
   assertProposalToolsEnabled(): void;
+  hasPotentialProposalAgentRetryKey(input: { documentId: string; initiatedByUserId: string; idempotencyKey: string }): Promise<boolean>;
   createRuntimeProposalAgentService(input: { workspace: WorkspaceContext; documentId: string; path: string;
     identity: { initiatedByUserId: string; actorId: string; actorSessionId?: string } }): Promise<RuntimeService>;
 };
@@ -110,6 +112,8 @@ async function harness() {
   ) VALUES ($1,$2,$3,$4,$5,1,1,$6,$7,7,100,7)`, [state.documentId, state.workspaceId,
     state.organizationId, state.path, state.representation, Buffer.from(state.yjsState), Buffer.from(state.stateVector)]);
   let freshWorkspace = structuredClone(workspace);
+  let graphEnabled = true;
+  let reviewCenterWritable = true;
   let sessionAvailable = true;
   const sessionCalls: Array<{ sessionId: string; userId: string; agentId: string; permissions: string[] }> = [];
   const directAuthCalls: Array<{ userId: string; role: string }> = [];
@@ -159,6 +163,9 @@ async function harness() {
       return input.read(live);
     } },
     '../collaboration/agent-operations': bridge, '../collaboration/server-runtime': { Y },
+    './proposal-review-capability': { proposalReviewWritesEnabled: ({ workspaceId }: { workspaceId?: string }) =>
+      graphEnabled && workspaceId === scope.workspaceId },
+    './policy-v1': { resolveFileVersionRolloutV1: () => ({ restore: reviewCenterWritable }) },
   });
   const factory = (override: Partial<Parameters<Runtime['createRuntimeProposalAgentService']>[0]> = {}) =>
     runtime.createRuntimeProposalAgentService({ workspace, documentId: scope.documentId, path: state.path, identity, ...override });
@@ -187,6 +194,8 @@ async function harness() {
   return { database, runtime, factory, state, statements, counts, targets, forbiddenCalls, sessionCalls, directAuthCalls,
     live: () => live, resetLive, activeSql: () => { assert.ok(activeSql); return activeSql; },
     fresh: (next: WorkspaceContext) => { freshWorkspace = next; },
+    graphEnabled: (enabled: boolean) => { graphEnabled = enabled; },
+    reviewCenterWritable: (enabled: boolean) => { reviewCenterWritable = enabled; },
     session: (available: boolean) => { sessionAvailable = available; },
     failSql: (predicate: typeof failStatement) => { failStatement = predicate; },
     afterSql: (callback: typeof afterStatement) => { afterStatement = callback; },
@@ -209,6 +218,10 @@ async function main() {
     assert.deepEqual(runtime.scope, scope);
     await assert.rejects(h.factory({ path: 'another.md' }), code('PROPOSAL_STALE_LIFECYCLE'));
     await assert.rejects(runtime.service.readExact({ scope: { ...scope, workspaceId: 'proposal-other-workspace' }, proposalId: null }), code('PROPOSAL_SCOPE_MISMATCH'));
+    const beforeUnseenProbe = await h.counts();
+    assert.equal(await h.runtime.hasPotentialProposalAgentRetryKey({ documentId: scope.documentId,
+      initiatedByUserId: identity.initiatedByUserId, idempotencyKey: 'ordinary-tool:unseen-key' }), false);
+    assert.deepEqual(await h.counts(), beforeUnseenProbe, 'read-only retry probe must not create even a graph metadata row');
     passed('rollout stays closed; internal factory and path/workspace scope are exact');
 
     const authoritative = await runtime.service.readExact({ scope, proposalId: null });
@@ -218,6 +231,16 @@ async function main() {
     const request: CreationInput = { scope, actorId: identity.actorId, idempotencyKey: 'runtime-independent-request',
       proposal: edit(authoritative.metadata.source), mutation: { oldText: '50', newText: '100' },
       buildTargets: (source) => h.targets(source, '50', '100') };
+    h.graphEnabled(false);
+    const beforeDisabledCreate = await h.counts();
+    await assert.rejects(runtime.service.create(request), code('PROPOSAL_UPGRADE_REQUIRED'));
+    assert.deepEqual(await h.counts(), beforeDisabledCreate);
+    h.graphEnabled(true);
+    h.reviewCenterWritable(false);
+    await assert.rejects(runtime.service.create(request), code('PROPOSAL_UPGRADE_REQUIRED'));
+    assert.deepEqual(await h.counts(), beforeDisabledCreate);
+    assert.equal((await runtime.service.readExact({ scope, proposalId: null })).metadata.source.kind, 'authoritative');
+    h.reviewCenterWritable(true);
     const parent = await runtime.service.create(request);
     assert.equal(parent.reused, false); assert.equal(parent.proposal.reviewRequired, true);
     assert.equal(parent.authoringPreview.beforeContent, 'Insurance 50. Tail.');
@@ -324,6 +347,35 @@ async function main() {
     h.resetLive();
     passed('final current-proof check catches changes after node insertion and rolls back both durable records');
 
+    const ordinary = { scope, actorId: identity.actorId, idempotencyKey: 'ordinary-tool-intent-key',
+      mutation: { operation: 'edit_file', path: 'shipping.md', oldText: 'Tail', newText: 'End' },
+      buildTargets: (source: BuildSource) => h.targets(source, 'Tail', 'End'), allowCreate: true };
+    const beforeOrdinary = await h.counts();
+    assert.equal(await runtime.service.createIndependent({ ...ordinary, allowCreate: false }), null);
+    assert.deepEqual(await h.counts(), beforeOrdinary, 'lookup-only must not create an operation or proposal');
+    const root = await runtime.service.createIndependent(ordinary);
+    assert.ok(root); assert.equal(root.reused, false); assert.equal(root.proposal.creationKind, 'independent');
+    h.graphEnabled(false);
+    assert.equal(await h.runtime.hasPotentialProposalAgentRetryKey({ documentId: scope.documentId,
+      initiatedByUserId: identity.initiatedByUserId, idempotencyKey: ordinary.idempotencyKey }), true);
+    h.graphEnabled(true);
+    assert.equal(root.node.source.kind, 'authoritative');
+    assert.deepEqual(root.node.relationships, { dependency: null, replacesProposalId: null, choiceGroupId: null });
+    assert.equal(root.authoringPreview.proposedContent, 'Insurance 50. End.');
+    assert.equal(h.live().getText('content').toString(), 'Insurance 50. Tail.');
+    h.live().getText('content').insert(0, 'Human ');
+    const ordinaryRetry = await runtime.service.createIndependent({ ...ordinary, allowCreate: false,
+      buildTargets: () => { throw new Error('Retry must not rebuild targets'); } });
+    assert.ok(ordinaryRetry); assert.equal(ordinaryRetry.reused, true);
+    assert.equal(ordinaryRetry.node.proposalId, root.node.proposalId);
+    assert.deepEqual(ordinaryRetry.authoringPreview, root.authoringPreview);
+    await assert.rejects(runtime.service.createIndependent({ ...ordinary, mutation: { ...ordinary.mutation, newText: 'Other' } }),
+      code('PROPOSAL_IDEMPOTENCY_MISMATCH'));
+    await assert.rejects(runtime.service.createIndependent({ ...ordinary, idempotencyKey: 'proposal-legacy-key' }),
+      code('PROPOSAL_IDEMPOTENCY_MISMATCH'));
+    h.resetLive();
+    passed('ordinary root uses one SQL unit, no live write and stable intent retry before current/source reads');
+
     const lineageLock = h.statements.findIndex((sql) => sql.includes('SELECT id FROM file_collaboration_lineages') && sql.includes('FOR UPDATE'));
     const documentLock = h.statements.findIndex((sql, index) => index > lineageLock
       && sql.includes('SELECT lineage_id FROM collaboration_documents') && sql.includes('FOR UPDATE'));
@@ -334,8 +386,8 @@ async function main() {
     assert.ok(h.statements.some((sql) => sql.includes('proposal.proposal_id=ANY($6::text[])')));
     assert.ok(h.statements.some((sql) => sql.includes("proposal.node_json->'relationships' AS authored_relationships")));
     assert.deepEqual(h.forbiddenCalls, []);
-    assert.equal((await h.database.query('SELECT count(*)::integer AS count FROM file_change_proposals')).rows[0].count, 2);
-    assert.equal((await h.database.query('SELECT count(*)::integer AS count FROM collaboration_agent_operations')).rows[0].count, 4);
+    assert.equal((await h.database.query('SELECT count(*)::integer AS count FROM file_change_proposals')).rows[0].count, 3);
+    assert.equal((await h.database.query('SELECT count(*)::integer AS count FROM collaboration_agent_operations')).rows[0].count, 5);
     passed('actual migrated schema accepts all scoped lock/lookup/operation statements; no direct apply or global connection used');
     console.log(`Proposal agent runtime: ${groups} SQL integration groups passed (in-memory PGlite; auth/live boundaries mocked).`);
   } finally { await h.close(); }

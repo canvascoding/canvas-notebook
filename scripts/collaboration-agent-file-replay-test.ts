@@ -237,6 +237,11 @@ async function boundaryHarness(mode: 'apply-race' | 'prepare-race', outcome: 'du
     '@/app/lib/files/collaboration-policy': { readFileCollaborationState: async () => ({ crdtCapable: true, document: metadata }) },
     '@/app/lib/collaboration/persistence': { loadCollaborationStateIncludingArchived: async () => state },
     '@/app/lib/collaboration/agent-operations': { AgentFileEditOperationScopeError: ScopeError, findAgentFileEditOperation: find },
+    '@/app/lib/file-version-center/proposal-review-capability': { proposalReviewWritesEnabled: () => false },
+    '@/app/lib/file-version-center/proposal-agent-runtime': {
+      hasPotentialProposalAgentRetryKey: async () => false,
+      createRuntimeProposalAgentService: async () => { throw new Error('Graph-off no-hit must not create a Graph runtime.'); },
+    },
     '@/app/lib/collaboration/agent-file-edits': { readCurrentCollaborationTextSnapshot: async () => current(),
       prepareCollaborationBlockEdit: prepare,
       prepareCollaborationTextEdit: async (input: { edits: unknown }) => {

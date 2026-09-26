@@ -1613,6 +1613,8 @@
           "order": 8,
           "title": "Proposal-Graph haerten, migrieren und kontrolliert ausrollen",
           "status": "in_progress",
+          "evidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/hardening-progress.md",
+          "scenarioMatrix": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/scenario-matrix.md",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",

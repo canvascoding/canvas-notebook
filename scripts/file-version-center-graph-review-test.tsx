@@ -697,6 +697,125 @@ async function main() {
   assert.match(singleConflict?.textContent ?? '', /overlaps changes in the current document.*automatic merge is unsafe/i);
   assert.doesNotMatch(singleConflict?.textContent ?? '', /selected proposals cannot be applied together/i);
 
+  const assertVisibleBlockedDiagnosis = async (input: {
+    key: string;
+    payload: Record<string, unknown>;
+    expectedReason: RegExp;
+    loadError?: boolean;
+    transportFailure?: boolean;
+    batch?: boolean;
+  }) => {
+    globalThis.fetch = input.transportFailure
+      ? async () => { throw new TypeError('private document content private-content-hash secret-fence-token private error detail'); }
+      : async (_request, init) => {
+        if (input.batch) {
+          const body = JSON.parse(String(init?.body)) as { selection: { kind: string } };
+          return Response.json(body.selection.kind === 'all' ? input.payload : conflict);
+        }
+        return Response.json(input.payload);
+      };
+    await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <GraphReviewComparison key={input.key} request={request} document={target} operationId="operation-diagnostic"
+        legacy={<div data-testid="legacy-review">Legacy</div>} isRevalidating={false} isStale={false}
+        onTimelineInvalidate={() => {}} onContinue={() => {}} />
+    </NextIntlClientProvider>); });
+    await settle();
+    if (input.batch) {
+      const reviewAll = [...document.querySelectorAll('button')]
+        .find((button) => button.textContent?.includes('Review all changes'));
+      assert.ok(reviewAll, 'the batch fixture starts from the exact single-operation view');
+      await act(async () => { reviewAll.click(); });
+      await settle();
+    }
+
+    if (input.loadError) {
+      const loadError = document.querySelector('[data-testid="graph-review-load-error"]');
+      assert.ok(loadError, 'network failure has its own load-error presentation');
+      assert.match(loadError.textContent ?? '', input.expectedReason);
+    } else {
+      const blocked = document.querySelector('[data-testid="graph-review-blocked"]');
+      assert.ok(blocked, `${input.key} is presented as blocked, not as a valid comparison`);
+      assert.match(blocked.textContent ?? '', input.expectedReason);
+      assert.equal(document.querySelector('[data-testid="graph-review-hunks"]'), null,
+        'unproven or conflicting input never renders a diff');
+    }
+    assert.doesNotMatch(document.body.textContent ?? '', /\+\s*0|−\s*0/u,
+      'unavailable or conflicting input never presents zero counts as a valid diff');
+    assert.equal([...document.querySelectorAll('button')]
+      .some((button) => /accept/i.test(button.textContent ?? '')), false,
+    'blocked diagnostics never expose an Accept action');
+    assert.equal(document.querySelector('[data-testid="legacy-review"]'), null,
+      'graph diagnostics never fall back to legacy review actions');
+
+    const diagnostics = document.querySelector<HTMLDetailsElement>('[data-testid="graph-review-diagnostics"]');
+    assert.ok(diagnostics, 'redacted details can be expanded for both session and transport failures');
+    const summary = diagnostics.querySelector('summary');
+    assert.ok(summary);
+    await act(async () => { summary.click(); });
+    assert.equal(diagnostics.open, true);
+    const safePayload = diagnostics.querySelector('pre')?.textContent ?? '';
+    assert.match(safePayload, input.loadError ? /FVRC_TRANSPORT_ERROR/u
+      : new RegExp(String(input.payload.reasonCode), 'u'));
+    assert.doesNotMatch(safePayload, /private document content|private-content-hash|secret-fence-token|private error detail/iu,
+      'expanded diagnostic details omit document content, full hashes, fence tokens and transport error text');
+
+    let copiedDiagnostic = '';
+    Object.defineProperty(navigator, 'clipboard', { configurable: true,
+      value: { writeText: async (value: string) => { copiedDiagnostic = value; } } });
+    const copyDiagnostic = [...diagnostics.querySelectorAll('button')]
+      .find((button) => button.textContent?.includes('Copy'));
+    assert.ok(copyDiagnostic);
+    await act(async () => { copyDiagnostic.click(); });
+    assert.equal(copiedDiagnostic, safePayload, 'copied diagnostics exactly match the visible redacted details');
+    assert.doesNotMatch(copiedDiagnostic, /private document content|private-content-hash|secret-fence-token|private error detail/iu);
+  };
+
+  for (const [index, reasonCode, expectedReason] of [
+    [0, 'PROPOSAL_CONTENT_UNAVAILABLE', /proposal content is unavailable/i],
+    [1, 'PROPOSAL_SOURCE_INVALID', /original basis cannot be verified/i],
+  ] as const) {
+    // These fixtures represent an unproven legacy source basis. They do not
+    // classify distinct, provably disjoint graph bases as incompatible.
+    const unavailableBasis = {
+      ...conflict,
+      status: 'unavailable',
+      reasonCode,
+      compare: null,
+      actions: {},
+      capability: { write: true },
+      diagnosis: { ...diagnosis, reasonCode },
+    };
+    await assertVisibleBlockedDiagnosis({
+      key: `unavailable-basis-${index}`,
+      payload: unavailableBasis,
+      expectedReason,
+    });
+  }
+
+  await assertVisibleBlockedDiagnosis({
+    key: 'genuine-batch-conflict',
+    payload: {
+      ...conflict,
+      selectedProposalIds: ['proposal-one', 'proposal-two'],
+      status: 'conflicted',
+      reasonCode: 'PROPOSAL_BATCH_CONFLICT',
+      compare: null,
+      actions: {},
+      capability: { write: true },
+      diagnosis: { ...diagnosis, reasonCode: 'PROPOSAL_BATCH_CONFLICT' },
+    },
+    expectedReason: /selected proposals cannot be applied together/i,
+    batch: true,
+  });
+
+  await assertVisibleBlockedDiagnosis({
+    key: 'network-failure',
+    payload: {},
+    expectedReason: /review service could not be reached/i,
+    loadError: true,
+    transportFailure: true,
+  });
+
   actionState.rememberGraphReviewAction(pendingKey, exactAction);
   const durabilityReceipt = { contractVersion: 1, actionId: 'action-one',
     scope: { workspaceId: target.workspaceId, lineageId: target.lineageId, documentId: target.documentId,

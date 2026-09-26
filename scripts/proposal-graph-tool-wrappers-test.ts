@@ -41,7 +41,7 @@ async function compile<T>(file: string, mocks: Record<string, unknown>): Promise
   return exports as T;
 }
 async function harness() {
-  const controls = { content: 'Candidate parent text', sourceKind: 'workspace', projectionReads: 0, missing: false,
+  const controls = { content: 'Candidate parent text', sourceKind: 'workspace', projectionReads: 0, missing: false, closed: false,
     metadataMissing: false, returnSource: structuredClone(source), backendError: null as Error | null,
     readCalls: [] as unknown[][], writes: [] as Record<string, unknown>[], edits: [] as Record<string, unknown>[], patches: [] as Record<string, unknown>[] };
   const results = await compile<typeof ToolResults>('app/lib/pi/agent-file-tool-results.ts', {
@@ -49,7 +49,7 @@ async function harness() {
   });
   const result = { path: 'notes.md', resolvedPath: '/workspace/notes.md', changed: false, snapshot: null,
     beforeSha256: hash('before'), afterSha256: hash('before'), size: 20, diff: '+proposal', validation: { ok: true, checks: [] },
-    collaboration: { operationId: 'operation', operationStatus: 'needs_review', durability: 'none', reviewRequired: false, proposedSha256: hash('proposed') },
+    collaboration: { operationId: 'operation', operationStatus: 'needs_review', durability: 'not_applied', reviewRequired: true, proposedSha256: hash('proposed') },
     proposal: { contractVersion: 1 as const, proposalId: 'child', operationId: 'operation', scope, creationKind: 'extends' as const,
       casVersion: 1, candidateHash: hash('child'), source, relationships: { dependency: { proposalId: 'parent', candidateHash: hash('authored') }, replacesProposalId: null, choiceGroupId: null }, reviewRequired: true as const } };
   const helpers = {
@@ -72,9 +72,12 @@ async function harness() {
         ...(options.includeStructure ? { structure: { offset: 0, nextOffset: null, totalBlocks: 1, blocks: [{ id: 'block', type: 'paragraph',
           parentId: null, beforeId: null, attrs: {}, text: controls.content, textTruncated: false, subtreeHash: hash('subtree'), placementHash: hash('placement') }] } } : {}) };
     },
-    writeAgentTextFile: async (input: Record<string, unknown>) => { controls.writes.push(input); if (controls.backendError) throw controls.backendError; return result; },
-    editAgentFile: async (input: Record<string, unknown>) => { controls.edits.push(input); if (controls.backendError) throw controls.backendError; return result; },
-    applyAgentFilePatch: async (input: Record<string, unknown>) => { controls.patches.push(input); if (controls.backendError) throw controls.backendError; return [result]; },
+    writeAgentTextFile: async (input: Record<string, unknown>) => { controls.writes.push(input); if (controls.backendError) throw controls.backendError;
+      return controls.closed ? { ...result, collaboration: { ...result.collaboration, operationStatus: 'applied', reviewRequired: false } } : result; },
+    editAgentFile: async (input: Record<string, unknown>) => { controls.edits.push(input); if (controls.backendError) throw controls.backendError;
+      return controls.closed ? { ...result, collaboration: { ...result.collaboration, operationStatus: 'applied', reviewRequired: false } } : result; },
+    applyAgentFilePatch: async (input: Record<string, unknown>) => { controls.patches.push(input); if (controls.backendError) throw controls.backendError;
+      return [controls.closed ? { ...result, collaboration: { ...result.collaboration, operationStatus: 'applied', reviewRequired: false } } : result]; },
   };
   const factories = new Proxy({}, { get: (_, key) => String(key) === 'createPdfTools' || String(key) === 'createOfficeDocumentTools' ? () => [] : () => ({ name: `unused-${String(key)}` }) });
   const mocks: Record<string, unknown> = {
@@ -118,6 +121,23 @@ test('write/edit/patch forward exact provenance and trusted retry key, reporting
   assert.deepEqual((h.controls.patches[0].files as Record<string, unknown>[])[0].proposal, intent);
   assert.equal(h.controls.patches[0].idempotencyKeyPrefix, 'trusted-call');
 });
+test('closed exact proposal retries retain creation proof without projecting a new open review', async () => {
+  const h = await harness();
+  h.controls.closed = true;
+  for (const name of ['write', 'edit_file', 'apply_patch']) {
+    const response = await h.run(name, name === 'write' ? { path: 'notes.md', content: 'child' }
+      : name === 'edit_file' ? { path: 'notes.md', oldText: 'parent', newText: 'child' }
+        : { files: [{ path: 'notes.md', edits: [{ oldText: 'parent', newText: 'child' }] }] });
+    const details = response.details as ToolResults.AgentFileToolSuccess & { results?: ToolResults.AgentFileToolSuccess[] };
+    const value = name === 'apply_patch' ? details.results![0] : details;
+    assert.equal(value.proposal?.reviewRequired, true, 'the original proposal creation proof is immutable');
+    assert.equal(value.collaboration?.operationId, 'operation');
+    assert.equal(value.collaboration?.operationStatus, 'applied');
+    assert.equal(value.collaboration?.reviewRequired, false);
+    assert.equal(value.outcome, 'unchanged');
+    assert.equal(value.recommendedAction, 'none');
+  }
+});
 test('declared null, undefined, malformed or stale references never reach a mutation facade', async () => {
   const h = await harness();
   for (const proposal of [null, undefined, {}, { ...intent, expectedParentCasVersion: 1 }]) {
@@ -143,7 +163,7 @@ test('ordinary calls retain absent-proposal facade shapes', async () => {
   await h.run('write', { path: 'notes.md', content: 'normal' });
   await h.run('edit_file', { path: 'notes.md', oldText: 'x', newText: 'y' });
   await h.run('apply_patch', { files: [{ path: 'a.md', edits: [] }, { path: 'b.md', edits: [] }] });
-  assert.equal(Object.hasOwn(h.controls.writes[0], 'proposal'), false); assert.equal(Object.hasOwn(h.controls.writes[0], 'idempotencyKey'), false);
+  assert.equal(Object.hasOwn(h.controls.writes[0], 'proposal'), false); assert.equal(h.controls.writes[0].idempotencyKey, 'trusted-call');
   assert.equal(Object.hasOwn(h.controls.edits[0], 'proposal'), false); assert.equal(h.controls.patches.length, 1);
 });
 test('proposal read returns exact complete proof in text and details, bounded and without Yjs payloads', async () => {

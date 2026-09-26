@@ -47,12 +47,19 @@ export function asAgentFileToolSuccess(
 ): AgentFileToolSuccess {
   const { resolvedPath: _resolvedPath, ...publicResult } = result;
   if (Object.hasOwn(result, 'proposal')) parseProposalToolCreationResultV1(result.proposal);
-  const reviewRequired = result.proposal !== undefined || result.collaboration?.reviewRequired === true;
+  const closedExactRetry = Boolean(result.proposal && result.collaboration
+    && result.collaboration.operationId === result.proposal.operationId
+    && result.collaboration.durability === 'not_applied'
+    && result.changed === false && result.collaboration.reviewRequired === false
+    && ['applied', 'included', 'rejected', 'superseded', 'alternative_not_selected',
+      'satisfied_elsewhere', 'expired'].includes(result.collaboration.operationStatus));
+  const reviewRequired = result.collaboration?.reviewRequired === true || Boolean(result.proposal && !closedExactRetry);
   return {
     ...publicResult,
-    // This is the immutable creation/retry receipt, not the proposal's current
-    // lifecycle. Refresh its exact ID before showing a new-review notification.
-    ...(result.proposal && result.collaboration ? { collaboration: { ...result.collaboration, reviewRequired: true } } : {}),
+    // A proposal forces review unless the exact non-mutating retry is known to
+    // be terminal. Unknown or contradictory receipts must not claim direct apply.
+    ...(result.proposal && result.collaboration && !closedExactRetry
+      ? { collaboration: { ...result.collaboration, reviewRequired: true } } : {}),
     contractVersion: 1,
     kind: 'file_mutation',
     operation,

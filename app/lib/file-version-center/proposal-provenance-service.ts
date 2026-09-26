@@ -223,6 +223,64 @@ async function storedPreview(transaction: ProposalProvenanceTransaction, node: P
 export function createProposalProvenanceService(dependencies: ProposalProvenanceDependencies) {
   const now = dependencies.now ?? Date.now; const createId = dependencies.createId ?? randomUUID;
   return {
+    /** Ordinary tool intent has no client-declared parent or source. Retry identity precedes today's current read. */
+    async createIndependent(input: {
+      scope: ProposalDocumentScopeV1; actorId: string; idempotencyKey: string; mutation: unknown;
+      allowCreate: boolean;
+      buildTargets(source: ProposalProvenanceView & { update: Uint8Array; representation: ProposalYjsRepresentation }): AgentTextTarget[] | Promise<AgentTextTarget[]>;
+    }): Promise<{ node: ProposalNodeV1; proposal: ProposalToolCreationResultV1; reused: boolean;
+      authoringPreview: ProposalAuthoringPreview } | null> {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.actorId)
+        || !/^[A-Za-z0-9._:-]{16,128}$/u.test(input.idempotencyKey)) fail(Codes.invalidRequest, 'Invalid proposal actor or retry identity.');
+      await dependencies.authorize({ scope: input.scope, action: 'read', proposalIds: [] });
+      const requestDigest = hashProposalValue({ kind: 'ordinary_independent_v1', scope: input.scope,
+        actorId: input.actorId, mutation: input.mutation });
+      return dependencies.withTransaction(input.scope, async (transaction) => {
+        const existing = await transaction.lookupOperation({ idempotencyKey: input.idempotencyKey, requestDigest });
+        if (existing) {
+          const node = await transaction.graph.getProposal(existing.proposalId);
+          if (!node || node.operationId !== existing.operationId) fail(Codes.recoveryRequired, 'Prepared operation has no matching proposal.');
+          sameScope(node.scope, input.scope);
+          if (node.source.kind !== 'authoritative' || node.relationships.dependency !== null
+            || node.relationships.replacesProposalId !== null || node.relationships.choiceGroupId !== null) {
+            fail(Codes.idempotencyMismatch, 'The operation retry does not identify an independent root.');
+          }
+          await dependencies.authorize({ scope: input.scope, action: 'read', proposalIds: [node.proposalId] });
+          return { node, proposal: creationResult(node, 'independent'), reused: true,
+            authoringPreview: await storedPreview(transaction, node) };
+        }
+        if (!input.allowCreate) return null;
+        await dependencies.authorize({ scope: input.scope, action: 'create', proposalIds: [] });
+        const graph = await transaction.graph.loadGraph(); sameScope(graph.scope, input.scope);
+        const current = await transaction.loadCurrent(); sameScope(current.scope, input.scope);
+        const currentProof = proposalYjsCurrentProof({ update: current.update,
+          representation: current.representation, revisionId: current.revisionId });
+        const sourceUpdate = Uint8Array.from(current.update);
+        const refs = await persistProposalSourceSnapshot(transaction.graph, sourceUpdate, current.representation);
+        const source: ProposalSourceProofV1 = { kind: 'authoritative', scope: input.scope, current: currentProof, ...refs };
+        const sourceView = proposalSourceView(sourceUpdate, current.representation);
+        const targets = await input.buildTargets({ ...sourceView, update: Uint8Array.from(sourceUpdate),
+          representation: current.representation });
+        const authored = await persistProposalAuthoredCandidate({ graph: transaction.graph, source,
+          sourceUpdate, representation: current.representation, targets });
+        const proposalId = createId(); const operationId = createId();
+        const node = parseProposalNodeV1({ contractVersion: 1, proposalId, operationId, scope: input.scope,
+          casVersion: 1, source, relationships: { dependency: null, replacesProposalId: null, choiceGroupId: null },
+          authoredCandidate: authored.authoredCandidate, lifecycle: 'open', createdAt: now(), createdByActorId: input.actorId });
+        const beforeInsert = await transaction.loadCurrent(); sameScope(beforeInsert.scope, input.scope);
+        if (beforeInsert.representation !== current.representation || !isDeepStrictEqual(currentProof,
+          proposalYjsCurrentProof({ update: beforeInsert.update, representation: beforeInsert.representation,
+            revisionId: beforeInsert.revisionId }))) fail(Codes.currentChanged, 'The document changed during proposal preparation.');
+        await transaction.insertPreparedOperation({ operationId, proposalId, scope: input.scope,
+          representation: current.representation, source, targets, idempotencyKey: input.idempotencyKey,
+          requestDigest, reviewRequired: true, beforeSha256: hash(sourceView.content),
+          proposedSha256: hash(authored.content),
+          sourceStateVector: Buffer.from(Y.encodeStateVectorFromUpdate(sourceUpdate)).toString('base64') });
+        const inserted = await transaction.graph.insertProposal(node);
+        return { node: inserted, proposal: creationResult(inserted, 'independent'), reused: false,
+          authoringPreview: preview(sourceView.content, authored.content) };
+      });
+    },
     async readExact(input: { scope: ProposalDocumentScopeV1; proposalId: string | null }): Promise<{
       metadata: ProposalToolReadResultV1; content: string; structure: ProposalProvenanceStructure; sourceStateVector: string;
     }> {

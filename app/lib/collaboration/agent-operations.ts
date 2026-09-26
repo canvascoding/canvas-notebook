@@ -181,7 +181,7 @@ export interface AgentApplyConflict {
 }
 
 export interface AgentApplyResult {
-  status: 'applied_to_ydoc' | 'partially_applied' | 'needs_review' | 'semantic_conflict';
+  status: 'applied_to_ydoc' | 'partially_applied' | 'needs_review' | 'semantic_conflict' | 'cancelled';
   appliedTargetIds: string[];
   conflicts: AgentApplyConflict[];
   stateVector: string;
@@ -1099,7 +1099,7 @@ function parseResult(row: AgentOperationRow): PersistedAgentApplyResult {
   if (row.result_json) {
     const parsed = JSON.parse(row.result_json) as Partial<PersistedAgentApplyResult>;
     return {
-      status: parsed.status || (row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc'),
+      status: row.status === 'cancelled' ? 'cancelled' : parsed.status || (row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc'),
       appliedTargetIds: parsed.appliedTargetIds || [],
       conflicts: parsed.conflicts || [],
       stateVector: parsed.stateVector || Buffer.from(row.base_state_vector).toString('base64'),
@@ -1111,7 +1111,7 @@ function parseResult(row: AgentOperationRow): PersistedAgentApplyResult {
     };
   }
   return {
-    status: row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc',
+    status: row.status === 'cancelled' ? 'cancelled' : row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc',
     appliedTargetIds: [],
     conflicts: [],
     stateVector: Buffer.from(row.base_state_vector).toString('base64'),
@@ -2414,6 +2414,8 @@ export async function applyPersistedAgentTextOperation(input: {
   baseStateVector?: string;
   baseDocumentSequence?: number;
   fileEditRequest?: AgentFileEditRequestReceipt;
+  /** Graph-enabled ordinary tools may not create an actionable legacy review. */
+  disallowLegacyReview?: boolean;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   const trustedRevert = input.operationType === 'revert' && input[USER_REVERT_AUTHORITY] === true;
@@ -2448,6 +2450,10 @@ export async function applyPersistedAgentTextOperation(input: {
       const mustReview = requestedMode === 'review'
         || (!trustedRevert && (!directScope || !policyAllowsDirect))
         || hardSafetyReview;
+      if (mustReview && input.disallowLegacyReview) {
+        throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+          'Direct editing is no longer authorized. Start a fresh tool call for graph review; no legacy operation was created.');
+      }
       const created = await createOrLoadOperation({
         database,
         documentId: input.documentId,
@@ -2494,6 +2500,11 @@ export async function applyPersistedAgentTextOperation(input: {
         operationExplicitlyRequiresReview: false,
       });
       if (authorization.enforcementMode !== 'safe_direct' || !authorization.grant) {
+        if (input.disallowLegacyReview) {
+          await cancelUnappliedGraphReroute(database, created.row);
+          throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+            'Direct editing authorization changed. The unapplied operation was cancelled; start a fresh tool call.');
+        }
         return placeAgentOperationInReview(database, created.row, 'policy_review_required');
       }
       const authorizedRow = await transitionOperation({
@@ -2520,15 +2531,33 @@ export async function applyPersistedAgentTextOperation(input: {
           return appliedResult;
         }
         if (isAgentDatabaseCapacityError(error)) {
+          if (input.disallowLegacyReview) {
+            await cancelUnappliedGraphReroute(database, authorizedRow);
+            throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+              'Direct editing could not be authorized. The unapplied operation was cancelled; start a fresh tool call.');
+          }
           return placeAgentOperationInReview(database, authorizedRow, 'backpressure_review_required');
         }
         if (!(error instanceof AgentDirectEditGrantUnavailableError)) throw error;
+        if (input.disallowLegacyReview) {
+          await cancelUnappliedGraphReroute(database, authorizedRow);
+          throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+            'Direct editing grant was lost. The unapplied operation was cancelled; start a fresh tool call.');
+        }
         return placeAgentOperationInReview(database, authorizedRow, 'authorization_revoked');
       }
     } finally {
       await database.close();
     }
   });
+}
+
+async function cancelUnappliedGraphReroute(database: SqlConnection, row: AgentOperationRow): Promise<void> {
+  const result = { ...publicResult(row, { status: 'cancelled', appliedTargetIds: [], conflicts: [],
+    stateVector: Buffer.from(row.base_state_vector).toString('base64') }, 'pending'),
+    operationStatus: 'cancelled' as const, casVersion: Number(row.cas_version) + 1 };
+  await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'cancelled',
+    fields: { result_json: JSON.stringify(result), error_code: 'graph_review_reroute_required' } });
 }
 
 async function placeAgentOperationInReview(database: SqlConnection, row: AgentOperationRow, code: string) {

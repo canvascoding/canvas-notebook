@@ -126,7 +126,7 @@ Das bestehende Canvas-Designsystem bleibt verbindlich.
 | `FileVersionComparison` | Aktuell-gegen-Ergebnis-Diff, enthaltene Vorschlaege, genaue Konflikt-/Verfuegbarkeitsgruende, neu ausgewerteter statt ungezeigt angenommener Kandidat |
 | `FileVersionActions` und `action-client` | Ganze Wirkungsmenge und getrennte Rechte, Batch/Detach, aktuelle Ergebnisbindung, pending/recovery/no-op; kein Erfolg aus blossem HTTP 200 |
 | `FileVersionCenterHost` und Store | Identitaet aus Workspace, Lineage, Lifecycle, Auswahl und Auswertungsrevision; Abort/Antwort-Fencing, Fokus-/Scroll-Erhalt und Reconnect |
-| Editor und Dateimenue | Gemeinsame Capability und Review-Zustand, auch ohne Collaboration-Room; Standard-Review bleibt an |
+| Editor und Dateimenue | Gemeinsame Capability und Review-Zustand, auch ohne Collaboration-Room; neue Dokumente standardmaessig safe_direct, Review wird per Toggle ausdruecklich aktiviert (strengere Workspace-Policy bleibt vorrangig) |
 | Chat, Bell, Home und Deep-Links | Exakte historische Referenz plus sichtbarer Nachfolger; Zweigauswahl bei mehreren Blaettern und deduplizierte Updates |
 
 `C` = Komponenten-/DOM-Interaktionstest, `B` = echter Browser mit Layout und

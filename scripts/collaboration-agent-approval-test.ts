@@ -192,7 +192,8 @@ function harness(markdown?: string) {
     return agent.applyPersistedAgentTextOperation(deliveryInput(overrides));
   };
   return { doc, state, row, agent, target, preview, accept, deliver,
-    retryDelivery: () => agent.applyPersistedAgentTextOperation(deliveryInput()),
+    retryDelivery: (overrides: Partial<Parameters<typeof Agent.applyPersistedAgentTextOperation>[0]> = {}) =>
+      agent.applyPersistedAgentTextOperation(deliveryInput(overrides)),
     setGraphBound: (value: boolean) => { graphBound = value; },
     setGrant: (value: { id: string; expiresAt: number } | null) => {
       directGrant = value;
@@ -426,6 +427,34 @@ test('revocation or replacement of the captured grant leaves a proposal', async 
       assert.equal(h.row.direct_edit_grant_id, 'grant-original');
     } finally { h.close(); }
   }
+});
+
+test('graph-enabled direct grant loss cancels the unapplied legacy row without a reviewable retry', async () => {
+  const h = harness();
+  try {
+    h.setGrant({ id: 'grant-original', expiresAt: Date.now() + 60_000 });
+    h.denyPolicyAuthorization();
+    const before = Y.encodeStateAsUpdate(h.doc);
+    await assert.rejects(h.deliver({ disallowLegacyReview: true }), (error: unknown) =>
+      error instanceof Error && 'code' in error && error.code === 'PROPOSAL_UPGRADE_REQUIRED');
+    assert.equal(h.row.status, 'cancelled');
+    assert.equal(h.row.error_code, 'graph_review_reroute_required');
+    const stored = JSON.parse(String(h.row.result_json)) as Agent.PersistedAgentApplyResult;
+    assert.equal(stored.status, 'cancelled');
+    assert.equal(stored.operationStatus, 'cancelled');
+    assert.equal(stored.durability, 'pending');
+    assert.deepEqual(stored.appliedTargetIds, []);
+    assert.equal(h.directCalls(), 0);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc), before);
+
+    const retry = await h.retryDelivery({ disallowLegacyReview: true });
+    assert.equal(retry.operationId, h.row.operation_id);
+    assert.equal(retry.status, 'cancelled');
+    assert.equal(retry.operationStatus, 'cancelled');
+    assert.equal(retry.durability, 'pending');
+    assert.equal(h.directCalls(), 0);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc), before);
+  } finally { h.close(); }
 });
 
 test('direct permission expiring while the room opens cannot mutate', async () => {
