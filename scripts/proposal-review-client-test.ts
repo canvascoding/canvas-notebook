@@ -52,7 +52,8 @@ const projectedProposal = { proposalId: 'p1', operationId: 'operation-p1', rootP
 function graphSession(overrides: Record<string, unknown> = {}) {
   return { contractVersion: 1, mode: 'graph', target: { kind: 'document', workspaceId: target.workspaceId,
     lineageId: proposalScopeFixture.lineageId, documentId: target.documentId }, selectedProposalIds: ['p1'], status: 'clean',
-  reasonCode: null, context: { graphRevision: 7, proposals: [projectedProposal], selectedProposalIds: ['p1'],
+  reasonCode: null, context: { graphRevision: 7, scope: proposalScopeFixture,
+    proposals: [projectedProposal], selectedProposalIds: ['p1'],
     dependencyProposalIds: [], applyProposalIds: ['p1'], closingAlternativeProposalIds: [], reasonCode: null },
   compare: cleanCompare(), actions: {}, capability: { write: false },
   diagnosis: { reasonCode: null, phase: 'review', correlationId: 'review-1', timestamp: 1_800_000_000_000,
@@ -142,6 +143,32 @@ test('review session binds stable target and explicit proposal selection', async
     compare: cleanCompare({ binding: { ...binding, selectedProposalIds: ['p2'] } }) });
   await withFetch(() => Response.json(wrongSelection), () => assert.rejects(readProposalReviewSession(explicit),
     (error: unknown) => error instanceof ProposalReviewClientError && error.code === 'FVRC_TRANSPORT_ERROR'));
+});
+
+test('review context accepts an older missing scope but rejects malformed or mismatched full scope', async () => {
+  const current = graphSession();
+  const accepted = await withFetch(() => Response.json(current), () => readProposalReviewSession(sessionRequest));
+  assert.equal(accepted.value.mode, 'graph');
+  if (accepted.value.mode === 'graph') assert.deepEqual(accepted.value.context?.scope, proposalScopeFixture);
+
+  const legacyContext = { ...current.context };
+  delete (legacyContext as { scope?: unknown }).scope;
+  const older = await withFetch(() => Response.json(graphSession({ context: legacyContext })),
+    () => readProposalReviewSession(sessionRequest));
+  assert.equal(older.value.mode, 'graph');
+  if (older.value.mode === 'graph') assert.equal(older.value.context?.scope, undefined);
+
+  for (const scope of [
+    { ...proposalScopeFixture, workspaceId: 'foreign-workspace' },
+    { ...proposalScopeFixture, lineageId: 'foreign-lineage' },
+    { ...proposalScopeFixture, documentId: 'foreign-document' },
+    { ...proposalScopeFixture, lifecycleGeneration: 0 },
+    { ...proposalScopeFixture, schemaVersion: 'not-a-generation' },
+  ]) {
+    const bad = graphSession({ context: { ...current.context, scope } });
+    await withFetch(() => Response.json(bad), () => assert.rejects(readProposalReviewSession(sessionRequest),
+      (error: unknown) => error instanceof ProposalReviewClientError && error.code === 'FVRC_TRANSPORT_ERROR'));
+  }
 });
 
 test('operation review binds its selected proposal context but allows a redacted unavailable context', async () => {

@@ -16,13 +16,14 @@ import type { ProposalActionReceiptV1, ProposalLifecycleV1 } from '@/app/lib/fil
 import type { ProposalReviewTransformResponseV1 } from '@/app/lib/file-version-center/contracts/proposal-review-transform-v1';
 import { fileVersionTextLines, projectFileVersionTextDiff } from '@/app/lib/file-version-center/text-diff';
 import { compareProposalReviewSelection, executeProposalReviewAction,
-  previewProposalReviewTransform, readProposalReviewActionStatus, readProposalReviewSession,
+  previewProposalReviewTransform, readProposalReviewSession,
   ProposalReviewClientError } from '@/app/lib/file-version-center/proposal-review-client';
 import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
-import { exactGraphReviewAction, forgetGraphReviewAction, graphReviewActionStorageKey,
-  graphReviewPostInFlight, markGraphReviewPost, readGraphReviewActionIdentity,
+import { beginGraphReviewPost, exactGraphReviewAction, forgetGraphReviewAction, graphReviewActionStorageKey,
+  graphReviewPostInFlight, matchesGraphReviewActionIdentity, readGraphReviewActionIdentity,
   rememberGraphReviewAction } from './graph-review-action-state';
 import type { ProposalReviewActionStatusRequestV1 } from '@/app/lib/file-version-center/contracts/proposal-review-session-v1';
+import { isConcurrentGraphReviewRejection, readGraphReviewActionResolution } from './graph-review-action-convergence';
 
 type GraphSelection = ProposalReviewSessionRequestV1['selection'];
 type GraphAction = 'accept' | 'reject' | 'branchReject' | 'completeSatisfied';
@@ -297,6 +298,7 @@ export function GraphReviewComparison({
   const pageAbortRef = useRef<AbortController | null>(null);
   const transformAbortRef = useRef<AbortController | null>(null);
   const actionBusyRef = useRef(false);
+  const actionViewRef = useRef<object | null>(null);
   const frozenAllRef = useRef<string[] | null>(null);
   const invalidationSequenceRef = useRef(0);
   const invalidationRef = useRef({ stale: false, revalidating: false, pending: false });
@@ -329,6 +331,11 @@ export function GraphReviewComparison({
   const contentActionAllowed = metadataActionAllowed && session?.context?.reasonCode === null;
   const transformActionAllowed = reviewActionAllowed && session?.context?.reasonCode === null
     && session?.selectedProposalIds.length === 1 && !allIntent && !transformBusy && !transformPreview;
+  useLayoutEffect(() => {
+    const view = {};
+    actionViewRef.current = view;
+    return () => { if (actionViewRef.current === view) actionViewRef.current = null; };
+  }, [uncertainKey]);
   useLayoutEffect(() => {
     if (cancelReturnFocusRef.current && !pending && !transformPreview) {
       const target = cancelReturnFocusRef.current;
@@ -392,46 +399,65 @@ export function GraphReviewComparison({
   useEffect(() => {
     if (!actionIdentity) return;
     const controller = new AbortController();
-    Promise.resolve().then(() => {
-      if (!controller.signal.aborted) { setStatusBusy(true); setStatusError(null); }
-    });
-    void readProposalReviewActionStatus(actionIdentity, controller.signal).then(({ receipt, checkedAt }) => {
-      if (controller.signal.aborted) return;
-      setStatusCheckedAt(checkedAt);
-      const expectedCreation = exactGraphReviewAction(uncertainKey)?.action.creation?.proposalId;
-      if (receipt?.phase === 'succeeded' && expectedCreation
-        && (receipt.result.kind !== 'metadata_only' || receipt.result.createdProposalIds[0] !== expectedCreation)) {
-        setReceiptPhase(null);
-        setStatusError(t('graph.receiptMismatch'));
-        return;
-      }
-      setReceiptPhase(receipt?.phase ?? null);
-      if (receipt?.phase === 'succeeded' || receipt?.phase === 'failed'
-        || receipt === null && checkedAt >= actionIdentity.approvalExpiresAt && !graphReviewPostInFlight(uncertainKey)) {
-        // The recovered receipt is authoritative, but the visible comparison
-        // still belongs to the old graph/current proof until re-evaluation.
-        setHostInvalidated(true);
-        setPending(null);
-        setTransformPreview(null);
-        forgetGraphReviewAction(uncertainKey);
-        setActionIdentity(null);
-        setActionRequest(null);
-        if (receipt?.phase === 'succeeded') {
-          void Promise.resolve().then(() => onTimelineInvalidate(timelineMutationForAction(receipt.actionType)))
-            .then(() => setReload((value) => value + 1))
-            .catch(() => setLoadError(new Error(t('graph.loadFailed'))));
-        } else if (receipt?.phase === 'failed') {
-          setActionError(new Error(t('graph.actionFailed')));
-          void reevaluateAfterFailedAction();
-        } else if (receipt === null) {
-          setReload((value) => value + 1);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const active = () => !controller.signal.aborted && matchesGraphReviewActionIdentity(uncertainKey, actionIdentity);
+    const check = () => {
+      Promise.resolve().then(() => {
+        if (active()) { setStatusBusy(true); setStatusError(null); }
+      });
+      void readGraphReviewActionResolution(actionIdentity, exactGraphReviewAction(uncertainKey),
+        actionError, controller.signal).then(({ receipt, checkedAt, supersededWithoutReservation }) => {
+        if (!active()) return;
+        setStatusCheckedAt(checkedAt);
+        const expectedCreation = exactGraphReviewAction(uncertainKey)?.action.creation?.proposalId;
+        if (receipt?.phase === 'succeeded' && expectedCreation
+          && (receipt.result.kind !== 'metadata_only' || receipt.result.createdProposalIds[0] !== expectedCreation)) {
+          setReceiptPhase(null);
+          setStatusError(t('graph.receiptMismatch'));
+          return;
         }
-      } else if (receipt === null) setStatusError(t('graph.statusNotDetermined'));
-    }).catch((error: unknown) => {
-      if (!controller.signal.aborted && !isAbort(error)) setStatusError(t('graph.statusFailed'));
-    }).finally(() => { if (!controller.signal.aborted) setStatusBusy(false); });
-    return () => controller.abort();
-  }, [actionIdentity, onTimelineInvalidate, reevaluateAfterFailedAction, statusReload, t, uncertainKey]);
+        setReceiptPhase(receipt?.phase ?? null);
+        if (receipt?.phase === 'succeeded' || receipt?.phase === 'failed'
+          || receipt === null && (supersededWithoutReservation || checkedAt >= actionIdentity.approvalExpiresAt)
+            && !graphReviewPostInFlight(uncertainKey, actionIdentity)) {
+          // The recovered receipt is authoritative, but the visible comparison
+          // still belongs to the old graph/current proof until re-evaluation.
+          setHostInvalidated(true);
+          setPending(null);
+          setTransformPreview(null);
+          forgetGraphReviewAction(uncertainKey, actionIdentity);
+          setActionIdentity(null);
+          setActionRequest(null);
+          if (receipt?.phase === 'succeeded') {
+            void Promise.resolve().then(() => onTimelineInvalidate(timelineMutationForAction(receipt.actionType)))
+              .then(() => setReload((value) => value + 1))
+              .catch(() => setLoadError(new Error(t('graph.loadFailed'))));
+          } else if (receipt?.phase === 'failed') {
+            setActionError(new Error(t('graph.actionFailed')));
+            void reevaluateAfterFailedAction();
+          } else if (receipt === null) {
+            setActionError(null);
+            setStatusError(null);
+            void reevaluateAfterFailedAction();
+          }
+        } else if (receipt === null) {
+          setStatusError(t('graph.statusNotDetermined'));
+          if (isConcurrentGraphReviewRejection(actionError) && !graphReviewPostInFlight(uncertainKey, actionIdentity)
+            && checkedAt < actionIdentity.approvalExpiresAt) {
+            // Read-only checks continue through the server-known fence expiry,
+            // including slow winners, at no more than twelve steady reads/minute.
+            timer = setTimeout(check, Math.min(attempts++ === 0 ? 250 : 5000,
+              Math.max(250, actionIdentity.approvalExpiresAt - checkedAt + 100)));
+          }
+        }
+      }).catch((error: unknown) => {
+        if (active() && !isAbort(error)) setStatusError(t('graph.statusFailed'));
+      }).finally(() => { if (!controller.signal.aborted) setStatusBusy(false); });
+    };
+    check();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [actionError, actionIdentity, onTimelineInvalidate, reevaluateAfterFailedAction, statusReload, t, uncertainKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -613,12 +639,21 @@ export function GraphReviewComparison({
 
   const execute = useCallback(async (action: ProposalReviewActionApiRequestV1) => {
     if (actionBusyRef.current) return;
+    const identity: ProposalReviewActionStatusRequestV1 = { contractVersion: 1, target: action.target,
+      idempotencyKey: action.action.idempotencyKey, requestDigest: action.action.fence.requestDigest,
+      approvalExpiresAt: action.action.fence.expiresAt };
+    const view = actionViewRef.current;
+    const visible = () => view !== null && actionViewRef.current === view;
+    const current = () => visible() && matchesGraphReviewActionIdentity(uncertainKey, identity);
+    if (!current()) return;
+    let ownIdentityCleared = false;
     actionBusyRef.current = true;
-    markGraphReviewPost(uncertainKey, true);
+    const endPost = beginGraphReviewPost(uncertainKey, identity);
     setActionBusy(true);
     setActionError(null);
     try {
       const receipt = await executeProposalReviewAction(action);
+      if (!current()) return;
       setStatusError(null);
       if (receipt.phase === 'succeeded' && action.action.creation
         && (receipt.result.kind !== 'metadata_only'
@@ -631,14 +666,14 @@ export function GraphReviewComparison({
       setReceiptPhase(receipt.phase);
       if (receipt.phase === 'succeeded') {
         setHostInvalidated(true);
-        forgetGraphReviewAction(uncertainKey);
+        ownIdentityCleared = forgetGraphReviewAction(uncertainKey, identity);
         setActionIdentity(null);
         setActionRequest(null);
         setPending(null);
         await onTimelineInvalidate(timelineMutationForAction(action.action.fence.actionType));
-        setReload((value) => value + 1);
+        if (visible()) setReload((value) => value + 1);
       } else if (receipt.phase === 'failed') {
-        forgetGraphReviewAction(uncertainKey);
+        ownIdentityCleared = forgetGraphReviewAction(uncertainKey, identity);
         setActionIdentity(null);
         setActionRequest(null);
         setPending(null);
@@ -649,11 +684,13 @@ export function GraphReviewComparison({
         setStatusReload((value) => value + 1);
       }
     } catch (error) {
-      setActionError(error instanceof Error ? error : new Error(t('graph.actionFailed')));
+      if (current() || visible() && ownIdentityCleared && !readGraphReviewActionIdentity(uncertainKey)) {
+        setActionError(error instanceof Error ? error : new Error(t('graph.actionFailed')));
+      }
     } finally {
-      markGraphReviewPost(uncertainKey, false);
+      endPost();
       actionBusyRef.current = false;
-      setActionBusy(false);
+      if (visible()) setActionBusy(false);
     }
   }, [onTimelineInvalidate, reevaluateAfterFailedAction, t, uncertainKey]);
 

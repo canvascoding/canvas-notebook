@@ -5,7 +5,17 @@ import { parseProposalReviewActionStatusRequestV1 } from '@/app/lib/file-version
 
 const PREFIX = 'fvrc-graph-action:';
 const exactActions = new Map<string, ProposalReviewActionApiRequestV1>();
-const activePosts = new Set<string>();
+const activePosts = new Map<string, Map<string, number>>();
+
+function identityToken(identity: ProposalReviewActionStatusRequestV1): string {
+  const target = identity.target;
+  const targetToken = target.kind === 'document' ? [target.kind, target.workspaceId, target.documentId]
+    : target.kind === 'lineage' ? [target.kind, target.workspaceId, target.lineageId]
+      : target.kind === 'change_group' ? [target.kind, target.workspaceId, target.changeGroupId, target.entryId ?? null]
+        : [target.kind, target.workspaceId, target.pathHint];
+  return JSON.stringify([identity.contractVersion, targetToken, identity.idempotencyKey,
+    identity.requestDigest, identity.approvalExpiresAt]);
+}
 
 export function graphReviewActionStorageKey(authScope: unknown, document: {
   workspaceId: string; lineageId: string; documentId?: string | null;
@@ -22,6 +32,11 @@ export function readGraphReviewActionIdentity(key: string): ProposalReviewAction
     try { sessionStorage.removeItem(key); } catch { /* Storage may be disabled. */ }
     return null;
   }
+}
+
+export function matchesGraphReviewActionIdentity(key: string, expected: ProposalReviewActionStatusRequestV1): boolean {
+  const current = readGraphReviewActionIdentity(key);
+  return current !== null && identityToken(current) === identityToken(expected);
 }
 
 export function exactGraphReviewAction(key: string): ProposalReviewActionApiRequestV1 | null {
@@ -41,17 +56,35 @@ export function rememberGraphReviewAction(key: string, request: ProposalReviewAc
   return identity;
 }
 
-export function markGraphReviewPost(key: string, active: boolean): void {
-  if (active) activePosts.add(key);
-  else activePosts.delete(key);
+export function beginGraphReviewPost(key: string, identity: ProposalReviewActionStatusRequestV1): () => void {
+  const token = identityToken(parseProposalReviewActionStatusRequestV1(identity));
+  const posts = activePosts.get(key) ?? new Map<string, number>();
+  posts.set(token, (posts.get(token) ?? 0) + 1);
+  activePosts.set(key, posts);
+  let ended = false;
+  return () => {
+    if (ended) return;
+    ended = true;
+    const current = activePosts.get(key);
+    if (!current) return;
+    const count = current.get(token);
+    if (count === undefined) return;
+    if (count > 1) current.set(token, count - 1);
+    else current.delete(token);
+    if (current.size === 0) activePosts.delete(key);
+  };
 }
 
-export function graphReviewPostInFlight(key: string): boolean {
-  return activePosts.has(key);
+export function graphReviewPostInFlight(key: string, identity?: ProposalReviewActionStatusRequestV1): boolean {
+  const posts = activePosts.get(key);
+  return identity ? Boolean(posts?.get(identityToken(identity))) : Boolean(posts?.size);
 }
 
-export function forgetGraphReviewAction(key: string): void {
+export function forgetGraphReviewAction(key: string, expected?: ProposalReviewActionStatusRequestV1): boolean {
+  if (expected && !matchesGraphReviewActionIdentity(key, expected)) return false;
+  try { sessionStorage.removeItem(key); } catch { return false; }
   exactActions.delete(key);
-  activePosts.delete(key);
-  try { sessionStorage.removeItem(key); } catch { /* Storage may be disabled. */ }
+  // A terminal receipt may be observed before its original POST returns. Its
+  // late completion must not erase a newer action's independent in-flight mark.
+  return true;
 }

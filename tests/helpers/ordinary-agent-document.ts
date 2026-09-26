@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../../app/lib/collaboration/types';
-import { createAuthenticatedContext, uploadWorkspaceTextFile } from './managed-test-context';
+import { createAuthenticatedContext, uploadWorkspaceTextFile, type AuthenticatedContextIdentity } from './managed-test-context';
 import { observeProposalReviewServerErrors } from './proposal-review-server-errors';
 
 type Workspace = { id: string; name: string; type: string; legacy?: boolean; rootRelativePath: string;
@@ -24,9 +24,10 @@ export type OrdinaryAgentDocument = {
 /** Uses normal authenticated APIs; every invocation owns and removes only its UUID fixture. */
 export async function withOrdinaryAgentDocument(browser: Browser, initialContent: string,
   run: (fixture: OrdinaryAgentDocument) => Promise<void>,
-  options: { workspaceKind?: 'personal' | 'team' } = {}): Promise<void> {
+  options: { workspaceKind?: 'personal' | 'team'; identity?: AuthenticatedContextIdentity;
+    cleanupIdentity?: AuthenticatedContextIdentity } = {}): Promise<void> {
   const workspaceKind = options.workspaceKind ?? 'personal';
-  const context = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } });
+  const context = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } }, options.identity);
   const assertNoServerErrors = observeProposalReviewServerErrors(context);
   const page = await context.newPage();
   const filePath = `fvrc-1008-ordinary-${randomUUID()}.md`;
@@ -44,6 +45,8 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
       (workspaceKind === 'personal' ? item.type === 'personal' : ['team', 'organization'].includes(item.type))
       && !item.legacy && item.permissions.canWrite && item.permissions.canRunAgent);
     expect(workspace, `A writable ${workspaceKind} workspace is required.`).toBeTruthy();
+    expect(Boolean(workspace!.permissions.canDelete || options.cleanupIdentity),
+      'A fixture without delete rights requires an explicit cleanup identity.').toBe(true);
     workspaceId = workspace!.id;
     const headers = { 'x-canvas-workspace-id': workspaceId };
     await uploadWorkspaceTextFile({ request: context.request, workspaceId, filePath, content: initialContent });
@@ -104,10 +107,15 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
         }
       } finally {
         if (uploaded && workspaceId) {
-          const response = await context.request.delete('/api/files/delete', {
-            headers: { 'x-canvas-workspace-id': workspaceId }, data: { path: filePath },
-          });
-          expect(response.ok(), 'Remove only the scoped synthetic Markdown document.').toBeTruthy();
+          const cleanup = options.cleanupIdentity ? await createAuthenticatedContext(browser, {}, options.cleanupIdentity) : context;
+          try {
+            const response = await cleanup.request.delete('/api/files/delete', {
+              headers: { 'x-canvas-workspace-id': workspaceId }, data: { path: filePath },
+            });
+            expect(response.ok(), `Remove only the scoped synthetic Markdown document (${response.status()}).`).toBeTruthy();
+          } finally {
+            if (cleanup !== context) await cleanup.close();
+          }
         }
       }
     } finally {

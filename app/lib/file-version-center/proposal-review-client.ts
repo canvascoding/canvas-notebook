@@ -86,6 +86,10 @@ export async function readProposalReviewSession(request: ProposalReviewSessionRe
       return result;
     }
     if (!targetMatchesResolvedScope(request.target, result.target)) throw failure(200, 'review');
+    if (result.context?.scope && (!targetMatchesReceiptScope(request.target, result.context.scope)
+      || result.context.scope.workspaceId !== result.target.workspaceId
+      || result.context.scope.lineageId !== result.target.lineageId
+      || result.context.scope.documentId !== result.target.documentId)) throw failure(200, 'review');
     if (request.selection.kind === 'proposals'
       && JSON.stringify(result.selectedProposalIds) !== JSON.stringify(request.selection.proposalIds)) throw failure(200, 'review');
     if (request.selection.kind === 'operation') {

@@ -905,6 +905,150 @@ async function main() {
     'a graph group never falls back to a legacy single-proposal action');
   assert.ok(document.querySelector('[data-testid="graph-review-load-error"]'));
 
+  for (const raceCase of ['advanced', 'delayed', 'slow-winner', 'unchanged', 'transport', 'scope-changed', 'owned-pending'] as const) {
+    actionState.forgetGraphReviewAction(pendingKey);
+    let posts = 0;
+    let proofReads = 0;
+    let invalidations = 0;
+    let postedAction: ProposalReviewActionApiRequestV1 | null = null;
+    let postedAt = 0;
+    const closed = { ...conflict, status: 'blocked_by_parent', reasonCode: 'PROPOSAL_INVALID_TRANSITION',
+      context: { ...singleContext, scope, graphRevision: 3, applyProposalIds: [],
+        proposals: [{ ...proposal('proposal-one', null, 'root'), operationId: 'operation-one', lifecycle: 'applied' }],
+        reasonCode: 'PROPOSAL_INVALID_TRANSITION' } };
+    const initial = { ...conflict, context: { ...singleContext, scope }, capability: { write: true },
+      actions: { reject: preparedAction('reject', ['proposal-one']) } };
+    globalThis.fetch = async (input, init) => {
+      const path = String(input);
+      if (path.endsWith('/actions')) {
+        posts += 1;
+        postedAt = Date.now();
+        postedAction = JSON.parse(String(init?.body));
+        if (raceCase === 'transport') throw new Error('Lost response');
+        return Response.json({ error: { code: 'PROPOSAL_RECOVERY_REQUIRED' } }, { status: 409 });
+      }
+      if (path.endsWith('/actions/status')) {
+        const receipt = raceCase === 'owned-pending' && postedAction ? {
+          ...durabilityReceipt, actionType: 'reject', requestDigest: postedAction.action.fence.requestDigest,
+          idempotencyKeyHash: createHash('sha256').update(postedAction.action.idempotencyKey).digest('hex'),
+        } : null;
+        return Response.json({ receipt, checkedAt: Date.now() });
+      }
+      const body = JSON.parse(String(init?.body));
+      if (body.selection.kind === 'proposals') {
+        proofReads += 1;
+        if (raceCase === 'unchanged' || raceCase === 'delayed' && proofReads === 1
+          || raceCase === 'slow-winner' && Date.now() - postedAt < 8000) return Response.json(initial);
+        if (raceCase === 'scope-changed') return Response.json({ ...closed,
+          context: { ...closed.context, scope: { ...scope, lifecycleGeneration: scope.lifecycleGeneration + 1 } } });
+        return Response.json(closed);
+      }
+      return Response.json(invalidations ? closed : initial);
+    };
+    await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <GraphReviewComparison key={`concurrent-${raceCase}`} request={request} document={target} operationId="operation-one"
+        legacy={<div data-testid="legacy-review">Legacy</div>} isRevalidating={false} isStale={false}
+        onTimelineInvalidate={() => { invalidations += 1; }} onContinue={() => {}} />
+    </NextIntlClientProvider>); });
+    await settle();
+    const reject = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Reject proposal'));
+    assert.ok(reject);
+    await act(async () => { reject.click(); });
+    const confirm = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Confirm action'));
+    assert.ok(confirm);
+    await act(async () => { confirm.click(); });
+    await settle();
+    if (raceCase === 'delayed') await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)); });
+    if (raceCase === 'slow-winner') await act(async () => { await new Promise(resolve => setTimeout(resolve, 10_500)); });
+    await settle();
+    assert.equal(posts, 1, `${raceCase}: convergence never replays a mutation`);
+    if (raceCase === 'advanced' || raceCase === 'delayed' || raceCase === 'slow-winner') {
+      assert.equal(invalidations, 1, 'concurrent winner triggers one authoritative timeline refresh');
+      assert.equal(actionState.readGraphReviewActionIdentity(pendingKey), null);
+      assert.equal(document.querySelector('[data-testid="graph-review-pending-action"]'), null);
+      assert.match(document.querySelector('[data-testid="graph-review-historical-status"]')?.textContent ?? '', /Applied/);
+      assert.equal(document.querySelector('[data-testid="graph-review-action-error"]'), null);
+      if (raceCase === 'delayed') assert.equal(proofReads, 2, 'bounded read polling waits for the winner to advance the graph');
+      if (raceCase === 'slow-winner') assert.ok(proofReads >= 4, 'a slow winner is discovered beyond the original short polling window');
+    } else {
+      assert.equal(invalidations, 0, `${raceCase}: uncertainty cannot unlock a fresh action`);
+      assert.ok(actionState.readGraphReviewActionIdentity(pendingKey));
+      assert.ok(document.querySelector('[data-testid="graph-review-pending-action"]'));
+      if (raceCase === 'transport') assert.equal(proofReads, 0, 'lost responses retain existing receipt recovery');
+    }
+    // Unmount cancels scheduled reads, while retaining unresolved identities.
+    await act(async () => { root.render(null); });
+    const readsAtUnmount = proofReads;
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 300)); });
+    assert.equal(proofReads, readsAtUnmount, 'unmounted review never continues background polling');
+    actionState.forgetGraphReviewAction(pendingKey);
+  }
+
+  // A terminal receipt can arrive before its original POST response. A later
+  // response from that old component must not erase the next action's recovery.
+  let lateAction: ProposalReviewActionApiRequestV1 | null = null;
+  let laterAction: ProposalReviewActionApiRequestV1 | null = null;
+  let releaseLatePost: ((response: Response) => void) | null = null;
+  let failLaterPost: ((error: Error) => void) | null = null;
+  let exposeLateReceipt = false;
+  const receiptOf = (action: ProposalReviewActionApiRequestV1) => ({ ...succeededReceipt,
+    requestDigest: action.action.fence.requestDigest,
+    idempotencyKeyHash: createHash('sha256').update(action.action.idempotencyKey).digest('hex') });
+  globalThis.fetch = async (input, init) => {
+    const path = String(input);
+    const body = JSON.parse(String(init?.body));
+    if (path.endsWith('/actions/status')) return Response.json({
+      receipt: exposeLateReceipt && lateAction && body.idempotencyKey === lateAction.action.idempotencyKey
+        ? receiptOf(lateAction) : null, checkedAt: Date.now() });
+    if (path.endsWith('/actions')) {
+      if (!lateAction) {
+        lateAction = body;
+        return new Promise<Response>(resolve => { releaseLatePost = resolve; });
+      }
+      laterAction = body;
+      return new Promise<Response>((_resolve, reject) => { failLaterPost = reject; });
+    }
+    return Response.json({ ...conflict, context: singleContext, capability: { write: true },
+      actions: { reject: preparedAction('reject', ['proposal-one']) } });
+  };
+  const renderLateResponseCase = async (key: string) => {
+    await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <GraphReviewComparison key={key} request={request} document={target} operationId="operation-one"
+        legacy={null} isRevalidating={false} isStale={false} onTimelineInvalidate={() => {}} onContinue={() => {}} />
+    </NextIntlClientProvider>); });
+    await settle();
+    const reject = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Reject proposal'));
+    assert.ok(reject);
+    await act(async () => { reject.click(); });
+    const confirm = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Confirm action'));
+    assert.ok(confirm);
+    await act(async () => { confirm.click(); });
+    await settle();
+  };
+  await renderLateResponseCase('late-a');
+  assert.ok(lateAction && releaseLatePost);
+  exposeLateReceipt = true;
+  const recoverEarly = [...document.querySelectorAll('button')].find(button => button.textContent?.includes('Check action status'));
+  assert.ok(recoverEarly);
+  await act(async () => { recoverEarly.click(); });
+  await settle();
+  assert.equal(actionState.readGraphReviewActionIdentity(pendingKey), null, 'A is recovered while its POST is still in flight');
+  await renderLateResponseCase('later-b');
+  assert.ok(laterAction && failLaterPost);
+  const laterIdentity = actionState.readGraphReviewActionIdentity(pendingKey)!;
+  assert.notEqual(laterIdentity.idempotencyKey, (lateAction as ProposalReviewActionApiRequestV1).action.idempotencyKey);
+  await act(async () => { releaseLatePost!(Response.json(receiptOf(lateAction!))); });
+  await settle();
+  assert.deepEqual(actionState.readGraphReviewActionIdentity(pendingKey), laterIdentity);
+  assert.equal(actionState.exactGraphReviewAction(pendingKey)?.action.idempotencyKey, laterIdentity.idempotencyKey);
+  assert.equal(actionState.graphReviewPostInFlight(pendingKey, laterIdentity), true, 'late A cannot unset B in-flight marker');
+  await act(async () => { failLaterPost!(new Error('B response lost')); });
+  await settle();
+  assert.deepEqual(actionState.readGraphReviewActionIdentity(pendingKey), laterIdentity, 'B keeps its recovery identity after response loss');
+  assert.ok(document.querySelector('[data-testid="graph-review-pending-action"]'));
+  await act(async () => { root.render(null); });
+  actionState.forgetGraphReviewAction(pendingKey);
+
   for (const [lifecycle, label] of [
     ['applied', 'Applied'], ['included', 'Included'], ['rejected', 'Rejected'],
     ['superseded', 'Superseded'], ['alternative_not_selected', 'Not selected'],

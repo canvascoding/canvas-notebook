@@ -269,7 +269,7 @@ export async function createRuntimeProposalReviewService(input: {
           fail(Codes.graphChanged, 'The graph changed since the displayed evaluation.');
         }
         const empty = (reasonCode: ProposalReviewContextV1['reasonCode']): ProposalReviewContextV1 => ({
-          graphRevision: graph.graphRevision, proposals: [], selectedProposalIds: selected,
+          graphRevision: graph.graphRevision, scope: graph.scope, proposals: [], selectedProposalIds: selected,
           dependencyProposalIds: [], applyProposalIds: [], closingAlternativeProposalIds: [], reasonCode,
         });
         const nodes = new Map(graph.nodes.map((node) => [node.proposalId, node]));
@@ -357,7 +357,7 @@ export async function createRuntimeProposalReviewService(input: {
         if (proposals.length > Limits.nodesPerSnapshot || new Set(proposals.map((item) => item.proposalId)).size !== proposals.length) {
           fail(Codes.limitExceeded, 'The selected graph context exceeds its bounded size.');
         }
-        return { graphRevision: graph.graphRevision, proposals, selectedProposalIds: selected,
+        return { graphRevision: graph.graphRevision, scope: graph.scope, proposals, selectedProposalIds: selected,
           dependencyProposalIds: closure.status === 'ready'
             ? closure.dependencyProposalIds.filter((id) => !selected.includes(id)) : [],
           applyProposalIds: closure.status === 'ready' ? closure.applyProposalIds : [],

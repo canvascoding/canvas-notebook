@@ -62,6 +62,7 @@ async function review(snapshot: ProposalGraphSnapshotV1, ownerById: Record<strin
 test('context projects authorized dependency hierarchy and alternative closure without candidate content', async () => {
   const runtime = await review(graph([rootProposalFixture, childProposalFixture, alternativeChildFixture] as ProposalGraphSnapshotV1['nodes']));
   const context = await runtime.readContext({ selectedProposalIds: ['p2'], expectedGraphRevision: 3 });
+  assert.deepEqual(context.scope, proposalScopeFixture);
   assert.equal(context.reasonCode, null);
   assert.deepEqual(context.selectedProposalIds, ['p2']);
   assert.deepEqual(context.dependencyProposalIds, ['p1']);
@@ -78,6 +79,7 @@ test('an applied exact root remains the anchor while its open children require e
   const runtime = await review(snapshot);
 
   const rootContext = await runtime.readContext({ selectedProposalIds: ['p1'], expectedGraphRevision: 3 });
+  assert.deepEqual(rootContext.scope, proposalScopeFixture);
   assert.deepEqual(rootContext.selectedProposalIds, ['p1']);
   assert.equal(rootContext.reasonCode, Codes.invalidTransition);
   assert.deepEqual(rootContext.applyProposalIds, []);
@@ -104,6 +106,7 @@ test('foreign alternative is not exposed in context or effect IDs', async () => 
   const runtime = await review(graph([rootProposalFixture, childProposalFixture, alternativeChildFixture] as ProposalGraphSnapshotV1['nodes']),
     { p3: 'other-user' });
   const context = await runtime.readContext({ selectedProposalIds: ['p2'], expectedGraphRevision: 3 });
+  assert.deepEqual(context.scope, proposalScopeFixture);
   assert.deepEqual(context.proposals, []);
   assert.deepEqual(context.closingAlternativeProposalIds, []);
   assert.equal(context.reasonCode, Codes.accessDenied);

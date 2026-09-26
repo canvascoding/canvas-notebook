@@ -80,6 +80,25 @@ test('prepared action and compare binding must match the exact session selection
   assert.throws(() => parseProposalReviewSessionResponseV1(session({ actions: { accept: wrongEval } })));
 });
 
+test('optional context scope binds the resolved target and any prepared action full graph generation', () => {
+  const context = { scope: proposalScopeFixture, graphRevision: 7, proposals: [], selectedProposalIds,
+    dependencyProposalIds: [], applyProposalIds: [], closingAlternativeProposalIds: [],
+    reasonCode: 'PROPOSAL_ACCESS_DENIED' };
+  assert.equal(parseProposalReviewSessionResponseV1(session({ context })).mode, 'graph');
+  const { scope: _scope, ...olderContext } = context;
+  assert.equal(parseProposalReviewSessionResponseV1(session({ context: olderContext })).mode, 'graph');
+  for (const badScope of [
+    { ...proposalScopeFixture, workspaceId: 'foreign-workspace' },
+    { ...proposalScopeFixture, lineageId: 'foreign-lineage' },
+    { ...proposalScopeFixture, documentId: 'foreign-document' },
+    { ...proposalScopeFixture, lifecycleGeneration: proposalScopeFixture.lifecycleGeneration + 1 },
+    { ...proposalScopeFixture, schemaVersion: proposalScopeFixture.schemaVersion + 1 },
+    { ...proposalScopeFixture, lifecycleGeneration: 0 },
+  ]) {
+    assert.throws(() => parseProposalReviewSessionResponseV1(session({ context: { ...context, scope: badScope } })));
+  }
+});
+
 test('malformed prepared token and additional unknown fields fail schema validation', () => {
   const invalidToken = prepared('accept');
   invalidToken.fenceToken = 'raw-secret-token';

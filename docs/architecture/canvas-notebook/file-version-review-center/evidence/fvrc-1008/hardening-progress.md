@@ -357,3 +357,133 @@ Commit. Kein Push und keine Produktionsaktivierung.
 FVRC-1008 bleibt in Arbeit. Die neuen Fälle schließen konkrete Evidenzlücken,
 ersetzen aber weder die zwei vollständigen Matrixläufe noch die ausstehenden
 Crash-/Rollback-/Retention-Prüfungen. P12 wurde nicht begonnen.
+
+## Parallelentscheidungen und automatische UI-Konvergenz (26. September 2026)
+
+Basis: `c1a228344` plus der nachfolgende Konvergenz-Patch. Die gewöhnlichen
+`read`/`edit_file`-Tools erzeugen einen echten Review-Vorschlag. Zwei getrennte
+Browserkontexte öffnen ihn, sehen denselben Graphstand und bestätigen ihre
+Entscheidung, bevor beide echten HTTP-POSTs freigegeben werden. Nur der Zeitpunkt
+wird gesteuert; Antworten und Apply-Pfad werden nicht ersetzt. Personal verwendet
+zwei Sitzungen desselben Bootstrap-Users, Team den Bootstrap-Administrator und
+den tatsächlich verschiedenen zweiten Team-User. Die Tests prüfen die Actor-IDs.
+
+Der strengere Test `race-personal-accept-r2` fand einen Produktfehler: Der Server
+schrieb korrekt nur einmal, der unterlegene Tab behielt aber den alten Vergleich
+und „Action status is not yet confirmed“. Das vorherige Oracle mit Seitenreload
+verdeckt diesen UI-Fehler. Der neue Pflicht-Check prüft Terminalstatus und das
+Verschwinden der Pending-Anzeige **vor jedem Reload**.
+
+Die Korrektur verwendet keinen pauschalen 409-Reset. Nach einem strukturierten
+`PROPOSAL_GRAPH_CHANGED`/`PROPOSAL_RECOVERY_REQUIRED` werden nacheinander geprüft:
+
+1. Frischer autorisierter Review der exakten Proposal-Auswahl, ohne Cache.
+2. Exakt gleicher Workspace, Lineage, Dokument, Lifecycle-Generation und
+   Schema-Version wie im alten Fence, aber strikt höhere Graphrevision.
+3. Erst danach ein frischer Status-Read für den eigenen Key und Request-Digest;
+   dieser muss `receipt=null` ergeben.
+
+Die Reservierung und der Status-Read verwenden denselben Graph-Lock. Eine zuvor
+reservierte eigene Aktion ist im Status sichtbar; eine noch nicht reservierte
+späte Kopie kann den alten Revisions-Fence nicht mehr passieren. Die UI darf
+daraufhin ihre nicht reservierte Aktion auflösen und Timeline/Review neu laden.
+Die neue vollständige `context.scope` ist optional für Rückwärtskompatibilität:
+alte Antworten ohne Scope bleiben lesbar, liefern aber keinen Auflösungsbeleg.
+Transportfehler, fehlender Scope, Generationwechsel, unveränderter Graph,
+fehlgeschlagene Statusabfrage oder ein vorhandener eigener Receipt erlauben
+keinen solchen Reset. Die bisherige servergeprüfte Ablauf-/Receipt-Recovery bleibt.
+
+Rein lesende Folgeprüfungen warten auch auf langsamere Gewinner: einmal nach
+250 ms, anschließend höchstens alle fünf Sekunden bis zum serverbekannten
+Fence-Ablauf einschließlich Schlussprüfung. Keine Mutation wird automatisch
+erneut gesendet. Unmount/Scopewechsel brechen Requests und Timer ab.
+
+Die Gegenprüfung fand zusätzlich ein altes Client-Rennen: A konnte schon per
+Status als abgeschlossen erkannt werden, während sein ursprünglicher POST noch
+unterwegs war. Ein spätes A durfte dann Bs neue Recovery-Kennung nicht löschen.
+Cleanup ist nun an die exakte Identität gebunden, laufende POSTs werden pro
+Identität gezählt, und UI-Antworten an die noch aktive Ansicht gebunden.
+Komponententests halten A absichtlich zurück, starten B nach A-Status-Recovery,
+liefern A verspätet aus und verlieren anschließend Bs Antwort. Bs Identität,
+exakte Retry-Anfrage und Pending-Zustand bleiben erhalten. Das ist ein gezielter
+Client-Race-Test, kein Prozess-Crash-Nachweis.
+
+Die erste Team-Race-Ausführung hatte erfolgreiche Business-Orakel, scheiterte
+jedoch beim Fixture-Cleanup: der zweite User darf schreiben, aber nicht löschen.
+Die gemeinsame Fixture akzeptiert dafür nun eine ausdrücklich separate
+Cleanup-Identität. Sie löscht ausschließlich ihre eigene UUID-Datei per API als
+Administrator; Rollen/Berechtigungen werden nicht geändert. Die einmal übrig
+gebliebene eigene Testdatei wurde nach Prüfung der exakten Sollbytes entfernt,
+anschließend wurde GET=404 geprüft. Wiederholte Team-Läufe bestanden mit Cleanup.
+
+| Lauf vor abschließender Late-Response-Härtung | Ergebnis | Report |
+|---|---|---|
+| Personal Accept/Accept `r3` | bestanden, 17,8 s; ein Accept, +1 Revision | `/tmp/fvrc1008-race-personal-accept-r3-report/index.html` |
+| Team Accept/Accept `r2` | bestanden, 17,4 s; zwei verschiedene User, ein Accept, +1 | `/tmp/fvrc1008-race-team-accept-r2-report/index.html` |
+| Personal Accept/Reject `r1` | bestanden, 21,4 s; Accept gewann, +1 | `/tmp/fvrc1008-race-personal-reject-r1-report/index.html` |
+| Team Accept/Reject `r1` | bestanden, 16,8 s; Reject gewann, unveränderte Bytes/+0 | `/tmp/fvrc1008-race-team-reject-r1-report/index.html` |
+| Lost response `r1` | bestanden, 8,1 s; ein POST, gleicher Recovery-Beleg, +1 | `/tmp/fvrc1008-convergence-lost-reply-r1-report/index.html` |
+
+Die Parallelfälle prüfen zwei unterschiedliche Idempotency-Keys, dieselbe
+angezeigte Graphrevision, exakte Proposal-IDs/Action-Typen und insgesamt genau
+zwei Action-POSTs. Genau einer liefert einen erfolgreichen Receipt, der andere
+409 (Graphänderung oder laufende Recovery). Endbytes und Revisionenzahl werden
+vor und nach Reload unabhängig geprüft. Screenshots zeigen sowohl „Applied“
+mit zwei Revisionen als auch „Rejected“ mit nur der ursprünglichen Revision.
+Redigierte JSON-Attachments enthalten Fixture-IDs, Solltext und beide Ergebnisse.
+
+Alle Browserläufe verwenden den aktuellen Host-Dev-Prozess auf Port 3000 und
+echtes PostgreSQL 18.4/pgvector 0.8.3 des einzigen verwalteten Stacks. Das alte
+Notebook-Image auf 3100 wird weiterhin nicht als aktueller Nachweis verwendet.
+Zwei Browserkontexte sind kein Nachweis für zwei unabhängige App-Prozesse.
+FVRC-1008 bleibt offen; P12 und die vollständigen Crash-/Rollback-/Restore-
+Prüfungen sind hiermit ausdrücklich nicht abgeschlossen.
+
+### Abschließende Prüfungen des kombinierten Konvergenz-/Late-Response-Fixes
+
+Der abschließende Produktcode ist seit dem folgenden Patch-Digest unverändert:
+SHA-256 von `git diff --cached -- app scripts tests package.json` gegen
+`c1a228344`: `ea32a0389e63d39a055581f0d2ebaaa1a257484f519175f416682e89813bef55`.
+
+- `npm run test:proposal-graph:review-ui` vollständig bestanden, inklusive der
+  sieben neuen Proof-Tests, drei Action-State-Tests und erweiterten DOM-Tests
+  für den langsamen Gewinner, abgebrochene Timer und verspätetes A/verlorenes B.
+  Log: `/tmp/fvrc1008-convergence-review-ui-r3.log`.
+- `npm run test:proposal-graph:review-actions` vollständig bestanden.
+  Log: `/tmp/fvrc1008-convergence-review-actions-r2.log`. Die lokalen öffentlichen
+  Base-URLs wurden nur für diesen Prozess gesetzt, keine Runtime-Env verändert.
+- `npx tsc --noEmit`, fokussiertes ESLint und `git diff --check` bestanden.
+  Logs: `/tmp/fvrc1008-convergence-typecheck-r2.log` und
+  `/tmp/fvrc1008-convergence-lint-final.log`.
+- Der abschließende `npm run build` bestand mit 353/353 Seiten und null
+  Lizenzblockern (`/tmp/fvrc1008-convergence-build-final.log`). Wie zuvor gibt es
+  31 Turbopack-Tracing-Warnungen in unveränderten Dateien; keine Build-Fehler.
+- Der GitNexus-Inkrementallauf war an einem UTF-8-Indexfehler gescheitert. Ein
+  vollständiger Reindex bestand; danach lieferte die staged Prüfung 17 Dateien,
+  55 Symbole, null betroffene indexierte Prozesse und Risiko niedrig. Der gesamte
+  Branchvergleich zu lokalem `main` bleibt kritisch (159 Dateien, 1143 Symbole,
+  27 Prozesse). Die additive zentrale Vertragsänderung wurde unabhängig davon
+  konservativ als höhere Review-Sensitivität behandelt und separat geprüft.
+- Der unabhängige abschließende Code-Review fand nach Behebung der beiden
+  Recovery-Rennen keinen weiteren konkreten Fehler in diesem Pfad.
+
+| Wiederholung auf endgültigem Produktcode | Ergebnis | Report |
+|---|---|---|
+| Personal Accept/Accept | bestanden, 25,3 s; Accept, +1 | `/tmp/fvrc1008-race-personal-accept-final-report/index.html` |
+| Team Accept/Accept | bestanden, 20,6 s; Accept, +1 | `/tmp/fvrc1008-race-team-accept-final-report/index.html` |
+| Personal Accept/Reject | bestanden, 16,6 s; Reject, +0 | `/tmp/fvrc1008-race-personal-reject-final-report/index.html` |
+| Team Accept/Reject | bestanden, 17,2 s; Accept, +1 | `/tmp/fvrc1008-race-team-reject-final-report/index.html` |
+| Lost response | bestanden, 8,0 s; ein POST, gleicher Recovery-Beleg, +1 | `/tmp/fvrc1008-convergence-lost-reply-final-report/index.html` |
+
+Diese fünf Fälle wurden seriell, jeweils mit einem Worker und Abstand zwischen
+den Läufen geprüft; kein beobachteter 429-/5xx-Fehler. Sie sind weiterhin keine
+zwei vollständigen FVRC-1008-Matrixläufe. Die beiden neuen Helper-Suites sind im
+bestehenden `test:proposal-graph:review-ui`-Befehl enthalten. Der neue Client
+akzeptiert ältere Antworten ohne `context.scope`; die umgekehrte Kombination
+eines noch geöffneten alten Browserbundles mit neuem Server ist hiermit nicht
+als Rolling-Upgrade-Kompatibilität freigegeben.
+
+Keine Dependencies, Container oder Runtime-Env-Dateien geändert, kein Push und
+keine Produktionsaktivierung. Die generierten Änderungen an `AGENTS.md` und
+`CLAUDE.md` bleiben außerhalb des Commits. Ein Build/Recreate des Notebook-
+Containers auf 3100 wurde separat angefragt und noch nicht durchgeführt.

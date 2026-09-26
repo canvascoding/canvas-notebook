@@ -5,8 +5,11 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
-import type { ProposalReviewSessionResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
+import { PROPOSAL_GRAPH_ERROR_CODES as Codes, type ProposalActionReceiptV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
+import type { ProposalReviewActionApiRequestV1, ProposalReviewSessionResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
 import { withOrdinaryAgentDocument } from './helpers/ordinary-agent-document';
+import { createAuthenticatedContext } from './helpers/managed-test-context';
+import { observeProposalReviewServerErrors } from './helpers/proposal-review-server-errors';
 
 const execFileAsync = promisify(execFile);
 const BASE_TEXT = '# Ordinary agent edits\n\nA0|B0|C0|D0|E0|F0|G0|H0|I0|J0\n';
@@ -319,5 +322,149 @@ for (const workspaceKind of ['personal', 'team'] as const) test.describe(`Ordina
           beforeRevisionCount: before, afterRevisionCount: before + 1, actionPosts }, null, 2) });
       await info.attach('ordinary-sibling-conflict.png', { contentType: 'image/png', body: await page.screenshot({ fullPage: true }) });
     }, { workspaceKind });
+  });
+
+  for (const otherAction of ['accept', 'reject'] as const) test(`concurrent accept versus ${otherAction} has exactly one decision`, async ({ browser }, info) => {
+    test.setTimeout(150_000);
+    const initial = '# Concurrent ordinary review\n\nValue: 100\n';
+    const accepted = '# Concurrent ordinary review\n\nValue: 130\n';
+    const adminIdentity = { email: process.env.BOOTSTRAP_ADMIN_EMAIL, password: process.env.BOOTSTRAP_ADMIN_PASSWORD };
+    expect(Boolean(adminIdentity.email && adminIdentity.password), 'Configure the managed bootstrap administrator.').toBe(true);
+    const identity = workspaceKind === 'team' ? {
+      email: process.env.LOCAL_TEAM_SEAT_SECONDARY_EMAIL,
+      password: process.env.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD,
+    } : adminIdentity;
+    expect(Boolean(identity.email && identity.password), 'Configure the managed test account.').toBe(true);
+    await withOrdinaryAgentDocument(browser, initial, async ({ context, page, filePath, target,
+      agentContext, content, revisionCount }) => {
+      const other = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } }, adminIdentity);
+      const assertOtherErrors = observeProposalReviewServerErrors(other);
+      let releaseRequests = () => {};
+      try {
+        const otherAuthResponse = await other.request.get('/api/auth/get-session');
+        expect(otherAuthResponse.ok()).toBeTruthy();
+        const otherUserId = (await otherAuthResponse.json()).user.id as string;
+        if (workspaceKind === 'team') expect(otherUserId).not.toBe(agentContext.userId);
+        else expect(otherUserId).toBe(agentContext.userId);
+        await other.addInitScript(id => {
+          localStorage.setItem('canvas.activeWorkspaceId', id);
+          localStorage.setItem('canvas.notebook.chatVisible', 'false');
+        }, target.workspaceId);
+        const otherPage = await other.newPage();
+        const pages = [page, otherPage];
+        const before = await revisionCount();
+        const read = await runTool({ toolName: 'read', toolCallId: `race-read-${randomUUID()}`,
+          params: { path: filePath }, context: agentContext });
+        expect(read.details?.sha256).toMatch(/^[a-f0-9]{64}$/u);
+        const result = await runTool({ toolName: 'edit_file', toolCallId: `race-edit-${randomUUID()}`,
+          params: { path: filePath, expectedSha256: read.details!.sha256, oldText: '100', newText: '130' }, context: agentContext });
+        expect(result.isError).not.toBe(true);
+        expect(result.details?.collaboration?.reviewRequired).toBe(true);
+        const proposal = result.details!.proposal!;
+        const href = buildFileVersionCenterDeepLinkV1('/en', { contractVersion: 1, target,
+          selectedEntry: { kind: 'agent_operation', id: proposal.operationId }, initialView: 'reviews', source: 'deep_link' });
+        for (const view of pages) {
+          await view.goto(href);
+          const graph = view.getByTestId('graph-review-comparison');
+          await expect(graph.getByText('Ready to apply')).toBeVisible({ timeout: 30_000 });
+          await expect(graph.getByTestId('graph-review-hunks')).toContainText('130');
+        }
+        expect(await content()).toBe(initial);
+        expect(await revisionCount()).toBe(before);
+
+        // Hold both real POSTs until both independently rendered confirmations
+        // have been clicked. Only timing is controlled, never server responses.
+        const held: Array<{ index: number; body: ProposalReviewActionApiRequestV1 }> = [];
+        const released = new Promise<void>(resolve => { releaseRequests = resolve; });
+        const actionPath = '/api/files/version-center/v1/proposals/actions';
+        for (const [index, view] of pages.entries()) {
+          await view.route(`**${actionPath}`, async route => {
+            if (route.request().method() === 'POST') {
+              held.push({ index, body: route.request().postDataJSON() as ProposalReviewActionApiRequestV1 });
+              await released;
+            }
+            await route.continue();
+          });
+          const graph = view.getByTestId('graph-review-comparison');
+          await graph.getByRole('button', { name: index === 1 && otherAction === 'reject' ? 'Reject proposal' : 'Accept change', exact: true }).click();
+          await expect(graph.getByTestId('graph-review-confirmation')).toBeVisible();
+        }
+        const responsePromises = pages.map(view => view.waitForResponse(response =>
+          response.request().method() === 'POST' && new URL(response.url()).pathname === actionPath));
+        await Promise.all(pages.map(view => view.getByTestId('graph-review-comparison')
+          .getByRole('button', { name: 'Confirm action', exact: true }).click()));
+        await expect.poll(() => held.length).toBe(2);
+        expect(new Set(held.map(item => item.body.action.idempotencyKey)).size).toBe(2);
+        expect(new Set(held.map(item => item.body.action.fence.graphRevision)).size).toBe(1);
+        for (const request of held) {
+          expect(request.body.action.fence.selectedProposalIds).toEqual([proposal.proposalId]);
+          expect(request.body.action.fence.actionType).toBe(request.index === 1 ? otherAction : 'accept');
+        }
+        releaseRequests();
+        const responses = await Promise.all(responsePromises);
+        const outcomes = await Promise.all(responses.map(async (response, index) => {
+          const body = await response.json();
+          return { index, status: response.status(), receipt: response.ok() ? body as ProposalActionReceiptV1 : null,
+            errorCode: response.ok() ? body.errorCode as string | null : body.error?.code as string | undefined };
+        }));
+        const winners = outcomes.filter(outcome => outcome.receipt?.phase === 'succeeded');
+        expect(winners).toHaveLength(1);
+        const winner = winners[0]!;
+        const receipt = winner.receipt!;
+        expect(receipt.affectedProposalIds).toEqual([proposal.proposalId]);
+        const loser = outcomes.find(outcome => outcome.index !== winner.index)!;
+        expect(loser.status).toBe(409);
+        expect(loser.receipt).toBeNull();
+        expect([Codes.graphChanged, Codes.recoveryRequired]).toContain(loser.errorCode);
+        const rejected = winner.index === 1 && otherAction === 'reject';
+        expect(receipt.actionType).toBe(rejected ? 'reject' : 'accept');
+        expect(receipt.result?.kind).toBe(rejected ? 'metadata_only' : 'content_changed');
+        expect(await content()).toBe(rejected ? initial : accepted);
+        expect(await revisionCount()).toBe(before + (rejected ? 0 : 1));
+
+        const losingGraph = pages[loser.index]!.getByTestId('graph-review-comparison');
+        await info.attach('ordinary-review-race-before-reload.png', {
+          contentType: 'image/png', body: await pages[loser.index]!.screenshot({ fullPage: true }),
+        });
+        await expect(losingGraph.getByTestId('graph-review-historical-status')).toBeVisible({ timeout: 15_000 });
+        await expect(losingGraph.getByTestId('graph-review-pending-action')).toHaveCount(0, { timeout: 15_000 });
+
+        // Each actor must converge to the same terminal, non-actionable proposal
+        // after reloading; a losing stale request is never silently reapplied.
+        for (const [index, view] of pages.entries()) {
+          await view.goto(href);
+          const graph = view.getByTestId('graph-review-comparison');
+          await expect(graph.getByTestId('graph-review-historical-status')).toBeVisible({ timeout: 30_000 });
+          await expect(graph.getByRole('button', { name: /^(Accept change|Reject proposal|Confirm action)$/u })).toHaveCount(0);
+          const currentReview = await (index === 0 ? context : other).request.post('/api/files/version-center/v1/proposals/review', {
+            headers: { 'x-canvas-workspace-id': target.workspaceId },
+            data: { contractVersion: 1, target, selection: { kind: 'operation', operationId: proposal.operationId } },
+          });
+          expect(currentReview.ok()).toBeTruthy();
+          const review = await currentReview.json() as ProposalReviewSessionResponseV1;
+          expect(review.mode).toBe('graph');
+          if (review.mode !== 'graph') throw new Error('A raced proposal must retain its graph identity.');
+          expect(review.context?.proposals.find(item => item.proposalId === proposal.proposalId)?.lifecycle)
+            .toBe(rejected ? 'rejected' : 'applied');
+          expect(review.actions.accept).toBeUndefined();
+          expect(review.actions.reject).toBeUndefined();
+        }
+        expect(held).toHaveLength(2);
+        expect(await content()).toBe(rejected ? initial : accepted);
+        expect(await revisionCount()).toBe(before + (rejected ? 0 : 1));
+        await info.attach('ordinary-review-race-evidence.json', { contentType: 'application/json', body: JSON.stringify({
+          workspaceKind, distinctUsers: workspaceKind === 'team', otherAction, target, filePath,
+          proposalId: proposal.proposalId, winnerAction: receipt.actionType,
+          outcomes: outcomes.map(outcome => ({ status: outcome.status, phase: outcome.receipt?.phase ?? null, errorCode: outcome.errorCode })),
+          expected: rejected ? initial : accepted, beforeRevisionCount: before,
+          afterRevisionCount: before + (rejected ? 0 : 1), actionPosts: held.length,
+        }, null, 2) });
+        await info.attach('ordinary-review-race-final.png', { contentType: 'image/png', body: await page.screenshot({ fullPage: true }) });
+      } finally {
+        releaseRequests();
+        await other.close();
+        assertOtherErrors();
+      }
+    }, { workspaceKind, identity, cleanupIdentity: workspaceKind === 'team' ? adminIdentity : undefined });
   });
 });

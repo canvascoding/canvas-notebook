@@ -3,7 +3,7 @@ import { Value } from 'typebox/value';
 
 import { FileVersionCenterTargetSchemaV1, FileVersionCenterContractError, FILE_VERSION_CENTER_ERROR_CODES } from './v1';
 import { ProposalReviewProposalSchemaV1 } from './proposal-review-projection-v1';
-import { ProposalActionFenceSchemaV1, ProposalActionRequestSchemaV1, ProposalCurrentProofSchemaV1,
+import { ProposalActionFenceSchemaV1, ProposalActionRequestSchemaV1, ProposalCurrentProofSchemaV1, ProposalDocumentScopeSchemaV1,
   ProposalEvaluationStatusSchemaV1, PROPOSAL_GRAPH_ERROR_CODES, PROPOSAL_GRAPH_LIMITS, parseProposalActionRequestV1,
   type ProposalActionFenceV1, type ProposalActionReceiptV1, type ProposalGraphErrorCode } from './proposal-graph-v1';
 
@@ -47,6 +47,7 @@ const Compare = Type.Object({
 const Diagnosis = Type.Object({ reasonCode: Reason, phase: Type.Literal('review'), correlationId: Id,
   timestamp: Type.Integer({ minimum: 0 }), buildMarker: Type.String({ maxLength: 128 }) }, closed);
 export const ProposalReviewContextSchemaV1 = Type.Object({ graphRevision: Count,
+  scope: Type.Optional(ProposalDocumentScopeSchemaV1),
   proposals: Type.Array(ProposalReviewProposalSchemaV1, { maxItems: PROPOSAL_GRAPH_LIMITS.nodesPerSnapshot }),
   selectedProposalIds: Ids, dependencyProposalIds: Type.Array(Id, { maxItems: PROPOSAL_GRAPH_LIMITS.closureNodes, uniqueItems: true }),
   applyProposalIds: Type.Array(Id, { maxItems: PROPOSAL_GRAPH_LIMITS.closureNodes, uniqueItems: true }),
@@ -94,6 +95,9 @@ export function parseProposalReviewSessionResponseV1(value: unknown): ProposalRe
   if (result.mode === 'legacy') return result;
   const selected = JSON.stringify(result.selectedProposalIds);
   if (result.context) {
+    const scope = result.context.scope;
+    if (scope && (scope.workspaceId !== result.target.workspaceId || scope.lineageId !== result.target.lineageId
+      || scope.documentId !== result.target.documentId)) invalid();
     const contextIds = new Set(result.context.proposals.map(proposal => proposal.proposalId));
     const unavailableContext = contextIds.size === 0 && result.context.reasonCode !== null
       && result.context.dependencyProposalIds.length === 0 && result.context.applyProposalIds.length === 0
@@ -107,6 +111,8 @@ export function parseProposalReviewSessionResponseV1(value: unknown): ProposalRe
   for (const [kind, prepared] of Object.entries(result.actions)) {
     if (!prepared || !result.capability.write) invalid();
     const { fence } = prepared;
+    if (result.context?.scope && Object.keys(result.context.scope).some(key =>
+      result.context!.scope![key as keyof typeof result.context.scope] !== fence.scope[key as keyof typeof fence.scope])) invalid();
     if (JSON.stringify(fence.selectedProposalIds) !== selected || fence.scope.workspaceId !== result.target.workspaceId
       || fence.scope.documentId !== result.target.documentId || fence.scope.lineageId !== result.target.lineageId) invalid();
     if (kind === 'reject' || kind === 'branchReject') {
