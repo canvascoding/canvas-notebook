@@ -48,7 +48,7 @@ the explicit real-PostgreSQL runner; the two levels are recorded separately.
 | PG-S19 | Inject at each live-apply/Yjs/history boundary; restart yields one result/revision, no blind replay. | U: review action runtime recovery and collaboration-agent durability; PG: storage reservation survives backend/service restart. | Partial; no real-PG crash/restart matrix spanning live apply, Yjs persistence, and history finalization. |
 | PG-S20 | Delete-only and empty-document deletion recognized despite unchanged state vector; pending delete sets cannot certify. | U: `collaboration-agent-durability-test.ts` — pure deletion/delete ranges, pending deletes, GC/reopen, empty/missing snapshots; candidate proof tests. B: 1006 delete/conflict and empty-effect behavior. | Covered for mechanics/UI, not a single graph-action + real persistent deletion integration case. |
 | PG-S21 | Last batch member invalid means no first-member mutation; repeat live preflight. | U: evaluation validates full selection before evidence; action orchestrator apply closure; candidate clone checks. | Partial; no explicit integration test naming final-member failure and proving unchanged live bytes/status. |
-| PG-S22 | Review toggle/grant expiry cannot auto-apply open dependency; safe-direct new edit invalidates preview. | U: agent direct grants and policy adapters plus graph tool source gates. | Partial; no end-to-end toggle/expired-grant/open-parent sequence located. |
+| PG-S22 | Review toggle/grant expiry cannot auto-apply open dependency; safe-direct new edit invalidates preview. | U: agent direct grants/policy adapters, missing-row default authorization and exact operation fences. B: `ordinary-toggle-results.md`, Personal/Team: default direct, on/off/on, open parent/child/grandchild retained, exact tool retry remains review-only; unrelated direct edit invalidates old preview; fresh batch preserves direct edits and adds exactly one merge revision. | Toggle/open-parent/direct-edit sequence covered; actual expired-grant browser sequence still missing. |
 | PG-S23 | Multi-document change group outcomes separate; graph batch rejects mixed lineages before any mutation. | U: graph tools forged/cross-document scope tests; graph contracts scope guards. | Partial; no two-document Change Group browser/service batch test. |
 | PG-S24 | Slow persistence/checkpoint/notification failure remains pending; one eventual receipt/revision; notification retry does not apply. | U/C: 1007 notification-ack component retry; action runtime recovery. B: 1007 Home/Bell reads/ack and 1006 lost-apply recovery. | Partial; no combined slow-persistence + checkpoint-repeat + failed-notification integration oracle. |
 | PG-S25 | Closure cannot elevate rights; hidden ancestor data stays undisclosed. | U: runtime/tool tests deny parent/ancestor reads before artifacts; B: 1006 team-permissions and read-loss cases. | Covered for descendant authorization/read hiding; exact replacement/alternative targets not all exercised in browser. |
@@ -106,7 +106,7 @@ the explicit real-PostgreSQL runner; the two levels are recorded separately.
 | MR-21 | Distinct diagnostics, redacted copy, no false null-diff/leaks. | U/C: review client redaction, compare/summary route errors; B: 1006 diagnostics and conflict-vs-transport cases. | Partial; matrix of every reason code/hidden-parent rights not fully evidenced in browser. |
 | MR-22 | Desktop/mobile/DE/EN/themes/keyboard/AT/all entrypoints coherent. | B: 1006 responsive plus 1007 notification/editor/chat entrypoints. | Partial; no native screen-reader claim; P12 resolution editor excluded. |
 | MR-23 | Two complete suites, no 429, separated roles, expired/corrupt auth/provider-offline. | 1006/1007 reports document serialized individual runs and error collector; 1008 says two full runs still required. | Missing FVRC-1008 full-gate run. |
-| MR-24 | Toggle on/off preserves opens/default safe_direct and stricter org policy. | U: policy adapter, rollout and agent-grant tests; no corresponding full graph UI+policy transition browser case found. | Partial. |
+| MR-24 | Toggle on/off preserves opens/default safe_direct and stricter org policy. | U: policy adapter/service and grants; B: `ordinary-toggle-results.md` proves real default safe-direct edit, on/off/on with an open dependency chain, stale-current rejection and fresh four-proposal merge in Personal/Team. | Partial: ordinary transition covered. The stricter workspace policy is only a resolver contract; production timeline/adapter still pass allow_user_choice and need a trusted workspace-policy provider. |
 
 ## FVRC-1008 additional CR scenarios
 
@@ -138,7 +138,9 @@ P12-only CR IDs are not included.
    cover every semantic variant in PG-S/MR. Same-block disjoint edits now also
    have ordinary rich-block browser evidence, but dependency/alternative
    cross-products, legacy partial remainder, move/path reuse,
-   restore/new-generation, and toggle transitions).
+   restore/new-generation, expired-grant transitions and stricter workspace policy
+   still lack the complete required evidence. Ordinary toggle transitions now
+   have explicit Personal/Team browser evidence in `ordinary-toggle-results.md`.
 3. Real PostgreSQL evidence currently establishes storage migrations, CAS, locks,
    durable reservations, and restart at the storage boundary. It does not establish
    two-process end-to-end review apply races or crash/recovery at each live-apply,

@@ -18,6 +18,8 @@ export type AgentReviewPolicySnapshot = {
   access: FileReviewPolicyAccess;
   lineageId: string;
   policy: FileReviewPolicyV1;
+  /** Server clock captured before reading/queueing, never supplied by an agent tool. */
+  observedAt: number;
 };
 
 type DocumentLineageRow = {
@@ -64,6 +66,7 @@ export async function readAgentReviewPolicySnapshot(input: {
   workspace: WorkspaceContext;
   initiatedByUserId: string;
 }): Promise<AgentReviewPolicySnapshot | null> {
+  const observedAt = Date.now();
   try {
     const access = accessFor({ userId: input.initiatedByUserId, workspace: input.workspace });
     const lineageId = await activeLineage({
@@ -80,7 +83,7 @@ export async function readAgentReviewPolicySnapshot(input: {
         operationExplicitlyRequiresReview: false,
       },
     });
-    return { access, lineageId, policy };
+    return { access, lineageId, policy, observedAt };
   } catch {
     return null;
   }
@@ -149,6 +152,7 @@ export async function authorizeNewAgentDirectApply(input: {
       operation: {
         operationId: input.operationId,
         observedPolicyRevision: input.snapshot.policy.revision,
+        observedPolicyAt: input.snapshot.observedAt,
         grantScope: input.grantScope,
       },
     });

@@ -634,3 +634,28 @@ Reservierung, unmittelbaren Rechteentzug, Archivangaben und Anlage-Retries ab.
 PG-S08/09/10, MR-11 und CR-12 sind für diese konkreten Orakel aktualisiert;
 Gesamtmatrix, Produktionsimage und P12 bleiben offen. Die Produktionsfreigabe
 wurde nicht geändert; kein Containerneubau und kein Push.
+
+### Default-Direktbearbeitung und Review-Toggle
+
+[Ordinary toggle results](ordinary-toggle-results.md) ergänzt echte gewöhnliche
+Direkt-Edits vor und zwischen Review-Phasen in Personal und Team. Dabei wurde ein
+Produktfehler gefunden: Der Operationsresolver verlangte auch beim impliziten
+Default eine noch nicht vorhandene Präferenzzeile. Der Fix bindet Revision 0 an
+den vor der Neuanlage erfassten serverseitigen Snapshot und die exakte noch nicht
+angewandte Operation; Reads erzeugen keine Präferenz und Retries erhalten keine
+neue Direktfreigabe.
+
+Der separate Tool-Worker konnte bislang nur Vorschläge erzeugen, nicht den
+prozesslokalen Collaboration-Apply-Handler des Servers nutzen. Ein ausschließlich
+expliziter lokaler Test-Launcher führt die echten registrierten Tools deshalb
+im bestehenden Serverprozess aus, über einen privaten begrenzten Unix-Socket.
+Dies ist keine Produkt-HTTP-Route und kein simulierter Apply. Der Skill-Stack
+blieb einzeln; nur der eigene Host-Dev-Server wurde vorübergehend ersetzt.
+
+Die Browserorakel prüfen unangetasteten Default, on/off/on, unveränderte offene
+Abhängigkeiten und Retries, gesperrte alte Vorschau nach einem direkten Edit
+sowie einen erfolgreichen frischen Vierer-Batch. Endtext, Block-IDs, genaue
+Abschlussmengen und insgesamt zwei Direktrevisionen plus eine Merge-Revision
+sind fest vorgegeben. PG-S22/MR-24 sind nur für diese Orakel fortgeschrieben.
+Abgelaufene Grants im Browser und die noch nicht angeschlossene strengere
+Workspace-Policy bleiben ausdrücklich offen; FVRC-1008 ist nicht abgenommen.

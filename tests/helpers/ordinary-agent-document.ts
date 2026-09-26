@@ -25,7 +25,8 @@ export type OrdinaryAgentDocument = {
 export async function withOrdinaryAgentDocument(browser: Browser, initialContent: string,
   run: (fixture: OrdinaryAgentDocument) => Promise<void>,
   options: { workspaceKind?: 'personal' | 'team'; identity?: AuthenticatedContextIdentity;
-    cleanupIdentity?: AuthenticatedContextIdentity } = {}): Promise<void> {
+    cleanupIdentity?: AuthenticatedContextIdentity; initialReviewRequired?: boolean;
+    bindToolSessionToFixture?: boolean } = {}): Promise<void> {
   const workspaceKind = options.workspaceKind ?? 'personal';
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } }, options.identity);
   const assertNoServerErrors = observeProposalReviewServerErrors(context);
@@ -60,8 +61,10 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
       name: /Require review for agent changes|Edit directly when safe|Review für Agentenänderungen erforderlich|Direkt bearbeiten, wenn sicher/u,
     });
     await expect(policy).not.toBeChecked({ timeout: 30_000 });
-    await policy.click();
-    await expect(policy).toBeChecked();
+    if (options.initialReviewRequired !== false) {
+      await policy.click();
+      await expect(policy).toBeChecked();
+    }
     const collaboration = await context.request.post('/api/files/collaboration/session', {
       headers, data: { path: filePath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
     });
@@ -69,7 +72,9 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
     const { documentId, representation } = await collaboration.json() as { documentId: string; representation: string };
     expect(documentId).toBeTruthy();
     const sessionResponse = await context.request.post('/api/sessions', {
-      headers, data: { agentId: 'canvas-agent', workspaceId, title: 'FVRC ordinary graph tool acceptance' },
+      headers, data: { agentId: 'canvas-agent', workspaceId,
+        title: options.bindToolSessionToFixture ? `FVRC ordinary graph tool acceptance:${filePath}`
+          : 'FVRC ordinary graph tool acceptance' },
     });
     expect(sessionResponse.ok()).toBeTruthy();
     const session = (await sessionResponse.json()).session as { sessionId: string; agentId: string };
