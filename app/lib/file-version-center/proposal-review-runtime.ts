@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { hasProposalNullEffectProof } from './proposal-null-effect-proof';
+
 import { isDeepStrictEqual } from 'node:util';
 
 import { readCurrentCollaborationDocument } from '../collaboration/document-access';
@@ -402,11 +404,11 @@ export async function createRuntimeProposalReviewService(input: {
             const update = await transaction.readArtifact(evaluation.effectiveCandidate);
             candidateContent = proposalYjsSnapshotContent({ update, representation: stateNow.representation });
             const candidateProof = proposalYjsCurrentProof({ update, representation: stateNow.representation, revisionId: null });
+            nullEffectProven = hasProposalNullEffectProof(evaluation.status, evaluation.current, candidateProof);
             if ((evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect')
-              && !isDeepStrictEqual(candidateProof, evaluation.current)) {
+              && !nullEffectProven) {
               fail(Codes.candidateChanged, 'A satisfied proposal must prove a null effective diff.');
             }
-            nullEffectProven = evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect';
           }
           if (evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect') {
             if (!evaluation.effectiveCandidate || !evaluation.anchorMap || !evaluation.effectPreconditions || !nullEffectProven) {

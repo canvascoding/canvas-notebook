@@ -8478,7 +8478,8 @@
       "noVisibleHunks": "No changed lines appear in this comparison.",
       "noEffect": {
         "satisfied_elsewhere": "This change is already present in the current document. Marking it as already present completes the review without changing document content.",
-        "empty_effect": "No effective change remains in the current document. Marking it as already present completes the review without changing document content."
+        "empty_effect": "This reviewed selection leaves the document unchanged. Closing without changes finishes only this proposal; it does not apply or close its prerequisites.",
+        "emptySelection": "The selected changes cancel each other out. Nothing has been applied or closed. Review proposals individually to decide what to keep."
       },
       "readOnly": "Review is read only. Graph actions are not enabled for this document.",
       "diagnostics": "Review diagnostics",
@@ -8494,6 +8495,7 @@
       "recoveryUnavailable": "This browser could not preserve the action identity. Enable session storage and try again.",
       "retrySameAction": "Retry the same action",
       "completeSatisfied": "Mark as already present",
+      "completeEmpty": "Close without changes",
       "rejectBranch": "Reject branch",
       "acceptAll": "Accept all changes",
       "confirmAction": "Confirm action",
@@ -8525,7 +8527,8 @@
         "accept": "Accept these reviewed changes?",
         "reject": "Reject this reviewed selection?",
         "branchReject": "Reject this proposal branch?",
-        "completeSatisfied": "Mark this proposal as already present?"
+        "completeSatisfied": "Mark this proposal as already present?",
+        "completeEmpty": "Close only this proposal without changing the document?"
       },
       "durability": {
         "submitting": "Submitting the exact approved action…",

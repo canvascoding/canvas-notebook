@@ -877,7 +877,8 @@ export function GraphReviewComparison({
         </Alert> : provenNoEffect ? <Alert className="rounded-lg border-emerald-500/35 bg-emerald-500/[0.055]" data-testid="graph-review-no-effect">
           <Check aria-hidden="true" className="text-emerald-700 dark:text-emerald-300" />
           <AlertTitle>{t(statusKey(status))}</AlertTitle>
-          <AlertDescription>{t(`graph.noEffect.${status}`)}</AlertDescription>
+          <AlertDescription>{t(status === 'empty_effect' && isBatch
+            ? 'graph.noEffect.emptySelection' : `graph.noEffect.${status}`)}</AlertDescription>
         </Alert> : !clean ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]" data-testid="graph-review-blocked">
           <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
           <AlertTitle>{t(statusKey(status))}</AlertTitle>
@@ -935,7 +936,8 @@ export function GraphReviewComparison({
       </Alert> : null}
       {pending && !actionRequest ? <div ref={confirmationRef} tabIndex={-1} role="group" aria-labelledby="graph-review-confirmation-title"
         className="rounded-lg border border-violet-500/30 bg-violet-500/[0.045] p-3" data-testid="graph-review-confirmation">
-        <p id="graph-review-confirmation-title" className="text-sm font-semibold">{t(`graph.confirm.${pending.action}`)}</p>
+        <p id="graph-review-confirmation-title" className="text-sm font-semibold">{t(pending.action === 'completeSatisfied' && status === 'empty_effect'
+          ? 'graph.confirm.completeEmpty' : `graph.confirm.${pending.action}`)}</p>
         <p className="mt-1 text-xs text-muted-foreground">{t('graph.confirmExact', { count: session.selectedProposalIds.length })}</p>
         {session.context && pending.action === 'accept' ? <p className="mt-1 text-xs text-muted-foreground">
           {t('graph.confirmConsequences', { prerequisites: session.context.dependencyProposalIds.length,
@@ -973,7 +975,7 @@ export function GraphReviewComparison({
             onClick={(event) => { pendingReturnFocusRef.current = event.currentTarget;
               confirmationFocusRequestedRef.current = true;
               setPending({ action: 'completeSatisfied', prepared: preparedActions.completeSatisfied!, sessionKey: key }); }}>
-            <Check className="size-4" aria-hidden="true" />{t('graph.completeSatisfied')}
+            <Check className="size-4" aria-hidden="true" />{t(status === 'empty_effect' ? 'graph.completeEmpty' : 'graph.completeSatisfied')}
           </Button> : null}
           {session.capability.write && session.selectedProposalIds.length === 1 && !allIntent && !historicalProposal ? <>
             <Button type="button" variant="outline" size="sm" disabled={!transformActionAllowed || !transformContextAllowed.detach}

@@ -5,6 +5,20 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Nachgewiesene Nullwirkung statt falschem Vergleichsfehler
+
+Der gewöhnliche Personal-/Team-Test für eine offene Kette „10 → 12 → 10“
+reproduzierte `PROPOSAL_CANDIDATE_CHANGED` trotz korrekt erkanntem `empty_effect`.
+Vergleich, gespeicherte Vorschau und Metadatenabschluss verwenden jetzt dieselbe
+statusabhängige Nachweisprüfung. Inhalts-/Strukturgleichheit genügt nur für die
+komponierte Nullwirkung; „bereits vorhanden“ und die Current-Freigabe behalten
+ihre vollständigen Identitätsprüfungen. Keine Kandidaten werden umgeschrieben.
+Vier neue Browserfälle prüfen sowohl Nullabschluss ohne Elternfreigabe als
+auch unabhängige gleiche Effekte mit weiterhin gesperrtem, anders verankertem
+Kind. Details: [ordinary-no-effect-results.md](ordinary-no-effect-results.md).
+Das schließt die bisher separat ausgewiesene Empty-Effect-Browserlücke von
+PG-S12/MR-13; es nimmt weder FVRC-1008 insgesamt noch P12 ab.
+
 ## Ergänzung: Delete/Recreate und fehlende Wiederherstellungs-Meldung
 
 Der neue Personal-/Team-Browserfall löscht das Original mit offenem Root/Child

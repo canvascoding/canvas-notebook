@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { hasProposalNullEffectProof } from './proposal-null-effect-proof';
+
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -516,7 +518,8 @@ export async function createRuntimeProposalReviewActionService(input: {
         }
         const update = await transaction.readArtifact(evaluation.effectiveCandidate);
         const representation = active.getStore()?.representation;
-        if (!representation || !sameProof(proposalYjsCurrentProof({ update, representation, revisionId: null }), current)) {
+        if (!representation || !hasProposalNullEffectProof(evaluation.status, current,
+          proposalYjsCurrentProof({ update, representation, revisionId: null }))) {
           fail(Codes.candidateChanged, 'The evaluated candidate no longer proves a null effect.');
         }
       }

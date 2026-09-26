@@ -297,7 +297,7 @@ async function main() {
       actions: { reject: preparedAction('reject', ['proposal-one']) }, capability: { write: true } } },
     { type: 'branch_reject' as const, button: 'Reject branch', session: { ...conflict, context: singleContext,
       actions: { branchReject: preparedAction('branch_reject', ['proposal-one']) }, capability: { write: true } } },
-    { type: 'complete_satisfied' as const, button: 'Mark as already present', session: { ...cleanAll,
+    { type: 'complete_satisfied' as const, button: 'Close without changes', session: { ...cleanAll,
       selectedProposalIds: ['proposal-one'], status: 'empty_effect', compare: { ...singleCompare,
         status: 'empty_effect', candidate: { contentAvailable: false, noEffect: true },
         summary: { additions: 0, deletions: 0, unchanged: 0 }, hunks: [] },
@@ -346,7 +346,8 @@ async function main() {
     if (testCase.type === 'complete_satisfied') {
       const noEffect = document.querySelector('[data-testid="graph-review-no-effect"]');
       assert.ok(noEffect, `${testCase.session.status} has an explicit proven no-effect explanation`);
-      assert.match(noEffect.textContent ?? '', /without changing document content/i);
+      assert.match(noEffect.textContent ?? '', testCase.session.status === 'empty_effect'
+        ? /does not apply or close its prerequisites/i : /without changing document content/i);
       assert.match(document.body.textContent ?? '', /\+0[\s\S]*−0[\s\S]*No changed lines appear in this comparison/iu);
       assert.doesNotMatch(noEffect.textContent ?? '', /Refresh the review to see the current reason/i);
       assert.equal([...document.querySelectorAll('button')].some((button) => button.textContent?.includes('Accept change')), false,

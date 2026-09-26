@@ -8477,7 +8477,8 @@
       "noVisibleHunks": "In diesem Vergleich werden keine geänderten Zeilen angezeigt.",
       "noEffect": {
         "satisfied_elsewhere": "Diese Änderung ist im aktuellen Dokument bereits vorhanden. Als bereits vorhanden zu markieren schließt die Prüfung ab, ohne den Dokumentinhalt zu ändern.",
-        "empty_effect": "Im aktuellen Dokument bleibt keine wirksame Änderung übrig. Als bereits vorhanden zu markieren schließt die Prüfung ab, ohne den Dokumentinhalt zu ändern."
+        "empty_effect": "Diese geprüfte Auswahl lässt das Dokument unverändert. Ohne Änderungen abzuschließen beendet nur diesen Vorschlag; seine Voraussetzungen werden weder angewendet noch geschlossen.",
+        "emptySelection": "Die ausgewählten Änderungen heben sich gegenseitig auf. Nichts wurde angewendet oder geschlossen. Prüfe die Vorschläge einzeln, um zu entscheiden, was bleiben soll."
       },
       "readOnly": "Diese Prüfung ist schreibgeschützt. Graph-Aktionen sind für dieses Dokument nicht aktiviert.",
       "diagnostics": "Prüfdiagnose",
@@ -8493,6 +8494,7 @@
       "recoveryUnavailable": "Dieser Browser konnte die Aktionskennung nicht speichern. Bitte Sitzungsspeicher aktivieren und erneut versuchen.",
       "retrySameAction": "Dieselbe Aktion erneut versuchen",
       "completeSatisfied": "Als bereits vorhanden markieren",
+      "completeEmpty": "Ohne Änderungen abschließen",
       "rejectBranch": "Zweig ablehnen",
       "acceptAll": "Alle Änderungen übernehmen",
       "confirmAction": "Aktion bestätigen",
@@ -8524,7 +8526,8 @@
         "accept": "Diese geprüften Änderungen übernehmen?",
         "reject": "Diese geprüfte Auswahl ablehnen?",
         "branchReject": "Diesen Vorschlagszweig ablehnen?",
-        "completeSatisfied": "Diesen Vorschlag als bereits vorhanden markieren?"
+        "completeSatisfied": "Diesen Vorschlag als bereits vorhanden markieren?",
+        "completeEmpty": "Nur diesen Vorschlag abschließen, ohne das Dokument zu ändern?"
       },
       "durability": {
         "submitting": "Die genau freigegebene Aktion wird gesendet…",
