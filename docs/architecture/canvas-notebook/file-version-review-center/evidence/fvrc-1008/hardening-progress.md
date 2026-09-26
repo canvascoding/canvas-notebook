@@ -828,3 +828,34 @@ DB-/VM-/Container-Crashprüfung, kein aktuelles Produktionsimage und keine
 vollständige doppelte Matrix werden daraus abgeleitet. Der einzelne Skill-
 Stack blieb erhalten; nur der eigene App-Prozess auf 3000 wurde unterbrochen.
 FVRC-1008 und P12 bleiben offen. Kein Push oder Rollout.
+
+### Echter Prozessabsturz vor Beginn der Mutation
+
+[Preparing crash results](proposal-preparing-crash-results.md) ergänzt zwei
+Personal-/Team-Browserfälle auf dem verwalteten PostgreSQL: SIGKILL nach
+dauerhafter Aktionsvorbereitung, aber vor dem ersten `preparing → applying`
+Übergang. Unabhängige PG-Prüfung bei gestopptem Server belegt unveränderte
+Bytes, Inhalt, Yjs-Proof und Sequenz. Startup-Recovery beendet den sicher
+unangewendeten Auftrag; weder Mutation noch neue Revision oder Replay.
+
+Der Browser klärt den verlorenen Auftrag per Statusabfrage. Anschließend
+funktioniert eine neue ausdrückliche Annahme mit frischer Vorschau und neuem
+Idempotenzschlüssel, genau einer Direct Connection und einer Revision. Alte
+Retries bleiben fehlgeschlagen, neue Retries liefern denselben Erfolgsbeleg.
+Der historische Vorschlag bleibt schreibgeschützt aufrufbar.
+
+Der unabhängige Review fand zunächst einen Test-Hook-Fehler (initiale CAS-
+Version `0` wurde ausgeschlossen). Er ist mit eigenem Regressionstest
+korrigiert; der frühe fehlgeschlagene Browserlauf wird nicht verschwiegen.
+
+Beide neuen E2Es und zwei wiederholte Post-Persistenz-Crashfälle bestehen.
+15 Probe-Tests, vollständiges TypeScript, ESLint und Produktionsbuild mit
+353 Seiten/Lizenzgate sind grün. Nur das Test-Harness und die Nachweise wurden
+erweitert; keine Produktlogik, Dependencies oder Env-Dateien verändert.
+
+Noch **nicht** gelöst: Nach dem Wechsel zu `applying`, aber vor beweisbarer
+Persistenz kann die Recovery die Wirkung nicht sicher bestimmen. Dann bleibt
+die Aktionsreservierung bestehen und kann weitere Annahmen blockieren. Kein
+blindes Replay oder textbasierter No-effect-Schluss; separater abgesicherter
+Recovery-/Fencing-Entwurf mit Peer-Reconnect-Tests nötig. PG-S19, FVRC-1008 und
+P12 bleiben offen; keine vollständige Produktionsfreigabe.

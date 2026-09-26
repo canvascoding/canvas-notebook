@@ -3,8 +3,9 @@ import { createWriteStream } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import type { CrashPoint, CrashTarget } from '../../scripts/collaboration-proposal-crash-probe';
+import type { PreparingCrashPoint } from '../../scripts/collaboration-proposal-preparing-crash-probe';
 
-type Message = { type: string; point?: CrashPoint; operationId?: string; documentId?: string;
+type Message = { type: string; point?: CrashPoint | PreparingCrashPoint; operationId?: string; documentId?: string;
   mutations?: number; acknowledged?: boolean; historyCaptured?: boolean; documentSequence?: number };
 
 /** Owns one child only; a timeout never triggers another server or a replay. */
@@ -46,7 +47,7 @@ export async function startProposalCrashHost(logPath: string) {
   return {
     pid: child.pid!, messages,
     isRunning: () => exit === null,
-    async arm(target: CrashTarget, point: CrashPoint, sessionId: string, agentId: string) {
+    async arm(target: CrashTarget, point: CrashPoint | PreparingCrashPoint, sessionId: string, agentId: string) {
       child.send({ type: 'arm', target, point, sessionId, agentId });
       await wait(() => messages.some(message => ['armed', 'refused'].includes(message.type)), 10_000);
       if (messages.some(message => message.type === 'refused')) throw new Error('Crash fixture scope was refused.');

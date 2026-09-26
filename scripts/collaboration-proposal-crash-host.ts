@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
 import { installProposalCrashProbe, type CrashPoint, type CrashTarget } from './collaboration-proposal-crash-probe';
+import { installProposalPreparingCrashProbe, type PreparingCrashPoint } from './collaboration-proposal-preparing-crash-probe';
 
 const requireFromHere = createRequire(__filename);
 const startedAt = Date.now();
@@ -58,8 +59,10 @@ async function main() {
 
 async function arm(message: unknown) {
   if (armed || arming || !message || typeof message !== 'object') throw new Error('Invalid control request.');
-  const input = message as { type: string; target: CrashTarget; point: CrashPoint; sessionId: string; agentId: string };
-  if (input.type !== 'arm' || !input.target || ![input.sessionId, input.agentId].every(id =>
+  const input = message as { type: string; target: CrashTarget; point: CrashPoint | PreparingCrashPoint; sessionId: string; agentId: string };
+  if (input.type !== 'arm' || !input.target
+    || !/^fvrc-1008-ordinary-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.md$/u.test(input.target.path)
+    || ![input.sessionId, input.agentId, input.target.documentId, input.target.workspaceId, input.target.userId].every(id =>
     typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(id))) throw new Error('Invalid control request.');
   arming = true;
   try {
@@ -75,32 +78,74 @@ async function arm(message: unknown) {
       [input.target.documentId, input.target.workspaceId, input.target.path]);
       if (!session || !document) throw new Error('Unavailable crash fixture.');
     } finally { await db.close(); }
-    const { fileVersionHistoryService } = requireFromHere('../app/lib/file-version-center/history-service');
-    const { Y } = requireFromHere('../app/lib/collaboration/server-runtime');
-    const { proposalYjsRecoveryStateMatches } = requireFromHere('../app/lib/file-version-center/proposal-yjs-candidate');
-    installProposalCrashProbe({ bridge: globalThis as Parameters<typeof installProposalCrashProbe>[0]['bridge'],
-      history: fileVersionHistoryService, target: input.target, point: input.point,
-      encodeApplied: Y.encodeStateAsUpdate, persistedMatches: proposalYjsRecoveryStateMatches,
-      interrupt: async evidence => {
-        const database = await openDb();
-        try {
-          const operation = await database.get(`SELECT status,resulting_state_snapshot,version_revision_id
-            FROM collaboration_agent_operations WHERE operation_id=$1 AND document_id=$2 AND workspace_id=$3`,
-          [evidence.operationId, input.target.documentId, input.target.workspaceId]);
-          const expected = input.point === 'persisted-before-ack' ? 'applying' : 'applied_to_ydoc';
-          if (!operation || operation.status !== expected || operation.version_revision_id
-            || Boolean(operation.resulting_state_snapshot) !== (expected === 'applied_to_ydoc')) {
-            throw new Error('The persisted operation does not match the requested crash boundary.');
-          }
-        } finally { await database.close(); }
-        await new Promise<void>((resolve, reject) => process.send!({ type: 'boundary', ...evidence }, error => error ? reject(error) : resolve()));
-        // No graceful shutdown: pending room stores and callbacks must not flush.
-        process.kill(process.pid, 'SIGKILL');
-        return new Promise<never>(() => {});
-      } });
+    if (input.point === 'prepared-before-apply') {
+      const { Client } = requireFromHere('pg');
+      let verifiedSequence: number | null = null;
+      installProposalPreparingCrashProbe({ clientPrototype: Client.prototype,
+        verify: async ({ operationId, casVersion, runGeneration }) => {
+          const database = await openDb();
+          try {
+            const operation = await database.get(`SELECT state.document_sequence
+              FROM collaboration_agent_operations operation
+              JOIN file_proposal_action_receipts action ON action.action_id=operation.operation_id
+                AND action.operation_id=operation.operation_id AND action.document_id=operation.document_id
+                AND action.workspace_id=operation.workspace_id AND action.actor_id=operation.actor_id
+                AND action.lifecycle_generation=operation.document_lifecycle_generation
+                AND action.schema_version=operation.schema_version
+              JOIN collaboration_yjs_states state ON state.document_id=operation.document_id
+                AND state.workspace_id=operation.workspace_id AND state.path=operation.document_path
+                AND state.lifecycle_generation=operation.document_lifecycle_generation
+                AND state.schema_version=operation.schema_version
+                AND state.representation=operation.document_representation
+              WHERE operation.operation_id=$1 AND operation.document_id=$2 AND operation.workspace_id=$3
+                AND operation.document_path=$4 AND operation.actor_id=$5 AND operation.initiated_by_user_id=$5
+                AND operation.status='preparing' AND operation.cas_version=$6 AND operation.run_generation=$7
+                AND operation.idempotency_key=$8 AND operation.result_json IS NULL
+                AND operation.resulting_state_snapshot IS NULL AND operation.version_revision_id IS NULL
+                AND operation.created_at >= $9 AND action.phase='applying' AND state.status='active'
+                AND state.degraded=0 AND state.document_sequence=operation.base_document_sequence LIMIT 1`,
+            [operationId, input.target.documentId, input.target.workspaceId, input.target.path, input.target.userId,
+              casVersion, runGeneration, `proposal-action:${operationId}`, startedAt]);
+            if (!operation) return false;
+            verifiedSequence = Number(operation.document_sequence);
+            return true;
+          } finally { await database.close(); }
+        },
+        interrupt: operationId => crashAtBoundary({ point: input.point, operationId, mutations: 0,
+          acknowledged: false, historyCaptured: false, documentSequence: verifiedSequence }),
+      });
+    } else {
+      const { fileVersionHistoryService } = requireFromHere('../app/lib/file-version-center/history-service');
+      const { Y } = requireFromHere('../app/lib/collaboration/server-runtime');
+      const { proposalYjsRecoveryStateMatches } = requireFromHere('../app/lib/file-version-center/proposal-yjs-candidate');
+      installProposalCrashProbe({ bridge: globalThis as Parameters<typeof installProposalCrashProbe>[0]['bridge'],
+        history: fileVersionHistoryService, target: input.target, point: input.point,
+        encodeApplied: Y.encodeStateAsUpdate, persistedMatches: proposalYjsRecoveryStateMatches,
+        interrupt: async evidence => {
+          const database = await openDb();
+          try {
+            const operation = await database.get(`SELECT status,resulting_state_snapshot,version_revision_id
+              FROM collaboration_agent_operations WHERE operation_id=$1 AND document_id=$2 AND workspace_id=$3`,
+            [evidence.operationId, input.target.documentId, input.target.workspaceId]);
+            const expected = input.point === 'persisted-before-ack' ? 'applying' : 'applied_to_ydoc';
+            if (!operation || operation.status !== expected || operation.version_revision_id
+              || Boolean(operation.resulting_state_snapshot) !== (expected === 'applied_to_ydoc')) {
+              throw new Error('The persisted operation does not match the requested crash boundary.');
+            }
+          } finally { await database.close(); }
+          return crashAtBoundary(evidence);
+        } });
+    }
     armed = true;
     process.send?.({ type: 'armed' });
   } finally { arming = false; }
+}
+
+async function crashAtBoundary(evidence: Record<string, unknown>): Promise<never> {
+  await new Promise<void>((resolve, reject) => process.send!({ type: 'boundary', ...evidence }, error => error ? reject(error) : resolve()));
+  // No graceful shutdown: pending room stores and callbacks must not flush.
+  process.kill(process.pid, 'SIGKILL');
+  return new Promise<never>(() => {});
 }
 
 void main().catch(() => {

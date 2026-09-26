@@ -1,8 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
-import { promisify } from 'node:util';
 import type { CrashPoint } from '../scripts/collaboration-proposal-crash-probe';
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
 import { parseProposalToolCreationResultV1 } from '../app/lib/file-version-center/contracts/proposal-tools-v1';
@@ -11,8 +8,8 @@ import { parseProposalReviewSessionResponseV1 } from '../app/lib/file-version-ce
 import { withOrdinaryAgentDocument } from './helpers/ordinary-agent-document';
 import { runOrdinaryAgentTool } from './helpers/ordinary-agent-tool';
 import { startProposalCrashHost } from './helpers/proposal-crash-host';
+import { readProposalCrashState } from './helpers/proposal-crash-state';
 
-const execFileAsync = promisify(execFile);
 const ACTION = '/api/files/version-center/v1/proposals/actions';
 const INITIAL = 'Diese Zeile wird gelöscht.';
 
@@ -59,15 +56,10 @@ for (const workspaceKind of ['personal', 'team'] as const) {
             // A disconnected browser must not resend its cached Yjs state on restart.
             await page.goto('about:blank');
             const saved = async () => {
-              let stdout: string;
-              try {
-                ({ stdout } = await execFileAsync(path.resolve('node_modules/.bin/tsx'), ['--conditions', 'react-server',
-                  'scripts/collaboration-e2e-storage-read.ts', Buffer.from(JSON.stringify({ documentId: target.documentId,
-                    workspaceId: target.workspaceId, path: filePath, operationId, includeGraphProof: true })).toString('base64url')],
-                { env: process.env, timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }));
-              } catch { throw new Error('Scoped persisted crash evidence was unavailable.'); }
-              return JSON.parse(stdout) as { canonicalContent: string; binaryHash: string; stateProof: string;
-                documentSequence: number; degraded: boolean; receipt: { status: string; snapshotHash: string | null } };
+              const state = await readProposalCrashState({ documentId: target.documentId,
+                workspaceId: target.workspaceId, path: filePath, operationId });
+              if (!state.receipt) throw new Error('The interrupted operation receipt is unavailable.');
+              return { ...state, receipt: state.receipt };
             };
             const beforeRestart = await saved();
             expect(beforeRestart.canonicalContent).toBe('');
