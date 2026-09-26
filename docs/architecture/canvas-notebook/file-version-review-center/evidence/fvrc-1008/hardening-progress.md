@@ -684,3 +684,28 @@ Abschlussmengen und insgesamt zwei Direktrevisionen plus eine Merge-Revision
 sind fest vorgegeben. PG-S22/MR-24 sind nur für diese Orakel fortgeschrieben.
 Abgelaufene Grants im Browser und die noch nicht angeschlossene strengere
 Workspace-Policy bleiben ausdrücklich offen; FVRC-1008 ist nicht abgenommen.
+
+### Gelöschter und mit gleichem Text neu angelegter Rich-Absatz
+
+[Ordinary block recreate results](ordinary-block-recreate-results.md) ergänzt
+CR-05/MR-08 um tatsächliche Editor- und Browsernachweise in Personal und Team.
+Ein Absatz wird per sichtbarer Auswahl/Tastatur gelöscht und neu eingefügt.
+Markdown-Bytes und Inhalts-Hash sind danach wieder identisch, der Absatz hat
+jedoch eine neue ID; Struktur- und Yjs-Zustandsnachweise unterscheiden sich.
+Der alte Vorschlag bleibt offen und als konkreter Konflikt sichtbar, alte
+Einzel-/Batchfreigaben werden ohne Live-Mutation abgelehnt.
+
+Der gemischte Sammelvergleich lässt auch den konfliktfreien Anteil unangetastet.
+Erst eine ausdrücklich neue Einzelvorschau und Bestätigung übernimmt den
+unabhängigen Vorschlag in genau einer Inhaltsrevision. Exakter Volltext,
+unveränderte Nachbar-/Ersatzblock-IDs, Zustandsnachweise, Lebenszyklen und
+identischer Retry sind geprüft. Der kollidierende Vorschlag wird nicht
+heimlich verworfen oder auf den neu angelegten Absatz übertragen.
+
+Beide finalen Browserfälle bestehen auf unverändertem Produktcode `da8c01744`
+und echtem PostgreSQL; 37 fokussierte Evaluator-/Yjs-/Compare-Tests, vollständiges
+TypeScript und fokussiertes ESLint sind ebenfalls grün. Zwei fehlerhafte
+Testannahmen aus Entwicklungsläufen sind im Nachweis getrennt dokumentiert,
+ohne Produktprüfungen zu lockern. PG-S21 bleibt für das abschließende Live-
+Preflight-Rennen offen. Gesamtmatrix, Produktionsimage und manueller
+Konflikteditor P12 sind damit nicht abgenommen; kein Containerneubau oder Push.
