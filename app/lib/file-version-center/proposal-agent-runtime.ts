@@ -14,6 +14,7 @@ import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterTransacti
 import { createProposalGraphStorage } from './proposal-storage';
 import { lockProposalDocumentIdentityRows } from './proposal-document-identity-lock';
 import { createProposalProvenanceService, type ProposalProvenanceAuthorization } from './proposal-provenance-service';
+import { createProposalToolRelationshipPolicy } from './proposal-tool-relationships';
 import { proposalYjsCurrentProof, type ProposalYjsRepresentation } from './proposal-yjs-candidate';
 import { proposalReviewWritesEnabled } from './proposal-review-capability';
 import { resolveFileVersionRolloutV1 } from './policy-v1';
@@ -176,6 +177,7 @@ export async function createRuntimeProposalAgentService(input: {
     && row.operation_type === 'apply' && row.requested_mode === 'review');
   const storage = createProposalGraphStorage({ database });
   const service = createProposalProvenanceService({ authorize,
+    relationshipPolicy: createProposalToolRelationshipPolicy({ authorize }),
     withTransaction: (requestedScope, action) => {
       sameScope(requestedScope);
       return storage.withLockedGraph(scope, {}, (graph, sql) => activeTransaction.run(sql, async () => {

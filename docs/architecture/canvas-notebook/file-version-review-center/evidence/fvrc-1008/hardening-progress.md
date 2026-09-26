@@ -613,3 +613,24 @@ PG-S07/PG-S13/MR-11/MR-12 sind nur für die konkret geprüften Orakel aktualisie
 FVRC-1008 bleibt in Arbeit; P12, zwei Gesamtmatrixläufe und die Prüfung eines
 frischen Produktionsimages bleiben offen. Keine Produkt-, Dependency-, Env-
 oder Containeränderung, kein Push und keine Produktionsaktivierung.
+
+### Gewöhnliche Alternativen und Ersetzungen
+
+[Ordinary choice results](ordinary-choice-results.md) dokumentiert die nun
+tatsächlich angeschlossene Relationship-Policy der normalen Agentenwerkzeuge,
+die transaktional korrekte Anlage ihrer Auswahlgruppen und den Erhalt
+ausgeblendeter abgeschlossener Gruppenmitglieder. Bisherige Gruppen-Fixtures
+allein hatten diese Authoring-Anbindung nicht belegt.
+
+Vier neue Browserfälle auf echtem PostgreSQL bestehen in Personal und Team:
+gemischte alternative Zweige ohne Teilanwendung verweigern, einen ausgewählten
+Nachfahren mit genau seinen Voraussetzungen übernehmen, sowie Ersetzung mit
+richtiger Quelle/Gruppe ablehnen, ohne das Original wiederzuöffnen, und danach
+die verbleibende Alternative annehmen. Jeweils genau eine Inhaltsrevision,
+exakte IDs/Endtexte/Belege, stabile Block-IDs und sichere identische Retries.
+
+Die neuen PGlite-Tests sichern Rollback einschließlich Graphrevision und
+Reservierung, unmittelbaren Rechteentzug, Archivangaben und Anlage-Retries ab.
+PG-S08/09/10, MR-11 und CR-12 sind für diese konkreten Orakel aktualisiert;
+Gesamtmatrix, Produktionsimage und P12 bleiben offen. Die Produktionsfreigabe
+wurde nicht geändert; kein Containerneubau und kein Push.

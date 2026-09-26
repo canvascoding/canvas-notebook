@@ -69,6 +69,8 @@ export type ProposalRelationshipPolicy = (input: {
   dependency: ProposalRelationshipsV1['dependency'];
 }) => Promise<{
   relationships: ProposalRelationshipsV1;
+  /** Prepare referenced rows before node insertion; must share the same rollback boundary. */
+  beforeInsert?(): Promise<void>;
   /** Domain-owned replacement/choice mutation, called only inside the same atomic unit. */
   apply(node: ProposalNodeV1): Promise<void>;
 }>;
@@ -435,6 +437,7 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
           source: request.source, targets, idempotencyKey: input.idempotencyKey, requestDigest, reviewRequired: true,
           beforeSha256: hash(sourceView.content), proposedSha256: hash(authored.content),
           sourceStateVector: Buffer.from(Y.encodeStateVectorFromUpdate(sourceUpdate)).toString('base64') });
+        await relationshipPlan?.beforeInsert?.();
         const inserted = await transaction.graph.insertProposal(node);
         await relationshipPlan?.apply(inserted);
         const final = await transaction.graph.getProposal(proposalId);
