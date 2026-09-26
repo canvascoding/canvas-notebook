@@ -958,6 +958,7 @@
     "pdfDownloadStarted": "PDF-Download gestartet",
     "failedToExportMarkdown": "Markdown-Export fehlgeschlagen: {statusText}",
     "failedToLoadPreview": "Vorschau konnte nicht geladen werden",
+    "linkedDocumentUnavailable": "Das verknüpfte Dokument ist nicht mehr verfügbar. Wähle die aktuelle Datei im Dateibrowser aus.",
     "pdfGenerationFailed": "PDF-Erzeugung fehlgeschlagen: {statusText}",
     "failedToGeneratePdf": "PDF konnte nicht erzeugt werden",
     "pdfRendererClosed": "Der PDF-Renderer wurde unerwartet beendet. Bitte versuche den PDF-Export erneut.",

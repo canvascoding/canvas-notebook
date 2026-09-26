@@ -4,9 +4,10 @@ import React, { act, StrictMode, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { NextIntlClientProvider } from 'next-intl';
 import { JSDOM } from 'jsdom';
-import type { CurrentFile, FileNode } from '../app/lib/files/types';
+import type { CurrentFile, FileNode, OpenWorkspaceFileResult } from '../app/lib/files/types';
 import { registerDocumentTransitionGuard } from '../app/lib/files/document-transition';
 import { readNotebookDocumentTabs, writeNotebookDocumentTabs } from '../app/lib/notebook/document-tabs';
+import { getNotebookQueryClient } from '../app/lib/queries/client';
 import messages from '../messages/en.json';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -117,6 +118,8 @@ async function main() {
     return Response.json({ success: true, data: [] });
   };
   const root = createRoot(document.getElementById('root')!);
+  let rootMounted = true;
+  let cleanupScenario: (() => Promise<void>) | null = null;
   const tabs = () => readNotebookDocumentTabs(window.localStorage, 'workspace');
   const settle = async () => act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
   const select = async (index: number) => {
@@ -125,7 +128,7 @@ async function main() {
     await act(async () => button.click()); await settle();
   };
   try {
-    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace', initialized: true });
     useFileStore.getState().resetWorkspaceView('workspace');
     writeNotebookDocumentTabs(window.localStorage, 'workspace', { activePath: 'folder/a.md', openPaths: ['folder/a.md', 'folder/b.md'],
       documentIds: { 'folder/a.md': 'doc-a', 'folder/b.md': 'doc-b' } });
@@ -201,6 +204,7 @@ async function main() {
     assert(propsKey);
     const oldClick = (oldButton as unknown as Record<string, { onClick: () => void }>)[propsKey].onClick;
     await act(async () => root.unmount());
+    rootMounted = false;
     assert.equal(watcher.owners, 0);
     await act(async () => lateRead(Response.json({ success: true, data: file('renamed/b.md', 'doc-b') })));
     assert.equal(useFileStore.getState().currentFile, beforeUnmount, 'unmount revokes a file read that already passed location lookup');
@@ -210,11 +214,106 @@ async function main() {
     assert.equal(searches.length, searchesAfterUnmount);
     assert.equal(useFileStore.getState().fileLoadRequestId, fileRequestsAfterUnmount, 'an old detached tab callback cannot start another open');
     console.log('Actual DashboardShell preserves collaborative tabs across unlink/rename, resolves inactive identity, rejects reused-path reads and revokes stale selection under StrictMode.');
+
+    // A route/restore request is identity-bound. If the old document was deleted,
+    // a same-path replacement must not be opened implicitly; the file-browser
+    // selection is the explicit user intent that may open the replacement.
+    const scenarioContainer = document.createElement('div');
+    document.body.appendChild(scenarioContainer);
+    const scenarioRoot = createRoot(scenarioContainer);
+    cleanupScenario = async () => {
+      await act(async () => scenarioRoot.unmount());
+      scenarioContainer.remove();
+      cleanupScenario = null;
+    };
+    const mountScenario = async (key: string, url: string) => {
+      window.history.replaceState(null, '', url);
+      act(() => scenarioRoot.render(<StrictMode key={key}><NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+        <DashboardShell hintEnabled={false} />
+      </NextIntlClientProvider></StrictMode>));
+      await settle(); await settle();
+    };
+    const resetScenario = () => {
+      errors.length = 0;
+      searches.length = 0;
+      holdLocation = null;
+      holdRead = null;
+      files.clear();
+      files.set('folder/a.md', file('folder/a.md', 'doc-replacement'));
+      locations.clear();
+      locations.set('doc-replacement', 'folder/a.md');
+      getNotebookQueryClient().clear();
+      useWorkspaceStore.setState({ activeWorkspaceId: 'workspace', initialized: true });
+      useFileStore.getState().resetWorkspaceView('workspace');
+      useFileStore.setState({ currentFile: null, currentFileWorkspaceId: null });
+      useEditorStore.getState().clear();
+      window.localStorage.clear();
+      writeNotebookDocumentTabs(window.localStorage, 'workspace', {
+        activePath: 'folder/a.md', openPaths: ['folder/a.md'], documentIds: { 'folder/a.md': 'doc-old' },
+      });
+    };
+
+    resetScenario();
+    await mountScenario('route-old-identity', '/en/notebook?path=folder%2Fa.md&workspaceId=workspace');
+    assert.equal(useFileStore.getState().currentFile, null, 'a route bound to an archived identity must not open the replacement');
+    assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old', 'a failed route keeps the original tab identity pinned');
+    assert(errors.some(message => /linked document is no longer available/iu.test(message)),
+      'a failed route lookup reports that the linked document is unavailable');
+    let replacement!: OpenWorkspaceFileResult;
+    await act(async () => { replacement = await useFileStore.getState().revealAndLoadFile('folder/a.md', {
+      workspaceId: 'workspace', revealInTree: false,
+    }); });
+    assert.equal(replacement.status, 'opened', 'an explicit file-browser selection opens the replacement');
+    assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-replacement');
+    assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-replacement', 'the tab adopts the replacement identity only after explicit selection');
+
+    await act(async () => scenarioRoot.render(null));
+    resetScenario();
+    await mountScenario('restore-old-identity', '/en/notebook?workspaceId=workspace');
+    assert.equal(useFileStore.getState().currentFile, null, 'saved-tab restore must not reopen a same-path replacement');
+    assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old', 'a failed restore keeps the original tab identity pinned');
+    assert(errors.some(message => /linked document is no longer available/iu.test(message)),
+      'a failed saved-tab lookup reports that the linked document is unavailable');
+    let restoredReplacement!: OpenWorkspaceFileResult;
+    await act(async () => { restoredReplacement = await useFileStore.getState().revealAndLoadFile('folder/a.md', {
+      workspaceId: 'workspace', revealInTree: false,
+    }); });
+    assert.equal(restoredReplacement.status, 'opened');
+    assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-replacement');
+
+    await act(async () => scenarioRoot.render(null));
+    resetScenario();
+    const delayedLocation: Array<(response: Response) => void> = [];
+    holdLocation = id => id === 'doc-old' ? new Promise<Response>(resolve => delayedLocation.push(resolve)) : null;
+    await mountScenario('delayed-old-identity', '/en/notebook?path=folder%2Fa.md&workspaceId=workspace');
+    assert(delayedLocation.length > 0, 'the old identity lookup must actually be in flight');
+    assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old');
+    assert.equal(errors.length, 0);
+    let selectedReplacement!: OpenWorkspaceFileResult;
+    await act(async () => { selectedReplacement = await useFileStore.getState().revealAndLoadFile('folder/a.md', {
+      workspaceId: 'workspace', revealInTree: false,
+    }); });
+    assert.equal(selectedReplacement.status, 'opened');
+    await act(async () => {
+      for (const resolve of delayedLocation.splice(0)) resolve(new Response('', { status: 404 }));
+    });
+    await settle();
+    assert.equal(errors.length, 0, 'a superseded old 404 must not show a misleading error after the new selection');
+    assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-replacement');
+    assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-replacement');
+
+    await cleanupScenario();
+    assert.equal(watcher.owners, 0, 'scenario teardown releases every watcher subscription');
+    console.log('Unavailable route/restore identities report failure without opening replacements; explicit selection rebinds safely and supersedes delayed 404 feedback.');
   } finally {
-    await act(async () => root.unmount());
+    if (cleanupScenario) await cleanupScenario();
+    if (rootMounted) await act(async () => root.unmount());
     internals._load = originalLoad; globalThis.fetch = originalFetch;
     useEditorStore.getState().clear(); useFileStore.getState().resetWorkspaceView(null);
     useWorkspaceStore.setState({ activeWorkspaceId: null }); dom.window.close();
+    // The extra entry scenarios mount query-backed panels. Release their GC
+    // timers just like their subscriptions, without forcing the process to exit.
+    getNotebookQueryClient().clear();
   }
 }
 

@@ -5,6 +5,19 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Delete/Recreate und fehlende Wiederherstellungs-Meldung
+
+Der neue Personal-/Team-Browserfall löscht das Original mit offenem Root/Child
+und legt am selben Pfad dieselben Bytes neu an. Alte Dokument-/Lineage-Ziele,
+Operationen und Freigaben bleiben gesperrt; die neue Datei startet mit Review
+aus und ohne alte Vorschläge. Nach expliziter Dateibaum-Auswahl entstehen neue
+Vorschläge, deren gemeinsamer Merge exakt eine Revision und den erwarteten
+Endtext erzeugt. Der dabei gefundene leere Editor bekommt bei automatischem
+Öffnen eine verständliche Meldung, ohne die alte Tab-Identität zu lockern.
+Nachweise und Grenzen: [ordinary-recreate-results.md](ordinary-recreate-results.md).
+Damit ist der separate MR-17-Delete/Recreate-Fall auf Host-Dev abgedeckt;
+die Gesamtfreigabe bleibt offen.
+
 ## Ergänzung: Dokumentidentität nach Pfadänderung
 
 Der neue gewöhnliche Tool-/Browserfall für Personal und Team prüft Rename,
@@ -13,8 +26,9 @@ Die Original-Lineage bleibt annehmbar; die drei anderen Dateien übernehmen
 weder Graph noch Freigabe. Exakter gemeinsamer Root-/Child-Merge, +1 Revision,
 Block-IDs, idempotenter Retry und unveränderte Kopien sind nachgewiesen.
 Details und Grenzen: [ordinary-location-results.md](ordinary-location-results.md).
-PG-S27 ist für den authentifizierten Datei-API-Pfad abgedeckt; MR-17 bleibt wegen
-des separaten Delete/Recreate-Falls teilweise offen. Keine Änderung am Produktcode.
+PG-S27 ist für den authentifizierten Datei-API-Pfad abgedeckt. Der damalige
+Delete/Recreate-Restfall von MR-17 ist im obigen Ergänzungsnachweis dokumentiert.
+Der ursprüngliche Rename-/Move-Testcommit änderte keinen Produktcode.
 
 ## Bereits erneut geprüft
 

@@ -959,6 +959,7 @@
     "pdfDownloadStarted": "PDF download started",
     "failedToExportMarkdown": "Failed to export markdown: {statusText}",
     "failedToLoadPreview": "Failed to load preview",
+    "linkedDocumentUnavailable": "The linked document is no longer available. Select the current file in the file browser.",
     "pdfGenerationFailed": "PDF generation failed: {statusText}",
     "failedToGeneratePdf": "Failed to generate PDF",
     "pdfRendererClosed": "The PDF renderer closed unexpectedly. Please try exporting the PDF again.",
