@@ -505,3 +505,30 @@ alle Fälle danach erneut ausgeführt. Kein 429-/5xx-Fehler, kein Skip. Die
 Szenariomatrix aktualisiert PG-S01, MR-05/MR-06 und CR-03/CR-04 nur für die
 tatsächlich abgedeckten Orakel. FVRC-1008 und P12 bleiben offen; kein Push,
 kein Container-Rebuild und keine Produktionsfreigabe.
+
+### Gewöhnliche abhängige Markdown-Vorschläge: acht Browserfälle
+
+[Ordinary dependent merge results](ordinary-dependent-merge-results.md)
+dokumentiert acht zusätzliche bestandene E2E-Fälle auf unverändertem Produktcode
+`542c99dc2`. P1 fügt einen neuen Absatz ein; P2 liest den noch offenen P1-Kandidaten
+über das registrierte Werkzeug und erweitert genau dessen neue Block-ID. Q ist
+eine unabhängige Änderung auf dem ursprünglichen autoritativen Dokument. Alle
+drei existieren vor der ersten Annahme. Personal und Team prüfen P1 → Q → P2,
+P2 → Q, Q → P2 und die gemeinsame Annahme. Exakte Texte, Block-Identitäten,
+Rest-Diffs, Voraussetzungen/Anwendungsmengen, Lebenszyklen, +3/+2/+1 Revisionen
+und historische P1-Ansichten sind nachgewiesen.
+
+Eine zunächst falsche Testgleichsetzung von geprüfter Abhängigkeitsmenge und
+neu anzuwendenden Vorschlägen wurde korrigiert: Ein bereits angewendetes P1
+bleibt bei P2 im Aktionsbeleg enthalten, wird aber nicht erneut angewendet oder
+aufgelöst. Zusätzlich wurde ein mehrdeutiger CLI-Testfilter korrigiert; der
+unterbrochene Lauf wird nicht als Nachweis gezählt. Alle acht abschließenden
+Einzelfälle liefen seriell ohne Skip oder beobachteten Review-429-/5xx-Fehler.
+TypeScript, fokussiertes ESLint und unabhängiger Testquell-Review bestanden.
+
+Die Matrix aktualisiert PG-S03/04/07/13 und MR-09 nur für die tatsächlich
+geprüften Orakel. Vollständige Crash-/Restore-/Mehrprozess-Prüfungen, zwei
+Gesamtmatrixläufe, frisches Produktionsimage und P12 bleiben offen. Kein
+Produktcode, keine Dependencies, Runtime-Env oder Container geändert; kein
+Push und keine Produktionsaktivierung. Generierte `AGENTS.md`-/`CLAUDE.md`-
+Änderungen gehören nicht zum Test-Commit.
