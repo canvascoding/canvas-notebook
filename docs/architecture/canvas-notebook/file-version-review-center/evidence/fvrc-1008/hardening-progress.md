@@ -859,3 +859,19 @@ die Aktionsreservierung bestehen und kann weitere Annahmen blockieren. Kein
 blindes Replay oder textbasierter No-effect-Schluss; separater abgesicherter
 Recovery-/Fencing-Entwurf mit Peer-Reconnect-Tests nötig. PG-S19, FVRC-1008 und
 P12 bleiben offen; keine vollständige Produktionsfreigabe.
+
+### Lokale Synchronisierung vor dem Durable-Publication-Cutover
+
+[Room mutation barrier results](room-mutation-barrier-results.md) dokumentiert
+die gemeinsame Raum-Sperre für Writer-SyncStep2/Update und Direct Connections.
+Zehn isolierte Fälle und acht echte Hocuspocus-Receiver-Szenarien prüfen
+Reihenfolge, Fehlerfreigabe, Rechteentzug, unabhängige Räume und Store-/Disconnect-
+Deadlocks. Nicht mutierender sowie Read-only-Verkehr bleibt bedienbar. Die
+vollständige Lifecycle-Suite besteht; Browser-Regressionsbelege stehen im
+verlinkten Ergebnisdokument.
+
+Dies ist erst Schritt 1 des [Durable-Publication-Plans](durable-publication-plan.md).
+Die sichere Reihenfolge „atomar speichern, dann veröffentlichen“ sowie Store-CAS,
+Mehrprozess-Owner und Peer-Reconnect-Crashabnahme sind weiterhin offen. Keine
+Freigabe ungewisser Legacy-Aufträge aufgrund bloßer Textgleichheit; FVRC-1008
+und der manuelle Konflikteditor P12 bleiben offen.

@@ -1615,6 +1615,7 @@
           "status": "in_progress",
           "evidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/hardening-progress.md",
           "scenarioMatrix": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/scenario-matrix.md",
+          "recoveryHardeningPlan": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/durable-publication-plan.md",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",

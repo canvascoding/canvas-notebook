@@ -52,6 +52,7 @@ import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
+import { acquireCollaborationRoomMutationLock, withCollaborationRoomMutationLock } from '@/app/lib/collaboration/room-mutation-lock';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -247,6 +248,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   // Hocuspocus caches by document ID, while restore/migration reuse that ID
   // with a new generation. The room keeps the identity of the bytes it loaded.
   const roomIdentities = new WeakMap<YDoc, RoomIdentity>();
+  // Hocuspocus serializes each socket, not all sockets of a room. For mutating
+  // sync frames hold the lease beyond beforeSync, through MessageReceiver.apply.
+  const messageMutationLeases = new WeakMap<Connection<CollaborationContext>, () => void>();
   const matchesRoomIdentity = (document: YDoc, expected: RoomIdentity) => {
     const identity = roomIdentities.get(document);
     return identity?.documentId === expected.documentId && identity.workspaceId === expected.workspaceId
@@ -428,12 +432,30 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (update.byteLength > MAX_UPDATE_BYTES) rejectCollaborationUpdate(connection, 'Diese Änderung überschreitet die Nachrichtengröße von 1 MiB. Lade eine lokale Kopie herunter und öffne die Datei erneut.');
       await accessMonitor.check(connection);
     },
+    async afterHandleMessage({ connection }) {
+      const release = messageMutationLeases.get(connection);
+      messageMutationLeases.delete(connection);
+      release?.();
+    },
     async beforeSync({ context, connection, document, type, payload }) {
-      assertRoomIdentity(document, context.claims);
-      if (context.claims.guestInvitationId && context.claims.permission === 'write' && (type === 1 || type === 2)) {
-        if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
-        try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
-        catch { rejectCollaborationUpdate(connection, 'Diese Änderung konnte nicht übernommen werden: Die Datei ist zu groß oder enthält nicht unterstützte Dokumentdaten. Lade eine lokale Kopie herunter und öffne die Datei erneut.'); }
+      // SyncStep1, awareness and stateless traffic must not queue behind a
+      // slow store. Only writer SyncStep2 (1) and Update (2) can change data;
+      // Hocuspocus only acknowledges (never applies) read-only sync frames.
+      const release = !connection.readOnly && (type === 1 || type === 2)
+        ? await acquireCollaborationRoomMutationLock(document) : null;
+      try {
+        assertRoomIdentity(document, context.claims);
+        // Access can be revoked while queued behind another connection.
+        if (release) await accessMonitor.check(connection);
+        if (context.claims.guestInvitationId && context.claims.permission === 'write' && release) {
+          if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
+          try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
+          catch { rejectCollaborationUpdate(connection, 'Diese Änderung konnte nicht übernommen werden: Die Datei ist zu groß oder enthält nicht unterstützte Dokumentdaten. Lade eine lokale Kopie herunter und öffne die Datei erneut.'); }
+        }
+        if (release) messageMutationLeases.set(connection, release);
+      } catch (error) {
+        release?.();
+        throw error;
       }
     },
     async beforeHandleAwareness({ context, states }) {
@@ -700,18 +722,23 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     let result: unknown;
     try {
       await withWorkspaceMutationLock(workspace.workspaceId, async () => {
-        // Opening a room and waiting for the workspace fence can both yield.
-        // Revalidate inside that fence; a rename/delete/restore must either
-        // precede this check or wait until this edit has persisted on disconnect.
-        await assertDirectConnectionDocument(input, workspace);
-        workspace = await resolveDirectConnectionWorkspace(input);
-        context.workspace = workspace;
-        await connection.transact((document) => {
-          assertRoomIdentity(document, context.claims);
-          result = apply(document);
+        const document = connection.document;
+        if (!document) throw new Error('The direct collaboration connection is closed.');
+        await withCollaborationRoomMutationLock(document, async () => {
+          // Both fences can yield. Revalidate only after owning the workspace
+          // and concrete room; inbound peers must wait through receipt + store.
+          await assertDirectConnectionDocument(input, workspace);
+          workspace = await resolveDirectConnectionWorkspace(input);
+          context.workspace = workspace;
+          await connection.transact((liveDocument) => {
+            assertRoomIdentity(liveDocument, context.claims);
+            result = apply(liveDocument);
+          });
+          if (onApplied) await onApplied(result as never);
+          // Do not acquire this room lease in onStoreDocument: disconnect
+          // awaits Hocuspocus's saveMutex, which a scheduled store may own.
+          await connection.disconnect({ unloadImmediately: true });
         });
-        if (onApplied) await onApplied(result as never);
-        await connection.disconnect({ unloadImmediately: true });
       });
     } catch (error) {
       await connection.disconnect({ unloadImmediately: true }).catch(() => undefined);
