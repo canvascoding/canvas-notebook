@@ -25,7 +25,7 @@ import {
   ProposalGraphContractError,
 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import {
-  proposalYjsCurrentProof,
+  proposalYjsCurrentProof, proposalYjsRecoveryStateMatches,
   type ProposalYjsRepresentation,
 } from '@/app/lib/file-version-center/proposal-yjs-candidate';
 import type {
@@ -1789,7 +1789,9 @@ function proposalRecoveryCurrentMatches(input: {
 }): boolean {
   try {
     return isDeepStrictEqual(proposalYjsCurrentProof({ update: input.state.yjsState,
-      representation: input.input.representation, revisionId: null }), input.candidate.current);
+      representation: input.input.representation, revisionId: null }), input.candidate.current)
+      || proposalYjsRecoveryStateMatches({ persistedUpdate: input.state.yjsState,
+        candidateUpdate: input.input.candidateUpdate, representation: input.input.representation });
   } catch {
     return false;
   }

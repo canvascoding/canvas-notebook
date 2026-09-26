@@ -137,6 +137,11 @@ Gesamtfreigabe. Generierte `AGENTS.md`-/`CLAUDE.md`-Indexzählungen bleiben drau
 
 ## Grenzen
 
+Nachtrag: [Recovery GC results](recovery-gc-results.md) dokumentiert den
+anschließenden reproduzierten Fehler und engen Runtime-Fix für diesen
+`applying`-Abgleich. Der echte Prozessabsturz-Nachweis bleibt offen; die oben
+beschriebenen normalen Löschtests allein belegen keine Crash-Recovery.
+
 - Dieser neue Browsernachweis gilt für blockgebundene reine **Textlöschungen**
   einschließlich des vollständig leeren Markdown-Inhalts. Eine strukturelle
   `delete_block`-Operation mit Eltern-/Kindknoten ist nicht derselbe Fall.

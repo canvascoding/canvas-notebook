@@ -19,11 +19,12 @@ const workspace: WorkspaceContext = { workspaceId: 'workspace', workspaceType: '
 
 type Row = Record<string, unknown> & { operation_id: string; cas_version: number; run_generation: number; status: string };
 
-function harness() {
+function harness(replacement = 'after') {
   process.env.CANVAS_COLLABORATION_TICKET_SECRET = 'proposal-candidate-operation-test-secret-32';
   const source = new Y.Doc({ gc: false }); source.getText('content').insert(0, 'before');
   const candidate = new Y.Doc({ gc: false }); Y.applyUpdate(candidate, Y.encodeStateAsUpdate(source));
-  candidate.getText('content').delete(0, 6); candidate.getText('content').insert(0, 'after');
+  candidate.getText('content').delete(0, 6);
+  if (replacement) candidate.getText('content').insert(0, replacement);
   const sourceUpdate = Y.encodeStateAsUpdate(source); const candidateUpdate = Y.encodeStateAsUpdate(candidate);
   const expectedCurrent = proposalYjsCurrentProof({ update: sourceUpdate, representation: 'plain_text', revisionId: null });
   let state = {
@@ -167,6 +168,13 @@ function harness() {
   const persistCandidate = () => {
     state = { ...state, yjsState: candidateUpdate, stateVector: Y.encodeStateVector(candidate), persistedAt: 200, documentSequence: 8 };
   };
+  const compactPersisted = () => {
+    const compacted = new Y.Doc({ gc: true });
+    try {
+      Y.applyUpdate(compacted, state.yjsState);
+      state = { ...state, yjsState: Y.encodeStateAsUpdate(compacted), stateVector: Y.encodeStateVector(compacted) };
+    } finally { compacted.destroy(); }
+  };
   const recordAppliedCallback = () => {
     persistCandidate();
     const document = new Y.Doc({ gc: false });
@@ -187,7 +195,7 @@ function harness() {
     } finally { document.destroy(); }
   };
   return { agent: compiledModule.exports as typeof Agent, row, history, actionReceipt, candidateUpdate, expectedCurrent,
-    persistCandidate, recordAppliedCallback, applyIndependentEdit, setHistoryAvailable: (value: boolean) => { historyAvailable = value; },
+    persistCandidate, compactPersisted, recordAppliedCallback, applyIndependentEdit, setHistoryAvailable: (value: boolean) => { historyAvailable = value; },
     setRecoveryScanEnabled: (value: boolean) => { recoveryScanEnabled = value; },
     setDirectConnectionFailure: (value: typeof directConnectionFailure) => { directConnectionFailure = value; },
     get directConnectionCalls() { return directConnectionCalls; },
@@ -292,6 +300,34 @@ test('graph candidate recovery finalizes a crash after mutation without replayin
     assert.equal(h.row.status, 'persisted_yjs'); assert.equal(h.row.version_revision_id, 'candidate-revision');
     assert.equal(h.directConnectionCalls, 0);
     assert.equal(h.history.length, 1); assert.equal(h.history[0]!.content, 'after');
+  } finally { h.close(); }
+});
+
+test('graph applying recovery accepts only the complete GC-compacted candidate without replay', async () => {
+  for (const replacement of ['after', '']) {
+    const h = harness(replacement);
+    try {
+      h.row.status = 'applying'; h.persistCandidate(); h.compactPersisted();
+      const input = candidateActionInput(h);
+      const result = await h.agent.recoverProposalGraphCandidateOperation(input);
+      assert.equal(h.currentText(), replacement);
+      assert.equal(result.revisionId, 'candidate-revision');
+      assert.equal(h.row.status, 'persisted_yjs');
+      assert.equal(h.history.length, 1); assert.equal(h.history[0]!.content, replacement);
+      assert.equal(h.directConnectionCalls, 0, 'recovery never replays a live mutation');
+      assert.deepEqual(await h.agent.recoverProposalGraphCandidateOperation(input), result);
+      assert.equal(h.history.length, 1, 'repeated recovery does not create another revision');
+    } finally { h.close(); }
+  }
+});
+
+test('graph applying recovery still denies GC-compacted candidate plus unacknowledged peer edit', async () => {
+  const h = harness('');
+  try {
+    h.row.status = 'applying'; h.persistCandidate(); h.applyIndependentEdit(); h.compactPersisted();
+    await assert.rejects(h.agent.recoverProposalGraphCandidateOperation(candidateActionInput(h)), { code: 'PROPOSAL_RECOVERY_REQUIRED' });
+    assert.equal(h.currentText(), ' later'); assert.equal(h.row.status, 'applying');
+    assert.equal(h.history.length, 0); assert.equal(h.directConnectionCalls, 0);
   } finally { h.close(); }
 });
 

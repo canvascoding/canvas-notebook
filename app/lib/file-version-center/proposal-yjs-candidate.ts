@@ -178,6 +178,37 @@ export function proposalYjsCurrentProof(input: {
   try { return proof(doc, input.representation, input.revisionId); } finally { doc.destroy(); }
 }
 
+/**
+ * Recovery-only equality for a complete candidate persisted before its receipt.
+ * Persistence may garbage-collect deleted structs, but content, identities,
+ * clocks and deletions must still be exact. Never rewrite retained artifacts or
+ * treat state containment as evidence that this unacknowledged action applied.
+ */
+export function proposalYjsRecoveryStateMatches(input: {
+  persistedUpdate: Uint8Array; candidateUpdate: Uint8Array; representation: ProposalYjsRepresentation;
+}): boolean {
+  const persisted = open(input.persistedUpdate, input.representation);
+  let candidate: YTypes.Doc | undefined;
+  try {
+    candidate = open(input.candidateUpdate, input.representation);
+    const { fullStateHash: persistedHash, ...persistedProof } = proof(persisted, input.representation, null);
+    const { fullStateHash: candidateHash, ...candidateProof } = proof(candidate, input.representation, null);
+    if (json(persistedProof) !== json(candidateProof)) return false;
+    if (persistedHash === candidateHash) return true;
+
+    const normalized = [new Y.Doc({ gc: true }), new Y.Doc({ gc: true })];
+    try {
+      for (const [index, doc] of [persisted, candidate].entries()) {
+        Y.applyUpdate(normalized[index], Y.encodeStateAsUpdate(doc));
+        materialize(normalized[index]);
+        validate(normalized[index], input.representation);
+      }
+      return json(proof(normalized[0], input.representation, null))
+        === json(proof(normalized[1], input.representation, null));
+    } finally { for (const doc of normalized) doc.destroy(); }
+  } finally { persisted.destroy(); candidate?.destroy(); }
+}
+
 function position(doc: YTypes.Doc, encoded: string): YTypes.AbsolutePosition | null {
   try { return Y.createAbsolutePositionFromRelativePosition(Y.decodeRelativePosition(Buffer.from(encoded, 'base64')), doc); }
   catch { return null; }

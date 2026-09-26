@@ -780,3 +780,21 @@ inkrementellen Cache und ESLint bestehen. Die vollständige Gesamtmatrix,
 Mehrprozess-/Crash-Fälle, Produktionsimage und manueller Konflikteditor P12
 bleiben offen. Kein Produkt-, Dependency- oder Env-Fix war für diesen
 Grenzfall erforderlich; kein Containerneubau, Push oder Rollout.
+
+### Recovery eines bereits gespeicherten, GC-bereinigten Kandidaten
+
+[Recovery GC results](recovery-gc-results.md) reproduziert und behebt die im
+Lösch-Persistenznachweis eingegrenzte konservative Recovery-Verweigerung. Nur
+eine noch `applying` markierte Aktion ohne gespeicherte Operationssnapshot
+darf nach exakter Prüfung von Inhalt, Struktur/IDs, Vector und Delete-Set
+beide vollständigen Updates in temporären Docs GC-normalisieren und erneut
+vollständig vergleichen. Normale Annahme-Fences bleiben streng; keine
+Artefaktmutation, kein Live-Replay und kein textbasierter Ersatznachweis.
+
+44 Candidate-/State-/Durability-Tests, 18 Orchestrator-Tests, PGlite-Storagegate
+und 16 Operationsharness-Tests bestehen. Erneute normale Personal-/Team-
+Browserannahmen eines leeren Dokuments sind mit exakten History-/Persistenz-
+Orakeln grün. TypeScript, fokussiertes ESLint und Produktionsbuild bestehen.
+Der Recovery-Code ist im Harness geprüft, nicht durch einen echten
+Prozessabsturz im PostgreSQL-Stack. PG-S19 bleibt dafür offen; FVRC-1008 und
+P12 werden nicht vorzeitig abgeschlossen. Kein Containerneubau oder Push.
