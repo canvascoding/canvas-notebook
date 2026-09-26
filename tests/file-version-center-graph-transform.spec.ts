@@ -105,6 +105,7 @@ test.describe('FVRC-1006 review-only proposal transformations', () => {
       const context = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } });
       const assertNoServerErrors = observeProposalReviewServerErrors(context);
       const page = await context.newPage();
+      page.setDefaultTimeout(20_000);
       const filePath = `fvrc-1006-${randomUUID()}.md`;
       let workspaceId: string | null = null;
       let uploaded = false;
@@ -204,6 +205,57 @@ test.describe('FVRC-1006 review-only proposal transformations', () => {
           phase: receipt.phase, createdProposalIds: receipt.result?.createdProposalIds, originalLifecycle: originalNode?.lifecycle,
           createdLifecycle: createdNode?.lifecycle, revisionCountBefore: beforeRevisions,
           revisionCountAfter: after.entries.filter(entry => entry.kind === 'revision').length });
+
+        if (kind === 'replace') {
+          let historicalActionPosts = 0;
+          let historicalTransformPreviews = 0;
+          page.on('request', request => {
+            if (request.method() !== 'POST') return;
+            const pathname = new URL(request.url()).pathname;
+            if (pathname.endsWith('/api/files/version-center/v1/proposals/actions')) historicalActionPosts += 1;
+            if (pathname.endsWith('/api/files/version-center/v1/proposals/transform/preview')) historicalTransformPreviews += 1;
+          });
+          const actionsBeforeHistorical = historicalActionPosts;
+          const previewsBeforeHistorical = historicalTransformPreviews;
+          const historicalGraph = await openReview(page, { workspaceId, lineageId: graphFixture.scope.lineageId,
+            operationId: proposalB.operationId });
+          await expect(historicalGraph.getByTestId('graph-review-historical-status')).toContainText('Superseded');
+          await expect(historicalGraph.getByTestId('graph-review-blocked')).toHaveCount(0);
+          expect(new URL(page.url()).searchParams.get('fvrcSelectedId')).toBe(proposalB.operationId);
+          await expect(historicalGraph.getByRole('button', { name: 'Accept change', exact: true })).toHaveCount(0);
+          await expect(historicalGraph.getByRole('button', { name: 'Reject proposal', exact: true })).toHaveCount(0);
+          await expect(historicalGraph.getByRole('button', { name: 'Reject branch', exact: true })).toHaveCount(0);
+          await expect(historicalGraph.getByRole('button', { name: 'Mark as already present', exact: true })).toHaveCount(0);
+          for (const name of ['Check a separate proposal', 'Check a replacement proposal against the current document']) {
+            const transformButton = historicalGraph.getByRole('button', { name, exact: true });
+            if (await transformButton.count()) await expect(transformButton).toBeDisabled();
+          }
+          await expect(historicalGraph.getByTestId('graph-review-transform-preview')).toHaveCount(0);
+          expect(await content(context.request, workspaceId, filePath)).toBe(AFTER_A_TEXT);
+          expect((await timeline(context.request, workspaceId, filePath)).entries.filter(entry => entry.kind === 'revision'))
+            .toHaveLength(after.entries.filter(entry => entry.kind === 'revision').length);
+
+          await page.reload();
+          const reloadedHistoricalGraph = page.getByTestId('graph-review-comparison');
+          await expect(reloadedHistoricalGraph).toBeVisible({ timeout: 30_000 });
+          await expect(reloadedHistoricalGraph.getByTestId('graph-review-historical-status')).toContainText('Superseded');
+          await expect(reloadedHistoricalGraph.getByTestId('graph-review-blocked')).toHaveCount(0);
+          expect(new URL(page.url()).searchParams.get('fvrcSelectedId')).toBe(proposalB.operationId);
+          await expect(reloadedHistoricalGraph.getByRole('button', { name: 'Accept change', exact: true })).toHaveCount(0);
+          await expect(reloadedHistoricalGraph.getByRole('button', { name: 'Reject proposal', exact: true })).toHaveCount(0);
+          await expect(reloadedHistoricalGraph.getByRole('button', { name: 'Reject branch', exact: true })).toHaveCount(0);
+          await expect(reloadedHistoricalGraph.getByRole('button', { name: 'Mark as already present', exact: true })).toHaveCount(0);
+          for (const name of ['Check a separate proposal', 'Check a replacement proposal against the current document']) {
+            const transformButton = reloadedHistoricalGraph.getByRole('button', { name, exact: true });
+            if (await transformButton.count()) await expect(transformButton).toBeDisabled();
+          }
+          await expect(reloadedHistoricalGraph.getByTestId('graph-review-transform-preview')).toHaveCount(0);
+          expect(historicalActionPosts).toBe(actionsBeforeHistorical);
+          expect(historicalTransformPreviews).toBe(previewsBeforeHistorical);
+          expect(await content(context.request, workspaceId, filePath)).toBe(AFTER_A_TEXT);
+          expect((await timeline(context.request, workspaceId, filePath)).entries.filter(entry => entry.kind === 'revision'))
+            .toHaveLength(after.entries.filter(entry => entry.kind === 'revision').length);
+        }
 
         const createdGraph = await openReview(page, { workspaceId, lineageId: graphFixture.scope.lineageId,
           operationId: preview.prepared.creation.operationId });

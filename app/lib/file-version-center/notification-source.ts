@@ -5,6 +5,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   createRuntimeFileVersionCenterDatabase,
   type FileVersionCenterDatabase,
+  type FileVersionCenterTransaction,
 } from './database';
 import {
   FILE_VERSION_CENTER_ROLLOUT_ENV_V1,
@@ -13,11 +14,20 @@ import {
 import {
   buildFileChangeReviewCenterHref,
   fileChangeReviewNotificationItemId,
+  FILE_CHANGE_REVIEW_BRANCH_NOTIFICATION_PREFIX,
   FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX,
   type FileChangeReviewNotificationReason,
+  type FileChangeReviewNotificationTarget,
 } from './notification-contract';
+import {
+  projectGraphNotificationGroups,
+  type GraphNotificationGroup,
+  type GraphNotificationMetadataRow,
+} from './notification-graph-projection';
 
 const MAX_NOTIFICATION_ITEMS = 200;
+const MAX_GRAPH_METADATA_ROWS = 65_536;
+const REVISION_PATTERN = /^[a-f0-9]{64}$/u;
 
 export type FileChangeReviewNotificationItem = {
   id: string;
@@ -30,12 +40,7 @@ export type FileChangeReviewNotificationItem = {
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
-  target: {
-    kind: 'file_change';
-    workspaceId: string;
-    lineageId: string;
-    operationId: string;
-  };
+  target: FileChangeReviewNotificationTarget;
 };
 
 type NotificationRow = {
@@ -73,6 +78,10 @@ const ACTIONABLE_OPERATION_PREDICATE_SQL = `
     OR (operation.status = 'failed' AND operation.requested_mode = 'direct_apply')
   )
   AND NOT EXISTS (
+    SELECT 1 FROM file_change_proposals graph_proposal
+    WHERE graph_proposal.operation_id = operation.operation_id
+  )
+  AND NOT EXISTS (
     SELECT 1
     FROM collaboration_agent_operations superseder
     WHERE superseder.workspace_id = operation.workspace_id
@@ -81,6 +90,43 @@ const ACTIONABLE_OPERATION_PREDICATE_SQL = `
       AND superseder.operation_type = 'revert'
       AND superseder.status IN ('persisted_yjs', 'checkpointed_file')
   )
+`;
+
+// Read only authoritative metadata in active, current collaborative scopes.
+// No node_json, candidate, document content, path, or apply state is loaded.
+const GRAPH_METADATA_SQL = `
+  SELECT graph.graph_id, graph.workspace_id, graph.lineage_id, graph.document_id,
+    graph.lifecycle_generation, graph.schema_version, proposal.proposal_id,
+    proposal.operation_id, operation.initiated_by_user_id, proposal.lifecycle,
+    proposal.cas_version, proposal.dependency_proposal_id, proposal.choice_group_id,
+    (proposal.choice_group_id IS NULL OR membership.proposal_id IS NOT NULL) AS choice_member_valid,
+    operation.status, operation.requested_mode, proposal.created_at, proposal.updated_at
+  FROM file_proposal_graphs graph
+  JOIN collaboration_documents document ON document.id = graph.document_id
+    AND document.workspace_id = graph.workspace_id AND document.lineage_id = graph.lineage_id
+    AND document.status = 'active' AND document.provider = 'yjs'
+  JOIN file_collaboration_lineages lineage ON lineage.id = graph.lineage_id
+    AND lineage.workspace_id = graph.workspace_id AND lineage.status = 'active'
+    AND lineage.organization_id IS NOT DISTINCT FROM document.organization_id
+    AND lineage.path = document.path
+  JOIN collaboration_yjs_states state ON state.document_id = graph.document_id
+    AND state.workspace_id = graph.workspace_id
+    AND state.organization_id IS NOT DISTINCT FROM document.organization_id
+    AND state.path = document.path AND state.status = 'active' AND state.degraded = 0
+    AND state.lifecycle_generation = graph.lifecycle_generation
+    AND state.schema_version = graph.schema_version
+  JOIN file_change_proposals proposal ON proposal.graph_id = graph.graph_id
+  LEFT JOIN file_proposal_choice_memberships membership ON membership.graph_id = proposal.graph_id
+    AND membership.proposal_id = proposal.proposal_id AND membership.group_id = proposal.choice_group_id
+  JOIN collaboration_agent_operations operation ON operation.operation_id = proposal.operation_id
+    AND operation.workspace_id = graph.workspace_id AND operation.document_id = graph.document_id
+    AND operation.document_lifecycle_generation = graph.lifecycle_generation
+    AND operation.schema_version = graph.schema_version
+  WHERE graph.workspace_id = $1
+    AND EXISTS (SELECT 1 FROM file_change_proposals open_proposal
+      WHERE open_proposal.graph_id = graph.graph_id AND open_proposal.lifecycle = 'open')
+  ORDER BY graph.graph_id, proposal.proposal_id
+  LIMIT ${MAX_GRAPH_METADATA_ROWS + 1}
 `;
 
 function validId(value: string): boolean {
@@ -185,6 +231,50 @@ function sourceParameters(userId: string, workspace: WorkspaceContext): [string,
   return [workspace.workspaceId, userId, workspace.permissions.canManageWorkspace];
 }
 
+function branchStateKey(group: GraphNotificationGroup): string {
+  return `${group.id}:${group.revision}`;
+}
+
+function branchNotification(group: GraphNotificationGroup, unread: boolean): FileChangeReviewNotificationItem {
+  const target: FileChangeReviewNotificationTarget = {
+    kind: 'file_change', workspaceId: group.workspaceId, lineageId: group.lineageId,
+    operationId: group.rootOperationId,
+    branch: { rootProposalId: group.rootProposalId, itemId: group.id, revision: group.revision },
+  };
+  return { id: group.id, type: 'file.change_review_required', ...presentation(group.reason),
+    previewUrl: null, deepLink: buildFileChangeReviewCenterHref(target), fileChangeReason: group.reason,
+    occurredAt: new Date(group.occurredAt).toISOString(), unread, target };
+}
+
+type BranchReadState = { item_key: string; read_at: number | string; dismissed_at: number | string | null };
+
+async function loadGraphGroups(transaction: FileVersionCenterTransaction,
+  input: { userId: string; workspace: WorkspaceContext }): Promise<GraphNotificationGroup[]> {
+  const rows = (await transaction.query<GraphNotificationMetadataRow>(GRAPH_METADATA_SQL, [input.workspace.workspaceId])).rows;
+  if (rows.length > MAX_GRAPH_METADATA_ROWS) throw new Error('Proposal notification metadata exceeds the bounded read limit.');
+  return projectGraphNotificationGroups({ rows, userId: input.userId,
+    canManageWorkspace: input.workspace.permissions.canManageWorkspace });
+}
+
+async function loadBranchReadStates(transaction: FileVersionCenterTransaction,
+  input: { userId: string; workspace: WorkspaceContext },
+  groups: readonly GraphNotificationGroup[]): Promise<Map<string, BranchReadState>> {
+  if (!groups.length) return new Map();
+  const result = await transaction.query<BranchReadState>(`SELECT item_key,read_at,dismissed_at
+    FROM mobile_inbox_read_states WHERE user_id=$1 AND workspace_id=$2 AND item_key=ANY($3::text[])`,
+  [input.userId, input.workspace.workspaceId, groups.map(branchStateKey)]);
+  return new Map(result.rows.map((row) => [row.item_key, row]));
+}
+
+function visibleBranchGroups(groups: readonly GraphNotificationGroup[], states: ReadonlyMap<string, BranchReadState>):
+  Array<{ group: GraphNotificationGroup; unread: boolean }> {
+  return groups.flatMap((group) => {
+    const state = states.get(branchStateKey(group));
+    if (state?.dismissed_at !== null && state?.dismissed_at !== undefined) return [];
+    return [{ group, unread: !state || Number(state.read_at) === 0 }];
+  });
+}
+
 export function createFileChangeReviewNotificationSource(options: {
   database?: FileVersionCenterDatabase;
   now?: () => Date;
@@ -222,13 +312,20 @@ export function createFileChangeReviewNotificationSource(options: {
         ORDER BY operation.updated_at DESC, operation.operation_id DESC
         LIMIT ${MAX_NOTIFICATION_ITEMS}
       `, sourceParameters(input.userId, input.workspace));
+      const groups = await loadGraphGroups(transaction, input);
+      const branchStates = await loadBranchReadStates(transaction, input, groups);
       const seen = new Set<string>();
-      return result.rows.flatMap((row) => {
+      const legacy = result.rows.flatMap((row) => {
         if (seen.has(row.operation_id)) return [];
         seen.add(row.operation_id);
         const notification = notificationFromRow(row);
         return notification ? [notification] : [];
       });
+      const branches = visibleBranchGroups(groups, branchStates)
+        .map(({ group, unread }) => branchNotification(group, unread));
+      return [...legacy, ...branches]
+        .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt) || b.id.localeCompare(a.id))
+        .slice(0, MAX_NOTIFICATION_ITEMS);
     });
   };
 
@@ -258,8 +355,11 @@ export function createFileChangeReviewNotificationSource(options: {
             END
         ) actionable_unread
       `, sourceParameters(input.userId, input.workspace));
+      const groups = await loadGraphGroups(transaction, input);
       const total = Number(result.rows[0]?.total ?? 0);
-      return Number.isSafeInteger(total) && total >= 0 ? total : 0;
+      const states = await loadBranchReadStates(transaction, input, groups);
+      const branchUnread = visibleBranchGroups(groups, states).filter((item) => item.unread).length;
+      return (Number.isSafeInteger(total) && total >= 0 ? total : 0) + branchUnread;
     });
   };
 
@@ -269,9 +369,33 @@ export function createFileChangeReviewNotificationSource(options: {
     itemId: string;
     read: boolean;
     dismiss?: boolean;
+    expectedRevision?: string;
   }): Promise<{ found: boolean; readAt: string | null; dismissedAt: string | null }> => {
     if (!notificationsEnabled() || !canReadNotifications(input.userId, input.workspace)) {
       return { found: false, readAt: null, dismissedAt: null };
+    }
+    if (input.itemId.startsWith(FILE_CHANGE_REVIEW_BRANCH_NOTIFICATION_PREFIX)) {
+      if (!/^file-change-branch:[a-f0-9]{64}$/u.test(input.itemId)
+        || !input.expectedRevision || !REVISION_PATTERN.test(input.expectedRevision)) {
+        return { found: false, readAt: null, dismissedAt: null };
+      }
+      return database.transaction(async (transaction) => {
+        const group = (await loadGraphGroups(transaction, input)).find((candidate) =>
+          candidate.id === input.itemId && candidate.revision === input.expectedRevision);
+        if (!group) return { found: false, readAt: null, dismissedAt: null };
+        const changedAt = now();
+        const readAt = input.read || input.dismiss ? changedAt.getTime() : 0;
+        const dismissedAt = input.dismiss ? changedAt.getTime() : null;
+        await transaction.query(`INSERT INTO mobile_inbox_read_states
+          (user_id,workspace_id,item_key,read_at,dismissed_at,created_at,updated_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$6)
+          ON CONFLICT (user_id,workspace_id,item_key) DO UPDATE SET
+            read_at=EXCLUDED.read_at,dismissed_at=EXCLUDED.dismissed_at,updated_at=EXCLUDED.updated_at`,
+        [input.userId, input.workspace.workspaceId, branchStateKey(group), readAt,
+          dismissedAt, changedAt.getTime()]);
+        return { found: true, readAt: input.read || input.dismiss ? changedAt.toISOString() : null,
+          dismissedAt: dismissedAt === null ? null : changedAt.toISOString() };
+      });
     }
     const operationId = operationIdFromItemId(input.itemId);
     if (!operationId) return { found: false, readAt: null, dismissedAt: null };
@@ -314,6 +438,9 @@ export function createFileChangeReviewNotificationSource(options: {
       return { readAt: changedAt.toISOString(), updated: 0 };
     }
     return database.transaction(async (transaction) => {
+      const groups = await loadGraphGroups(transaction, input);
+      const states = await loadBranchReadStates(transaction, input, groups);
+      const branchKeys = visibleBranchGroups(groups, states).map(({ group }) => branchStateKey(group));
       const result = await transaction.query<{ item_key: string }>(`
         INSERT INTO mobile_inbox_read_states (
           user_id, workspace_id, item_key, read_at, dismissed_at, created_at, updated_at
@@ -337,7 +464,18 @@ export function createFileChangeReviewNotificationSource(options: {
         RETURNING item_key
       `, [input.workspace.workspaceId, input.userId, input.workspace.permissions.canManageWorkspace,
         changedAt.getTime()]);
-      return { readAt: changedAt.toISOString(), updated: result.rows.length };
+      let updatedBranches = 0;
+      if (branchKeys.length) {
+        const branchResult = await transaction.query<{ item_key: string }>(`INSERT INTO mobile_inbox_read_states
+          (user_id,workspace_id,item_key,read_at,dismissed_at,created_at,updated_at)
+          SELECT $1,$2,key,$4,NULL,$4,$4 FROM unnest($3::text[]) AS key
+          ON CONFLICT (user_id,workspace_id,item_key) DO UPDATE SET
+            read_at=EXCLUDED.read_at,updated_at=EXCLUDED.updated_at
+          RETURNING item_key`,
+        [input.userId, input.workspace.workspaceId, branchKeys, changedAt.getTime()]);
+        updatedBranches = branchResult.rows.length;
+      }
+      return { readAt: changedAt.toISOString(), updated: result.rows.length + updatedBranches };
     });
   };
 

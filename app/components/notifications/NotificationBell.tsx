@@ -150,6 +150,7 @@ export function NotificationBell() {
         action: 'mark_item_read',
         itemId: item.id,
         workspaceId: item.workspaceId,
+        ...(item.target.kind === 'file_change' && item.target.branch ? { expectedRevision: item.target.branch.revision } : {}),
       });
     } finally {
       setIsMutating(false);
@@ -164,6 +165,7 @@ export function NotificationBell() {
         action: 'dismiss_item',
         itemId: item.id,
         workspaceId: item.workspaceId,
+        ...(item.target.kind === 'file_change' && item.target.branch ? { expectedRevision: item.target.branch.revision } : {}),
       });
     } finally {
       setIsMutating(false);
@@ -266,6 +268,7 @@ export function NotificationBell() {
       <div key={`${item.workspaceId}:${item.id}`} className="group flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
         <button
           type="button"
+          data-notification-id={item.id}
           data-testid={item.target.kind === 'email' && item.target.draftId ? `notification-email-open-${item.target.draftId}` : undefined}
           className="flex min-w-0 flex-1 items-start gap-2 text-left"
           onClick={() => void openItem(item)}

@@ -31,6 +31,7 @@ import {
 import type {
   ProposalCurrentProofV1,
   ProposalDocumentScopeV1,
+  ProposalLifecycleV1,
 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import {
   authorizeNewAgentDirectApply,
@@ -2872,14 +2873,29 @@ export async function listAgentOperations(input: {
   workspace: WorkspaceContext;
   userId: string;
   pendingOnly?: boolean;
-}): Promise<AgentOperationView[]> {
+}): Promise<Array<AgentOperationView & { proposalLifecycle?: ProposalLifecycleV1 | null }>> {
   if (!input.workspace.permissions.canRead) return [];
   const database = createAgentOperationDatabase();
   try {
     const rows = await database.all(
-      `SELECT operation.*, COALESCE(initiator.name, initiator.email, initiator.id) AS initiated_by_display_name
+      `SELECT operation.*, COALESCE(initiator.name, initiator.email, initiator.id) AS initiated_by_display_name,
+         proposal.proposal_id AS graph_proposal_id,
+         CASE WHEN graph.graph_id IS NOT NULL AND document.id IS NOT NULL AND state.document_id IS NOT NULL
+           THEN proposal.lifecycle ELSE NULL END AS graph_proposal_lifecycle
        FROM collaboration_agent_operations operation
        LEFT JOIN "user" initiator ON initiator.id = operation.initiated_by_user_id
+       LEFT JOIN file_change_proposals proposal ON proposal.operation_id = operation.operation_id
+       LEFT JOIN file_proposal_graphs graph ON graph.graph_id = proposal.graph_id
+         AND graph.workspace_id = operation.workspace_id AND graph.document_id = operation.document_id
+         AND graph.lifecycle_generation = operation.document_lifecycle_generation
+         AND graph.schema_version = operation.schema_version
+       LEFT JOIN collaboration_documents document ON document.id = graph.document_id
+         AND document.workspace_id = graph.workspace_id AND document.lineage_id = graph.lineage_id
+         AND document.status = 'active' AND document.provider = 'yjs'
+       LEFT JOIN collaboration_yjs_states state ON state.document_id = graph.document_id
+         AND state.workspace_id = graph.workspace_id
+         AND state.lifecycle_generation = graph.lifecycle_generation AND state.schema_version = graph.schema_version
+         AND state.status = 'active' AND state.organization_id IS NOT DISTINCT FROM operation.organization_id
        WHERE operation.document_id = $1 AND operation.workspace_id = $2
          AND ($3 = 0 OR operation.status IN ('needs_review', 'partially_applied', 'semantic_conflict', 'cancel_requested'))
        ORDER BY operation.updated_at DESC LIMIT 50`,
@@ -2888,10 +2904,19 @@ export async function listAgentOperations(input: {
         input.workspace.workspaceId,
         input.pendingOnly ? 1 : 0,
       ],
-    ) as AgentOperationRow[];
+    ) as Array<AgentOperationRow & {
+      graph_proposal_id: string | null;
+      graph_proposal_lifecycle: ProposalLifecycleV1 | null;
+    }>;
     return Promise.all(rows.map(async (stored) => {
       const row = await reconcileAgentOperationDurability(database, stored, input.workspace);
-      return toOperationView(row, await reviewTargets(row, input.userId), input.userId, canManageOperation(row, input.workspace, input.userId));
+      const actionsAllowed = canManageOperation(row, input.workspace, input.userId);
+      return {
+        ...toOperationView(row, await reviewTargets(row, input.userId), input.userId, actionsAllowed),
+        ...(stored.graph_proposal_id ? {
+          proposalLifecycle: actionsAllowed ? stored.graph_proposal_lifecycle : null,
+        } : {}),
+      };
     }));
   } finally {
     await database.close();

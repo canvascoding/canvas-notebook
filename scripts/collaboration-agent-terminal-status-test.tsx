@@ -236,9 +236,24 @@ test('the editor agent entry summarizes status and routes review actions to the 
   assert.deepEqual(ui.buildEditorAgentVersionCenterRequest({ documentId: 'doc', workspaceId: 'workspace', summary }), {
     contractVersion: 1,
     target: { kind: 'document', workspaceId: 'workspace', documentId: 'doc' },
-    selectedEntry: { kind: 'agent_operation', id: 'newest-review' },
     initialView: 'reviews',
     source: 'editor',
+  });
+  const soleReview = ui.summarizeEditorAgentOperations([current[1]!]);
+  assert.deepEqual(ui.buildEditorAgentVersionCenterRequest({ documentId: 'doc', workspaceId: 'workspace', summary: soleReview }), {
+    contractVersion: 1,
+    target: { kind: 'document', workspaceId: 'workspace', documentId: 'doc' },
+    selectedEntry: { kind: 'agent_operation', id: 'conflict' },
+    initialView: 'reviews',
+    source: 'editor',
+  });
+  const closedGraph = { ...current[0]!, proposalLifecycle: 'included' as const };
+  const inaccessibleGraph = { ...current[1]!, proposalLifecycle: null };
+  assert.deepEqual(ui.summarizeEditorAgentOperations([closedGraph, inaccessibleGraph, current[3]!]), {
+    reviewCount: 0, conflictCount: 0, activeCount: 0, latestReviewOperationId: null,
+  }, 'closed or unverified graph nodes cannot keep a review badge');
+  assert.deepEqual(ui.summarizeEditorAgentOperations([{ ...current[0]!, proposalLifecycle: 'open' }, closedGraph]), {
+    reviewCount: 1, conflictCount: 0, activeCount: 0, latestReviewOperationId: 'newest-review',
   });
   const withoutReview = ui.summarizeEditorAgentOperations([current[3]!]);
   assert.deepEqual(ui.buildEditorAgentVersionCenterRequest({ documentId: 'doc', workspaceId: 'workspace', summary: withoutReview }), {

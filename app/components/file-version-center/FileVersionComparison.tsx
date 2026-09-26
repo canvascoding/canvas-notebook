@@ -582,7 +582,21 @@ export function FileVersionComparison({
         <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
         <span>{t('graph.localSyncPending')}</span>
       </div> : null}
-      {metadataOnly ? (
+      {selection.state === 'invalidated' ? (
+        <EmptyComparison
+          testId="file-version-selection-unavailable"
+          icon={<FileQuestion className="size-4" aria-hidden="true" />}
+          title={t('selectionUnavailableTitle')}
+          description={t('selectionInvalidated')}
+        />
+      ) : request.initialView === 'reviews' && !request.selectedEntry && selected?.kind !== 'agent_operation' ? (
+        <EmptyComparison
+          testId="file-version-review-picker"
+          icon={<FileDiff className="size-4" aria-hidden="true" />}
+          title={t('reviewSelectionTitle')}
+          description={t('reviewSelectionDescription')}
+        />
+      ) : metadataOnly ? (
         <EmptyComparison
           testId="file-version-metadata-only"
           icon={<FileQuestion className="size-4" aria-hidden="true" />}

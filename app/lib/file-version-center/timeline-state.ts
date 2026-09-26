@@ -69,16 +69,16 @@ export function reconcileFileVersionTimelineSelection(input: {
 }): FileVersionTimelineSelection {
   const requestedKey = input.selectedKey ?? requestSelectionKey(input.request);
   const indexed = new Map(input.timeline.entries.map((entry) => [fileVersionTimelineEntryKey(entry), entry]));
-  const defaultCandidate = input.request.initialView === 'reviews'
-    ? input.timeline.entries.find((entry) => entry.kind === 'agent_operation')
-      ?? input.timeline.entries.find((entry) => entry.kind === 'current')
-      ?? input.timeline.entries[0]
-    : input.timeline.entries.find((entry) => entry.kind === 'current')
-      ?? input.timeline.entries[0];
+  const reviews = input.timeline.entries.filter((entry) => entry.kind === 'agent_operation');
+  // An unselected review entry point must not pick a winner from multiple proposals
+  // (including a still paginated set). Exact links never use this default.
+  const onlyReview = input.request.initialView === 'reviews' && reviews.length === 1
+    && !input.timeline.page.hasMore ? reviews[0] : null;
+  const defaultCandidate = onlyReview ?? input.timeline.entries.find((entry) => entry.kind === 'current');
   const defaultKey: FileVersionTimelineEntryKey = defaultCandidate
     ? fileVersionTimelineEntryKey(defaultCandidate)
     : 'current';
-  const defaultEntry = indexed.get(defaultKey) ?? input.timeline.entries[0] ?? null;
+  const defaultEntry = indexed.get(defaultKey) ?? null;
   const safeDefaultKey = defaultEntry ? fileVersionTimelineEntryKey(defaultEntry) : 'current';
 
   if (!requestedKey) {
@@ -88,8 +88,8 @@ export function reconcileFileVersionTimelineSelection(input: {
   if (selected) return { key: requestedKey, entry: selected, state: 'selected' };
   if (input.timeline.page.hasMore) return { key: requestedKey, entry: null, state: 'pending' };
   return {
-    key: safeDefaultKey,
-    entry: defaultEntry,
+    key: requestedKey,
+    entry: null,
     state: 'invalidated',
     invalidatedKey: requestedKey,
   };

@@ -50,6 +50,64 @@ async function main() {
   ];
   data = await presentFileChangeAppData(group, database);
   assert.deepEqual(data.entries.map((entry) => entry.state), ['reverted', 'superseded']);
+
+  const graphGroup: FileChangeGroupV1 = {
+    ...group,
+    entries: [
+      { id: 'entry-1', ordinal: 0, lineageId: 'lineage-1', operationId: 'operation-1',
+        pathHint: 'docs/one.md', outcome: 'review_required' },
+      { id: 'entry-2', ordinal: 1, lineageId: 'lineage-2', operationId: 'operation-2',
+        pathHint: 'docs/two.md', outcome: 'review_required' },
+      { id: 'entry-3', ordinal: 2, lineageId: 'lineage-3', operationId: 'operation-3',
+        pathHint: 'docs/three.md', outcome: 'review_required' },
+    ],
+  };
+  rows = graphGroup.entries.map((entry) => ({ entry_id: entry.id, operation_status: 'needs_review',
+    proposal_id: `proposal-${entry.ordinal}`, latest_revision_id: null, latest_revision_source: null }));
+  const lifecycles = ['included', 'superseded', 'rejected'] as const;
+  data = await presentFileChangeAppData(graphGroup, database, {
+    access: { userId: 'reviewer', canManageWorkspace: false } as never,
+    workspace: {} as never,
+    readEntryPoint: (async ({ operationId }: { operationId: string }) => {
+      const ordinal = Number(operationId.slice('operation-'.length)) - 1;
+      const lifecycle = lifecycles[ordinal]!;
+      return { contractVersion: 1, proposalId: `proposal-${ordinal}`, rootProposalId: `proposal-${ordinal}`,
+        lineageId: `lineage-${ordinal + 1}`, graphRevision: 7, lifecycle, status: 'clean', successors: [],
+        moreSuccessors: false };
+    }) as never,
+  });
+  assert.deepEqual(data.entries.map((entry) => entry.state), ['included', 'superseded', 'rejected'],
+    'graph lifecycle annotations override stale needs_review operation metadata');
+  assert.deepEqual(data.entries.map((entry) => entry.operationId), ['operation-1', 'operation-2', 'operation-3'],
+    'the stored historical operation reference remains exact');
+
+  rows = [{ entry_id: 'entry-1', operation_status: 'needs_review', proposal_id: 'proposal-1',
+    latest_revision_id: null, latest_revision_source: null }];
+  const oneGraphEntry = { ...graphGroup, entries: [graphGroup.entries[0]!] };
+  const annotation = (status: string) => ({ contractVersion: 1 as const, proposalId: 'proposal-0',
+    rootProposalId: 'proposal-0', lineageId: 'lineage-1', graphRevision: 7,
+    lifecycle: 'open' as const, status, successors: [], moreSuccessors: false });
+  const graphReview = { access: {} as never, workspace: {} as never,
+    readEntryPoint: async () => annotation('conflicted') as never };
+  data = await presentFileChangeAppData(oneGraphEntry, database, graphReview as never);
+  assert.equal(data.entries[0]?.state, 'conflict');
+
+  const blockedStatuses = ['blocked_by_parent', 'prerequisite_lost'];
+  for (const status of blockedStatuses) {
+    data = await presentFileChangeAppData(oneGraphEntry, database, {
+      ...graphReview, readEntryPoint: async () => annotation(status) as never,
+    } as never);
+    assert.equal(data.entries[0]?.state, 'blocked_by_parent', `${status} must not reappear as an active review prompt`);
+  }
+
+  data = await presentFileChangeAppData(oneGraphEntry, database, {
+    ...graphReview, readEntryPoint: async () => { throw new Error('authorization or proof unavailable'); },
+  } as never);
+  assert.equal(data.entries[0]?.state, 'unavailable', 'annotation failure must fail closed, not expose stale needs_review');
+  data = await presentFileChangeAppData(oneGraphEntry, database, {
+    ...graphReview, readEntryPoint: async () => null,
+  } as never);
+  assert.equal(data.entries[0]?.state, 'unavailable', 'a graph-known operation without annotation fails closed');
   console.log('File-change widget refresh data follows operation and revision state');
 }
 

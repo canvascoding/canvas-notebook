@@ -78,9 +78,12 @@ function TimelineRow({
   const proposal = summaryItem?.mode === 'graph' ? summaryItem.proposal : null;
   const evaluation = entry.kind === 'agent_operation' && evaluatedReview?.operationId === entry.operationId
     ? evaluatedReview : summaryItem?.mode === 'graph' ? summaryItem : null;
+  const lifecycle = entry.kind === 'agent_operation' && evaluatedReview?.operationId === entry.operationId
+    ? evaluatedReview.lifecycle ?? proposal?.lifecycle : proposal?.lifecycle;
+  const historicalLifecycle = lifecycle && lifecycle !== 'open' ? lifecycle : null;
   const unverified = entry.kind === 'agent_operation' && !evaluation && !summaryItem;
   const legacyVerified = summaryItem?.mode === 'legacy';
-  const conflict = entry.kind === 'agent_operation' && (evaluation
+  const conflict = entry.kind === 'agent_operation' && !historicalLifecycle && (evaluation
     ? ['conflicted', 'blocked_by_parent', 'prerequisite_lost', 'unavailable', 'stale_lifecycle'].includes(evaluation.status)
     : legacyVerified && CONFLICT_STATUSES.has(entry.status));
   const failed = entry.kind === 'agent_operation' && legacyVerified && FAILED_STATUSES.has(entry.status);
@@ -91,7 +94,8 @@ function TimelineRow({
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(entryTimestamp(entry)));
-  const status = evaluation ? t(`graph.status.${evaluation.status}`)
+  const status = historicalLifecycle ? t(`graph.context.lifecycle.${historicalLifecycle}`)
+    : evaluation ? t(`graph.status.${evaluation.status}`)
     : unverified && (summaryError || !summaryPending) ? t('graph.summaryUnavailable')
     : unverified ? t('graph.summaryChecking')
     : metadataOnly ? t('metadataOnlyBadge') : isAgent ? t(`status.${entry.status}`) : isCurrent
@@ -106,7 +110,7 @@ function TimelineRow({
     && (entry.additions !== undefined || entry.deletions !== undefined)
     ? t('changeCount', { additions: entry.additions ?? 0, deletions: entry.deletions ?? 0 })
     : null;
-  const Icon = conflict ? TriangleAlert : failed ? ShieldAlert : isAgent ? Sparkles
+  const Icon = historicalLifecycle ? History : conflict ? TriangleAlert : failed ? ShieldAlert : isAgent ? Sparkles
     : isCurrent ? CheckCircle2 : History;
 
   return (
@@ -115,14 +119,15 @@ function TimelineRow({
         type="button"
         aria-pressed={selected}
         data-entry-kind={entry.kind}
-        data-entry-status={isAgent ? evaluation?.status ?? (legacyVerified ? entry.status : undefined) : undefined}
+        data-entry-status={isAgent ? historicalLifecycle ?? evaluation?.status ?? (legacyVerified ? entry.status : undefined) : undefined}
         data-operation-id={isAgent ? entry.operationId : undefined}
         data-proposal-relation={proposal?.relation}
         onClick={onSelect}
         className={cn(
           'group w-full rounded-lg border px-3 py-3 text-left transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-          isAgent && 'border-violet-500/25 bg-violet-500/[0.045] hover:bg-violet-500/[0.085]',
+          isAgent && !historicalLifecycle && 'border-violet-500/25 bg-violet-500/[0.045] hover:bg-violet-500/[0.085]',
+          historicalLifecycle && 'border-border bg-muted/25 hover:bg-muted/40',
           isCurrent && 'border-emerald-500/25 bg-emerald-500/[0.055] hover:bg-emerald-500/[0.09]',
           entry.kind === 'revision' && 'border-border bg-background hover:bg-muted/45',
           conflict && 'border-amber-500/40 bg-amber-500/[0.07] hover:bg-amber-500/[0.12]',
@@ -133,7 +138,8 @@ function TimelineRow({
         <span className="flex items-start gap-3">
           <span className={cn(
             'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border bg-background/80',
-            isAgent && 'border-violet-500/25 text-violet-600 dark:text-violet-300',
+            isAgent && !historicalLifecycle && 'border-violet-500/25 text-violet-600 dark:text-violet-300',
+            historicalLifecycle && 'border-border text-muted-foreground',
             isCurrent && 'border-emerald-500/25 text-emerald-700 dark:text-emerald-300',
             conflict && 'border-amber-500/35 text-amber-700 dark:text-amber-300',
             failed && 'border-destructive/30 text-destructive',
@@ -148,7 +154,8 @@ function TimelineRow({
                 variant="outline"
                 className={cn(
                   'shrink-0 bg-background/70 font-medium',
-                  isAgent && !conflict && !failed && 'border-violet-500/30 text-violet-700 dark:text-violet-200',
+                  isAgent && !conflict && !failed && !historicalLifecycle && 'border-violet-500/30 text-violet-700 dark:text-violet-200',
+                  historicalLifecycle && 'border-border text-foreground',
                   isCurrent && 'border-emerald-500/30 text-emerald-700 dark:text-emerald-200',
                   conflict && 'border-amber-500/45 text-amber-800 dark:text-amber-200',
                   failed && 'border-destructive/40 text-destructive',
@@ -169,7 +176,7 @@ function TimelineRow({
               <time dateTime={entryTimestamp(entry)}>{timestamp}</time>
             </span>
             {diff ? <span className="mt-1 block text-xs font-medium text-muted-foreground">{diff}</span> : null}
-            {evaluation?.reasonCode ? <span className="mt-1 block text-xs text-amber-800 dark:text-amber-200">
+            {evaluation?.reasonCode && !historicalLifecycle ? <span className="mt-1 block text-xs text-amber-800 dark:text-amber-200">
               {evaluation.reasonCode === 'PROPOSAL_BATCH_CONFLICT'
                 ? t('graph.singleCurrentConflict') : t(`graph.reason.${evaluation.reasonCode}`)}
             </span> : null}

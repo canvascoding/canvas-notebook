@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
+import { getFileDisplayName } from '../app/lib/files/display-name';
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
 import { PROPOSAL_GRAPH_ERROR_CODES, type ProposalActionReceiptV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import type { ProposalReviewGraphSessionV1, ProposalReviewActionStatusResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
@@ -167,6 +168,151 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the authorized managed local graph-review browser stack.');
   test.setTimeout(180_000);
 
+  test('FVRC-1007 persisted chat widget preserves historical identity and offers explicit successor choices', async ({ browser }, testInfo) => {
+    await withFixture(browser, async (scope) => {
+      // Bound individual UI waits so failed selectors cannot consume teardown time.
+      scope.page.setDefaultTimeout(20_000);
+      const parent = proposal(scope.fixture, 'A');
+      const chosen = proposal(scope.fixture, 'B2');
+      const session = await (await scope.context.request.get('/api/auth/get-session')).json() as {
+        user: { id: string; role: string } };
+      const fixtureTitle = `FVRC-1007 browser review ${randomUUID()}`;
+      const createdChat = await scope.context.request.post('/api/sessions', {
+        headers: { [WORKSPACE_ID_HEADER]: scope.workspaceId },
+        data: { title: fixtureTitle, workspaceId: scope.workspaceId, agentId: 'bradley' },
+      });
+      expect(createdChat.ok(), 'The real session creation route must authorize the test chat.').toBeTruthy();
+      const createdChatBody = await createdChat.json() as { session: { sessionId: string; agentId: string } };
+      const encoded = Buffer.from(JSON.stringify({ userId: session.user.id, role: session.user.role,
+        workspaceId: scope.workspaceId, documentId: scope.fixture.scope.documentId,
+        lineageId: scope.fixture.scope.lineageId, operationId: parent.operationId, filePath: scope.filePath,
+        sessionId: createdChatBody.session.sessionId, fixtureTitle,
+      })).toString('base64url');
+      let chat: { sessionId: string; agentId: string; groupId: string };
+      try {
+        const created = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'), [
+          '--conditions', 'react-server', 'scripts/fvrc-1007-chat-fixture.ts', encoded,
+        ], { cwd: process.cwd(), env: process.env, maxBuffer: 1024 * 1024, timeout: 120_000 });
+        chat = JSON.parse(String(created.stdout).trim().split('\n').at(-1)!);
+      } catch (error) {
+        const stderr = error && typeof error === 'object' && 'stderr' in error && typeof error.stderr === 'string'
+          ? error.stderr : '';
+        const code = /FVRC_CHAT_FIXTURE_FAILED=([a-z_]+:[A-Z0-9_]+)/u.exec(stderr)?.[1] ?? 'load';
+        const deleted = await scope.context.request.delete('/api/sessions', { params: {
+          sessionId: createdChatBody.session.sessionId, agentId: createdChatBody.session.agentId,
+        } });
+        expect(deleted.ok(), 'The failed dedicated test chat must be removed.').toBeTruthy();
+        throw new Error(`The dedicated persisted chat fixture failed (${code}); arguments and private output are redacted.`);
+      }
+      try {
+        await scope.page.goto(`/en/notebook?workspaceId=${scope.workspaceId}&chat=open&session=${chat.sessionId}`);
+        const widget = scope.page.getByTestId('canvas-tool-app-widget');
+        await expect(widget.getByTestId('file-change-proposal-entry')).toBeVisible({ timeout: 60_000 });
+        await expect(widget.getByText('Choose from 2 successors', { exact: true })).toBeVisible();
+        await widget.getByRole('button', { name: 'View changes', exact: true }).click();
+        let graph = scope.page.getByTestId('graph-review-comparison');
+        await expect(graph).toBeVisible();
+        expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(parent.operationId);
+        expect(new URL(scope.page.url()).searchParams.get('fvrcRef')).toBe(chat.groupId);
+        await scope.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+        await widget.locator('summary').click();
+        const choices = widget.getByTestId('file-change-successor-option');
+        await expect(choices).toHaveCount(2);
+        await testInfo.attach('widget-explicit-successors.png', { body: await widget.screenshot(), contentType: 'image/png' });
+        await choices.nth(1).click();
+        graph = scope.page.getByTestId('graph-review-comparison');
+        await expect(graph).toBeVisible();
+        expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(chosen.operationId);
+        expect(new URL(scope.page.url()).searchParams.get('fvrcTarget')).toBe('lineage');
+        const receipt = await confirmAction(graph, scope.page, 'Accept change');
+        expect(receipt.result?.resolutions).toEqual(expect.arrayContaining([
+          { proposalId: parent.proposalId, lifecycle: 'included' },
+          { proposalId: chosen.proposalId, lifecycle: 'applied' },
+        ]));
+        await expect.poll(() => content(scope)).toBe('# Graph flow fixture\n\nA1|B2\n');
+        await scope.page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+        await widget.getByRole('button', { name: 'Reload widget', exact: true }).click();
+        await expect(widget.getByTestId('file-change-proposal-entry')).toContainText('Included', { timeout: 30_000 });
+        await scope.page.reload();
+        await expect(widget.getByTestId('file-change-proposal-entry')).toContainText('Included', { timeout: 30_000 });
+        await widget.getByRole('button', { name: 'View changes', exact: true }).click();
+        await expect(scope.page.getByTestId('graph-review-comparison')).toBeVisible();
+        expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(parent.operationId);
+        await expect(scope.page.getByTestId('graph-review-historical-status')).toContainText('Included');
+        await expect(scope.page.locator(`button[data-operation-id="${parent.operationId}"]`))
+          .toHaveAttribute('data-entry-status', 'included');
+        await expect(scope.page.getByText('The relationship review is blocked', { exact: true })).toHaveCount(0);
+        await expect(scope.page.getByTestId('graph-review-comparison').getByRole('button', { name: 'Accept change', exact: true })).toHaveCount(0);
+        await testInfo.attach('historical-widget-link-readonly.png', {
+          body: await scope.page.getByRole('dialog').screenshot(), contentType: 'image/png' });
+      } finally {
+        const deleted = await scope.context.request.delete('/api/sessions', {
+          params: { sessionId: chat.sessionId, agentId: chat.agentId },
+        });
+        expect(deleted.ok(), 'The dedicated test chat must be removed.').toBeTruthy();
+      }
+    });
+  });
+
+  test('FVRC-1007 editor agent and file browser entries require explicit proposal selection', async ({ browser }) => {
+    await withFixture(browser, async (scope) => {
+      scope.page.setDefaultTimeout(20_000);
+      const firstChild = proposal(scope.fixture, 'B1');
+      const secondChild = proposal(scope.fixture, 'B2');
+      let actionPosts = 0;
+      scope.page.on('request', (request) => {
+        if (request.method() === 'POST' && new URL(request.url()).pathname === ACTION_PATH) actionPosts += 1;
+      });
+
+      await scope.page.goto(`/en/notebook?path=${encodeURIComponent(scope.filePath)}`, { waitUntil: 'domcontentloaded' });
+      await scope.page.getByRole('group', { name: 'Document view' })
+        .getByRole('button', { name: 'Edit', exact: true }).click();
+      const agentEntry = scope.page.getByRole('button', { name: /Open agent changes: [2-9]\d*/u });
+      await expect(agentEntry).toBeVisible({ timeout: 30_000 });
+      const beforeRevisions = await revisionCount(scope);
+      expect(await content(scope)).toBe(BASE_TEXT);
+
+      await agentEntry.click();
+      const center = scope.page.getByTestId('file-version-center');
+      await expect(center).toBeVisible();
+      await expect(center.getByTestId('file-version-review-picker')).toBeVisible();
+      expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBeNull();
+      await expect(center.locator('button[data-operation-id][aria-pressed="true"]')).toHaveCount(0);
+      await center.locator(`button[data-operation-id="${secondChild.operationId}"]`).click();
+      await expect(center.getByTestId('graph-review-comparison').getByTestId('graph-review-hunks'))
+        .toContainText('A1|B2');
+      expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(secondChild.operationId);
+
+      await center.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(center).toBeHidden();
+      const showSidebar = scope.page.getByRole('button', { name: 'Show sidebar', exact: true });
+      if (await showSidebar.isVisible()) await showSidebar.click();
+      const fileRow = scope.page.locator(`[data-file-path="${scope.filePath}"]`).first();
+      await expect(fileRow).toBeVisible();
+      const displayName = getFileDisplayName({ name: scope.filePath, type: 'file' });
+      await fileRow.getByRole('button', { name: `More actions for ${displayName}`, exact: true }).click();
+      const versionItem = scope.page.locator('[role="menu"]:visible').last().getByTestId('file-version-menu-item');
+      await expect(versionItem).toHaveAttribute('data-file-version-capability', 'full', { timeout: 30_000 });
+      await versionItem.click();
+      await expect(center).toBeVisible();
+      expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBeNull();
+      await expect(center.getByTestId('graph-review-comparison')).toHaveCount(0);
+
+      for (const [child, expectedCandidate] of [[firstChild, 'A1|B1'], [secondChild, 'A1|B2']] as const) {
+        const card = center.locator(`button[data-operation-id="${child.operationId}"]`);
+        await expect(card).toBeVisible();
+        await card.click();
+        await expect(card).toHaveAttribute('aria-pressed', 'true');
+        await expect(center.getByTestId('graph-review-comparison').getByTestId('graph-review-hunks'))
+          .toContainText(expectedCandidate);
+        expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(child.operationId);
+      }
+      expect(actionPosts).toBe(0);
+      expect(await content(scope)).toBe(BASE_TEXT);
+      expect(await revisionCount(scope)).toBe(beforeRevisions);
+    });
+  });
+
   test('parent-only acceptance leaves both child alternatives open and the chosen child has a separate remaining diff', async ({ browser }, testInfo) => {
     await withFixture(browser, async (scope) => {
       const parent = proposal(scope.fixture, 'A');
@@ -284,6 +430,7 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
 
   test('reject branch closes the selected parent and both dependent alternatives without a live write', async ({ browser }, testInfo) => {
     await withFixture(browser, async (scope) => {
+      scope.page.setDefaultTimeout(20_000);
       const parent = proposal(scope.fixture, 'A');
       const affected = scope.fixture.proposals.map((item) => item.proposalId).sort();
       const beforeRevisions = await revisionCount(scope);
@@ -314,6 +461,17 @@ test.describe('FVRC-1006 dependency, choice, and recovery browser flows', () => 
         expect(closed.context?.proposals.find((node) => node.proposalId === item.proposalId)?.lifecycle).toBe('rejected');
         expect(Object.keys(closed.actions)).toHaveLength(0);
       }
+      const historicalChild = proposal(scope.fixture, 'B1');
+      await openReview(scope, historicalChild.operationId);
+      await scope.page.reload();
+      await expect(scope.page.getByTestId('graph-review-historical-status')).toContainText('Rejected');
+      expect(new URL(scope.page.url()).searchParams.get('fvrcSelectedId')).toBe(historicalChild.operationId);
+      await expect(scope.page.locator(`button[data-operation-id="${historicalChild.operationId}"]`))
+        .toHaveAttribute('data-entry-status', 'rejected');
+      await expect(scope.page.getByTestId('graph-review-comparison').getByRole('button', {
+        name: /Accept change|Reject branch|Reject proposal|Mark as already present/u,
+      })).toHaveCount(0);
+      await expect(scope.page.getByText('The relationship review is blocked', { exact: true })).toHaveCount(0);
       await testInfo.attach('branch-reject-receipt.json', { body: JSON.stringify({ phase: receipt.phase,
         actionType: receipt.actionType, affectedProposalIds: receipt.affectedProposalIds,
         revisionCountBefore: beforeRevisions, revisionCountAfter: await revisionCount(scope) }, null, 2),

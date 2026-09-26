@@ -310,19 +310,13 @@ async function main() {
   });
   await settle();
   await settle();
-  assert.equal(staleSelectionRequests.length, 2,
-    'a stale polled editor selection reloads the authoritative timeline exactly once');
-  assert.equal(staleSelectionRequests[1]?.selectedEntry, undefined,
-    'only the stale deep-link selection is discarded during recovery');
-  assert.equal(staleSelectionRequests[1]?.initialView, 'reviews',
-    'stale selection recovery preserves the review context');
-  assert.match(document.body.textContent ?? '', /Conflict/iu,
-    'the refreshed timeline exposes the newest conflict instead of a terminal load error');
-  assert.equal(document.querySelector('[data-entry-status="semantic_conflict"]')?.getAttribute('aria-pressed'), 'true',
-    'the newest review remains selected after stale deep-link recovery');
-  assert.doesNotMatch(document.body.textContent ?? '', /Document history could not be loaded/iu);
-  assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), null,
-    'stale selection recovery also repairs the reload-safe URL');
+  assert.equal(staleSelectionRequests.length, 1,
+    'an unavailable exact link never retries by silently dropping its selection');
+  assert.match(document.body.textContent ?? '', /The selected review is already closed/iu);
+  assert.equal(document.querySelector('[data-entry-status="semantic_conflict"][aria-pressed="true"]'), null,
+    'another proposal cannot take over an unavailable historical link');
+  assert.equal(new URL(window.location.href).searchParams.get('fvrcSelectedId'), 'already-closed',
+    'the original exact selection remains reload-safe');
 
   const completed = response([currentEntry], { hasMore: false, nextCursor: null });
   const invalidated = reconcileFileVersionTimelineSelection({
@@ -331,7 +325,18 @@ async function main() {
     selectedKey: 'revision:removed',
   });
   assert.equal(invalidated.state, 'invalidated');
-  assert.equal(invalidated.key, 'current', 'a missing selection falls back only after pagination is complete');
+  assert.equal(invalidated.key, 'revision:removed', 'an unavailable selection keeps its exact identity');
+  assert.equal(invalidated.entry, null, 'an unavailable version is never replaced with Current');
+  const unselectedReviews = { ...request, selectedEntry: undefined, initialView: 'reviews' as const };
+  assert.equal(reconcileFileVersionTimelineSelection({ request: unselectedReviews,
+    timeline: response([agentEntry, conflictEntry, currentEntry], { hasMore: false, nextCursor: null }),
+  }).key, 'current', 'multiple proposals wait for an explicit selection');
+  assert.equal(reconcileFileVersionTimelineSelection({ request: unselectedReviews,
+    timeline: response([agentEntry, currentEntry], { hasMore: true, nextCursor: 'more' }),
+  }).key, 'current', 'a partial page cannot prove that one proposal is the only choice');
+  assert.equal(reconcileFileVersionTimelineSelection({ request: unselectedReviews,
+    timeline: response([agentEntry, currentEntry], { hasMore: false, nextCursor: null }),
+  }).key, `agent_operation:${agentEntry.id}`, 'the sole complete review is still directly reachable');
   assert.throws(() => mergeFileVersionTimelinePage(
     response([agentEntry], { hasMore: true, nextCursor: 'cursor-one' }),
     { ...completed, document: { ...completed.document, lineageId: 'another-lineage' } },
@@ -511,6 +516,28 @@ async function main() {
     'the revalidated review keeps the same focused DOM node');
   assert.equal(document.activeElement, selectedCard);
   assert.equal(selectedCard?.getAttribute('data-entry-status'), 'clean');
+  const closedSummaryItems = [
+    { mode: 'graph', operationId: 'operation-one',
+      proposal: { ...graphProposal('proposal-one', 'operation-one', 'root'), lifecycle: 'included' },
+      status: 'blocked_by_parent', reasonCode: 'PROPOSAL_INVALID_TRANSITION' },
+    { mode: 'graph', operationId: 'operation-two',
+      proposal: { ...graphProposal('proposal-two', 'operation-two', 'dependency'), lifecycle: 'superseded' },
+      status: 'conflicted', reasonCode: 'PROPOSAL_INVALID_TRANSITION' },
+  ] satisfies ProposalReviewSummaryResponseV1['items'];
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={selectedReviewTimeline} selection={selectedReview}
+      evaluatedReview={{ operationId: 'operation-one', status: 'blocked_by_parent',
+        reasonCode: 'PROPOSAL_INVALID_TRANSITION', lifecycle: 'included' }}
+      reviewSummary={closedSummaryItems} onSelect={() => {}} onLoadMore={() => {}}
+      loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.match(selectedCard?.textContent ?? '', /Included/u);
+  assert.equal(selectedCard?.getAttribute('data-entry-status'), 'included');
+  assert.doesNotMatch(selectedCard?.textContent ?? '', /Blocked by a dependency|This decision is no longer allowed/u);
+  const closedOtherCard = document.querySelector<HTMLButtonElement>('[data-operation-id="operation-two"]');
+  assert.match(closedOtherCard?.textContent ?? '', /Superseded/u);
+  assert.equal(closedOtherCard?.getAttribute('data-entry-status'), 'superseded');
+  assert.doesNotMatch(closedOtherCard?.textContent ?? '', /Conflicting changes|This decision is no longer allowed/u);
   await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
     <FileVersionTimeline timeline={selectedReviewTimeline} selection={selectedReview}
       reviewSummary={[{ mode: 'legacy', operationId: 'operation-one' }, { mode: 'legacy', operationId: 'operation-two' }]}

@@ -738,6 +738,85 @@ async function main() {
   await act(async () => { checkStatus.click(); });
   await settle();
   assert.equal(actionState.readGraphReviewActionIdentity(pendingKey), null, 'server absence after approval expiry unlocks review');
+
+  const branchRequest = { ...request, branchOverview: true as const,
+    selectedEntry: { kind: 'agent_operation' as const, id: 'operation-proposal-one' } };
+  const branchSession = { ...cleanAll, selectedProposalIds: ['proposal-one'], compare: {
+    ...cleanAll.compare, binding: { ...cleanAll.compare.binding, selectedProposalIds: ['proposal-one'] },
+  }, capability: { write: true }, actions: { reject: preparedAction('reject', ['proposal-one']) },
+  context: { ...cleanAll.context, selectedProposalIds: ['proposal-one'] } };
+  const branchReads: Array<{ selection: unknown }> = [];
+  const cardStatuses: unknown[] = [];
+  const onBranchStatus = (value: unknown) => { cardStatuses.push(value); };
+  globalThis.fetch = async (_input, init) => {
+    branchReads.push(JSON.parse(String(init?.body)));
+    return Response.json(branchSession);
+  };
+  await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <GraphReviewComparison key="branch-overview" request={branchRequest} document={target}
+      operationId="operation-proposal-one" legacy={<div data-testid="legacy-review">Legacy</div>}
+      isRevalidating={false} isStale={false} onTimelineInvalidate={() => {}} onContinue={() => {}}
+      onReviewStatus={onBranchStatus} />
+  </NextIntlClientProvider>); });
+  await settle();
+  const overview = document.querySelector('[data-testid="graph-review-branch-overview"]');
+  assert.ok(overview, 'group notifications open a branch overview, not an automatically actionable root');
+  assert.equal(overview.querySelectorAll('button[data-proposal-id]').length, cleanAll.context.proposals.length);
+  assert.doesNotMatch(overview.textContent ?? '', /Reject proposal|Accept proposal|Accept all|Review all changes/);
+  assert.deepEqual(cardStatuses.find(value => value !== null), {
+    operationId: 'operation-proposal-one', status: 'clean', reasonCode: null,
+    branchContext: { rootProposalId: 'proposal-one', graphRevision: 2 },
+  }, 'only a resolved authorized graph context can acknowledge a branch notification');
+  const branchChoice = overview.querySelector<HTMLButtonElement>('button[data-proposal-id="proposal-two"]');
+  assert.ok(branchChoice);
+  await act(async () => { branchChoice.click(); });
+  await settle();
+  assert.equal(document.querySelector('[data-testid="graph-review-branch-overview"]'), null);
+  assert.deepEqual(branchReads.at(-1)?.selection, { kind: 'proposals', proposalIds: ['proposal-two'] },
+    'the chosen node, not the newest/root node, starts the next separate review');
+
+  globalThis.fetch = async () => Response.json({ contractVersion: 1, mode: 'legacy' });
+  await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <GraphReviewComparison key="branch-legacy-fail-closed" request={branchRequest} document={target}
+      operationId="operation-proposal-one" legacy={<div data-testid="legacy-review">Legacy</div>}
+      isRevalidating={false} isStale={false} onTimelineInvalidate={() => {}} onContinue={() => {}} />
+  </NextIntlClientProvider>); });
+  await settle();
+  assert.equal(document.querySelector('[data-testid="legacy-review"]'), null,
+    'a graph group never falls back to a legacy single-proposal action');
+  assert.ok(document.querySelector('[data-testid="graph-review-load-error"]'));
+
+  for (const [lifecycle, label] of [
+    ['applied', 'Applied'], ['included', 'Included'], ['rejected', 'Rejected'],
+    ['superseded', 'Superseded'], ['alternative_not_selected', 'Not selected'],
+    ['satisfied_elsewhere', 'Already present'], ['expired', 'Expired'],
+  ] as const) {
+    const closedStatuses: Array<{ lifecycle?: string } | null> = [];
+    const closedSession = { ...conflict, status: 'blocked_by_parent', reasonCode: 'PROPOSAL_INVALID_TRANSITION',
+      diagnosis: { ...diagnosis, reasonCode: 'PROPOSAL_INVALID_TRANSITION' }, capability: { write: true },
+      context: { graphRevision: 2, proposals: [{ ...proposal('proposal-one', null, 'root'), lifecycle }],
+        selectedProposalIds: ['proposal-one'], dependencyProposalIds: [], applyProposalIds: [],
+        closingAlternativeProposalIds: [], reasonCode: 'PROPOSAL_INVALID_TRANSITION' } };
+    globalThis.fetch = async () => Response.json(closedSession);
+    await act(async () => { root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <GraphReviewComparison key={`historical-${lifecycle}`} request={request} document={target}
+        operationId="operation-proposal-one" legacy={<div data-testid="legacy-review">Legacy</div>}
+        isRevalidating={false} isStale={false} onTimelineInvalidate={() => {}} onContinue={() => {}}
+        onReviewStatus={(value) => closedStatuses.push(value)} />
+    </NextIntlClientProvider>); });
+    await settle();
+    const historical = document.querySelector('[data-testid="graph-review-historical-status"]');
+    assert.match(historical?.textContent ?? '', new RegExp(label, 'iu'),
+      `${lifecycle} is presented as an exact terminal historical state`);
+    assert.equal(document.querySelector('[data-testid="graph-review-blocked"]'), null);
+    assert.doesNotMatch(document.body.textContent ?? '', /The relationship review is blocked|This decision is no longer allowed/iu);
+    assert.ok(document.querySelector('[data-testid="graph-review-diagnostics"]'), 'redacted diagnostics remain inspectable');
+    const footer = document.querySelector('[data-testid="graph-review-footer"]');
+    assert.doesNotMatch(footer?.textContent ?? '', /Accept change|Reject proposal|Check a separate proposal|replacement proposal/iu,
+      'closed exact selections expose no mutation controls, including disabled ones');
+    assert.equal(closedStatuses.find((value) => value?.lifecycle === lifecycle)?.lifecycle, lifecycle,
+      'the selected exact closed operation forwards its authorized lifecycle to the timeline');
+  }
   await act(async () => { root.unmount(); });
   console.log('Graph review comparison component tests passed.');
 }

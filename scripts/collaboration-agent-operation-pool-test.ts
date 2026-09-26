@@ -46,12 +46,16 @@ function harness(count = 10) {
   let opened = 0;
   let maxLeased = 0;
   let closed = false;
+  let listSql = '';
   let failMethod: 'get' | 'run' | 'all' | null = null;
   const waiting: { resolve: () => void; reject: (error: Error) => void }[] = [];
   const indexFor = (documentId: string) => Number(documentId.split('-').at(-1));
   const query = async (method: 'get' | 'run' | 'all', sql: string, params: unknown[] = []) => {
     if (method === failMethod) throw new Error(`EXPECTED_${method.toUpperCase()}_ERROR`);
-    if (method === 'all') return [...rows.values()].filter((row) => row.document_id === params[0]).map((row) => ({ ...row }));
+    if (method === 'all') {
+      listSql = sql;
+      return [...rows.values()].filter((row) => row.document_id === params[0]).map((row) => ({ ...row }));
+    }
     if (method === 'get') {
       if (sql.includes('SELECT name, email')) return { name: 'User' };
       if (firstReadCount < count) {
@@ -161,6 +165,7 @@ function harness(count = 10) {
       result_json: JSON.stringify({ status: 'needs_review', appliedTargetIds: [], conflicts: [], stateVector: '', durability: 'needs_review' }) });
   });
   return { agent, docs, rows, states, targets, addReviews, firstReads, reviews, grants,
+    listSql: () => listSql,
     stats: () => ({ leased, opened, maxLeased, waiting: waiting.length, reviewCount, grantCount, directCount }),
     fail: (method: typeof failMethod) => { failMethod = method; },
     nestedRead,
@@ -174,6 +179,32 @@ function harness(count = 10) {
     },
   };
 }
+
+test('operation list projects graph lifecycle without rewriting legacy status or disclosing inaccessible nodes', async () => {
+  const h = harness(4); h.addReviews(); h.reviews.resolve();
+  try {
+    Object.assign(h.rows.get('operation-0')!, { graph_proposal_id: 'proposal-0', graph_proposal_lifecycle: 'open' });
+    Object.assign(h.rows.get('operation-1')!, { graph_proposal_id: 'proposal-1', graph_proposal_lifecycle: 'included' });
+    Object.assign(h.rows.get('operation-2')!, { graph_proposal_id: 'proposal-2', graph_proposal_lifecycle: null });
+    const open = (await h.agent.listAgentOperations({ documentId: 'document-0', workspace, userId: 'user' }))[0]!;
+    assert.equal(open.proposalLifecycle, 'open');
+    assert.equal(open.operationStatus, 'needs_review');
+    const closed = (await h.agent.listAgentOperations({ documentId: 'document-1', workspace, userId: 'user' }))[0]!;
+    assert.equal(closed.proposalLifecycle, 'included');
+    assert.equal(closed.operationStatus, 'needs_review', 'the historical operation status remains unchanged');
+    const unauthorized = (await h.agent.listAgentOperations({ documentId: 'document-1', workspace, userId: 'other' }))[0]!;
+    assert.equal(unauthorized.proposalLifecycle, null);
+    const stale = (await h.agent.listAgentOperations({ documentId: 'document-2', workspace, userId: 'user' }))[0]!;
+    assert.equal(stale.proposalLifecycle, null, 'an unproven graph scope is never presented as legacy');
+    const legacy = (await h.agent.listAgentOperations({ documentId: 'document-3', workspace, userId: 'user' }))[0]!;
+    assert.equal(Object.hasOwn(legacy, 'proposalLifecycle'), false);
+    assert.match(h.listSql(), /proposal\.operation_id = operation\.operation_id/u);
+    assert.match(h.listSql(), /graph\.lifecycle_generation = operation\.document_lifecycle_generation/u);
+    assert.match(h.listSql(), /state\.schema_version = graph\.schema_version/u);
+    assert.match(h.listSql(), /document\.status = 'active'/u);
+    assert.match(h.listSql(), /state\.status = 'active'/u);
+  } finally { h.close(); }
+});
 
 test('ten actual status reviews release operation clients before nested reads and room waits', async () => {
   const h = harness(); h.addReviews();

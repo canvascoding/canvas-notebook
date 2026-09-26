@@ -1,4 +1,5 @@
 import type { AgentProposalPreviewMetadata } from './agent-proposal-preview';
+import type { ProposalLifecycleV1 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 
 export type CollaborationAgentOperationStatus =
   | 'preparing'
@@ -21,6 +22,8 @@ export type CollaborationAgentOperationStatus =
 export type CollaborationAgentOperation = {
   operationId: string;
   operationStatus: CollaborationAgentOperationStatus;
+  /** Undefined for legacy operations; null when graph scope or authorization cannot be proven. */
+  proposalLifecycle?: ProposalLifecycleV1 | null;
   status: 'applied_to_ydoc' | 'partially_applied' | 'needs_review' | 'semantic_conflict';
   durability: 'pending' | 'applied_to_ydoc' | 'persisted_yjs' | 'checkpointed_file' | 'needs_review';
   actorId: string;

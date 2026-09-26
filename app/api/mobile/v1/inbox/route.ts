@@ -52,6 +52,7 @@ export async function PATCH(request: NextRequest) {
       action: payload.action,
       category: payload.category,
       itemId: payload.itemId,
+      expectedRevision: payload.expectedRevision,
       read: payload.read,
       includeFileChanges,
     });

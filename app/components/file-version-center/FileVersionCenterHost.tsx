@@ -32,7 +32,6 @@ import {
 import {
   claimFileChangeReviewAcknowledgement,
   closeVersionCenter,
-  openVersionCenter,
   releaseFileChangeReviewAcknowledgement,
   selectVersionCenterEntry,
   syncVersionCenterFromLocation,
@@ -67,7 +66,8 @@ export function FileVersionCenterHost() {
   const request = useFileVersionCenterStore((state) => state.request);
   const authScope = useSyncExternalStore(subscribeFileVersionAuth, openedDocumentAuthScope, () => null);
   const targetIdentity = request ? JSON.stringify([authScope, request.target]) : null;
-  const [resolvedTimeline, setResolvedTimeline] = useState<{ identity: string; value: FileVersionTimelineResponseV1 } | null>(null);
+  const [resolvedTimeline, setResolvedTimeline] = useState<{ identity: string;
+    requestTarget: FileVersionCenterRequestV1['target']; value: FileVersionTimelineResponseV1 } | null>(null);
   const [failure, setFailure] = useState<{ identity: string; message: string } | null>(null);
   const timeline = resolvedTimeline?.identity === targetIdentity ? resolvedTimeline.value : null;
   const timelineAvailable = timeline !== null;
@@ -79,7 +79,8 @@ export function FileVersionCenterHost() {
     currentEntry?.kind === 'current' ? currentEntry.stateVectorHash : null]);
   const reviewScopeIdentity = authScope && timeline ? JSON.stringify([authScope,
     timeline.document.workspaceId, timeline.document.lineageId, timeline.document.documentId]) : null;
-  const [reviewCard, setReviewCard] = useState<{ identity: string; value: GraphReviewCardStatus } | null>(null);
+  const [reviewCard, setReviewCard] = useState<{ identity: string; request: FileVersionCenterRequestV1;
+    value: GraphReviewCardStatus } | null>(null);
   const [reviewSummary, setReviewSummary] = useState<{ timeline: FileVersionTimelineResponseV1; identity: string;
     scopeIdentity: string;
     reload: number; value: ProposalReviewSummaryResponseV1 } | null>(null);
@@ -128,7 +129,7 @@ export function FileVersionCenterHost() {
     setFailure(null);
     setLoadMoreError(null);
     setLoadingMore(false);
-    let resolvingRequest = activeRequest;
+    const resolvingRequest = activeRequest;
     try {
       if (options?.preserveTimeline) await invalidateReviewQueries(activeRequest.target.workspaceId);
       if (!isCurrent()) return;
@@ -139,7 +140,7 @@ export function FileVersionCenterHost() {
           if (next.document.workspaceId !== resolvingRequest.target.workspaceId) {
             throw new Error('The resolved document belongs to another workspace.');
           }
-          setResolvedTimeline({ identity, value: next });
+          setResolvedTimeline({ identity, requestTarget: activeRequest.target, value: next });
           if (invalidationRevision === invalidationRevisionRef.current) setInvalidatedTarget(null);
           return;
         } catch (loadError) {
@@ -148,20 +149,9 @@ export function FileVersionCenterHost() {
           if (loadError instanceof FileVersionCenterClientError
             && loadError.code === 'FVRC_STALE_SELECTION') {
             window.dispatchEvent(new CustomEvent('notification_summary_updated'));
-            const latestRequest = useFileVersionCenterStore.getState().request;
-            if (latestRequest?.target === activeRequest.target
-              && latestRequest.source === activeRequest.source
-              && latestRequest.selectedEntry?.kind === resolvingRequest.selectedEntry?.kind
-              && latestRequest.selectedEntry?.id === resolvingRequest.selectedEntry?.id) {
-              // Editor operation summaries are polled. A review can become terminal
-              // between the last poll and opening the center, so discard only that
-              // stale deep-link selection and reload the authoritative timeline.
-              resolvingRequest = openVersionCenter({
-                ...resolvingRequest,
-                selectedEntry: undefined,
-              });
-              continue;
-            }
+            // An exact historical reference must never silently become another
+            // proposal. Terminal graph entries are readable by their exact ID;
+            // truly missing entries stay a visible error instead of selecting latest.
           }
           if (loadError instanceof FileVersionCenterClientError
             && (loadError.status === 401 || loadError.status === 403 || loadError.status === 404
@@ -267,10 +257,12 @@ export function FileVersionCenterHost() {
     ? reconcileFileVersionTimelineSelection({ request, timeline })
     : null, [request, timeline]);
   const onGraphReviewStatus = useCallback((status: GraphReviewCardStatus | null) => {
-    setReviewCard(status ? { identity: reviewIdentity, value: status } : null);
-  }, [reviewIdentity]);
+    if (useFileVersionCenterStore.getState().request !== request) return;
+    setReviewCard(status && request ? { identity: reviewIdentity, request, value: status } : null);
+  }, [request, reviewIdentity]);
   const visibleReviewCard = !loading && !externalRefresh && !error && invalidatedTarget !== targetIdentity && !unsavedReviewDocument
-    && reviewCard?.identity === reviewIdentity && selection?.entry?.kind === 'agent_operation'
+    && reviewCard?.identity === reviewIdentity && reviewCard.request === request
+    && selection?.entry?.kind === 'agent_operation'
     && selection.entry.operationId === reviewCard.value.operationId ? reviewCard.value : null;
   const visibleReviewSummary = !loading && !externalRefresh && !error && invalidatedTarget !== targetIdentity && !unsavedReviewDocument
     && reviewSummary?.timeline === timeline && reviewSummary.identity === reviewIdentity
@@ -372,6 +364,7 @@ export function FileVersionCenterHost() {
   useEffect(() => {
     if (
       request?.target.kind !== 'lineage'
+      || resolvedTimeline?.requestTarget !== request.target
       || request.selectedEntry?.kind !== 'agent_operation'
       || timeline?.document.workspaceId !== request.target.workspaceId
       || timeline.document.lineageId !== request.target.lineageId
@@ -384,16 +377,18 @@ export function FileVersionCenterHost() {
       workspaceId: timeline.document.workspaceId,
       lineageId: timeline.document.lineageId,
       operationId: selection.entry.operationId,
+      branchRootProposalId: visibleReviewCard?.branchContext?.rootProposalId,
     });
     if (!acknowledgement) return;
     void updateNotification({
       action: 'mark_item_read',
       itemId: acknowledgement.itemId,
       workspaceId: acknowledgement.workspaceId,
+      ...(acknowledgement.expectedRevision ? { expectedRevision: acknowledgement.expectedRevision } : {}),
     }).catch(() => {
       releaseFileChangeReviewAcknowledgement(acknowledgement.generation);
     });
-  }, [request, selection, timeline]);
+  }, [request, resolvedTimeline, selection, timeline, visibleReviewCard]);
 
   const selectEntry = useCallback((entry: FileVersionTimelineEntryV1) => {
     selectVersionCenterEntry(entry.kind === 'current' ? null : { kind: entry.kind, id: entry.id });
@@ -420,7 +415,7 @@ export function FileVersionCenterHost() {
         || openedDocumentAuthScope() !== authScope) return;
       const merged = mergeFileVersionTimelinePage(activeTimeline, page);
       const identity = JSON.stringify([authScope, activeRequest.target]);
-      setResolvedTimeline((current) => current?.identity === identity ? { identity, value: merged } : current);
+      setResolvedTimeline((current) => current?.identity === identity ? { ...current, value: merged } : current);
     } catch (pageError) {
       if (generation !== requestGenerationRef.current || controller.signal.aborted
         || (pageError instanceof DOMException && pageError.name === 'AbortError')) return;

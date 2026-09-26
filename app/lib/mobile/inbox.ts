@@ -36,8 +36,8 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   fileChangeReviewNotificationSource,
 } from '@/app/lib/file-version-center/notification-source';
-import { FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX } from '@/app/lib/file-version-center/notification-contract';
-import type { FileChangeReviewNotificationReason } from '@/app/lib/file-version-center/notification-contract';
+import { FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX, FILE_CHANGE_REVIEW_BRANCH_NOTIFICATION_PREFIX } from '@/app/lib/file-version-center/notification-contract';
+import type { FileChangeReviewNotificationReason, FileChangeReviewNotificationTarget } from '@/app/lib/file-version-center/notification-contract';
 
 const BASELINE_KEY = '__baseline__';
 const MAX_SOURCE_ITEMS = 200;
@@ -66,7 +66,7 @@ export type MobileInboxItem = {
     | { kind: 'todo'; todoId: string }
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string }
-    | { kind: 'file_change'; workspaceId: string; lineageId: string; operationId: string };
+    | FileChangeReviewNotificationTarget;
 };
 
 export type MobileAggregateInboxItem = MobileInboxItem & {
@@ -1009,6 +1009,7 @@ export async function markMobileInboxRead(input: {
   category?: unknown;
   itemId?: unknown;
   read?: unknown;
+  expectedRevision?: unknown;
   includeFileChanges?: boolean;
 }) {
   const now = new Date();
@@ -1042,7 +1043,8 @@ export async function markMobileInboxRead(input: {
     ]);
     return { readAt: now.toISOString() };
   }
-  if (typeof input.itemId === 'string' && input.itemId.startsWith(FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX)) {
+  if (typeof input.itemId === 'string' && (input.itemId.startsWith(FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX)
+    || input.itemId.startsWith(FILE_CHANGE_REVIEW_BRANCH_NOTIFICATION_PREFIX))) {
     if (!input.includeFileChanges) {
       throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
     }
@@ -1062,6 +1064,8 @@ export async function markMobileInboxRead(input: {
       itemId: input.itemId,
       read: requestedRead,
       dismiss: input.action === 'dismiss_item',
+      expectedRevision: typeof input.expectedRevision === 'string' && /^[a-f0-9]{64}$/u.test(input.expectedRevision)
+        ? input.expectedRevision : undefined,
     });
     if (!result.found) throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
     if (result.dismissedAt) return { itemId: input.itemId, dismissedAt: result.dismissedAt };

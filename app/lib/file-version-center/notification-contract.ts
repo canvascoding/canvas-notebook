@@ -2,6 +2,7 @@ import { buildFileVersionCenterDeepLinkV1 } from './contracts/deep-link-v1';
 import { FILE_VERSION_CENTER_CONTRACT_VERSION } from './contracts/v1';
 
 export const FILE_CHANGE_REVIEW_NOTIFICATION_PREFIX = 'file-change:' as const;
+export const FILE_CHANGE_REVIEW_BRANCH_NOTIFICATION_PREFIX = 'file-change-branch:' as const;
 
 export const FILE_CHANGE_REVIEW_NOTIFICATION_REASONS = [
   'needs_review',
@@ -18,6 +19,11 @@ export type FileChangeReviewNotificationTarget = {
   workspaceId: string;
   lineageId: string;
   operationId: string;
+  branch?: {
+    rootProposalId: string;
+    itemId: string;
+    revision: string;
+  };
 };
 
 export function fileChangeReviewNotificationItemId(operationId: string): string {
@@ -43,5 +49,6 @@ export function buildFileChangeReviewCenterHref(
     selectedEntry: { kind: 'agent_operation', id: target.operationId },
     initialView: 'reviews',
     source: 'notification',
+    ...(target.branch ? { branchOverview: true as const } : {}),
   });
 }

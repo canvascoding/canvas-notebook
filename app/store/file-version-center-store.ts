@@ -32,12 +32,14 @@ type TrustedFileChangeReviewIntent = {
   lineageId: string;
   operationId: string;
   itemId: string;
+  branchRootProposalId?: string;
+  expectedRevision?: string;
   state: 'pending' | 'acknowledged';
 };
 
 export type FileChangeReviewAcknowledgement = Pick<
   TrustedFileChangeReviewIntent,
-  'generation' | 'workspaceId' | 'itemId'
+  'generation' | 'workspaceId' | 'itemId' | 'expectedRevision'
 >;
 
 let requestGeneration = 0;
@@ -70,7 +72,9 @@ function commitVersionCenterRequest(
     workspaceId: trustedTarget.workspaceId,
     lineageId: trustedTarget.lineageId,
     operationId: trustedTarget.operationId,
-    itemId: fileChangeReviewNotificationItemId(trustedTarget.operationId),
+    itemId: trustedTarget.branch?.itemId ?? fileChangeReviewNotificationItemId(trustedTarget.operationId),
+    ...(trustedTarget.branch ? { branchRootProposalId: trustedTarget.branch.rootProposalId,
+      expectedRevision: trustedTarget.branch.revision } : {}),
     state: 'pending',
   } : null;
   if (options.syncLocation !== false) {
@@ -101,6 +105,7 @@ export function openVersionCenterFromNotification(
       lineageId: target.lineageId,
     },
     selectedEntry: { kind: 'agent_operation', id: target.operationId },
+    ...(target.branch ? { branchOverview: true } : {}),
     initialView: 'reviews',
     source: 'notification',
   });
@@ -133,7 +138,7 @@ export function selectVersionCenterEntry(
   const initialView = selection?.kind === 'agent_operation' ? 'reviews' : 'history';
   if (current.selectedEntry?.kind === selectedEntry?.kind
     && current.selectedEntry?.id === selectedEntry?.id
-    && current.initialView === initialView) return current;
+    && current.initialView === initialView && !current.branchOverview) return current;
   if (trustedFileChangeReviewIntent
     && (selectedEntry?.kind !== 'agent_operation'
       || selectedEntry.id !== trustedFileChangeReviewIntent.operationId)) {
@@ -143,6 +148,7 @@ export function selectVersionCenterEntry(
     ...current,
     selectedEntry,
     initialView,
+    branchOverview: undefined,
   });
   const currentHref = browserHref();
   if (currentHref) replaceBrowserHref(buildFileVersionCenterDeepLinkV1(currentHref, request));
@@ -155,6 +161,7 @@ export function claimFileChangeReviewAcknowledgement(input: {
   workspaceId: string;
   lineageId: string;
   operationId: string;
+  branchRootProposalId?: string;
 }): FileChangeReviewAcknowledgement | null {
   const intent = trustedFileChangeReviewIntent;
   if (
@@ -166,12 +173,15 @@ export function claimFileChangeReviewAcknowledgement(input: {
     || intent.workspaceId !== input.workspaceId
     || intent.lineageId !== input.lineageId
     || intent.operationId !== input.operationId
+    || (intent.branchRootProposalId && (input.request.branchOverview !== true
+      || input.branchRootProposalId !== intent.branchRootProposalId))
   ) return null;
   intent.state = 'acknowledged';
   return {
     generation: intent.generation,
     workspaceId: intent.workspaceId,
     itemId: intent.itemId,
+    ...(intent.expectedRevision ? { expectedRevision: intent.expectedRevision } : {}),
   };
 }
 

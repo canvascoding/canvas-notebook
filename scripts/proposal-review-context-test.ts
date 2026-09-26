@@ -72,6 +72,34 @@ test('context projects authorized dependency hierarchy and alternative closure w
   assert.equal(JSON.stringify(context).includes('increment-p2'), false);
 });
 
+test('an applied exact root remains the anchor while its open children require explicit selection', async () => {
+  const appliedRoot = { ...rootProposalFixture, lifecycle: 'applied' as const };
+  const snapshot = graph([appliedRoot, childProposalFixture, alternativeChildFixture] as ProposalGraphSnapshotV1['nodes']);
+  const runtime = await review(snapshot);
+
+  const rootContext = await runtime.readContext({ selectedProposalIds: ['p1'], expectedGraphRevision: 3 });
+  assert.deepEqual(rootContext.selectedProposalIds, ['p1']);
+  assert.equal(rootContext.reasonCode, Codes.invalidTransition);
+  assert.deepEqual(rootContext.applyProposalIds, []);
+  assert.deepEqual(rootContext.proposals.map((node) => [node.proposalId, node.rootProposalId, node.lifecycle]), [
+    ['p1', 'p1', 'applied'], ['p2', 'p1', 'open'], ['p3', 'p1', 'open'],
+  ]);
+  assert.equal(rootContext.proposals[0]?.operationId, 'operation-p1');
+
+  for (const childId of ['p2', 'p3']) {
+    const selectedChild = await runtime.readContext({ selectedProposalIds: [childId], expectedGraphRevision: 3 });
+    assert.deepEqual(selectedChild.selectedProposalIds, [childId]);
+    assert.equal(selectedChild.reasonCode, null);
+    assert.deepEqual(selectedChild.dependencyProposalIds, ['p1']);
+    assert.deepEqual(selectedChild.applyProposalIds, [childId]);
+    assert.deepEqual(new Set(selectedChild.proposals.map((node) => node.proposalId)), new Set(['p1', 'p2', 'p3']));
+  }
+  assert.equal(snapshot.graphRevision, 3);
+  assert.equal(snapshot.nodes[0]?.lifecycle, 'applied');
+  assert.equal(snapshot.nodes[1]?.lifecycle, 'open');
+  assert.equal(snapshot.nodes[2]?.lifecycle, 'open');
+});
+
 test('foreign alternative is not exposed in context or effect IDs', async () => {
   const runtime = await review(graph([rootProposalFixture, childProposalFixture, alternativeChildFixture] as ProposalGraphSnapshotV1['nodes']),
     { p3: 'other-user' });

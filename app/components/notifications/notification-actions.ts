@@ -16,6 +16,7 @@ export type NotificationMutation = {
   itemId?: string;
   workspaceId?: string;
   read?: boolean;
+  expectedRevision?: string;
 };
 
 let fileChangeOpenGeneration = 0;

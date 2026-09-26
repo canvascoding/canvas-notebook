@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Check, Clipboard, FileDiff, LoaderCircle, RefreshCw, ShieldAlert, X } from 'lucide-react';
+import { AlertTriangle, Check, Clipboard, FileDiff, History, LoaderCircle, RefreshCw, ShieldAlert, X } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import { useTranslations } from 'next-intl';
 
@@ -12,7 +12,7 @@ import type { FileVersionMutation } from '@/app/lib/file-version-center/action-c
 import type { ProposalReviewContextV1, ProposalReviewGraphSessionV1, ProposalReviewSessionRequestV1,
   PreparedProposalReviewActionV1, ProposalReviewActionApiRequestV1 } from '@/app/lib/file-version-center/contracts/proposal-review-session-v1';
 import type { ProposalReviewCompareResponseV1 } from '@/app/lib/file-version-center/contracts/proposal-review-compare-v1';
-import type { ProposalActionReceiptV1 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
+import type { ProposalActionReceiptV1, ProposalLifecycleV1 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import type { ProposalReviewTransformResponseV1 } from '@/app/lib/file-version-center/contracts/proposal-review-transform-v1';
 import { fileVersionTextLines, projectFileVersionTextDiff } from '@/app/lib/file-version-center/text-diff';
 import { compareProposalReviewSelection, executeProposalReviewAction,
@@ -29,7 +29,9 @@ type GraphAction = 'accept' | 'reject' | 'branchReject' | 'completeSatisfied';
 type TransformKind = 'detach' | 'replace';
 type PendingAction = { action: GraphAction; prepared: PreparedProposalReviewActionV1; sessionKey: string };
 type TransformPreviewState = { sessionKey: string; generation: number; preview: ProposalReviewTransformResponseV1 };
-export type GraphReviewCardStatus = { operationId: string; status: ProposalReviewGraphSessionV1['status']; reasonCode: string | null };
+export type GraphReviewCardStatus = { operationId: string; status: ProposalReviewGraphSessionV1['status']; reasonCode: string | null;
+  lifecycle?: ProposalLifecycleV1;
+  branchContext?: { rootProposalId: string; graphRevision: number } };
 const TRANSIENT_REVIEW_REASONS = new Set([
   'PROPOSAL_CURRENT_CHANGED', 'PROPOSAL_GRAPH_CHANGED', 'PROPOSAL_FENCE_EXPIRED',
 ]);
@@ -264,10 +266,13 @@ export function GraphReviewComparison({
 }) {
   const t = useTranslations('fileVersionCenter');
   const [selection, setSelection] = useState<GraphSelection>({ kind: 'operation', operationId });
+  const [chosenForRequest, setChosenForRequest] = useState<FileVersionCenterRequestV1 | null>(null);
+  const choosingBranch = request.branchOverview === true && chosenForRequest !== request;
   const [allIntent, setAllIntent] = useState(false);
   const [frozenAllIds, setFrozenAllIds] = useState<string[] | null>(null);
   const uncertainKey = graphReviewActionStorageKey(openedDocumentAuthScope(), document);
-  const [snapshot, setSnapshot] = useState<{ key: string; value: ProposalReviewGraphSessionV1 | { mode: 'legacy' } } | null>(null);
+  const [snapshot, setSnapshot] = useState<{ key: string; request: FileVersionCenterRequestV1;
+    value: ProposalReviewGraphSessionV1 | { mode: 'legacy' } } | null>(null);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [hostInvalidated, setHostInvalidated] = useState(false);
@@ -311,11 +316,15 @@ export function GraphReviewComparison({
   const session = snapshot?.key === key && snapshot.value.mode === 'graph' ? snapshot.value : null;
   const legacyMode = snapshot?.key === key && snapshot.value.mode === 'legacy';
   const displayCompare = compare ?? session?.compare ?? null;
-  const reviewPending = loading || hostInvalidated || isRevalidating || isStale || Boolean(loadError) || snapshot?.key !== key;
+  const reviewPending = loading || hostInvalidated || isRevalidating || isStale || Boolean(loadError)
+    || snapshot?.key !== key || snapshot?.request !== request;
+  const historicalProposal = !reviewPending && session?.selectedProposalIds.length === 1
+    ? session.context?.proposals.find((proposal) => proposal.proposalId === session.selectedProposalIds[0]
+      && proposal.lifecycle !== 'open') ?? null : null;
   const selectedOpen = session?.context?.selectedProposalIds.every((id) =>
     session.context?.proposals.some((proposal) => proposal.proposalId === id && proposal.lifecycle === 'open')) ?? false;
   const reviewActionAllowed = Boolean(session?.capability.write && session.context && selectedOpen)
-    && !reviewPending && !actionBusy && !actionIdentity;
+    && !choosingBranch && !reviewPending && !actionBusy && !actionIdentity;
   const metadataActionAllowed = reviewActionAllowed && !transformBusy && !transformPreview;
   const contentActionAllowed = metadataActionAllowed && session?.context?.reasonCode === null;
   const transformActionAllowed = reviewActionAllowed && session?.context?.reasonCode === null
@@ -355,13 +364,19 @@ export function GraphReviewComparison({
   }, [onTimelineInvalidate, t]);
 
   useEffect(() => {
-    if (!session || selection.kind !== 'operation' || reviewPending) {
+    if (!session || snapshot?.request !== request || selection.kind !== 'operation' || reviewPending) {
       onReviewStatus?.(null);
       return;
     }
-    onReviewStatus?.({ operationId, status: session.status, reasonCode: session.reasonCode });
+    const selected = session.context?.proposals.find(proposal => proposal.operationId === operationId
+      && session.context?.selectedProposalIds.includes(proposal.proposalId));
+    onReviewStatus?.({ operationId, status: session.status, reasonCode: session.reasonCode,
+      ...(selected?.lifecycle && selected.lifecycle !== 'open' ? { lifecycle: selected.lifecycle } : {}),
+      ...(selected && session.context ? { branchContext: {
+        rootProposalId: selected.rootProposalId, graphRevision: session.context.graphRevision,
+      } } : {}) });
     return () => onReviewStatus?.(null);
-  }, [onReviewStatus, operationId, reviewPending, selection.kind, session]);
+  }, [onReviewStatus, operationId, request, reviewPending, selection.kind, session, snapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -477,7 +492,7 @@ export function GraphReviewComparison({
           frozenAllRef.current = [...value.selectedProposalIds];
           setFrozenAllIds([...value.selectedProposalIds]);
         }
-        setSnapshot({ key, value });
+        setSnapshot({ key, request, value });
         setLoading(false);
         if (invalidationSequence === invalidationSequenceRef.current && !invalidationRef.current.pending
           && !invalidationRef.current.stale && !invalidationRef.current.revalidating) setHostInvalidated(false);
@@ -500,7 +515,7 @@ export function GraphReviewComparison({
         setLoading(false);
       });
     return () => { controller.abort(); generationRef.current += 1; pageAbortRef.current?.abort(); transformAbortRef.current?.abort(); };
-  }, [key, reload, request.target, selection, t]);
+  }, [key, reload, request, selection, t]);
 
   useEffect(() => {
     const state = invalidationRef.current;
@@ -536,10 +551,11 @@ export function GraphReviewComparison({
   const changeSelection = useCallback((next: GraphSelection, returnToFrozenAll = false) => {
     if (actionBusyRef.current || actionIdentity) return;
     setActionError(null);
+    setChosenForRequest(request);
     if (next.kind === 'all') { frozenAllRef.current = null; setFrozenAllIds(null); }
     setAllIntent(next.kind === 'all' || returnToFrozenAll);
     setSelection(next);
-  }, [actionIdentity]);
+  }, [actionIdentity, request]);
 
   const loadMore = useCallback(async () => {
     if (!session || !displayCompare?.binding || !displayCompare.page.hasMore || !displayCompare.page.nextCursor
@@ -676,7 +692,7 @@ export function GraphReviewComparison({
     void execute(action);
   };
 
-  if (legacyMode && selection.kind === 'operation' && !actionIdentity && !reviewPending) return <>{legacy}</>;
+  if (legacyMode && !choosingBranch && selection.kind === 'operation' && !actionIdentity && !reviewPending) return <>{legacy}</>;
   if (actionIdentity && !session) return <div className="flex flex-1 items-center justify-center p-5">
     <Alert className="max-w-xl rounded-lg" data-testid="graph-review-pending-action">
       <AlertTriangle aria-hidden="true" /><AlertTitle>{actionBusy ? t('graph.durability.submitting')
@@ -691,7 +707,7 @@ export function GraphReviewComparison({
   </div>;
   const showError = loadError instanceof ProposalReviewClientError
     ? loadError.code.startsWith('PROPOSAL_') ? t(reasonKey(loadError.code)) : t('graph.transportError')
-    : loadError?.message ?? (legacyMode && selection.kind !== 'operation' ? t('graph.legacyBatchUnavailable') : null);
+    : loadError?.message ?? (legacyMode && (choosingBranch || selection.kind !== 'operation') ? t('graph.legacyBatchUnavailable') : null);
   if (!session && !showError) return <div ref={selectionStatusRef} tabIndex={-1} className="flex flex-1 items-center justify-center p-6" role="status">
     <LoaderCircle className="mr-2 size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />{t('graph.loading')}
   </div>;
@@ -703,6 +719,30 @@ export function GraphReviewComparison({
       </Button></AlertDescription>
     </Alert>
   </div>;
+
+  if (choosingBranch) return <section className="min-h-48 min-w-0 space-y-4 overflow-y-auto p-4 sm:p-5"
+    data-testid="graph-review-branch-overview" aria-label={t('graph.branchOverview.heading')}>
+    <div><h2 className="text-sm font-semibold">{t('graph.branchOverview.heading')}</h2>
+      <p className="mt-1 text-sm text-muted-foreground">{t('graph.branchOverview.description')}</p></div>
+    {reviewPending ? <p role="status">{t('graph.refreshing')}</p> : null}
+    {!session.context?.proposals.length ? <Alert><ShieldAlert aria-hidden="true" />
+      <AlertTitle>{t('graph.contextUnavailable')}</AlertTitle>
+      <AlertDescription>{t('graph.contextUnavailableDescription')}</AlertDescription></Alert> :
+      <ul className="space-y-2">{session.context.proposals.map(proposal => <li key={proposal.proposalId}
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
+        <div className="min-w-0"><p className="text-sm font-medium">{t(`graph.context.relation.${proposal.relation}`)}</p>
+          <p className="break-all text-xs text-muted-foreground">{t(`graph.context.lifecycle.${proposal.lifecycle}`)} · {proposal.proposalId.slice(0, 12)}</p></div>
+        <Button type="button" variant="outline" size="sm" className="h-auto max-w-full whitespace-normal"
+          disabled={reviewPending || Boolean(actionIdentity) || actionBusy}
+          data-proposal-id={proposal.proposalId}
+          onClick={() => { selectionFocusRequestedRef.current = true;
+            changeSelection({ kind: 'proposals', proposalIds: [proposal.proposalId] }); }}>
+          {t(proposal.lifecycle === 'open' ? 'graph.branchOverview.review' : 'graph.branchOverview.history')}
+        </Button>
+      </li>)}</ul>}
+    <GraphDiagnosis diagnosis={session.diagnosis} session={session} />
+    <Button type="button" variant="ghost" onClick={onContinue}>{t('actions.continue')}</Button>
+  </section>;
 
   const status = session.status;
   const clean = status === 'clean' || status === 'clean_rebased';
@@ -735,9 +775,12 @@ export function GraphReviewComparison({
             <h2 className="text-sm font-semibold">{isBatch ? t('graph.allChanges') : t('agentProposal')}</h2>
             <p className="mt-0.5 text-xs text-muted-foreground">{t('graph.selectionCount', { count: session.selectedProposalIds.length })}</p>
           </div>
-          <Badge variant="outline" className={clean
-            ? 'border-emerald-500/35 text-emerald-700 dark:text-emerald-200'
-            : 'border-amber-500/40 text-amber-800 dark:text-amber-200'}>{t(statusKey(status))}</Badge>
+          <Badge variant="outline" className={historicalProposal
+            ? 'border-border bg-muted/30 text-foreground'
+            : clean ? 'border-emerald-500/35 text-emerald-700 dark:text-emerald-200'
+              : 'border-amber-500/40 text-amber-800 dark:text-amber-200'}>
+            {historicalProposal ? t(`graph.context.lifecycle.${historicalProposal.lifecycle}`) : t(statusKey(status))}
+          </Badge>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {allIntent ? <Button ref={thisChangeButtonRef} type="button" variant="outline" size="sm" disabled={actionBusy || Boolean(actionIdentity)}
@@ -757,7 +800,7 @@ export function GraphReviewComparison({
           <AlertTitle>{t('graph.contextUnavailable')}</AlertTitle>
           <AlertDescription>{t('graph.contextUnavailableDescription')}</AlertDescription>
         </Alert> : null}
-        {session.capability.write && session.context?.reasonCode ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
+        {session.capability.write && session.context?.reasonCode && !historicalProposal ? <Alert className="rounded-lg border-amber-500/35 bg-amber-500/[0.06]">
           <AlertTriangle aria-hidden="true" className="text-amber-700 dark:text-amber-300" />
           <AlertTitle>{t('graph.contextBlocked')}</AlertTitle>
           <AlertDescription>{reviewReason(session.context.reasonCode)}</AlertDescription>
@@ -784,7 +827,11 @@ export function GraphReviewComparison({
               cancelReturnFocusRef.current = transformReturnFocusRef.current;
               setTransformPreview(null);
             }} onConfirm={confirmTransform} /> : null}
-        {provenNoEffect ? <Alert className="rounded-lg border-emerald-500/35 bg-emerald-500/[0.055]" data-testid="graph-review-no-effect">
+        {historicalProposal ? <Alert className="rounded-lg border bg-muted/25" data-testid="graph-review-historical-status">
+          <History aria-hidden="true" className="text-muted-foreground" />
+          <AlertTitle>{t(`graph.context.lifecycle.${historicalProposal.lifecycle}`)}</AlertTitle>
+          <AlertDescription>{t('graph.historicalDescription')}</AlertDescription>
+        </Alert> : provenNoEffect ? <Alert className="rounded-lg border-emerald-500/35 bg-emerald-500/[0.055]" data-testid="graph-review-no-effect">
           <Check aria-hidden="true" className="text-emerald-700 dark:text-emerald-300" />
           <AlertTitle>{t(statusKey(status))}</AlertTitle>
           <AlertDescription>{t(`graph.noEffect.${status}`)}</AlertDescription>
@@ -867,25 +914,25 @@ export function GraphReviewComparison({
       <div className="flex min-w-0 flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
         <Button ref={continueButtonRef} type="button" variant="ghost" size="sm" disabled={actionBusy} onClick={onContinue}>{t('actions.continue')}</Button>
         <div className="flex min-w-0 flex-wrap justify-end gap-2">
-          {preparedActions.reject ? <Button type="button" variant="outline" size="sm" disabled={!metadataActionAllowed}
+          {!historicalProposal && preparedActions.reject ? <Button type="button" variant="outline" size="sm" disabled={!metadataActionAllowed}
             onClick={(event) => { pendingReturnFocusRef.current = event.currentTarget;
               confirmationFocusRequestedRef.current = true;
               setPending({ action: 'reject', prepared: preparedActions.reject!, sessionKey: key }); }}>
             <X className="size-4" aria-hidden="true" />{t('actions.reject')}
           </Button> : null}
-          {preparedActions.branchReject ? <Button type="button" variant="outline" size="sm" disabled={!metadataActionAllowed}
+          {!historicalProposal && preparedActions.branchReject ? <Button type="button" variant="outline" size="sm" disabled={!metadataActionAllowed}
             onClick={(event) => { pendingReturnFocusRef.current = event.currentTarget;
               confirmationFocusRequestedRef.current = true;
               setPending({ action: 'branchReject', prepared: preparedActions.branchReject!, sessionKey: key }); }}>
             <X className="size-4" aria-hidden="true" />{t('graph.rejectBranch')}
           </Button> : null}
-          {preparedActions.completeSatisfied ? <Button type="button" variant="outline" size="sm" disabled={!contentActionAllowed}
+          {!historicalProposal && preparedActions.completeSatisfied ? <Button type="button" variant="outline" size="sm" disabled={!contentActionAllowed}
             onClick={(event) => { pendingReturnFocusRef.current = event.currentTarget;
               confirmationFocusRequestedRef.current = true;
               setPending({ action: 'completeSatisfied', prepared: preparedActions.completeSatisfied!, sessionKey: key }); }}>
             <Check className="size-4" aria-hidden="true" />{t('graph.completeSatisfied')}
           </Button> : null}
-          {session.capability.write && session.selectedProposalIds.length === 1 && !allIntent ? <>
+          {session.capability.write && session.selectedProposalIds.length === 1 && !allIntent && !historicalProposal ? <>
             <Button type="button" variant="outline" size="sm" disabled={!transformActionAllowed}
               onClick={(event) => { transformReturnFocusRef.current = event.currentTarget;
                 transformFocusRequestedRef.current = true; void startTransform('detach'); }}>{t('graph.transform.detach.start')}</Button>
@@ -893,7 +940,7 @@ export function GraphReviewComparison({
               onClick={(event) => { transformReturnFocusRef.current = event.currentTarget;
                 transformFocusRequestedRef.current = true; void startTransform('replace'); }}>{t('graph.transform.replace.start')}</Button>
           </> : null}
-          {preparedActions.accept && available ? <Button type="button" size="sm"
+          {!historicalProposal && preparedActions.accept && available ? <Button type="button" size="sm"
             className="bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-600"
             disabled={!contentActionAllowed} onClick={(event) => { pendingReturnFocusRef.current = event.currentTarget;
               confirmationFocusRequestedRef.current = true;

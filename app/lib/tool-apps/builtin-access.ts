@@ -67,7 +67,19 @@ export async function requireBuiltinToolAppAccess(chat: McpAppChat, app: Builtin
       });
       if (group.workspaceId !== workspace.workspaceId || group.sourceSessionId !== chat.sessionId
         || group.toolCallId !== stored.toolCallId || group.operation !== stored.operation) throw new Error('scope');
-      return await presentFileChangeAppData(group);
+      return await presentFileChangeAppData(group, undefined, {
+        workspace,
+        access: {
+          userId: chat.userId,
+          authenticatedWorkspaceId: workspace.workspaceId,
+          requestedWorkspaceId: workspace.workspaceId,
+          membership: 'active',
+          permissionsResolved: true,
+          canRead: workspace.permissions.canRead,
+          canWrite: workspace.permissions.canWrite,
+          canManageWorkspace: workspace.permissions.canManageWorkspace,
+        },
+      });
     } catch {
       throw new McpAccessError('File changes are unavailable.', 404);
     }
