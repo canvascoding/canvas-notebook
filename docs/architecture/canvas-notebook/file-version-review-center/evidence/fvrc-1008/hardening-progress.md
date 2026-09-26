@@ -270,3 +270,90 @@ Berechtigungsänderungen und ist ausdrücklich keine Produktionsfreigabe.
    vollständige serielle Läufe verwenden. Commit, Build, URL, Fixture-IDs,
    Pflicht-Skips und Soll/Ist erfassen. Erst danach FVRC-1008 abschließen;
    Produktionsaktivierung bleibt eine separate Entscheidung.
+
+## Ergänzende gewöhnliche Tool-Prüfungen (26. September 2026)
+
+Basis ist `7ecc4dcf0`, ausschließlich ergänzt um Testcode und Dokumentation.
+Der Host-Dev-Prozess auf `http://127.0.0.1:3000` läuft nach erneutem CWD-Abgleich
+aus dem Implementierungsworktree. Der Skill-Status bestätigt genau einen
+verwalteten Stack mit vier gesunden Diensten, PostgreSQL 18.4 und pgvector 0.8.3.
+Das drei Tage alte Notebook-Image auf 3100 ist weiterhin kein Nachweis für diese
+Änderungen. Es wurden weder Container noch Runtime-Env-Dateien verändert.
+
+Der gemeinsame authentifizierte Testaufbau wurde nach `code-structure` zunächst
+für einen bestehenden Aufrufer extrahiert und geprüft (`ordinary-r5`, bestanden,
+55,7 Sekunden), danach für weitere Szenarien verwendet. Jeder Aufruf erzeugt
+eine eigene UUID-Datei und Agent-Session und entfernt nur diese per API. Der
+Toggle schreibt eine dokumentbezogene Policy mit dem Schlüssel
+`(user_id, workspace_id, lineage_id)`, keine Workspace-Policy. Neue Dokumente
+werden weiterhin mit ausgeschaltetem Review geprüft und explizit umgeschaltet.
+
+| Lauf | Ergebnis | Nachweis |
+|---|---|---|
+| `ordinary-r5` | bestanden, 55,7 s | Bisheriger Personal-10→3→7-Fall nach Fixture-Extraktion; `/tmp/fvrc1008-ordinary-r5-report/index.html`. |
+| `write-patch-r1` | bestanden, 24,9 s | Personal: gewöhnliches `write`, dann ein `apply_patch` mit zehn Ersetzungen; `/tmp/fvrc1008-write-patch-r1-report/index.html`. |
+| `write-patch-team-r1` | bestanden, 25,9 s | Derselbe Fall im Shared Test Workspace; `/tmp/fvrc1008-write-patch-team-r1-report/index.html`. |
+| `ordinary-team-r1` | bestanden, 54,1 s | Gewöhnliche Tools im Team: zehn unabhängige Vorschläge, H→C→A einzeln, sieben gemeinsam, feste Endbytes und +4 Revisionen; `/tmp/fvrc1008-ordinary-team-r1-report/index.html`. Annahmebelege prüfen jetzt die exakten Proposal-IDs statt nur ihre Anzahl. |
+| `ordinary-personal-r6` | bestanden, 56,1 s | Wiederholung im Personal-Workspace mit denselben verschärften Receipt-ID- und Action-Type-Prüfungen; `/tmp/fvrc1008-ordinary-personal-r6-report/index.html`. |
+| `ordinary-conflict-personal-r1` | bestanden, 15,8 s | B/C aus A per gewöhnlichem `edit_file`, C annehmen, B bleibt offen/konfligiert; `/tmp/fvrc1008-ordinary-conflict-personal-r1-report/index.html`. |
+| `ordinary-conflict-team-r1` | bestanden, 15,5 s | Derselbe Konfliktfall im Team; `/tmp/fvrc1008-ordinary-conflict-team-r1-report/index.html`. |
+
+Die Write-/Patch-Fälle prüfen unabhängig vom Tool-Ergebnis den vollständigen
+Solltext: Frontmatter, Überschrift, Fettschrift, Checkbox-/nummerierte Liste,
+Zitat, Link, Inline-/Fenced-Code, Tabelle, Umlaute und Emoji bleiben erhalten.
+Die tatsächlich gelieferte Repräsentation ist `plain_text`, die Zeilenenden
+sind LF. Daraus folgt **kein** Nachweis für CRLF oder die Tiptap-Block-/XML-Pfade.
+Der ungültige zehnte Patch-Eintrag erzeugt keinen neuen Vorgang, keinen neuen
+Inhalt und keine Revision. Der gültige Zehn-Edit-Patch liefert genau einen
+Vorschlag und nach UI-Annahme genau eine zusätzliche Revision. Dies ist kein
+Nachweis für einen Fehler im letzten Mitglied eines mehrteiligen Graph-Batches
+während des Live-Preflights (PG-S21). Exakte abgeschlossene Write-/Patch-Retries
+mit Graph-Modus `off` im separaten Tool-Prozess ändern weder Inhalt noch Historie.
+
+Die B/C-Fälle verwenden keine vorgefertigten Proposal-Knoten: Beide gewöhnlichen
+`edit_file`-Aufrufe erhalten denselben Read-Hash von A (`Plan: 100 USD.`), B schlägt
+120 und C 130 vor. Nach Annahme von C ist der vollständige Inhalt exakt 130,
+die Revisionenzahl steigt um eins und der Beleg nennt ausschließlich C.
+B bleibt im echten Review-Endpunkt `lifecycle=open`, `status=conflicted` mit
+seiner exakten ID. UI und API bieten keinen Accept an; es gibt weder den alten
+Timeline-Fehler noch einen Null-Diff/No-effect. Insgesamt erfolgt nur ein
+Action-POST. Die Screenshots zeigen die konkrete Konflikterklärung, den offenen
+Vorschlag und zwei Historieneinträge ohne Kartenüberlauf. Dies beweist eine
+korrekte Konfliktklassifikation, nicht die noch ausstehende manuelle Auflösung.
+
+PG-S14 hat jetzt ein eigenes Yjs-Evaluator-Oracle: Elternvorschlag und Kind
+ändern unterschiedliche Absätze, aber die explizite Abhängigkeit bleibt
+erhalten. Der Elternvorschlag ist in Autorisierung, Closure und Apply-Reihenfolge
+enthalten; ein abgelehnter Elternvorschlag blockiert das Kind ohne Kandidat,
+Live-Byte- oder Statusänderung. Die vollständige Review-Projection-Suite besteht
+(`/tmp/fvrc1008-projection-pgs14-r1.log`, Evaluator-Teil 14/14). Das ist kein
+Browser- oder tatsächlicher Apply-Nachweis.
+
+Die sechs unterschiedlichen neuen/erweiterten Browserfälle (drei Szenarien in
+jeweils Personal/Team) bestanden als serielle Einzelaufrufe mit einem Worker.
+Die API-/Tool-Aufrufe benutzen den tatsächlichen PostgreSQL-/Reviewpfad, aber
+kein LLM wird dabei zur Auswahl der Werkzeugargumente benötigt. Es wurde kein
+vorgefertigter Proposal-Knoten in die Datenbank geschrieben. Eigene Fixture-IDs,
+Solltext, Revisionszähler und Repräsentation sind in den JSON-Attachments der
+Reports enthalten. Die abschließenden Screenshots wurden visuell geprüft.
+
+`npx tsc --noEmit` und fokussiertes ESLint bestanden
+(`/tmp/fvrc1008-tool-matrix-typecheck-r4.log`,
+`/tmp/fvrc1008-tool-matrix-lint-final.log`), ebenso `git diff --check`.
+Der unabhängige Testreview fand nach Verfolgung des tatsächlichen Policy-Targets
+keinen konkreten verbleibenden Fehler; sein Hinweis auf exakte Receipt-IDs wurde
+übernommen und in Personal/Team erneut geprüft. Produktcode und Abhängigkeiten
+wurden in dieser Ergänzung nicht geändert; es gab keinen neuen Containerbuild.
+Der erfolgreiche Produktbuild aus der vorherigen Runde bleibt separat dokumentiert.
+
+GitNexus vor Commit: sechs Test-/Evidence-Dateien, 25 Symbole, null betroffene
+Produktprozesse, Risiko niedrig. Der gesamte Branchvergleich zum lokalen
+`main` umfasst 156 Dateien/1107 Symbole/27 Prozesse und bleibt kritisch.
+SHA-256 des staged Code-Patches (`app scripts tests package.json`) gegen
+`7ecc4dcf0`: `35edd97ba034c7c74fef0d0cbb6e86f57a6a5e0986c4ff75906f922cdd76c6d8`.
+Die generierten Änderungen an `AGENTS.md` und `CLAUDE.md` gehören nicht zu diesem
+Commit. Kein Push und keine Produktionsaktivierung.
+
+FVRC-1008 bleibt in Arbeit. Die neuen Fälle schließen konkrete Evidenzlücken,
+ersetzen aber weder die zwei vollständigen Matrixläufe noch die ausstehenden
+Crash-/Rollback-/Retention-Prüfungen. P12 wurde nicht begonnen.

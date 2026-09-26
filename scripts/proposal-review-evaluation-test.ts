@@ -350,3 +350,88 @@ for (const preserveIdentity of [true, false]) {
     } finally { doc.destroy(); }
   });
 }
+
+test('PG-S14: a disjoint child edit keeps its explicit parent prerequisite', async () => {
+  const doc = createPlainTextYDoc('Definition: A=1\n\nOther paragraph: B=2');
+  const artifacts = new Map<string, Uint8Array>();
+  try {
+    const base = update(doc);
+    const parentCandidate = edit(base, 'Definition: A=1', 'Definition: A=10');
+    const parent = proposal({ proposalId: 'p-definition', source: base, candidate: parentCandidate, artifacts });
+    const childCandidate = edit(parentCandidate.cumulativeCandidate, 'Other paragraph: B=2', 'Other paragraph: B=20');
+    const child = proposal({ proposalId: 'p-other-paragraph', source: parentCandidate.cumulativeCandidate,
+      candidate: childCandidate, artifacts, dependency: parent });
+    const candidateContent = (bytes: Uint8Array) => {
+      const candidateDoc = new Y.Doc({ gc: false });
+      try {
+        Y.applyUpdate(candidateDoc, bytes);
+        return candidateDoc.getText('content').toString();
+      } finally { candidateDoc.destroy(); }
+    };
+    assert.equal(candidateContent(parentCandidate.cumulativeCandidate), 'Definition: A=10\n\nOther paragraph: B=2');
+    assert.equal(candidateContent(childCandidate.cumulativeCandidate), 'Definition: A=10\n\nOther paragraph: B=20');
+    const graph: ProposalGraphSnapshotV1 = {
+      contractVersion: 1, scope, graphRevision: 14, nodes: [parent, child], choiceGroups: [],
+    };
+    const current = update(doc);
+    const authorizationCalls: string[][] = [];
+    const statusMutations: string[] = [];
+
+    const evaluate = async (proposalGraph: ProposalGraphSnapshotV1) => {
+      const { transaction } = memoryTransaction(proposalGraph, artifacts);
+      const guardedTransaction = new Proxy(transaction, {
+        get(target, property, receiver) {
+          const name = String(property);
+          if (['transitionProposal', 'reserveAction', 'advanceAction', 'bindRevision'].includes(name)) {
+            return (..._args: unknown[]) => {
+              statusMutations.push(name);
+              throw new Error('proposal review evaluation must not mutate action or proposal status');
+            };
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      return evaluateProposalReview({
+        scope, selectedProposalIds: [child.proposalId], transaction: guardedTransaction,
+        loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-pg-s14', update: current }),
+        authorize: async ({ proposalIds }) => { authorizationCalls.push([...proposalIds]); },
+        now: () => 140, createId: () => 'evaluation-pg-s14',
+      });
+    };
+
+    const clean = await evaluate(graph);
+    assert.equal(child.relationships.dependency?.proposalId, parent.proposalId,
+      'the child explicitly names the parent prerequisite despite targeting a separate paragraph');
+    assert.equal(clean.status, 'clean', JSON.stringify(clean));
+    assert.equal(clean.actionability, 'accept');
+    assert.deepEqual(clean.selectedProposalIds, [child.proposalId]);
+    assert.deepEqual(clean.dependencyProposalIds, [parent.proposalId, child.proposalId]);
+    assert.deepEqual(clean.closureProposalIds, [parent.proposalId, child.proposalId]);
+    assert.deepEqual(clean.applyProposalIds, [parent.proposalId, child.proposalId]);
+    assert.deepEqual(clean.appliedProposalIds, [parent.proposalId, child.proposalId]);
+    assert.equal(clean.candidateContent, 'Definition: A=10\n\nOther paragraph: B=20');
+    assert.deepEqual(authorizationCalls, [[child.proposalId], [parent.proposalId, child.proposalId]],
+      'authorization must include the full dependency closure before proposal artifacts are used');
+    assert.equal(parent.lifecycle, 'open');
+    assert.equal(child.lifecycle, 'open');
+    assert.deepEqual(update(doc), current, 'evaluation must not mutate the authoritative Yjs bytes');
+
+    const rejectedParentGraph: ProposalGraphSnapshotV1 = {
+      ...graph,
+      nodes: [{ ...parent, lifecycle: 'rejected' }, child],
+    };
+    const blocked = await evaluate(rejectedParentGraph);
+    assert.equal(blocked.status, 'blocked_by_parent', JSON.stringify(blocked));
+    assert.equal(blocked.reasonCode, Codes.dependencyBlocked);
+    assert.equal(blocked.actionability, 'none');
+    assert.deepEqual(blocked.selectedProposalIds, [child.proposalId]);
+    assert.deepEqual(blocked.dependencyProposalIds, []);
+    assert.deepEqual(blocked.applyProposalIds, []);
+    assert.deepEqual(blocked.appliedProposalIds, []);
+    assert.equal(blocked.candidateContent, null);
+    assert.equal(rejectedParentGraph.nodes[0]?.lifecycle, 'rejected');
+    assert.equal(rejectedParentGraph.nodes[1]?.lifecycle, 'open');
+    assert.deepEqual(update(doc), current, 'blocked evaluation must not mutate the authoritative Yjs bytes');
+    assert.deepEqual(statusMutations, [], 'evaluation must not mutate proposal or action status');
+  } finally { doc.destroy(); }
+});
