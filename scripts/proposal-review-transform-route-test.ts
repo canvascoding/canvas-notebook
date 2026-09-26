@@ -34,7 +34,13 @@ async function harness() {
     };
     if (name === '@/app/lib/file-version-center/observability') return { observeFileVersionCenter: () => undefined };
     if (name === '@/app/lib/file-version-center/proposal-review-action-route-error') return { proposalReviewActionErrorResponse };
-    if (name === '@/app/lib/file-version-center/proposal-review-capability') return { proposalReviewWritesEnabled: () => controls.enabled };
+    if (name === '@/app/lib/file-version-center/proposal-review-capability') return {
+      proposalReviewWritesEnabled: (input: { workspaceId: string }) => {
+        assert.deepEqual(input, { workspaceId: 'workspace-one' });
+        calls.push({ kind: 'capability', value: input });
+        return controls.enabled;
+      },
+    };
     if (name === '@/app/lib/file-version-center/proposal-review-action-runtime') return {
       createRuntimeProposalReviewActionService: async () => ({ prepareTransform: async (request: unknown) => {
         calls.push({ kind: 'prepare', value: request });
@@ -67,6 +73,7 @@ test('transform preview is capability and write gated before resolving document 
   const h = await harness();
   h.controls.denied = true;
   assert.equal((await h.route.POST(h.request())).status, 403);
+  assert.equal(h.calls.some((call) => call.kind === 'capability'), false);
   h.controls.denied = false;
   assert.equal((await h.route.POST(h.request())).status, 400);
   h.controls.enabled = true;

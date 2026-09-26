@@ -89,7 +89,9 @@ export async function readProposalReviewSession(input: {
   const context = result.graphRevision !== null ? await review.readContext({
     selectedProposalIds: selection.proposalIds, expectedGraphRevision: result.graphRevision,
   }) : undefined;
-  const canWrite = rollout.restore && (deps.writesEnabled ?? proposalReviewWritesEnabled)() && Boolean(access.canWrite && workspace.permissions.canWrite);
+  const canWrite = rollout.restore
+    && (deps.writesEnabled?.() ?? proposalReviewWritesEnabled({ workspaceId: workspace.workspaceId }))
+    && Boolean(access.canWrite && workspace.permissions.canWrite);
   const actions: ProposalReviewGraphSessionV1['actions'] = {};
   const selectedAreOpen = Boolean(context && selection.proposalIds.every(id =>
     context.proposals.some(proposal => proposal.proposalId === id && proposal.lifecycle === 'open')));

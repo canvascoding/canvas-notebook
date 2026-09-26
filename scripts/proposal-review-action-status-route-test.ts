@@ -21,7 +21,7 @@ async function harness() {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
   const calls: Array<{ kind: string; value?: unknown }> = [];
-  const controls = { denied: false, enabled: false, rolloutWritable: true, missing: false, fail: false,
+  const controls = { denied: false, missing: false, fail: false,
     delayStatus: false, statusReturnAt: 0 };
   const route = {} as typeof Route;
   new Function('require', 'module', 'exports', source)((name: string) => {
@@ -31,11 +31,13 @@ async function harness() {
     if (name === '@/app/lib/file-version-center/contracts/proposal-graph-v1') return { PROPOSAL_GRAPH_ERROR_CODES: Codes, ProposalGraphContractError };
     if (name === '@/app/lib/file-version-center/policy-v1') return {
       FILE_VERSION_CENTER_RATE_LIMITS_V1: { reviewMutation: { perUserPerMinute: 30, perIpPerMinute: 120 } },
-      resolveFileVersionRolloutV1: () => ({ restore: controls.rolloutWritable }),
+      resolveFileVersionRolloutV1: () => { throw new Error('Status must not depend on new-write rollout.'); },
     };
     if (name === '@/app/lib/file-version-center/observability') return { observeFileVersionCenter: () => undefined };
     if (name === '@/app/lib/file-version-center/proposal-review-action-route-error') return { proposalReviewActionErrorResponse };
-    if (name === '@/app/lib/file-version-center/proposal-review-capability') return { proposalReviewWritesEnabled: () => controls.enabled };
+    if (name === '@/app/lib/file-version-center/proposal-review-capability') return {
+      proposalReviewWritesEnabled: () => { throw new Error('Status must not depend on new-write capability.'); },
+    };
     if (name === '@/app/lib/file-version-center/proposal-review-action-runtime') return {
       createRuntimeProposalReviewActionService: async (input: unknown) => { calls.push({ kind: 'runtime', value: input }); return { status: async (identity: unknown) => {
         calls.push({ kind: 'status', value: identity });
@@ -67,22 +69,19 @@ async function harness() {
   return { route, calls, controls, request };
 }
 
-test('status route authorizes write access and rollout before receipt lookup', async () => {
+test('status route authorizes write access before receipt lookup even during rollout shutdown', async () => {
   const h = await harness();
   h.controls.denied = true;
   assert.equal((await h.route.POST(h.request())).status, 403);
-  h.controls.denied = false;
-  assert.equal((await h.route.POST(h.request())).status, 400);
-  h.controls.enabled = true;
-  h.controls.rolloutWritable = false;
-  assert.equal((await h.route.POST(h.request())).status, 400);
   assert.equal(h.calls.some((call) => call.kind === 'resolve' || call.kind === 'status'), false);
   assert.deepEqual(h.calls[0]?.value, { workspaceId: 'workspace-one', permission: 'canWrite' });
+  h.controls.denied = false;
+  assert.equal((await h.route.POST(h.request())).status, 200);
+  assert.equal(h.calls.some((call) => call.kind === 'status'), true);
 });
 
 test('status route returns exact receipt or null with private headers and redacted mismatch', async () => {
   const h = await harness();
-  h.controls.enabled = true;
   const receipt = await h.route.POST(h.request());
   assert.equal(receipt.status, 200);
   assert.equal(receipt.headers.get('cache-control'), 'private, no-store, max-age=0');
@@ -107,7 +106,6 @@ test('status route returns exact receipt or null with private headers and redact
 
 test('absent status timestamp is a conservative bound from before the locked lookup', async () => {
   const h = await harness();
-  h.controls.enabled = true;
   h.controls.missing = true;
   h.controls.delayStatus = true;
   const result = await (await h.route.POST(h.request())).json();

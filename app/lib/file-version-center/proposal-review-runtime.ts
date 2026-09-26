@@ -24,6 +24,7 @@ import { resolveProposalClosure } from './proposal-graph-model';
 import { createProposalGraphStorage, type ProposalGraphStorageTransaction } from './proposal-storage';
 import { proposalYjsCurrentProof, proposalYjsSnapshotContent, type ProposalYjsRepresentation } from './proposal-yjs-candidate';
 import type { FileVersionCenterAccess, ResolvedFileVersionTarget } from './query-service';
+import { observeProposalGraph, type ProposalGraphOutcome } from './observability';
 
 type CollaborationIdentityRow = {
   lineage_id: string;
@@ -65,6 +66,21 @@ export type RuntimeProposalReviewDependencies = {
 
 function fail(code: ProposalGraphErrorCode, message: string): never {
   throw new ProposalGraphContractError(code, message);
+}
+
+function evaluationObservationOutcome(status: ProposalReviewEvaluationResult['status']): ProposalGraphOutcome {
+  switch (status) {
+    case 'clean': return 'clean';
+    case 'clean_rebased': return 'clean_rebased';
+    case 'conflicted': return 'conflicted';
+    case 'blocked_by_parent':
+    case 'prerequisite_lost':
+    case 'rebase_pending': return 'blocked';
+    case 'satisfied_elsewhere': return 'satisfied_elsewhere';
+    case 'empty_effect': return 'empty_effect';
+    case 'stale_lifecycle':
+    case 'unavailable': return 'unavailable';
+  }
 }
 
 function assertReadAccess(input: { workspace: WorkspaceContext; access: FileVersionCenterAccess }): void {
@@ -197,7 +213,9 @@ export async function createRuntimeProposalReviewService(input: {
   };
 
   const evaluateSelection = async (inputSelection: { selectedProposalIds: readonly string[] }): Promise<ProposalReviewEvaluationResult> => {
-    return storage.withLockedGraph(scope, {}, async (transaction, sql) => {
+    const startedAt = Date.now();
+    try {
+      const result = await storage.withLockedGraph(scope, {}, async (transaction, sql) => {
         const locked = assertIdentity(await loadIdentity(sql, { documentId: scope.documentId, workspaceId: scope.workspaceId }),
           { scope, target, workspace, state: assertState({ state: await loadState(scope.documentId), target, workspace }) });
         const sequence = Number(locked.document_sequence);
@@ -208,7 +226,27 @@ export async function createRuntimeProposalReviewService(input: {
           confirmCurrent: async () => current(),
           authorize: async (request) => authorize(sql, request.scope, request.proposalIds),
         });
-    });
+      });
+      observeProposalGraph({
+        phase: 'evaluation',
+        outcome: evaluationObservationOutcome(result.status),
+        reasonCode: result.reasonCode ?? undefined,
+        startedAt,
+        selectionCount: inputSelection.selectedProposalIds.length,
+        closureCount: result.closureProposalIds.length,
+        applyCount: result.applyProposalIds.length,
+      });
+      return result;
+    } catch (error) {
+      observeProposalGraph({
+        phase: 'evaluation',
+        outcome: 'failed',
+        reasonCode: error instanceof ProposalGraphContractError ? error.code : undefined,
+        startedAt,
+        selectionCount: inputSelection.selectedProposalIds.length,
+      });
+      throw error;
+    }
   };
 
   return {

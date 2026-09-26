@@ -42,12 +42,14 @@ function state(): PersistedCollaborationState {
     degraded: false, status: 'active' };
 }
 
-function harness(options: { owner?: string; write?: boolean; enabled?: boolean; rolloutWritable?: boolean;
+function harness(options: { owner?: string; write?: boolean; manager?: boolean; enabled?: boolean; rolloutWritable?: boolean;
   graphRevision?: number; evaluationStatus?: 'clean' | 'satisfied_elsewhere' | 'empty_effect'; withChildren?: boolean;
   session?: string | null } = {}) {
   let applyCalls = 0;
   let recoverCalls = 0;
   let failApply = false;
+  let interruptMetadata = false;
+  let afterTransaction: (() => void) | undefined;
   const snapshot: ProposalGraphSnapshotV1 = { contractVersion: 1, scope: proposalScopeFixture,
     graphRevision: options.graphRevision ?? 3,
     nodes: (options.withChildren ? [rootProposalFixture, childProposalFixture, alternativeChildFixture] : [rootProposalFixture])
@@ -109,12 +111,23 @@ function harness(options: { owner?: string; write?: boolean; enabled?: boolean; 
     bindRevision: async () => {},
   } as unknown as ProposalGraphStorageTransaction;
   const storage = { withLockedGraph: async <T>(_scope: unknown, _options: unknown,
-    action: (transaction: ProposalGraphStorageTransaction, tx: FileVersionCenterTransaction) => Promise<T>) =>
-    action(graphTransaction, sql) };
-  const service = createRuntimeProposalReviewActionService({ target, workspace, access: { ...access, canWrite: options.write ?? true },
+    action: (transaction: ProposalGraphStorageTransaction, tx: FileVersionCenterTransaction) => Promise<T>) => {
+    if (interruptMetadata && [...actions.values()].some((receipt) => receipt.phase === 'prepared')) {
+      interruptMetadata = false;
+      throw new Error('simulated interruption after committed metadata reservation');
+    }
+    const result = await action(graphTransaction, sql);
+    afterTransaction?.();
+    return result;
+  } };
+  const createService = () => createRuntimeProposalReviewActionService({ target,
+    workspace: { ...workspace, permissions: { ...workspace.permissions, canManageWorkspace: options.manager ?? false } },
+    access: { ...access, canWrite: options.write ?? true, canManageWorkspace: options.manager ?? false },
     reviewerSessionId: options.session === null ? undefined : options.session ?? 'reviewer-session-1234',
     dependencies: { database, storage, loadState: async () => state(), readCurrent: async () => update,
-      readWorkspace: async () => workspace, signingSecret: secret, writesEnabled: () => options.enabled ?? true,
+      readWorkspace: async () => ({ ...workspace, permissions: { ...workspace.permissions,
+        canWrite: options.write ?? true, canManageWorkspace: options.manager ?? false } }),
+      signingSecret: secret, writesEnabled: () => options.enabled ?? true,
       rolloutWritable: () => options.rolloutWritable ?? true,
       prepareDurably: async (request) => { assert.equal(request.actorSessionId, 'reviewer-session-1234'); },
       applyDurably: async (request) => {
@@ -131,15 +144,27 @@ function harness(options: { owner?: string; write?: boolean; enabled?: boolean; 
           current: { ...proof, revisionId: 'revision-action' } };
       },
       now: () => clock, createId: (() => { let next = 0; return () => `action-${++next}`; })() } });
-  return { service, binding, snapshot, actions, applyCalls: () => applyCalls, recoverCalls: () => recoverCalls,
-    failApply: () => { failApply = true; } };
+  return { service: createService(), reopen: createService, binding, snapshot, actions,
+    applyCalls: () => applyCalls, recoverCalls: () => recoverCalls,
+    failApply: () => { failApply = true; }, interruptMetadata: () => { interruptMetadata = true; },
+    afterTransaction: (callback?: () => void) => { afterTransaction = callback; } };
 }
 
 const code = (expected: string) => (error: unknown) => error instanceof ProposalGraphContractError && error.code === expected;
 
-test('closed rollout and missing write permission deny action service creation', async () => {
-  await assert.rejects(harness({ enabled: false }).service, code(Codes.upgradeRequired));
-  await assert.rejects(harness({ rolloutWritable: false }).service, code(Codes.upgradeRequired));
+test('closed rollout denies new actions but permits an authorized absent receipt lookup', async () => {
+  for (const options of [{ enabled: false }, { rolloutWritable: false }]) {
+    const h = harness(options);
+    const runtime = await h.service;
+    await assert.rejects(runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'reject' }), code(Codes.upgradeRequired));
+    await assert.rejects(runtime.prepareTransform({ kind: 'replace', sourceProposalId: 'p1', expectedGraphRevision: 3 }),
+      code(Codes.upgradeRequired));
+    await assert.rejects(runtime.execute({}), code(Codes.upgradeRequired));
+    assert.equal(await runtime.status({ idempotencyKey: 'unreserved-action-0001', requestDigest: '0'.repeat(64) }), null);
+    assert.equal(h.actions.size, 0);
+    assert.equal(h.applyCalls(), 0);
+    assert.equal(h.recoverCalls(), 0);
+  }
   await assert.rejects(harness({ write: false }).service, code(Codes.accessDenied));
 });
 
@@ -250,4 +275,83 @@ test('uncertain apply is recovered from durable evidence without replaying mutat
   assert.equal(recovered.phase, 'succeeded');
   assert.equal(h.applyCalls(), 1);
   assert.equal(h.recoverCalls(), 1);
+});
+
+test('rollback after an uncertain apply retains restart recovery without new mutations', async () => {
+  const options = { enabled: true, rolloutWritable: true, write: true };
+  const h = harness(options);
+  const runtime = await h.service;
+  const prepared = await runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'accept', binding: h.binding });
+  const action = { contractVersion: 1 as const, ...prepared, idempotencyKey: 'rollback-recovery-0001', creation: null };
+  h.failApply();
+  await assert.rejects(runtime.execute(action), code(Codes.recoveryRequired));
+  options.enabled = false;
+  options.rolloutWritable = false;
+  const restarted = await h.reopen();
+  await assert.rejects(restarted.execute(action), code(Codes.upgradeRequired));
+  const identity = { idempotencyKey: action.idempotencyKey, requestDigest: action.fence.requestDigest };
+  await assert.rejects(restarted.status({ ...identity, requestDigest: '0'.repeat(64) }), code(Codes.idempotencyMismatch));
+  options.write = false;
+  await assert.rejects(restarted.status(identity), code(Codes.accessDenied));
+  assert.equal(h.recoverCalls(), 0);
+  options.write = true;
+  const receipt = await restarted.status(identity);
+  assert.equal(receipt?.phase, 'succeeded');
+  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'applied');
+  assert.deepEqual(await restarted.status(identity), receipt);
+  assert.equal(h.actions.size, 1);
+  assert.equal(h.applyCalls(), 1);
+  assert.equal(h.recoverCalls(), 1);
+});
+
+test('rollback completes only a previously reserved metadata action after restart', async () => {
+  const options = { enabled: true, rolloutWritable: true, owner: 'reviewer' };
+  const h = harness(options);
+  const runtime = await h.service;
+  const prepared = await runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'reject' });
+  const action = { contractVersion: 1 as const, ...prepared, idempotencyKey: 'rollback-metadata-0001', creation: null };
+  h.interruptMetadata();
+  await assert.rejects(runtime.execute(action), /interruption after committed metadata reservation/u);
+  assert.equal([...h.actions.values()][0]!.phase, 'prepared');
+  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'open');
+  options.enabled = false;
+  options.rolloutWritable = false;
+  const restarted = await h.reopen();
+  const identity = { idempotencyKey: action.idempotencyKey, requestDigest: action.fence.requestDigest };
+  options.owner = 'other-user';
+  await assert.rejects(restarted.status(identity), code(Codes.accessDenied));
+  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'open');
+  options.owner = 'reviewer';
+  const receipt = await restarted.status(identity);
+  assert.equal(receipt?.phase, 'succeeded');
+  assert.equal(receipt?.result?.kind, 'metadata_only');
+  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'rejected');
+  assert.deepEqual(await restarted.status(identity), receipt);
+  assert.equal(h.actions.size, 1);
+  assert.equal(h.applyCalls(), 0);
+  assert.equal(h.recoverCalls(), 0);
+});
+
+test('manager authority revoked between status lookup and content recovery blocks recovery', async () => {
+  const options = { owner: 'other-user', manager: true, enabled: true };
+  const h = harness(options);
+  const runtime = await h.service;
+  const prepared = await runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'accept', binding: h.binding });
+  const action = { contractVersion: 1 as const, ...prepared, idempotencyKey: 'manager-recovery-race-0001', creation: null };
+  h.failApply();
+  await assert.rejects(runtime.execute(action), code(Codes.recoveryRequired));
+  options.enabled = false;
+  h.afterTransaction(() => { options.manager = false; });
+  const identity = { idempotencyKey: action.idempotencyKey, requestDigest: action.fence.requestDigest };
+  await assert.rejects(runtime.status(identity), code(Codes.accessDenied));
+  assert.equal([...h.actions.values()][0]!.phase, 'recovery_required');
+  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'open');
+  assert.equal(h.recoverCalls(), 0);
+  assert.equal(h.applyCalls(), 1);
+  assert.equal('recover' in runtime, false, 'recovery requires the exact status identity, not a bare public action ID');
+  h.afterTransaction();
+  options.manager = true;
+  assert.equal((await runtime.status(identity))?.phase, 'succeeded');
+  assert.equal(h.recoverCalls(), 1);
+  assert.equal(h.applyCalls(), 1);
 });

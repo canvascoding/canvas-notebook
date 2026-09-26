@@ -8,6 +8,10 @@ Die Aktivierung folgt den einzelnen verifizierten Tasks in `todo.json`.
 Zugehoeriger Umsetzungsplan:
 [`todo.json`](./todo.json), Paket `FVRC-P10`.
 
+Rollout- und Rücknahmebedingungen stehen in
+[`rollout-graph.md`](./rollout-graph.md). Die dort beschriebene Policy ist
+Konfiguration, keine Produktionsfreigabe.
+
 Konkrete Szenarien, UI-Abnahme und Testzuordnung stehen in
 [`proposal-graph-scenarios.md`](./proposal-graph-scenarios.md).
 Der versionierte Implementierungsvertrag steht in

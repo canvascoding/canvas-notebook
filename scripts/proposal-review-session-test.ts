@@ -7,7 +7,7 @@ import { readProposalReviewSession, selectProposalReviewSession } from '../app/l
 import type { FileVersionCenterDatabase } from '../app/lib/file-version-center/database';
 import type { FileVersionCenterAccess, ResolvedFileVersionTarget } from '../app/lib/file-version-center/query-service';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
-import { currentProofFixture, proposalScopeFixture, rootProposalFixture } from './fixtures/proposal-graph-contract-v1';
+import { acceptFenceFixture, currentProofFixture, proposalScopeFixture, rootProposalFixture } from './fixtures/proposal-graph-contract-v1';
 
 const target: ResolvedFileVersionTarget = {
   workspaceId: proposalScopeFixture.workspaceId, lineageId: proposalScopeFixture.lineageId,
@@ -179,4 +179,58 @@ test('historical terminal proposals remain readable without preparing new action
   assert.equal(session.context?.proposals[0]?.lifecycle, 'superseded');
   assert.deepEqual(session.actions, {});
   assert.equal(createActionCalls, 0);
+});
+
+test('the real workspace-scoped canary gate exposes actions only for the authorized allowlisted workspace', async () => {
+  const keys = ['CANVAS_PROPOSAL_GRAPH_MODE', 'CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS', 'FILE_VERSION_CENTER_MODE'] as const;
+  const previous = keys.map(key => process.env[key]);
+  const selectedProposalIds = ['p1'];
+  let actionCalls = 0;
+  try {
+    process.env.FILE_VERSION_CENTER_MODE = 'full';
+    process.env.CANVAS_PROPOSAL_GRAPH_MODE = 'canary';
+    process.env.CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS = target.workspaceId;
+    const input = { request: request({ kind: 'proposals', proposalIds: selectedProposalIds }), target, workspace, access,
+      dependencies: { database: fakeDatabase([]),
+        createReview: (async () => ({ evaluateSelection: async () => conflictedResult(selectedProposalIds, true),
+          readContext: async () => context(selectedProposalIds),
+          createCompareService: () => ({ compare: async () => compare('conflicted', selectedProposalIds) }) })) as never,
+        createActions: (async () => ({ prepare: async ({ actionType }: { actionType: 'reject' | 'branch_reject' }) => {
+          actionCalls++;
+          return { fence: { ...acceptFenceFixture, actionType, graphRevision: 7, current: null,
+            evaluationId: null, effectiveCandidateHash: null, selectedProposalIds,
+            closure: [acceptFenceFixture.closure[0]], applyProposalIds: [], choiceResolutions: [] }, fenceToken: `pg1.${'a'.repeat(43)}` };
+        } })) as never,
+      } };
+    const enabled = await readProposalReviewSession(input);
+    assert.equal(enabled.mode, 'graph');
+    if (enabled.mode !== 'graph') throw new Error('expected graph session');
+    assert.equal(enabled.capability.write, true);
+    assert.ok(enabled.actions.reject);
+    assert.ok(actionCalls > 0);
+    const approved = actionCalls;
+    for (const otherAllowlist of [`${target.workspaceId}-different`, '*']) {
+      process.env.CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS = otherAllowlist;
+      const blocked = await readProposalReviewSession(input);
+      assert.equal(blocked.mode, 'graph');
+      if (blocked.mode !== 'graph') throw new Error('expected readable graph session');
+      assert.equal(blocked.capability.write, false);
+      assert.deepEqual(blocked.actions, {});
+      assert.equal(blocked.compare?.status, 'conflicted');
+      assert.equal(actionCalls, approved);
+    }
+    process.env.CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS = target.workspaceId;
+    process.env.CANVAS_PROPOSAL_GRAPH_MODE = 'off';
+    const off = await readProposalReviewSession(input);
+    assert.equal(off.mode, 'graph');
+    if (off.mode !== 'graph') throw new Error('expected readable graph session during rollback');
+    assert.equal(off.capability.write, false);
+    assert.deepEqual(off.actions, {});
+    assert.equal(actionCalls, approved);
+  } finally {
+    keys.forEach((key, index) => {
+      if (previous[index] === undefined) delete process.env[key];
+      else process.env[key] = previous[index];
+    });
+  }
 });

@@ -16,6 +16,7 @@ import { createProposalActionOrchestrator, type ProposalActionOrchestratorDepend
 import { createProposalProvenanceService, persistProposalSourceSnapshot,
   proposalSourceView } from './proposal-provenance-service';
 import { proposalReviewWritesEnabled } from './proposal-review-capability';
+import { observeProposalGraph } from './observability';
 import {
   PROPOSAL_GRAPH_ERROR_CODES as Codes,
   PROPOSAL_GRAPH_LIMITS as Limits,
@@ -132,7 +133,7 @@ export async function createRuntimeProposalReviewActionService(input: {
 }) {
   const { target, workspace, access } = input;
   const deps = input.dependencies;
-  const enabled = deps?.writesEnabled ?? proposalReviewWritesEnabled;
+  const enabled = deps?.writesEnabled ?? (() => proposalReviewWritesEnabled({ workspaceId: workspace.workspaceId }));
   const rolloutWritable = deps?.rolloutWritable ?? (() => resolveFileVersionRolloutV1(process.env.FILE_VERSION_CENTER_MODE).restore);
   const loadState = deps?.loadState ?? loadCollaborationState;
   const readUpdate = deps?.readCurrent ?? ((documentId: string, workspaceId: string) =>
@@ -161,7 +162,6 @@ export async function createRuntimeProposalReviewActionService(input: {
     }
     return fresh;
   };
-  assertEnabled();
   if (!target.documentId || target.workspaceId !== workspace.workspaceId || target.lineageId.length < 1) {
     fail(Codes.scopeMismatch, 'The proposal action requires an exact collaborative document target.');
   }
@@ -215,7 +215,6 @@ export async function createRuntimeProposalReviewActionService(input: {
   };
 
   const authorize = async (requested: { scope: ProposalDocumentScopeV1; proposalIds: string[]; actionType: ProposalActionRequestV1['fence']['actionType'] }) => {
-    assertEnabled();
     assertActionType(requested.actionType);
     if (!sameScope(scope, requested.scope) || requested.proposalIds.length < 1
       || new Set(requested.proposalIds).size !== requested.proposalIds.length) {
@@ -265,7 +264,10 @@ export async function createRuntimeProposalReviewActionService(input: {
 
   const orchestratorDependencies: ProposalActionOrchestratorDependencies = {
     withLockedGraph,
-    authorize,
+    authorize: async (requested) => {
+      assertEnabled();
+      return authorize(requested);
+    },
     readCurrent,
     signingSecret,
     now,
@@ -422,6 +424,26 @@ export async function createRuntimeProposalReviewActionService(input: {
     },
   };
   const orchestrator = createProposalActionOrchestrator(orchestratorDependencies);
+  // Rollback blocks new approvals, not completion of an already reserved action.
+  // Recovery still checks fresh authorization and immutable durable receipts. Only
+  // its recovery methods are used: never execute or replay the live mutation.
+  const recoveryOrchestrator = createProposalActionOrchestrator({ ...orchestratorDependencies, authorize });
+  const observedAction = async (phase: 'apply' | 'recovery', run: () => Promise<ProposalActionReceiptV1>,
+    counts: { selectionCount?: number; closureCount?: number; applyCount?: number } = {}) => {
+    const startedAt = Date.now();
+    try {
+      const receipt = await run();
+      observeProposalGraph({ phase, startedAt, ...counts,
+        outcome: receipt.phase === 'succeeded' ? 'succeeded' : receipt.phase === 'failed' ? 'failed' : 'pending',
+        ...(receipt.errorCode ? { reasonCode: receipt.errorCode } : {}) });
+      return receipt;
+    } catch (error) {
+      observeProposalGraph({ phase, startedAt, ...counts,
+        outcome: error instanceof ProposalGraphContractError && error.code === Codes.recoveryRequired ? 'pending' : 'failed',
+        ...(error instanceof ProposalGraphContractError ? { reasonCode: error.code } : {}) });
+      throw error;
+    }
+  };
 
   const prepare = async (selection: { selectedProposalIds: readonly string[]; actionType: ActionType;
     binding?: ProposalReviewCompareBindingV1 }): Promise<{ fence: ProposalActionFenceV1; fenceToken: string }> => {
@@ -590,24 +612,32 @@ export async function createRuntimeProposalReviewActionService(input: {
       fail(Codes.accessDenied, 'An active reviewer session is required before reserving this action.');
     }
     await freshWorkspace();
-    return orchestrator.execute(action);
+    return observedAction('apply', () => orchestrator.execute(action), {
+      selectionCount: action.fence.selectedProposalIds.length,
+      closureCount: action.fence.closure.length, applyCount: action.fence.applyProposalIds.length,
+    });
   };
 
-  const recover = async (requestedScope: ProposalDocumentScopeV1, actionId: string): Promise<ProposalActionReceiptV1> => {
-    assertEnabled();
-    if (!sameScope(scope, requestedScope)) fail(Codes.scopeMismatch, 'The recovery belongs to another document.');
+  const recover = async (actionId: string, identity: { keyHash: string; requestDigest: string }): Promise<ProposalActionReceiptV1> => {
     await freshWorkspace();
     await withLockedGraph(scope, { actionId }, async (transaction) => {
       const receipt = await transaction.getAction(actionId);
-      if (!receipt || receipt.actorId !== access.userId) {
+      const request = await transaction.getActionRequest(actionId);
+      if (!receipt || !request || receipt.actorId !== access.userId || request.fence.actor.userId !== access.userId
+        || receipt.idempotencyKeyHash !== identity.keyHash || receipt.requestDigest !== identity.requestDigest
+        || request.fence.requestDigest !== identity.requestDigest
+        || !sameScope(receipt.scope, scope) || !sameScope(request.fence.scope, scope)) {
         fail(Codes.accessDenied, 'The durable action is unavailable for this reviewer.');
       }
+      // Status and recovery use separate graph transactions. Recheck proposal
+      // ownership/manager authority, not only workspace write access, here too.
+      await authorize({ scope, proposalIds: request.fence.closure.map((member) => member.proposalId),
+        actionType: receipt.actionType });
     });
-    return orchestrator.recover(scope, actionId);
+    return observedAction('recovery', () => recoveryOrchestrator.recover(scope, actionId));
   };
 
   const status = async (identity: { idempotencyKey: string; requestDigest: string }): Promise<ProposalActionReceiptV1 | null> => {
-    assertEnabled();
     if (!/^[A-Za-z0-9._:-]{16,128}$/u.test(identity.idempotencyKey)
       || !/^[a-f0-9]{64}$/u.test(identity.requestDigest)) {
       fail(Codes.invalidRequest, 'The action status identity is invalid.');
@@ -632,11 +662,13 @@ export async function createRuntimeProposalReviewActionService(input: {
       return stored;
     });
     if (receipt && ['applying', 'awaiting_durability', 'recovery_required'].includes(receipt.phase)) {
-      return recover(scope, receipt.actionId);
+      return recover(receipt.actionId, { keyHash, requestDigest: identity.requestDigest });
     }
-    if (receipt?.phase === 'prepared') return orchestrator.recoverMetadata(scope, receipt.actionId);
+    if (receipt?.phase === 'prepared') {
+      return observedAction('recovery', () => recoveryOrchestrator.recoverMetadata(scope, receipt.actionId));
+    }
     return receipt;
   };
 
-  return { scope, prepare, prepareTransform, execute, recover, status };
+  return { scope, prepare, prepareTransform, execute, status };
 }

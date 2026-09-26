@@ -81,7 +81,8 @@ async function service(input: {
 function successfulEvaluation() {
   return async (input: ProposalReviewEvaluationInput) => {
     await input.authorize({ scope: input.scope, proposalIds: ['p1'] });
-    return { status: 'clean', actionability: 'accept' } as never;
+    return { status: 'clean', actionability: 'accept', reasonCode: null,
+      selectedProposalIds: ['p1'], closureProposalIds: ['p1'], applyProposalIds: ['p1'] } as never;
   };
 }
 

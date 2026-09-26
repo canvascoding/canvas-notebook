@@ -21,7 +21,8 @@ export async function POST(request: NextRequest) {
     const limited = applyFileVersionCenterRateLimit(request, { operation: 'accept', rate: FILE_VERSION_CENTER_RATE_LIMITS_V1.reviewMutation,
       verifiedUserId: authorization.session.user.id, startedAt });
     if (limited) return limited;
-    if (!proposalReviewWritesEnabled() || !resolveFileVersionRolloutV1(process.env.FILE_VERSION_CENTER_MODE).restore) {
+    if (!proposalReviewWritesEnabled({ workspaceId: authorization.workspace.workspaceId })
+      || !resolveFileVersionRolloutV1(process.env.FILE_VERSION_CENTER_MODE).restore) {
       throw new ProposalGraphContractError(Codes.upgradeRequired, 'Proposal transformations are not enabled yet.');
     }
     const target = await fileVersionCenterQueryService.resolve({ target: body.target, access: authorization.access });

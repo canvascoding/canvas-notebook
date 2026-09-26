@@ -36,7 +36,11 @@ async function harness() {
       calls.push({ kind: 'observe', value });
     } };
     if (name === '@/app/lib/file-version-center/proposal-review-capability') return {
-      proposalReviewWritesEnabled: () => controls.enabled,
+      proposalReviewWritesEnabled: (input: { workspaceId: string }) => {
+        assert.deepEqual(input, { workspaceId: 'workspace-one' });
+        calls.push({ kind: 'capability', value: input });
+        return controls.enabled;
+      },
     };
     if (name === '@/app/lib/file-version-center/proposal-review-action-runtime') return {
       createRuntimeProposalReviewActionService: async (input: unknown) => { calls.push({ kind: 'runtime', value: input }); return { execute: async () => {
@@ -79,6 +83,7 @@ test('action route requires write authorization and a live capability before res
   const h = await harness();
   h.controls.denied = true;
   assert.equal((await h.route.POST(h.request())).status, 403);
+  assert.equal(h.calls.some((call) => call.kind === 'capability'), false);
   assert.equal(h.calls.some((call) => call.kind === 'resolve'), false);
   h.controls.denied = false;
   const closed = await h.route.POST(h.request());
