@@ -14,7 +14,7 @@ import {
 } from '@/app/lib/files/collaboration-repository';
 import { composeCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
 import { analyzeMarkdownRichMode } from '@/app/lib/markdown/rich-markdown-codec';
-import { isRichTextCollaborationRepresentation, type RichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
+import { isRichTextCollaborationRepresentation, type CollaborationRepresentation, type RichTextCollaborationRepresentation, type TextCollaborationRepresentation } from './types';
 import {
   createPlainTextYDoc,
   createRichMarkdownYDoc,
@@ -27,6 +27,7 @@ import {
   withCollaborationRoomLifecycleLock,
 } from './runtime-state';
 import { Y } from './server-runtime';
+import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 
 export interface PersistedCollaborationState {
   documentId: string;
@@ -271,43 +272,91 @@ export async function ensureCollaborationState(input: {
   }
 }
 
+export type CollaborationPersistenceIdentity = Pick<PersistedCollaborationState,
+  'workspaceId' | 'organizationId' | 'path' | 'schemaVersion'> & { representation: CollaborationRepresentation };
+
+export type CollaborationPersistenceResult = PersistedCollaborationState & {
+  persistenceDisposition: 'unchanged' | 'advanced' | 'merged';
+  incomingNeedsReconcile: boolean;
+};
+
 export async function persistCollaborationYDoc(
   documentId: string,
   expectedLifecycleGeneration: number,
   doc: YTypes.Doc,
-): Promise<PersistedCollaborationState> {
+  expectedIdentity?: CollaborationPersistenceIdentity,
+): Promise<CollaborationPersistenceResult> {
+  // Capture before yielding: the room can receive more edits while we wait for
+  // a connection/row lock. Never encode the mutable room again inside this save.
   const update = Y.encodeStateAsUpdate(doc);
-  const vector = Y.encodeStateVector(doc);
-  const now = Date.now();
+  const identity = expectedIdentity ? { ...expectedIdentity } : undefined;
   const database = await openDb();
+  let transactionOpen = false;
+  let commitStarted = false;
+  let discard: Error | undefined;
   try {
-    const row = await database.get(
-      `
-        UPDATE collaboration_yjs_states
-        SET yjs_state = $1, state_vector = $2, document_sequence = document_sequence + 1,
-            persisted_at = $3, degraded = 0
-        WHERE document_id = $4 AND status = 'active' AND lifecycle_generation = $5
-        RETURNING *
-      `,
-      [Buffer.from(update), Buffer.from(vector), now, documentId, expectedLifecycleGeneration],
+    // No workspace/room mutex here: projection may own the workspace while
+    // waiting for file I/O, and direct disconnect already owns the room mutex.
+    transactionOpen = true;
+    await database.run('BEGIN');
+    const current = await database.get(
+      'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
+      [documentId],
     ) as StateRow | undefined;
-    if (!row) {
-      const existing = await database.get(
-        'SELECT status, lifecycle_generation FROM collaboration_yjs_states WHERE document_id = $1 LIMIT 1',
-        [documentId],
-      ) as { status?: string; lifecycle_generation?: number | string } | undefined;
-      if (existing?.status === 'archived') throw new CollaborationStateInactiveError(documentId);
-      if (
-        existing?.status === 'active'
-        && Number(existing.lifecycle_generation) !== expectedLifecycleGeneration
-      ) {
-        throw new CollaborationStateStaleError(documentId, expectedLifecycleGeneration);
-      }
-      throw new Error('Collaboration state does not exist.');
+    if (!current) throw new Error('Collaboration state does not exist.');
+    if (current.status === 'archived') throw new CollaborationStateInactiveError(documentId);
+    if (current.status !== 'active'
+      || Number(current.lifecycle_generation) !== expectedLifecycleGeneration
+      || (identity && (
+        current.workspace_id !== identity.workspaceId
+        || current.organization_id !== identity.organizationId
+        || current.path !== identity.path
+        || current.representation !== identity.representation
+        || Number(current.schema_version) !== identity.schemaVersion
+      ))) {
+      throw new CollaborationStateStaleError(documentId, expectedLifecycleGeneration);
     }
-    return mapState(row);
+    const merged = mergeCollaborationPersistenceUpdates(bytes(current.yjs_state), update);
+    let row = current;
+    if (merged.disposition !== 'unchanged') {
+      const changed = await database.get(
+        `
+          UPDATE collaboration_yjs_states
+          SET yjs_state = $1, state_vector = $2, document_sequence = document_sequence + 1,
+              persisted_at = $3, degraded = 0
+          WHERE document_id = $4 AND status = 'active' AND lifecycle_generation = $5
+            AND document_sequence = $6
+          RETURNING *
+        `,
+        [Buffer.from(merged.update), Buffer.from(merged.stateVector), Date.now(), documentId,
+          expectedLifecycleGeneration, current.document_sequence],
+      ) as StateRow | undefined;
+      if (!changed) throw new CollaborationStateStaleError(documentId, expectedLifecycleGeneration);
+      row = changed;
+    }
+    // No-op stores do not clear degradation: it may describe an invalid
+    // document structure, not a transient persistence failure.
+    commitStarted = true;
+    await database.run('COMMIT');
+    transactionOpen = false;
+    return { ...mapState(row), persistenceDisposition: merged.disposition,
+      incomingNeedsReconcile: merged.incomingNeedsReconcile };
+  } catch (error) {
+    // Even an indeterminate COMMIT is safe to retry: the containment check sees
+    // an already committed update as a no-op. Never acknowledge a failed reply.
+    if (commitStarted) {
+      discard = new Error('Discarding connection after an unconfirmed collaboration persistence commit.', { cause: error });
+    }
+    if (transactionOpen) {
+      try { await database.run('ROLLBACK'); }
+      catch (rollbackError) {
+        discard = new Error('Discarding unresolved collaboration persistence transaction.', { cause: rollbackError });
+        throw new AggregateError([error, rollbackError], 'Collaboration persistence and rollback failed.');
+      }
+    }
+    throw error;
   } finally {
-    await database.close();
+    await database.close(discard);
   }
 }
 

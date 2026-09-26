@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import type net from 'node:net';
 
-import { Hocuspocus, type Connection, type onAwarenessUpdatePayload } from '@hocuspocus/server';
+import { Hocuspocus, type Connection, type Document, type onAwarenessUpdatePayload } from '@hocuspocus/server';
 import { WebSocketServer } from 'ws';
 import type { Doc as YDoc } from 'yjs';
 
@@ -262,6 +262,55 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       hocuspocus.closeConnections(expected.documentId);
       throw new AgentDirectConnectionAuthorizationError('The live collaboration room belongs to an earlier document generation. Reload the document.');
     }
+  };
+  const reconciliationJobs = new WeakMap<Document, { context: CollaborationContext; requested: boolean }>();
+  const queuePersistedRoomReconciliation = (document: Document, context: CollaborationContext) => {
+    const existing = reconciliationJobs.get(document);
+    if (existing) {
+      existing.context = context;
+      existing.requested = true;
+      return;
+    }
+    const job = { context, requested: true };
+    reconciliationJobs.set(document, job);
+    // Never await this from onStoreDocument: direct disconnect owns the room
+    // lease and awaits saveMutex. Reconcile only after that lease is released.
+    setImmediate(() => {
+      void (async () => {
+        try {
+          while (job.requested) {
+            job.requested = false;
+            await withCollaborationRoomMutationLock(document, async () => {
+              const claims = job.context.claims;
+              if (document.isDestroyed || hocuspocus.documents.get(claims.documentId) !== document) return;
+              const latest = await loadCollaborationState(claims.documentId);
+              if (document.isDestroyed || hocuspocus.documents.get(claims.documentId) !== document) return;
+              if (!latest || latest.status !== 'active' || !matchesRoomIdentity(document, latest)
+                || latest.path !== claims.path || latest.organizationId !== claims.organizationId) {
+                throw new CollaborationStateStaleError(claims.documentId, claims.lifecycleGeneration);
+              }
+              // This only adds already durable state. Local, not-yet-stored
+              // edits stay intact; their own store remains scheduled. The
+              // reconciliation itself must not mint another revision/store.
+              Y.applyUpdate(document, latest.yjsState, { source: 'local', skipStoreHooks: true });
+              document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(latest)));
+            });
+          }
+        } catch (error) {
+          if (!document.isDestroyed && hocuspocus.documents.get(document.name) === document) {
+            const code = error instanceof CollaborationStateStaleError
+              ? COLLABORATION_FAILURE_CODES.generationChanged : COLLABORATION_FAILURE_CODES.persistenceFailed;
+            logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: document.name,
+              workspaceId: job.context.claims.workspaceId, code });
+            document.broadcastStateless(JSON.stringify({ type: 'degraded', code,
+              message: 'The saved document could not be synchronized. Reload to use the current document state.' }));
+            hocuspocus.closeConnections(document.name);
+          }
+        } finally {
+          reconciliationJobs.delete(document);
+        }
+      })();
+    });
   };
   const projections = createCollaborationProjectionRuntime({
     onProjected(result) {
@@ -578,16 +627,20 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           documentName,
           lastContext.claims.lifecycleGeneration,
           document,
+          lastContext.claims,
         );
-        try {
+        if (state.persistenceDisposition !== 'unchanged') try {
           await fileVersionHistoryService.capturePersistedCollaboration({
             workspace: lastContext.workspace,
             state,
-            source: lastContext.versionSource,
-            actorUserId: lastContext.initiatedByUserId ?? lastContext.user.id,
-            actorType: lastContext.actorType,
-            sourceSessionId: lastContext.versionSourceSessionId ?? lastContext.claims.sessionId,
-            baseRevisionId: lastContext.versionBaseRevisionId,
+            // A reconciled union is not wholly authored by this last writer.
+            // No-op/ancestor saves do not claim history for somebody else's
+            // earlier commit. Agent completion owns its strict capture retry.
+            source: state.incomingNeedsReconcile ? 'automatic_checkpoint' : lastContext.versionSource,
+            actorUserId: state.incomingNeedsReconcile ? null : lastContext.initiatedByUserId ?? lastContext.user.id,
+            actorType: state.incomingNeedsReconcile ? 'system' : lastContext.actorType,
+            sourceSessionId: state.incomingNeedsReconcile ? null : lastContext.versionSourceSessionId ?? lastContext.claims.sessionId,
+            baseRevisionId: state.incomingNeedsReconcile ? null : lastContext.versionBaseRevisionId,
           });
         } catch {
           // FVRC shadow/history failures never invalidate the already durable
@@ -626,12 +679,17 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         }));
         throw error;
       }
-      document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
+      if (state.incomingNeedsReconcile) queuePersistedRoomReconciliation(document, lastContext);
+      else document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
       logCollaborationDiagnostic('debug', { event: 'yjs_persisted', documentId: state.documentId,
         workspaceId: state.workspaceId, generation: state.lifecycleGeneration,
         documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
         durationMs: Math.round(performance.now() - startedAt) });
-      projections.enqueue(state);
+      // A retry of the same binary state can still have an unfinished projection.
+      // The projection runtime deduplicates by persisted sequence.
+      if (state.persistenceDisposition !== 'unchanged' || state.checkpointSequence < state.documentSequence) {
+        projections.enqueue(state);
+      }
     },
   });
   collaborationInstance = hocuspocus;

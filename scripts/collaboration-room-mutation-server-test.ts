@@ -48,6 +48,11 @@ type TestContext = {
   releaseRoomAdmission: null;
 };
 
+type ControlledPersistResult = PersistedCollaborationState & {
+  persistenceDisposition: 'unchanged' | 'advanced' | 'merged';
+  incomingNeedsReconcile: boolean;
+};
+
 function updateFrame(documentName: string, update: Uint8Array, subtype: number = messageYjsUpdate) {
   const encoder = encoding.createEncoder();
   encoding.writeVarString(encoder, documentName);
@@ -140,6 +145,9 @@ async function main() {
   const denied = new Set<Connection>();
   let accessChecks = 0;
   let stores = 0;
+  const historyCaptures: Array<{ source: string; actorUserId: string | null; actorType: string }> = [];
+  const controlledPersistResults: ControlledPersistResult[] = [];
+  let reconciliationObservation: { entered: ReturnType<typeof gate>; completed: ReturnType<typeof gate> } | null = null;
   class ObservedHocuspocus extends Hocuspocus {
     constructor(options: ConstructorParameters<typeof Hocuspocus>[0]) {
       super({ ...options, async beforeSync(payload) {
@@ -175,13 +183,22 @@ async function main() {
           barrier.entered.resolve();
           await barrier.release.promise;
         }
+        const controlled = controlledPersistResults.shift();
+        if (controlled) {
+          assert.equal(generation, controlled.lifecycleGeneration);
+          stores++;
+          if (controlled.incomingNeedsReconcile && !reconciliationObservation) {
+            reconciliationObservation = { entered: gate(), completed: gate() };
+          }
+          return controlled;
+        }
         const previous = states.get(documentId)!;
         assert.equal(generation, previous.lifecycleGeneration);
         stores++;
         const next = { ...previous, stateVector: Y.encodeStateVector(document), yjsState: Y.encodeStateAsUpdate(document),
           documentSequence: previous.documentSequence + 1 };
         states.set(documentId, next);
-        return next;
+        return { ...next, persistenceDisposition: 'advanced', incomingNeedsReconcile: false };
       },
       markCollaborationDegraded() { throw new Error('Unexpected persistence failure'); },
     };
@@ -196,7 +213,12 @@ async function main() {
       withCollaborationRoomMutationLock: <T>(document: object, operation: () => Promise<T> | T) => {
         directAcquireAttempt?.resolve();
         directAcquireAttempt = null;
-        return RoomMutation.withCollaborationRoomMutationLock(document, operation);
+        const observation = reconciliationObservation;
+        return RoomMutation.withCollaborationRoomMutationLock(document, async () => {
+          observation?.entered.resolve();
+          try { return await operation(); }
+          finally { observation?.completed.resolve(); }
+        });
       },
     };
     if (name.endsWith('/session-workspace-context')) return {
@@ -207,7 +229,9 @@ async function main() {
       document: { id: filePath.replace('.txt', ''), status: 'active', provider: 'yjs' },
     }) };
     if (name.endsWith('/projection-runtime')) return { createCollaborationProjectionRuntime: () => ({ enqueue() {}, dispose() {} }) };
-    if (name.endsWith('/history-service')) return { fileVersionHistoryService: { capturePersistedCollaboration: async () => {} } };
+    if (name.endsWith('/history-service')) return { fileVersionHistoryService: { capturePersistedCollaboration: async (capture: {
+      source: string; actorUserId: string | null; actorType: string;
+    }) => { historyCaptures.push(capture); } } };
     if (name.endsWith('/access-monitor')) return { createCollaborationAccessMonitor: () => ({
       dispose() {}, add: () => () => {}, check: async (connection: Connection) => {
         accessChecks++;
@@ -257,6 +281,28 @@ async function main() {
   const otherRoom = await instance.createDocument('other', request, 'other-loader', { isAuthenticated: true, readOnly: false }, contextFor('other'));
   const anchor = socket(room, 'anchor');
   const otherAnchor = socket(otherRoom, 'other-anchor');
+  const makeAheadState = (document: Y.Doc, marker: string) => {
+    const previous = states.get('doc')!;
+    const persisted = new Y.Doc();
+    try {
+      Y.applyUpdate(persisted, previous.yjsState);
+      persisted.getText('content').insert(persisted.getText('content').length, marker);
+      Y.applyUpdate(persisted, Y.encodeStateAsUpdate(document));
+      return {
+        ...previous,
+        stateVector: Y.encodeStateVector(persisted),
+        yjsState: Y.encodeStateAsUpdate(persisted),
+        documentSequence: previous.documentSequence + 1,
+        persistedAt: Date.now(),
+      };
+    } finally {
+      persisted.destroy();
+    }
+  };
+  const getReconciliationObservation = () => {
+    if (!reconciliationObservation) throw new Error('Expected persisted room reconciliation.');
+    return reconciliationObservation;
+  };
   try {
     // Direct receipt work holds the lease, even after Yjs has changed.
     const receipt = trackedGate(); const entered = trackedGate();
@@ -370,6 +416,103 @@ async function main() {
     assert.equal(room.getText('content').toString(), expected);
     console.log('PASS closed queued socket cannot edit');
 
+    // Persist returns a union containing a peer branch that is ahead of the
+    // live room. Reconciliation must wait for the room lease and preserve the
+    // room's local pending branch without scheduling another store.
+    const reconcileHold = trackedRelease(await RoomMutation.acquireCollaborationRoomMutationLock(room));
+    const beforeReconcile = room.getText('content').toString();
+    const aheadState = makeAheadState(room, 'P');
+    states.set('doc', aheadState);
+    controlledPersistResults.push({ ...aheadState, persistenceDisposition: 'unchanged', incomingNeedsReconcile: true });
+    storeBarrier = { entered: trackedGate(), release: trackedGate() };
+    const reconcileStoreBarrier = storeBarrier;
+
+    const broadcastGate = trackedGate();
+    const originalBroadcastStateless = room.broadcastStateless;
+    room.broadcastStateless = (payload, filter) => {
+      let parsed: { type?: string; documentSequence?: number } = {};
+      try { parsed = JSON.parse(payload) as typeof parsed; } catch { /* Other stateless payloads are ignored. */ }
+      if (parsed.type === 'durability_snapshot' && parsed.documentSequence === aheadState.documentSequence) {
+        assert.equal(room.getText('content').toString().includes('P'), true,
+          'the durability notification follows the persisted update applied to the room');
+        assert.equal(room.getText('content').toString().includes('L'), true,
+          'reconciliation preserves the room-local pending edit');
+        broadcastGate.resolve();
+      }
+      originalBroadcastStateless.call(room, payload, filter);
+    };
+    const storesBeforeReconcile = stores;
+    const historyBeforeReconcile = historyCaptures.length;
+    const storeResult = trackPending(instance.storeDocumentHooks(room, { document: room, documentName: 'doc',
+      lastContext: anchor.context, lastTransactionOrigin: { source: 'connection', connection: anchor },
+      clientsCount: room.getConnectionsCount(), instance }, true));
+    await bounded(reconcileStoreBarrier.entered.promise, 'controlled persistence before concurrent local edit');
+    room.transact(() => room.getText('content').insert(room.getText('content').length, 'L'), {
+      source: 'local', skipStoreHooks: true,
+    });
+    const liveBeforeReconcile = room.getText('content').toString();
+    assert.equal(liveBeforeReconcile, `${beforeReconcile}L`);
+    reconcileStoreBarrier.release.resolve();
+    await bounded(storeResult, 'onStoreDocument queues room reconciliation without awaiting it');
+    assert.equal(room.getText('content').toString(), liveBeforeReconcile,
+      'the live room stays unchanged by PG reconciliation while its mutation lease is held');
+    assert.equal(room.getText('content').toString().includes('P'), false);
+    assert.equal(stores, storesBeforeReconcile + 1);
+    assert.equal(historyCaptures.length, historyBeforeReconcile,
+      'an unchanged persistence reply does not claim authored history for the prior PG commit');
+    const manualReconciliation = getReconciliationObservation();
+
+    reconcileHold();
+    await bounded(Promise.all([manualReconciliation.entered.promise,
+      manualReconciliation.completed.promise, broadcastGate.promise]), 'persisted room reconciliation');
+    const afterReconcile = room.getText('content').toString();
+    assert.equal(afterReconcile.includes('P'), true);
+    assert.equal(afterReconcile.includes('L'), true);
+    assert.equal(stores, storesBeforeReconcile + 1, 'reconciliation does not schedule another store');
+    assert.equal(states.get('doc')!.documentSequence, aheadState.documentSequence,
+      'reconciliation does not mint another persistence sequence');
+    expected = afterReconcile;
+    room.broadcastStateless = originalBroadcastStateless;
+    reconciliationObservation = null;
+    console.log('PASS persisted room reconciliation waits for the lease, preserves local edits, and broadcasts after apply');
+
+    const replacedRoomHold = trackedRelease(await RoomMutation.acquireCollaborationRoomMutationLock(room));
+    const replacedAheadState = makeAheadState(room, 'STALE');
+    states.set('doc', replacedAheadState);
+    controlledPersistResults.push({ ...replacedAheadState, persistenceDisposition: 'merged', incomingNeedsReconcile: true });
+    const replacementRoom = new Y.Doc();
+    const originalDocumentMapValue = instance.documents.get('doc');
+    let replacedRoomBroadcast = false;
+    const preReplacementBroadcast = room.broadcastStateless;
+    room.broadcastStateless = (payload, filter) => {
+      let parsed: { type?: string; documentSequence?: number } = {};
+      try { parsed = JSON.parse(payload) as typeof parsed; } catch { /* Other stateless payloads are ignored. */ }
+      if (parsed.type === 'durability_snapshot' && parsed.documentSequence === replacedAheadState.documentSequence) {
+        replacedRoomBroadcast = true;
+      }
+      preReplacementBroadcast.call(room, payload, filter);
+    };
+    const replacedStore = trackPending(instance.storeDocumentHooks(room, { document: room, documentName: 'doc',
+      lastContext: anchor.context, lastTransactionOrigin: { source: 'connection', connection: anchor },
+      clientsCount: room.getConnectionsCount(), instance }, true));
+    await bounded(replacedStore, 'replacement guard store hook');
+    try {
+      instance.documents.set('doc', replacementRoom as Document);
+      const replacementObservation = getReconciliationObservation();
+      replacedRoomHold();
+      await bounded(Promise.all([replacementObservation.entered.promise, replacementObservation.completed.promise]),
+        'replaced room reconciliation guard');
+      assert.equal(room.getText('content').toString().includes('STALE'), false,
+        'reconciliation never applies persisted bytes to the replaced room');
+      assert.equal(replacedRoomBroadcast, false, 'a replaced room receives no stale durability broadcast');
+    } finally {
+      if (originalDocumentMapValue) instance.documents.set('doc', originalDocumentMapValue);
+      room.broadcastStateless = preReplacementBroadcast;
+      replacementRoom.destroy();
+      reconciliationObservation = null;
+    }
+    console.log('PASS reconciliation skips a room replaced before the queued lease runs');
+
     const unrelatedHold = trackedRelease(await RoomMutation.acquireCollaborationRoomMutationLock(room));
     try {
       await bounded(send(otherAnchor, updateFrame('other', appendUpdate(otherRoom, 'W'))), 'unrelated room message');
@@ -393,13 +536,50 @@ async function main() {
     await bounded(finalApplied.promise, 'direct mutation while store owns saveMutex');
     expected += 'F';
     assert.equal(room.getText('content').toString(), expected);
+
+    // Make the earlier store's returned row a durable union ahead of the live
+    // room. onStoreDocument must finish while direct disconnect still owns the
+    // room lease, then reconciliation can run after saveMutex and the lease.
+    const directAheadState = makeAheadState(room, 'G');
+    states.set('doc', directAheadState);
+    controlledPersistResults.push(
+      { ...directAheadState, persistenceDisposition: 'merged', incomingNeedsReconcile: true },
+      { ...directAheadState, persistenceDisposition: 'merged', incomingNeedsReconcile: true },
+    );
+    const directReconcileBroadcast = trackedGate();
+    const directBroadcast = room.broadcastStateless;
+    room.broadcastStateless = (payload, filter) => {
+      let parsed: { type?: string; documentSequence?: number } = {};
+      try { parsed = JSON.parse(payload) as typeof parsed; } catch { /* Other stateless payloads are ignored. */ }
+      if (parsed.type === 'durability_snapshot' && parsed.documentSequence === directAheadState.documentSequence) {
+        assert.equal(room.getText('content').toString().includes('G'), true,
+          'the saveMutex reconciliation applies the PG-ahead branch before acknowledgement');
+        directReconcileBroadcast.resolve();
+      }
+      directBroadcast.call(room, payload, filter);
+    };
     previousStore.release.resolve();
     await bounded(Promise.all([preceding, finalDirect]), 'saveMutex and direct disconnect');
+    const disconnectReconciliation = getReconciliationObservation();
+    await bounded(Promise.all([disconnectReconciliation.entered.promise,
+      disconnectReconciliation.completed.promise, directReconcileBroadcast.promise]),
+      'direct disconnect reconciliation after saveMutex');
+    assert.equal(room.getText('content').toString().includes('G'), true);
+    assert.equal(states.get('doc')!.documentSequence, directAheadState.documentSequence,
+      'the reconciliation itself does not advance the stored sequence');
+    room.broadcastStateless = directBroadcast;
+    reconciliationObservation = null;
     assert.equal(states.get('doc')!.documentSequence > 1, true);
     assert.equal(Y.encodeStateAsUpdate(room).length > 0, true);
     assert.equal(stores > 0, true);
     assert.equal(accessChecks > 0, true);
-    console.log('PASS preceding saveMutex store and direct disconnect complete without deadlock');
+    assert.equal(historyCaptures.some((capture) => capture.source === 'automatic_checkpoint'
+      && capture.actorUserId === null && capture.actorType === 'system'), true,
+    'merged reconciliation history is attributed to the system');
+    assert.equal(historyCaptures.some((capture) => capture.actorType === 'agent'
+      && capture.actorUserId === 'user'), true,
+    'ordinary direct-agent persistence keeps its existing author attribution');
+    console.log('PASS preceding saveMutex store and direct disconnect reconcile without deadlock');
   } finally {
     for (const release of cleanupReleases.reverse()) release();
     await bounded(Promise.allSettled([

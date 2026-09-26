@@ -875,3 +875,19 @@ Die sichere Reihenfolge „atomar speichern, dann veröffentlichen“ sowie Stor
 Mehrprozess-Owner und Peer-Reconnect-Crashabnahme sind weiterhin offen. Keine
 Freigabe ungewisser Legacy-Aufträge aufgrund bloßer Textgleichheit; FVRC-1008
 und der manuelle Konflikteditor P12 bleiben offen.
+
+### Monotone Stores und nachgelagerter Live-Abgleich
+
+[Monotonic store results](monotonic-store-results.md) ergänzt den SQL-seitigen
+Schutz: verzögerte Vorgänger ersetzen keinen neueren Snapshot, unabhängige
+Änderungen und reine Löschungen werden unter einer echten PostgreSQL-Zeilensperre
+vereinigt. No-ops erhöhen die Sequenz nicht, löschen keinen strukturellen
+Fehlerstatus und erzeugen keine falsche History-Autorenschaft. Ein unklarer
+Commit verwirft seine Verbindung; der folgende Retry bleibt idempotent.
+
+Der Live-Raum gleicht sich erst unter seiner Mutationssperre ab, ohne dass
+onStoreDocument darauf wartet. Reale Hocuspocus-Prüfungen belegen Erhalt
+zwischenzeitlicher lokaler Änderungen, Schutz ersetzter Räume und ausbleibende
+Disconnect-/Store-Deadlocks. PGlite und getrennte PostgreSQL-Backends bestehen;
+Einzelheiten und das neue Größenlimit samt Rollout-Preflight stehen im Nachweis.
+Mehrprozess-Owner und atomarer Kandidatencommit vor Live-Publish bleiben offen.

@@ -43,7 +43,7 @@ Dieser Baustein serialisiert lokale Änderungen. Er ändert weder den Zeitpunkt
 der Veröffentlichung noch die konservative Legacy-Recovery und ist daher
 allein ausdrücklich **keine** Lösung der Absturzlücke.
 
-### 2. Veraltete Speicherungen und fremde Raum-Owner abgrenzen (offen)
+### 2. Veraltete Speicherungen und fremde Raum-Owner abgrenzen (teilweise umgesetzt)
 
 Vor dem Cutover müssen alle Whole-Room-Stores vor einem veralteten Write
 geschützt sein: erwartete Lifecycle-/Schema-/Pfadidentität, Sequenz und
@@ -51,6 +51,14 @@ vollständiger Zustandsnachweis, nicht nur Text oder State Vector. Ein verzöger
 eintreffender Snapshot darf einen schon bestätigten Kandidaten nicht ersetzen.
 Bei einem fehlgeschlagenen CAS muss sicher neu abgeglichen oder der betroffene
 Raum als nicht schreibfähig behandelt werden; keine unbedingte Wiederholung.
+
+Der [monotone Store mit nachgelagertem Live-Abgleich](monotonic-store-results.md)
+setzt inzwischen die lokale/SQL-seitige Grundlage um: immutable Capture,
+Zeilensperre, vollständige kausale Vereinigung statt Überschreiben, No-op ohne
+Sequenzsprung und Abgleich unter der Raumsperre ohne saveMutex-Deadlock.
+Das neue 64-MiB-Decoderlimit erfordert vor Aktivierung einen Bestandsdaten-
+Preflight und Headroom-Überwachung. Persistierte History-Provenienz gehört
+weiterhin zum atomaren Kandidatencommit, nicht zu einem fremden No-op-Retry.
 
 Eine lokale WeakMap und die kooperative Workspace-Dateisperre belegen keine
 exklusive Raumzuständigkeit über zwei App-Prozesse. Für den Cutover ist eine

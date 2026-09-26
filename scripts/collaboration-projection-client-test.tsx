@@ -182,8 +182,9 @@ test('real client callbacks keep projection errors separate through delete proof
     for (let i = 0; providers.length === 0 && i < 30; i++) await act(async () => { await new Promise((done) => setTimeout(done, 0)); });
     assert.equal(providers.length, 1);
     await send({ type: 'projection_failed', ...snapshot(seed, 1), code: CHECKPOINT.failed });
-    assert.equal(get().ready, false);
-    assert.equal(get().durability, 'server_received', 'a diagnostic arriving before authenticated sync is not a durability acknowledgement');
+    assert.equal(get().ready, true, 'a hydrated local document is usable before remote synchronization');
+    assert.equal(get().clientState.remoteSynced, false, 'local readiness does not acknowledge server synchronization');
+    assert.equal(get().durability, 'local_pending', 'a diagnostic arriving before authenticated sync is not a durability acknowledgement');
     assert.equal(get().clientState.persistedStateProof, null);
     await act(async () => { providers[0].options.onStatus({ status: 'connected' }); providers[0].options.onSynced(); });
     assert.equal(get().durability, 'persisted_yjs');

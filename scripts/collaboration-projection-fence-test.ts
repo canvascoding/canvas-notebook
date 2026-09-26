@@ -71,9 +71,9 @@ async function harness() {
         assert(!closed);
         const query = sql.replace(/\s+/gu, ' ').trim();
         if (query.includes('FOR UPDATE')) {
-          assert(!transaction, 'recovery row lock must release in autocommit before file I/O');
-          assert.equal(parameters.length, 1, 'only the fresh recovery read needs a short row fence');
-          events.push('recovery read');
+          assert.equal(parameters.length, 1, 'binary store and fresh recovery lock only their document row');
+          if (transaction) events.push('binary row lock');
+          else events.push('recovery read');
         }
         const current = transaction ? transaction.row : row;
         if (query.startsWith('SELECT')) {
@@ -89,12 +89,14 @@ async function harness() {
           return { ...current };
         }
         if (query.includes('SET yjs_state = $1')) {
-          assert.equal(activeTransactions, 0, 'binary persistence runs while the projection is awaiting file I/O');
+          assert(transaction, 'binary persistence has its own short transaction, independent of workspace/file I/O');
+          assert.equal(activeTransactions, 1, 'the waiting projection must not hold another SQL transaction');
           assert(current);
           assert.equal(current.document_id, parameters[3]); assert.equal(current.lifecycle_generation, parameters[4]);
-          row = { ...current, yjs_state: parameters[0] as Uint8Array, state_vector: parameters[1] as Uint8Array,
+          assert.equal(current.document_sequence, parameters[5], 'the update fences the locked sequence');
+          transaction.row = { ...current, yjs_state: parameters[0] as Uint8Array, state_vector: parameters[1] as Uint8Array,
             persisted_at: Number(parameters[2]), document_sequence: current.document_sequence + 1, degraded: false };
-          events.push('persist'); return { ...row };
+          events.push('persist'); return { ...transaction.row };
         }
         if (query.startsWith('UPDATE collaboration_yjs_states SET checkpointed_at')) {
           assert(transaction, 'checkpoint confirmation must have a short transaction');
