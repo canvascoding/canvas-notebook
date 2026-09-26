@@ -115,3 +115,12 @@ PG-S19 bleibt für echte Unterbrechungen an sämtlichen Live-/Persistenz-/Histor
 Grenzen und anschließendem Server-Restart offen. Auch die vollständige doppelte
 Matrix, das aktuelle Produktionsimage und der manuelle Konflikteditor P12
 sind damit nicht freigegeben.
+
+### Nachfolgender echter Crashnachweis
+
+[Proposal crash results](proposal-crash-results.md) ergänzt diesen ursprünglichen
+Harness-Nachweis auf Produktcommit `73776e9dd`: Personal/Team mit tatsächlichem
+SIGKILL und Neustart nach Yjs-Persistenz vor Operationsbestätigung, vor History
+und nach History vor Operationsabschluss. Die drei konkreten PG-S19-Grenzen
+sind damit zusätzlich im Browser auf echtem PostgreSQL geprüft; die übrigen
+Crash-/Mehrprozessgrenzen und das Gesamtgate bleiben offen.

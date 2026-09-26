@@ -798,3 +798,33 @@ Orakeln grün. TypeScript, fokussiertes ESLint und Produktionsbuild bestehen.
 Der Recovery-Code ist im Harness geprüft, nicht durch einen echten
 Prozessabsturz im PostgreSQL-Stack. PG-S19 bleibt dafür offen; FVRC-1008 und
 P12 werden nicht vorzeitig abgeschlossen. Kein Containerneubau oder Push.
+
+### Echte App-Prozessabstürze an drei Persistenzgrenzen
+
+[Proposal crash results](proposal-crash-results.md) ergänzt den bisherigen
+GC-Harness-Nachweis um sechs echte Playwright-/PostgreSQL-Fälle: Personal und
+Team jeweils nach Yjs-Persistenz vor Operationsbestätigung, vor History sowie
+nach bestätigter History vor dem Operationsabschluss. Der eigene Host-Dev-
+Prozess endet an der exakt geprüften Grenze mit SIGKILL und wird neu gestartet.
+Keine SQL-Manipulation stellt einen gewünschten Produktzustand her.
+
+Gewöhnliche Agentenwerkzeuge erzeugen die vollständige Textlöschung; die UI
+zeigt sie und bestätigt die Annahme. Ein unabhängiger lesender Prozess weist
+bei gestopptem Server den gespeicherten Zustand nach. Nach Startup-Recovery
+bleiben Binärhash, Inhalts-/Yjs-Proof und Sequenz unverändert; kein Live-Replay,
+exakt eine zusätzliche Historyrevision und derselbe Beleg bei identischem
+Retry. Die Oberfläche beendet ihren Pending-Auftrag über die Statusabfrage
+und kann den genauen historischen Vorschlag anschließend read-only anzeigen.
+
+Sieben isolierte Probe-Tests, Launcher-/Log-Sicherheitsprüfungen, 34 fokussierte
+Orchestrator-/Operationsfälle, PGlite-Storagegate, vollständiges TypeScript,
+ESLint und Produktionsbuild bestehen. Die Ergänzung ändert nur Tests und den
+lesenden Test-Probe für legitimes SQL-NULL vor dem Operationssnapshot; der
+geprüfte Produktfix ist `73776e9dd`. Ein unabhängiger Subagent prüfte die
+Harness-Sicherheitsgrenzen und ergänzte die negativen History-Nachweise.
+
+PG-S19 bleibt für die übrigen Unterbrechungs-/Mehrprozessgrenzen offen. Keine
+DB-/VM-/Container-Crashprüfung, kein aktuelles Produktionsimage und keine
+vollständige doppelte Matrix werden daraus abgeleitet. Der einzelne Skill-
+Stack blieb erhalten; nur der eigene App-Prozess auf 3000 wurde unterbrochen.
+FVRC-1008 und P12 bleiben offen. Kein Push oder Rollout.

@@ -46,12 +46,13 @@ async function main() {
           reverse_payload, applied_at, persisted_at, cas_version FROM collaboration_agent_operations
           WHERE operation_id = $1 AND document_id = $2 AND workspace_id = $3`,
         [input.operationId, input.documentId, input.workspaceId]) as {
-          operation_id: string; status: string; result_json: string; resulting_state_snapshot: Uint8Array | null;
+          operation_id: string; status: string; result_json: string | null; resulting_state_snapshot: Uint8Array | null;
           reverse_payload: string | null; applied_at: number; persisted_at: number; cas_version: number;
         } | undefined;
         assert(operation);
         receipt = { operationId: operation.operation_id, status: operation.status,
-          resultHash: hash(operation.result_json), snapshotHash: operation.resulting_state_snapshot ? hash(operation.resulting_state_snapshot) : null,
+          resultHash: operation.result_json === null ? null : hash(operation.result_json),
+          snapshotHash: operation.resulting_state_snapshot ? hash(operation.resulting_state_snapshot) : null,
           reverseHash: operation.reverse_payload ? hash(operation.reverse_payload) : null,
           appliedAt: Number(operation.applied_at), persistedAt: Number(operation.persisted_at), casVersion: Number(operation.cas_version) };
       }
