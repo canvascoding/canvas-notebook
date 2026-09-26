@@ -487,3 +487,21 @@ Keine Dependencies, Container oder Runtime-Env-Dateien geändert, kein Push und
 keine Produktionsaktivierung. Die generierten Änderungen an `AGENTS.md` und
 `CLAUDE.md` bleiben außerhalb des Commits. Ein Build/Recreate des Notebook-
 Containers auf 3100 wurde separat angefragt und noch nicht durchgeführt.
+
+### Gewöhnliche Rich-Markdown-Merges: zwölf weitere Browserfälle
+
+[Ordinary rich merge results](ordinary-rich-merge-results.md) dokumentiert zwölf
+bestandene E2E-Fälle auf unverändertem Produktcode `542c99dc2`: Versand-P1/Q in
+beiden Reihenfolgen und als Batch sowie zwei explizit blockadressierte Änderungen
+im selben Absatz, jeweils Personal und Team. Geprüft sind feste Zwischen-/Endtexte,
+aktuelle Rest-Diffs, stabile Block-IDs, der beim ersten Merge eingefügte Absatz,
+exakte Aktionsbelege und +2 Einzel-/+1 Batch-Revisionen. Alle Fixtures verwenden
+nachweislich `tiptap_blocks` und gewöhnliche registrierte Agentenwerkzeuge.
+
+TypeScript, fokussiertes ESLint, Diff-Prüfung und unabhängiger Quell-Review
+bestanden. Testtreiberlogik ist ohne Produktänderung in einen gemeinsamen Helper
+extrahiert. Die erste falsche Abschluss-Locator-Erwartung wurde korrigiert und
+alle Fälle danach erneut ausgeführt. Kein 429-/5xx-Fehler, kein Skip. Die
+Szenariomatrix aktualisiert PG-S01, MR-05/MR-06 und CR-03/CR-04 nur für die
+tatsächlich abgedeckten Orakel. FVRC-1008 und P12 bleiben offen; kein Push,
+kein Container-Rebuild und keine Produktionsfreigabe.

@@ -1,50 +1,166 @@
 import { expect, test } from '@playwright/test';
-import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
-import { promisify } from 'node:util';
 
 import { buildFileVersionCenterDeepLinkV1 } from '../app/lib/file-version-center/contracts/deep-link-v1';
 import { PROPOSAL_GRAPH_ERROR_CODES as Codes, type ProposalActionReceiptV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import type { ProposalReviewActionApiRequestV1, ProposalReviewSessionResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-session-v1';
 import { withOrdinaryAgentDocument } from './helpers/ordinary-agent-document';
+import { runOrdinaryAgentTool as runTool, type OrdinaryAgentToolDetails as ToolDetails } from './helpers/ordinary-agent-tool';
 import { createAuthenticatedContext } from './helpers/managed-test-context';
 import { observeProposalReviewServerErrors } from './helpers/proposal-review-server-errors';
 
-const execFileAsync = promisify(execFile);
 const BASE_TEXT = '# Ordinary agent edits\n\nA0|B0|C0|D0|E0|F0|G0|H0|I0|J0\n';
 const FINAL_TEXT = '# Ordinary agent edits\n\nA1|B1|C1|D1|E1|F1|G1|H1|I1|J1\n';
-type ToolDetails = { sha256?: string; code?: string; outcome?: string; editIndex?: number;
-  proposal?: { proposalId: string; operationId: string; creationKind: string; source: { kind: string } };
-  collaboration?: { operationId: string; operationStatus: string; durability: string; reviewRequired: boolean } };
-type ToolResult = { isError?: boolean; details?: ToolDetails & { results?: ToolDetails[] } };
-
-async function runTool(input: { toolName: 'read' | 'write' | 'edit_file' | 'apply_patch'; toolCallId: string;
-  params: Record<string, unknown>; context: Record<string, unknown> }, options?: { graphMode: 'off' }): Promise<ToolResult> {
-  let stdout: string;
-  try {
-    const result = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'),
-      ['--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts',
-        Buffer.from(JSON.stringify(input)).toString('base64url')],
-      { cwd: process.cwd(), env: options ? { ...process.env, CANVAS_PROPOSAL_GRAPH_MODE: options.graphMode } : process.env,
-        maxBuffer: 2 * 1024 * 1024, timeout: 60_000 });
-    stdout = result.stdout;
-  } catch {
-    // Command arguments contain the scoped agent context; never put them or
-    // stderr into a browser report. The test's own fixture is the sole target.
-    throw new Error('The ordinary agent tool driver failed; no command arguments or stderr were included.');
-  }
-  for (const line of stdout.trim().split('\n').reverse()) {
-    try {
-      const result = JSON.parse(line) as ToolResult;
-      if (result.details) return result;
-    } catch { /* Structured runtime observations can precede the final result. */ }
-  }
-  throw new Error('The ordinary tool returned no structured result.');
-}
 
 for (const workspaceKind of ['personal', 'team'] as const) test.describe(`Ordinary Markdown tools through the proposal graph (${workspaceKind})`, () => {
   test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the managed PostgreSQL stack and enabled local graph policy.');
+
+  for (const order of ['p1-q', 'q-p1', 'batch'] as const) test(`independent shipping proposals ${order} preserve inserted paragraphs and the other effect`, async ({ browser }, info) => {
+    test.setTimeout(180_000);
+    const initial = '# Versand\n\nKosten: 10 EUR\n\nLieferzeit: 5 Tage\n';
+    const afterP1 = '# Versand\n\nKosten: 12 EUR\n\nDeckung: 100 EUR\n\nLieferzeit: 5 Tage\n';
+    const afterQ = '# Versand\n\nKosten: 10 EUR\n\nLieferzeit: 3 Tage\n';
+    const final = '# Versand\n\nKosten: 12 EUR\n\nDeckung: 100 EUR\n\nLieferzeit: 3 Tage\n';
+    await withOrdinaryAgentDocument(browser, initial, async ({ context, page, filePath, target, representation,
+      agentContext, content, revisionCount }) => {
+      expect(representation).toBe('tiptap_blocks');
+      const before = await revisionCount();
+      const source = await runTool({ toolName: 'read', toolCallId: `shipping-read-${randomUUID()}`,
+        params: { path: filePath, source: 'blocks' }, context: agentContext });
+      expect(source.isError).not.toBe(true);
+      expect(source.details?.sha256).toMatch(/^[a-f0-9]{64}$/u);
+      expect(source.details?.collaboration).toMatchObject({ documentId: target.documentId,
+        representation: 'tiptap_blocks', source: 'live_yjs' });
+      expect(source.details?.structure?.nextOffset).toBeNull();
+      const originalBlocks = source.details!.structure!.blocks;
+      expect(originalBlocks.map(block => [block.type, block.text])).toEqual([
+        ['heading', 'Versand'], ['paragraph', 'Kosten: 10 EUR'], ['paragraph', 'Lieferzeit: 5 Tage'],
+      ]);
+      let insuranceBlockId: string | undefined;
+      const proposals: Array<NonNullable<ToolDetails['proposal']>> = [];
+      for (const edit of [
+        { oldText: 'Kosten: 10 EUR', newText: 'Kosten: 12 EUR\n\nDeckung: 100 EUR' },
+        { oldText: 'Lieferzeit: 5 Tage', newText: 'Lieferzeit: 3 Tage' },
+      ]) {
+        const result = await runTool({ toolName: 'edit_file', toolCallId: `shipping-edit-${randomUUID()}`,
+          params: { path: filePath, expectedSha256: source.details!.sha256, ...edit }, context: agentContext });
+        expect(result.isError).not.toBe(true);
+        expect(result.details?.proposal).toMatchObject({ creationKind: 'independent', source: { kind: 'authoritative' } });
+        expect(result.details?.collaboration).toMatchObject({ reviewRequired: true, operationStatus: 'needs_review', durability: 'not_applied' });
+        proposals.push(result.details!.proposal!);
+      }
+      expect(proposals[0]!.proposalId).not.toBe(proposals[1]!.proposalId);
+      expect(await content()).toBe(initial);
+      expect(await revisionCount()).toBe(before);
+      const headers = { 'x-canvas-workspace-id': target.workspaceId };
+      const review = async (selected: NonNullable<ToolDetails['proposal']>) => {
+        const response = await context.request.post('/api/files/version-center/v1/proposals/review', {
+          headers, data: { contractVersion: 1, target, selection: { kind: 'operation', operationId: selected.operationId } },
+        });
+        expect(response.ok()).toBeTruthy();
+        const session = await response.json() as ProposalReviewSessionResponseV1;
+        expect(session.mode).toBe('graph');
+        if (session.mode !== 'graph') throw new Error('An ordinary shipping proposal must use graph review.');
+        expect(session.selectedProposalIds).toEqual([selected.proposalId]);
+        return session;
+      };
+      let actionPosts = 0;
+      page.on('request', request => {
+        if (request.method() === 'POST'
+          && new URL(request.url()).pathname === '/api/files/version-center/v1/proposals/actions') actionPosts += 1;
+      });
+      const selectedOrder = order === 'q-p1' ? [proposals[1]!, proposals[0]!]
+        : order === 'p1-q' ? proposals : [proposals[0]!];
+      const receipts: Array<{ actionType: string; affectedProposalIds: string[] }> = [];
+      for (const [index, selected] of selectedOrder.entries()) {
+        const session = await review(selected);
+        expect(session.status).toBe(index === 0 ? 'clean' : 'clean_rebased');
+        expect(session.context?.dependencyProposalIds).toEqual([]);
+        expect(session.context?.applyProposalIds).toEqual([selected.proposalId]);
+        const changed = session.compare!.hunks.flatMap(hunk => hunk.lines)
+          .filter(line => line.kind !== 'context').map(line => [line.kind, line.text]);
+        if (selected.proposalId === proposals[1]!.proposalId) {
+          expect(changed).toEqual([['deletion', 'Lieferzeit: 5 Tage'], ['addition', 'Lieferzeit: 3 Tage']]);
+        } else {
+          expect(changed).toContainEqual(['deletion', 'Kosten: 10 EUR']);
+          expect(changed).toContainEqual(['addition', 'Kosten: 12 EUR']);
+          expect(changed).toContainEqual(['addition', 'Deckung: 100 EUR']);
+          expect(changed.some(([, line]) => line.startsWith('Lieferzeit:'))).toBe(false);
+        }
+        await page.goto(buildFileVersionCenterDeepLinkV1('/en', { contractVersion: 1, target,
+          selectedEntry: { kind: 'agent_operation', id: selected.operationId }, initialView: 'reviews', source: 'deep_link' }));
+        const graph = page.getByTestId('graph-review-comparison');
+        await expect(graph.getByText(index === 0 ? 'Ready to apply' : 'Ready after rebase', { exact: true }))
+          .toBeVisible({ timeout: 30_000 });
+        if (order === 'batch') {
+          await graph.getByRole('button', { name: 'Review all changes', exact: true }).click();
+          await expect(graph).toContainText('2 proposals selected');
+          await expect(graph.getByTestId('graph-review-hunks')).toContainText('Deckung: 100 EUR');
+          await expect(graph.getByTestId('graph-review-hunks')).toContainText('Lieferzeit: 3 Tage');
+        }
+        await graph.getByRole('button', { name: order === 'batch' ? 'Accept all changes' : 'Accept change', exact: true }).click();
+        const pending = page.waitForResponse(response => response.request().method() === 'POST'
+          && new URL(response.url()).pathname === '/api/files/version-center/v1/proposals/actions');
+        await graph.getByRole('button', { name: 'Confirm action', exact: true }).click();
+        const response = await pending;
+        expect(response.ok()).toBeTruthy();
+        const receipt = await response.json() as ProposalActionReceiptV1;
+        expect(receipt.phase).toBe('succeeded');
+        expect(receipt.actionType).toBe(order === 'batch' ? 'batch_accept' : 'accept');
+        expect(receipt.result?.kind).toBe('content_changed');
+        expect([...receipt.affectedProposalIds].sort()).toEqual((order === 'batch'
+          ? proposals.map(proposal => proposal.proposalId) : [selected.proposalId]).sort());
+        receipts.push(receipt);
+        expect(await content()).toBe(order === 'batch' || index === 1 ? final : order === 'p1-q' ? afterP1 : afterQ);
+        expect(await revisionCount()).toBe(before + index + 1);
+        const live = await runTool({ toolName: 'read', toolCallId: `shipping-live-${randomUUID()}`,
+          params: { path: filePath, source: 'blocks' }, context: agentContext });
+        expect(live.isError).not.toBe(true);
+        expect(live.details?.document).toEqual(source.details!.document);
+        expect(live.details?.collaboration).toMatchObject({ representation: 'tiptap_blocks', source: 'live_yjs' });
+        expect(live.details?.structure?.nextOffset).toBeNull();
+        const blocks = live.details!.structure!.blocks;
+        const hasP1 = order !== 'q-p1' || index === 1;
+        const hasQ = order !== 'p1-q' || index === 1;
+        if (hasP1) {
+          const insurance = blocks.find(block => block.text === 'Deckung: 100 EUR');
+          expect(insurance?.type).toBe('paragraph');
+          insuranceBlockId ??= insurance!.id;
+          expect(insurance!.id).toBe(insuranceBlockId);
+        }
+        expect(blocks.map(block => [block.id, block.text])).toEqual([
+          [originalBlocks[0]!.id, 'Versand'],
+          [originalBlocks[1]!.id, hasP1 ? 'Kosten: 12 EUR' : 'Kosten: 10 EUR'],
+          ...(hasP1 ? [[insuranceBlockId, 'Deckung: 100 EUR']] : []),
+          [originalBlocks[2]!.id, hasQ ? 'Lieferzeit: 3 Tage' : 'Lieferzeit: 5 Tage'],
+        ]);
+        const decided = await review(selected);
+        expect(decided.context?.proposals.find(proposal => proposal.proposalId === selected.proposalId)?.lifecycle).toBe('applied');
+        expect(decided.actions.accept).toBeUndefined();
+      }
+      for (const selected of proposals) {
+        const decided = await review(selected);
+        expect(decided.context?.proposals.find(proposal => proposal.proposalId === selected.proposalId)?.lifecycle).toBe('applied');
+        expect(decided.actions.accept).toBeUndefined();
+      }
+      expect(actionPosts).toBe(order === 'batch' ? 1 : 2);
+      expect(await content()).toBe(final);
+      expect(await revisionCount()).toBe(before + (order === 'batch' ? 1 : 2));
+      const completed = page.getByRole('dialog', { name: 'Versions & changes' });
+      await expect(completed.getByRole('region', { name: 'Agent reviews', exact: true }))
+        .toContainText('No agent changes need review.', { timeout: 30_000 });
+      await expect(completed.getByRole('heading', { name: 'Current version', exact: true })).toBeVisible();
+      await expect(completed.getByRole('button', { name: /^Current version Current/u }))
+        .toHaveAttribute('aria-pressed', 'true');
+      await info.attach('ordinary-shipping-evidence.json', { contentType: 'application/json', body: JSON.stringify({
+        workspaceKind, order, target, filePath, representation, proposals, expected: final,
+        originalBlockIds: originalBlocks.map(block => block.id), insuranceBlockId,
+        beforeRevisionCount: before, afterRevisionCount: before + (order === 'batch' ? 1 : 2), actionPosts,
+        receipts: receipts.map(receipt => ({ actionType: receipt.actionType, affectedProposalIds: receipt.affectedProposalIds })),
+      }, null, 2) });
+      await info.attach('ordinary-shipping-final.png', { contentType: 'image/png', body: await page.screenshot({ fullPage: true }) });
+    }, { workspaceKind });
+  });
 
   test('ten ordinary edit_file roots: three singles then seven in one batch preserve exact content and four revisions', async ({ browser }, info) => {
     test.setTimeout(240_000);
