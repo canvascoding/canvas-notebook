@@ -6,7 +6,8 @@ DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
 [DA-03: normaler Unload](normal-room-unload-results.md),
 [DA-03: Quiescence-Belege](admission-quiescence-results.md),
 [DA-03/04: SQL-Handoff](admission-handoff-results.md),
-[DA-05: Kompaktierungsadapter](admission-compaction-results.md). Keine Runtime-Aktivierung.
+[DA-05: Kompaktierungsadapter](admission-compaction-results.md),
+[DA-04/05: belegter Abbruch](admission-abort-results.md). Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
 
@@ -144,6 +145,9 @@ und rein historischer lokaler Finish sind als eigener Protokollbaustein
 implementiert. Der erste SQL-Domainadapter ist separat ergänzt; seine äußere
 Coordinator-/Runtime-Anbindung und die Gesamtaktivierung fehlen weiterhin;
 [Umfang und Nachweise](admission-handoff-results.md).
+Ein expliziter Abbruch nach bewiesenem Ruhezustand nutzt dieselben Guards und
+speichert einen unveränderlichen No-write-Outcome. Er ist kein automatischer
+Fehler-Catch und ersetzt keine fehlenden Recovery-Belege.
 
 - Dedizierte PostgreSQL-Sitzung hält die betroffenen Owner-Advisory-Locks in
   stabiler Reihenfolge; try-only Erwerb, kontrollierter Neuversuch außerhalb
@@ -185,6 +189,12 @@ Handoff. Die Kompaktierung hat derzeit keinen UI-/HTTP-Aufrufer; ein solcher
 wurde nicht eigens für den Test erfunden. Äußerer Reserve-/Drain-/Resume-Aufruf,
 Repräsentationswechsel und die übrigen Dateiaktionen bleiben offen. Details:
 [admission-compaction-results.md](admission-compaction-results.md).
+Der Adapter kann bei expliziter Nutzerentscheidung oder unter Sperren bestätigten
+offenen Agentenoperationen ohne Mutation abschließen. Der neue v2-Abbruchbeleg
+bleibt von angewandten v1-Ergebnissen unterscheidbar; alte Request-IDs führen
+danach keine Kompaktierung mehr aus. Ein neuer Versuch braucht einen neuen
+Auftrag. Fachliche Vorprüfung vor Reservation und der äußere Coordinator bleiben
+offen; [Abbruchvertrag](admission-abort-results.md).
 
 - Äußerste Eintrittspunkte für Rename/Move, Delete/Archive, Restore, Copy mit
   existierendem Ziel, Repräsentationswechsel und Kompaktierung auditieren.

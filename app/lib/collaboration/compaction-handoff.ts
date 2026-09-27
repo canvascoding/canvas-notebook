@@ -2,8 +2,10 @@ import 'server-only';
 
 import { captureCollaborationCompactionRequest } from './compaction-contract';
 import { createCollaborationAdmissionHandoffService } from './room-admission-handoff';
-import type { CollaborationAdmissionRequest } from './room-admission-contract';
-import { compactCollaborationStateInAdmissionHandoff, prepareCollaborationCompactionAdmission } from './persistence';
+import { CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
+import { captureCollaborationAdmissionAbortReason, type CollaborationAdmissionAbortReason } from './room-admission-outcome';
+import { compactCollaborationStateInAdmissionHandoff, lockCollaborationCompactionAdmission,
+  prepareCollaborationCompactionAdmission } from './persistence';
 
 /**
  * Internal coordinator adapter for an already reserved and proven compaction.
@@ -16,6 +18,21 @@ export function createCollaborationCompactionHandoffService(
 ) {
   const handoff = createCollaborationAdmissionHandoffService(options);
   return {
+    abort(input: CollaborationAdmissionRequest, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }, reasonCode: CollaborationAdmissionAbortReason = 'user_cancelled') {
+      const { request } = captureCollaborationCompactionRequest(input);
+      const reason = captureCollaborationAdmissionAbortReason(reasonCode);
+      return handoff.abort(request, {
+        authorize: authorization.authorize,
+        prepare: async (database) => {
+          const locked = await lockCollaborationCompactionAdmission(database, request);
+          if (reason === 'precondition_failed' && !locked.hasPendingOperations) {
+            throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+          }
+        },
+      }, reason);
+    },
     execute(input: CollaborationAdmissionRequest, authorization: {
       authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
     }) {

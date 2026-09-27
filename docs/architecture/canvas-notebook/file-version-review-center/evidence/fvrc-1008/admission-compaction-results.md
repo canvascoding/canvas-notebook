@@ -91,12 +91,11 @@ gegenüber `main` umfasst 300 Dateien / 30 betroffene Prozesse und bleibt
 
 - Äußerer Coordinator für Reservation, Drain, Proof und fortsetzbare Domain-
   Ausführung. Der Adapter selbst startet keinen Drain und ist nicht aktiviert.
-- Fachliche Vorprüfung vor der Reservation und expliziter sicherer Abbruch
-  nach bewiesenem Ruhezustand ohne Mutation: Der heutige Cancel-Vertrag erlaubt
-  nur unberührte Reservationen. Eine wegen offener Reviews verweigerte
-  Kompaktierung darf später nicht deren notwendige Room-Claims dauerhaft
-  blockieren. Der Adapter löscht deshalb keinen Request auf eigene Faust;
-  dieser Coordinator-/Abbruchpfad muss vor Aktivierung gelöst werden.
+- Fachliche Vorprüfung vor der Reservation und äußere Coordinator-Anbindung.
+  Der nachfolgende [belegte Abbruch](admission-abort-results.md) ergänzt inzwischen
+  den expliziten No-write-Abschluss nach Quiescence, insbesondere bei offenen
+  Reviews. Der ursprüngliche Cancel-Vertrag bleibt auf unberührte Reservationen
+  beschränkt; kein beliebiger Fehler löscht einen Request auf eigene Faust.
 - Repräsentationswechsel einschließlich Dateiprojektion und die übrigen
   Dateiaktionen (Rename/Move, Archive/Restore, Copy/Replace).
 - Gemeinsame Zulassungsprüfung aller neuen Dokument-/Agenten-Writer sowie

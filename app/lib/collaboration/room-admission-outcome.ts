@@ -19,13 +19,44 @@ export type CollaborationAdmissionOutcomeTarget = Readonly<{
   snapshotText: string;
   snapshotDigest: string;
 }>;
-export type CollaborationAdmissionOutcome = Readonly<{
-  version: 1;
+export type CollaborationAdmissionAbortReason = 'user_cancelled' | 'precondition_failed';
+type CollaborationAdmissionOutcomeBase = Readonly<{
   requestId: string;
   requestDigest: string;
   result: Readonly<Record<string, string>>;
   targets: readonly CollaborationAdmissionOutcomeTarget[];
 }>;
+// `committed` describes the durable protocol outcome, not necessarily a domain
+// write. Preserve v1 byte-for-byte; only the new v2 member denotes an abort.
+export type CollaborationAdmissionOutcome = CollaborationAdmissionOutcomeBase & (
+  Readonly<{ version: 1 }>
+  | Readonly<{ version: 2; disposition: 'aborted'; reasonCode: CollaborationAdmissionAbortReason }>
+);
+
+export function captureCollaborationAdmissionAbortReason(value: unknown): CollaborationAdmissionAbortReason {
+  if (value !== 'user_cancelled' && value !== 'precondition_failed') {
+    throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  }
+  return value;
+}
+
+/** Abort proves unchanged input, not merely non-regressing counters. */
+export function assertUnchangedCollaborationAdmissionAbortSnapshot(
+  captured: Captured, documentId: string, proofText: string, snapshotText: string,
+): void {
+  let proof: Row;
+  try { proof = JSON.parse(proofText) as Row; }
+  catch { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); }
+  const expected = captured.request.expectedDocuments.find((document) => document.documentId === documentId);
+  if (!expected || !proof || proof.version !== 1 || proof.requestId !== captured.request.requestId
+    || proof.requestDigest !== captured.requestDigest
+    || !['vacant', 'normal_release', 'owner_drain', 'lifecycle_outcome'].includes(proof.kind as string)
+    || JSON.stringify(proof.current) !== snapshotText) {
+    throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  }
+  const snapshot = decodeCollaborationAdmissionTarget(snapshotText, expected);
+  if (snapshot.ownerToken !== null) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+}
 
 export function serializeCollaborationAdmissionOutcome(outcome: CollaborationAdmissionOutcome): string {
   const text = JSON.stringify(outcome);
@@ -98,8 +129,14 @@ export async function readCollaborationAdmissionOutcome(database: SqlConnection,
   let stored: CollaborationAdmissionOutcome;
   try { stored = JSON.parse(header.outcome_text) as CollaborationAdmissionOutcome; }
   catch { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); }
-  if (stored?.version !== 1 || stored.requestId !== captured.request.requestId || stored.requestDigest !== captured.requestDigest
+  if (![1, 2].includes(stored?.version) || stored.requestId !== captured.request.requestId || stored.requestDigest !== captured.requestDigest
     || !Array.isArray(stored.targets) || stored.targets.length !== captured.request.expectedDocuments.length) {
+    throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  }
+  if (stored.version === 2 && (stored.disposition !== 'aborted'
+    || !['user_cancelled', 'precondition_failed'].includes(stored.reasonCode)
+    || !stored.result || typeof stored.result !== 'object' || Array.isArray(stored.result)
+    || Object.keys(stored.result).length !== 0)) {
     throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   }
   const rows = await database.all(`SELECT * FROM collaboration_admission_targets
@@ -123,12 +160,28 @@ export async function readCollaborationAdmissionOutcome(database: SqlConnection,
     }
     captureCollaborationAdmissionRequest({ ...captured.request, expectedDocuments: [snapshot.document] });
     decodeCollaborationAdmissionTarget(item.snapshotText, snapshot.document);
+    if (stored.version === 2) {
+      assertUnchangedCollaborationAdmissionAbortSnapshot(captured, item.documentId, row.quiescence_text, item.snapshotText);
+      const proof = JSON.parse(row.quiescence_text) as Row;
+      if (typeof row.snapshot_text !== 'string' || proof.kind !== row.quiescence_kind
+        || proof.snapshotDigest !== createHash('sha256').update('canvas.admission-quiescence.snapshot.v1\0')
+          .update(row.snapshot_text).digest('hex')) {
+        throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+      }
+      const reserved = decodeCollaborationAdmissionTarget(row.snapshot_text, captured.request.expectedDocuments[index]);
+      if (snapshot.ownerEpoch !== reserved.ownerEpoch || snapshot.documentSequence < reserved.documentSequence
+        || (reserved.ownerToken === null && item.snapshotText !== row.snapshot_text)) {
+        throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+      }
+    }
     return Object.freeze({ documentId: item.documentId, proofDigest: item.proofDigest,
       snapshotText: item.snapshotText, snapshotDigest: item.snapshotDigest });
   });
-  const outcome = Object.freeze({ version: 1 as const, requestId: captured.request.requestId,
-    requestDigest: captured.requestDigest, result: captureCollaborationAdmissionOutcomeResult(stored.result),
-    targets: Object.freeze(targets) });
+  const outcome: CollaborationAdmissionOutcome = Object.freeze({
+    ...(stored.version === 2 ? { version: 2 as const, disposition: 'aborted' as const, reasonCode: stored.reasonCode }
+      : { version: 1 as const }),
+    requestId: captured.request.requestId, requestDigest: captured.requestDigest,
+    result: captureCollaborationAdmissionOutcomeResult(stored.result), targets: Object.freeze(targets) });
   if (JSON.stringify(outcome) !== header.outcome_text) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   return outcome;
 }

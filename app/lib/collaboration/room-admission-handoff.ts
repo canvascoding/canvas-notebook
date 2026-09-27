@@ -7,15 +7,26 @@ import { captureCollaborationAdmissionScopeTargets, captureCollaborationAdmissio
 import { captureCollaborationAdmissionRequest, CollaborationAdmissionError,
   type CollaborationAdmissionRequest } from './room-admission-contract';
 import { captureCollaborationAdmissionOutcomeResult, captureCollaborationAdmissionOutcomeSnapshot,
+  assertUnchangedCollaborationAdmissionAbortSnapshot, captureCollaborationAdmissionAbortReason,
   collaborationAdmissionOutcomeDigest, readCollaborationAdmissionOutcome,
   serializeCollaborationAdmissionOutcome,
-  type CollaborationAdmissionOutcome } from './room-admission-outcome';
+  type CollaborationAdmissionAbortReason, type CollaborationAdmissionOutcome } from './room-admission-outcome';
 import { inspectCollaborationAdmissionQuiescence,
   type CollaborationAdmissionQuiescenceProof } from './room-admission-quiescence';
 import { lockIdentity } from './room-owner';
 
 type Captured = ReturnType<typeof captureCollaborationAdmissionRequest>;
 type Row = Record<string, unknown>;
+type HandoffPreparation = {
+  authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+  prepare: (database: SqlConnection) => Promise<void>;
+};
+type HandoffMutation = HandoffPreparation & {
+  mutate: (database: SqlConnection, proofs: readonly CollaborationAdmissionQuiescenceProof[])
+    => Promise<Readonly<Record<string, string>>>;
+};
+type HandoffOperation = (HandoffMutation & { kind: 'apply' })
+  | (HandoffPreparation & { kind: 'abort'; reasonCode: CollaborationAdmissionAbortReason });
 
 // This authority cannot be manufactured by a caller or transferred to a wrapper
 // connection. It exists only while the verified handoff awaits its SQL mutation.
@@ -132,12 +143,7 @@ export function createCollaborationAdmissionHandoffService(options: {
       });
     },
 
-    async execute(input: CollaborationAdmissionRequest, domain: {
-      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
-      prepare: (database: SqlConnection) => Promise<void>;
-      mutate: (database: SqlConnection, proofs: readonly CollaborationAdmissionQuiescenceProof[])
-        => Promise<Readonly<Record<string, string>>>;
-    }): Promise<CollaborationAdmissionOutcome> {
+    async executeHandoff(input: CollaborationAdmissionRequest, domain: HandoffOperation): Promise<CollaborationAdmissionOutcome> {
       const captured = captureCollaborationAdmissionRequest(input);
       if (captured.request.actionPayloadText === undefined) {
         throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
@@ -179,6 +185,7 @@ export function createCollaborationAdmissionHandoffService(options: {
               await transaction.run("SET LOCAL statement_timeout = '5s'");
               await transaction.run("SET LOCAL lock_timeout = '4s'");
               await domain.prepare(transaction);
+              if (domain.kind === 'abort') await domain.authorize(captured.request);
               const header = await transaction.get(
                 'SELECT * FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
                 [captured.request.requestId]) as Row | undefined;
@@ -208,20 +215,20 @@ export function createCollaborationAdmissionHandoffService(options: {
                 if (!inspected.alreadyProven) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
                 proofs.push(inspected.proof);
               }
-              let result: Readonly<Record<string, string>>;
-              if (mutationAuthorities.has(transaction)) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
-              const authority = { request: captured.request, targets: before, claimed: new Set<string>(), active: true, inFlight: 0 };
-              mutationAuthorities.set(transaction, authority);
-              try {
-                result = captureCollaborationAdmissionOutcomeResult(await domain.mutate(transaction, Object.freeze(proofs)));
-              } finally {
-                authority.active = false;
-                mutationAuthorities.delete(transaction);
+              let result = captureCollaborationAdmissionOutcomeResult({});
+              if (domain.kind === 'apply') {
+                if (mutationAuthorities.has(transaction)) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+                const authority = { request: captured.request, targets: before, claimed: new Set<string>(), active: true, inFlight: 0 };
+                mutationAuthorities.set(transaction, authority);
+                try {
+                  result = captureCollaborationAdmissionOutcomeResult(await domain.mutate(transaction, Object.freeze(proofs)));
+                } finally {
+                  authority.active = false;
+                  mutationAuthorities.delete(transaction);
+                }
+                // A detached persistence call must roll back, never escape the lease.
+                if (authority.inFlight !== 0) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
               }
-              // Reject a caller which started persistence but returned without
-              // awaiting it. Its queued query precedes ROLLBACK on this session;
-              // revoked authority prevents every subsequent persistence query.
-              if (authority.inFlight !== 0) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
               const targets = [];
               for (const [index, proof] of proofs.entries()) {
                 const row = await transaction.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
@@ -233,6 +240,10 @@ export function createCollaborationAdmissionHandoffService(options: {
                   throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
                 }
                 const snapshotText = JSON.stringify(snapshot);
+                if (domain.kind === 'abort') {
+                  assertUnchangedCollaborationAdmissionAbortSnapshot(captured, proof.documentId, proof.proofText, snapshotText);
+                  if (snapshotText !== JSON.stringify(before[index])) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+                }
                 const snapshotDigest = collaborationAdmissionOutcomeDigest('snapshot', snapshotText);
                 targets.push(Object.freeze({ documentId: proof.documentId,
                   proofDigest: collaborationAdmissionOutcomeDigest('input', proof.proofText), snapshotText, snapshotDigest }));
@@ -240,7 +251,9 @@ export function createCollaborationAdmissionHandoffService(options: {
                   outcome_snapshot_text = $3, outcome_snapshot_digest = $4 WHERE request_id = $1 AND document_id = $2`,
                 [captured.request.requestId, proof.documentId, snapshotText, snapshotDigest]);
               }
-              const outcome = Object.freeze({ version: 1 as const, requestId: captured.request.requestId,
+              const outcome: CollaborationAdmissionOutcome = Object.freeze({
+                ...(domain.kind === 'abort' ? { version: 2 as const, disposition: 'aborted' as const, reasonCode: domain.reasonCode }
+                  : { version: 1 as const }), requestId: captured.request.requestId,
                 requestDigest: captured.requestDigest, result, targets: Object.freeze(targets) });
               const outcomeText = serializeCollaborationAdmissionOutcome(outcome);
               await transaction.run(`UPDATE collaboration_admission_requests SET status = 'committed', revision = revision + 1,
@@ -266,5 +279,16 @@ export function createCollaborationAdmissionHandoffService(options: {
       }
     },
   };
-  return service;
+  return {
+    readOutcome: service.readOutcome,
+    loadRequest: service.loadRequest,
+    execute(input: CollaborationAdmissionRequest, domain: HandoffMutation) {
+      return service.executeHandoff(input, { ...domain, kind: 'apply' });
+    },
+    /** Explicit, proven no-write terminal outcome; never a catch-all error handler. */
+    abort(input: CollaborationAdmissionRequest, domain: HandoffPreparation, reasonCode: CollaborationAdmissionAbortReason) {
+      return service.executeHandoff(input, { kind: 'abort', authorize: domain.authorize, prepare: domain.prepare,
+        reasonCode: captureCollaborationAdmissionAbortReason(reasonCode) });
+    },
+  };
 }

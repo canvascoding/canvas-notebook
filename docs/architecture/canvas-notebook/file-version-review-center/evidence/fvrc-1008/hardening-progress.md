@@ -22,6 +22,9 @@ Der nächste Protokollbaustein bindet ausführbare Aktionsparameter, dedizierte
 ist nun die echte Kompaktierung angeschlossen:
 [Kompaktierungsübergabe](admission-compaction-results.md). Äußere Runtime-
 Aufrufer sind noch nicht umgestellt; deren Owner-Epoch-Schutz bleibt bestehen.
+Der [explizite belegte Abbruch](admission-abort-results.md) ergänzt einen
+terminalen No-write-Pfad nach Quiescence. Er hebt die Reservation erst mit
+atomarem Ergebnisbeleg auf; ein Fehler oder Timeout allein tut dies nicht.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue

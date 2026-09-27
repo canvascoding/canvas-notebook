@@ -18,14 +18,19 @@ import {
   type CollaborationAdmissionRequest,
 } from '../app/lib/collaboration/room-admission-contract';
 import * as compactionContractModule from '../app/lib/collaboration/compaction-contract';
+import type { CollaborationAdmissionDrainTicket } from '../app/lib/collaboration/room-admission-drain';
 import { createCollaborationAdmissionQuiescenceService } from '../app/lib/collaboration/room-admission-quiescence';
 import * as handoffRuntime from '../app/lib/collaboration/room-admission-handoff';
+import * as outcomeRuntime from '../app/lib/collaboration/room-admission-outcome';
 import {
   assertCollaborationRoomOwnerFence,
   createCollaborationRoomOwnerSession,
   type CollaborationRoomOwnerFence,
 } from '../app/lib/collaboration/room-owner';
-import type { CollaborationRoomReleaseSnapshot } from '../app/lib/collaboration/room-owner-release';
+import {
+  recoverCollaborationRoomRelease,
+  type CollaborationRoomReleaseSnapshot,
+} from '../app/lib/collaboration/room-owner-release';
 import { COLLABORATION_ADMISSION_STATEMENTS } from '../app/lib/db/collaboration-admission-migration';
 import {
   COLLABORATION_ROOM_OWNER_UP_SQL,
@@ -41,6 +46,15 @@ const CLEANUP_TIMEOUT_MS = 20_000;
 
 type OwnerSession = Awaited<ReturnType<typeof createCollaborationRoomOwnerSession>>;
 type PersistenceError = Error & { code?: string };
+type TestOutcome = {
+  version: 1 | 2;
+  disposition?: 'aborted';
+  reasonCode?: 'user_cancelled' | 'precondition_failed';
+  requestId: string;
+  requestDigest: string;
+  result: Readonly<Record<string, string>>;
+  targets: readonly unknown[];
+};
 type PersistenceModule = {
   CollaborationRepresentationMigrationError: new (...args: never[]) => PersistenceError;
   compactCollaborationState(input: {
@@ -61,12 +75,12 @@ type CompactionModule = {
     openConnection: () => Promise<SqlConnection>;
     withMutationLocks: <T>(workspaceIds: readonly string[], operation: () => Promise<T>) => Promise<T>;
   }): {
+    abort(input: CollaborationAdmissionRequest, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }, reasonCode?: 'user_cancelled' | 'precondition_failed'): Promise<TestOutcome>;
     execute(input: CollaborationAdmissionRequest, authorization: {
       authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
-    }): Promise<{
-      result: Readonly<Record<string, string>>;
-      targets: readonly unknown[];
-    }>;
+    }): Promise<TestOutcome>;
   };
 };
 type ConnectionHooks = {
@@ -364,6 +378,7 @@ Promise<{ persistence: PersistenceModule; compaction: CompactionModule }> {
     'server-only': {},
     './compaction-contract': compactionContractModule,
     './room-admission-handoff': handoffRuntime,
+    './room-admission-outcome': outcomeRuntime,
     './persistence': persistenceCompiledModule.exports,
   };
   const compactionCompiledModule = { exports: {} as Record<string, unknown> };
@@ -458,7 +473,8 @@ async function run(databaseUrl: URL): Promise<void> {
     const readBackups = async (documentId: string) => (await controlPool.query<BackupRow>(
       `SELECT * FROM ${backupTable} WHERE document_id=$1 ORDER BY created_at`, [documentId],
     )).rows;
-    const saveAndRelease = async (session: OwnerSession, fence: CollaborationRoomOwnerFence, content: string) => {
+    const saveAndRelease = async (session: OwnerSession, fence: CollaborationRoomOwnerFence, content: string,
+      admissionTicket?: CollaborationAdmissionDrainTicket) => {
       const document = ownDocument(content);
       const yjsState = Buffer.from(Y.encodeStateAsUpdate(document));
       const stateVector = Buffer.from(Y.encodeStateVector(document));
@@ -478,7 +494,8 @@ async function run(databaseUrl: URL): Promise<void> {
         await Promise.resolve(database.run('ROLLBACK')).catch(() => undefined);
         throw error;
       } finally { await database.close(); }
-      const snapshot: CollaborationRoomReleaseSnapshot = Object.freeze({ releaseId: randomUUID(),
+      const snapshot: CollaborationRoomReleaseSnapshot = Object.freeze({
+        releaseId: admissionTicket?.releaseId ?? randomUUID(), ...(admissionTicket ? { admission: admissionTicket } : {}),
         yjsState: new Uint8Array(yjsState), stateVector: new Uint8Array(stateVector) });
       await session.release(fence, snapshot);
       return snapshot;
@@ -501,6 +518,13 @@ async function run(databaseUrl: URL): Promise<void> {
         expected.organizationId, expected.lifecycleGeneration, `key-${expected.documentId}`,
         Buffer.from(state.state_vector), Number(state.document_sequence), now]);
     };
+    const readOperationStatus = async (documentId: string) => (await controlPool.query<{ status: string }>(
+      `SELECT status FROM ${operationTable} WHERE document_id=$1`, [documentId],
+    )).rows[0]?.status;
+    const readAdmissionTarget = async (requestId: string) => (await controlPool.query<{
+      status: string; active: boolean;
+    }>(`SELECT status,active FROM ${schemaSql}.collaboration_admission_targets WHERE request_id=$1`,
+    [requestId])).rows[0];
 
     // The real production core is inaccessible without the exact WeakMap-bound handoff transaction.
     const raw = await openConnection();
@@ -648,6 +672,22 @@ async function run(databaseUrl: URL): Promise<void> {
     assert.deepEqual(Buffer.from(deletionAfter.state_vector), Buffer.from(deletionBefore.state_vector));
     assert.equal((await readBackups(deletionDocument.documentId)).length, 0);
 
+    // Generic abort preparation receives locks and proofs, never mutation authority.
+    const abortAuthorityDocument = expectedDocument('admission-compaction-abort-no-authority');
+    await seed(abortAuthorityDocument, 'abort preparation content');
+    const abortAuthorityRequest = compactionRequest(abortAuthorityDocument);
+    await reserveAndProve(abortAuthorityRequest);
+    await assert.rejects(floatingHandoff.abort(abortAuthorityRequest, {
+      authorize: async () => undefined,
+      prepare: async (database) => {
+        await persistence.compactCollaborationStateInAdmissionHandoff(database,
+          { documentId: abortAuthorityDocument.documentId, expectedLifecycleGeneration: 1 });
+      },
+    }, 'user_cancelled'), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.deepEqual(await readAdmissionTarget(abortAuthorityRequest.requestId), { status: 'released', active: true });
+    assert.equal(Number((await readState(abortAuthorityDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(abortAuthorityDocument.documentId)).length, 0);
+
     // Owner-era normal-release proof compacts real Yjs state and preserves the exact predecessor backup.
     const happyDocument = expectedDocument('admission-compaction-happy');
     await seed(happyDocument, 'pre-owner content');
@@ -689,6 +729,11 @@ async function run(databaseUrl: URL): Promise<void> {
     assert.deepEqual(retryOutcome, happyOutcome);
     assert.equal(happyAuthorizations, 3, 'completed retry authorizes once and bypasses mutation preparation');
     assert.equal((await readBackups(happyDocument.documentId)).length, 1);
+    const abortAfterApply = await compactionService.abort(happyRequest,
+      { authorize: async () => { happyAuthorizations += 1; } });
+    assert.deepEqual(abortAfterApply, happyOutcome, 'abort after applied returns the immutable v1 winner');
+    assert.equal(happyAuthorizations, 4);
+    assert.equal((await readBackups(happyDocument.documentId)).length, 1);
 
     // The legacy public compactor and quiescence proof both reject unproven owner-era state.
     const legacyDocument = expectedDocument('admission-compaction-legacy-owner');
@@ -701,38 +746,221 @@ async function run(databaseUrl: URL): Promise<void> {
       admissionError('ADMISSION_RECOVERY_REQUIRED'));
     assert.equal((await readBackups(legacyDocument.documentId)).length, 0);
 
-    // Pending operations reject before state mutation; a terminal transition permits the exact retry.
+    // Abort remains fail-closed without its named precondition, retained proof, exact current snapshot, or both rights checks.
+    const missingPreconditionDocument = expectedDocument('admission-compaction-abort-missing-precondition');
+    await seed(missingPreconditionDocument, 'no pending operation');
+    const missingPreconditionRequest = compactionRequest(missingPreconditionDocument);
+    await reserveAndProve(missingPreconditionRequest);
+    await assert.rejects(compactionService.abort(missingPreconditionRequest,
+      { authorize: async () => undefined }, 'precondition_failed'), admissionError('ADMISSION_STATE_CHANGED'));
+    assert.deepEqual(await readAdmissionTarget(missingPreconditionRequest.requestId),
+      { status: 'released', active: true });
+
+    const noProofDocument = expectedDocument('admission-compaction-abort-no-proof');
+    await seed(noProofDocument, 'no retained proof');
+    const noProofRequest = compactionRequest(noProofDocument);
+    await admission.reserve(noProofRequest);
+    await assert.rejects(compactionService.abort(noProofRequest,
+      { authorize: async () => undefined }), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.deepEqual(await readAdmissionTarget(noProofRequest.requestId), { status: 'reserved', active: true });
+
+    const driftDocument = expectedDocument('admission-compaction-abort-drift');
+    await seed(driftDocument, 'abort drift content');
+    const driftRequest = compactionRequest(driftDocument);
+    await reserveAndProve(driftRequest);
+    await controlPool.query(`UPDATE ${stateTable} SET document_sequence=document_sequence+1,
+      checkpoint_sequence=checkpoint_sequence+1 WHERE document_id=$1`, [driftDocument.documentId]);
+    await assert.rejects(compactionService.abort(driftRequest,
+      { authorize: async () => undefined }), admissionError('ADMISSION_SCOPE_CHANGED'));
+    assert.deepEqual(await readAdmissionTarget(driftRequest.requestId), { status: 'released', active: true });
+
+    const deniedDocument = expectedDocument('admission-compaction-abort-denied');
+    await seed(deniedDocument, 'authorization denial content');
+    const deniedRequest = compactionRequest(deniedDocument);
+    await reserveAndProve(deniedRequest);
+    const deniedBeforeLocks = new Error('Injected abort authorization denial before locks.');
+    const deniedBeforeHooks: ConnectionHooks = {};
+    await assert.rejects(hookContext.run(deniedBeforeHooks, () => compactionService.abort(deniedRequest, {
+      authorize: async () => { throw deniedBeforeLocks; },
+    })), (error: unknown) => error === deniedBeforeLocks);
+    assert.equal(deniedBeforeHooks.connections ?? 0, 0, 'initial authorization denial opens no SQL connection');
+    let deniedAuthorizationCalls = 0;
+    const deniedAfterLocks = new Error('Injected abort authorization denial after locks.');
+    await assert.rejects(compactionService.abort(deniedRequest, {
+      authorize: async () => {
+        deniedAuthorizationCalls += 1;
+        if (deniedAuthorizationCalls === 2) throw deniedAfterLocks;
+      },
+    }), (error: unknown) => error === deniedAfterLocks);
+    assert.equal(deniedAuthorizationCalls, 2);
+    assert.deepEqual(await readAdmissionTarget(deniedRequest.requestId), { status: 'released', active: true });
+    assert.equal((await readBackups(deniedDocument.documentId)).length, 0);
+
+    // The original request remains retryable after its pending operation reaches a terminal state.
+    const pendingRetryDocument = expectedDocument('admission-compaction-pending-retry');
+    await seed(pendingRetryDocument, 'pending retry content');
+    const pendingRetryRequest = compactionRequest(pendingRetryDocument);
+    await reserveAndProve(pendingRetryRequest);
+    await insertPendingOperation(pendingRetryDocument);
+    await assert.rejects(compactionService.execute(pendingRetryRequest, { authorize: async () => undefined }),
+      persistenceError(persistence, 'agent_operation_pending'));
+    assert.equal(Number((await readState(pendingRetryDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(pendingRetryDocument.documentId)).length, 0);
+    await controlPool.query(`UPDATE ${operationTable} SET status='cancelled' WHERE document_id=$1`,
+      [pendingRetryDocument.documentId]);
+    const pendingOriginalRetry = await compactionService.execute(pendingRetryRequest,
+      { authorize: async () => undefined });
+    assert.equal(pendingOriginalRetry.version, 1);
+    assert.equal(pendingOriginalRetry.result.lifecycleGeneration, '2');
+    assert.equal((await readBackups(pendingRetryDocument.documentId)).length, 1);
+
+    // A locked pending-operation precondition can be explicitly aborted without changing either domain row.
     const pendingDocument = expectedDocument('admission-compaction-pending');
     await seed(pendingDocument, 'pending operation content');
     const pendingRequest = compactionRequest(pendingDocument);
     await reserveAndProve(pendingRequest);
     await insertPendingOperation(pendingDocument);
+    const pendingBefore = await readState(pendingDocument.documentId);
     await assert.rejects(compactionService.execute(pendingRequest, { authorize: async () => undefined }),
       persistenceError(persistence, 'agent_operation_pending'));
-    assert.equal(Number((await readState(pendingDocument.documentId)).lifecycle_generation), 1);
+    let pendingAbortAuthorizations = 0;
+    const pendingAbort = await compactionService.abort(pendingRequest, {
+      authorize: async () => { pendingAbortAuthorizations += 1; },
+    }, 'precondition_failed');
+    assert.equal(pendingAbort.version, 2);
+    assert.equal(pendingAbort.disposition, 'aborted');
+    assert.equal(pendingAbort.reasonCode, 'precondition_failed');
+    assert.deepEqual(Object.keys(pendingAbort.result), []);
+    assert.equal(pendingAbortAuthorizations, 2, 'abort repeats authorization after path and operation locks');
+    const pendingAfterAbort = await readState(pendingDocument.documentId);
+    assert.equal(Number(pendingAfterAbort.lifecycle_generation), 1);
+    assert.equal(Number(pendingAfterAbort.document_sequence), Number(pendingBefore.document_sequence));
+    assert.deepEqual(Buffer.from(pendingAfterAbort.yjs_state), Buffer.from(pendingBefore.yjs_state));
+    assert.deepEqual(Buffer.from(pendingAfterAbort.state_vector), Buffer.from(pendingBefore.state_vector));
+    assert.equal(await readOperationStatus(pendingDocument.documentId), 'preparing');
     assert.equal((await readBackups(pendingDocument.documentId)).length, 0);
+    assert.deepEqual(await readAdmissionTarget(pendingRequest.requestId), { status: 'completed', active: false });
+    const oldExecuteAfterAbort = await compactionService.execute(pendingRequest,
+      { authorize: async () => { pendingAbortAuthorizations += 1; } });
+    assert.deepEqual(oldExecuteAfterAbort, pendingAbort);
+    assert.equal(pendingAbortAuthorizations, 3, 'historical v2 retry authorizes once without compaction');
+
+    const pendingNewOwner = await createOwner('pending-after-abort');
+    const pendingFence = await pendingNewOwner.acquire({ ...pendingDocument });
+    await saveAndRelease(pendingNewOwner, pendingFence, 'pending abort then fresh compaction');
     await controlPool.query(`UPDATE ${operationTable} SET status='cancelled' WHERE document_id=$1`,
       [pendingDocument.documentId]);
-    const pendingRetry = await compactionService.execute(pendingRequest, { authorize: async () => undefined });
+    const pendingFreshRequest = compactionRequest(pendingDocument);
+    const pendingFreshProof = await reserveAndProve(pendingFreshRequest);
+    assert.equal(pendingFreshProof.kind, 'normal_release');
+    const pendingRetry = await compactionService.execute(pendingFreshRequest, { authorize: async () => undefined });
+    assert.equal(pendingRetry.version, 1);
     assert.equal(pendingRetry.result.lifecycleGeneration, '2');
+    assert.equal(Number((await readState(pendingDocument.documentId)).room_owner_epoch), pendingFence.epoch);
     assert.equal((await readBackups(pendingDocument.documentId)).length, 1);
 
-    // A rejected COMMIT rolls the backup and state rewrite back; the same request can then succeed exactly once.
+    // An owner-drain abort retains historical local-finish evidence after a replacement owner claims.
+    const drainDocument = expectedDocument('admission-compaction-owner-drain-abort');
+    await seed(drainDocument, 'owner drain before release');
+    const drainOwner = await createOwner('abort-drain-old');
+    const drainFence = await drainOwner.acquire({ ...drainDocument });
+    const drainRequest = compactionRequest(drainDocument);
+    await admission.reserve(drainRequest);
+    const drainTicket = await admission.startDrain(drainRequest, drainDocument.documentId);
+    const drainSnapshot = await saveAndRelease(drainOwner, drainFence, 'owner drain durable bytes', drainTicket);
+    const drainProof = await quiescence.prove(drainRequest, drainDocument.documentId);
+    assert.equal(drainProof.kind, 'owner_drain');
+    const drainAbort = await compactionService.abort(drainRequest, { authorize: async () => undefined });
+    assert.equal(drainAbort.version, 2);
+    assert.equal(drainAbort.reasonCode, 'user_cancelled');
+    const drainReplacement = await createOwner('abort-drain-replacement');
+    const drainReplacementFence = await drainReplacement.acquire({ ...drainDocument });
+    assert.ok(drainReplacementFence.epoch > drainFence.epoch);
+    assert.deepEqual(await admission.readDrain(drainTicket), { ticket: drainTicket, status: 'released' });
+    assert.deepEqual(await admission.pendingDrains([drainFence]), [drainTicket]);
+    const drainReceipt = await recoverCollaborationRoomRelease({
+      createClient: async () => {
+        const client = new Client({
+          ...poolConfig(databaseUrl, 'canvas-admission-compaction-drain-recovery', schema),
+        });
+        await client.connect();
+        return client;
+      },
+      fence: drainFence,
+      snapshot: drainSnapshot,
+    });
+    assert.equal(drainReceipt.release_id, drainTicket.releaseId);
+    assert.equal(drainReceipt.owner_epoch, drainFence.epoch);
+    assert.equal(textFromUpdate((await readState(drainDocument.documentId)).yjs_state), 'owner drain durable bytes');
+    assert.equal((await readBackups(drainDocument.documentId)).length, 0);
+
+    // A rejected v1 COMMIT rolls back the backup and state rewrite; the same request then succeeds exactly once.
+    const rejectedExecuteDocument = expectedDocument('admission-compaction-rejected-execute-commit');
+    await seed(rejectedExecuteDocument, 'rejected execute commit content');
+    const rejectedExecuteRequest = compactionRequest(rejectedExecuteDocument);
+    await reserveAndProve(rejectedExecuteRequest);
+    const rejectedExecuteHooks: ConnectionHooks = { commitFault: { position: 'before', remaining: 1 } };
+    await assert.rejects(hookContext.run(rejectedExecuteHooks, () => compactionService.execute(rejectedExecuteRequest,
+      { authorize: async () => undefined })), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.equal(rejectedExecuteHooks.connections, 3);
+    assert.equal(Number((await readState(rejectedExecuteDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(rejectedExecuteDocument.documentId)).length, 0);
+    const rejectedExecuteRetry = await compactionService.execute(rejectedExecuteRequest,
+      { authorize: async () => undefined });
+    assert.equal(rejectedExecuteRetry.version, 1);
+    assert.equal(rejectedExecuteRetry.result.lifecycleGeneration, '2');
+    assert.equal((await readBackups(rejectedExecuteDocument.documentId)).length, 1);
+
+    // A rejected abort COMMIT invents no terminal outcome; the same request can explicitly abort on retry.
     const rejectedDocument = expectedDocument('admission-compaction-rejected-commit');
     await seed(rejectedDocument, 'rejected commit content');
     const rejectedRequest = compactionRequest(rejectedDocument);
     await reserveAndProve(rejectedRequest);
     const rejectedHooks: ConnectionHooks = { commitFault: { position: 'before', remaining: 1 } };
-    await assert.rejects(hookContext.run(rejectedHooks, () => compactionService.execute(rejectedRequest,
+    await assert.rejects(hookContext.run(rejectedHooks, () => compactionService.abort(rejectedRequest,
       { authorize: async () => undefined })), admissionError('ADMISSION_RECOVERY_REQUIRED'));
     assert.equal(rejectedHooks.connections, 3);
     assert.equal(Number((await readState(rejectedDocument.documentId)).lifecycle_generation), 1);
     assert.equal((await readBackups(rejectedDocument.documentId)).length, 0);
-    const rejectedRetry = await compactionService.execute(rejectedRequest, { authorize: async () => undefined });
-    assert.equal(rejectedRetry.result.lifecycleGeneration, '2');
-    assert.equal((await readBackups(rejectedDocument.documentId)).length, 1);
+    assert.deepEqual(await readAdmissionTarget(rejectedRequest.requestId), { status: 'released', active: true });
+    const rejectedRetry = await compactionService.abort(rejectedRequest, { authorize: async () => undefined });
+    assert.equal(rejectedRetry.version, 2);
+    assert.equal(rejectedRetry.reasonCode, 'user_cancelled');
+    assert.equal((await readBackups(rejectedDocument.documentId)).length, 0);
 
-    // A committed-but-lost response recovers the immutable outcome after the old backend ends and a new owner claims.
+    // A committed-but-lost v1 response recovers after the old backend ends and a replacement owner claims.
+    const lostExecuteDocument = expectedDocument('admission-compaction-lost-execute-commit');
+    await seed(lostExecuteDocument, 'lost execute before owner');
+    const lostExecuteOwner = await createOwner('lost-execute-old');
+    const lostExecuteFence = await lostExecuteOwner.acquire({ ...lostExecuteDocument });
+    await saveAndRelease(lostExecuteOwner, lostExecuteFence, 'lost execute durable content');
+    const lostExecuteRequest = compactionRequest(lostExecuteDocument);
+    await reserveAndProve(lostExecuteRequest);
+    let lostExecuteBackendClosed = false;
+    let lostExecuteReplacementFence: CollaborationRoomOwnerFence | undefined;
+    const lostExecuteHooks: ConnectionHooks = {
+      commitFault: { position: 'after', remaining: 1 },
+      onClose: (error, ordinal) => { if (ordinal === 2 && error) lostExecuteBackendClosed = true; },
+      onOpen: async (ordinal) => {
+        if (ordinal !== 3) return;
+        assert.equal(lostExecuteBackendClosed, true,
+          'v1 recovery starts only after the uncertain mutation backend is discarded');
+        const replacement = await createOwner('lost-execute-replacement');
+        lostExecuteReplacementFence = await replacement.acquire({ ...lostExecuteDocument, lifecycleGeneration: 2 });
+      },
+    };
+    const lostExecuteOutcome = await hookContext.run(lostExecuteHooks, () =>
+      compactionService.execute(lostExecuteRequest, { authorize: async () => undefined }));
+    assert.equal(lostExecuteHooks.connections, 3);
+    assert.equal(lostExecuteOutcome.version, 1);
+    assert.equal(lostExecuteOutcome.result.lifecycleGeneration, '2');
+    assert.ok(lostExecuteReplacementFence);
+    assert.ok(lostExecuteReplacementFence.epoch > lostExecuteFence.epoch);
+    assert.equal(textFromUpdate((await readState(lostExecuteDocument.documentId)).yjs_state),
+      'lost execute durable content');
+    assert.equal((await readBackups(lostExecuteDocument.documentId)).length, 1);
+
+    // A committed-but-lost abort recovers its immutable v2 outcome after the old backend ends and a new owner claims.
     const lostDocument = expectedDocument('admission-compaction-lost-commit');
     await seed(lostDocument, 'lost commit before owner');
     const lostOwner = await createOwner('lost-old');
@@ -749,24 +977,26 @@ async function run(databaseUrl: URL): Promise<void> {
         if (ordinal !== 3) return;
         assert.equal(mutationBackendClosed, true, 'recovery starts only after the uncertain backend is discarded');
         const replacement = await createOwner('lost-replacement');
-        replacementFence = await replacement.acquire({ ...lostDocument, lifecycleGeneration: 2 });
+        replacementFence = await replacement.acquire({ ...lostDocument });
       },
     };
-    const lostOutcome = await hookContext.run(lostHooks, () => compactionService.execute(lostRequest,
+    const lostOutcome = await hookContext.run(lostHooks, () => compactionService.abort(lostRequest,
       { authorize: async () => undefined }));
     assert.equal(lostHooks.connections, 3);
-    assert.equal(lostOutcome.result.lifecycleGeneration, '2');
+    assert.equal(lostOutcome.version, 2);
+    assert.equal(lostOutcome.reasonCode, 'user_cancelled');
     assert.ok(replacementFence);
     assert.ok(replacementFence.epoch > lostFence.epoch);
     assert.equal(textFromUpdate((await readState(lostDocument.documentId)).yjs_state), 'lost commit durable content');
-    assert.equal((await readBackups(lostDocument.documentId)).length, 1);
+    assert.equal((await readBackups(lostDocument.documentId)).length, 0);
 
     assert.equal(poolErrors.length, 0, 'admission-compaction pools must not emit background errors');
-    console.log('Collaboration admission compaction PostgreSQL: 12 bounded boundaries passed—exact handoff authority, '
+    console.log('Collaboration admission compaction PostgreSQL: 26 bounded boundaries passed—exact handoff authority, '
       + 'delegation/escape/double-claim rejection, pre- and post-claim floating-promise revocation, deletion-only drift, '
-      + 'real owner-era backup/compaction, '
-      + 'immutable capture and completed retry, legacy owner fencing, '
-      + 'pending-operation rollback/retry, rejected-COMMIT rollback, and lost-COMMIT recovery after replacement claim—'
+      + 'abort-without-mutation-authority, real owner-era backup/compaction, immutable capture and v1 terminal retry, '
+      + 'legacy owner fencing, abort proof/precondition/drift/two-phase-rights guards, pending-operation retry plus v2 abort '
+      + 'and fresh-request compaction, owner-drain abort/local-finish recovery, separate rejected v1/v2 COMMIT retries, '
+      + 'and separate lost v1/v2 COMMIT recovery after replacement claims—'
       + 'in one isolated generated schema.');
   } finally {
     for (const session of ownerSessions) {

@@ -949,17 +949,25 @@ async function writeCompactedCollaborationState(database: SqlConnection, input: 
   return mapState(row);
 }
 
-/** Called in handoff prepare, before admission/state locks; no transaction nesting. */
-export async function prepareCollaborationCompactionAdmission(
+/** Domain locks only; policy decides whether to compact or explicitly abort. */
+export async function lockCollaborationCompactionAdmission(
   database: SqlConnection, input: CollaborationAdmissionRequest,
-): Promise<void> {
+): Promise<{ hasPendingOperations: boolean }> {
   const { document } = captureCollaborationCompactionRequest(input);
   await lockFileCollaborationPaths(database, document.workspaceId, [document.path]);
   const operations = await database.all(
     'SELECT status FROM collaboration_agent_operations WHERE document_id = $1 ORDER BY operation_id FOR UPDATE',
     [document.documentId],
   ) as Array<{ status: string }>;
-  if (operations.some((operation) => !(TERMINAL_AGENT_OPERATION_STATUSES as readonly string[]).includes(operation.status))) {
+  return { hasPendingOperations: operations.some((operation) =>
+    !(TERMINAL_AGENT_OPERATION_STATUSES as readonly string[]).includes(operation.status)) };
+}
+
+/** Called in handoff prepare, before admission/state locks; no transaction nesting. */
+export async function prepareCollaborationCompactionAdmission(
+  database: SqlConnection, input: CollaborationAdmissionRequest,
+): Promise<void> {
+  if ((await lockCollaborationCompactionAdmission(database, input)).hasPendingOperations) {
     throw new CollaborationRepresentationMigrationError(
       'Collaboration state cannot be compacted while agent operations or reviews are pending.', 'agent_operation_pending');
   }
