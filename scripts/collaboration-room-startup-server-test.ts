@@ -214,6 +214,12 @@ async function main() {
   let ownerRuntime!: {
     admitActivity: ReturnType<typeof createCollaborationRoomActivityGate>['admit'];
     beginActivityDrain: ReturnType<typeof createCollaborationRoomActivityGate>['beginDrain'];
+    tryBeginIdleTerminalDrain(document: Y.Doc): {
+      idle: Promise<void>;
+      releaseDurably(snapshot: unknown): Promise<void>;
+      finish(): void;
+    } | undefined;
+    isDraining(documentId: string): boolean;
     claim(document: Y.Doc): Promise<object>;
     release(document: Y.Doc): Promise<void>;
     fence(document: Y.Doc): object;
@@ -246,10 +252,66 @@ async function main() {
   }
 
   const runtimeModule = {
-    createCollaborationRoomOwnerRuntime() {
+    createCollaborationRoomOwnerRuntime(options: { onActivityIdle?: (documentId: string) => void }) {
+      const terminalDrains = new WeakMap<Y.Doc, {
+        released: boolean;
+        drain: ReturnType<typeof activityGate.beginDrain>;
+      }>();
+      const drainingIds = new Set<string>();
       ownerRuntime = {
-        admitActivity: activityGate.admit,
-        beginActivityDrain: activityGate.beginDrain,
+        admitActivity(documentId: string) {
+          const lease = activityGate.admit(documentId);
+          let released = false;
+          return {
+            assertOpen: lease.assertOpen,
+            release() {
+              if (released) return;
+              released = true;
+              lease.release();
+              if (activityGate.isIdle(documentId)) options.onActivityIdle?.(documentId);
+            },
+          };
+        },
+        beginActivityDrain(documentId: string) {
+          const drain = activityGate.beginDrain(documentId);
+          return {
+            idle: drain.idle,
+            finish() {
+              drain.finish();
+              // Test probes use a real drain to observe startup activity. Once
+              // the probe reopens admission, replay the server's deferred-idle
+              // signal so the probe itself does not suppress orphan cleanup.
+              options.onActivityIdle?.(documentId);
+            },
+          };
+        },
+        tryBeginIdleTerminalDrain(document: Y.Doc) {
+          const documentId = (document as Document).name;
+          if (terminalDrains.has(document) || !activityGate.isIdle(documentId)) return undefined;
+          const drain = activityGate.beginDrain(documentId);
+          drainingIds.add(documentId);
+          const terminal = {
+            released: false,
+            drain,
+          };
+          const handle = {
+            idle: drain.idle,
+            async releaseDurably(_snapshot: unknown) {
+              claimed.delete(document);
+              terminal.released = true;
+            },
+            finish() {
+              assert.equal(terminal.released, true);
+              assert.equal(document.isDestroyed, true);
+              drain.finish();
+              drainingIds.delete(documentId);
+              terminalDrains.delete(document);
+            },
+          };
+          terminalDrains.set(document, terminal);
+          return handle;
+        },
+        isDraining: (documentId: string) => drainingIds.has(documentId),
         async claim(document: Y.Doc) {
           claimed.add(document);
           return {};
@@ -261,7 +323,10 @@ async function main() {
           if (!claimed.has(document)) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
           return {};
         },
-        canUnload: () => true,
+        canUnload(document: Y.Doc) {
+          const terminal = terminalDrains.get(document);
+          return !terminal || terminal.released;
+        },
         waitForRelease: async () => {},
         assertAvailable() {},
         async dispose() { activityGate.dispose(); },
@@ -282,11 +347,21 @@ async function main() {
       esModuleInterop: true,
     },
   });
+  const unloadCoordinatorFilename = path.resolve('app/lib/collaboration/owned-room-unload.ts');
+  const compiledUnloadCoordinator = ts.transpileModule(await fs.readFile(unloadCoordinatorFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  });
+  const unloadCoordinator = {} as typeof import('../app/lib/collaboration/owned-room-unload');
+  new Function('require', 'module', 'exports', compiledUnloadCoordinator.outputText)((name: string) => {
+    if (name === 'server-only') return {};
+    return createRequire(unloadCoordinatorFilename)(name);
+  }, { exports: unloadCoordinator }, unloadCoordinator);
   const exported = {} as typeof CollaborationServer;
   new Function('require', 'module', 'exports', compiled.outputText)((name: string) => {
     if (name === '@hocuspocus/server') return { ...realHocuspocus, Hocuspocus: ObservedHocuspocus };
     if (name === 'ws') return { WebSocketServer: FakeWebSocketServer };
     if (name.endsWith('/room-owner-runtime')) return runtimeModule;
+    if (name.endsWith('/owned-room-unload')) return unloadCoordinator;
     if (name.endsWith('/room-startup-activity')) return { createCollaborationRoomStartupActivity };
     if (name.endsWith('/local-room-drain')) return {
       installLocalCollaborationRoomDrainer: () => () => {},
@@ -333,7 +408,20 @@ async function main() {
         if (loadFailures.has(documentId)) throw new Error('simulated document load failure');
         return states.get(documentId) ?? null;
       },
-      persistCollaborationYDoc: async () => { throw new Error('unexpected persistence'); },
+      persistCollaborationYDoc: async (documentId: string, _generation: number, document: Y.Doc) => {
+        const previous = states.get(documentId);
+        if (!previous) throw new Error('missing startup-test collaboration state');
+        const next = {
+          ...previous,
+          yjsState: Y.encodeStateAsUpdate(document),
+          stateVector: Y.encodeStateVector(document),
+          documentSequence: previous.documentSequence + 1,
+          persistenceDisposition: 'advanced' as const,
+          incomingNeedsReconcile: false,
+        };
+        states.set(documentId, next);
+        return next;
+      },
       markCollaborationDegraded: async () => {},
     };
     if (name.endsWith('/access-monitor')) return {

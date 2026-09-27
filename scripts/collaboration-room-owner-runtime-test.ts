@@ -171,7 +171,7 @@ class FakeOwnerSession {
 function harness(heartbeatMs = 60, recoverRelease?: (input: {
   fence: CollaborationRoomOwnerFence;
   snapshot: CollaborationRoomReleaseSnapshot;
-}) => Promise<CollaborationRoomReleaseReceipt>) {
+}) => Promise<CollaborationRoomReleaseReceipt>, onActivityIdle?: (documentId: string) => void) {
   let session: FakeOwnerSession | undefined;
   let createCalls = 0;
   const lostDocuments: Y.Doc[] = [];
@@ -183,6 +183,7 @@ function harness(heartbeatMs = 60, recoverRelease?: (input: {
       return session;
     },
     recoverRelease,
+    onActivityIdle,
     onLost: (document) => { lostDocuments.push(document); },
   });
   return {
@@ -517,7 +518,14 @@ async function testTerminalDrainCopiesSnapshotAndReopensOnlyAfterDurableDestroy(
     assert.equal(h.runtime.isDraining('terminal-durable'), false);
     const replacementFence = await h.runtime.claim(replacement, ownerScope('terminal-durable'));
     drain.finish();
-    await drain.releaseDurably(input);
+    await assert.rejects(drain.releaseDurably(input),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_SCOPE_CHANGED',
+      'mutated caller buffers cannot be reused as the original durable release proof');
+    await drain.releaseDurably({
+      releaseId: input.releaseId,
+      yjsState: expectedUpdate,
+      stateVector: expectedVector,
+    });
     assert.equal(h.runtime.fence(replacement), replacementFence,
       'a completed stale drain handle cannot affect the replacement room');
     assert.equal(h.session.releaseCalls.length, 1,
@@ -525,6 +533,158 @@ async function testTerminalDrainCopiesSnapshotAndReopensOnlyAfterDurableDestroy(
   } finally {
     allowRelease.resolve();
     await cleanup(h.runtime, [document, sameIdCandidate, replacement]);
+  }
+}
+
+async function testIdleTerminalDrainDefersBusyRoomsAndActivityIdleNotifiesOnce() {
+  const activityIdle: string[] = [];
+  const h = harness(60, undefined, (documentId) => { activityIdle.push(documentId); });
+  const document = makeDoc('idle-terminal');
+  try {
+    const fence = await h.runtime.claim(document, ownerScope('idle-terminal'));
+    const first = h.runtime.admitActivity('idle-terminal');
+    const second = h.runtime.admitActivity('idle-terminal');
+    const releaseCount = h.session.releaseCalls.length;
+
+    assert.equal(h.runtime.tryBeginIdleTerminalDrain(document), undefined,
+      'an active admitted operation defers an idle-only terminal drain synchronously');
+    assert.equal(h.runtime.isDraining('idle-terminal'), false);
+    assert.equal(h.runtime.fence(document), fence);
+    assert.equal(h.runtime.canUnload(document), true);
+    assert.equal(h.session.releaseCalls.length, releaseCount, 'the deferred attempt has no owner-session side effects');
+
+    first.release();
+    first.release();
+    assert.deepEqual(activityIdle, [], 'the callback waits until the last real lease releases');
+    second.release();
+    second.release();
+    assert.deepEqual(activityIdle, ['idle-terminal'], 'the last lease produces one callback despite repeated release');
+
+    const drain = h.runtime.tryBeginIdleTerminalDrain(document);
+    assert.ok(drain, 'once idle, terminal drain begins without an asynchronous gap');
+    assert.equal(h.runtime.tryBeginIdleTerminalDrain(document), undefined,
+      'an existing terminal drain is not adopted as a second idle drain');
+    await bounded(drain.idle, 'idle terminal drain');
+    assert.equal(h.session.releaseCalls.length, releaseCount);
+    await drain.releaseDurably(releaseSnapshot(document, '75757575-7575-4757-8757-757575757575'));
+    document.destroy();
+    drain.finish();
+    assert.deepEqual(activityIdle, ['idle-terminal'], 'draining suppresses later idle notifications');
+  } finally {
+    await cleanup(h.runtime, [document]);
+  }
+
+  const drainingNotifications: string[] = [];
+  const drainingHarness = harness(60, undefined, (documentId) => { drainingNotifications.push(documentId); });
+  const drainingDocument = makeDoc('activity-drain-callback');
+  try {
+    await drainingHarness.runtime.claim(drainingDocument, ownerScope('activity-drain-callback'));
+    const active = drainingHarness.runtime.admitActivity('activity-drain-callback');
+    const drain = drainingHarness.runtime.beginTerminalDrain(drainingDocument);
+    active.release();
+    await bounded(drain.idle, 'activity drain callback suppression');
+    assert.deepEqual(drainingNotifications, [], 'release during an explicit drain does not schedule idle work');
+    await drain.releaseDurably(releaseSnapshot(drainingDocument, '76767676-7676-4767-8767-767676767676'));
+    drainingDocument.destroy();
+    drain.finish();
+  } finally {
+    await cleanup(drainingHarness.runtime, [drainingDocument]);
+  }
+
+  const disposedNotifications: string[] = [];
+  const disposedHarness = harness(60, undefined, (documentId) => { disposedNotifications.push(documentId); });
+  const disposedDocument = makeDoc('activity-disposed-callback');
+  try {
+    await disposedHarness.runtime.claim(disposedDocument, ownerScope('activity-disposed-callback'));
+    const active = disposedHarness.runtime.admitActivity('activity-disposed-callback');
+    await disposedHarness.runtime.dispose();
+    active.release();
+    active.release();
+    assert.deepEqual(disposedNotifications, [], 'disposed runtime suppresses idle callbacks');
+  } finally {
+    await cleanup(disposedHarness.runtime, [disposedDocument]);
+  }
+}
+
+async function testTerminalReleaseRecoveryRetriesOnlyProofAndDeduplicatesConcurrentCalls() {
+  const recoveryEntered = deferred();
+  const allowFirstRecovery = deferred();
+  const recoveryCalls: Array<{ fence: CollaborationRoomOwnerFence; snapshot: CollaborationRoomReleaseSnapshot }> = [];
+  let ownerSessionCloseCalls = () => 0;
+  const h = harness(60, async (input) => {
+    assert.equal(ownerSessionCloseCalls(), 1, 'receipt inspection starts after the lost owner session is closed');
+    recoveryCalls.push(input);
+    if (recoveryCalls.length === 1) {
+      recoveryEntered.resolve();
+      await allowFirstRecovery.promise;
+      throw new Error('temporary receipt read failure');
+    }
+    return { release_id: input.snapshot.releaseId } as CollaborationRoomReleaseReceipt;
+  });
+  ownerSessionCloseCalls = () => h.session.closeCalls;
+  const document = makeDoc('terminal-recovery-retry');
+  const sibling = makeDoc('terminal-recovery-retry-sibling');
+  const wrongBytesDoc = makeDoc('different-release-bytes');
+  try {
+    const [fence] = await Promise.all([
+      h.runtime.claim(document, ownerScope('terminal-recovery-retry')),
+      h.runtime.claim(sibling, ownerScope('terminal-recovery-retry-sibling')),
+    ]);
+    const ticket = drainTicket(fence, '79797979-7979-4979-8979-797979797979');
+    const drain = h.runtime.beginTerminalDrain(document, ticket);
+    await bounded(drain.idle, 'retry terminal activity drain');
+    h.session.blockRelease = {
+      token: fence.token,
+      entered: () => undefined,
+      wait: Promise.resolve(),
+      error: new Error('uncertain terminal release acknowledgement'),
+    };
+    const snapshot = {
+      ...releaseSnapshot(document, ticket.releaseId),
+      admission: ticket,
+    };
+    const firstAttempt = drain.releaseDurably(snapshot);
+    void firstAttempt.catch(() => undefined);
+    await bounded(recoveryEntered.promise, 'first release receipt recovery');
+
+    const sameSnapshot = {
+      ...snapshot,
+      yjsState: new Uint8Array(snapshot.yjsState),
+      stateVector: new Uint8Array(snapshot.stateVector),
+    };
+    const concurrentAttempt = drain.releaseDurably(sameSnapshot);
+    assert.equal(concurrentAttempt, firstAttempt, 'concurrent exact retries share one in-flight recovery promise');
+    const wrongId = { ...sameSnapshot, releaseId: '80808080-8080-4880-8880-808080808080' };
+    await assert.rejects(drain.releaseDurably(wrongId),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_SCOPE_CHANGED');
+    const wrongBytes = { ...releaseSnapshot(wrongBytesDoc, snapshot.releaseId), admission: ticket };
+    await assert.rejects(drain.releaseDurably(wrongBytes),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_SCOPE_CHANGED');
+    assert.equal(recoveryCalls.length, 1, 'wrong inputs cannot reach receipt recovery');
+
+    allowFirstRecovery.resolve();
+    await assert.rejects(firstAttempt, /temporary receipt read failure/u);
+    assert.equal(h.session.releaseCalls.length, 1);
+    assert.deepEqual(h.lostDocuments, [document, sibling], 'the shared session loss quarantines sibling rooms');
+    assert.equal(h.runtime.canUnload(document), false, 'a failed read-only recovery is not release proof');
+    assert.equal(h.runtime.canUnload(sibling), false);
+    await Promise.resolve();
+
+    const retry = drain.releaseDurably(sameSnapshot);
+    await bounded(retry, 'second release receipt recovery');
+    assert.equal(recoveryCalls.length, 2);
+    assert.equal(h.session.releaseCalls.length, 1,
+      'retry after positive session close does not execute release SQL again');
+    assert.equal(h.session.closeCalls, 1);
+    assert.equal(h.runtime.canUnload(document), true, 'only the positive receipt makes the target unloadable');
+    assert.equal(h.runtime.canUnload(sibling), false, 'receipt proof does not unquarantine a sibling');
+    assert.throws(() => h.runtime.fence(sibling), lostError);
+
+    document.destroy();
+    drain.finish();
+  } finally {
+    allowFirstRecovery.resolve();
+    await cleanup(h.runtime, [document, sibling, wrongBytesDoc]);
   }
 }
 
@@ -642,13 +802,22 @@ async function testTerminalDrainDoesNotRecoverUntilSessionCloseIsProven() {
       error: releaseError,
     };
     h.session.closeError = closeError;
-    await assert.rejects(drain.releaseDurably(releaseSnapshot(
-      document, '66666666-6666-4666-8666-666666666666',
-    )), (error) => error instanceof AggregateError
+    const snapshot = releaseSnapshot(document, '66666666-6666-4666-8666-666666666666');
+    await assert.rejects(drain.releaseDurably(snapshot), (error) => error instanceof AggregateError
       && error.errors[0] === releaseError && error.errors[1] === closeError);
     assert.equal(h.session.closeCalls, 1);
     assert.equal(recoveryCalls, 0,
       'receipt recovery never overlaps an owner backend whose close failed');
+    await assert.rejects(drain.releaseDurably({
+      ...snapshot,
+      yjsState: new Uint8Array(snapshot.yjsState),
+      stateVector: new Uint8Array(snapshot.stateVector),
+    }), (error) => error instanceof AggregateError
+      && error.errors[0] === releaseError && error.errors[1] === closeError,
+    'a failed backend-close proof cannot retry recovery or rerun release');
+    assert.equal(h.session.releaseCalls.length, 1);
+    assert.equal(h.session.closeCalls, 1);
+    assert.equal(recoveryCalls, 0);
     assert.equal(h.runtime.canUnload(document), false,
       'failed backend-close proof leaves the exact terminal room quarantined');
     assert.equal(h.runtime.isDraining('terminal-close-failure'), true,
@@ -813,6 +982,8 @@ async function main() {
   await testNewInstanceWaitsForReleaseAcknowledgement();
   await testReleaseFailureAndSessionLossFailClosedForEveryRoom();
   await testTerminalDrainCopiesSnapshotAndReopensOnlyAfterDurableDestroy();
+  await testIdleTerminalDrainDefersBusyRoomsAndActivityIdleNotifiesOnce();
+  await testTerminalReleaseRecoveryRetriesOnlyProofAndDeduplicatesConcurrentCalls();
   await testTerminalDrainRecoversOnlyAfterClosingLostSession();
   await testTerminalDrainRejectsUnprovenRecoveryAndLegacyAbandon();
   await testTerminalDrainDoesNotRecoverUntilSessionCloseIsProven();
@@ -820,7 +991,7 @@ async function main() {
   await testLateFactoryResultIsClosedAfterDispose();
   await testHeartbeatKeepsOnlyOneProbeInFlight();
   await testFailedHeartbeatProbeInvalidatesEveryRoom();
-  console.log('collaboration room-owner runtime tests passed (13 scenarios)');
+  console.log('collaboration room-owner runtime tests passed (15 scenarios)');
 }
 
 main().catch((error: unknown) => {

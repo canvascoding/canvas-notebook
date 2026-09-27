@@ -12,8 +12,10 @@ Echte PostgreSQL-Races, verlorene Commit-Antworten und erfolgreiche Weiterarbeit
 nach bestätigtem Cancel sind geprüft: [DA-01-Ergebnisse](distributed-admission-results.md).
 DA-02 ergänzt den exakt gebundenen Drain, atomare Receipt-/Target-Bestätigung
 und wiederaufnehmbaren lokalen Unload: [DA-02-Ergebnisse](admission-drain-results.md).
-Die sequenziellen Bausteine DA-03 bis DA-06 samt normalem Unload, Vacancy und
-Crash-Recovery bleiben im
+DA-03 ergänzt als ersten Baustein den belegten normalen Unload und einen
+lesenden Receipt-Retry: [Umfang und Nachweise](normal-room-unload-results.md).
+Die verbleibenden Bausteine DA-03 bis DA-06 samt Vacancy, Coordinator-Zuordnung
+und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue
 Mechanik ist noch nicht aktiviert; keine Lifecycle-Schutzprüfung wird gelockert.
 

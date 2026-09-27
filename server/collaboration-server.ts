@@ -62,6 +62,8 @@ import {
   type CollaborationRoomOwnerScope,
 } from '@/app/lib/collaboration/room-owner';
 import { createCollaborationRoomOwnerRuntime, type CollaborationRoomOwnerRuntimeOptions } from '@/app/lib/collaboration/room-owner-runtime';
+import { createOwnedRoomUnloadCoordinator } from '@/app/lib/collaboration/owned-room-unload';
+import type { CollaborationRoomReleaseSnapshot } from '@/app/lib/collaboration/room-owner-release';
 import {
   matchesCollaborationAdmissionDrainFence,
   sameCollaborationAdmissionDrainTicket,
@@ -280,8 +282,17 @@ export function createCollaborationServer(server: http.Server, options: {
   type RoomIdentity = Pick<CollaborationTicketClaims,
     'documentId' | 'workspaceId' | 'organizationId' | 'path' | 'lifecycleGeneration' | 'representation' | 'schemaVersion'>;
   const roomAdmission = options.roomOwner?.admission;
+  let retryOwnedRoomUnload = (_documentId: string) => undefined;
+  const configuredActivityIdle = options.roomOwner?.onActivityIdle;
   const roomOwners = options.roomOwner && createCollaborationRoomOwnerRuntime({
     ...options.roomOwner,
+    onActivityIdle(documentId) {
+      retryOwnedRoomUnload(documentId);
+      if (configuredActivityIdle) setImmediate(() => {
+        try { configuredActivityIdle(documentId); }
+        catch { console.error('[Collaboration] Configured room-idle observer failed.'); }
+      });
+    },
     onLost(document) {
       const room = document as Document;
       // Do not discard unacknowledged data or write it under a fresh token.
@@ -302,6 +313,7 @@ export function createCollaborationServer(server: http.Server, options: {
   };
   const pendingStartups = new WeakMap<Request, Map<string, Set<ReturnType<typeof createCollaborationRoomStartupActivity>>>>();
   const startupPhases = new WeakMap<ReturnType<typeof createCollaborationRoomStartupActivity>, 'auth' | 'authenticated' | 'loading' | 'loaded'>();
+  const admittedDirectCreates = new WeakSet<CollaborationContext>();
   const lastRoomContexts = new WeakMap<Document, { context: CollaborationContext; origin: unknown }>();
   // Hocuspocus caches by document ID, while restore/migration reuse that ID
   // with a new generation. The room keeps the identity of the bytes it loaded.
@@ -879,8 +891,140 @@ export function createCollaborationServer(server: http.Server, options: {
     },
   });
   if (roomOwners) {
+    const rawUnloadDocument = hocuspocus.unloadDocument.bind(hocuspocus);
+    let ownerUnloadClosing = false;
+    const retryAttempts = new WeakMap<Document, number>();
+    const retryTimers = new WeakMap<Document, NodeJS.Timeout>();
+    const activeRetryTimers = new Set<NodeJS.Timeout>();
+    const scheduleOwnedRoomUnloadRetry = (document: Document) => {
+      if (retryTimers.has(document) || document.isDestroyed || ownerUnloadClosing
+        || hocuspocus.documents.get(document.name) !== document) return;
+      const attempt = (retryAttempts.get(document) ?? 0) + 1;
+      retryAttempts.set(document, attempt);
+      if (attempt > 3) return;
+      const timer = setTimeout(() => {
+        retryTimers.delete(document);
+        activeRetryTimers.delete(timer);
+        void runOwnedRoomUnload(document, true);
+      }, 50 * (2 ** (attempt - 1)));
+      retryTimers.set(document, timer);
+      activeRetryTimers.add(timer);
+      timer.unref();
+    };
+    const normalUnload = createOwnedRoomUnloadCoordinator<Document, CollaborationRoomReleaseSnapshot>({
+      isCurrent: (document) => !document.isDestroyed
+        && hocuspocus.documents.get(document.name) === document,
+      shouldUnload: (document) => !document.isLoading && hocuspocus.shouldUnloadDocument(document),
+      beforeUnload: (document) => hocuspocus.hooks('beforeUnloadDocument', {
+        instance: hocuspocus, documentName: document.name, document,
+      }),
+      beginIdleDrain: (document) => roomOwners.tryBeginIdleTerminalDrain(document),
+      withMutationLock: (document, operation) => withCollaborationRoomMutationLock(document, operation),
+      async storeAndCapture(document) {
+        if (document.isLoading || document.getConnectionsCount() !== 0
+          || hocuspocus.documents.get(document.name) !== document) {
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+        }
+        const last = lastRoomContexts.get(document);
+        if (!last) throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+        const payload = {
+          instance: hocuspocus, document, documentName: document.name, clientsCount: 0,
+          lastContext: last.context, lastTransactionOrigin: last.origin,
+        };
+        await document.saveMutex.runExclusive(async () => {
+          roomOwners.fence(document);
+          await hocuspocus.hooks('onStoreDocument', payload);
+          await hocuspocus.hooks('afterStoreDocument', payload);
+          roomOwners.fence(document);
+        });
+        return Object.freeze({
+          releaseId: randomUUID(),
+          yjsState: Y.encodeStateAsUpdate(document),
+          stateVector: Y.encodeStateVector(document),
+        });
+      },
+      destroyCurrent(document) {
+        if (hocuspocus.documents.get(document.name) !== document) {
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+        }
+        try { document.destroy(); }
+        catch (error) {
+          // Y.Doc marks itself destroyed before notifying listeners. A faulty
+          // listener must not strand an already proven release indefinitely.
+          if (!document.isDestroyed) throw error;
+          console.warn('[Collaboration] Owned room destroy listener failed after document destruction.', {
+            documentId: document.name,
+            code: 'OWNED_ROOM_DESTROY_LISTENER_FAILED',
+          });
+        }
+        // A re-entrant observer may have installed a replacement. Never
+        // delete anything but the exact old object whose bytes were proven.
+        if (hocuspocus.documents.get(document.name) === document) {
+          hocuspocus.documents.delete(document.name);
+        }
+      },
+      afterUnload: (document) => hocuspocus.hooks('afterUnloadDocument', {
+        instance: hocuspocus, documentName: document.name,
+      }),
+      onCancelled(document, error, phase) {
+        if (phase !== 'after') return;
+        console.warn('[Collaboration] Owned room unloaded, but its after-unload hook failed.', {
+          documentId: document.name,
+          code: error instanceof CollaborationRoomOwnerError ? error.code : 'OWNED_ROOM_AFTER_UNLOAD_FAILED',
+        });
+      },
+      onFailure(document, error, phase) {
+        console.warn('[Collaboration] Durable owned-room unload failed; the live document remains retained.', {
+          documentId: document.name,
+          phase,
+          code: error instanceof CollaborationRoomOwnerError ? error.code : 'OWNED_ROOM_UNLOAD_FAILED',
+        });
+        // A product persistence failure invalidates the shared owner session.
+        // Once exact bytes were captured, retries can only re-read their
+        // receipt or finish the already proven local destroy.
+        if (phase === 'begin' || phase === 'gated') {
+          try { roomOwners.assertAvailable(); }
+          catch { return; }
+        }
+        scheduleOwnedRoomUnloadRetry(document);
+      },
+    });
+    function runOwnedRoomUnload(document: Document, automatic = false): Promise<void> {
+      const existing = hocuspocus.unloadingDocuments.get(document.name);
+      if (existing) return existing;
+      if (!automatic) retryAttempts.delete(document);
+      const tracked = normalUnload.unload(document).finally(() => {
+        if (hocuspocus.unloadingDocuments.get(document.name) === tracked) {
+          hocuspocus.unloadingDocuments.delete(document.name);
+        }
+        if (!normalUnload.isGated(document)) retryAttempts.delete(document);
+      });
+      hocuspocus.unloadingDocuments.set(document.name, tracked);
+      return tracked;
+    }
+    hocuspocus.unloadDocument = (document) => runOwnedRoomUnload(document);
+    retryOwnedRoomUnload = (documentId) => {
+      setImmediate(() => {
+        if (ownerUnloadClosing) return;
+        const document = hocuspocus.documents.get(documentId);
+        if (document) void runOwnedRoomUnload(document, true);
+      });
+    };
+    server.once('close', () => {
+      ownerUnloadClosing = true;
+      retryOwnedRoomUnload = () => undefined;
+      for (const timer of activeRetryTimers) clearTimeout(timer);
+      activeRetryTimers.clear();
+    });
     const createDocument = hocuspocus.createDocument.bind(hocuspocus);
     hocuspocus.createDocument = async (...args) => {
+      const current = hocuspocus.documents.get(args[0]);
+      const admitted = Boolean(args[4]?.startupActivity)
+        || Boolean(args[4] && admittedDirectCreates.has(args[4]));
+      if (current && !admitted
+        && (normalUnload.isGated(current) || roomOwners.isDraining(args[0]))) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      }
       const startup = args[4]?.startupActivity;
       if (!startup) return createDocument(...args);
       startupPhases.set(startup, 'loading');
@@ -951,7 +1095,23 @@ export function createCollaborationServer(server: http.Server, options: {
       // A previous, rejected normal unload may still occupy Hocuspocus's map.
       await hocuspocus.unloadingDocuments.get(scope.documentId);
       if (!document.isDestroyed && hocuspocus.documents.get(scope.documentId) === document) {
-        await hocuspocus.unloadDocument(document);
+        const unloading = rawUnloadDocument(document);
+        const capturedUnload = hocuspocus.unloadingDocuments.get(scope.documentId);
+        try { await unloading; }
+        catch (error) {
+          // Hocuspocus removes the exact map entry before destroy and does not
+          // clear unloadingDocuments when a destroy listener/after hook throws.
+          // Once destruction is irreversible, finish this proven old handle;
+          // never reinterpret a pre-destroy hook failure as successful unload.
+          if (!document.isDestroyed || hocuspocus.documents.get(scope.documentId) === document) throw error;
+          if (capturedUnload && hocuspocus.unloadingDocuments.get(scope.documentId) === capturedUnload) {
+            hocuspocus.unloadingDocuments.delete(scope.documentId);
+          }
+          console.warn('[Collaboration] Ticket-bound room destroyed with a local unload cleanup failure.', {
+            documentId: scope.documentId,
+            code: 'OWNED_ROOM_AFTER_DESTROY_CLEANUP_FAILED',
+          });
+        }
       }
       if (!document.isDestroyed || hocuspocus.documents.get(scope.documentId) === document) {
         throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
@@ -1082,6 +1242,7 @@ export function createCollaborationServer(server: http.Server, options: {
       observedDocumentSequence: state.documentSequence,
       releaseRoomAdmission,
     };
+    admittedDirectCreates.add(context);
     const connection = await hocuspocus.openDirectConnection(input.documentId, context).then(
       (openedConnection) => {
         context.releaseRoomAdmission?.();
@@ -1093,7 +1254,7 @@ export function createCollaborationServer(server: http.Server, options: {
         context.releaseRoomAdmission = null;
         throw error;
       },
-    );
+    ).finally(() => { admittedDirectCreates.delete(context); });
     let result: unknown;
     try {
       await withWorkspaceMutationLock(workspace.workspaceId, async () => {

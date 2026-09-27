@@ -27,6 +27,9 @@ export type CollaborationRoomOwnerRuntimeOptions = {
     fence: CollaborationRoomOwnerFence;
     snapshot: CollaborationRoomReleaseSnapshot;
   }) => Promise<CollaborationRoomReleaseReceipt>;
+  // Schedule (do not await inline) a deferred unload once Direct/startup work
+  // has released its last lease and the locks held inside that work.
+  onActivityIdle?: (documentId: string) => void;
   heartbeatMs?: number;
 };
 
@@ -43,6 +46,8 @@ type TerminalDrain = {
   finished: boolean;
   ticket?: CollaborationAdmissionDrainTicket;
   finishActivityDrain: () => void;
+  snapshot?: CollaborationRoomReleaseSnapshot;
+  recoveryReady?: boolean;
   completion?: Promise<void>;
   handle?: TerminalDrainHandle;
 };
@@ -96,8 +101,22 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
   };
   const admitActivity = (documentId: string) => {
     assertAvailable();
-    try { return activities.admit(documentId); }
+    let lease;
+    try { lease = activities.admit(documentId); }
     catch { throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'); }
+    let released = false;
+    return {
+      assertOpen: lease.assertOpen,
+      release() {
+        if (released) return;
+        released = true;
+        lease.release();
+        if (activities.isIdle(documentId)) {
+          try { options.onActivityIdle?.(documentId); }
+          catch { console.error('[Collaboration] Owned room idle handler failed.'); }
+        }
+      },
+    };
   };
   const beginActivityDrain = (documentId: string) => {
     assertAvailable();
@@ -276,28 +295,46 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
           : Boolean(input.admission)) {
           return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED'));
         }
-        if (terminal.completion) return terminal.completion;
         if (!terminal.idleResolved) {
           return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
         }
         // Copy and validate before yielding or revoking the runtime proof. The
         // owner session performs its own second capture before queueing SQL.
-        const snapshot = captureCollaborationRoomReleaseSnapshot(input);
+        const captured = captureCollaborationRoomReleaseSnapshot(input);
+        const original = terminal.snapshot;
+        if (original && (original.releaseId !== captured.releaseId
+          || !Buffer.from(original.yjsState).equals(Buffer.from(captured.yjsState))
+          || !Buffer.from(original.stateVector).equals(Buffer.from(captured.stateVector)))) {
+          return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED'));
+        }
+        if (terminal.completion) return terminal.completion;
+        const snapshot = terminal.snapshot ??= captured;
+        const recover = () => options.recoverRelease!({
+          fence: proof,
+          snapshot: captureCollaborationRoomReleaseSnapshot(snapshot),
+        });
         const completion = Promise.resolve().then(async () => {
-          try {
-            await session!.release(proof, snapshot);
-          } catch (error) {
-            // Release acknowledgement uncertainty invalidates the entire
-            // shared owner session before receipt recovery may inspect it.
-            try { await closeSession(); }
-            catch (closeError) {
-              throw new AggregateError(
-                [error, closeError],
-                'Durable room release could not close its owner session before recovery.',
-              );
+          if (terminal.recoveryReady) {
+            // The original release already ran and its session ended. Retry
+            // only the read-only proof, never SQL release or the final store.
+            await recover();
+          } else {
+            try {
+              await session!.release(proof, captureCollaborationRoomReleaseSnapshot(snapshot));
+            } catch (error) {
+              // Release acknowledgement uncertainty invalidates the entire
+              // shared owner session before receipt recovery may inspect it.
+              try { await closeSession(); }
+              catch (closeError) {
+                throw new AggregateError(
+                  [error, closeError],
+                  'Durable room release could not close its owner session before recovery.',
+                );
+              }
+              if (!options.recoverRelease) throw error;
+              terminal.recoveryReady = true;
+              await recover();
             }
-            if (!options.recoverRelease) throw error;
-            await options.recoverRelease({ fence: proof, snapshot });
           }
           terminal.released = true;
           // A later Y.Doc destroy is now an unload signal, never a legacy
@@ -306,7 +343,13 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
         });
         terminal.completion = completion;
         room.releasing = completion;
-        void completion.catch(() => undefined);
+        void completion.catch(() => {
+          // A transient receipt-read failure is retryable only after positive
+          // session closure. Keep room.releasing rejected to revoke its fence.
+          if (terminal.recoveryReady && terminal.completion === completion) {
+            terminal.completion = undefined;
+          }
+        });
         return completion;
       },
       finish() {
@@ -321,6 +364,17 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
     };
     terminal.handle = handle;
     return handle;
+  };
+  const tryBeginIdleTerminalDrain = (document: Doc): TerminalDrainHandle | undefined => {
+    assertAvailable();
+    const room = instances.get(document);
+    if (!room || rooms.get(room.scope.documentId) !== room) {
+      throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+    }
+    if (room.terminalDrain || !activities.isIdle(room.scope.documentId)) return undefined;
+    // No await between the idle check and closing admission. Direct disconnect
+    // can therefore defer unload instead of deadlocking on its own activity.
+    return beginTerminalDrain(document);
   };
   const listOwnedFences = (): readonly CollaborationRoomOwnerFence[] => {
     const fences: CollaborationRoomOwnerFence[] = [];
@@ -354,7 +408,7 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
     claim, fence, release, assertAvailable, admitActivity,
     // Quiescence only: the caller must still persist, prove release and retain
     // its lifecycle reservation before reopening admission with finish().
-    beginActivityDrain, beginTerminalDrain, resumeTerminalDrain, listOwnedFences,
+    beginActivityDrain, beginTerminalDrain, tryBeginIdleTerminalDrain, resumeTerminalDrain, listOwnedFences,
     isDraining: (documentId: string) => activityDrains.has(documentId),
     // Failed/lost stores must not be followed by Hocuspocus's unconditional
     // direct-disconnect unload. Retain unacknowledged data for recovery.

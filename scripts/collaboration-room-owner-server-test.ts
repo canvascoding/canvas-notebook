@@ -152,7 +152,7 @@ function makeState(documentId: string, text: string): PersistedCollaborationStat
 
 async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack'
-  | 'admission-terminal' | 'admission-unproven-release') {
+  | 'admission-terminal' | 'admission-unproven-release' | 'normal-unload') {
   const workspace = {
     workspaceId: 'owner-workspace',
     organizationId: null,
@@ -176,6 +176,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let sessionClosed = false;
   let releaseFailure: Error | null = null;
   let releaseFailureMarksAdmissionReleased = false;
+  let recoverReleaseFailure: Error | null = null;
   let epoch = 0;
   let instance!: Hocuspocus<TestContext>;
   let ownerRuntime!: OwnerRuntime;
@@ -188,6 +189,8 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   const drainStatuses = new Map<string, 'draining' | 'released'>();
   let readDrainFailure: Error | null = null;
   let unloadFailureDocumentId: string | null = null;
+  let afterStoreFailureDocumentId: string | null = null;
+  let afterUnloadFailureDocumentId: string | null = null;
   let unloadBarrier: { documentId: string; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let accessBarrier: { check: number; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let accessChecks = 0;
@@ -272,6 +275,20 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
             throw new Error('injected local unload failure');
           }
         },
+        async afterStoreDocument(payload) {
+          await options?.afterStoreDocument?.(payload);
+          if (afterStoreFailureDocumentId === payload.documentName) {
+            afterStoreFailureDocumentId = null;
+            throw new Error('injected local after-store failure');
+          }
+        },
+        async afterUnloadDocument(payload) {
+          await options?.afterUnloadDocument?.(payload);
+          if (afterUnloadFailureDocumentId === payload.documentName) {
+            afterUnloadFailureDocumentId = null;
+            throw new Error('injected local after-unload failure');
+          }
+        },
       });
       captureInstance(this);
     }
@@ -289,6 +306,15 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name === './room-owner') return { CollaborationRoomOwnerError };
     return createRequire(runtimeFilename)(name);
   }, { exports: roomOwnerRuntime }, roomOwnerRuntime);
+  const unloadCoordinatorFilename = path.resolve('app/lib/collaboration/owned-room-unload.ts');
+  const compiledUnloadCoordinator = ts.transpileModule(await fs.readFile(unloadCoordinatorFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  });
+  const unloadCoordinator = {} as typeof import('../app/lib/collaboration/owned-room-unload');
+  new Function('require', 'module', 'exports', compiledUnloadCoordinator.outputText)((name: string) => {
+    if (name === 'server-only') return {};
+    return createRequire(unloadCoordinatorFilename)(name);
+  }, { exports: unloadCoordinator }, unloadCoordinator);
   const runtimeForServer = {
     ...roomOwnerRuntime,
     createCollaborationRoomOwnerRuntime: (
@@ -313,6 +339,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name === '@hocuspocus/server') return { Hocuspocus: ObservedHocuspocus };
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
     if (name.endsWith('/room-owner-runtime')) return runtimeForServer;
+    if (name.endsWith('/owned-room-unload')) return unloadCoordinator;
     if (name.endsWith('/room-owner')) return { CollaborationRoomOwnerError };
     if (name.endsWith('/room-admission-drain')) return {
       admissionDrainTicketForTarget,
@@ -351,6 +378,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
         _identity: unknown,
         fence?: CollaborationRoomOwnerFence,
       ) => {
+        events.push(`persist:${documentId}`);
         persistCalls.push({ documentId, fence });
         const barrier = persistBarrier;
         if (barrier?.documentId === documentId) {
@@ -448,7 +476,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
         void onInvalidated;
         return ownerSession as never;
       },
-      ...(mode === 'terminal-lost-ack' ? {
+      ...(mode === 'terminal-lost-ack' || mode === 'normal-unload' ? {
         recoverRelease: async (input: {
           fence: CollaborationRoomOwnerFence;
           snapshot: CollaborationRoomReleaseSnapshot;
@@ -456,6 +484,11 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
           assert.equal(sessionClosed, true,
             'terminal receipt recovery begins only after the old owner session closes');
           recoveredReleases.push(input);
+          if (recoverReleaseFailure) {
+            const error = recoverReleaseFailure;
+            recoverReleaseFailure = null;
+            throw error;
+          }
           return { release_id: input.snapshot.releaseId } as CollaborationRoomReleaseReceipt;
         },
       } : {}),
@@ -590,6 +623,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     assert.deepEqual(ownerRuntime.listOwnedFences(), [fence],
       'released proof remains visible until the exact old object finishes unloading');
 
+    afterUnloadFailureDocumentId = documentId;
     await bounded(localTicketDrainer(ticket), 'released ticket unload retry');
     assert.equal(document.isDestroyed, true);
     assert.equal(instance.documents.has(documentId), false);
@@ -605,6 +639,45 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     assert.equal(instance.documents.get(documentId), replacement,
       'a repeated completed ticket is a no-op and never unloads the replacement object');
     assert.equal(ownerRuntime.fence(replacement), replacementFence);
+
+    const throwingId = 'admission-destroy-listener';
+    states.set(throwingId, makeState(throwingId, 'destroy-listener'));
+    const throwingDocument = await instance.createDocument(throwingId, request, 'throwing-loader', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(throwingId));
+    const throwingFence = fences.get(throwingId)!;
+    const throwingTicket = admissionDrainTicketForTarget(
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      'f'.repeat(64),
+      {
+        document: { ...throwingFence.scope, status: 'active' }, ownerEpoch: throwingFence.epoch,
+        ownerToken: throwingFence.token, ownerBackendPid: throwingFence.backendPid,
+        ownerBackendStart: throwingFence.backendStart, documentSequence: 1,
+      },
+    );
+    drainStatuses.set(throwingTicket.releaseId, 'draining');
+    throwingDocument.on('destroy', () => { throw new Error('injected destroy listener failure'); });
+    await bounded(localTicketDrainer(throwingTicket), 'ticket destroy-listener cleanup');
+    assert.equal(throwingDocument.isDestroyed, true);
+    assert.equal(instance.documents.has(throwingId), false);
+    assert.equal(instance.unloadingDocuments.has(throwingId), false);
+    assert.equal(ownerRuntime.isDraining(throwingId), false);
+    assert.equal(releaseSnapshots.filter(
+      (snapshot) => snapshot?.admission?.releaseId === throwingTicket.releaseId,
+    ).length, 1);
+    const throwingReplacement = await instance.createDocument(throwingId, request, 'throwing-replacement', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(throwingId));
+    assert.notEqual(ownerRuntime.fence(throwingReplacement), throwingFence,
+      'a fresh exact object can claim only after the destroyed terminal handle finished');
+    const throwingPersistCount = persistCalls.filter((call) => call.documentId === throwingId).length;
+    await localTicketDrainer(throwingTicket);
+    assert.equal(instance.documents.get(throwingId), throwingReplacement);
+    assert.equal(persistCalls.filter((call) => call.documentId === throwingId).length, throwingPersistCount,
+      'a repeated completed destroy-listener ticket never stores the replacement');
+    assert.equal(releaseSnapshots.filter(
+      (snapshot) => snapshot?.admission?.releaseId === throwingTicket.releaseId,
+    ).length, 1, 'destroy-listener cleanup never repeats durable release');
 
     const staleFence = Object.freeze({ ...fence, epoch: fence.epoch + 100, token: 'stale-owner-token' });
     const staleTicket = admissionDrainTicketForTarget('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'd'.repeat(64), {
@@ -651,6 +724,142 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     assert.equal(instance.documents.get(documentId), document,
       'the exact old object remains quarantined for full receipt recovery');
     console.log('PASS released target cannot falsely finish a retained terminal handle without local receipt proof');
+    return;
+  }
+
+  if (mode === 'normal-unload') {
+    const directId = 'normal-direct-unload';
+    states.set(directId, makeState(directId, 'normal'));
+    const directDestroyed = gate();
+    let directDocument: Y.Doc | undefined;
+    await bounded(direct({
+      documentId: directId, documentPath: `${directId}.txt`, documentRepresentation: 'plain_text',
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorType: 'user', actorId: 'user', actorDisplayName: 'User', initiatedByUserId: 'user',
+      operationId: 'normal-direct-unload',
+    }, (document) => {
+      directDocument = document;
+      document.on('destroy', directDestroyed.resolve);
+      document.getText('content').insert(document.getText('content').length, '+direct');
+    }), 'Direct disconnect before deferred normal unload');
+    assert.ok(directDocument);
+    await bounded(directDestroyed.promise, 'deferred normal unload after Direct activity idle');
+    assert.equal(instance.documents.has(directId), false);
+    const directPersisted = new Y.Doc();
+    try {
+      Y.applyUpdate(directPersisted, states.get(directId)!.yjsState);
+      assert.equal(directPersisted.getText('content').toString(), 'normal+direct');
+    } finally {
+      directPersisted.destroy();
+    }
+    console.log('PASS Direct disconnect defers normal terminal drain until its own activity is idle');
+
+    const gatedId = 'normal-gated-unload';
+    states.set(gatedId, makeState(gatedId, 'gated'));
+    const gatedDocument = await instance.createDocument(gatedId, request, 'gated-loader', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(gatedId));
+    const gatedFence = fences.get(gatedId)!;
+    const gatedPersist = { documentId: gatedId, entered: gate(), release: gate() };
+    persistBarrier = gatedPersist;
+    gatedDocument.on('destroy', () => { events.push(`destroy:${gatedId}`); });
+    const gatedUnload = instance.unloadDocument(gatedDocument);
+    await bounded(gatedPersist.entered.promise, 'normal final store under terminal gate');
+    assert.equal(released.includes(gatedFence), false,
+      'durable release cannot precede the final store');
+    await assert.rejects(instance.createDocument(gatedId, request, 'late-raw-loader', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(gatedId)),
+    (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    gatedPersist.release.resolve();
+    await bounded(gatedUnload, 'normal exact-object unload');
+    const persistEvent = events.lastIndexOf(`persist:${gatedId}`);
+    const releaseEvent = events.lastIndexOf(`release:${gatedId}`);
+    const destroyEvent = events.lastIndexOf(`destroy:${gatedId}`);
+    assert.equal(persistEvent >= 0 && persistEvent < releaseEvent && releaseEvent < destroyEvent, true,
+      'final store precedes receipt-backed release, which precedes exact-object destroy');
+    assert.equal(gatedDocument.isDestroyed, true);
+    const gatedSnapshot = releaseSnapshots.at(-1)!;
+    assert.deepEqual(Buffer.from(gatedSnapshot.yjsState), Buffer.from(states.get(gatedId)!.yjsState));
+    console.log('PASS normal unload stores exact bytes, gates late opens, proves release, then destroys');
+
+    const retryId = 'normal-store-hook-retry';
+    states.set(retryId, makeState(retryId, 'retry'));
+    const retryDocument = await instance.createDocument(retryId, request, 'retry-loader', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(retryId));
+    const retryFence = fences.get(retryId)!;
+    const retryDestroyed = gate();
+    retryDocument.on('destroy', retryDestroyed.resolve);
+    afterStoreFailureDocumentId = retryId;
+    const retryPersistBefore = persistCalls.filter((call) => call.documentId === retryId).length;
+    await bounded(instance.unloadDocument(retryDocument), 'first local hook failure');
+    assert.equal(instance.documents.get(retryId), retryDocument);
+    assert.equal(retryDocument.isDestroyed, false);
+    assert.equal(ownerRuntime.fence(retryDocument), retryFence,
+      'a local hook failure retains the exact active fence for retry');
+    assert.equal(released.includes(retryFence), false);
+    await bounded(retryDestroyed.promise, 'automatic local store-hook retry');
+    assert.equal(persistCalls.filter((call) => call.documentId === retryId).length, retryPersistBefore + 2);
+    assert.equal(released.filter((fence) => fence === retryFence).length, 1);
+    console.log('PASS local final-store hook failure retains the room and later retry releases once');
+
+    const cleanupId = 'normal-destroy-cleanup';
+    states.set(cleanupId, makeState(cleanupId, 'cleanup'));
+    const cleanupDocument = await instance.createDocument(cleanupId, request, 'cleanup-loader', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(cleanupId));
+    const cleanupFence = fences.get(cleanupId)!;
+    const cleanupStoresBefore = persistCalls.filter((call) => call.documentId === cleanupId).length;
+    cleanupDocument.on('destroy', () => { throw new Error('injected normal destroy listener failure'); });
+    afterUnloadFailureDocumentId = cleanupId;
+    await bounded(instance.unloadDocument(cleanupDocument), 'normal destroy-listener cleanup');
+    assert.equal(cleanupDocument.isDestroyed, true);
+    assert.equal(instance.documents.has(cleanupId), false);
+    assert.equal(instance.unloadingDocuments.has(cleanupId), false);
+    assert.equal(ownerRuntime.isDraining(cleanupId), false);
+    assert.equal(persistCalls.filter((call) => call.documentId === cleanupId).length, cleanupStoresBefore + 1);
+    assert.equal(released.filter((fence) => fence === cleanupFence).length, 1);
+    const cleanupReplacement = await instance.createDocument(cleanupId, request, 'cleanup-replacement', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(cleanupId));
+    const cleanupReplacementFence = fences.get(cleanupId)!;
+    assert.notEqual(cleanupReplacementFence, cleanupFence);
+    await bounded(instance.unloadDocument(cleanupDocument), 'stale normal unload retry');
+    assert.equal(instance.documents.get(cleanupId), cleanupReplacement);
+    assert.equal(ownerRuntime.fence(cleanupReplacement), cleanupReplacementFence);
+    assert.equal(persistCalls.filter((call) => call.documentId === cleanupId).length, cleanupStoresBefore + 1,
+      'a stale old-object unload never stores the replacement');
+    assert.equal(released.filter((fence) => fence === cleanupFence).length, 1,
+      'a stale old-object unload never repeats durable release');
+    await bounded(instance.unloadDocument(cleanupReplacement), 'fresh cleanup replacement unload');
+    console.log('PASS normal destroy/after-unload failures finish once and cannot affect a fresh replacement');
+
+    const recoveryId = 'normal-release-recovery';
+    states.set(recoveryId, makeState(recoveryId, 'recovery'));
+    const recoveryDocument = await instance.createDocument(recoveryId, request, 'recovery-loader', {
+      isAuthenticated: true, readOnly: false,
+    }, contextFor(recoveryId));
+    const recoveryDestroyed = gate();
+    recoveryDocument.on('destroy', recoveryDestroyed.resolve);
+    const recoveryStoresBefore = persistCalls.filter((call) => call.documentId === recoveryId).length;
+    const recoveryReleasesBefore = releaseSnapshots.length;
+    const recoveryReadsBefore = recoveredReleases.length;
+    releaseFailure = new Error('lost normal release acknowledgement');
+    recoverReleaseFailure = new Error('transient normal receipt read failure');
+    await bounded(instance.unloadDocument(recoveryDocument), 'first normal release recovery read');
+    assert.equal(instance.documents.get(recoveryId), recoveryDocument);
+    assert.equal(recoveryDocument.isDestroyed, false);
+    await bounded(recoveryDestroyed.promise, 'normal release receipt retry');
+    assert.equal(persistCalls.filter((call) => call.documentId === recoveryId).length, recoveryStoresBefore + 1,
+      'receipt retry never repeats the final store');
+    assert.equal(releaseSnapshots.length, recoveryReleasesBefore + 1,
+      'receipt retry never repeats the owner-session release command');
+    assert.equal(recoveredReleases.length, recoveryReadsBefore + 2,
+      'one failed receipt read is retried read-only before local destroy');
+    assert.equal(recoveredReleases.at(-1)?.snapshot.releaseId,
+      recoveredReleases.at(-2)?.snapshot.releaseId);
+    console.log('PASS lost normal release acknowledgement retries receipt proof without double store or release');
     return;
   }
 
@@ -735,9 +944,8 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     const durableReleaseSnapshots = releaseSnapshots.filter(
       (snapshot): snapshot is CollaborationRoomReleaseSnapshot => snapshot !== undefined,
     );
-    assert.equal(durableReleaseSnapshots.length, 1);
     const persisted = states.get(documentId)!;
-    const releaseSnapshot = durableReleaseSnapshots[0];
+    const releaseSnapshot = durableReleaseSnapshots.at(-1)!;
     assert.deepEqual(Buffer.from(releaseSnapshot.yjsState), Buffer.from(persisted.yjsState),
       'terminal receipt covers the exact final persisted Yjs update');
     assert.deepEqual(Buffer.from(releaseSnapshot.stateVector), Buffer.from(persisted.stateVector),
@@ -1185,6 +1393,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
 
 async function run() {
   const modes = [
+    'normal-unload',
     'admission-terminal',
     'admission-unproven-release',
     'terminal-success',

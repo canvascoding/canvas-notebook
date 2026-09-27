@@ -141,5 +141,13 @@ export function createCollaborationRoomActivityGate(options: CollaborationRoomAc
     for (const [documentId, record] of documents) removeIfIdle(documentId, record);
   };
 
-  return { admit, beginDrain, dispose };
+  return {
+    admit, beginDrain, dispose,
+    // Synchronous observation for idle-only terminal drains. The caller must
+    // beginDrain without yielding after this check, never wait on its own lease.
+    isIdle: (documentId: string) => {
+      const record = documents.get(documentId);
+      return !disposed && !record?.drain && (!record || record.active === 0);
+    },
+  };
 }

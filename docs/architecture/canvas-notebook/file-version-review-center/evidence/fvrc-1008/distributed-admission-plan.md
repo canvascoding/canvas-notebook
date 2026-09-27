@@ -1,8 +1,9 @@
 # Prozessübergreifende Lifecycle-Zulassung: nächster Umsetzungsschritt
 
 Stand: 27. September 2026. **DA-01 und DA-02 implementiert und separat geprüft;
-DA-03 bis DA-06 noch offen.** Nachweise: [DA-01](distributed-admission-results.md),
-[DA-02](admission-drain-results.md). Keine Runtime-Aktivierung.
+DA-03 in Arbeit, DA-04 bis DA-06 noch offen.** Nachweise:
+[DA-01](distributed-admission-results.md), [DA-02](admission-drain-results.md),
+[DA-03: normaler Unload](normal-room-unload-results.md). Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
 
@@ -101,6 +102,10 @@ Startup, bereits laufendes normales Unload, Drain-Fehler und erfolgreicher Retry
 
 ### DA-03 – Leere Räume und Wiederanlauf ausdrücklich behandeln
 
+Status: normaler Unload und lesender Receipt-Retry als erster Baustein umgesetzt.
+Vacancy, Coordinator-Zuordnung und vollständiger Crash-Wiederanlauf bleiben
+offen; [Umfang und Nachweise](normal-room-unload-results.md).
+
 - Bereits vor dem Request normal entladene Räume haben bisher keinen terminalen
   Release-Beleg. Normales Unload muss künftig ebenfalls den unveränderlichen
   finalen Snapshot mit einem Receipt freigeben; nicht nachträglich aus Token-null
@@ -198,8 +203,9 @@ Doppelwirkung und ohne verlorene unabhängige Änderungen.
 
 ## Nächster Commitumfang
 
-Als Nächstes folgt DA-03: positiver Receipt bei normalem Unload, expliziter
-Vacant-Proof und Wiederanlauf nach verlorenem Owner. DA-01/02 liefern Reservation,
+DA-03 läuft sequenziell: zuerst positiver Receipt bei normalem Unload und
+lesender Recovery-Retry, danach expliziter Vacant-Proof, Coordinator-Zuordnung
+und Wiederanlauf nach verlorenem Owner. DA-01/02 liefern Reservation,
 gebundenen Drain und atomare Receipt-/Target-Bestätigung. Die bestehenden
 Lifecycle-Schutzprüfungen bleiben bis zur vollständigen Übergabe bestehen;
 DA-03 bis DA-06 und die Aktivierung sind nicht freigegeben.

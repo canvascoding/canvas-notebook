@@ -157,3 +157,20 @@ test('empty document IDs and invalid capacity options are rejected', () => {
   assert.throws(() => gate.beginDrain(''), TypeError);
   assert.throws(() => createCollaborationRoomActivityGate({ maxActivities: 0 }), RangeError);
 });
+
+test('isIdle is synchronous and false while active, draining, or disposed', () => {
+  const gate = createCollaborationRoomActivityGate();
+  assert.equal(gate.isIdle('missing-room'), true);
+  const lease = gate.admit('room');
+  assert.equal(gate.isIdle('room'), false);
+  lease.release();
+  assert.equal(gate.isIdle('room'), true);
+
+  const drain = gate.beginDrain('room');
+  assert.equal(gate.isIdle('room'), false, 'a drain record is not idle for a new terminal attempt');
+  drain.finish();
+  assert.equal(gate.isIdle('room'), true);
+
+  gate.dispose();
+  assert.equal(gate.isIdle('missing-room'), false, 'disposed gate never advertises idle as admission-ready');
+});
