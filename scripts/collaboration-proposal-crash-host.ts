@@ -11,15 +11,19 @@ let arming = false;
 
 async function main() {
   const url = new URL(process.env.DATABASE_URL || '');
+  const port = Number(process.env.PORT);
+  const multiprocess = process.env.CANVAS_COLLABORATION_MULTIPROCESS_TEST === '1';
+  const acceptedPort = multiprocess ? [3101, 3102].includes(port) : port === 3000;
   if (!process.send || !process.connected || process.env.NODE_ENV !== 'development'
     || process.env.COLLABORATION_E2E !== '1' || process.env.CANVAS_PROPOSAL_REVIEW_LOCAL_TEST !== '1'
     || process.env.CANVAS_PROPOSAL_CRASH_TEST !== '1' || process.env.HOSTNAME !== '127.0.0.1'
-    || process.env.PORT !== '3000' || process.env.CANVAS_DATABASE_PROVIDER !== 'postgres'
+    || !acceptedPort || (multiprocess && process.env.BASE_URL !== 'http://127.0.0.1:3000')
+    || process.env.CANVAS_DATABASE_PROVIDER !== 'postgres'
     || url.hostname !== '127.0.0.1' || url.port !== '55433' || url.pathname !== '/canvas_notebook') {
     throw new Error('The crash launcher requires explicit local IPC test opt-ins.');
   }
   await new Promise<void>((resolve, reject) => {
-    const probe = createConnection({ host: '127.0.0.1', port: 3000 });
+    const probe = createConnection({ host: '127.0.0.1', port });
     probe.setTimeout(2_000, () => { probe.destroy(); reject(new Error('Port preflight unavailable.')); });
     probe.once('connect', () => { probe.destroy(); reject(new Error('Port occupied.')); });
     probe.once('error', (error: NodeJS.ErrnoException) => error.code === 'ECONNREFUSED' ? resolve() : reject(error));
@@ -43,7 +47,7 @@ async function main() {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch('http://127.0.0.1:3000/api/health', { signal: AbortSignal.timeout(2_000) });
+      const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2_000) });
       const value = await response.json();
       if (response.ok && value.status === 'healthy' && value.collaboration?.websocketReady
         && value.collaboration?.persistenceReady) break;
@@ -54,7 +58,7 @@ async function main() {
   process.on('message', message => {
     void arm(message).catch(() => process.send?.({ type: 'refused' }));
   });
-  process.send({ type: 'ready', pid: process.pid });
+  process.send({ type: 'ready', pid: process.pid, port });
 }
 
 async function arm(message: unknown) {

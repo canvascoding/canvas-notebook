@@ -6,23 +6,37 @@ import type { CrashPoint, CrashTarget } from '../../scripts/collaboration-propos
 import type { PreparingCrashPoint } from '../../scripts/collaboration-proposal-preparing-crash-probe';
 
 type Message = { type: string; point?: CrashPoint | PreparingCrashPoint; operationId?: string; documentId?: string;
-  mutations?: number; acknowledged?: boolean; historyCaptured?: boolean; documentSequence?: number };
+  mutations?: number; acknowledged?: boolean; historyCaptured?: boolean; documentSequence?: number; pid?: number; port?: number };
+
+export type ProposalCrashHostOptions = Readonly<{
+  port?: 3000 | 3101 | 3102;
+  multiprocess?: boolean;
+}>;
 
 /** Owns one child only; a timeout never triggers another server or a replay. */
-export async function startProposalCrashHost(logPath: string) {
+export async function startProposalCrashHost(logPath: string, options: ProposalCrashHostOptions = {}) {
   if (process.env.CANVAS_PROPOSAL_CRASH_TEST !== '1') throw new Error('Explicit crash-test opt-in is required.');
+  const port = options.port ?? 3000;
+  if (options.multiprocess !== (port !== 3000)) {
+    throw new Error('Multi-process crash hosts are restricted to their dedicated backend ports.');
+  }
   const artifactRoot = await realpath(path.resolve('test-results'));
   const parent = await realpath(path.dirname(logPath));
   const relative = path.relative(artifactRoot, parent);
+  const allowedLogs = new Set([
+    'initial-host.log', 'recovery-host.log', 'cleanup-recovery-host.log',
+    'process-a.log', 'process-b.log', 'process-b-recovery.log',
+  ]);
   if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
-    || !['initial-host.log', 'recovery-host.log', 'cleanup-recovery-host.log'].includes(path.basename(logPath))) {
+    || !allowedLogs.has(path.basename(logPath))) {
     throw new Error('The crash log must be inside its dedicated Playwright artifact directory.');
   }
   const log = createWriteStream(logPath, { flags: 'wx', mode: 0o600 });
   await new Promise<void>((resolve, reject) => { log.once('open', () => resolve()); log.once('error', reject); });
   const child = fork(path.resolve('scripts/collaboration-proposal-crash-host.ts'), [], {
     cwd: process.cwd(), execArgv: ['--import', 'tsx'],
-    env: { ...process.env, NODE_ENV: 'development', HOSTNAME: '127.0.0.1', PORT: '3000' },
+    env: { ...process.env, NODE_ENV: 'development', HOSTNAME: '127.0.0.1', PORT: String(port),
+      ...(options.multiprocess ? { CANVAS_COLLABORATION_MULTIPROCESS_TEST: '1' } : {}) },
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
   });
   child.stdout!.pipe(log, { end: false }); child.stderr!.pipe(log, { end: false });
@@ -45,7 +59,7 @@ export async function startProposalCrashHost(logPath: string) {
   try { await wait(() => messages.some(message => message.type === 'ready')); }
   catch (error) { await stop().catch(() => undefined); throw error; }
   return {
-    pid: child.pid!, messages,
+    pid: child.pid!, port, messages,
     isRunning: () => exit === null,
     async arm(target: CrashTarget, point: CrashPoint | PreparingCrashPoint, sessionId: string, agentId: string) {
       child.send({ type: 'arm', target, point, sessionId, agentId });

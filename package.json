@@ -491,6 +491,7 @@
     "test:collaboration:room-idle-release:postgres": "tsx --conditions react-server scripts/collaboration-room-idle-release-postgres-test.ts",
     "test:collaboration:room-owner:runtime": "tsx --conditions react-server scripts/collaboration-room-activity-gate-test.ts && tsx --conditions react-server scripts/collaboration-room-startup-activity-test.ts && tsx --conditions react-server scripts/collaboration-room-owner-runtime-test.ts && tsx --conditions react-server scripts/collaboration-owned-room-unload-test.ts && tsx --conditions react-server scripts/collaboration-room-owner-server-test.ts && tsx --conditions react-server scripts/collaboration-room-startup-server-test.ts",
     "test:collaboration:room-owner:bootstrap": "tsx --conditions react-server scripts/collaboration-room-owner-local-test-bootstrap-test.ts",
+    "test:collaboration:failover-proxy": "tsx scripts/collaboration-failover-proxy-test.ts",
     "test:collaboration:room-owner:postgres": "tsx --conditions react-server scripts/collaboration-room-owner-postgres-test.ts",
     "test:collaboration:semantic-owner:postgres": "tsx --conditions react-server scripts/collaboration-semantic-owner-guard-test.ts",
     "test:collaboration:lifecycle-snapshot:postgres": "tsx --conditions react-server scripts/collaboration-lifecycle-snapshot-concurrency-test.ts",
