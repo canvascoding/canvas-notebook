@@ -21,7 +21,7 @@ async function compile<T>(file: string, dependencies: Record<string, unknown>): 
   const load = createRequire(filename);
   const compiled = ts.transpileModule(await fs.readFile(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
-      esModuleInterop: true, jsx: ts.JsxEmit.ReactJSX },
+      esModuleInterop: true, ...(filename.endsWith('.tsx') ? { jsx: ts.JsxEmit.ReactJSX } : {}) },
   });
   const exports = {};
   new Function('require', 'module', 'exports', compiled.outputText)(
@@ -51,7 +51,9 @@ function database(t: TestContext) {
       lifecycle_generation INTEGER, schema_version INTEGER, yjs_state BLOB, state_vector BLOB,
       document_sequence INTEGER, persisted_at INTEGER, checkpointed_at INTEGER, checkpoint_sequence INTEGER,
       canonical_hash TEXT, serialized_hash TEXT, newline_style TEXT, has_bom INTEGER, degraded INTEGER,
-      status TEXT, compacted_at INTEGER, compaction_count INTEGER DEFAULT 0);
+      status TEXT, compacted_at INTEGER, compaction_count INTEGER DEFAULT 0,
+      room_owner_epoch INTEGER DEFAULT 0, room_owner_token TEXT, room_owner_backend_pid INTEGER,
+      room_owner_backend_start TEXT);
     CREATE TABLE collaboration_yjs_state_backups (
       backup_id TEXT, document_id TEXT, lifecycle_generation INTEGER, schema_version INTEGER, representation TEXT,
       yjs_state BLOB, state_vector BLOB, document_sequence INTEGER, reason TEXT, created_at INTEGER, expires_at INTEGER);
@@ -156,6 +158,10 @@ async function persistenceHarness(t: TestContext, statuses: string[]) {
     'INSERT INTO collaboration_agent_operations (operation_id, document_id, status) VALUES ($1, $2, $3)',
     [status, 'doc', status],
   );
+  const persistenceMerge = await compile<Record<string, unknown>>('app/lib/collaboration/persistence-merge.ts', {
+    './server-runtime': { Y },
+  });
+  const roomOwner = await compile<Record<string, unknown>>('app/lib/collaboration/room-owner.ts', {});
   const persistence = await compile<typeof Persistence>('app/lib/collaboration/persistence.ts', {
     '@/app/lib/db': { openDb: async () => db.connection },
     '@/app/lib/files/workspace-mutation-lock': { withWorkspaceMutationLock: (_id: string, run: () => unknown) => run() },
@@ -168,6 +174,8 @@ async function persistenceHarness(t: TestContext, statuses: string[]) {
     './runtime-state': { getCollaborationRoomConnectionCount: () => 0,
       withCollaborationRoomLifecycleLock: (_id: string, run: () => unknown) => run() },
     './server-runtime': { Y },
+    './persistence-merge': persistenceMerge,
+    './room-owner': roomOwner,
   });
   return { ...db, persistence };
 }

@@ -3154,7 +3154,10 @@ export async function detectLateAgentSemanticConflicts(input: {
   documentId: string;
   doc: YTypes.Doc;
   observedDocumentSequence?: number | null;
+  /** Process-local owner check only; this is not an atomic database metadata fence. */
+  assertRoomActive?: () => void;
 }): Promise<void> {
+  input.assertRoomActive?.();
   const memoryWindows = recentAgentChangeWindows.get(input.documentId);
   if (!memoryWindows) return;
 
@@ -3212,6 +3215,7 @@ export async function detectLateAgentSemanticConflicts(input: {
       const window = memoryWindows.get(operationId);
       if (!window || window.conflicts.length === 0) continue;
       const row = await readOperation(database, operationId);
+      input.assertRoomActive?.();
       if (!row || !['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file', 'partially_applied', 'reverted'].includes(row.status)) {
         continue;
       }

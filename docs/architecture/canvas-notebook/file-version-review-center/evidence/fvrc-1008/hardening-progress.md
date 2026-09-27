@@ -901,7 +901,9 @@ Echte PostgreSQL-Sitzungen prüfen Konkurrenz, Zeilensperren, Verbindungsverlust
 verlorene COMMIT-Antwort und erfolgreiche Weiterarbeit nach Übernahme. Sieben
 Fehlerinjektionsfälle decken zusätzlich Queue-Sättigung und Timeout ab.
 
-Es existiert noch kein Runtime-Claim. Admission, Live-Raum-Lifecycle, alle
-übrigen Schreiber und der atomare Kandidatencommit bleiben zwingende nächste
-Schritte. Kein gemischter Betrieb mit alten Servern bei späterer Aktivierung.
-Dieser Baustein schließt FVRC-1008 oder die Crashlücke nicht ab.
+Die nachfolgende [optionale Runtime-Anbindung](room-owner-runtime-results.md)
+ergänzt Claim, Store, Sync und tatsächliches Unload. Sie bleibt im Bootstrap
+deaktiviert. Lifecycle-Entzug, Quarantäne-Recovery, übrige Schreiber und der
+atomare Kandidatencommit bleiben zwingende nächste Schritte. Kein gemischter
+Betrieb mit alten Servern bei späterer Aktivierung. Dieser Baustein schließt
+FVRC-1008 oder die Crashlücke nicht ab.

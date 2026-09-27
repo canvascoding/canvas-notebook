@@ -69,8 +69,10 @@ ohne Verlust unabhängiger Nutzeränderungen getestet werden.
 
 Das [getestete PostgreSQL-Ownership-Primitiv](room-owner-primitive-results.md)
 ergänzt inzwischen Epoch-/Token-/Backend-Fencing und den optional gefenceten
-monotonen Store. Es wird noch von keinem Live-Raum beansprucht. Admission,
-Unload, Lifecycle-Entzug, alle weiteren Binärschreiber und ein versionsgebundenes
+monotonen Store. Die [optionale Live-Anbindung](room-owner-runtime-results.md)
+bindet Claim, Store, Sync und Unload an konkrete Rauminstanzen. Der reguläre
+Bootstrap aktiviert sie noch nicht. Lifecycle-Entzug, alle weiteren
+Binärschreiber, sichere Recovery nach Quarantäne und ein versionsgebundenes
 Aktivierungsgate bleiben vor Cutover zwingend zu integrieren. Die additive
 Migration allein aktiviert keine Ownership und schließt die Crashlücke nicht.
 

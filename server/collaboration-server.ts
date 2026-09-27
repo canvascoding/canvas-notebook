@@ -53,6 +53,8 @@ import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/col
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { acquireCollaborationRoomMutationLock, withCollaborationRoomMutationLock } from '@/app/lib/collaboration/room-mutation-lock';
+import { CollaborationRoomOwnerError } from '@/app/lib/collaboration/room-owner';
+import { createCollaborationRoomOwnerRuntime, type CollaborationRoomOwnerRuntimeOptions } from '@/app/lib/collaboration/room-owner-runtime';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -242,9 +244,29 @@ async function assertDirectConnectionDocument(input: AgentDirectConnectionInput,
   return state;
 }
 
-export function createCollaborationServer(server: http.Server): WebSocketServer {
+export function createCollaborationServer(server: http.Server, options: {
+  // Deliberately opt-in at construction, not an environment rollout switch.
+  // Lifecycle writers and mixed-version servers must be fenced before the
+  // application bootstrap may supply this dependency in production.
+  roomOwner?: CollaborationRoomOwnerRuntimeOptions;
+} = {}): WebSocketServer {
   type RoomIdentity = Pick<CollaborationTicketClaims,
-    'documentId' | 'workspaceId' | 'lifecycleGeneration' | 'representation' | 'schemaVersion'>;
+    'documentId' | 'workspaceId' | 'organizationId' | 'path' | 'lifecycleGeneration' | 'representation' | 'schemaVersion'>;
+  const roomOwners = options.roomOwner && createCollaborationRoomOwnerRuntime({
+    ...options.roomOwner,
+    onLost(document) {
+      const room = document as Document;
+      // Do not discard unacknowledged data or write it under a fresh token.
+      // beforeUnloadDocument quarantines this exact room until recovery.
+      for (const connection of room.getConnections()) connection.readOnly = true;
+      room.broadcastStateless(JSON.stringify({ type: 'degraded', code: 'COLLABORATION_ROOM_OWNER_LOST',
+        message: 'The document connection lost its write authority. Local changes are preserved; reconnect after recovery.' }));
+      for (const connection of room.getConnections()) {
+        connection.close({ code: 1013, reason: 'Collaboration room ownership lost' });
+      }
+    },
+  });
+  server.once('close', () => { void roomOwners?.dispose().catch(() => undefined); });
   // Hocuspocus caches by document ID, while restore/migration reuse that ID
   // with a new generation. The room keeps the identity of the bytes it loaded.
   const roomIdentities = new WeakMap<YDoc, RoomIdentity>();
@@ -254,10 +276,12 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   const matchesRoomIdentity = (document: YDoc, expected: RoomIdentity) => {
     const identity = roomIdentities.get(document);
     return identity?.documentId === expected.documentId && identity.workspaceId === expected.workspaceId
+      && (!roomOwners || (identity.organizationId === expected.organizationId && identity.path === expected.path))
       && identity.lifecycleGeneration === expected.lifecycleGeneration
       && identity.representation === expected.representation && identity.schemaVersion === expected.schemaVersion;
   };
   const assertRoomIdentity = (document: YDoc, expected: RoomIdentity) => {
+    roomOwners?.fence(document);
     if (!matchesRoomIdentity(document, expected)) {
       hocuspocus.closeConnections(expected.documentId);
       throw new AgentDirectConnectionAuthorizationError('The live collaboration room belongs to an earlier document generation. Reload the document.');
@@ -289,6 +313,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
                 || latest.path !== claims.path || latest.organizationId !== claims.organizationId) {
                 throw new CollaborationStateStaleError(claims.documentId, claims.lifecycleGeneration);
               }
+              roomOwners?.fence(document);
               // This only adds already durable state. Local, not-yet-stored
               // edits stay intact; their own store remains scheduled. The
               // reconciliation itself must not mint another revision/store.
@@ -316,6 +341,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     onProjected(result) {
       const room = hocuspocus.documents.get(result.state.documentId);
       if (!room || !matchesRoomIdentity(room, result.state)) return;
+      if (roomOwners) { try { roomOwners.fence(room); } catch { return; } }
       room.broadcastStateless(JSON.stringify({
         ...durabilitySnapshotPayload(result.state),
         // Older clients must not infer that a newer binary state was exported.
@@ -327,6 +353,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     onFailure({ state, code, blocksEditing }) {
       const room = hocuspocus.documents.get(state.documentId);
       if (!room || !matchesRoomIdentity(room, state)) return;
+      if (roomOwners) { try { roomOwners.fence(room); } catch { return; } }
       room.broadcastStateless(JSON.stringify({
         ...durabilitySnapshotPayload(state),
         type: blocksEditing ? 'degraded' : 'projection_failed', code,
@@ -458,16 +485,39 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         connection.close();
         return;
       }
+      roomOwners?.fence(connection.document);
       connection.sendStateless(JSON.stringify(durabilitySnapshotPayload(state)));
     },
     async onLoadDocument({ documentName, document }) {
       const state = await loadCollaborationState(documentName);
       if (!state) throw new Error('Collaboration document was not initialized.');
       roomIdentities.set(document, { documentId: state.documentId, workspaceId: state.workspaceId,
-        lifecycleGeneration: state.lifecycleGeneration, representation: state.representation, schemaVersion: state.schemaVersion });
+        organizationId: state.organizationId, path: state.path, lifecycleGeneration: state.lifecycleGeneration,
+        representation: state.representation, schemaVersion: state.schemaVersion });
+      if (roomOwners) {
+        try {
+          await roomOwners.claim(document, state);
+          // A previous owner's last row-locked store can finish while this
+          // claim waits. Never load the pre-claim snapshot into the new room.
+          const latest = await loadCollaborationState(documentName);
+          if (!latest || latest.status !== 'active' || !matchesRoomIdentity(document, latest)) {
+            throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+          }
+          roomOwners.fence(document);
+          // Apply inside our cleanup boundary: Hocuspocus's returned-update
+          // callback otherwise runs after the hook and can throw/leak a claim.
+          Y.applyUpdate(document, latest.yjsState);
+          return;
+        } catch (error) {
+          await roomOwners.release(document).catch(() => undefined);
+          document.destroy();
+          throw error;
+        }
+      }
       return state.yjsState;
     },
     async beforeUnloadDocument({ documentName, document }) {
+      if (roomOwners && !roomOwners.canUnload(document)) throw new Error();
       if (hocuspocus.documents.get(documentName) !== document) {
         logCollaborationDiagnostic('debug', { event: 'room_generation_rejected', documentId: documentName,
           generation: roomIdentities.get(document)?.lifecycleGeneration, code: 'COLLABORATION_ROOM_REPLACED' });
@@ -476,6 +526,11 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         // The private diagnostic above carries the reason, not a public error.
         throw new Error();
       }
+    },
+    async afterUnloadDocument({ documentName }) {
+      // destroy has already released this exact instance. A replacement load
+      // waits for that release too; never look up and release the new room.
+      await roomOwners?.waitForRelease(documentName);
     },
     async beforeHandleMessage({ update, connection }) {
       if (update.byteLength > MAX_UPDATE_BYTES) rejectCollaborationUpdate(connection, 'Diese Änderung überschreitet die Nachrichtengröße von 1 MiB. Lade eine lokale Kopie herunter und öffne die Datei erneut.');
@@ -496,6 +551,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         assertRoomIdentity(document, context.claims);
         // Access can be revoked while queued behind another connection.
         if (release) await accessMonitor.check(connection);
+        roomOwners?.fence(document);
         if (context.claims.guestInvitationId && context.claims.permission === 'write' && release) {
           if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
           try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
@@ -547,11 +603,21 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
     },
     async onChange({ documentName, document, context }) {
       if (context.actorType !== 'user') return;
-      await detectLateAgentSemanticConflicts({
-        documentId: documentName,
-        doc: document,
-        observedDocumentSequence: context.observedDocumentSequence,
-      });
+      try {
+        roomOwners?.fence(document);
+        await detectLateAgentSemanticConflicts({
+          documentId: documentName,
+          doc: document,
+          observedDocumentSequence: context.observedDocumentSequence,
+          ...(roomOwners ? { assertRoomActive: () => { roomOwners.fence(document); } } : {}),
+        });
+      } catch (error) {
+        // Hocuspocus fires onChange without awaiting its promise. A known
+        // owner invalidation must stop this background task, not escape as
+        // an unhandled rejection and terminate unrelated document rooms.
+        if (roomOwners && error instanceof CollaborationRoomOwnerError) return;
+        throw error;
+      }
     },
     async onStateless({ connection, documentName, payload }) {
       let acknowledgement: {
@@ -617,6 +683,10 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         logCollaborationDiagnostic('info', { event: 'room_generation_rejected', documentId: documentName,
           workspaceId: lastContext.claims.workspaceId, generation: roomIdentities.get(document)?.lifecycleGeneration,
           code: COLLABORATION_FAILURE_CODES.generationChanged });
+        if (roomOwners) {
+          void roomOwners.dispose().catch(() => undefined);
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+        }
         hocuspocus.closeConnections(documentName);
         return;
       }
@@ -628,6 +698,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           lastContext.claims.lifecycleGeneration,
           document,
           lastContext.claims,
+          roomOwners?.fence(document),
         );
         if (state.persistenceDisposition !== 'unchanged') try {
           await fileVersionHistoryService.capturePersistedCollaboration({
@@ -652,6 +723,18 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
           });
         }
       } catch (error) {
+        if (roomOwners) {
+          // The owner runtime closes peers and keeps the old room quarantined.
+          // Never mark the replacement owner's shared state degraded or send
+          // a successful durability acknowledgement for this failed store.
+          // Quarantine ordinary SQL/scope failures too: DirectConnection would
+          // otherwise unload after Hocuspocus swallows the failed final store.
+          logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: documentName,
+            workspaceId: lastContext.claims.workspaceId, code: error instanceof CollaborationRoomOwnerError
+              ? error.code : COLLABORATION_FAILURE_CODES.persistenceFailed });
+          void roomOwners.dispose().catch(() => undefined);
+          throw error;
+        }
         // Delete/archive increments the lifecycle generation and invalidates
         // the room. A previously scheduled debounce may still run once; it
         // must not resurrect the file or report a false durability incident.
@@ -679,6 +762,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         }));
         throw error;
       }
+      // The DB write may have committed just before loss. It remains durable,
+      // but an invalidated room must not broadcast/projection-ack newer state.
+      roomOwners?.fence(document);
       if (state.incomingNeedsReconcile) queuePersistedRoomReconciliation(document, lastContext);
       else document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(state)));
       logCollaborationDiagnostic('debug', { event: 'yjs_persisted', documentId: state.documentId,
@@ -792,10 +878,15 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
             assertRoomIdentity(liveDocument, context.claims);
             result = apply(liveDocument);
           });
+          roomOwners?.fence(document);
           if (onApplied) await onApplied(result as never);
+          roomOwners?.fence(document);
           // Do not acquire this room lease in onStoreDocument: disconnect
           // awaits Hocuspocus's saveMutex, which a scheduled store may own.
           await connection.disconnect({ unloadImmediately: true });
+          // Hocuspocus deliberately swallows store failures. A terminal owner
+          // loss must still reject this direct call, even after disconnect.
+          roomOwners?.assertAvailable();
         });
       });
     } catch (error) {
