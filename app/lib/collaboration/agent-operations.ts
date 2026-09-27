@@ -1537,6 +1537,7 @@ export async function prepareProposalGraphActionOperation(input: {
   const database = proposalOperationDatabase(input.transaction);
   const created = await createOrLoadOperation({
     database,
+    loadState: (documentId) => loadCollaborationStateOnConnection(database, documentId),
     operationId: input.actionId,
     documentId: input.scope.documentId,
     workspace: input.workspace,

@@ -6,11 +6,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 
+import type { SqlConnection } from '../db';
 import { applyProposalGraphCandidateOperation, prepareProposalAgentOperation, prepareProposalGraphActionOperation, recoverProposalGraphCandidateOperation } from '../collaboration/agent-operations';
 import { readCurrentCollaborationDocument } from '../collaboration/document-access';
-import { loadCollaborationState, type PersistedCollaborationState } from '../collaboration/persistence';
+import { loadCollaborationState, loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from '../collaboration/room-admission';
 import { Y } from '../collaboration/server-runtime';
-import { resolveExistingPostgresWorkspaceForActor } from '../workspaces/postgres-runtime';
+import { findPostgresUserById, readPostgresWorkspaceForActorOnConnection, resolveExistingPostgresWorkspaceForActor } from '../workspaces/postgres-runtime';
+import { resolveWorkspaceActor } from '../workspaces/context';
 import type { WorkspaceContext } from '../workspaces/types';
 import { resolveAuthSecret } from '../security/auth-secret';
 import { buildProposalActionFence, hashProposalEvaluationSelectionV1, hashProposalValue, signProposalActionFence } from './proposal-action-fence';
@@ -34,7 +37,7 @@ import {
 } from './contracts/proposal-graph-v1';
 import { parseProposalReviewTransformResponseV1, type ProposalReviewTransformRequestV1 } from './contracts/proposal-review-transform-v1';
 import type { ProposalReviewCompareBindingV1 } from './contracts/proposal-review-compare-v1';
-import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterDatabase, type FileVersionCenterTransaction } from './database';
+import { createFileVersionCenterTransactionReader, createRuntimeFileVersionCenterDatabase, type FileVersionCenterDatabase, type FileVersionCenterTransaction } from './database';
 import { resolveProposalClosure, resolveProposalRejection } from './proposal-graph-model';
 import { lockProposalDocumentIdentityRows } from './proposal-document-identity-lock';
 import { createProposalGraphStorage } from './proposal-storage';
@@ -54,14 +57,16 @@ type IdentityRow = {
   status: string; degraded: boolean | number;
 };
 type ActiveTransaction = { sql: FileVersionCenterTransaction; currentUpdate: Uint8Array | null; sequence: number | null;
-  representation: ProposalYjsRepresentation | null };
+  representation: ProposalYjsRepresentation | null; reader: SqlConnection; canCreateOperation: boolean };
 
 export type RuntimeProposalReviewActionDependencies = {
   database?: FileVersionCenterDatabase;
-  storage?: Storage;
+  createStorage?: (database: FileVersionCenterDatabase) => Storage;
   loadState?: (documentId: string) => Promise<PersistedCollaborationState | null>;
+  loadStateOnConnection?: typeof loadCollaborationStateOnConnection;
   readCurrent?: (documentId: string, workspaceId: string) => Promise<Uint8Array>;
   readWorkspace?: typeof resolveExistingPostgresWorkspaceForActor;
+  readWorkspaceOnConnection?: (connection: SqlConnection, userId: string, workspaceId: string) => Promise<WorkspaceContext | null>;
   signingSecret?: string | Uint8Array;
   writesEnabled?: () => boolean;
   rolloutWritable?: () => boolean;
@@ -133,20 +138,32 @@ export async function createRuntimeProposalReviewActionService(input: {
   reviewerSessionId?: string;
   dependencies?: RuntimeProposalReviewActionDependencies;
 }) {
+  input = { ...input, target: { ...input.target }, access: { ...input.access }, workspace: { ...input.workspace,
+    permissions: { ...input.workspace.permissions }, actor: input.workspace.actor ? { ...input.workspace.actor } : undefined } };
   const { target, workspace, access } = input;
   const deps = input.dependencies;
   const enabled = deps?.writesEnabled ?? (() => proposalReviewWritesEnabled({ workspaceId: workspace.workspaceId }));
   const rolloutWritable = deps?.rolloutWritable ?? (() => resolveFileVersionRolloutV1(process.env.FILE_VERSION_CENTER_MODE).restore);
-  const loadState = deps?.loadState ?? loadCollaborationState;
+  const active = new AsyncLocalStorage<ActiveTransaction>();
+  const loadState = (documentId: string) => {
+    const owner = active.getStore();
+    return owner ? (deps?.loadStateOnConnection ?? loadCollaborationStateOnConnection)(owner.reader, documentId)
+      : (deps?.loadState ?? loadCollaborationState)(documentId);
+  };
   const readUpdate = deps?.readCurrent ?? ((documentId: string, workspaceId: string) =>
-    readCurrentCollaborationDocument({ documentId, workspaceId, read: (document) => Y.encodeStateAsUpdate(document) }));
+    readCurrentCollaborationDocument({ documentId, workspaceId, loadState,
+      read: (document) => Y.encodeStateAsUpdate(document) }));
   const readWorkspace = deps?.readWorkspace ?? resolveExistingPostgresWorkspaceForActor;
   const database = deps?.database ?? createRuntimeFileVersionCenterDatabase();
-  const storage = deps?.storage ?? createProposalGraphStorage({ database });
+  const query = <T>(action: (sql: FileVersionCenterTransaction) => Promise<T>): Promise<T> => {
+    const owner = active.getStore();
+    return owner ? action(owner.sql) : database.transaction(action);
+  };
+  const graphDatabase = { transaction: query };
+  const storage = deps?.createStorage?.(graphDatabase) ?? createProposalGraphStorage({ database: graphDatabase });
   const now = deps?.now ?? Date.now;
   const createId = deps?.createId ?? randomUUID;
   const signingSecret = deps?.signingSecret ?? resolveAuthSecret();
-  const active = new AsyncLocalStorage<ActiveTransaction>();
 
   const assertEnabled = () => {
     if (!enabled() || !rolloutWritable()) fail(Codes.upgradeRequired, 'Proposal review actions are not enabled yet.');
@@ -157,7 +174,18 @@ export async function createRuntimeProposalReviewActionService(input: {
       || access.userId !== workspace.actor?.userId || !workspace.permissions.canWrite || workspace.legacy) {
       fail(Codes.accessDenied, 'The active user cannot change proposals in this workspace.');
     }
-    const fresh = await readWorkspace(workspace.actor!, workspace.workspaceId);
+    const owner = active.getStore();
+    let fresh: WorkspaceContext | null;
+    if (owner) {
+      if (deps?.readWorkspaceOnConnection) {
+        fresh = await deps.readWorkspaceOnConnection(owner.reader, access.userId, workspace.workspaceId);
+      } else {
+        const user = await findPostgresUserById(owner.reader, access.userId);
+        if (!user) fail(Codes.accessDenied, 'The reviewer is no longer available.');
+        fresh = await readPostgresWorkspaceForActorOnConnection(owner.reader,
+          resolveWorkspaceActor({ id: user.id, email: user.email, role: user.role }), workspace.workspaceId);
+      }
+    } else fresh = await readWorkspace(workspace.actor!, workspace.workspaceId);
     if (!fresh || fresh.workspaceId !== workspace.workspaceId || (fresh.organizationId ?? null) !== (workspace.organizationId ?? null)
       || fresh.legacy || !fresh.permissions.canRead || !fresh.permissions.canWrite) {
       fail(Codes.accessDenied, 'Workspace write access changed before the proposal action.');
@@ -179,10 +207,10 @@ export async function createRuntimeProposalReviewActionService(input: {
     documentId: target.documentId, lifecycleGeneration: initial.lifecycleGeneration, schemaVersion: initial.schemaVersion };
 
   const checkedIdentity = async (sql: FileVersionCenterTransaction): Promise<{ row: IdentityRow; state: PersistedCollaborationState }> => {
-    const state = await loadState(scope.documentId);
     const lockedLineageId = await lockProposalDocumentIdentityRows(sql, {
       documentId: scope.documentId, workspaceId: scope.workspaceId,
     });
+    const state = await loadState(scope.documentId);
     const row = (await sql.query<IdentityRow>(`SELECT document.lineage_id,document.workspace_id AS document_workspace_id,
       document.path AS document_path,document.status AS document_status,document.provider,
       lineage.workspace_id AS lineage_workspace_id,lineage.path AS lineage_path,lineage.status AS lineage_status,
@@ -210,10 +238,30 @@ export async function createRuntimeProposalReviewActionService(input: {
     return { row, state };
   };
 
-  const withLockedGraph: Storage['withLockedGraph'] = (requestedScope, options, action) => {
+  const withLockedGraph: ProposalActionOrchestratorDependencies['withLockedGraph'] = (requestedScope, options, action) => {
     if (!sameScope(scope, requestedScope)) fail(Codes.scopeMismatch, 'The action belongs to another document.');
-    return storage.withLockedGraph(scope, options, (transaction, sql) =>
-      active.run({ sql, currentUpdate: null, sequence: null, representation: null }, () => action(transaction, sql)));
+    return database.transaction((sql) => active.run({ sql, reader: createFileVersionCenterTransactionReader(sql),
+      canCreateOperation: options.operationAdmission === true,
+      currentUpdate: null, sequence: null, representation: null }, async () => {
+      // Admission precedes Graph -> Lineage -> Document -> State. Exact receipt
+      // retries may acquire the guard, but only NEW operations require it open.
+      if (options.operationAdmission) await lockCollaborationAdmissionWorkspace(
+        async (statement, params) => (await sql.query(statement, params)).rows, scope.workspaceId);
+      await freshWorkspace();
+      return storage.withLockedGraph(scope, { actionId: options.actionId }, (transaction, graphSql) => {
+        if (graphSql !== sql) fail(Codes.accessDenied, 'The graph escaped its owning transaction.');
+        return action(transaction, sql);
+      });
+    }));
+  };
+
+  const assertNewOperationAdmission = async (sql: FileVersionCenterTransaction) => {
+    const owner = active.getStore();
+    if (!owner?.canCreateOperation || owner.sql !== sql) {
+      fail(Codes.accessDenied, 'Operation creation requires its owning admission transaction.');
+    }
+    await assertCollaborationAdmissionOpen(async (statement, params) => (await sql.query(statement, params)).rows,
+      { workspaceId: scope.workspaceId, documentId: scope.documentId, path: target.path });
   };
 
   const authorize = async (requested: { scope: ProposalDocumentScopeV1; proposalIds: string[]; actionType: ProposalActionRequestV1['fence']['actionType'] }) => {
@@ -278,6 +326,7 @@ export async function createRuntimeProposalReviewActionService(input: {
       if (!['replacement', 'detached'].includes(creation.creationKind) || !sameScope(creation.scope, scope)) {
         fail(Codes.sourceInvalid, 'Only an explicitly approved transformation may create a review proposal.');
       }
+      await assertNewOperationAdmission(sql);
       const kind = creation.creationKind === 'replacement' ? 'replace' : 'detach';
       const originalId = kind === 'replace' ? creation.relationships.replacesProposalId : creation.detachedFromProposalId;
       if (!originalId) fail(Codes.sourceInvalid, 'The original transformation proposal is unavailable.');
@@ -360,8 +409,10 @@ export async function createRuntimeProposalReviewActionService(input: {
       const sourceContent = proposalSourceView(sourceUpdate, context.representation).content;
       const proposedContent = proposalSourceView(await transaction.readArtifact(creation.authoredCandidate.cumulativeCandidate),
         context.representation).content;
+      const fresh = await freshWorkspace();
+      await assertNewOperationAdmission(sql);
       await (deps?.prepareCreatedOperation ?? prepareProposalAgentOperation)({ transaction: sql,
-        operationId: creation.operationId, documentId: scope.documentId, workspace: await freshWorkspace(),
+        operationId: creation.operationId, documentId: scope.documentId, workspace: fresh,
         initiatedByUserId: access.userId, actorId, actorSessionId: input.reviewerSessionId,
         idempotencyKey: creation.operationId,
         targets, documentPath: target.path, documentRepresentation: context.representation,
@@ -376,6 +427,7 @@ export async function createRuntimeProposalReviewActionService(input: {
       return node;
     },
     prepareDurably: async ({ transaction, scope: requestedScope, actionId, current }) => {
+      await assertNewOperationAdmission(transaction);
       if (!input.reviewerSessionId || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.reviewerSessionId)) {
         fail(Codes.accessDenied, 'An active reviewer session is required for content application.');
       }
@@ -389,8 +441,10 @@ export async function createRuntimeProposalReviewActionService(input: {
           representation: context.representation, revisionId: null }), current)) {
         fail(Codes.currentChanged, 'The document changed before durable preparation.');
       }
+      const fresh = await freshWorkspace();
+      await assertNewOperationAdmission(transaction);
       await (deps?.prepareDurably ?? prepareProposalGraphActionOperation)({ transaction, actionId, scope,
-        workspace: await freshWorkspace(), initiatedByUserId: access.userId, actorId: access.userId,
+        workspace: fresh, initiatedByUserId: access.userId, actorId: access.userId,
         actorSessionId: input.reviewerSessionId,
         documentPath: target.path, documentRepresentation: context.representation,
         baseStateVector: stateVector(context.currentUpdate), baseDocumentSequence: context.sequence });

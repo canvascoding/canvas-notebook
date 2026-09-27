@@ -6,7 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { createAgentTextTarget, prepareProposalAgentOperation } from '../app/lib/collaboration/agent-operations';
 import { createPlainTextYDoc } from '../app/lib/collaboration/markdown-state';
 import { Y } from '../app/lib/collaboration/server-runtime';
-import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
+import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import type { FileVersionCenterTransaction } from '../app/lib/file-version-center/database';
 import type { ProposalDocumentScopeV1, ProposalSourceProofV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
@@ -128,10 +128,33 @@ async function main() {
       lifecycleGeneration: 1, schemaVersion: 1, yjsState: current(), stateVector: Y.encodeStateVector(live),
       documentSequence: 0, persistedAt: 1000, checkpointedAt: null, checkpointSequence: 0,
       canonicalHash: null, serializedHash: null, newlineStyle: 'lf', hasBom: false, degraded: false, status: 'active' });
+    const runtimeDatabase = { transaction: async <T>(action: (sql: FileVersionCenterTransaction) => Promise<T>) =>
+      db.transaction(async (sql) => {
+        assert.equal(activeSql, null, 'runtime must not open a nested graph transaction');
+        activeSql = sql;
+        try { return await action(sql); } finally { activeSql = null; }
+      }) };
     const runtime = await createRuntimeProposalReviewActionService({ target, workspace, access,
-      reviewerSessionId: 'reviewer-session-0001', dependencies: { storage,
-        database: { transaction: (action) => db.transaction(action) }, loadState, readCurrent: async () => current(),
-        readWorkspace: async () => workspace, writesEnabled: () => true, rolloutWritable: () => true,
+      reviewerSessionId: 'reviewer-session-0001', dependencies: { createStorage: (database) =>
+        createProposalGraphStorage({ database, now: () => 1_000, createId }),
+        database: runtimeDatabase, loadState: async () => {
+          assert.equal(activeSql, null, 'unscoped state reader used inside transaction');
+          return loadState();
+        }, loadStateOnConnection: async (connection, documentId) => {
+          assert.ok(activeSql, 'scoped state reader requires the owner transaction');
+          assert.equal(documentId, scope.documentId);
+          assert.equal(typeof connection.get, 'function');
+          return await loadCollaborationStateOnConnection(connection, documentId) ?? null;
+        }, readCurrent: async () => current(),
+        readWorkspace: async () => { assert.equal(activeSql, null, 'unscoped workspace reader used inside transaction'); return workspace; },
+        readWorkspaceOnConnection: async (connection, userId, workspaceId) => {
+          assert.ok(activeSql, 'scoped workspace reader requires the owner transaction');
+          assert.equal(userId, 'proposal-owner'); assert.equal(workspaceId, scope.workspaceId);
+          assert.equal(typeof connection.get, 'function'); assert.equal(typeof connection.all, 'function');
+          assert.throws(() => connection.run('UPDATE forbidden'), /cannot write/u);
+          assert.throws(() => connection.close(), /cannot release/u);
+          return workspace;
+        }, writesEnabled: () => true, rolloutWritable: () => true,
         signingSecret: 'review-transformation-test-signing-secret-32-bytes', now: () => 1_000, createId,
         prepareCreatedOperation: async (prepared) => {
           assert.equal(prepared.actorSessionId, 'reviewer-session-0001');

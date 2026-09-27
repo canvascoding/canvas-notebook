@@ -13,7 +13,7 @@ import { readCurrentCollaborationDocument } from '../collaboration/document-acce
 import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from '../collaboration/room-admission';
 import { prepareProposalAgentOperation } from '../collaboration/agent-operations';
 import { Y } from '../collaboration/server-runtime';
-import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterTransaction } from './database';
+import { createFileVersionCenterTransactionReader, createRuntimeFileVersionCenterDatabase, type FileVersionCenterTransaction } from './database';
 import { createProposalGraphStorage } from './proposal-storage';
 import { lockProposalDocumentIdentityRows } from './proposal-document-identity-lock';
 import { createProposalProvenanceService, type ProposalProvenanceAuthorization } from './proposal-provenance-service';
@@ -70,16 +70,6 @@ type ExistingOperation = {
   graph_generation: number | string | null; graph_schema: number | string | null;
   authored_relationships: ProposalRelationshipsV1 | null;
 };
-
-/** Read-only view; ownership and transaction boundaries stay with the runtime. */
-function transactionReader(sql: FileVersionCenterTransaction): SqlConnection {
-  return {
-    get: async (statement, params) => (await sql.query(statement, params)).rows[0],
-    all: async (statement, params) => (await sql.query(statement, params)).rows,
-    run: () => { throw new Error('A scoped proposal reader cannot write.'); },
-    close: () => { throw new Error('A scoped proposal reader cannot release its owner connection.'); },
-  };
-}
 
 /** Internal adapter, not a rollout switch. Public tool entrypoints must call the guard above. */
 export async function createRuntimeProposalAgentService(input: {
@@ -222,7 +212,7 @@ export async function createRuntimeProposalAgentService(input: {
     relationshipPolicy: createProposalToolRelationshipPolicy({ authorize }),
     withTransaction: (requestedScope, action, intent) => {
       sameScope(requestedScope);
-      return database.transaction((sql) => activeTransaction.run({ sql, reader: transactionReader(sql),
+      return database.transaction((sql) => activeTransaction.run({ sql, reader: createFileVersionCenterTransactionReader(sql),
         canCreateOperation: intent === 'create_operation' }, async () => {
         if (intent === 'create_operation') {
           await lockCollaborationAdmissionWorkspace(async (statement, params) =>

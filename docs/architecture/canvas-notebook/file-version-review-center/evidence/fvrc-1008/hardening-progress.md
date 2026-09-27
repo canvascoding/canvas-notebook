@@ -39,7 +39,10 @@ Die [verbindungsgebundenen Leser](graph-scoped-read-results.md) bereiten die
 Graph-Anbindung ohne zusätzliche Pool-Leases unter Sperren vor.
 Die [Graph-Operationszulassung](graph-operation-admission-results.md) verbindet
 diese Leser jetzt mit der gemeinsamen Transaktionsgrenze; ihre Abnahme ist
-im verlinkten Nachweis separat aufgeführt. Graph-Actions bleiben offen.
+im verlinkten Nachweis separat aufgeführt. Die anschließende
+[Review-Aktionszulassung](review-action-admission-results.md) verbindet nun auch
+Annahme und neue Transformationen mit dieser Grenze; ihre gesonderten
+SQL-/Runtime-/Browsernachweise stehen im verlinkten Ergebnis.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue

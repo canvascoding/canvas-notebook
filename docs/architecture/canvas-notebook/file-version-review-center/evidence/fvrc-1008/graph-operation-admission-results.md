@@ -97,9 +97,11 @@ bestand anschließend. Dieser Fehlstart zählt nicht als bestandener Test.
 
 ## Bewusste Grenzen
 
-`prepareProposalGraphActionOperation` (Annahme/Sammelannahme), weitere
+`prepareProposalGraphActionOperation` (Annahme/Sammelannahme) war in diesem
+ursprünglichen Schritt nicht enthalten und wird inzwischen durch den separaten
+[Review-Aktionsnachweis](review-action-admission-results.md) abgedeckt. Weitere
 Lifecycle-Domainadapter, durable Candidate-Publish, Mehrprozess-Owner-
-Aktivierung und die vollständige Crash-/Offline-Matrix bleiben separat offen.
+Aktivierung und die vollständige Crash-/Offline-Matrix bleiben offen.
 Ein erfolgreicher B/C-Browserlauf belegt nicht diese fehlenden Protokollpfade.
 
 Die bestehende Datenbank-Transaktion führt nach einer ungewissen Commit-

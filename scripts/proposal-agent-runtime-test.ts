@@ -9,7 +9,7 @@ import * as Y from 'yjs';
 
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import type { AgentTextTarget } from '../app/lib/collaboration/agent-operations';
-import type { FileVersionCenterTransaction } from '../app/lib/file-version-center/database';
+import { createFileVersionCenterTransactionReader, type FileVersionCenterTransaction } from '../app/lib/file-version-center/database';
 import type { ProposalDocumentScopeV1, ProposalNodeV1 } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
 import type {
   ProposalToolCreationResultV1, ProposalToolEditV1, ProposalToolReadResultV1,
@@ -161,7 +161,7 @@ async function harness() {
     '@/app/lib/audit/audit-service': { recordAuditEvent: forbidden('recordAuditEvent') },
   });
   const runtime = compile<Runtime>('app/lib/file-version-center/proposal-agent-runtime.ts', {
-    './database': { createRuntimeFileVersionCenterDatabase: () => database },
+    './database': { createRuntimeFileVersionCenterDatabase: () => database, createFileVersionCenterTransactionReader },
     '../workspaces/postgres-runtime': {
       findPostgresUserById: async (reader: unknown, userId: string) => {
         assert.ok(activeSql, 'sessionless authorization uses the existing graph transaction');

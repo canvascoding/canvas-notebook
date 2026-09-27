@@ -211,7 +211,12 @@ test('graph action bridge reserves a synthetic action operation in the graph tra
     assert.equal(row.document_id, 'document');
     assert.equal(row.document_lifecycle_generation, 1);
     assert.equal(row.schema_version, 1);
-    assert.equal(h.globalLoads(), 1, 'the separately scoped graph-action path retains its current loader in this slice');
+    assert.equal(h.scopedLoads(), 1);
+    assert.equal(h.globalLoads(), 0, 'graph action preparation must not borrow a global state connection');
+    const stateRead = h.sqlTrace.findIndex((sql) => sql.includes('FROM collaboration_yjs_states'));
+    const operationInsert = h.sqlTrace.findIndex((sql) => sql.includes('INSERT INTO collaboration_agent_operations'));
+    assert.ok(stateRead >= 0 && operationInsert > stateRead,
+      'the graph action transaction reads state before inserting its synthetic operation');
     assert.deepEqual(h.forbiddenCalls, []);
   } finally { h.close(); }
 });

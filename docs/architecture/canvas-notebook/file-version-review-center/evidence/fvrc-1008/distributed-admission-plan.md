@@ -12,7 +12,8 @@ DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
 [DA-05: neue Dokumentidentitäten](initialization-admission-results.md),
 [DA-05: Legacy-Operationszulassung](legacy-operation-admission-results.md),
 [DA-05: verbindungsgebundene Graph-Leser](graph-scoped-read-results.md),
-[DA-05: Graph-Operationszulassung](graph-operation-admission-results.md).
+[DA-05: Graph-Operationszulassung](graph-operation-admission-results.md),
+[DA-05: Review-Aktionszulassung](review-action-admission-results.md).
 Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
@@ -209,9 +210,12 @@ Intent nach Drain-Beginn bleibt offen; [Abbruchvertrag](admission-abort-results.
 Neue Dokumentmetadaten und Yjs-Erstzustände prüfen inzwischen die persistente
 Admission in ihrer Schreibtransaktion. Bereits vorhandene Identitäten und
 finale Checkpoints bleiben davon getrennt; [Writer-Nachweis](initialization-admission-results.md).
-Die [Legacy-Operationszulassung](legacy-operation-admission-results.md) ist als
-weiterer begrenzter Writer-Schritt in Prüfung. Graph-Operationszulassung,
-Excalidraw-State und die vollständige Domain-/Runtime-Anbindung bleiben offen.
+Die [Legacy-Operationszulassung](legacy-operation-admission-results.md) und
+[Graph-Operationszulassung](graph-operation-admission-results.md) sind als
+begrenzte Writer-Schritte separat geprüft. Die
+[Review-Aktionszulassung](review-action-admission-results.md) ist ebenfalls als
+eigener Schritt implementiert und funktional geprüft. Excalidraw-State und die vollständige
+Domain-/Runtime-Anbindung bleiben offen.
 
 - Äußerste Eintrittspunkte für Rename/Move, Delete/Archive, Restore, Copy mit
   existierendem Ziel, Repräsentationswechsel und Kompaktierung auditieren.

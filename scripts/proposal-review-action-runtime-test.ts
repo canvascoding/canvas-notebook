@@ -50,6 +50,9 @@ function harness(options: { owner?: string; write?: boolean; manager?: boolean; 
   let failApply = false;
   let interruptMetadata = false;
   let afterTransaction: (() => void) | undefined;
+  let activeSql: FileVersionCenterTransaction | null = null;
+  let admissionReserved = false;
+  const statements: string[] = [];
   const snapshot: ProposalGraphSnapshotV1 = { contractVersion: 1, scope: proposalScopeFixture,
     graphRevision: options.graphRevision ?? 3,
     nodes: (options.withChildren ? [rootProposalFixture, childProposalFixture, alternativeChildFixture] : [rootProposalFixture])
@@ -71,6 +74,14 @@ function harness(options: { owner?: string; write?: boolean; manager?: boolean; 
   const actions = new Map<string, ProposalActionReceiptV1>();
   const requests = new Map<string, unknown>();
   const sql: FileVersionCenterTransaction = { query: async <Row>(statement: string, parameters: unknown[] = []) => {
+    statements.push(statement);
+    if (statement.includes('FROM collaboration_admission_scopes')) {
+      return { rows: admissionReserved ? [{ request_id: 'reserved-request' }] as Row[] : [] };
+    }
+    if (statement.includes('FROM collaboration_admission_targets')) {
+      return { rows: admissionReserved ? [{ request_id: 'reserved-request' }] as Row[] : [] };
+    }
+    if (statement.includes('pg_advisory_xact_lock')) return { rows: [] as Row[] };
     if (statement.includes('SELECT id FROM file_collaboration_lineages')) return { rows: [{ id: target.lineageId }] as Row[] };
     if (statement.includes('SELECT document_id FROM collaboration_yjs_states')) return { rows: [{ document_id: target.documentId }] as Row[] };
     if (statement.includes('FROM file_proposal_action_receipts')) {
@@ -89,7 +100,22 @@ function harness(options: { owner?: string; write?: boolean; manager?: boolean; 
       proposal_id: id, initiated_by_user_id: options.owner ?? 'reviewer' })) as Row[] };
     throw new Error(`Unexpected query: ${statement.slice(0, 70)}`);
   } };
-  const database = { transaction: async <T>(action: (tx: FileVersionCenterTransaction) => Promise<T>) => action(sql) } as FileVersionCenterDatabase;
+  const database = { transaction: async <T>(action: (tx: FileVersionCenterTransaction) => Promise<T>) => {
+    assert.equal(activeSql, null, 'runtime must reuse, not nest, its owner transaction');
+    const savedActions = structuredClone([...actions.entries()]);
+    const savedRequests = structuredClone([...requests.entries()]);
+    const savedNodes = structuredClone(snapshot.nodes);
+    const savedRevision = snapshot.graphRevision;
+    activeSql = sql;
+    try { return await action(sql); }
+    catch (error) {
+      actions.clear(); for (const [key, value] of savedActions) actions.set(key, value);
+      requests.clear(); for (const [key, value] of savedRequests) requests.set(key, value);
+      snapshot.nodes.splice(0, snapshot.nodes.length, ...savedNodes);
+      snapshot.graphRevision = savedRevision;
+      throw error;
+    } finally { activeSql = null; }
+  } } as FileVersionCenterDatabase;
   const graphTransaction = {
     loadGraph: async () => structuredClone(snapshot), getEvaluation: async (id: string) => id === evaluation.evaluationId ? evaluation : null,
     readArtifact: async () => update,
@@ -112,6 +138,7 @@ function harness(options: { owner?: string; write?: boolean; manager?: boolean; 
   } as unknown as ProposalGraphStorageTransaction;
   const storage = { withLockedGraph: async <T>(_scope: unknown, _options: unknown,
     action: (transaction: ProposalGraphStorageTransaction, tx: FileVersionCenterTransaction) => Promise<T>) => {
+    assert.equal(activeSql, sql, 'graph storage must receive the outer action transaction');
     if (interruptMetadata && [...actions.values()].some((receipt) => receipt.phase === 'prepared')) {
       interruptMetadata = false;
       throw new Error('simulated interruption after committed metadata reservation');
@@ -124,9 +151,26 @@ function harness(options: { owner?: string; write?: boolean; manager?: boolean; 
     workspace: { ...workspace, permissions: { ...workspace.permissions, canManageWorkspace: options.manager ?? false } },
     access: { ...access, canWrite: options.write ?? true, canManageWorkspace: options.manager ?? false },
     reviewerSessionId: options.session === null ? undefined : options.session ?? 'reviewer-session-1234',
-    dependencies: { database, storage, loadState: async () => state(), readCurrent: async () => update,
-      readWorkspace: async () => ({ ...workspace, permissions: { ...workspace.permissions,
-        canWrite: options.write ?? true, canManageWorkspace: options.manager ?? false } }),
+    dependencies: { database, createStorage: () => storage,
+      loadState: async () => { assert.equal(activeSql, null, 'unscoped state reader used inside transaction'); return state(); },
+      loadStateOnConnection: async (connection, documentId) => {
+        assert.ok(activeSql, 'scoped state reader requires the owner transaction');
+        assert.equal(documentId, target.documentId);
+        assert.equal(typeof connection.get, 'function');
+        return state();
+      },
+      readCurrent: async () => update,
+      readWorkspace: async () => { assert.equal(activeSql, null, 'unscoped workspace reader used inside transaction'); return { ...workspace, permissions: { ...workspace.permissions,
+        canWrite: options.write ?? true, canManageWorkspace: options.manager ?? false } }; },
+      readWorkspaceOnConnection: async (connection, userId, workspaceId) => {
+        assert.ok(activeSql, 'scoped workspace reader requires the owner transaction');
+        assert.equal(userId, 'reviewer'); assert.equal(workspaceId, target.workspaceId);
+        assert.equal(typeof connection.get, 'function'); assert.equal(typeof connection.all, 'function');
+        assert.throws(() => connection.run('UPDATE forbidden'), /cannot write/u);
+        assert.throws(() => connection.close(), /cannot release/u);
+        return { ...workspace, permissions: { ...workspace.permissions,
+          canWrite: options.write ?? true, canManageWorkspace: options.manager ?? false } };
+      },
       signingSecret: secret, writesEnabled: () => options.enabled ?? true,
       rolloutWritable: () => options.rolloutWritable ?? true,
       prepareDurably: async (request) => { assert.equal(request.actorSessionId, 'reviewer-session-1234'); },
@@ -147,7 +191,9 @@ function harness(options: { owner?: string; write?: boolean; manager?: boolean; 
   return { service: createService(), reopen: createService, binding, snapshot, actions,
     applyCalls: () => applyCalls, recoverCalls: () => recoverCalls,
     failApply: () => { failApply = true; }, interruptMetadata: () => { interruptMetadata = true; },
-    afterTransaction: (callback?: () => void) => { afterTransaction = callback; } };
+    afterTransaction: (callback?: () => void) => { afterTransaction = callback; },
+    setAdmissionReserved: (value: boolean) => { admissionReserved = value; },
+    statementCount: () => statements.length, statementsSince: (index: number) => statements.slice(index) };
 }
 
 const code = (expected: string) => (error: unknown) => error instanceof ProposalGraphContractError && error.code === expected;
@@ -171,7 +217,10 @@ test('closed rollout denies new actions but permits an authorized absent receipt
 test('prepare signs only the exact stored evaluation selection and current proof', async () => {
   const h = harness();
   const runtime = await h.service;
+  const beforePrepare = h.statementCount();
   const prepared = await runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'accept', binding: h.binding });
+  assert.equal(h.statementsSince(beforePrepare).some((statement) => statement.includes('pg_advisory_xact_lock')), false,
+    'read-only preparation must not acquire the admission guard');
   assert.equal(prepared.fence.evaluationId, 'evaluation-p1');
   assert.deepEqual(prepared.fence.current, proof);
   assert.equal(prepared.fenceToken.startsWith('pg1.'), true);
@@ -233,8 +282,32 @@ test('accept applies once and an exact retry returns the stored content receipt'
   assert.equal(first.phase, 'succeeded');
   assert.equal(first.result?.kind, 'content_changed');
   assert.equal(h.snapshot.nodes[0]!.lifecycle, 'applied');
+  h.setAdmissionReserved(true);
+  const beforeRetry = h.statementCount();
   assert.deepEqual(await runtime.execute(action), first);
+  assert.ok(h.statementsSince(beforeRetry).some((statement) => statement.includes('pg_advisory_xact_lock')),
+    'an exact retry uses the transaction guard but does not need open admission');
+  const beforeStatus = h.statementCount();
+  assert.deepEqual(await runtime.status({ idempotencyKey: action.idempotencyKey,
+    requestDigest: action.fence.requestDigest }), first);
+  assert.equal(h.statementsSince(beforeStatus).some((statement) => statement.includes('pg_advisory_xact_lock')), false,
+    'status and recovery of an existing action do not acquire the new-operation guard');
   assert.equal(h.applyCalls(), 1);
+});
+
+test('active admission blocks new accept and batch-accept atomically while exact retries remain available', async () => {
+  for (const actionType of ['accept', 'batch_accept'] as const) {
+    const h = harness();
+    const runtime = await h.service;
+    const prepared = await runtime.prepare({ selectedProposalIds: ['p1'], actionType, binding: h.binding });
+    const action = { contractVersion: 1 as const, ...prepared,
+      idempotencyKey: `${actionType}-admission-blocked-0001`, creation: null };
+    h.setAdmissionReserved(true);
+    await assert.rejects(runtime.execute(action), (error: unknown) =>
+      typeof error === 'object' && error !== null && 'code' in error && error.code === 'ADMISSION_CONFLICT');
+    assert.equal(h.actions.size, 0, 'denial rolls back the prepared action receipt');
+    assert.equal(h.applyCalls(), 0);
+  }
 });
 
 test('content execution without a reviewer session fails before durable reservation', async () => {
@@ -269,6 +342,7 @@ test('uncertain apply is recovered from durable evidence without replaying mutat
   await assert.rejects(runtime.execute(action), code(Codes.recoveryRequired));
   const pending = [...h.actions.values()][0]!;
   assert.equal(pending.phase, 'recovery_required');
+  h.setAdmissionReserved(true);
   const recovered = await runtime.status({ idempotencyKey: action.idempotencyKey,
     requestDigest: action.fence.requestDigest });
   assert.ok(recovered);
