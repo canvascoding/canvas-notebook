@@ -7,6 +7,7 @@ import {
   COLLABORATION_ROOM_OWNER_UP_SQL,
   COLLABORATION_ROOM_RELEASE_UP_SQL,
 } from '../app/lib/db/collaboration-room-owner-migration';
+import { COLLABORATION_ADMISSION_STATEMENTS } from '../app/lib/db/collaboration-admission-migration';
 import {
   CollaborationRoomOwnerError,
   createCollaborationRoomOwnerSession,
@@ -249,6 +250,7 @@ async function run(databaseUrl: URL): Promise<void> {
     for (let migrationPass = 0; migrationPass < 2; migrationPass++) {
       await migrationClient.query(COLLABORATION_ROOM_OWNER_UP_SQL);
       await migrationClient.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
+      for (const statement of COLLABORATION_ADMISSION_STATEMENTS) await migrationClient.query(statement);
     }
     await migrationClient.end();
     looseClients.delete(migrationClient);

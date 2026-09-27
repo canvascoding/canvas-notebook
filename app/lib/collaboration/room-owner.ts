@@ -4,6 +4,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import type { SqlConnection } from '@/app/lib/db';
 import type { TextCollaborationRepresentation } from './types';
+import { CollaborationAdmissionError } from './room-admission-contract';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
 import {
   captureCollaborationRoomReleaseSnapshot,
   recordCollaborationRoomRelease,
@@ -183,9 +185,22 @@ export async function createCollaborationRoomOwnerSession(
       if (lockKeys.size >= MAX_ROOMS || rooms.has(scope.documentId) || lockKeys.has(lock.key)) {
         throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
       }
-      const acquired = (await query('SELECT pg_try_advisory_lock($1::bigint) AS locked', [lock.key])).rows[0];
-      if (acquired?.locked !== true) throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
       await query('BEGIN');
+      try {
+        const admissionQuery = async (sql: string, values?: unknown[]) => (await query(sql, values)).rows;
+        await lockCollaborationAdmissionWorkspace(admissionQuery, scope.workspaceId);
+        await assertCollaborationAdmissionOpen(admissionQuery, scope);
+      } catch (error) {
+        if (!(error instanceof CollaborationAdmissionError)) throw error;
+        await query('ROLLBACK');
+        throw new CollaborationRoomOwnerError(error.code === 'ADMISSION_CONFLICT' ? 'ROOM_OWNER_BUSY' : 'ROOM_OWNER_SCOPE_CHANGED');
+      }
+      // Never wait for a coordinator's room lock while retaining admission.
+      const acquired = (await query('SELECT pg_try_advisory_lock($1::bigint) AS locked', [lock.key])).rows[0];
+      if (acquired?.locked !== true) {
+        await query('ROLLBACK');
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      }
       const row = (await query('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE', [scope.documentId])).rows[0] as CollaborationRoomOwnerRow | undefined;
       const oldEpoch = Number(row?.room_owner_epoch);
       if (!row || !matchesScope(row, scope) || !Number.isSafeInteger(oldEpoch) || oldEpoch < 0 || oldEpoch >= Number.MAX_SAFE_INTEGER) {

@@ -1,6 +1,7 @@
 # Prozessübergreifende Lifecycle-Zulassung: nächster Umsetzungsschritt
 
-Stand: 27. September 2026, nach `cfb45166c`. **Plan, noch nicht implementiert.**
+Stand: 27. September 2026. **DA-01 implementiert und separat geprüft;
+DA-02 bis DA-06 noch offen.** Nachweise: [DA-01-Ergebnisse](distributed-admission-results.md).
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
 
@@ -44,6 +45,8 @@ bevor die komplette Übergabe nachgewiesen ist.
 ## Sequenzielle To-Dos
 
 ### DA-01 – Persistenter Reservation-Vertrag und Claim-Race
+
+Status: abgeschlossen als separat testbare Mechanik, ohne Runtime-Aktivierung.
 
 - Additives Schema für Request, Quell-/Ziel-Pfadbereiche, exakte Dokumentmenge,
   gebundene Ausgangsscopes, Aktionsdigest und CAS-Status entwerfen. Pro Dokument
@@ -185,7 +188,8 @@ Doppelwirkung und ohne verlorene unabhängige Änderungen.
 
 ## Nächster Commitumfang
 
-DA-01 ist der nächste Codebaustein: Schema, kurze Reservation-Transaktion,
-atomare Claim-Sperre und reale PostgreSQL-Race-/Recoverytests. DA-02 bis DA-06
-werden dadurch weder implementiert noch freigegeben. Das vermeidet eine
-vorzeitige Lockerung der bestehenden Schutzprüfungen.
+Als Nächstes folgt DA-02: exakter gebundener Drain-Auftrag und atomare
+Receipt-/Target-Bestätigung, einschließlich wiederaufnehmbaren lokalen Abschlusses.
+DA-01 liefert Schema, Reservation-Transaktion und atomare Claim-Sperre mit echten
+PostgreSQL-Race-/Recoverytests. Die bestehenden Lifecycle-Schutzprüfungen bleiben
+bis zur vollständigen Übergabe bestehen; DA-02 bis DA-06 sind nicht freigegeben.

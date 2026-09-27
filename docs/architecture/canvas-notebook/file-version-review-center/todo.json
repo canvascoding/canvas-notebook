@@ -1626,6 +1626,7 @@
           "roomActivityEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/room-activity-results.md",
           "terminalRoomDrainEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/terminal-room-drain-results.md",
           "distributedAdmissionPlan": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/distributed-admission-plan.md",
+          "distributedAdmissionEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/distributed-admission-results.md",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",

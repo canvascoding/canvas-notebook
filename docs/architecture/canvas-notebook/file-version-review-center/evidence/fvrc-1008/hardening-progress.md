@@ -1,17 +1,19 @@
 # FVRC-1008 – Härtung, Zwischenstand
 
-Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
+Stand: 27. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 (abgeschlossenes FVRC-1007); Pool-Harness-Korrektur: `0b30dc785`.
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
 Der lokale terminale Drain ist in `cfb45166c` separat committed und auf diesem
-Stand nochmals im gewöhnlichen Team-B/C-Browserpfad geprüft. Der anschließende
-Architektur-Review bestätigt die weiterhin fehlende dauerhafte prozessübergreifende
-Reservation. Die sequenziellen Bausteine DA-01 bis DA-06 samt Claim-/Scope-Races,
-normalem Unload und Crash-Recovery stehen im
-[Distributed-Admission-Plan](distributed-admission-plan.md). Sie sind noch nicht
-implementiert; keine bestehende Lifecycle-Schutzprüfung wird damit gelockert.
+Stand nochmals im gewöhnlichen Team-B/C-Browserpfad geprüft. DA-01 ergänzt nun
+die dauerhafte Reservation und atomare Claim-Sperre als getrennt testbare Mechanik.
+Echte PostgreSQL-Races, verlorene Commit-Antworten und erfolgreiche Weiterarbeit
+nach bestätigtem Cancel sind geprüft: [DA-01-Ergebnisse](distributed-admission-results.md).
+Die sequenziellen Bausteine DA-02 bis DA-06 samt atomarer Receipt-Bindung,
+normalem Unload und Crash-Recovery bleiben im
+[Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue
+Mechanik ist noch nicht aktiviert; keine Lifecycle-Schutzprüfung wird gelockert.
 
 ## Ergänzung: Lokale Aktivitäten vollständig auslaufen lassen
 

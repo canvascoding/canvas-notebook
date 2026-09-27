@@ -12,7 +12,11 @@ import type {
   CollaborationPersistenceIdentity,
   CollaborationPersistenceResult,
 } from '../app/lib/collaboration/persistence';
-import { COLLABORATION_ROOM_OWNER_UP_SQL } from '../app/lib/db/collaboration-room-owner-migration';
+import {
+  COLLABORATION_ROOM_OWNER_UP_SQL,
+  COLLABORATION_ROOM_RELEASE_UP_SQL,
+} from '../app/lib/db/collaboration-room-owner-migration';
+import { COLLABORATION_ADMISSION_STATEMENTS } from '../app/lib/db/collaboration-admission-migration';
 import { mergeCollaborationPersistenceUpdates } from '../app/lib/collaboration/persistence-merge';
 import {
   assertCollaborationRoomOwnerFence,
@@ -320,6 +324,8 @@ async function run(databaseUrl: URL): Promise<void> {
     const migrationSearchPath = await migrationClient.query<{ search_path: string }>('SHOW search_path');
     assert.equal(migrationSearchPath.rows[0]?.search_path, schema);
     await migrationClient.query(COLLABORATION_ROOM_OWNER_UP_SQL);
+    await migrationClient.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
+    for (const statement of COLLABORATION_ADMISSION_STATEMENTS) await migrationClient.query(statement);
     await migrationClient.end();
     looseClients.delete(migrationClient);
     const ownerColumns = await controlPool.query<{ count: string }>(
