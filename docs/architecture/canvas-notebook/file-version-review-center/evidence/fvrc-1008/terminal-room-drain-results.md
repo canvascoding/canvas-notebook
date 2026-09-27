@@ -122,6 +122,15 @@ Abstand nach bestätigtem Abschluss. Sie liefen vor der abschließenden Ergänzu
 des Guards gegen bereits laufendes Normal-Unload; dieser ist im Default-Bootstrap
 inaktiv und wird separat im tatsächlichen optionalen Serverpfad geprüft.
 
+Zusätzlicher Lauf auf dem committeden Stand `cfb45166c` nach frischem
+Host-Dev-Start (PID 18991, Port 3000): Der Team-B/C-Fall besteht in **23,3 s**
+einschließlich finalem Unload-Guard im Quellstand. Screenshot visuell geprüft;
+B zeigt „Conflicting changes“, separate/ersetzende Weiterbearbeitung und
+aufklappbare Diagnose statt Timeline-Fehler. Bericht:
+`/tmp/fvrc1008-terminal-drain-team-conflict-committed-report/index.html`.
+Auch dieser Browserlauf bleibt im normalen, nicht ownership-aktivierten Pfad.
+Alle vier unveränderten Stack-Container und der aktuelle Host-Dev sind gesund.
+
 Der letzte GitNexus-Scan des Teil-Commits umfasst zwölf Dateien / 165 Symbole /
 keine indexierten Prozessketten, LOW. Der Gesamtbranch gegen `main` bleibt mit
 266 Dateien / 30 betroffenen Prozessketten CRITICAL. Diese Teilabnahme ist keine

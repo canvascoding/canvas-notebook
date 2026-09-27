@@ -5,6 +5,14 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+Der lokale terminale Drain ist in `cfb45166c` separat committed und auf diesem
+Stand nochmals im gewöhnlichen Team-B/C-Browserpfad geprüft. Der anschließende
+Architektur-Review bestätigt die weiterhin fehlende dauerhafte prozessübergreifende
+Reservation. Die sequenziellen Bausteine DA-01 bis DA-06 samt Claim-/Scope-Races,
+normalem Unload und Crash-Recovery stehen im
+[Distributed-Admission-Plan](distributed-admission-plan.md). Sie sind noch nicht
+implementiert; keine bestehende Lifecycle-Schutzprüfung wird damit gelockert.
+
 ## Ergänzung: Lokale Aktivitäten vollständig auslaufen lassen
 
 Ein separates, nicht ablaufendes Activity-Gate umfasst jetzt Direct-Aufträge
