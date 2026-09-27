@@ -80,6 +80,15 @@ export function isCanonicalAdmissionPath(value: unknown, allowRoot = false): val
       && value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'));
 }
 
+/** Captures a new writer's exact identity; this is not mutation authority. */
+export function captureCollaborationAdmissionWriterScope(
+  input: Pick<CollaborationRoomOwnerScope, 'documentId' | 'workspaceId' | 'path'>,
+): Readonly<Pick<CollaborationRoomOwnerScope, 'documentId' | 'workspaceId' | 'path'>> {
+  if (!input || !validId(input.documentId) || !validId(input.workspaceId)
+    || !isCanonicalAdmissionPath(input.path)) return invalid();
+  return Object.freeze({ documentId: input.documentId, workspaceId: input.workspaceId, path: input.path });
+}
+
 export function admissionScopeContains(scope: CollaborationAdmissionScope, workspaceId: string, path: string): boolean {
   return scope.workspaceId === workspaceId && (scope.path === path || (scope.kind === 'subtree'
     && (scope.path === '' || path.startsWith(`${scope.path}/`))));

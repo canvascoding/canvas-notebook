@@ -6,6 +6,7 @@ import {
   admissionScopeContains,
   admissionScopesOverlap,
   captureCollaborationAdmissionRequest,
+  captureCollaborationAdmissionWriterScope,
   collaborationAdmissionLockKey,
   isCanonicalAdmissionPath,
   type CollaborationAdmissionDocument,
@@ -114,6 +115,50 @@ test('captured request is an immutable copy, not a retained caller object or arr
   assert.equal(captured.request.expectedDocuments[0]?.path, 'folder/file.txt');
   assert.equal(captured.request.scopes.length, 1);
   assert.equal(captured.request.expectedDocuments.length, 1);
+});
+
+test('writer scope capture is an exact immutable identity copy and preserves literal path characters', () => {
+  const input = {
+    documentId: 'doc-writer-1',
+    workspaceId: 'workspace-writer-1',
+    path: '100%_done/日記/é.txt',
+    unrelated: 'must not be retained',
+  };
+  const captured = captureCollaborationAdmissionWriterScope(input);
+  assert.deepEqual(captured, {
+    documentId: 'doc-writer-1', workspaceId: 'workspace-writer-1', path: '100%_done/日記/é.txt',
+  });
+  assert.deepEqual(Object.keys(captured), ['documentId', 'workspaceId', 'path']);
+  assert.equal(Object.isFrozen(captured), true);
+
+  input.documentId = 'mutated-document';
+  input.workspaceId = 'mutated-workspace';
+  input.path = 'changed/path';
+  input.unrelated = 'changed';
+  assert.deepEqual(captured, {
+    documentId: 'doc-writer-1', workspaceId: 'workspace-writer-1', path: '100%_done/日記/é.txt',
+  });
+});
+
+test('writer scope capture rejects invalid IDs and non-canonical/root paths', () => {
+  const valid = { documentId: 'writer-doc', workspaceId: 'writer-workspace', path: 'notes/file.md' };
+  for (const input of [
+    { ...valid, documentId: '' },
+    { ...valid, documentId: 'bad\u0001id' },
+    { ...valid, documentId: 'd'.repeat(257) },
+    { ...valid, workspaceId: '' },
+    { ...valid, workspaceId: 'bad\u007fid' },
+    { ...valid, workspaceId: 'w'.repeat(257) },
+    { ...valid, path: '' },
+    { ...valid, path: '.' },
+    { ...valid, path: '../file.md' },
+    { ...valid, path: 'notes/../file.md' },
+    { ...valid, path: 'notes\\file.md' },
+    { ...valid, path: 'notes/bad\u0000name.md' },
+    { ...valid, path: 'notes/bad\u007fname.md' },
+  ]) {
+    assertAdmissionError(() => captureCollaborationAdmissionWriterScope(input), 'ADMISSION_INVALID_REQUEST');
+  }
 });
 
 test('canonical paths reject traversal and separators but preserve literal metacharacters and Unicode', () => {

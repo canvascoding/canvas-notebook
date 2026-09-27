@@ -8,7 +8,8 @@ DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
 [DA-03/04: SQL-Handoff](admission-handoff-results.md),
 [DA-05: Kompaktierungsadapter](admission-compaction-results.md),
 [DA-04/05: belegter Abbruch](admission-abort-results.md),
-[DA-03/04/05: Kompaktierungssteuerung](compaction-coordinator-results.md).
+[DA-03/04/05: Kompaktierungssteuerung](compaction-coordinator-results.md),
+[DA-05: neue Dokumentidentitäten](initialization-admission-results.md).
 Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
@@ -202,6 +203,11 @@ danach keine Kompaktierung mehr aus. Ein neuer Versuch braucht einen neuen
 Auftrag. Fachliche Vorprüfung vor Reservation und begrenzte Wiederaufnahme
 sind im Kompaktierungscoordinator verbunden. Ein dauerhafter Nutzer-Cancel-
 Intent nach Drain-Beginn bleibt offen; [Abbruchvertrag](admission-abort-results.md).
+Neue Dokumentmetadaten und Yjs-Erstzustände prüfen inzwischen die persistente
+Admission in ihrer Schreibtransaktion. Bereits vorhandene Identitäten und
+finale Checkpoints bleiben davon getrennt; [Writer-Nachweis](initialization-admission-results.md).
+Neue Agentenoperations-Zulassung, Excalidraw-State und die vollständige
+Domain-/Runtime-Anbindung sind dadurch noch nicht abgenommen.
 
 - Äußerste Eintrittspunkte für Rename/Move, Delete/Archive, Restore, Copy mit
   existierendem Ziel, Repräsentationswechsel und Kompaktierung auditieren.

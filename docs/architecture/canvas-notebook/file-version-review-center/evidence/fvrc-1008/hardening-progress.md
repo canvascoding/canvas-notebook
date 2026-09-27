@@ -28,6 +28,9 @@ atomarem Ergebnisbeleg auf; ein Fehler oder Timeout allein tut dies nicht.
 Der [Kompaktierungscoordinator](compaction-coordinator-results.md) verbindet nun
 Vorprüfung, Reservation, Owner-Drain und Quiescence mit Handoff und Wiederaufnahme
 derselben gespeicherten Request-ID. Seine reguläre Runtime-Anbindung bleibt offen.
+Der [Initialisierungsschutz](initialization-admission-results.md) ordnet neue
+Dokumentmetadaten/Yjs-Zustände atomar gegen persistente Reservationen, ohne
+bereits zugelassene Checkpoints zu blockieren. Weitere Writer bleiben offen.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue

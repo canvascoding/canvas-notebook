@@ -33,7 +33,8 @@ import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutationRequest,
   withCollaborationAdmissionMutation } from './room-admission-handoff';
 import { captureCollaborationCompactionRequest } from './compaction-contract';
-import { CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
+import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
 
 export interface PersistedCollaborationState {
   documentId: string;
@@ -196,20 +197,19 @@ export async function ensureCollaborationState(input: {
   representation: TextCollaborationRepresentation;
   initialContent: string;
 }): Promise<PersistedCollaborationState> {
-  const existing = await loadCollaborationStateIncludingArchived(input.documentId);
-  if (existing) {
-    if (existing.status === 'archived') {
-      throw new CollaborationStateInactiveError(input.documentId);
-    }
-    if (
-      existing.workspaceId !== input.workspaceId
-      || existing.path !== input.path
-      || existing.representation !== input.representation
-    ) {
+  input = { ...input, ...captureCollaborationAdmissionWriterScope(input) };
+  const validate = (state: PersistedCollaborationState): PersistedCollaborationState => {
+    if (state.status === 'archived') throw new CollaborationStateInactiveError(input.documentId);
+    if (state.workspaceId !== input.workspaceId || state.organizationId !== input.organizationId
+      || state.path !== input.path || state.representation !== input.representation) {
       throw new Error('Collaboration document identity, lifecycle, or representation does not match the active file.');
     }
-    return existing;
-  }
+    return state;
+  };
+  const existing = await loadCollaborationStateIncludingArchived(input.documentId);
+  // A read of an existing identity neither admits new work nor takes locks
+  // needed by its owner to complete a reserved lifecycle transition.
+  if (existing) return validate(existing);
   const profile = encodingProfile(input.initialContent);
   const initialDoc = isRichTextCollaborationRepresentation(input.representation)
     ? createRichMarkdownYDoc(profile.canonical, input.representation)
@@ -217,51 +217,47 @@ export async function ensureCollaborationState(input: {
   const update = Y.encodeStateAsUpdate(initialDoc);
   const vector = Y.encodeStateVector(initialDoc);
   const now = Date.now();
-  const database = await openDb();
   try {
-    const row = await database.get(
-      `
-        INSERT INTO collaboration_yjs_states (
-          document_id, workspace_id, organization_id, path, representation,
-          lifecycle_generation, schema_version, yjs_state, state_vector,
-          document_sequence, persisted_at, checkpointed_at, checkpoint_sequence,
-          canonical_hash, serialized_hash, newline_style, has_bom, degraded
-        ) VALUES ($1, $2, $3, $4, $5, 1, 1, $6, $7, 0, $8, $9, 0, $10, $11, $12, $13, 0)
-        ON CONFLICT(document_id) DO NOTHING
-        RETURNING *
-      `,
-      [
-        input.documentId,
-        input.workspaceId,
-        input.organizationId,
-        input.path,
-        input.representation,
-        Buffer.from(update),
-        Buffer.from(vector),
-        now,
-        now,
-        sha256Text(profile.canonical),
-        sha256Text(input.initialContent),
-        profile.newlineStyle,
-        profile.hasBom ? 1 : 0,
-      ],
-    ) as StateRow | undefined;
-    const state = row
-      ? mapState(row)
-      : await loadCollaborationStateIncludingArchived(input.documentId);
-    if (!state) throw new Error('Failed to initialize collaboration state.');
-    if (state.status === 'archived') throw new CollaborationStateInactiveError(input.documentId);
-    if (
-      state.workspaceId !== input.workspaceId
-      || state.path !== input.path
-      || state.representation !== input.representation
-    ) {
-      throw new Error('Collaboration document identity or representation does not match the active file.');
-    }
-    return state;
+    return await executeLifecycleTransaction({
+      openConnection: openDb,
+      execute: async (database) => {
+        await database.run("SET LOCAL statement_timeout = '5s'");
+        await database.run("SET LOCAL lock_timeout = '4s'");
+        const query = async (sql: string, values?: unknown[]) =>
+          await database.all(sql, values) as Array<Record<string, unknown>>;
+        await lockCollaborationAdmissionWorkspace(query, input.workspaceId);
+        const current = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1',
+          [input.documentId]) as StateRow | undefined;
+        if (current) return validate(mapState(current));
+        await assertCollaborationAdmissionOpen(query, input);
+        const row = await database.get(
+          `INSERT INTO collaboration_yjs_states (
+            document_id, workspace_id, organization_id, path, representation,
+            lifecycle_generation, schema_version, yjs_state, state_vector,
+            document_sequence, persisted_at, checkpointed_at, checkpoint_sequence,
+            canonical_hash, serialized_hash, newline_style, has_bom, degraded
+          ) VALUES ($1, $2, $3, $4, $5, 1, 1, $6, $7, 0, $8, $9, 0, $10, $11, $12, $13, 0)
+          ON CONFLICT(document_id) DO NOTHING RETURNING *`,
+          [input.documentId, input.workspaceId, input.organizationId, input.path, input.representation,
+            Buffer.from(update), Buffer.from(vector), now, now, sha256Text(profile.canonical),
+            sha256Text(input.initialContent), profile.newlineStyle, profile.hasBom ? 1 : 0],
+        ) as StateRow | undefined;
+        const resolved = row ?? await database.get(
+          'SELECT * FROM collaboration_yjs_states WHERE document_id = $1', [input.documentId]) as StateRow | undefined;
+        if (!resolved) throw new Error('Failed to initialize collaboration state.');
+        return validate(mapState(resolved));
+      },
+      recoverCommitted: async (_state, commitError) => {
+        // The prior session is confirmed discarded. Ensure never promises that
+        // this caller's initial bytes won: an already initialized matching row
+        // is the canonical result, including one committed by a racing ensure.
+        const recovered = await loadCollaborationStateIncludingArchived(input.documentId);
+        if (!recovered) throw commitError;
+        return validate(recovered);
+      },
+    });
   } finally {
     initialDoc.destroy();
-    await database.close();
   }
 }
 
