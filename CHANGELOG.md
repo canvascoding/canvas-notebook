@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.27.1] - 2026-09-27
+
+### Added
+
+- Added GPT Image 2.5 Flare to Studio image generation, including mobile and agent-tool support.
+
+### Changed
+
+- Kept large browser uploads within reverse-proxy body limits by reducing chunk sizes.
+- Standardized mobile chat and promotion cursors and file-guest revocation timestamps on milliseconds.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.23.3] - 2026-09-23
 
 ### Fixed
