@@ -11,6 +11,7 @@ import {
   captureCollaborationAdmissionOwnerFence,
   lockCollaborationAdmissionDrain,
   matchesCollaborationAdmissionDrainFence,
+  readCollaborationAdmissionTerminalDrain,
   type CollaborationAdmissionDrainTicket,
 } from './room-admission-drain';
 import {
@@ -199,6 +200,8 @@ async function captureTargets(database: SqlConnection, captured: CapturedRequest
   });
 }
 
+export { captureTargets as captureCollaborationAdmissionScopeTargets };
+
 /**
  * Internal mechanics only, no auth or lifecycle mutation authority. Connections
  * must be dedicated and close(error) must destroy uncertain backends. No runtime
@@ -217,6 +220,12 @@ export function createCollaborationAdmissionService(options: { openConnection: (
   const readDrain = (input: CollaborationAdmissionDrainTicket) => {
     const ticket = captureCollaborationAdmissionDrainTicket(input);
     return transaction(async (database) => {
+      const header = await database.get('SELECT status FROM collaboration_admission_requests WHERE request_id = $1',
+        [ticket.requestId]) as Record<string, unknown> | undefined;
+      if (header?.status === 'committed') {
+        const terminal = await readCollaborationAdmissionTerminalDrain(database, ticket);
+        return Object.freeze({ ticket: terminal.ticket, status: terminal.status });
+      }
       const status = await lockCollaborationAdmissionDrain(async (sql, values) =>
         await database.all(sql, values) as Array<Record<string, unknown>>, ticket);
       return Object.freeze({ ticket, status });
@@ -270,23 +279,30 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       }
       if (!fences.length) return Promise.resolve(Object.freeze([]));
       return transaction(async (database) => {
-        const rows = await database.all(`SELECT r.request_id, r.request_digest, t.snapshot_text, t.status, t.release_id
+        const rows = await database.all(`SELECT r.request_id, r.request_digest, r.status AS request_status,
+            t.snapshot_text, t.status, t.release_id
           FROM collaboration_admission_requests r JOIN collaboration_admission_targets t ON t.request_id = r.request_id
-          WHERE r.status = 'draining' AND t.active
-            AND ((t.status = 'draining' AND t.quiescence_kind IS NULL AND t.quiescence_text IS NULL)
-              OR (t.status = 'released' AND t.quiescence_kind = 'owner_drain'))
+          WHERE ((r.status = 'draining' AND t.active
+              AND ((t.status = 'draining' AND t.quiescence_kind IS NULL AND t.quiescence_text IS NULL)
+                OR (t.status = 'released' AND t.quiescence_kind = 'owner_drain')))
+            OR (r.status = 'committed' AND NOT t.active AND t.status = 'completed'
+              AND t.quiescence_kind = 'owner_drain'))
             AND t.document_id = ANY($1::text[]) ORDER BY r.request_id, t.document_id FOR SHARE OF r, t`,
         [fences.map((fence) => fence.scope.documentId)]) as Array<Record<string, unknown>>;
-        return Object.freeze(rows.flatMap((row) => {
+        const pending: CollaborationAdmissionDrainTicket[] = [];
+        for (const row of rows) {
           const ticket = admissionDrainTicketForTarget(row.request_id as string, row.request_digest as string,
             JSON.parse(row.snapshot_text as string) as CollaborationAdmissionTarget);
           const fence = fences.find((item) => item.scope.documentId === ticket.fence.scope.documentId);
-          if (!fence || !matchesCollaborationAdmissionDrainFence(ticket, fence)) return [];
-          if (row.release_id !== (row.status === 'released' ? ticket.releaseId : null)) {
+          if (!fence || !matchesCollaborationAdmissionDrainFence(ticket, fence)) continue;
+          if (row.request_status === 'committed') {
+            await readCollaborationAdmissionTerminalDrain(database, ticket);
+          } else if (row.release_id !== (row.status === 'released' ? ticket.releaseId : null)) {
             throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
           }
-          return [ticket];
-        }));
+          pending.push(ticket);
+        }
+        return Object.freeze(pending);
       }, async (verified) => verified);
     },
     read(input: CollaborationAdmissionRequest) {

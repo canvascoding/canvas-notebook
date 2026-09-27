@@ -317,13 +317,37 @@ test('drain acknowledgment atomically marks owner_drain without materializing pr
 });
 
 test('admission target schema adds constrained quiescence markers idempotently', () => {
+  const createRequest = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS collaboration_admission_requests'));
   const create = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('CREATE TABLE IF NOT EXISTS collaboration_admission_targets'));
+  assert.ok(createRequest);
   assert.ok(create);
-  assert.match(create, /quiescence_kind text CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain'\)\)/u);
+  assert.match(createRequest, /outcome_text text/u);
+  assert.match(create, /quiescence_kind text CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain', 'lifecycle_outcome'\)\)/u);
   assert.match(create, /quiescence_text text/u);
+  assert.match(create, /source_outcome_request_id text/u);
+  assert.match(create, /outcome_snapshot_text text/u);
+  assert.match(create, /outcome_snapshot_digest text/u);
   const addKind = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('ADD COLUMN IF NOT EXISTS quiescence_kind'));
   const addText = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('ADD COLUMN IF NOT EXISTS quiescence_text'));
+  const addOutcome = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS outcome_text'));
+  const addSourceOutcome = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS source_outcome_request_id'));
+  const addOutcomeSnapshot = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS outcome_snapshot_text'));
+  const addOutcomeDigest = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS outcome_snapshot_digest'));
+  const sourceOutcomeConstraint = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('collaboration_admission_source_outcome_fk'));
   assert.ok(addKind);
   assert.ok(addText);
-  assert.match(addKind, /CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain'\)\)/u);
+  assert.ok(addOutcome);
+  assert.ok(addSourceOutcome);
+  assert.ok(addOutcomeSnapshot);
+  assert.ok(addOutcomeDigest);
+  assert.ok(sourceOutcomeConstraint);
+  assert.match(addKind, /CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain', 'lifecycle_outcome'\)\)/u);
+  assert.match(sourceOutcomeConstraint,
+    /FOREIGN KEY \(source_outcome_request_id, document_id\)\s+REFERENCES collaboration_admission_targets\(request_id, document_id\)/u);
 });

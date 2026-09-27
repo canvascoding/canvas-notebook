@@ -16,6 +16,10 @@ DA-03 ergänzt als ersten Baustein den belegten normalen Unload und einen
 lesenden Receipt-Retry: [Umfang und Nachweise](normal-room-unload-results.md).
 Epoch-0-Vacancy und die dauerhafte Zuordnung eines exakten normalen Release-
 Receipts sind nun separat ergänzt: [Belegvertrag](admission-quiescence-results.md).
+Der nächste Protokollbaustein bindet ausführbare Aktionsparameter, dedizierte
+Übergabe-Guards, atomare SQL-Outcomes und historischen lokalen Finish:
+[SQL-Handoff](admission-handoff-results.md). Noch kein Domain-Aufrufer ist
+umgestellt; die bisherigen Owner-Epoch-Schutzprüfungen bleiben bestehen.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue

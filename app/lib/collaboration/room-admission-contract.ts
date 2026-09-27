@@ -13,6 +13,7 @@ export type CollaborationAdmissionRequest = Readonly<{
   actorId: string;
   action: 'rename' | 'move' | 'archive' | 'restore' | 'copy_replace' | 'representation_change' | 'compact';
   actionDigest: string;
+  actionPayloadText?: string;
   scopes: readonly CollaborationAdmissionScope[];
   expectedDocuments: readonly CollaborationAdmissionDocument[];
 }>;
@@ -30,6 +31,48 @@ const invalid = () => { throw new CollaborationAdmissionError('ADMISSION_INVALID
 const validId = (value: unknown): value is string => typeof value === 'string'
   && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f\u007f]/u.test(value);
 const compareText = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+const ADMISSION_ACTION_DOMAIN = 'canvas.admission-action.v1\0';
+const MAX_ACTION_PAYLOAD_BYTES = 64 * 1024;
+const MAX_ACTION_PAYLOAD_DEPTH = 16;
+const MAX_ACTION_PAYLOAD_NODES = 4096;
+
+function canonicalAdmissionActionPayload(text: string): string {
+  if (typeof text !== 'string' || Buffer.byteLength(text, 'utf8') > MAX_ACTION_PAYLOAD_BYTES) invalid();
+  let parsed: unknown;
+  try { parsed = JSON.parse(text) as unknown; } catch { return invalid(); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) invalid();
+
+  let nodes = 0;
+  const canonicalize = (value: unknown, depth: number): unknown => {
+    nodes += 1;
+    if (nodes > MAX_ACTION_PAYLOAD_NODES || depth > MAX_ACTION_PAYLOAD_DEPTH) invalid();
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) invalid();
+      return value;
+    }
+    if (Array.isArray(value)) return value.map((item) => canonicalize(item, depth + 1));
+    if (typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) invalid();
+    const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    const objectValue = value as Record<string, unknown>;
+    for (const key of Object.keys(objectValue).sort(compareText)) {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') invalid();
+      output[key] = canonicalize(objectValue[key], depth + 1);
+    }
+    return output;
+  };
+
+  const canonical = canonicalize(parsed, 1);
+  return JSON.stringify(canonical);
+}
+
+export function collaborationAdmissionActionDigest(
+  action: CollaborationAdmissionRequest['action'], actionPayloadText: string,
+): string {
+  const canonicalPayload = canonicalAdmissionActionPayload(actionPayloadText);
+  return createHash('sha256').update(ADMISSION_ACTION_DOMAIN).update(action).update('\0')
+    .update(canonicalPayload).digest('hex');
+}
 
 export function isCanonicalAdmissionPath(value: unknown, allowRoot = false): value is string {
   return typeof value === 'string' && value.length <= 4096
@@ -60,6 +103,12 @@ export function captureCollaborationAdmissionRequest(input: CollaborationAdmissi
     || !['rename', 'move', 'archive', 'restore', 'copy_replace', 'representation_change', 'compact'].includes(input.action)
     || !Array.isArray(input.scopes) || input.scopes.length === 0 || input.scopes.length > 64
     || !Array.isArray(input.expectedDocuments) || input.expectedDocuments.length > 1024) invalid();
+  let actionPayloadText: string | undefined;
+  if (Object.prototype.hasOwnProperty.call(input, 'actionPayloadText')) {
+    if (typeof input.actionPayloadText !== 'string') invalid();
+    actionPayloadText = canonicalAdmissionActionPayload(input.actionPayloadText as string);
+    if (input.actionDigest !== collaborationAdmissionActionDigest(input.action, actionPayloadText)) invalid();
+  }
   const scopes = input.scopes.map((scope) => {
     if (!scope || !validId(scope.workspaceId) || (scope.organizationId !== null && !validId(scope.organizationId))
       || !['exact', 'subtree'].includes(scope.kind) || !isCanonicalAdmissionPath(scope.path, scope.kind === 'subtree')) invalid();
@@ -84,7 +133,9 @@ export function captureCollaborationAdmissionRequest(input: CollaborationAdmissi
   }).sort((a, b) => compareText(a.documentId, b.documentId));
   if (documents.some((doc, index) => index > 0 && doc.documentId === documents[index - 1].documentId)) invalid();
   const request = Object.freeze({ requestId: input.requestId, actorId: input.actorId, action: input.action,
-    actionDigest: input.actionDigest, scopes: Object.freeze(canonicalScopes), expectedDocuments: Object.freeze(documents) });
+    actionDigest: input.actionDigest,
+    scopes: Object.freeze(canonicalScopes), expectedDocuments: Object.freeze(documents),
+    ...(actionPayloadText === undefined ? {} : { actionPayloadText }) });
   const intentText = JSON.stringify(request);
   const requestDigest = createHash('sha256').update(`canvas.collaboration.admission-request.v1\0${intentText}`).digest('hex');
   return Object.freeze({ request, intentText, requestDigest, workspaceIds: Object.freeze(workspaceIds) });

@@ -1,7 +1,12 @@
 import { createHash } from 'node:crypto';
+import type { SqlConnection } from '@/app/lib/db';
 import type { CollaborationRoomOwnerFence } from './room-owner';
 import type { CollaborationAdmissionTarget } from './room-admission';
-import { CollaborationAdmissionError, isCanonicalAdmissionPath } from './room-admission-contract';
+import {
+  captureCollaborationAdmissionRequest,
+  CollaborationAdmissionError,
+  isCanonicalAdmissionPath,
+} from './room-admission-contract';
 
 export type CollaborationAdmissionDrainTicket = Readonly<{
   requestId: string;
@@ -71,6 +76,89 @@ export function matchesCollaborationAdmissionDrainFence(ticket: CollaborationAdm
 export function sameCollaborationAdmissionDrainTicket(a: CollaborationAdmissionDrainTicket,
   b: CollaborationAdmissionDrainTicket): boolean {
   return JSON.stringify(captureCollaborationAdmissionDrainTicket(a)) === JSON.stringify(captureCollaborationAdmissionDrainTicket(b));
+}
+
+export type CollaborationAdmissionTerminalDrain = Readonly<{
+  ticket: CollaborationAdmissionDrainTicket;
+  status: 'released';
+  quiescenceText: string;
+}>;
+
+const plainRecord = (value: unknown): value is Record<string, unknown> => Boolean(value)
+  && typeof value === 'object' && !Array.isArray(value)
+  && [Object.prototype, null].includes(Object.getPrototypeOf(value));
+
+/**
+ * Verifies the immutable committed outcome for local cleanup of the exact old
+ * room instance. This is historical evidence only and grants no mutation or
+ * owner-token authority.
+ */
+export async function readCollaborationAdmissionTerminalDrain(
+  database: SqlConnection,
+  input: CollaborationAdmissionDrainTicket,
+): Promise<CollaborationAdmissionTerminalDrain> {
+  const ticket = captureCollaborationAdmissionDrainTicket(input);
+  const header = await database.get(`SELECT request_digest, intent_text, status
+    FROM collaboration_admission_requests WHERE request_id = $1 FOR SHARE`,
+  [ticket.requestId]) as Record<string, unknown> | undefined;
+  if (!header || header.request_digest !== ticket.requestDigest) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+  if (header.status !== 'committed' || typeof header.intent_text !== 'string') {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  let captured: ReturnType<typeof captureCollaborationAdmissionRequest>;
+  try { captured = captureCollaborationAdmissionRequest(JSON.parse(header.intent_text) as never); }
+  catch { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); }
+  if (captured.request.requestId !== ticket.requestId || captured.requestDigest !== ticket.requestDigest
+    || captured.intentText !== header.intent_text) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+
+  // Dynamic imports avoid the room-admission -> outcome -> room-admission
+  // initialization cycle; all modules are fully initialized before this path.
+  const [{ readCollaborationAdmissionOutcome, collaborationAdmissionOutcomeDigest },
+    { decodeCollaborationAdmissionTarget }] = await Promise.all([
+    import('./room-admission-outcome'), import('./room-admission'),
+  ]);
+  const outcome = await readCollaborationAdmissionOutcome(database, captured);
+  if (!outcome) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  const targetRow = await database.get(`SELECT snapshot_text, status, active, release_id,
+      quiescence_kind, quiescence_text
+    FROM collaboration_admission_targets WHERE request_id = $1 AND document_id = $2 FOR SHARE`,
+  [ticket.requestId, ticket.fence.scope.documentId]) as Record<string, unknown> | undefined;
+  if (!targetRow || targetRow.status !== 'completed' || targetRow.active !== false
+    || targetRow.release_id !== ticket.releaseId || targetRow.quiescence_kind !== 'owner_drain'
+    || typeof targetRow.snapshot_text !== 'string' || typeof targetRow.quiescence_text !== 'string'
+    || Buffer.byteLength(targetRow.quiescence_text, 'utf8') > 4 * 1024 * 1024) {
+    throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  }
+  const expectedDocument = captured.request.expectedDocuments.find((document) =>
+    document.documentId === ticket.fence.scope.documentId);
+  if (!expectedDocument) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  const target = decodeCollaborationAdmissionTarget(targetRow.snapshot_text, expectedDocument);
+  const expectedTicket = admissionDrainTicketForTarget(ticket.requestId, ticket.requestDigest, target);
+  if (!sameCollaborationAdmissionDrainTicket(ticket, expectedTicket)) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  }
+  const outcomeTarget = outcome.targets.find((item) => item.documentId === ticket.fence.scope.documentId);
+  if (!outcomeTarget
+    || outcomeTarget.proofDigest !== collaborationAdmissionOutcomeDigest('input', targetRow.quiescence_text)) {
+    throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  }
+  let proof: Record<string, unknown>;
+  try { proof = JSON.parse(targetRow.quiescence_text) as Record<string, unknown>; }
+  catch { throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED'); }
+  const snapshotDigest = createHash('sha256').update('canvas.admission-quiescence.snapshot.v1\0')
+    .update(targetRow.snapshot_text).digest('hex');
+  if (!plainRecord(proof) || proof.version !== 1 || proof.requestId !== ticket.requestId
+    || proof.requestDigest !== ticket.requestDigest || proof.snapshotDigest !== snapshotDigest
+    || proof.kind !== 'owner_drain' || !plainRecord(proof.current) || !plainRecord(proof.receipt)
+    || JSON.stringify({ version: 1, requestId: ticket.requestId, requestDigest: ticket.requestDigest,
+      snapshotDigest, kind: 'owner_drain', current: proof.current, receipt: proof.receipt }) !== targetRow.quiescence_text) {
+    throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  }
+  return Object.freeze({ ticket, status: 'released' as const, quiescenceText: targetRow.quiescence_text });
 }
 
 /** Header -> target -> state row, retained through the owner release transaction. */

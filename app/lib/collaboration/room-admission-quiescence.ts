@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
+import { findCollaborationAdmissionOutcomeSource } from './room-admission-outcome';
 import { lockIdentity } from './room-owner';
 import {
   captureCollaborationAdmissionTargetRow,
@@ -23,12 +24,13 @@ import {
 type CapturedRequest = ReturnType<typeof captureCollaborationAdmissionRequest>;
 type Row = Record<string, unknown>;
 export type CollaborationAdmissionQuiescenceProof = Readonly<{
-  kind: 'vacant' | 'normal_release' | 'owner_drain';
+  kind: 'vacant' | 'normal_release' | 'owner_drain' | 'lifecycle_outcome';
   requestId: string;
   requestDigest: string;
   documentId: string;
   releaseId: string | null;
   proofText: string;
+  sourceOutcomeRequestId?: string;
 }>;
 
 async function lockProofRoom(database: SqlConnection, documentId: string): Promise<void> {
@@ -73,6 +75,7 @@ async function inspectProof(database: SqlConnection, captured: CapturedRequest, 
   if (current.ownerToken !== null) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   let kind: CollaborationAdmissionQuiescenceProof['kind'];
   let receipt: CollaborationRoomReleaseReceipt | null = null;
+  let sourceOutcome: Awaited<ReturnType<typeof findCollaborationAdmissionOutcomeSource>> = null;
   if (target.ownerEpoch === 0) {
     if (target.ownerToken !== null) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
     kind = 'vacant';
@@ -88,18 +91,25 @@ async function inspectProof(database: SqlConnection, captured: CapturedRequest, 
   } else {
     const found = await database.get(`SELECT * FROM collaboration_room_release_receipts
       WHERE document_id = $1 AND owner_epoch = $2`, [documentId, target.ownerEpoch]) as Row | undefined;
-    if (!found) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
-    try { receipt = validateCollaborationRoomReleaseReceipt(row, found); }
-    catch { throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED'); }
-    if (target.ownerToken !== null && (receipt.owner_token !== target.ownerToken
+    if (found) {
+      try { receipt = validateCollaborationRoomReleaseReceipt(row, found); }
+      catch { /* A lifecycle outcome may have changed this epoch's scope or representation. */ }
+    }
+    if (!receipt && target.ownerToken === null) {
+      sourceOutcome = await findCollaborationAdmissionOutcomeSource(database, current);
+    }
+    if (!receipt && !sourceOutcome) {
+      throw new CollaborationAdmissionError(found ? 'ADMISSION_SCOPE_CHANGED' : 'ADMISSION_RECOVERY_REQUIRED');
+    }
+    if (receipt && target.ownerToken !== null && (receipt.owner_token !== target.ownerToken
       || receipt.owner_backend_pid !== target.ownerBackendPid || receipt.owner_backend_start !== target.ownerBackendStart
       || current.documentSequence < target.documentSequence)) {
       throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
     }
-    kind = targetRow.quiescence_kind === 'owner_drain' ? 'owner_drain' : 'normal_release';
+    kind = sourceOutcome ? 'lifecycle_outcome' : targetRow.quiescence_kind === 'owner_drain' ? 'owner_drain' : 'normal_release';
     if (kind === 'owner_drain') {
       const ticket = admissionDrainTicketForTarget(captured.request.requestId, captured.requestDigest, target);
-      if (targetRow.status !== 'released' || receipt.release_id !== ticket.releaseId) {
+      if (targetRow.status !== 'released' || receipt?.release_id !== ticket.releaseId) {
         throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
       }
     }
@@ -116,22 +126,28 @@ async function inspectProof(database: SqlConnection, captured: CapturedRequest, 
     version: 1, requestId: captured.request.requestId, requestDigest: captured.requestDigest,
     snapshotDigest: createHash('sha256').update('canvas.admission-quiescence.snapshot.v1\0')
       .update(targetRow.snapshot_text).digest('hex'),
-    kind, current, receipt,
+    kind, current, receipt, ...(sourceOutcome ? { sourceOutcome } : {}),
   });
   const proof: CollaborationAdmissionQuiescenceProof = Object.freeze({
     kind, requestId: captured.request.requestId, requestDigest: captured.requestDigest, documentId, releaseId, proofText,
+    ...(sourceOutcome ? { sourceOutcomeRequestId: sourceOutcome.requestId } : {}),
   });
   if (targetRow.status === 'released') {
     if (header.status !== 'draining' || targetRow.quiescence_kind !== kind || targetRow.release_id !== releaseId
+      || targetRow.source_outcome_request_id !== (sourceOutcome?.requestId ?? null)
       || (targetRow.quiescence_text === null ? kind !== 'owner_drain' : targetRow.quiescence_text !== proofText)) {
       throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
     }
   } else if (targetRow.release_id !== null || targetRow.quiescence_kind !== null || targetRow.quiescence_text !== null
+    || targetRow.source_outcome_request_id !== null
     || (targetRow.status === 'draining' && header.status !== 'draining')) {
     throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
   }
   return { proof, alreadyProven: targetRow.quiescence_text === proofText };
 }
+
+/** Internal handoff validation; caller already holds room guard and mutation locks. */
+export { inspectProof as inspectCollaborationAdmissionQuiescence };
 
 /**
  * Materializes a retained DA03 proof, NOT lifecycle mutation authority.
@@ -156,9 +172,9 @@ export function createCollaborationAdmissionQuiescenceService(options: {
           const { proof, alreadyProven } = await inspectProof(database, captured, documentId);
           if (!alreadyProven) {
             await database.run(`UPDATE collaboration_admission_targets SET status = 'released',
-              release_id = $3, quiescence_kind = $4, quiescence_text = $5
+              release_id = $3, quiescence_kind = $4, quiescence_text = $5, source_outcome_request_id = $6
               WHERE request_id = $1 AND document_id = $2`,
-            [proof.requestId, documentId, proof.releaseId, proof.kind, proof.proofText]);
+            [proof.requestId, documentId, proof.releaseId, proof.kind, proof.proofText, proof.sourceOutcomeRequestId ?? null]);
             await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
               WHERE request_id = $1`, [proof.requestId]);
           }

@@ -1,10 +1,11 @@
 # Prozessübergreifende Lifecycle-Zulassung: nächster Umsetzungsschritt
 
 Stand: 27. September 2026. **DA-01 und DA-02 implementiert und separat geprüft;
-DA-03 in Arbeit, DA-04 bis DA-06 noch offen.** Nachweise:
+DA-03/04 in Arbeit, DA-05/06 noch offen.** Nachweise:
 [DA-01](distributed-admission-results.md), [DA-02](admission-drain-results.md),
 [DA-03: normaler Unload](normal-room-unload-results.md),
-[DA-03: Quiescence-Belege](admission-quiescence-results.md). Keine Runtime-Aktivierung.
+[DA-03: Quiescence-Belege](admission-quiescence-results.md),
+[DA-03/04: SQL-Handoff](admission-handoff-results.md). Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
 
@@ -136,6 +137,11 @@ mit fehlendem Finish, neue Serviceinstanz und danach tatsächliche Weiterarbeit.
 
 ### DA-04 – Gehaltener Übergabe-Guard bis zum Lifecycle-Ergebnis
 
+Status: dedizierter SQL-Handoff, atomarer Outcome, ausführbarer Neustartauftrag
+und rein historischer lokaler Finish sind als eigener Protokollbaustein
+implementiert. Domain-Aufrufer und Gesamtaktivierung fehlen weiterhin;
+[Umfang und Nachweise](admission-handoff-results.md).
+
 - Dedizierte PostgreSQL-Sitzung hält die betroffenen Owner-Advisory-Locks in
   stabiler Reihenfolge; try-only Erwerb, kontrollierter Neuversuch außerhalb
   nachgelagerter Sperren und keine Pool-Rückgabe zwischen Prüfung und Mutation.
@@ -209,8 +215,10 @@ Doppelwirkung und ohne verlorene unabhängige Änderungen.
 
 DA-03 läuft sequenziell: normaler Unload, lesender Recovery-Retry und
 expliziter Vacant-/Release-Beleg sind separat implementiert. Als Nächstes
-folgen Wiederanlauf nach verlorenem Owner und die tatsächliche Coordinator-
-Fortsetzung unter dem DA-04-Übergabevertrag. DA-01/02 liefern Reservation,
+folgen die vollständige Wiederaufnahme nach verlorenem Owner und die
+Domain-Integration. Der DA-04-SQL-Übergabevertrag ergänzt nun gespeicherte
+Aktionsparameter, gehaltene Guards, atomare Outcomes und rein historischen
+lokalen Finish. DA-01/02 liefern Reservation,
 gebundenen Drain und atomare Receipt-/Target-Bestätigung. Die bestehenden
 Lifecycle-Schutzprüfungen bleiben bis zur vollständigen Übergabe bestehen;
 DA-03 bis DA-06 und die Aktivierung sind nicht freigegeben.

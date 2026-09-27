@@ -7,6 +7,7 @@ import {
   captureCollaborationAdmissionDrainTicket,
   lockCollaborationAdmissionDrain,
   matchesCollaborationAdmissionDrainFence,
+  readCollaborationAdmissionTerminalDrain,
   type CollaborationAdmissionDrainTicket,
 } from './room-admission-drain';
 import {
@@ -103,16 +104,8 @@ function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
 }
 
-/**
- * Validates that an immutable release receipt still describes the exact
- * token-free persisted room state. Live hashes are authenticated receipt
- * metadata only: the original live buffers are deliberately not reconstructed.
- */
-export function validateCollaborationRoomReleaseReceipt(
-  row: Record<string, unknown>,
-  receipt: Record<string, unknown>,
-): CollaborationRoomReleaseReceipt {
-  const normalized: CollaborationRoomReleaseReceipt = {
+function normalizeReceipt(receipt: Record<string, unknown>): CollaborationRoomReleaseReceipt {
+  return Object.freeze({
     release_id: receiptString(receipt.release_id),
     document_id: receiptString(receipt.document_id),
     workspace_id: receiptString(receipt.workspace_id),
@@ -130,7 +123,19 @@ export function validateCollaborationRoomReleaseReceipt(
     persisted_vector_hash: receiptHash(receipt.persisted_vector_hash),
     live_update_hash: receiptHash(receipt.live_update_hash),
     live_vector_hash: receiptHash(receipt.live_vector_hash),
-  };
+  });
+}
+
+/**
+ * Validates that an immutable release receipt still describes the exact
+ * token-free persisted room state. Live hashes are authenticated receipt
+ * metadata only: the original live buffers are deliberately not reconstructed.
+ */
+export function validateCollaborationRoomReleaseReceipt(
+  row: Record<string, unknown>,
+  receipt: Record<string, unknown>,
+): CollaborationRoomReleaseReceipt {
+  const normalized = normalizeReceipt(receipt);
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(normalized.release_id)
     || row.status !== 'active'
     || row.document_id !== normalized.document_id
@@ -158,7 +163,56 @@ export function validateCollaborationRoomReleaseReceipt(
     if (cause instanceof CollaborationRoomReleaseError) throw cause;
     throw new CollaborationRoomReleaseError({ cause });
   }
-  return Object.freeze(normalized);
+  return normalized;
+}
+
+function terminalReceiptFor(input: {
+  fence: CollaborationRoomOwnerFence;
+  snapshot: CollaborationRoomReleaseSnapshot;
+  quiescenceText: string;
+  storedReceipt: Record<string, unknown>;
+}): CollaborationRoomReleaseReceipt {
+  let proof: Record<string, unknown>;
+  try { proof = JSON.parse(input.quiescenceText) as Record<string, unknown>; }
+  catch (cause) { throw new CollaborationRoomReleaseError({ cause }); }
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof)
+    || !proof.current || typeof proof.current !== 'object' || Array.isArray(proof.current)
+    || !proof.receipt || typeof proof.receipt !== 'object' || Array.isArray(proof.receipt)) {
+    throw new CollaborationRoomReleaseError();
+  }
+  const receipt = normalizeReceipt(proof.receipt as Record<string, unknown>);
+  const stored = normalizeReceipt(input.storedReceipt);
+  const scope = input.fence.scope;
+  if (JSON.stringify(receipt) !== JSON.stringify(stored)
+    || receipt.release_id !== input.snapshot.releaseId
+    || receipt.document_id !== scope.documentId || receipt.workspace_id !== scope.workspaceId
+    || receipt.organization_id !== scope.organizationId || receipt.path !== scope.path
+    || receipt.representation !== scope.representation
+    || receipt.lifecycle_generation !== scope.lifecycleGeneration || receipt.schema_version !== scope.schemaVersion
+    || receipt.owner_epoch !== input.fence.epoch || receipt.owner_token !== input.fence.token
+    || receipt.owner_backend_pid !== input.fence.backendPid
+    || receipt.owner_backend_start !== input.fence.backendStart
+    || receipt.live_update_hash !== digest('update', input.snapshot.yjsState)
+    || receipt.live_vector_hash !== digest('vector', input.snapshot.stateVector)) {
+    throw new CollaborationRoomReleaseError();
+  }
+  const expectedCurrent = {
+    document: { documentId: scope.documentId, workspaceId: scope.workspaceId,
+      organizationId: scope.organizationId, path: scope.path, representation: scope.representation,
+      lifecycleGeneration: scope.lifecycleGeneration, schemaVersion: scope.schemaVersion, status: 'active' },
+    ownerEpoch: input.fence.epoch, ownerToken: null, ownerBackendPid: null, ownerBackendStart: null,
+    documentSequence: receipt.document_sequence, persistedUpdateHash: receipt.persisted_update_hash,
+    persistedVectorHash: receipt.persisted_vector_hash,
+  };
+  if (JSON.stringify(proof.current) !== JSON.stringify(expectedCurrent)) throw new CollaborationRoomReleaseError();
+  try {
+    const live = mergeCollaborationPersistenceUpdates(input.snapshot.yjsState, input.snapshot.yjsState);
+    if (!sameBytes(live.stateVector, input.snapshot.stateVector)) throw new CollaborationRoomReleaseError();
+  } catch (cause) {
+    if (cause instanceof CollaborationRoomReleaseError) throw cause;
+    throw new CollaborationRoomReleaseError({ cause });
+  }
+  return receipt;
 }
 
 function receiptFor(row: ReleaseStateRow, fence: CollaborationRoomOwnerFence,
@@ -213,7 +267,9 @@ export async function recordCollaborationRoomRelease(input: {
 /**
  * Read-only recovery, never an authorization for a later lifecycle write.
  * The old owner session MUST have ended first. The caller retains the frozen
- * snapshot and does not unload on absence, scope drift, or a competing claim.
+ * snapshot. Active-request recovery rejects absence, drift, or a competing
+ * claim; an immutable committed outcome may prove cleanup of only that exact
+ * old local instance after the lifecycle and a replacement owner advanced.
  */
 export async function recoverCollaborationRoomRelease(input: {
   createClient: () => Promise<Pick<Client, 'query' | 'end'>>;
@@ -235,6 +291,35 @@ export async function recoverCollaborationRoomRelease(input: {
     } finally { if (timer) clearTimeout(timer); }
   };
   try {
+    if (snapshot.admission) {
+      // A committed lifecycle may already have advanced the state and handed
+      // this advisory lock to a replacement owner. Detect its immutable
+      // outcome before trying the current room guard.
+      const header = await query('SELECT status FROM collaboration_admission_requests WHERE request_id = $1',
+        [snapshot.admission.requestId]);
+      if (header.rows[0]?.status === 'committed') {
+        await query('BEGIN');
+        const database = {
+          get: async (sql: string, values?: unknown[]) => (await query(sql, values)).rows[0],
+          all: async (sql: string, values?: unknown[]) => (await query(sql, values)).rows,
+          run: async (sql: string, values?: unknown[]) => {
+            const result = await query(sql, values);
+            return { changes: result.rowCount ?? 0 };
+          },
+          close: async () => {},
+        };
+        try {
+          const terminal = await readCollaborationAdmissionTerminalDrain(database, snapshot.admission);
+          const found = (await query('SELECT * FROM collaboration_room_release_receipts WHERE release_id = $1',
+            [snapshot.releaseId])).rows[0] as Record<string, unknown> | undefined;
+          if (!found) throw new CollaborationRoomReleaseError();
+          return terminalReceiptFor({ fence, snapshot, quiescenceText: terminal.quiescenceText, storedReceipt: found });
+        } catch (cause) {
+          if (cause instanceof CollaborationRoomReleaseError) throw cause;
+          throw new CollaborationRoomReleaseError({ cause });
+        }
+      }
+    }
     // Never wait for an active replacement owner. No workspace or state lock
     // is held while obtaining the document's existing advisory lock domain.
     const lock = lockIdentity(fence.scope.documentId);
