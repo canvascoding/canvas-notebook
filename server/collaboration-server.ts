@@ -267,6 +267,11 @@ export function createCollaborationServer(server: http.Server, options: {
     },
   });
   server.once('close', () => { void roomOwners?.dispose().catch(() => undefined); });
+  const withRoomActivity = async <T>(documentId: string, operation: () => Promise<T>): Promise<T> => {
+    const activity = roomOwners?.admitActivity(documentId);
+    try { return await operation(); }
+    finally { activity?.release(); }
+  };
   // Hocuspocus caches by document ID, while restore/migration reuse that ID
   // with a new generation. The room keeps the identity of the bytes it loaded.
   const roomIdentities = new WeakMap<YDoc, RoomIdentity>();
@@ -304,7 +309,7 @@ export function createCollaborationServer(server: http.Server, options: {
         try {
           while (job.requested) {
             job.requested = false;
-            await withCollaborationRoomMutationLock(document, async () => {
+            await withRoomActivity(document.name, () => withCollaborationRoomMutationLock(document, async () => {
               const claims = job.context.claims;
               if (document.isDestroyed || hocuspocus.documents.get(claims.documentId) !== document) return;
               const latest = await loadCollaborationState(claims.documentId);
@@ -319,7 +324,7 @@ export function createCollaborationServer(server: http.Server, options: {
               // reconciliation itself must not mint another revision/store.
               Y.applyUpdate(document, latest.yjsState, { source: 'local', skipStoreHooks: true });
               document.broadcastStateless(JSON.stringify(durabilitySnapshotPayload(latest)));
-            });
+            }));
           }
         } catch (error) {
           if (!document.isDestroyed && hocuspocus.documents.get(document.name) === document) {
@@ -545,21 +550,32 @@ export function createCollaborationServer(server: http.Server, options: {
       // SyncStep1, awareness and stateless traffic must not queue behind a
       // slow store. Only writer SyncStep2 (1) and Update (2) can change data;
       // Hocuspocus only acknowledges (never applies) read-only sync frames.
-      const release = !connection.readOnly && (type === 1 || type === 2)
-        ? await acquireCollaborationRoomMutationLock(document) : null;
+      const mutating = !connection.readOnly && (type === 1 || type === 2);
+      const activity = mutating ? roomOwners?.admitActivity(context.claims.documentId) : undefined;
+      let release: (() => void) | null = null;
       try {
+        release = mutating ? await acquireCollaborationRoomMutationLock(document) : null;
+        activity?.assertOpen();
         assertRoomIdentity(document, context.claims);
         // Access can be revoked while queued behind another connection.
         if (release) await accessMonitor.check(connection);
+        activity?.assertOpen();
         roomOwners?.fence(document);
         if (context.claims.guestInvitationId && context.claims.permission === 'write' && release) {
           if (context.claims.representation === 'excalidraw_scene') throw new Error('Guest documents must be Markdown.');
           try { assertFileGuestUpdateAllowed(document, payload, context.claims.representation); }
           catch { rejectCollaborationUpdate(connection, 'Diese Änderung konnte nicht übernommen werden: Die Datei ist zu groß oder enthält nicht unterstützte Dokumentdaten. Lade eine lokale Kopie herunter und öffne die Datei erneut.'); }
         }
-        if (release) messageMutationLeases.set(connection, release);
+        if (release) {
+          const releaseMutation = release;
+          messageMutationLeases.set(connection, () => {
+            releaseMutation();
+            activity?.release();
+          });
+        }
       } catch (error) {
         release?.();
+        activity?.release();
         throw error;
       }
     },
@@ -604,12 +620,14 @@ export function createCollaborationServer(server: http.Server, options: {
     async onChange({ documentName, document, context }) {
       if (context.actorType !== 'user') return;
       try {
-        roomOwners?.fence(document);
-        await detectLateAgentSemanticConflicts({
-          documentId: documentName,
-          doc: document,
-          observedDocumentSequence: context.observedDocumentSequence,
-          ...(roomOwners ? { assertRoomActive: () => { roomOwners.fence(document); } } : {}),
+        await withRoomActivity(documentName, async () => {
+          roomOwners?.fence(document);
+          await detectLateAgentSemanticConflicts({
+            documentId: documentName,
+            doc: document,
+            observedDocumentSequence: context.observedDocumentSequence,
+            ...(roomOwners ? { assertRoomActive: () => { roomOwners.fence(document); } } : {}),
+          });
         });
       } catch (error) {
         // Hocuspocus fires onChange without awaiting its promise. A known
@@ -785,7 +803,7 @@ export function createCollaborationServer(server: http.Server, options: {
     // until it is gone, or a new client can receive its previous representation.
     return room ? Math.max(1, room.getConnectionsCount()) : 0;
   });
-  installCollaborationDocumentReader(async (documentId, workspaceId, read) => {
+  installCollaborationDocumentReader((documentId, workspaceId, read) => withRoomActivity(documentId, async () => {
     const state = await loadCollaborationState(documentId);
     if (!state || state.status !== 'active' || state.workspaceId !== workspaceId) {
       throw new Error('Collaboration document is unavailable or stale.');
@@ -803,7 +821,7 @@ export function createCollaborationServer(server: http.Server, options: {
     } finally {
       doc.destroy();
     }
-  });
+  }));
   void recoverCollaborationAgentOperations().catch((error) => {
     console.error('[Collaboration] Agent operation recovery failed:', error);
   });
@@ -811,7 +829,7 @@ export function createCollaborationServer(server: http.Server, options: {
     console.error('[Collaboration] Proposal action recovery failed:', error);
   });
   setCollaborationRuntimeHealth({ websocketReady: true, persistenceReady: true });
-  installCollaborationDirectConnection(async (input, apply, onApplied) => {
+  installCollaborationDirectConnection((input, apply, onApplied) => withRoomActivity(input.documentId, async () => {
     const actorType = input.actorType ?? 'agent';
     let workspace = await resolveDirectConnectionWorkspace(input);
     const { state, releaseRoomAdmission } = await withCollaborationRoomLifecycleLock(
@@ -894,7 +912,7 @@ export function createCollaborationServer(server: http.Server, options: {
       throw error;
     }
     return result as never;
-  });
+  }));
   const wss = new WebSocketServer({ noServer: true });
   wss.once('close', () => accessMonitor.dispose());
   server.on('upgrade', (request, socket, head) => {

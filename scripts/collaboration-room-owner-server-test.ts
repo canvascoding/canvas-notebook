@@ -74,6 +74,10 @@ type OwnerSession = {
   close(): Promise<void>;
 };
 
+type OwnerRuntime = ReturnType<
+  typeof import('../app/lib/collaboration/room-owner-runtime').createCollaborationRoomOwnerRuntime
+>;
+
 type Reader = <T>(documentId: string, workspaceId: string, read: (document: Y.Doc) => T) => Promise<T>;
 
 class CollaborationRoomOwnerError extends Error {
@@ -155,6 +159,8 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss') {
   let sessionClosed = false;
   let epoch = 0;
   let instance!: Hocuspocus<TestContext>;
+  let ownerRuntime!: OwnerRuntime;
+  let activityAdmissionObserver: ((documentId: string) => void) | null = null;
   let direct!: Parameters<typeof Direct.installCollaborationDirectConnection>[0];
   let documentReader!: Reader;
   let unloadBarrier: { documentId: string; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
@@ -165,6 +171,11 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss') {
   const persistCalls: Array<{ documentId: string; fence: CollaborationRoomOwnerFence | undefined }> = [];
   let controlledPersist: PersistedCollaborationState | null = null;
   let persistFailure: Error | null = null;
+  let persistBarrier: {
+    documentId: string;
+    entered: ReturnType<typeof gate>;
+    release: ReturnType<typeof gate>;
+  } | null = null;
   const captureInstance = (value: Hocuspocus<TestContext>) => { instance = value; };
 
   const ownerSession: OwnerSession = {
@@ -236,6 +247,22 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss') {
     if (name === './room-owner') return { CollaborationRoomOwnerError };
     return createRequire(runtimeFilename)(name);
   }, { exports: roomOwnerRuntime }, roomOwnerRuntime);
+  const runtimeForServer = {
+    ...roomOwnerRuntime,
+    createCollaborationRoomOwnerRuntime: (
+      options: Parameters<typeof roomOwnerRuntime.createCollaborationRoomOwnerRuntime>[0],
+    ) => {
+      const runtime = roomOwnerRuntime.createCollaborationRoomOwnerRuntime(options);
+      const admitActivity = runtime.admitActivity.bind(runtime);
+      runtime.admitActivity = (documentId: string) => {
+        const activity = admitActivity(documentId);
+        activityAdmissionObserver?.(documentId);
+        return activity;
+      };
+      ownerRuntime = runtime;
+      return runtime;
+    },
+  };
   const compiled = ts.transpileModule(await fs.readFile(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   });
@@ -243,7 +270,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss') {
   new Function('require', 'module', 'exports', compiled.outputText)((name: string) => {
     if (name === '@hocuspocus/server') return { Hocuspocus: ObservedHocuspocus };
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
-    if (name.endsWith('/room-owner-runtime')) return roomOwnerRuntime;
+    if (name.endsWith('/room-owner-runtime')) return runtimeForServer;
     if (name.endsWith('/room-owner')) return { CollaborationRoomOwnerError };
     if (name.endsWith('/persistence')) return {
       CollaborationStateStaleError: class extends Error {},
@@ -260,6 +287,12 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss') {
         fence?: CollaborationRoomOwnerFence,
       ) => {
         persistCalls.push({ documentId, fence });
+        const barrier = persistBarrier;
+        if (barrier?.documentId === documentId) {
+          persistBarrier = null;
+          barrier.entered.resolve();
+          await barrier.release.promise;
+        }
         if (persistFailure) {
           const error = persistFailure;
           persistFailure = null;
@@ -493,6 +526,124 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss') {
   assert.equal(directApplied, true);
   assert.equal(persistCalls.at(-1)?.fence, docFence);
   console.log('PASS document reader, direct apply, and persistence use the exact active fence');
+
+  if (mode === 'direct-store-failure') {
+    const externalDirectMutationRelease = await RoomMutation.acquireCollaborationRoomMutationLock(doc);
+    const directActivityAdmitted = gate();
+    activityAdmissionObserver = (documentId) => {
+      if (documentId === 'doc') directActivityAdmitted.resolve();
+    };
+    let roomLockedDirectApplied = false;
+    const roomLockedDirect = direct({
+      documentId: 'doc', documentPath: 'doc.txt', documentRepresentation: 'plain_text',
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorType: 'user', actorId: 'user', actorDisplayName: 'User', initiatedByUserId: 'user',
+      operationId: 'direct-room-lock-activity-order',
+    }, (document) => {
+      roomLockedDirectApplied = true;
+      document.getText('content').insert(document.getText('content').length, 'L');
+    });
+    await bounded(directActivityAdmitted.promise, 'room-locked direct activity admission');
+    const roomLockedDirectDrain = ownerRuntime.beginActivityDrain('doc');
+    let roomLockedDirectIdle = false;
+    void roomLockedDirectDrain.idle.then(() => { roomLockedDirectIdle = true; });
+    await turn();
+    assert.equal(roomLockedDirectApplied, false,
+      'direct callback remains queued behind the externally held room mutex');
+    assert.equal(roomLockedDirectIdle, false,
+      'drain counts a direct call admitted before it waits for the room mutex');
+    externalDirectMutationRelease();
+    await bounded(roomLockedDirect, 'room-locked direct completion');
+    await bounded(roomLockedDirectDrain.idle, 'room-locked direct activity drain');
+    assert.equal(roomLockedDirectApplied, true);
+    assert.equal(ownerRuntime.fence(doc), docFence,
+      'draining a room-mutex waiter does not replace its owner proof');
+    roomLockedDirectDrain.finish();
+    activityAdmissionObserver = null;
+    console.log('PASS direct activity is admitted before the room mutex and drain waits for disconnect');
+
+    const onAppliedBarrier = { entered: gate(), release: gate() };
+    const directPersistBarrier = { documentId: 'doc', entered: gate(), release: gate() };
+    persistBarrier = directPersistBarrier;
+    let drainedDirectApplied = false;
+    const drainedDirect = direct({
+      documentId: 'doc', documentPath: 'doc.txt', documentRepresentation: 'plain_text',
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorType: 'user', actorId: 'user', actorDisplayName: 'User', initiatedByUserId: 'user',
+      operationId: 'direct-activity-drain',
+    }, (document) => {
+      drainedDirectApplied = true;
+      document.getText('content').insert(document.getText('content').length, 'A');
+    }, async () => {
+      onAppliedBarrier.entered.resolve();
+      await onAppliedBarrier.release.promise;
+    });
+    await bounded(onAppliedBarrier.entered.promise, 'direct activity before drain');
+    const directDrain = ownerRuntime.beginActivityDrain('doc');
+    let directIdle = false;
+    void directDrain.idle.then(() => { directIdle = true; });
+    await turn();
+    assert.equal(directIdle, false, 'drain cannot report idle while direct onApplied is in flight');
+    let secondDirectApplied = false;
+    await assert.rejects(direct({
+      documentId: 'doc', documentPath: 'doc.txt', documentRepresentation: 'plain_text',
+      documentLifecycleGeneration: 1, documentSchemaVersion: 1, requiresFileCheckpointIdentity: false,
+      workspace, actorType: 'user', actorId: 'user', actorDisplayName: 'User', initiatedByUserId: 'user',
+      operationId: 'direct-rejected-during-drain',
+    }, () => { secondDirectApplied = true; }),
+    (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.equal(secondDirectApplied, false, 'drain rejects a second direct call before transact');
+    assert.equal(ownerRuntime.canUnload(doc), false);
+    await assert.rejects(instance.hooks('beforeUnloadDocument', {
+      instance, documentName: 'doc', document: doc,
+    }));
+    await instance.unloadDocument(doc);
+    assert.equal(instance.documents.get('doc'), doc, 'ordinary unload is cancelled while activity drain is active');
+    onAppliedBarrier.release.resolve();
+    await bounded(directPersistBarrier.entered.promise, 'direct store during activity drain');
+    assert.equal(directIdle, false, 'drain stays non-idle through the direct final store');
+    directPersistBarrier.release.resolve();
+    await bounded(drainedDirect, 'drained direct disconnect');
+    await bounded(directDrain.idle, 'direct activity drain idle');
+    assert.equal(drainedDirectApplied, true);
+    assert.equal(ownerRuntime.fence(doc), docFence,
+      'activity quiescence alone does not release or replace the old owner fence');
+    assert.equal(released.includes(docFence), false,
+      'activity drain is not a false durable room-release proof');
+    directDrain.finish();
+    assert.equal(ownerRuntime.canUnload(doc), true);
+    console.log('PASS direct drain waits through onApplied, store, and disconnect without releasing ownership');
+
+    const externalMutationRelease = await RoomMutation.acquireCollaborationRoomMutationLock(doc);
+    const peerActivityAdmitted = gate();
+    activityAdmissionObserver = (documentId) => {
+      if (documentId === 'doc') peerActivityAdmitted.resolve();
+    };
+    const queuedPeer = socket(doc, 'activity-drain-peer');
+    queuedPeer.connection.handleMessage(updateFrame('doc', appendUpdate(doc, 'Q')));
+    await bounded(peerActivityAdmitted.promise, 'queued peer activity admission');
+    const peerDrain = ownerRuntime.beginActivityDrain('doc');
+    let peerIdle = false;
+    void peerDrain.idle.then(() => { peerIdle = true; });
+    await turn();
+    assert.equal(peerIdle, false, 'queued peer activity remains counted while waiting for the room mutex');
+    externalMutationRelease();
+    await bounded(peerDrain.idle, 'queued peer frame cleanup');
+    await bounded(queuedPeer.connection.waitForPendingMessages(), 'queued peer drain rejection');
+    assert.equal(doc.getText('content').toString().includes('Q'), false,
+      'peer admitted before drain is rejected after waiting for the room mutex');
+    const mutationProbeRelease = await bounded(
+      RoomMutation.acquireCollaborationRoomMutationLock(doc),
+      'room mutex after drained peer rejection',
+    );
+    mutationProbeRelease();
+    assert.equal(ownerRuntime.fence(doc), docFence,
+      'peer cleanup does not change the active owner proof');
+    peerDrain.finish();
+    activityAdmissionObserver = null;
+    queuedPeer.connection.close();
+    console.log('PASS peer queued before drain rejects after mutex wait and releases activity plus room mutex');
+  }
 
   await assert.rejects(
     instance.createDocument('load-failure', request, 'failed-loader', {

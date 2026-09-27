@@ -481,7 +481,7 @@
     "test:collaboration:room-owner": "tsx --conditions react-server scripts/collaboration-room-owner-session-test.ts && npm run test:collaboration:room-release && npm run test:collaboration:room-owner:runtime",
     "test:collaboration:room-release": "tsx --conditions react-server scripts/collaboration-room-release-test.ts",
     "test:collaboration:room-release:postgres": "tsx --conditions react-server scripts/collaboration-room-release-postgres-test.ts",
-    "test:collaboration:room-owner:runtime": "tsx --conditions react-server scripts/collaboration-room-owner-runtime-test.ts && tsx --conditions react-server scripts/collaboration-room-owner-server-test.ts",
+    "test:collaboration:room-owner:runtime": "tsx --conditions react-server scripts/collaboration-room-activity-gate-test.ts && tsx --conditions react-server scripts/collaboration-room-owner-runtime-test.ts && tsx --conditions react-server scripts/collaboration-room-owner-server-test.ts",
     "test:collaboration:room-owner:postgres": "tsx --conditions react-server scripts/collaboration-room-owner-postgres-test.ts",
     "test:collaboration:semantic-owner:postgres": "tsx --conditions react-server scripts/collaboration-semantic-owner-guard-test.ts",
     "test:collaboration:lifecycle-snapshot:postgres": "tsx --conditions react-server scripts/collaboration-lifecycle-snapshot-concurrency-test.ts",

@@ -5,6 +5,15 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Lokale Aktivitäten vollständig auslaufen lassen
+
+Ein separates, nicht ablaufendes Activity-Gate umfasst jetzt Direct-Aufträge
+bis nach ihrem finalen Disconnect sowie schreibende Sync-Frames, Live-Reader,
+Reconciliation und semantische Hintergrundprüfung. Es verhindert einen
+verfrühten Ruhezustand vor dem geplanten Room-Drain; noch kein Produktpfad
+startet diesen Übergang. Details und offene Aktivierungsgrenzen:
+[room-activity-results.md](room-activity-results.md).
+
 ## Ergänzung: Positiver Nachweis vor Raumfreigabe
 
 Die optionale Owner-Freigabe kann jetzt einen kausal geprüften Live-Snapshot

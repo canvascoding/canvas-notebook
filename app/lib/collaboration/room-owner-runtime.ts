@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { Doc } from 'yjs';
+import { createCollaborationRoomActivityGate } from './room-activity-gate';
 import {
   CollaborationRoomOwnerError,
   type CollaborationRoomOwnerFence,
@@ -37,6 +38,8 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
   }
   const rooms = new Map<string, OwnedRoom>();
   const instances = new WeakMap<Doc, OwnedRoom>();
+  const activities = createCollaborationRoomActivityGate();
+  const activityDrains = new Set<string>();
   let lost = false;
   let disposed = false;
   let session: OwnerSession | undefined;
@@ -47,6 +50,7 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
   const invalidate = () => {
     if (lost) return;
     lost = true;
+    activities.dispose();
     if (heartbeat) clearInterval(heartbeat);
     for (const room of rooms.values()) {
       if (room.document.isDestroyed) continue;
@@ -56,6 +60,26 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
   };
   const assertAvailable = () => {
     if (lost || disposed) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+  };
+  const admitActivity = (documentId: string) => {
+    assertAvailable();
+    try { return activities.admit(documentId); }
+    catch { throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'); }
+  };
+  const beginActivityDrain = (documentId: string) => {
+    assertAvailable();
+    const drain = activities.beginDrain(documentId);
+    activityDrains.add(documentId);
+    let finished = false;
+    return {
+      idle: drain.idle,
+      finish() {
+        if (finished) return;
+        drain.finish();
+        finished = true;
+        activityDrains.delete(documentId);
+      },
+    };
   };
   const closeSession = () => {
     invalidate();
@@ -175,10 +199,16 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
     return room.proof;
   };
   return {
-    claim, fence, release, assertAvailable,
+    claim, fence, release, assertAvailable, admitActivity,
+    // Quiescence only: the caller must still persist, prove release and retain
+    // its lifecycle reservation before reopening admission with finish().
+    beginActivityDrain,
     // Failed/lost stores must not be followed by Hocuspocus's unconditional
     // direct-disconnect unload. Retain unacknowledged data for recovery.
-    canUnload: (document: Doc) => !instances.has(document) || (!lost && !disposed),
+    canUnload: (document: Doc) => {
+      const room = instances.get(document);
+      return !room || (!lost && !disposed && !activityDrains.has(room.scope.documentId));
+    },
     waitForRelease: async (documentName: string) => { await rooms.get(documentName)?.releasing; },
     dispose: () => { disposed = true; return closeSession(); },
   };
