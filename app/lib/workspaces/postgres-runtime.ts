@@ -2303,10 +2303,18 @@ export async function removePostgresWorkspaceMemberForActor(
 }
 
 /** Recheck existing access without rerunning account/workspace bootstrap. */
+export async function readPostgresWorkspaceForActorOnConnection(
+  database: PostgresRuntimeDb,
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  return resolveWorkspaceContextById(database, actor, workspaceId);
+}
+
 export async function readPostgresWorkspaceForActor(actor: WorkspaceActor, workspaceId: string): Promise<WorkspaceContext | null> {
   const database = await openDb();
   try {
-    return await resolveWorkspaceContextById(database, actor, workspaceId);
+    return await readPostgresWorkspaceForActorOnConnection(database, actor, workspaceId);
   } finally {
     await database.close();
   }

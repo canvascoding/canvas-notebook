@@ -35,6 +35,9 @@ Die [Legacy-Operationszulassung](legacy-operation-admission-results.md) ergänzt
 eine kurze Admission-/State-Transaktion vor neuen Agentenoperationen sowie
 exakten lesenden Commit-Recovery. Graph-Writer und die weiteren Domainadapter
 werden dadurch nicht als umgestellt oder freigegeben ausgewiesen.
+Die [verbindungsgebundenen Leser](graph-scoped-read-results.md) bereiten die
+Graph-Anbindung ohne zusätzliche Pool-Leases unter Sperren vor; die dort
+beschriebene eigentliche Transaktions-/Admission-Anbindung bleibt offen.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue

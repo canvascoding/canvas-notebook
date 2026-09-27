@@ -14,6 +14,7 @@ import * as Direct from '../app/lib/collaboration/direct-connection';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
+import type { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Server from '../server/collaboration-server';
@@ -122,6 +123,8 @@ async function main() {
   let instance!: Hocuspocus;
   const captureInstance = (value: Hocuspocus) => { instance = value; };
   let direct!: Parameters<typeof Direct.installCollaborationDirectConnection>[0];
+  let documentReader!: Parameters<typeof installCollaborationDocumentReader>[0];
+  let ordinaryStateReads = 0;
   let directAcquireAttempt: ReturnType<typeof gate> | null = null;
   let syncBarrier: { entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let storeBarrier: { entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
@@ -175,7 +178,7 @@ async function main() {
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
     if (name.endsWith('/persistence')) return {
       CollaborationStateStaleError: class extends Error {}, CollaborationStateInactiveError: class extends Error {},
-      loadCollaborationState: async (documentId: string) => states.get(documentId) ?? null,
+      loadCollaborationState: async (documentId: string) => { ordinaryStateReads++; return states.get(documentId) ?? null; },
       persistCollaborationYDoc: async (documentId: string, generation: number, document: Y.Doc) => {
         const barrier = storeBarrier;
         if (barrier) {
@@ -204,7 +207,9 @@ async function main() {
     };
     if (name.endsWith('/direct-connection')) return { ...Direct,
       installCollaborationDirectConnection: (handler: typeof direct) => { direct = handler; } };
-    if (name.endsWith('/document-access')) return { installCollaborationDocumentReader() {} };
+    if (name.endsWith('/document-access')) return {
+      installCollaborationDocumentReader: (handler: typeof documentReader) => { documentReader = handler; },
+    };
     if (name.endsWith('/runtime-state')) return { installCollaborationRoomInspector() {},
       reserveCollaborationRoomAdmission: () => () => {},
       withCollaborationRoomLifecycleLock: async (_id: string, operation: () => Promise<unknown>) => operation() };
@@ -580,6 +585,25 @@ async function main() {
       && capture.actorUserId === 'user'), true,
     'ordinary direct-agent persistence keeps its existing author attribution');
     console.log('PASS preceding saveMutex store and direct disconnect reconcile without deadlock');
+
+    const readsBeforeScoped = ordinaryStateReads;
+    const scopedState = async (documentId: string) => { assert.equal(documentId, 'doc'); return states.get('doc')!; };
+    assert.equal(await documentReader('doc', workspace.workspaceId, (doc) => doc.getText('content').toString(), scopedState),
+      room.getText('content').toString(), 'scoped server reads retain the live room rather than a persisted substitute');
+    for (const invalid of [{ ...states.get('doc')!, documentId: 'other' },
+      { ...states.get('doc')!, workspaceId: 'other' }, { ...states.get('doc')!, status: 'archived' as const },
+      { ...states.get('doc')!, lifecycleGeneration: 2 }]) {
+      await assert.rejects(documentReader('doc', workspace.workspaceId, () => assert.fail('Invalid live scope exposed'),
+        async () => invalid));
+    }
+    const fallbackState = { ...states.get('other')!, documentId: 'reader-only', path: 'reader-only.txt' };
+    assert.equal(await documentReader('reader-only', workspace.workspaceId, (doc) => doc.getText('content').toString(),
+      async () => fallbackState), 'other:', 'a roomless read uses the supplied persisted snapshot, not another live room');
+    assert.equal(ordinaryStateReads, readsBeforeScoped, 'scoped server readers never borrow the default state connection');
+    assert.equal(await documentReader('doc', workspace.workspaceId, (doc) => doc.getText('content').toString()),
+      room.getText('content').toString());
+    assert.equal(ordinaryStateReads, readsBeforeScoped + 1, 'ordinary server reader preserves its default lookup');
+    console.log('PASS scoped server reads preserve live/fallback identity checks without another state connection');
   } finally {
     for (const release of cleanupReleases.reverse()) release();
     await bounded(Promise.allSettled([

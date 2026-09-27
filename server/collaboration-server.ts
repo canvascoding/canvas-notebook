@@ -1176,9 +1176,9 @@ export function createCollaborationServer(server: http.Server, options: {
     // until it is gone, or a new client can receive its previous representation.
     return room ? Math.max(1, room.getConnectionsCount()) : 0;
   });
-  installCollaborationDocumentReader((documentId, workspaceId, read) => withRoomActivity(documentId, async () => {
-    const state = await loadCollaborationState(documentId);
-    if (!state || state.status !== 'active' || state.workspaceId !== workspaceId) {
+  installCollaborationDocumentReader((documentId, workspaceId, read, loadState = loadCollaborationState) => withRoomActivity(documentId, async () => {
+    const state = await loadState(documentId);
+    if (!state || state.documentId !== documentId || state.status !== 'active' || state.workspaceId !== workspaceId) {
       throw new Error('Collaboration document is unavailable or stale.');
     }
     const activeDocument = hocuspocus.documents.get(documentId);

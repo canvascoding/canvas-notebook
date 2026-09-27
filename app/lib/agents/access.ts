@@ -144,6 +144,134 @@ async function assertSpecialAgent(database: SqlConnection, agentId: string): Pro
   }
 }
 
+type AgentAccessDatabase = Pick<SqlConnection, 'get' | 'all'>;
+
+async function getAgentAccessForNormalizedId(
+  database: AgentAccessDatabase,
+  userId: string,
+  agentId: string,
+  context: AgentAccessContext = {},
+): Promise<AgentAccess> {
+  const row = await database.get(
+    `
+      SELECT
+        a.access_policy, a.scope_type, a.organization_id, a.owner_user_id,
+        m.can_use, m.can_edit, m.can_manage
+      FROM agents a
+      LEFT JOIN agent_members m
+        ON m.agent_id = a.agent_id AND m.user_id = $1 AND m.status = 'active'
+      WHERE a.agent_id = $2
+      LIMIT 1
+    `,
+    [userId, agentId],
+  ) as {
+    access_policy: string;
+    scope_type: string;
+    organization_id: string | null;
+    owner_user_id: string | null;
+    can_use: unknown;
+    can_edit: unknown;
+    can_manage: unknown;
+  } | undefined;
+  if (!row) return NO_AGENT_ACCESS;
+  if (row.access_policy === 'legacy') return MAIN_AGENT_ACCESS;
+  if (row.scope_type === 'user' && row.owner_user_id === userId) return MAIN_AGENT_ACCESS;
+  const directAccess: AgentAccess = {
+    canUse: booleanFromDb(row.can_use),
+    canEdit: booleanFromDb(row.can_edit),
+    canManage: booleanFromDb(row.can_manage),
+  };
+  // Pre-scope agents have no owner and continue to use their legacy member grants.
+  if (row.scope_type === 'user') {
+    return row.owner_user_id ? NO_AGENT_ACCESS : directAccess;
+  }
+  if (row.scope_type !== 'organization' || !row.organization_id) return NO_AGENT_ACCESS;
+
+  const permission = await database.get(
+    `SELECT role, status FROM organization_user_permissions
+     WHERE organization_id = $1 AND user_id = $2 LIMIT 1`,
+    [row.organization_id, userId],
+  ) as { role?: string | null; status?: string | null } | undefined;
+  if (!permission || permission.status !== 'active') return NO_AGENT_ACCESS;
+  if (context.organizationId && context.organizationId !== row.organization_id) return NO_AGENT_ACCESS;
+
+  const grantRows = await database.all(
+    `SELECT target_type, target_id, can_use, can_edit, can_manage
+     FROM agent_grants
+     WHERE agent_id = $1 AND organization_id = $2`,
+    [agentId, row.organization_id],
+  ) as Array<{
+    target_type: string;
+    target_id: string;
+    can_use: unknown;
+    can_edit: unknown;
+    can_manage: unknown;
+  }>;
+  const isWorkspaceScoped = Boolean(context.workspaceId);
+  const [workspaceRows, projectRows] = await Promise.all([
+    isWorkspaceScoped ? Promise.resolve([]) : database.all(
+      `SELECT DISTINCT w.id
+       FROM canvas_workspaces w
+       LEFT JOIN canvas_workspace_members wm
+         ON wm.workspace_id = w.id AND wm.user_id = $1 AND wm.status = 'active'
+       LEFT JOIN canvas_project_members pm
+         ON pm.project_id = w.project_id AND pm.user_id = $2 AND pm.status = 'active'
+       WHERE w.organization_id = $3 AND w.status = 'active'
+         AND (w.type = 'organization' OR w.owner_user_id = $4 OR wm.user_id IS NOT NULL OR pm.user_id IS NOT NULL)`,
+      [userId, userId, row.organization_id, userId],
+    ),
+    isWorkspaceScoped ? Promise.resolve([]) : database.all(
+      `SELECT DISTINCT p.id
+       FROM canvas_projects p
+       LEFT JOIN canvas_project_members pm
+         ON pm.project_id = p.id AND pm.user_id = $1 AND pm.status = 'active'
+       WHERE p.organization_id = $2 AND p.status = 'active'
+         AND (p.created_by_user_id = $3 OR pm.user_id IS NOT NULL OR $4 IN ('owner', 'admin'))`,
+      [userId, row.organization_id, userId, permission.role || 'member'],
+    ),
+  ]) as [Array<{ id: string }>, Array<{ id: string }>];
+  const accessibleWorkspaceIds = new Set(workspaceRows.map((entry) => entry.id));
+  const accessibleProjectIds = new Set(projectRows.map((entry) => entry.id));
+  const matchedGrantAccess = grantRows
+    .filter((grant) => {
+      if (grant.target_type === 'organization') return grant.target_id === row.organization_id;
+      if (grant.target_type === 'role') return grant.target_id === permission.role;
+      if (grant.target_type === 'user') return grant.target_id === userId;
+      if (grant.target_type === 'workspace') {
+        return isWorkspaceScoped
+          ? grant.target_id === context.workspaceId
+          : accessibleWorkspaceIds.has(grant.target_id);
+      }
+      if (grant.target_type === 'project') {
+        if (isWorkspaceScoped) {
+          return Boolean(context.projectId && grant.target_id === context.projectId);
+        }
+        return context.projectId
+          ? grant.target_id === context.projectId && accessibleProjectIds.has(grant.target_id)
+          : accessibleProjectIds.has(grant.target_id);
+      }
+      return false;
+    })
+    .map((grant): AgentAccess => ({
+      canUse: booleanFromDb(grant.can_use),
+      canEdit: booleanFromDb(grant.can_edit),
+      canManage: booleanFromDb(grant.can_manage),
+    }));
+  return mergeAgentAccess(directAccess, ...matchedGrantAccess);
+}
+
+/** Read current access through the caller's existing connection without borrowing another pool lease. */
+export async function getAgentAccessOnConnection(
+  database: AgentAccessDatabase,
+  userId: string,
+  agentIdInput?: string | null,
+  context: AgentAccessContext = {},
+): Promise<AgentAccess> {
+  const agentId = normalizeManagedAgentId(agentIdInput);
+  if ((SYSTEM_MANAGED_AGENT_IDS as readonly string[]).includes(agentId)) return MAIN_AGENT_ACCESS;
+  return getAgentAccessForNormalizedId(database, userId, agentId, context);
+}
+
 export async function getAgentAccess(
   userId: string,
   agentIdInput?: string | null,
@@ -154,112 +282,7 @@ export async function getAgentAccess(
 
   const database = await openDb();
   try {
-    const row = await database.get(
-      `
-        SELECT
-          a.access_policy, a.scope_type, a.organization_id, a.owner_user_id,
-          m.can_use, m.can_edit, m.can_manage
-        FROM agents a
-        LEFT JOIN agent_members m
-          ON m.agent_id = a.agent_id AND m.user_id = $1 AND m.status = 'active'
-        WHERE a.agent_id = $2
-        LIMIT 1
-      `,
-      [userId, agentId],
-    ) as {
-      access_policy: string;
-      scope_type: string;
-      organization_id: string | null;
-      owner_user_id: string | null;
-      can_use: unknown;
-      can_edit: unknown;
-      can_manage: unknown;
-    } | undefined;
-    if (!row) return NO_AGENT_ACCESS;
-    if (row.access_policy === 'legacy') return MAIN_AGENT_ACCESS;
-    if (row.scope_type === 'user' && row.owner_user_id === userId) return MAIN_AGENT_ACCESS;
-    const directAccess: AgentAccess = {
-      canUse: booleanFromDb(row.can_use),
-      canEdit: booleanFromDb(row.can_edit),
-      canManage: booleanFromDb(row.can_manage),
-    };
-    // Pre-scope agents have no owner and continue to use their legacy member grants.
-    if (row.scope_type === 'user') {
-      return row.owner_user_id ? NO_AGENT_ACCESS : directAccess;
-    }
-    if (row.scope_type !== 'organization' || !row.organization_id) return NO_AGENT_ACCESS;
-
-    const permission = await database.get(
-      `SELECT role, status FROM organization_user_permissions
-       WHERE organization_id = $1 AND user_id = $2 LIMIT 1`,
-      [row.organization_id, userId],
-    ) as { role?: string | null; status?: string | null } | undefined;
-    if (!permission || permission.status !== 'active') return NO_AGENT_ACCESS;
-    if (context.organizationId && context.organizationId !== row.organization_id) return NO_AGENT_ACCESS;
-
-    const grantRows = await database.all(
-      `SELECT target_type, target_id, can_use, can_edit, can_manage
-       FROM agent_grants
-       WHERE agent_id = $1 AND organization_id = $2`,
-      [agentId, row.organization_id],
-    ) as Array<{
-      target_type: string;
-      target_id: string;
-      can_use: unknown;
-      can_edit: unknown;
-      can_manage: unknown;
-    }>;
-    const isWorkspaceScoped = Boolean(context.workspaceId);
-    const [workspaceRows, projectRows] = await Promise.all([
-      isWorkspaceScoped ? Promise.resolve([]) : database.all(
-        `SELECT DISTINCT w.id
-         FROM canvas_workspaces w
-         LEFT JOIN canvas_workspace_members wm
-           ON wm.workspace_id = w.id AND wm.user_id = $1 AND wm.status = 'active'
-         LEFT JOIN canvas_project_members pm
-           ON pm.project_id = w.project_id AND pm.user_id = $2 AND pm.status = 'active'
-         WHERE w.organization_id = $3 AND w.status = 'active'
-           AND (w.type = 'organization' OR w.owner_user_id = $4 OR wm.user_id IS NOT NULL OR pm.user_id IS NOT NULL)`,
-        [userId, userId, row.organization_id, userId],
-      ),
-      isWorkspaceScoped ? Promise.resolve([]) : database.all(
-        `SELECT DISTINCT p.id
-         FROM canvas_projects p
-         LEFT JOIN canvas_project_members pm
-           ON pm.project_id = p.id AND pm.user_id = $1 AND pm.status = 'active'
-         WHERE p.organization_id = $2 AND p.status = 'active'
-           AND (p.created_by_user_id = $3 OR pm.user_id IS NOT NULL OR $4 IN ('owner', 'admin'))`,
-        [userId, row.organization_id, userId, permission.role || 'member'],
-      ),
-    ]) as [Array<{ id: string }>, Array<{ id: string }>];
-    const accessibleWorkspaceIds = new Set(workspaceRows.map((entry) => entry.id));
-    const accessibleProjectIds = new Set(projectRows.map((entry) => entry.id));
-    const matchedGrantAccess = grantRows
-      .filter((grant) => {
-        if (grant.target_type === 'organization') return grant.target_id === row.organization_id;
-        if (grant.target_type === 'role') return grant.target_id === permission.role;
-        if (grant.target_type === 'user') return grant.target_id === userId;
-        if (grant.target_type === 'workspace') {
-          return isWorkspaceScoped
-            ? grant.target_id === context.workspaceId
-            : accessibleWorkspaceIds.has(grant.target_id);
-        }
-        if (grant.target_type === 'project') {
-          if (isWorkspaceScoped) {
-            return Boolean(context.projectId && grant.target_id === context.projectId);
-          }
-          return context.projectId
-            ? grant.target_id === context.projectId && accessibleProjectIds.has(grant.target_id)
-            : accessibleProjectIds.has(grant.target_id);
-        }
-        return false;
-      })
-      .map((grant): AgentAccess => ({
-        canUse: booleanFromDb(grant.can_use),
-        canEdit: booleanFromDb(grant.can_edit),
-        canManage: booleanFromDb(grant.can_manage),
-      }));
-    return mergeAgentAccess(directAccess, ...matchedGrantAccess);
+    return await getAgentAccessForNormalizedId(database, userId, agentId, context);
   } finally {
     await database.close();
   }
