@@ -30,6 +30,10 @@ import { Y } from './server-runtime';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutationRequest,
+  withCollaborationAdmissionMutation } from './room-admission-handoff';
+import { captureCollaborationCompactionRequest } from './compaction-contract';
+import { CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
 
 export interface PersistedCollaborationState {
   documentId: string;
@@ -871,6 +875,7 @@ async function recoverLifecycleMutation(input: {
 async function lockUnchangedLifecycleSnapshot(
   database: SqlConnection,
   expected: PersistedCollaborationState,
+  admissionAction?: 'compact',
 ): Promise<PersistedCollaborationState> {
   const row = await database.get(
     'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
@@ -881,9 +886,11 @@ async function lockUnchangedLifecycleSnapshot(
   }
   // Owner-era documents require cross-process drain authority, even after an
   // owner released its token. A process-local empty-room check is not proof.
-  // Keep this fail-closed until the lifecycle handoff protocol supplies that
-  // authority; never silently downgrade an owned document to the legacy path.
-  if (Number(row.room_owner_epoch) !== 0 || row.room_owner_token !== null
+  // Only the explicit transaction-bound entry may consume this authority. The
+  // existing public lifecycle methods remain epoch-zero-only, even in a handoff.
+  if (admissionAction) {
+    claimCollaborationAdmissionMutation(database, admissionAction, row);
+  } else if (Number(row.room_owner_epoch) !== 0 || row.room_owner_token !== null
     || row.room_owner_backend_pid !== null || row.room_owner_backend_start !== null) {
     throw new CollaborationRepresentationMigrationError('Collaboration room ownership must be drained before lifecycle mutation.', 'room_active');
   }
@@ -897,6 +904,101 @@ async function lockUnchangedLifecycleSnapshot(
     throw new CollaborationRepresentationMigrationError('Collaboration state changed while preparing lifecycle mutation.', 'state_changed');
   }
   return current;
+}
+
+/** One SQL rewrite shared by the legacy and guarded transaction owners. */
+async function writeCompactedCollaborationState(database: SqlConnection, input: {
+  state: PersistedCollaborationState;
+  update: Uint8Array;
+  vector: Uint8Array;
+  canonicalContent: string;
+  backupId: string;
+  now: number;
+  admissionAction?: 'compact';
+  assertAdmissionActive?: () => void;
+}): Promise<PersistedCollaborationState> {
+  input.assertAdmissionActive?.();
+  if (await pendingAgentOperationCount(database, input.state.documentId) > 0) {
+    throw new CollaborationRepresentationMigrationError(
+      'Collaboration state cannot be compacted while agent operations or reviews are pending.', 'agent_operation_pending');
+  }
+  input.assertAdmissionActive?.();
+  const lockedState = await lockUnchangedLifecycleSnapshot(database, input.state, input.admissionAction);
+  input.assertAdmissionActive?.();
+  const nextSequence = lockedState.documentSequence + 1;
+  if (!Number.isSafeInteger(nextSequence) || !Number.isSafeInteger(lockedState.lifecycleGeneration + 1)) {
+    throw new CollaborationRepresentationMigrationError('Collaboration counters cannot advance safely.', 'state_changed');
+  }
+  await writeStateBackup({ database, backupId: input.backupId, state: lockedState, reason: 'compaction', now: input.now });
+  input.assertAdmissionActive?.();
+  const row = await database.get(
+    `UPDATE collaboration_yjs_states
+     SET yjs_state = $1, state_vector = $2, lifecycle_generation = lifecycle_generation + 1,
+         document_sequence = $3, checkpoint_sequence = $4, persisted_at = $5, checkpointed_at = $6,
+         canonical_hash = $7, compacted_at = $8, compaction_count = compaction_count + 1
+     WHERE document_id = $9 AND status = 'active' AND lifecycle_generation = $10
+       AND document_sequence = $11
+       AND degraded = 0 AND checkpoint_sequence >= document_sequence
+     RETURNING *`,
+    [Buffer.from(input.update), Buffer.from(input.vector), nextSequence, nextSequence,
+      input.now, input.now, sha256Text(input.canonicalContent), input.now,
+      lockedState.documentId, lockedState.lifecycleGeneration, lockedState.documentSequence],
+  ) as StateRow | undefined;
+  input.assertAdmissionActive?.();
+  if (!row) throw new CollaborationRepresentationMigrationError('Collaboration state changed concurrently during compaction.', 'state_changed');
+  return mapState(row);
+}
+
+/** Called in handoff prepare, before admission/state locks; no transaction nesting. */
+export async function prepareCollaborationCompactionAdmission(
+  database: SqlConnection, input: CollaborationAdmissionRequest,
+): Promise<void> {
+  const { document } = captureCollaborationCompactionRequest(input);
+  await lockFileCollaborationPaths(database, document.workspaceId, [document.path]);
+  const operations = await database.all(
+    'SELECT status FROM collaboration_agent_operations WHERE document_id = $1 ORDER BY operation_id FOR UPDATE',
+    [document.documentId],
+  ) as Array<{ status: string }>;
+  if (operations.some((operation) => !(TERMINAL_AGENT_OPERATION_STATUSES as readonly string[]).includes(operation.status))) {
+    throw new CollaborationRepresentationMigrationError(
+      'Collaboration state cannot be compacted while agent operations or reviews are pending.', 'agent_operation_pending');
+  }
+}
+
+/** Requires the exact verified handoff connection; never opens or commits a transaction. */
+export async function compactCollaborationStateInAdmissionHandoff(database: SqlConnection, input: {
+  documentId: string;
+  expectedLifecycleGeneration: number;
+}): Promise<{ state: PersistedCollaborationState; backupId: string }> {
+  return withCollaborationAdmissionMutation(database, 'compact', async (assertAdmissionActive) => {
+    const { document } = captureCollaborationCompactionRequest(requireCollaborationAdmissionMutationRequest(database, 'compact'));
+    if (input.documentId !== document.documentId || input.expectedLifecycleGeneration !== document.lifecycleGeneration) {
+      throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+    }
+    const row = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
+      [document.documentId]) as StateRow | undefined;
+    assertAdmissionActive();
+    if (!row) throw new CollaborationRepresentationMigrationError('Collaboration state is unavailable.', 'lifecycle_stale');
+    const state = mapState(row);
+    if (state.status !== 'active' || state.lifecycleGeneration !== document.lifecycleGeneration) {
+      throw new CollaborationRepresentationMigrationError('Collaboration lifecycle changed before compaction.', 'lifecycle_stale');
+    }
+    if (state.degraded || state.checkpointSequence < state.documentSequence) {
+      throw new CollaborationRepresentationMigrationError('Compaction requires a healthy confirmed file checkpoint.', 'checkpoint_stale');
+    }
+    const canonicalContent = canonicalContentFromState(state);
+    const fresh = createValidatedFreshDocument(state.representation, canonicalContent);
+    const backupId = crypto.randomUUID();
+    try {
+      const compacted = await writeCompactedCollaborationState(database, {
+        state, canonicalContent, backupId, now: Date.now(), admissionAction: 'compact', assertAdmissionActive,
+        update: Y.encodeStateAsUpdate(fresh), vector: Y.encodeStateVector(fresh),
+      });
+      return { state: compacted, backupId };
+    } finally {
+      fresh.destroy();
+    }
+  });
 }
 
 /**
@@ -927,31 +1029,9 @@ async function compactCollaborationStateWhileLocked(input: {
   try {
     return await executeLifecycleTransaction({
       openConnection: openDb,
-      execute: async (database) => {
-        if (await pendingAgentOperationCount(database, state.documentId) > 0) {
-          throw new Error('Collaboration state cannot be compacted while agent operations or reviews are pending.');
-        }
-        const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
-        const nextSequence = lockedState.documentSequence + 1;
-        await writeStateBackup({ database, backupId, state: lockedState, reason: 'compaction', now });
-        const row = await database.get(
-          `UPDATE collaboration_yjs_states
-           SET yjs_state = $1, state_vector = $2, lifecycle_generation = lifecycle_generation + 1,
-               document_sequence = $3, checkpoint_sequence = $4, persisted_at = $5, checkpointed_at = $6,
-               canonical_hash = $7, compacted_at = $8, compaction_count = compaction_count + 1
-           WHERE document_id = $9 AND status = 'active' AND lifecycle_generation = $10
-             AND document_sequence = $11
-             AND degraded = 0 AND checkpoint_sequence >= document_sequence
-           RETURNING *`,
-          [
-            Buffer.from(update), Buffer.from(vector), nextSequence, nextSequence,
-            now, now, sha256Text(canonicalContent), now,
-            state.documentId, state.lifecycleGeneration, lockedState.documentSequence,
-          ],
-        ) as StateRow | undefined;
-        if (!row) throw new Error('Collaboration state changed concurrently during compaction.');
-        return mapState(row);
-      },
+      execute: (database) => writeCompactedCollaborationState(database, {
+        state, update, vector, canonicalContent, backupId, now,
+      }),
       recoverCommitted: (committed) => recoverLifecycleMutation({
         backupId, reason: 'compaction', predecessor: state, committed,
       }),

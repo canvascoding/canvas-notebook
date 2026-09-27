@@ -1631,6 +1631,7 @@
           "normalRoomUnloadEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/normal-room-unload-results.md",
           "admissionQuiescenceEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/admission-quiescence-results.md",
           "admissionHandoffEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/admission-handoff-results.md",
+          "admissionCompactionEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/admission-compaction-results.md",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",

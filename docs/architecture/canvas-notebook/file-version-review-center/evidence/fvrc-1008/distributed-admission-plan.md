@@ -1,11 +1,12 @@
 # Prozessübergreifende Lifecycle-Zulassung: nächster Umsetzungsschritt
 
 Stand: 27. September 2026. **DA-01 und DA-02 implementiert und separat geprüft;
-DA-03/04 in Arbeit, DA-05/06 noch offen.** Nachweise:
+DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
 [DA-01](distributed-admission-results.md), [DA-02](admission-drain-results.md),
 [DA-03: normaler Unload](normal-room-unload-results.md),
 [DA-03: Quiescence-Belege](admission-quiescence-results.md),
-[DA-03/04: SQL-Handoff](admission-handoff-results.md). Keine Runtime-Aktivierung.
+[DA-03/04: SQL-Handoff](admission-handoff-results.md),
+[DA-05: Kompaktierungsadapter](admission-compaction-results.md). Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
 
@@ -20,9 +21,10 @@ Room-Map oder `room_owner_token = NULL` ist keine dauerhafte Autorisierung.
 Vorhanden sind der gefencete Owner-Claim, der vollständige Release-Beleg und
 der lokale Drain. `reserveCollaborationRoomAdmission` ist dagegen lediglich
 ein prozesslokaler Beleg mit Timeout; es ist keine verteilte Reservation.
-Die bisherige Lifecycle-Prüfung in `lockUnchangedLifecycleSnapshot` verweigert
-Owner-Epochen größer null bewusst weiter. Diese Prüfung wird nicht gelockert,
-bevor die komplette Übergabe nachgewiesen ist.
+Die bisherigen öffentlichen Lifecycle-Einstiege verweigern Owner-Epochen größer
+null bewusst weiter. Nur der neue explizite Kompaktierungsadapter kann innerhalb
+einer vollständig geprüften Übergabe die transaktionsgebundene Berechtigung
+verbrauchen; normale Aufrufer bekommen dadurch keine zusätzlichen Schreibrechte.
 
 ## Verbindliche Invarianten
 
@@ -139,7 +141,8 @@ mit fehlendem Finish, neue Serviceinstanz und danach tatsächliche Weiterarbeit.
 
 Status: dedizierter SQL-Handoff, atomarer Outcome, ausführbarer Neustartauftrag
 und rein historischer lokaler Finish sind als eigener Protokollbaustein
-implementiert. Domain-Aufrufer und Gesamtaktivierung fehlen weiterhin;
+implementiert. Der erste SQL-Domainadapter ist separat ergänzt; seine äußere
+Coordinator-/Runtime-Anbindung und die Gesamtaktivierung fehlen weiterhin;
 [Umfang und Nachweise](admission-handoff-results.md).
 
 - Dedizierte PostgreSQL-Sitzung hält die betroffenen Owner-Advisory-Locks in
@@ -174,6 +177,14 @@ während Mutation, Commit-Antwortverlust sowie idempotenter Nachlauf ohne
 Doppelwirkung und ohne verlorene unabhängige Änderungen.
 
 ### DA-05 – Domain-Aufrufer einzeln umstellen
+
+Status: erster interner Adapter für die echte Kompaktierungsroutine umgesetzt.
+Er verarbeitet einen bereits reservierten und bewiesenen Auftrag mit frischer
+Autorisierung, Pfad-/Operationslocks, Backup und Lifecycle-Rewrite im atomaren
+Handoff. Die Kompaktierung hat derzeit keinen UI-/HTTP-Aufrufer; ein solcher
+wurde nicht eigens für den Test erfunden. Äußerer Reserve-/Drain-/Resume-Aufruf,
+Repräsentationswechsel und die übrigen Dateiaktionen bleiben offen. Details:
+[admission-compaction-results.md](admission-compaction-results.md).
 
 - Äußerste Eintrittspunkte für Rename/Move, Delete/Archive, Restore, Copy mit
   existierendem Ziel, Repräsentationswechsel und Kompaktierung auditieren.

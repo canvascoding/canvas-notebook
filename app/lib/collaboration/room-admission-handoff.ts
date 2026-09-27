@@ -2,7 +2,8 @@ import 'server-only';
 
 import type { SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
-import { captureCollaborationAdmissionScopeTargets } from './room-admission';
+import { captureCollaborationAdmissionScopeTargets, captureCollaborationAdmissionTargetRow,
+  type CollaborationAdmissionTarget } from './room-admission';
 import { captureCollaborationAdmissionRequest, CollaborationAdmissionError,
   type CollaborationAdmissionRequest } from './room-admission-contract';
 import { captureCollaborationAdmissionOutcomeResult, captureCollaborationAdmissionOutcomeSnapshot,
@@ -15,6 +16,61 @@ import { lockIdentity } from './room-owner';
 
 type Captured = ReturnType<typeof captureCollaborationAdmissionRequest>;
 type Row = Record<string, unknown>;
+
+// This authority cannot be manufactured by a caller or transferred to a wrapper
+// connection. It exists only while the verified handoff awaits its SQL mutation.
+const mutationAuthorities = new WeakMap<SqlConnection, {
+  request: CollaborationAdmissionRequest;
+  targets: readonly CollaborationAdmissionTarget[];
+  claimed: Set<string>;
+  active: boolean;
+  inFlight: number;
+}>();
+
+export function requireCollaborationAdmissionMutationRequest(
+  database: SqlConnection, action: CollaborationAdmissionRequest['action'],
+): CollaborationAdmissionRequest {
+  const authority = mutationAuthorities.get(database);
+  if (!authority?.active || authority.request.action !== action) {
+    throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  }
+  return authority.request;
+}
+
+/** Track the whole persistence call, including awaits before its single-use claim. */
+export async function withCollaborationAdmissionMutation<T>(
+  database: SqlConnection, action: CollaborationAdmissionRequest['action'],
+  operation: (assertActive: () => void) => Promise<T>,
+): Promise<T> {
+  requireCollaborationAdmissionMutationRequest(database, action);
+  const authority = mutationAuthorities.get(database)!;
+  const assertActive = () => {
+    if (!authority.active || mutationAuthorities.get(database) !== authority) {
+      throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+    }
+  };
+  authority.inFlight += 1;
+  try { return await operation(assertActive); }
+  finally { authority.inFlight -= 1; }
+}
+
+/** Single-use authority for the exact locked input, including deletion-only updates. */
+export function claimCollaborationAdmissionMutation(
+  database: SqlConnection, action: CollaborationAdmissionRequest['action'], row: Row,
+): void {
+  requireCollaborationAdmissionMutationRequest(database, action);
+  const authority = mutationAuthorities.get(database)!;
+  const target = authority.targets.find((candidate) => candidate.document.documentId === row.document_id);
+  if (!target || authority.claimed.has(target.document.documentId)) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  }
+  const current = captureCollaborationAdmissionTargetRow(row, target.document);
+  if (current.ownerToken !== null || current.ownerBackendPid !== null || current.ownerBackendStart !== null
+    || JSON.stringify(current) !== JSON.stringify(target)) {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  authority.claimed.add(target.document.documentId);
+}
 
 class UnconfirmedHandoffCommit extends Error {
   constructor(readonly outcome: CollaborationAdmissionOutcome, cause: unknown) {
@@ -152,7 +208,20 @@ export function createCollaborationAdmissionHandoffService(options: {
                 if (!inspected.alreadyProven) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
                 proofs.push(inspected.proof);
               }
-              const result = captureCollaborationAdmissionOutcomeResult(await domain.mutate(transaction, Object.freeze(proofs)));
+              let result: Readonly<Record<string, string>>;
+              if (mutationAuthorities.has(transaction)) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+              const authority = { request: captured.request, targets: before, claimed: new Set<string>(), active: true, inFlight: 0 };
+              mutationAuthorities.set(transaction, authority);
+              try {
+                result = captureCollaborationAdmissionOutcomeResult(await domain.mutate(transaction, Object.freeze(proofs)));
+              } finally {
+                authority.active = false;
+                mutationAuthorities.delete(transaction);
+              }
+              // Reject a caller which started persistence but returned without
+              // awaiting it. Its queued query precedes ROLLBACK on this session;
+              // revoked authority prevents every subsequent persistence query.
+              if (authority.inFlight !== 0) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
               const targets = [];
               for (const [index, proof] of proofs.entries()) {
                 const row = await transaction.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',

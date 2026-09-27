@@ -18,12 +18,15 @@ Epoch-0-Vacancy und die dauerhafte Zuordnung eines exakten normalen Release-
 Receipts sind nun separat ergänzt: [Belegvertrag](admission-quiescence-results.md).
 Der nächste Protokollbaustein bindet ausführbare Aktionsparameter, dedizierte
 Übergabe-Guards, atomare SQL-Outcomes und historischen lokalen Finish:
-[SQL-Handoff](admission-handoff-results.md). Noch kein Domain-Aufrufer ist
-umgestellt; die bisherigen Owner-Epoch-Schutzprüfungen bleiben bestehen.
+[SQL-Handoff](admission-handoff-results.md). Als erster interner Domainadapter
+ist nun die echte Kompaktierung angeschlossen:
+[Kompaktierungsübergabe](admission-compaction-results.md). Äußere Runtime-
+Aufrufer sind noch nicht umgestellt; deren Owner-Epoch-Schutz bleibt bestehen.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue
-Mechanik ist noch nicht aktiviert; keine Lifecycle-Schutzprüfung wird gelockert.
+Mechanik ist noch nicht aktiviert; nur der explizite interne Adapter darf eine
+geprüfte, kurzlebige Berechtigung seiner eigenen SQL-Transaktion nutzen.
 
 ## Ergänzung: Lokale Aktivitäten vollständig auslaufen lassen
 
