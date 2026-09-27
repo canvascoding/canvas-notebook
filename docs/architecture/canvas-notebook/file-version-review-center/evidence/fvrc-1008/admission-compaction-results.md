@@ -89,9 +89,10 @@ gegenüber `main` umfasst 300 Dateien / 30 betroffene Prozesse und bleibt
 
 ## Noch offen
 
-- Äußerer Coordinator für Reservation, Drain, Proof und fortsetzbare Domain-
-  Ausführung. Der Adapter selbst startet keinen Drain und ist nicht aktiviert.
-- Fachliche Vorprüfung vor der Reservation und äußere Coordinator-Anbindung.
+- Reguläre Runtime-Anbindung des nachfolgend ergänzten internen
+  [Coordinators](compaction-coordinator-results.md) für Vorprüfung, Reservation,
+  Drain, Proof und fortsetzbare Ausführung. Keine Runtime-Aktivierung.
+- Persistenter Nutzer-Abbruchwunsch während eines laufenden Drains.
   Der nachfolgende [belegte Abbruch](admission-abort-results.md) ergänzt inzwischen
   den expliziten No-write-Abschluss nach Quiescence, insbesondere bei offenen
   Reviews. Der ursprüngliche Cancel-Vertrag bleibt auf unberührte Reservationen

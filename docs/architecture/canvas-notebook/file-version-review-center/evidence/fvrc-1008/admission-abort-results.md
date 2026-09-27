@@ -105,10 +105,11 @@ Branch gegenüber `main` bleibt mit 300 Dateien und 30 betroffenen Prozessen
 
 ## Grenzen und nächste Pflichtschritte
 
-Der äußere Coordinator (Vorprüfung, Reservation, Drain, Proof, Resume und
-explizite Abbruchentscheidung) fehlt weiterhin. Ebenso fehlen die übrigen
-Domainadapter, vollständige App-Prozess-/Crash-Matrix und gemeinsame sichere
-Aktivierung sämtlicher Writer. Der neue Adapter hat keinen produktiven UI-/HTTP-
+Der nachfolgende [Kompaktierungscoordinator](compaction-coordinator-results.md)
+verbindet inzwischen Vorprüfung, Reservation, Drain, Proof, Resume und den
+belegten Abbruch bei nachträglich offenen Operationen. Reguläre Runtime-Aufrufer,
+die übrigen Domainadapter, vollständige App-Prozess-/Crash-Matrix und gemeinsame
+sichere Aktivierung sämtlicher Writer bleiben offen. Der Adapter hat keinen produktiven UI-/HTTP-
 Aufrufer; normale Review-Center-E2Es sind Regressionstests, kein Nachweis eines
 bereits aktivierten Abbruch-Workflows.
 

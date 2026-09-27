@@ -10,7 +10,9 @@ import * as Y from 'yjs';
 
 import type { SqlConnection } from '../app/lib/db';
 import { lockFileCollaborationPaths } from '../app/lib/files/collaboration-repository';
+import * as roomAdmissionRuntime from '../app/lib/collaboration/room-admission';
 import { createCollaborationAdmissionService } from '../app/lib/collaboration/room-admission';
+import * as roomAdmissionContractRuntime from '../app/lib/collaboration/room-admission-contract';
 import {
   collaborationAdmissionActionDigest,
   CollaborationAdmissionError,
@@ -19,12 +21,14 @@ import {
 } from '../app/lib/collaboration/room-admission-contract';
 import * as compactionContractModule from '../app/lib/collaboration/compaction-contract';
 import type { CollaborationAdmissionDrainTicket } from '../app/lib/collaboration/room-admission-drain';
+import * as quiescenceRuntime from '../app/lib/collaboration/room-admission-quiescence';
 import { createCollaborationAdmissionQuiescenceService } from '../app/lib/collaboration/room-admission-quiescence';
 import * as handoffRuntime from '../app/lib/collaboration/room-admission-handoff';
 import * as outcomeRuntime from '../app/lib/collaboration/room-admission-outcome';
 import {
   assertCollaborationRoomOwnerFence,
   createCollaborationRoomOwnerSession,
+  lockIdentity,
   type CollaborationRoomOwnerFence,
 } from '../app/lib/collaboration/room-owner';
 import {
@@ -82,6 +86,27 @@ type CompactionModule = {
       authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
     }): Promise<TestOutcome>;
   };
+};
+type CoordinatorProgress =
+  | Readonly<{ status: 'completed'; outcome: TestOutcome }>
+  | Readonly<{ status: 'pending'; requestId: string; requestDigest: string; phase: 'quiescence' | 'handoff' }>
+  | Readonly<{ status: 'cancelled'; requestId: string; requestDigest: string }>;
+type CoordinatorModule = {
+  createCollaborationCompactionCoordinator(options: {
+    openConnection: () => Promise<SqlConnection>;
+    withMutationLocks: <T>(workspaceIds: readonly string[], operation: () => Promise<T>) => Promise<T>;
+    assertCanStartAdmission: (request: CollaborationAdmissionRequest) => Promise<void>;
+  }): {
+    advance(input: CollaborationAdmissionRequest, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }): Promise<CoordinatorProgress>;
+    resume(requestId: string, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }): Promise<CoordinatorProgress>;
+  };
+};
+type CoordinatorHarnessHooks = {
+  afterReserveByRequestId: Map<string, () => Promise<void>>;
 };
 type ConnectionHooks = {
   connections?: number;
@@ -298,8 +323,8 @@ function createConnectionAdapter(pool: Pool, hookContext: AsyncLocalStorage<Conn
   };
 }
 
-async function loadProductionModules(openDb: () => Promise<SqlConnection>):
-Promise<{ persistence: PersistenceModule; compaction: CompactionModule }> {
+async function loadProductionModules(openDb: () => Promise<SqlConnection>, coordinatorHooks: CoordinatorHarnessHooks):
+Promise<{ persistence: PersistenceModule; compaction: CompactionModule; coordinator: CoordinatorModule }> {
   const persistenceFilename = path.resolve('app/lib/collaboration/persistence.ts');
   const runtimeRequire = createRequire(persistenceFilename);
   const mergeFilename = path.resolve('app/lib/collaboration/persistence-merge.ts');
@@ -386,8 +411,49 @@ Promise<{ persistence: PersistenceModule; compaction: CompactionModule }> {
     Object.prototype.hasOwnProperty.call(compactionMocks, name)
       ? compactionMocks[name] : createRequire(compactionFilename)(name),
   compactionCompiledModule, compactionCompiledModule.exports);
+
+  const coordinatorAdmissionRuntime = {
+    ...roomAdmissionRuntime,
+    createCollaborationAdmissionService(options:
+      Parameters<typeof roomAdmissionRuntime.createCollaborationAdmissionService>[0]) {
+      const service = roomAdmissionRuntime.createCollaborationAdmissionService(options);
+      return {
+        ...service,
+        async reserve(input: CollaborationAdmissionRequest) {
+          const reservation = await service.reserve(input);
+          const hook = coordinatorHooks.afterReserveByRequestId.get(input.requestId);
+          if (hook) {
+            coordinatorHooks.afterReserveByRequestId.delete(input.requestId);
+            await hook();
+          }
+          return reservation;
+        },
+      };
+    },
+  };
+  const coordinatorFilename = path.resolve('app/lib/collaboration/compaction-coordinator.ts');
+  const coordinatorSource = ts.transpileModule(await readFile(coordinatorFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const coordinatorMocks: Record<string, unknown> = {
+    'server-only': {},
+    './compaction-contract': compactionContractModule,
+    './compaction-handoff': compactionCompiledModule.exports,
+    './persistence': persistenceCompiledModule.exports,
+    './room-admission': coordinatorAdmissionRuntime,
+    './room-admission-contract': roomAdmissionContractRuntime,
+    './room-admission-handoff': handoffRuntime,
+    './room-admission-outcome': outcomeRuntime,
+    './room-admission-quiescence': quiescenceRuntime,
+  };
+  const coordinatorCompiledModule = { exports: {} as Record<string, unknown> };
+  new Function('require', 'module', 'exports', coordinatorSource)((name: string) =>
+    Object.prototype.hasOwnProperty.call(coordinatorMocks, name)
+      ? coordinatorMocks[name] : createRequire(coordinatorFilename)(name),
+  coordinatorCompiledModule, coordinatorCompiledModule.exports);
   return { persistence: persistenceCompiledModule.exports as PersistenceModule,
-    compaction: compactionCompiledModule.exports as CompactionModule };
+    compaction: compactionCompiledModule.exports as CompactionModule,
+    coordinator: coordinatorCompiledModule.exports as CoordinatorModule };
 }
 
 async function run(databaseUrl: URL): Promise<void> {
@@ -430,7 +496,8 @@ async function run(databaseUrl: URL): Promise<void> {
     assert.equal((await runtimePool.query<{ search_path: string }>('SHOW search_path')).rows[0]?.search_path, schema);
     const hookContext = new AsyncLocalStorage<ConnectionHooks>();
     const openConnection = createConnectionAdapter(runtimePool, hookContext);
-    const { persistence, compaction } = await loadProductionModules(openConnection);
+    const coordinatorHooks: CoordinatorHarnessHooks = { afterReserveByRequestId: new Map() };
+    const { persistence, compaction, coordinator } = await loadProductionModules(openConnection, coordinatorHooks);
     const admission = createCollaborationAdmissionService({ openConnection });
     const quiescence = createCollaborationAdmissionQuiescenceService({ openConnection });
     const compactionService = compaction.createCollaborationCompactionHandoffService({
@@ -440,6 +507,25 @@ async function run(databaseUrl: URL): Promise<void> {
         return operation();
       },
     });
+    const createCoordinator = (assertCanStartAdmission:
+      (request: CollaborationAdmissionRequest) => Promise<void> = async () => undefined) => {
+      const metrics = { activeLocks: 0, lockCalls: 0, startChecks: 0 };
+      const service = coordinator.createCollaborationCompactionCoordinator({
+        openConnection,
+        assertCanStartAdmission: async (request) => {
+          metrics.startChecks += 1;
+          await assertCanStartAdmission(request);
+        },
+        withMutationLocks: async (workspaceIds, operation) => {
+          assert.deepEqual(workspaceIds, ['workspace-compaction']);
+          metrics.lockCalls += 1;
+          metrics.activeLocks += 1;
+          try { return await operation(); }
+          finally { metrics.activeLocks -= 1; }
+        },
+      });
+      return { service, metrics };
+    };
     const createOwner = async (label: string) => {
       const client = new Client({ ...poolConfig(databaseUrl, `canvas-admission-compaction-owner-${label}`, schema) });
       await client.connect();
@@ -525,6 +611,10 @@ async function run(databaseUrl: URL): Promise<void> {
       status: string; active: boolean;
     }>(`SELECT status,active FROM ${schemaSql}.collaboration_admission_targets WHERE request_id=$1`,
     [requestId])).rows[0];
+    const readAdmissionProofKind = async (requestId: string) => (await controlPool.query<{
+      quiescence_kind: string | null;
+    }>(`SELECT quiescence_kind FROM ${schemaSql}.collaboration_admission_targets WHERE request_id=$1`,
+    [requestId])).rows[0]?.quiescence_kind ?? null;
 
     // The real production core is inaccessible without the exact WeakMap-bound handoff transaction.
     const raw = await openConnection();
@@ -990,13 +1080,207 @@ async function run(databaseUrl: URL): Promise<void> {
     assert.equal(textFromUpdate((await readState(lostDocument.documentId)).yjs_state), 'lost commit durable content');
     assert.equal((await readBackups(lostDocument.documentId)).length, 0);
 
+    // A new, vacant request advances through preflight, reservation, proof, and the real v1 compaction.
+    const coordinatorVacantDocument = expectedDocument('admission-compaction-coordinator-vacant');
+    await seed(coordinatorVacantDocument, 'coordinator vacant content');
+    const coordinatorVacantRequest = compactionRequest(coordinatorVacantDocument);
+    const coordinatorVacant = createCoordinator();
+    const coordinatorVacantProgress = await coordinatorVacant.service.advance(coordinatorVacantRequest,
+      { authorize: async () => undefined });
+    assert.equal(coordinatorVacantProgress.status, 'completed');
+    if (coordinatorVacantProgress.status !== 'completed') assert.fail('vacant coordinator did not complete');
+    assert.equal(coordinatorVacantProgress.outcome.version, 1);
+    assert.equal(coordinatorVacantProgress.outcome.result.lifecycleGeneration, '2');
+    assert.equal(coordinatorVacant.metrics.startChecks, 2,
+      'new admission gate is checked before preflight and again immediately before reserve');
+    assert.equal(coordinatorVacant.metrics.activeLocks, 0);
+    assert.equal((await readBackups(coordinatorVacantDocument.documentId)).length, 1);
+
+    // Historical v1 completion bypasses a disabled new-admission gate and all mutation locks.
+    const disabledGate = new Error('Injected coordinator admission gate denial.');
+    const coordinatorAppliedRetry = createCoordinator(async () => { throw disabledGate; });
+    const coordinatorAppliedProgress = await coordinatorAppliedRetry.service.advance(coordinatorVacantRequest,
+      { authorize: async () => undefined });
+    assert.deepEqual(coordinatorAppliedProgress, coordinatorVacantProgress);
+    assert.equal(coordinatorAppliedRetry.metrics.startChecks, 0);
+    assert.equal(coordinatorAppliedRetry.metrics.lockCalls, 0);
+
+    // A live owner produces a durable drain ticket and a lock-free pending result; a fresh coordinator resumes it.
+    const coordinatorOwnerDocument = expectedDocument('admission-compaction-coordinator-owner');
+    await seed(coordinatorOwnerDocument, 'coordinator live owner');
+    const coordinatorOwner = await createOwner('coordinator-live');
+    const coordinatorOwnerFence = await coordinatorOwner.acquire({ ...coordinatorOwnerDocument });
+    const coordinatorOwnerRequest = compactionRequest(coordinatorOwnerDocument);
+    const coordinatorOwnerFirst = createCoordinator();
+    const coordinatorOwnerPending = await coordinatorOwnerFirst.service.advance(coordinatorOwnerRequest,
+      { authorize: async () => undefined });
+    assert.equal(coordinatorOwnerPending.status, 'pending');
+    if (coordinatorOwnerPending.status !== 'pending') assert.fail('owned coordinator request did not remain pending');
+    assert.equal(coordinatorOwnerPending.phase, 'quiescence');
+    assert.equal(coordinatorOwnerFirst.metrics.activeLocks, 0,
+      'pending quiescence owns no workspace mutation lock');
+    const [coordinatorOwnerTicket] = await admission.pendingDrains([coordinatorOwnerFence]);
+    assert.ok(coordinatorOwnerTicket);
+    await saveAndRelease(coordinatorOwner, coordinatorOwnerFence, 'coordinator owner released', coordinatorOwnerTicket);
+    const coordinatorOwnerResume = createCoordinator(async () => { throw disabledGate; });
+    const coordinatorOwnerCompleted = await coordinatorOwnerResume.service.resume(coordinatorOwnerRequest.requestId,
+      { authorize: async () => undefined });
+    assert.equal(coordinatorOwnerCompleted.status, 'completed');
+    if (coordinatorOwnerCompleted.status !== 'completed') assert.fail('resumed owner drain did not complete');
+    assert.equal(coordinatorOwnerCompleted.outcome.version, 1);
+    assert.equal(coordinatorOwnerCompleted.outcome.result.lifecycleGeneration, '2');
+    assert.equal(coordinatorOwnerResume.metrics.startChecks, 0,
+      'resuming a durable reservation bypasses the new-admission gate');
+    assert.equal(coordinatorOwnerResume.metrics.activeLocks, 0);
+
+    // Normal unload after reservation but before proof is consumed as normal_release, without a false drain dispatch.
+    const normalRaceDocument = expectedDocument('admission-compaction-coordinator-normal-race');
+    await seed(normalRaceDocument, 'normal release race owner');
+    const normalRaceOwner = await createOwner('coordinator-normal-race');
+    const normalRaceFence = await normalRaceOwner.acquire({ ...normalRaceDocument });
+    const normalRaceRequest = compactionRequest(normalRaceDocument);
+    coordinatorHooks.afterReserveByRequestId.set(normalRaceRequest.requestId, async () => {
+      await saveAndRelease(normalRaceOwner, normalRaceFence, 'normal release wins race');
+    });
+    const normalRaceCoordinator = createCoordinator();
+    const normalRaceProgress = await normalRaceCoordinator.service.advance(normalRaceRequest,
+      { authorize: async () => undefined });
+    assert.equal(normalRaceProgress.status, 'completed');
+    assert.equal(await readAdmissionProofKind(normalRaceRequest.requestId), 'normal_release');
+    assert.deepEqual(await admission.pendingDrains([normalRaceFence]), [],
+      'normal release proof must not create an owner-drain ticket');
+
+    // A tokenless reservation seeing a held room guard waits without inventing a drain ticket.
+    const tokenlessDocument = expectedDocument('admission-compaction-coordinator-tokenless-guard');
+    await seed(tokenlessDocument, 'tokenless guard content');
+    const tokenlessRequest = compactionRequest(tokenlessDocument);
+    const tokenlessGuard = new Client({ ...poolConfig(databaseUrl, 'canvas-admission-compaction-tokenless-guard', schema) });
+    await tokenlessGuard.connect();
+    try {
+      coordinatorHooks.afterReserveByRequestId.set(tokenlessRequest.requestId, async () => {
+        await tokenlessGuard.query('SELECT pg_advisory_lock($1::bigint)', [lockIdentity(tokenlessDocument.documentId).key]);
+      });
+      const tokenlessCoordinator = createCoordinator();
+      const tokenlessProgress = await tokenlessCoordinator.service.advance(tokenlessRequest,
+        { authorize: async () => undefined });
+      assert.equal(tokenlessProgress.status, 'pending');
+      if (tokenlessProgress.status !== 'pending') assert.fail('tokenless guarded request did not remain pending');
+      assert.equal(tokenlessProgress.phase, 'quiescence');
+      assert.equal(tokenlessCoordinator.metrics.activeLocks, 0);
+      assert.deepEqual(await readAdmissionTarget(tokenlessRequest.requestId), { status: 'reserved', active: true });
+    } finally {
+      await tokenlessGuard.query('SELECT pg_advisory_unlock($1::bigint)',
+        [lockIdentity(tokenlessDocument.documentId).key]).catch(() => undefined);
+      await tokenlessGuard.end();
+    }
+
+    // A vanished owner without a release receipt remains fail-closed on resume.
+    const staleOwnerDocument = expectedDocument('admission-compaction-coordinator-stale-owner');
+    await seed(staleOwnerDocument, 'stale owner content');
+    const staleOwner = await createOwner('coordinator-stale');
+    const staleOwnerFence = await staleOwner.acquire({ ...staleOwnerDocument });
+    const staleOwnerRequest = compactionRequest(staleOwnerDocument);
+    const staleOwnerCoordinator = createCoordinator();
+    const staleOwnerPending = await staleOwnerCoordinator.service.advance(staleOwnerRequest,
+      { authorize: async () => undefined });
+    assert.equal(staleOwnerPending.status, 'pending');
+    assert.equal((await admission.pendingDrains([staleOwnerFence])).length, 1);
+    await staleOwner.close();
+    const staleOwnerResume = createCoordinator(async () => { throw disabledGate; });
+    await assert.rejects(staleOwnerResume.service.resume(staleOwnerRequest.requestId,
+      { authorize: async () => undefined }), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.deepEqual(await readAdmissionTarget(staleOwnerRequest.requestId), { status: 'draining', active: true });
+    assert.equal((await readBackups(staleOwnerDocument.documentId)).length, 0);
+
+    // Pending operations detected by the read-only preflight create no reservation.
+    const preflightPendingDocument = expectedDocument('admission-compaction-coordinator-preflight-pending');
+    await seed(preflightPendingDocument, 'preflight pending content');
+    await insertPendingOperation(preflightPendingDocument);
+    const preflightPendingRequest = compactionRequest(preflightPendingDocument);
+    const preflightPendingCoordinator = createCoordinator();
+    await assert.rejects(preflightPendingCoordinator.service.advance(preflightPendingRequest,
+      { authorize: async () => undefined }), persistenceError(persistence, 'agent_operation_pending'));
+    assert.equal(await admission.read(preflightPendingRequest), null);
+    assert.equal(preflightPendingCoordinator.metrics.activeLocks, 0);
+    assert.equal((await readBackups(preflightPendingDocument.documentId)).length, 0);
+
+    // A review appearing after reserve is proven first, then converted to an explicit precondition_failed v2 outcome.
+    const latePendingDocument = expectedDocument('admission-compaction-coordinator-late-pending');
+    await seed(latePendingDocument, 'late pending content');
+    const latePendingRequest = compactionRequest(latePendingDocument);
+    coordinatorHooks.afterReserveByRequestId.set(latePendingRequest.requestId,
+      async () => insertPendingOperation(latePendingDocument));
+    const latePendingCoordinator = createCoordinator();
+    const latePendingProgress = await latePendingCoordinator.service.advance(latePendingRequest,
+      { authorize: async () => undefined });
+    assert.equal(latePendingProgress.status, 'completed');
+    if (latePendingProgress.status !== 'completed') assert.fail('late pending request did not terminate');
+    assert.equal(latePendingProgress.outcome.version, 2);
+    assert.equal(latePendingProgress.outcome.reasonCode, 'precondition_failed');
+    assert.equal(await readOperationStatus(latePendingDocument.documentId), 'preparing');
+    assert.equal(Number((await readState(latePendingDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(latePendingDocument.documentId)).length, 0);
+
+    // Historical v2 completion also bypasses a disabled gate and cannot re-enter mutation locks.
+    const coordinatorAbortedRetry = createCoordinator(async () => { throw disabledGate; });
+    const coordinatorAbortedProgress = await coordinatorAbortedRetry.service.resume(latePendingRequest.requestId,
+      { authorize: async () => undefined });
+    assert.deepEqual(coordinatorAbortedProgress, latePendingProgress);
+    assert.equal(coordinatorAbortedRetry.metrics.startChecks, 0);
+    assert.equal(coordinatorAbortedRetry.metrics.lockCalls, 0);
+
+    // Rights revoked during a durable owner drain stop resume before handoff mutation.
+    const rightsDocument = expectedDocument('admission-compaction-coordinator-rights');
+    await seed(rightsDocument, 'rights before drain');
+    const rightsOwner = await createOwner('coordinator-rights');
+    const rightsFence = await rightsOwner.acquire({ ...rightsDocument });
+    const rightsRequest = compactionRequest(rightsDocument);
+    const rightsFirst = createCoordinator();
+    const rightsPending = await rightsFirst.service.advance(rightsRequest, { authorize: async () => undefined });
+    assert.equal(rightsPending.status, 'pending');
+    const [rightsTicket] = await admission.pendingDrains([rightsFence]);
+    assert.ok(rightsTicket);
+    await saveAndRelease(rightsOwner, rightsFence, 'rights durable release', rightsTicket);
+    const rightsDenied = new Error('Injected revoked coordinator rights.');
+    const rightsResume = createCoordinator(async () => { throw disabledGate; });
+    await assert.rejects(rightsResume.service.resume(rightsRequest.requestId,
+      { authorize: async () => { throw rightsDenied; } }), (error: unknown) => error === rightsDenied);
+    assert.equal(rightsResume.metrics.startChecks, 0);
+    assert.equal(rightsResume.metrics.lockCalls, 0);
+    assert.equal(Number((await readState(rightsDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(rightsDocument.documentId)).length, 0);
+    const rightsRestored = createCoordinator(async () => { throw disabledGate; });
+    const rightsCompleted = await rightsRestored.service.resume(rightsRequest.requestId,
+      { authorize: async () => undefined });
+    assert.equal(rightsCompleted.status, 'completed');
+    if (rightsCompleted.status !== 'completed') assert.fail('re-authorized coordinator resume did not complete');
+    assert.equal(rightsCompleted.outcome.version, 1);
+    assert.equal(rightsCompleted.outcome.result.lifecycleGeneration, '2');
+    assert.equal(rightsRestored.metrics.startChecks, 0);
+    assert.equal((await readBackups(rightsDocument.documentId)).length, 1);
+
+    // A durable cancellation is returned historically without reopening admission or mutation authority.
+    const cancelledDocument = expectedDocument('admission-compaction-coordinator-cancelled');
+    await seed(cancelledDocument, 'cancelled coordinator content');
+    const cancelledRequest = compactionRequest(cancelledDocument);
+    const cancelledReservation = await admission.reserve(cancelledRequest);
+    const cancelled = await admission.cancel(cancelledRequest, cancelledReservation.revision);
+    assert.equal(cancelled.status, 'cancelled');
+    const cancelledCoordinator = createCoordinator(async () => { throw disabledGate; });
+    const cancelledProgress = await cancelledCoordinator.service.resume(cancelledRequest.requestId,
+      { authorize: async () => undefined });
+    assert.equal(cancelledProgress.status, 'cancelled');
+    assert.equal(cancelledCoordinator.metrics.startChecks, 0);
+    assert.equal(cancelledCoordinator.metrics.lockCalls, 0);
+
     assert.equal(poolErrors.length, 0, 'admission-compaction pools must not emit background errors');
-    console.log('Collaboration admission compaction PostgreSQL: 26 bounded boundaries passed—exact handoff authority, '
+    console.log('Collaboration admission compaction PostgreSQL: 35 bounded boundaries passed—exact handoff authority, '
       + 'delegation/escape/double-claim rejection, pre- and post-claim floating-promise revocation, deletion-only drift, '
       + 'abort-without-mutation-authority, real owner-era backup/compaction, immutable capture and v1 terminal retry, '
       + 'legacy owner fencing, abort proof/precondition/drift/two-phase-rights guards, pending-operation retry plus v2 abort '
       + 'and fresh-request compaction, owner-drain abort/local-finish recovery, separate rejected v1/v2 COMMIT retries, '
-      + 'and separate lost v1/v2 COMMIT recovery after replacement claims—'
+      + 'separate lost v1/v2 COMMIT recovery after replacement claims, and bounded coordinator vacant/owner/race/tokenless/'
+      + 'stale/preflight/late-review/rights/terminal recovery—'
       + 'in one isolated generated schema.');
   } finally {
     for (const session of ownerSessions) {

@@ -7,7 +7,9 @@ DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
 [DA-03: Quiescence-Belege](admission-quiescence-results.md),
 [DA-03/04: SQL-Handoff](admission-handoff-results.md),
 [DA-05: Kompaktierungsadapter](admission-compaction-results.md),
-[DA-04/05: belegter Abbruch](admission-abort-results.md). Keine Runtime-Aktivierung.
+[DA-04/05: belegter Abbruch](admission-abort-results.md),
+[DA-03/04/05: Kompaktierungssteuerung](compaction-coordinator-results.md).
+Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
 
@@ -110,8 +112,10 @@ Startup, bereits laufendes normales Unload, Drain-Fehler und erfolgreicher Retry
 Status: normaler Unload und lesender Receipt-Retry umgesetzt.
 Expliziter Epoch-0-Vacant-Proof und dauerhafte Zuordnung exakter normaler
 Release-Receipts sind als getrennte Mechanik ergänzt. Vollständiger
-Crash-Wiederanlauf und tatsächliche Coordinator-/Domain-Fortsetzung bleiben
-offen; [Unload-Nachweise](normal-room-unload-results.md) und
+Crash-Wiederanlauf und reguläre Runtime-Fortsetzung bleiben offen. Der erste
+interne Coordinator kann Kompaktierung anhand der gespeicherten Request-ID
+fortsetzen; [Coordinator-Nachweise](compaction-coordinator-results.md),
+[Unload-Nachweise](normal-room-unload-results.md) und
 [Belegvertrag](admission-quiescence-results.md).
 
 - Bereits vor dem Request normal entladene Räume haben bisher keinen terminalen
@@ -186,15 +190,18 @@ Status: erster interner Adapter für die echte Kompaktierungsroutine umgesetzt.
 Er verarbeitet einen bereits reservierten und bewiesenen Auftrag mit frischer
 Autorisierung, Pfad-/Operationslocks, Backup und Lifecycle-Rewrite im atomaren
 Handoff. Die Kompaktierung hat derzeit keinen UI-/HTTP-Aufrufer; ein solcher
-wurde nicht eigens für den Test erfunden. Äußerer Reserve-/Drain-/Resume-Aufruf,
-Repräsentationswechsel und die übrigen Dateiaktionen bleiben offen. Details:
+wurde nicht eigens für den Test erfunden. Der äußere Reserve-/Drain-/Resume-
+Ablauf ist inzwischen als interner [Coordinator](compaction-coordinator-results.md)
+ergänzt; reguläre Aufrufer, Repräsentationswechsel und übrige Dateiaktionen
+bleiben offen. Details:
 [admission-compaction-results.md](admission-compaction-results.md).
 Der Adapter kann bei expliziter Nutzerentscheidung oder unter Sperren bestätigten
 offenen Agentenoperationen ohne Mutation abschließen. Der neue v2-Abbruchbeleg
 bleibt von angewandten v1-Ergebnissen unterscheidbar; alte Request-IDs führen
 danach keine Kompaktierung mehr aus. Ein neuer Versuch braucht einen neuen
-Auftrag. Fachliche Vorprüfung vor Reservation und der äußere Coordinator bleiben
-offen; [Abbruchvertrag](admission-abort-results.md).
+Auftrag. Fachliche Vorprüfung vor Reservation und begrenzte Wiederaufnahme
+sind im Kompaktierungscoordinator verbunden. Ein dauerhafter Nutzer-Cancel-
+Intent nach Drain-Beginn bleibt offen; [Abbruchvertrag](admission-abort-results.md).
 
 - Äußerste Eintrittspunkte für Rename/Move, Delete/Archive, Restore, Copy mit
   existierendem Ziel, Repräsentationswechsel und Kompaktierung auditieren.

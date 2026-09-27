@@ -25,6 +25,9 @@ Aufrufer sind noch nicht umgestellt; deren Owner-Epoch-Schutz bleibt bestehen.
 Der [explizite belegte Abbruch](admission-abort-results.md) ergänzt einen
 terminalen No-write-Pfad nach Quiescence. Er hebt die Reservation erst mit
 atomarem Ergebnisbeleg auf; ein Fehler oder Timeout allein tut dies nicht.
+Der [Kompaktierungscoordinator](compaction-coordinator-results.md) verbindet nun
+Vorprüfung, Reservation, Owner-Drain und Quiescence mit Handoff und Wiederaufnahme
+derselben gespeicherten Request-ID. Seine reguläre Runtime-Anbindung bleibt offen.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue
