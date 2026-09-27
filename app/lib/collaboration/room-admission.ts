@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
 import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import { collaborationRoomReleaseDigest } from './room-owner-release';
 import {
   admissionDrainTicketForTarget,
   captureCollaborationAdmissionDrainTicket,
@@ -31,6 +32,9 @@ export type CollaborationAdmissionTarget = Readonly<{
   ownerBackendPid: number | null;
   ownerBackendStart: string | null;
   documentSequence: number;
+  /** Older reservations lack these fields and cannot prove quiescence. */
+  persistedUpdateHash?: string;
+  persistedVectorHash?: string;
 }>;
 export type CollaborationAdmissionResult = Readonly<{
   requestId: string;
@@ -61,6 +65,10 @@ export async function assertCollaborationAdmissionOpen(query: Query,
 }
 
 function safeNumber(value: unknown, minimum: number): number {
+  if ((typeof value !== 'number' && typeof value !== 'string')
+    || (typeof value === 'string' && !/^(?:0|[1-9][0-9]*)$/u.test(value))) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  }
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < minimum) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
   return number;
@@ -82,9 +90,52 @@ function captureTarget(row: Record<string, unknown>, expected: CollaborationAdmi
   if (token === null ? pid !== null || started !== null
     : ownerEpoch === 0 || typeof token !== 'string' || !token || !Number.isSafeInteger(pid) || Number(pid) < 1
       || typeof started !== 'string' || !started) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  if (!(row.yjs_state instanceof Uint8Array) || !(row.state_vector instanceof Uint8Array)) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  }
   return Object.freeze({ document, ownerEpoch, ownerToken: token as string | null,
     ownerBackendPid: pid as number | null, ownerBackendStart: started as string | null,
-    documentSequence: safeNumber(row.document_sequence, 0) });
+    documentSequence: safeNumber(row.document_sequence, 0),
+    persistedUpdateHash: collaborationRoomReleaseDigest('update', row.yjs_state),
+    persistedVectorHash: collaborationRoomReleaseDigest('vector', row.state_vector) });
+}
+
+export { captureTarget as captureCollaborationAdmissionTargetRow };
+
+/** Strict v1 snapshot decoding for quiescence; legacy snapshots fail closed. */
+export function decodeCollaborationAdmissionTarget(text: string,
+  expected: CollaborationAdmissionDocument): CollaborationAdmissionTarget {
+  let target: CollaborationAdmissionTarget;
+  try { target = JSON.parse(text) as CollaborationAdmissionTarget; }
+  catch { throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED'); }
+  if (!target?.document || Object.keys(expected).some((key) =>
+    target.document[key as keyof CollaborationAdmissionDocument] !== expected[key as keyof CollaborationAdmissionDocument])
+    || !Number.isSafeInteger(target.ownerEpoch) || target.ownerEpoch < 0
+    || !Number.isSafeInteger(target.documentSequence) || target.documentSequence < 0
+    || typeof target.persistedUpdateHash !== 'string' || !/^[0-9a-f]{64}$/u.test(target.persistedUpdateHash)
+    || typeof target.persistedVectorHash !== 'string' || !/^[0-9a-f]{64}$/u.test(target.persistedVectorHash)) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  }
+  if (target.ownerToken === null) {
+    if (target.ownerBackendPid !== null || target.ownerBackendStart !== null) {
+      throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+    }
+  } else {
+    try {
+      captureCollaborationAdmissionOwnerFence({ scope: target.document, epoch: target.ownerEpoch,
+        token: target.ownerToken, backendPid: target.ownerBackendPid!, backendStart: target.ownerBackendStart! });
+    } catch { throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED'); }
+  }
+  const canonical = Object.freeze({
+    document: Object.freeze({ documentId: expected.documentId, workspaceId: expected.workspaceId,
+      organizationId: expected.organizationId, path: expected.path, representation: expected.representation,
+      lifecycleGeneration: expected.lifecycleGeneration, schemaVersion: expected.schemaVersion, status: expected.status }),
+    ownerEpoch: target.ownerEpoch, ownerToken: target.ownerToken, ownerBackendPid: target.ownerBackendPid,
+    ownerBackendStart: target.ownerBackendStart, documentSequence: target.documentSequence,
+    persistedUpdateHash: target.persistedUpdateHash, persistedVectorHash: target.persistedVectorHash,
+  });
+  if (JSON.stringify(canonical) !== text) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  return canonical;
 }
 
 async function readRequest(database: SqlConnection, captured: CapturedRequest): Promise<CollaborationAdmissionResult | null> {
@@ -135,7 +186,7 @@ async function captureTargets(database: SqlConnection, captured: CapturedRequest
   values.push(captured.request.expectedDocuments.filter((doc) => doc.status === 'archived').map((doc) => doc.documentId));
   const rows = await database.all(`SELECT document_id, workspace_id, organization_id, path, representation,
     lifecycle_generation, schema_version, status, room_owner_epoch, room_owner_token,
-    room_owner_backend_pid, room_owner_backend_start, document_sequence FROM collaboration_yjs_states
+    room_owner_backend_pid, room_owner_backend_start, document_sequence, yjs_state, state_vector FROM collaboration_yjs_states
     WHERE (status = 'active' AND (${paths.join(' OR ')}))
       OR (status = 'archived' AND document_id = ANY($${values.length}::text[]))
     ORDER BY document_id LIMIT 1025 FOR UPDATE`, values) as Array<Record<string, unknown>>;
@@ -188,10 +239,12 @@ export function createCollaborationAdmissionService(options: { openConnection: (
         const target = current.targets.find((item) => item.document.documentId === documentId);
         if (!target) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
         const ticket = admissionDrainTicketForTarget(current.requestId, current.requestDigest, target);
-        const row = await database.get(`SELECT status, active, release_id FROM collaboration_admission_targets
+        const row = await database.get(`SELECT status, active, release_id, quiescence_kind, quiescence_text FROM collaboration_admission_targets
           WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [ticket.requestId, documentId]) as Record<string, unknown>;
         if (!row || row.active !== true || !['reserved', 'draining', 'released'].includes(row.status as string)
-          || row.release_id !== (row.status === 'released' ? ticket.releaseId : null)) {
+          || row.release_id !== (row.status === 'released' ? ticket.releaseId : null)
+          || (row.status === 'released' ? row.quiescence_kind !== 'owner_drain'
+            : row.quiescence_kind !== null || row.quiescence_text !== null)) {
           throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
         }
         if (row.status === 'reserved') {
@@ -219,7 +272,9 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       return transaction(async (database) => {
         const rows = await database.all(`SELECT r.request_id, r.request_digest, t.snapshot_text, t.status, t.release_id
           FROM collaboration_admission_requests r JOIN collaboration_admission_targets t ON t.request_id = r.request_id
-          WHERE r.status = 'draining' AND t.active AND t.status IN ('draining', 'released')
+          WHERE r.status = 'draining' AND t.active
+            AND ((t.status = 'draining' AND t.quiescence_kind IS NULL AND t.quiescence_text IS NULL)
+              OR (t.status = 'released' AND t.quiescence_kind = 'owner_drain'))
             AND t.document_id = ANY($1::text[]) ORDER BY r.request_id, t.document_id FOR SHARE OF r, t`,
         [fences.map((fence) => fence.scope.documentId)]) as Array<Record<string, unknown>>;
         return Object.freeze(rows.flatMap((row) => {
@@ -282,7 +337,8 @@ export function createCollaborationAdmissionService(options: { openConnection: (
           throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
         }
         const started = await database.get(`SELECT document_id FROM collaboration_admission_targets WHERE request_id = $1
-          AND (status <> 'reserved' OR release_id IS NOT NULL OR NOT active) LIMIT 1`, [captured.request.requestId]);
+          AND (status <> 'reserved' OR release_id IS NOT NULL OR quiescence_kind IS NOT NULL
+            OR quiescence_text IS NOT NULL OR NOT active) LIMIT 1`, [captured.request.requestId]);
         if (started) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
         await database.run(`UPDATE collaboration_admission_targets SET active = false, status = 'cancelled' WHERE request_id = $1`,
           [captured.request.requestId]);

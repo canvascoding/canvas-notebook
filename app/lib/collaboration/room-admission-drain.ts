@@ -85,11 +85,18 @@ export async function lockCollaborationAdmissionDrain(query: Query, input: Colla
     || Number(header.revision) < 1 || Number(header.revision) >= Number.MAX_SAFE_INTEGER) {
     throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
   }
-  const target = (await query(`SELECT snapshot_text, status, active, release_id FROM collaboration_admission_targets
+  const target = (await query(`SELECT snapshot_text, status, active, release_id, quiescence_kind, quiescence_text FROM collaboration_admission_targets
     WHERE request_id = $1 AND document_id = $2 FOR ${lock}`, [ticket.requestId, ticket.fence.scope.documentId]))[0];
+  const quiescenceIsValid = target?.status === 'draining'
+    ? target.quiescence_kind === null && target.quiescence_text === null
+    : target?.status === 'released'
+      ? target.quiescence_kind === 'owner_drain'
+        && (target.quiescence_text === null || typeof target.quiescence_text === 'string')
+      : false;
   if (!target || target.active !== true || !['draining', 'released'].includes(target.status as string)
     || (expectedStatus && target.status !== expectedStatus)
-    || target.release_id !== (target.status === 'released' ? ticket.releaseId : null)) {
+    || target.release_id !== (target.status === 'released' ? ticket.releaseId : null)
+    || !quiescenceIsValid) {
     throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
   }
   const expected = admissionDrainTicketForTarget(ticket.requestId, ticket.requestDigest,
@@ -100,8 +107,10 @@ export async function lockCollaborationAdmissionDrain(query: Query, input: Colla
 
 /** The caller already holds header/target locks and has inserted the exact receipt in this transaction. */
 export async function acknowledgeCollaborationAdmissionDrain(query: Query, ticket: CollaborationAdmissionDrainTicket): Promise<void> {
-  const rows = await query(`UPDATE collaboration_admission_targets SET status = 'released', release_id = $3
+  const rows = await query(`UPDATE collaboration_admission_targets
+    SET status = 'released', release_id = $3, quiescence_kind = 'owner_drain'
     WHERE request_id = $1 AND document_id = $2 AND status = 'draining' AND active AND release_id IS NULL
+      AND quiescence_kind IS NULL AND quiescence_text IS NULL
     RETURNING document_id`, [ticket.requestId, ticket.fence.scope.documentId, ticket.releaseId]);
   if (rows.length !== 1) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
   await query('UPDATE collaboration_admission_requests SET revision = revision + 1 WHERE request_id = $1', [ticket.requestId]);

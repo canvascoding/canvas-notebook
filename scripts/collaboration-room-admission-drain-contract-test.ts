@@ -10,11 +10,14 @@ import {
   admissionDrainTicketForTarget,
   captureCollaborationAdmissionDrainTicket,
   captureCollaborationAdmissionOwnerFence,
+  acknowledgeCollaborationAdmissionDrain,
+  lockCollaborationAdmissionDrain,
   matchesCollaborationAdmissionDrainFence,
   sameCollaborationAdmissionDrainTicket,
   type CollaborationAdmissionDrainTicket,
 } from '../app/lib/collaboration/room-admission-drain';
 import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from '../app/lib/collaboration/room-owner';
+import { COLLABORATION_ADMISSION_STATEMENTS } from '../app/lib/db/collaboration-admission-migration';
 
 const REQUEST_ID = '2d607a15-c32c-41aa-b19f-425cde6ae803';
 const OTHER_REQUEST_ID = '3e718b26-d43d-42bb-92a0-536d7fbf9014';
@@ -224,4 +227,103 @@ test('same-ticket comparison canonicalizes equivalent object key order and detec
     ...base,
     fence: { ...base.fence, scope: { ...base.fence.scope, path: 'elsewhere' } },
   }), false);
+});
+
+function mockDrainQuery(options: {
+  status?: 'draining' | 'released';
+  quiescenceKind?: unknown;
+  quiescenceText?: unknown;
+  releaseId?: unknown;
+} = {}) {
+  const calls: Array<{ sql: string; values?: unknown[] }> = [];
+  const expectedTicket = ticketFor();
+  const query = async (sql: string, values?: unknown[]) => {
+    calls.push({ sql, values });
+    if (sql.includes('FROM collaboration_admission_requests')) {
+      return [{ request_digest: REQUEST_DIGEST, status: 'draining', revision: 1 }];
+    }
+    if (sql.includes('FROM collaboration_admission_targets')) {
+      const status = options.status ?? 'draining';
+      return [{ snapshot_text: JSON.stringify(target()), status, active: true,
+        release_id: options.releaseId === undefined ? (status === 'released' ? expectedTicket.releaseId : null) : options.releaseId,
+        quiescence_kind: options.quiescenceKind === undefined
+          ? (status === 'released' ? 'owner_drain' : null) : options.quiescenceKind,
+        quiescence_text: options.quiescenceText === undefined ? null : options.quiescenceText }];
+    }
+    return [];
+  };
+  return { calls, query };
+}
+
+test('drain lock accepts only pristine draining targets and owner-drain released targets', async () => {
+  const draining = mockDrainQuery();
+  assert.equal(await lockCollaborationAdmissionDrain(draining.query, ticketFor(), 'draining'), 'draining');
+  assert.match(draining.calls[0].sql, /FOR UPDATE/u);
+  assert.match(draining.calls[1].sql, /quiescence_kind, quiescence_text/u);
+  assert.match(draining.calls[1].sql, /FOR UPDATE/u);
+
+  for (const quiescenceText of [null, '{"state":"complete"}']) {
+    const released = mockDrainQuery({ status: 'released', quiescenceText });
+    assert.equal(await lockCollaborationAdmissionDrain(released.query, ticketFor()), 'released');
+    assert.match(released.calls[0].sql, /FOR SHARE/u);
+    assert.match(released.calls[1].sql, /FOR SHARE/u);
+  }
+});
+
+test('drain lock fails closed for invalid, premature, or legacy quiescence markers', async () => {
+  const invalidCases = [
+    { status: 'draining' as const, quiescenceKind: 'owner_drain' },
+    { status: 'draining' as const, quiescenceKind: 'normal_release' },
+    { status: 'draining' as const, quiescenceText: 'already materialized' },
+    { status: 'released' as const, quiescenceKind: null },
+    { status: 'released' as const, quiescenceKind: 'vacant' },
+    { status: 'released' as const, quiescenceKind: 'normal_release' },
+    { status: 'released' as const, quiescenceKind: 'owner_drain', quiescenceText: 17 },
+  ];
+  for (const input of invalidCases) {
+    const mocked = mockDrainQuery(input);
+    await assert.rejects(lockCollaborationAdmissionDrain(mocked.query, ticketFor()), (error: unknown) => {
+      assert.ok(error instanceof CollaborationAdmissionError);
+      assert.equal(error.code, 'ADMISSION_STATE_CHANGED');
+      return true;
+    });
+  }
+});
+
+test('drain acknowledgment atomically marks owner_drain without materializing proof text', async () => {
+  const calls: Array<{ sql: string; values?: unknown[] }> = [];
+  const query = async (sql: string, values?: unknown[]) => {
+    calls.push({ sql, values });
+    return sql.includes('UPDATE collaboration_admission_targets') ? [{ document_id: 'doc-a' }] : [];
+  };
+  const ticket = ticketFor();
+  await acknowledgeCollaborationAdmissionDrain(query, ticket);
+
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].sql, /SET status = 'released', release_id = \$3, quiescence_kind = 'owner_drain'/u);
+  assert.match(calls[0].sql, /quiescence_kind IS NULL AND quiescence_text IS NULL/u);
+  assert.doesNotMatch(calls[0].sql, /SET[^\n]*quiescence_text/u);
+  assert.deepEqual(calls[0].values, [REQUEST_ID, 'doc-a', ticket.releaseId]);
+  assert.match(calls[1].sql, /UPDATE collaboration_admission_requests/u);
+
+  const failedCalls: string[] = [];
+  const noRows = async (sql: string) => { failedCalls.push(sql); return []; };
+  await assert.rejects(acknowledgeCollaborationAdmissionDrain(noRows, ticket), (error: unknown) => {
+    assert.ok(error instanceof CollaborationAdmissionError);
+    assert.equal(error.code, 'ADMISSION_STATE_CHANGED');
+    return true;
+  });
+  assert.equal(failedCalls.length, 1, 'revision is not advanced if the guarded target update did not happen');
+});
+
+test('admission target schema adds constrained quiescence markers idempotently', () => {
+  const create = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('CREATE TABLE IF NOT EXISTS collaboration_admission_targets'));
+  assert.ok(create);
+  assert.match(create, /quiescence_kind text CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain'\)\)/u);
+  assert.match(create, /quiescence_text text/u);
+  const addKind = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('ADD COLUMN IF NOT EXISTS quiescence_kind'));
+  const addText = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('ADD COLUMN IF NOT EXISTS quiescence_text'));
+  assert.ok(addKind);
+  assert.ok(addText);
+  assert.match(addKind, /CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain'\)\)/u);
 });

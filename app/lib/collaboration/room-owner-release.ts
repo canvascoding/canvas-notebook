@@ -75,6 +75,92 @@ function digest(kind: 'update' | 'vector', value: Uint8Array): string {
   return createHash('sha256').update(`canvas.room-release.v1\0${kind}\0`).update(value).digest('hex');
 }
 
+export { digest as collaborationRoomReleaseDigest };
+
+function receiptInteger(value: unknown, minimum: number): number {
+  if ((typeof value !== 'number' && typeof value !== 'string')
+    || (typeof value === 'string' && !/^(?:0|[1-9][0-9]*)$/u.test(value))) {
+    throw new CollaborationRoomReleaseError();
+  }
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || number < minimum) throw new CollaborationRoomReleaseError();
+  return number;
+}
+
+function receiptString(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) throw new CollaborationRoomReleaseError();
+  return value;
+}
+
+function receiptHash(value: unknown): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/u.test(value)) {
+    throw new CollaborationRoomReleaseError();
+  }
+  return value;
+}
+
+function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+}
+
+/**
+ * Validates that an immutable release receipt still describes the exact
+ * token-free persisted room state. Live hashes are authenticated receipt
+ * metadata only: the original live buffers are deliberately not reconstructed.
+ */
+export function validateCollaborationRoomReleaseReceipt(
+  row: Record<string, unknown>,
+  receipt: Record<string, unknown>,
+): CollaborationRoomReleaseReceipt {
+  const normalized: CollaborationRoomReleaseReceipt = {
+    release_id: receiptString(receipt.release_id),
+    document_id: receiptString(receipt.document_id),
+    workspace_id: receiptString(receipt.workspace_id),
+    organization_id: receipt.organization_id === null ? null : receiptString(receipt.organization_id),
+    path: receiptString(receipt.path),
+    representation: receiptString(receipt.representation),
+    lifecycle_generation: receiptInteger(receipt.lifecycle_generation, 1),
+    schema_version: receiptInteger(receipt.schema_version, 1),
+    owner_epoch: receiptInteger(receipt.owner_epoch, 1),
+    owner_token: receiptString(receipt.owner_token),
+    owner_backend_pid: receiptInteger(receipt.owner_backend_pid, 1),
+    owner_backend_start: receiptString(receipt.owner_backend_start),
+    document_sequence: receiptInteger(receipt.document_sequence, 0),
+    persisted_update_hash: receiptHash(receipt.persisted_update_hash),
+    persisted_vector_hash: receiptHash(receipt.persisted_vector_hash),
+    live_update_hash: receiptHash(receipt.live_update_hash),
+    live_vector_hash: receiptHash(receipt.live_vector_hash),
+  };
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu.test(normalized.release_id)
+    || row.status !== 'active'
+    || row.document_id !== normalized.document_id
+    || row.workspace_id !== normalized.workspace_id
+    || row.organization_id !== normalized.organization_id
+    || row.path !== normalized.path
+    || row.representation !== normalized.representation
+    || receiptInteger(row.lifecycle_generation, 1) !== normalized.lifecycle_generation
+    || receiptInteger(row.schema_version, 1) !== normalized.schema_version
+    || receiptInteger(row.room_owner_epoch, 1) !== normalized.owner_epoch
+    || receiptInteger(row.document_sequence, 0) !== normalized.document_sequence
+    || row.room_owner_token !== null
+    || row.room_owner_backend_pid !== null
+    || row.room_owner_backend_start !== null
+    || !(row.yjs_state instanceof Uint8Array)
+    || !(row.state_vector instanceof Uint8Array)
+    || digest('update', row.yjs_state) !== normalized.persisted_update_hash
+    || digest('vector', row.state_vector) !== normalized.persisted_vector_hash) {
+    throw new CollaborationRoomReleaseError();
+  }
+  try {
+    const persisted = mergeCollaborationPersistenceUpdates(row.yjs_state, row.yjs_state);
+    if (!sameBytes(persisted.stateVector, row.state_vector)) throw new CollaborationRoomReleaseError();
+  } catch (cause) {
+    if (cause instanceof CollaborationRoomReleaseError) throw cause;
+    throw new CollaborationRoomReleaseError({ cause });
+  }
+  return Object.freeze(normalized);
+}
+
 function receiptFor(row: ReleaseStateRow, fence: CollaborationRoomOwnerFence,
   snapshot: CollaborationRoomReleaseSnapshot): CollaborationRoomReleaseReceipt {
   const scope = fence.scope;

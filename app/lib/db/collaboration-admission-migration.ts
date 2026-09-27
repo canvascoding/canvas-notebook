@@ -27,8 +27,13 @@ export const COLLABORATION_ADMISSION_STATEMENTS = [
     active boolean NOT NULL DEFAULT true,
     status text NOT NULL DEFAULT 'reserved' CHECK (status IN ('reserved', 'draining', 'released', 'recovery_required', 'completed', 'cancelled')),
     release_id text REFERENCES collaboration_room_release_receipts(release_id),
+    quiescence_kind text CHECK (quiescence_kind IS NULL OR quiescence_kind IN ('vacant', 'normal_release', 'owner_drain')),
+    quiescence_text text,
     PRIMARY KEY (request_id, document_id)
   )`,
+  `ALTER TABLE collaboration_admission_targets ADD COLUMN IF NOT EXISTS quiescence_kind text
+    CHECK (quiescence_kind IS NULL OR quiescence_kind IN ('vacant', 'normal_release', 'owner_drain'))`,
+  `ALTER TABLE collaboration_admission_targets ADD COLUMN IF NOT EXISTS quiescence_text text`,
   `CREATE UNIQUE INDEX IF NOT EXISTS idx_collaboration_admission_active_document
     ON collaboration_admission_targets(document_id) WHERE active`,
 ] as const;

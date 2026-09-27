@@ -134,6 +134,11 @@ wurden; im abschließenden Gegencheck blieb kein Blocker für diesen Baustein.
 
 ## Noch offen innerhalb DA-03
 
+Nachtrag: Die ersten beiden Punkte sind inzwischen als getrennte
+Quiescence-Belegmechanik ergänzt; siehe
+[aktuellen Vertrag und Nachweise](admission-quiescence-results.md).
+Die vollständige Coordinator-/Domain-Fortsetzung bleibt weiterhin offen.
+
 - Ein eigener Vacant-Proof für nie beanspruchte Epoch-0-Räume unter gehaltenem
   Guard und exakter gesperrter Zustandszeile.
 - Die Coordinator-Zuordnung eines bereits normal freigegebenen Receipts zu
