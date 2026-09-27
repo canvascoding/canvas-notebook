@@ -5,6 +5,17 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Lifecycle-COMMIT vor Dateiprojektion
+
+Normalisierung schreibt jetzt erst nach positivem SQL-Commit-Nachweis in die
+Datei. Verlorene Commit-Antworten werden über einen exakten Backup-Beleg und
+einen frisch gesperrten, kausal geprüften Zustand behandelt. Ungewisse
+Verbindungen werden verworfen; Projektion bleibt über die Sequenzlücke
+nachholbar, statt alte Dateien zurückzuschreiben. Fokussierte PG-Fehlertests
+und echte Codec-/Datei-Integration sind getrennt dokumentiert:
+[lifecycle-commit-recovery-results.md](lifecycle-commit-recovery-results.md).
+Kein vollständiges Crash-/Ownership-/Rollout-Gate wird daraus abgeleitet.
+
 ## Ergänzung: Reine Löschung bis zum leeren Dokument
 
 Vier neue gewöhnliche Personal-/Team-Browserfälle prüfen Teil- und

@@ -68,6 +68,10 @@ type ConnectionHooks = {
   beforeBegin?: (backendPid: number) => Promise<void>;
   beforeStateLock?: (backendPid: number) => void;
   afterStateLock?: (backendPid: number) => Promise<void>;
+  afterCommit?: (backendPid: number) => Promise<void>;
+  commitFault?: { position: 'before' | 'after'; remaining: number };
+  rollbackFault?: { remaining: number };
+  onClose?: (input: { backendPid: number; error: Error | undefined }) => void;
 };
 
 type StateRow = {
@@ -259,10 +263,25 @@ function createConnectionAdapter(
     const query = async (sql: string, params: unknown[] = []) => {
       const normalized = normalizedSql(sql);
       if (normalized === 'BEGIN') await hooks.beforeBegin?.(backendPid);
+      if (normalized === 'COMMIT' && hooks.commitFault?.position === 'before'
+        && hooks.commitFault.remaining > 0) {
+        hooks.commitFault.remaining--;
+        throw new Error('synthetic lifecycle COMMIT rejection');
+      }
+      if (normalized === 'ROLLBACK' && hooks.rollbackFault && hooks.rollbackFault.remaining > 0) {
+        hooks.rollbackFault.remaining--;
+        throw new Error('synthetic lifecycle ROLLBACK failure');
+      }
       const stateLock = normalized === 'SELECT * FROM COLLABORATION_YJS_STATES WHERE DOCUMENT_ID = $1 FOR UPDATE';
       if (stateLock) hooks.beforeStateLock?.(backendPid);
       const result = await client.query(sql, params);
       if (stateLock) await hooks.afterStateLock?.(backendPid);
+      if (normalized === 'COMMIT') await hooks.afterCommit?.(backendPid);
+      if (normalized === 'COMMIT' && hooks.commitFault?.position === 'after'
+        && hooks.commitFault.remaining > 0) {
+        hooks.commitFault.remaining--;
+        throw new Error('synthetic lost lifecycle COMMIT reply');
+      }
       return result;
     };
     return {
@@ -272,6 +291,7 @@ function createConnectionAdapter(
       close: (error) => {
         assert.equal(closed, false, 'a production lifecycle connection must only be released once');
         closed = true;
+        hooks.onClose?.({ backendPid, error });
         client.release(error);
       },
     };
@@ -299,6 +319,15 @@ async function loadPersistence(openDb: () => Promise<SqlConnection>): Promise<Pe
     if (name === './server-runtime') return { Y };
     return createRequire(mergeFilename)(name);
   }, mergeModule, mergeModule.exports);
+  const transactionFilename = path.resolve('app/lib/collaboration/lifecycle-transaction.ts');
+  const transactionSource = ts.transpileModule(await readFile(transactionFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const transactionModule = { exports: {} as Record<string, unknown> };
+  new Function('require', 'module', 'exports', transactionSource)((name: string) => {
+    if (name === 'server-only') return {};
+    return createRequire(transactionFilename)(name);
+  }, transactionModule, transactionModule.exports);
   const source = ts.transpileModule(await readFile(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
@@ -339,6 +368,7 @@ async function loadPersistence(openDb: () => Promise<SqlConnection>): Promise<Pe
     './server-runtime': { Y },
     './persistence-merge': mergeModule.exports,
     './room-owner': ownerModule.exports,
+    './lifecycle-transaction': transactionModule.exports,
   };
   const compiledModule = { exports: {} as Record<string, unknown> };
   const localRequire = (name: string) => Object.prototype.hasOwnProperty.call(mocks, name)
@@ -465,7 +495,7 @@ async function run(databaseUrl: URL): Promise<void> {
       mutate: () => Promise<void>;
       expectedRow: () => Promise<void>;
       expectedAgent?: boolean;
-      callbackCounts?: () => number[];
+      callbackCount?: () => number;
     }) => {
       const beforeBegin = deferred(gates);
       const releaseBegin = deferred(gates);
@@ -487,7 +517,7 @@ async function run(databaseUrl: URL): Promise<void> {
           status: 'preparing', cas_version: 0, error_code: null,
         }, 'transactional expiry must roll back with the stale snapshot');
       }
-      assert.deepEqual(input.callbackCounts?.() ?? [0, 0, 0], [0, 0, 0],
+      assert.equal(input.callbackCount?.() ?? 0, 0,
         'stale lifecycle input cannot invoke external checkpoint callbacks');
     };
 
@@ -542,13 +572,12 @@ async function run(databaseUrl: URL): Promise<void> {
 
     const checkpointDoc = own(createPlainTextDocument('checkpoint'));
     await seed('stale-checkpoint', checkpointDoc, { agentOperation: true });
-    const checkpointCallbacks = [0, 0, 0];
+    let checkpointCallbacks = 0;
     const checkpoint: SafeMarkdownNormalizationCheckpoint = {
-      write: async () => { checkpointCallbacks[0]++; return {
-        content: 'normalized checkpoint', revisionId: 'revision', serializedContent: 'normalized checkpoint',
-      }; },
-      restore: async () => { checkpointCallbacks[1]++; },
-      finalize: async () => { checkpointCallbacks[2]++; },
+      materialize: async ({ state }) => {
+        checkpointCallbacks++;
+        return state;
+      },
     };
     await staleAtBegin({
       documentId: 'stale-checkpoint',
@@ -573,7 +602,7 @@ async function run(databaseUrl: URL): Promise<void> {
         assert.notEqual(row.serialized_hash, 'serialized-0');
       },
       expectedAgent: true,
-      callbackCounts: () => checkpointCallbacks,
+      callbackCount: () => checkpointCallbacks,
     });
     console.log('PASS representation migration rejects newer checkpoint/health metadata before callbacks or expiry commit');
 
@@ -698,6 +727,317 @@ async function run(databaseUrl: URL): Promise<void> {
     assert.deepEqual(Buffer.from(representationBackup.yjs_state), representationPredecessorUpdate);
     assert.deepEqual(Buffer.from(representationBackup.state_vector), representationPredecessorVector);
     console.log('PASS unchanged compaction and representation snapshots commit one backup and advance lifecycle');
+
+    const visibleBeforeMaterialize = own(createPlainTextDocument('materialize-visible'));
+    await seed('materialize-visible', visibleBeforeMaterialize, { agentOperation: true });
+    let visibleMaterializations = 0;
+    const visibleMigration = await persistence.changeCollaborationRepresentationWithSafeMarkdownNormalization({
+      documentId: 'materialize-visible', expectedLifecycleGeneration: 1,
+      representation: 'tiptap_xml', schemaVersion: 2,
+      checkpoint: {
+        materialize: async ({ state }) => {
+          visibleMaterializations++;
+          const committedRow = await readState('materialize-visible');
+          assert.equal(committedRow.representation, 'tiptap_xml');
+          assert.equal(Number(committedRow.lifecycle_generation), 2);
+          assert.equal(Number(committedRow.document_sequence), 1);
+          assert.equal(Number(committedRow.checkpoint_sequence), 0);
+          assert.equal(Number(committedRow.checkpointed_at), 1_700_000_000_000);
+          assert.equal(committedRow.canonical_hash, 'canonical-0');
+          assert.equal(committedRow.serialized_hash, 'serialized-0');
+          assert.equal(state.lifecycleGeneration, 2);
+          assert.equal(state.documentSequence, 1);
+          assert.equal(state.checkpointSequence, 0);
+          const checkpointed = await persistence.markCollaborationCheckpoint({
+            documentId: state.documentId, workspaceId: state.workspaceId, path: state.path,
+            lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
+            sequence: state.documentSequence, canonicalContent: 'normalized checkpoint',
+            serializedContent: 'normalized checkpoint',
+          });
+          assert(checkpointed);
+          return checkpointed;
+        },
+      },
+    });
+    assert.equal(visibleMaterializations, 1);
+    assert.equal(visibleMigration.state.checkpointSequence, visibleMigration.state.documentSequence);
+    assert.deepEqual(await operationState('materialize-visible'), {
+      status: 'expired', cas_version: 1, error_code: 'lifecycle_representation_changed',
+    });
+    console.log('PASS normalization commits SQL and preserves the predecessor checkpoint tuple before materialization');
+
+    const failedMaterializeDoc = own(createPlainTextDocument('materialize-failure'));
+    await seed('materialize-failure', failedMaterializeDoc, { agentOperation: true });
+    let failedMaterializations = 0;
+    await expectLifecycleError(
+      persistence.changeCollaborationRepresentationWithSafeMarkdownNormalization({
+        documentId: 'materialize-failure', expectedLifecycleGeneration: 1,
+        representation: 'tiptap_xml', schemaVersion: 2,
+        checkpoint: {
+          materialize: async () => {
+            failedMaterializations++;
+            throw new Error('synthetic materialization failure');
+          },
+        },
+      }),
+      'checkpoint_failed',
+      'post-commit materialization failure',
+    );
+    assert.equal(failedMaterializations, 1);
+    const failedMaterializeRow = await readState('materialize-failure');
+    assert.equal(failedMaterializeRow.representation, 'tiptap_xml');
+    assert.equal(Number(failedMaterializeRow.lifecycle_generation), 2);
+    assert.equal(Number(failedMaterializeRow.document_sequence), 1);
+    assert.equal(Number(failedMaterializeRow.checkpoint_sequence), 0);
+    assert.equal(Number(failedMaterializeRow.checkpointed_at), 1_700_000_000_000);
+    assert.equal(failedMaterializeRow.canonical_hash, 'canonical-0');
+    assert.equal(failedMaterializeRow.serialized_hash, 'serialized-0');
+    assert.equal(await backupCount('materialize-failure'), 1);
+    assert.deepEqual(await operationState('materialize-failure'), {
+      status: 'expired', cas_version: 1, error_code: 'lifecycle_representation_changed',
+    });
+    console.log('PASS failed materialization leaves the committed rich lifecycle durably pending');
+
+    const lostCommitDoc = own(createPlainTextDocument('lost-commit'));
+    await seed('lost-commit', lostCommitDoc);
+    const lostCommitCloses: Array<Error | undefined> = [];
+    let recoveredMaterializations = 0;
+    const recoveredMigration = await runWithHooks({
+      commitFault: { position: 'after', remaining: 1 },
+      onClose: ({ error }) => { lostCommitCloses.push(error); },
+    }, () => persistence.changeCollaborationRepresentationWithSafeMarkdownNormalization({
+      documentId: 'lost-commit', expectedLifecycleGeneration: 1,
+      representation: 'tiptap_xml', schemaVersion: 2,
+      checkpoint: {
+        materialize: async ({ state }) => {
+          recoveredMaterializations++;
+          const committedRow = await readState('lost-commit');
+          assert.equal(Number(committedRow.lifecycle_generation), state.lifecycleGeneration);
+          assert.equal(Number(committedRow.document_sequence), state.documentSequence);
+          const checkpointed = await persistence.markCollaborationCheckpoint({
+            documentId: state.documentId, workspaceId: state.workspaceId, path: state.path,
+            lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
+            sequence: state.documentSequence, canonicalContent: 'normalized checkpoint',
+            serializedContent: 'normalized checkpoint',
+          });
+          assert(checkpointed);
+          return checkpointed;
+        },
+      },
+    }));
+    assert.equal(recoveredMaterializations, 1);
+    assert.equal(recoveredMigration.state.lifecycleGeneration, 2);
+    assert.equal(recoveredMigration.state.checkpointSequence, 1);
+    assert(lostCommitCloses.some((error) => error instanceof Error),
+      'a lost COMMIT reply must discard its writer connection with an error');
+    console.log('PASS a lost successful COMMIT is proven by its exact backup receipt before materialization');
+
+    const rejectedCommitDoc = own(createPlainTextDocument('rejected-commit'));
+    await seed('rejected-commit', rejectedCommitDoc);
+    const rejectedCommitCloses: Array<Error | undefined> = [];
+    await expectLifecycleError(runWithHooks({
+      commitFault: { position: 'before', remaining: 1 },
+      onClose: ({ error }) => { rejectedCommitCloses.push(error); },
+    }, () => persistence.compactCollaborationState({
+      documentId: 'rejected-commit', expectedLifecycleGeneration: 1,
+    })), 'state_changed', 'rejected COMMIT cannot produce a durable receipt');
+    const rejectedCommitRow = await readState('rejected-commit');
+    assert.equal(Number(rejectedCommitRow.lifecycle_generation), 1);
+    assert.equal(Number(rejectedCommitRow.document_sequence), 0);
+    assert.equal(await backupCount('rejected-commit'), 0);
+    assert(rejectedCommitCloses.some((error) => error instanceof Error),
+      'an unconfirmed rejected COMMIT must discard its writer connection');
+    console.log('PASS a pre-COMMIT failure has no receipt and cannot be inferred as committed');
+
+    const rollbackFailureDoc = own(createPlainTextDocument('rollback-failure'));
+    await seed('rollback-failure', rollbackFailureDoc);
+    const rollbackBeforeBegin = deferred(gates);
+    const releaseRollbackBegin = deferred(gates);
+    const rollbackCloses: Array<Error | undefined> = [];
+    const rollbackFailure = track(runWithHooks({
+      beforeBegin: async () => {
+        rollbackBeforeBegin.resolve();
+        await releaseRollbackBegin.promise;
+      },
+      rollbackFault: { remaining: 1 },
+      onClose: ({ error }) => { rollbackCloses.push(error); },
+    }, () => persistence.compactCollaborationState({
+      documentId: 'rollback-failure', expectedLifecycleGeneration: 1,
+    })));
+    await within(rollbackBeforeBegin.promise, BARRIER_TIMEOUT_MS, 'Rollback-failure lifecycle did not reach BEGIN.');
+    await controlPool.query(
+      `UPDATE ${stateTable} SET persisted_at=$2 WHERE document_id=$1`,
+      ['rollback-failure', 1_700_000_000_777],
+    );
+    releaseRollbackBegin.resolve();
+    await assert.rejects(
+      within(rollbackFailure, STATEMENT_TIMEOUT_MS, 'Rollback-failure lifecycle did not settle.'),
+      (error) => error instanceof AggregateError,
+    );
+    const rollbackFailureRow = await readState('rollback-failure');
+    assert.equal(Number(rollbackFailureRow.lifecycle_generation), 1);
+    assert.equal(Number(rollbackFailureRow.persisted_at), 1_700_000_000_777);
+    assert.equal(await backupCount('rollback-failure'), 0);
+    assert(rollbackCloses.some((error) => error instanceof Error),
+      'a failed ROLLBACK must discard its unresolved connection');
+    console.log('PASS a failed ROLLBACK discards the connection without committing lifecycle effects');
+
+    const supersededRecoveryDoc = own(createPlainTextDocument('superseded-recovery'));
+    await seed('superseded-recovery', supersededRecoveryDoc);
+    let supersededMaterializations = 0;
+    let committedTransitions = 0;
+    await expectLifecycleError(runWithHooks({
+      commitFault: { position: 'after', remaining: 1 },
+      afterCommit: async () => {
+        if (committedTransitions++ !== 0) return;
+        await controlPool.query(
+          `UPDATE ${stateTable}
+           SET lifecycle_generation=lifecycle_generation + 1,
+               document_sequence=document_sequence + 1
+           WHERE document_id='superseded-recovery'`,
+        );
+      },
+    }, () => persistence.changeCollaborationRepresentationWithSafeMarkdownNormalization({
+      documentId: 'superseded-recovery', expectedLifecycleGeneration: 1,
+      representation: 'tiptap_xml', schemaVersion: 2,
+      checkpoint: {
+        materialize: async ({ state }) => {
+          supersededMaterializations++;
+          return state;
+        },
+      },
+    })), 'state_changed', 'superseded commit recovery');
+    assert.equal(supersededMaterializations, 0,
+      'a superseded recovered lifecycle must not auto-replay materialization');
+    const supersededRecoveryRow = await readState('superseded-recovery');
+    assert.equal(supersededRecoveryRow.representation, 'tiptap_xml');
+    assert.equal(Number(supersededRecoveryRow.lifecycle_generation), 3);
+    assert.equal(Number(supersededRecoveryRow.document_sequence), 2);
+    assert.equal(Number(supersededRecoveryRow.checkpoint_sequence), 0);
+    assert.equal(await backupCount('superseded-recovery'), 1);
+    const pendingProjection = await controlPool.query<{ document_id: string }>(
+      `SELECT document_id FROM ${stateTable}
+       WHERE document_id='superseded-recovery' AND status='active'
+         AND checkpoint_sequence < document_sequence`,
+    );
+    assert.deepEqual(pendingProjection.rows, [{ document_id: 'superseded-recovery' }]);
+    console.log('PASS superseded commit recovery skips materialization and remains discoverably pending');
+
+    const corruptHigherDoc = own(createPlainTextDocument('corrupt-higher-row'));
+    const corruptHigherUpdate = Buffer.from(Y.encodeStateAsUpdate(corruptHigherDoc));
+    const corruptHigherVector = Buffer.from(Y.encodeStateVector(corruptHigherDoc));
+    const corruptRecoveryBase = own(createPlainTextDocument('corrupt-recovery'));
+    await seed('corrupt-recovery', corruptRecoveryBase);
+    let corruptRecoveryCommits = 0;
+    let corruptRecoveryMaterializations = 0;
+    await expectLifecycleError(runWithHooks({
+      commitFault: { position: 'after', remaining: 1 },
+      afterCommit: async () => {
+        if (corruptRecoveryCommits++ !== 0) return;
+        await controlPool.query(
+          `UPDATE ${stateTable}
+           SET yjs_state=$2, state_vector=$3, document_sequence=document_sequence + 1
+           WHERE document_id=$1`,
+          ['corrupt-recovery', corruptHigherUpdate, corruptHigherVector],
+        );
+      },
+    }, () => persistence.changeCollaborationRepresentationWithSafeMarkdownNormalization({
+      documentId: 'corrupt-recovery', expectedLifecycleGeneration: 1,
+      representation: 'tiptap_xml', schemaVersion: 2,
+      checkpoint: {
+        materialize: async ({ state }) => {
+          corruptRecoveryMaterializations++;
+          return state;
+        },
+      },
+    })), 'state_changed', 'non-containing higher-sequence recovery');
+    assert.equal(corruptRecoveryMaterializations, 0,
+      'a non-containing higher-sequence recovery row must be rejected before materialization');
+    const corruptRecoveryRow = await readState('corrupt-recovery');
+    assert.equal(Number(corruptRecoveryRow.lifecycle_generation), 2);
+    assert.equal(Number(corruptRecoveryRow.document_sequence), 2);
+    assert.deepEqual(Buffer.from(corruptRecoveryRow.yjs_state), corruptHigherUpdate);
+    assert.deepEqual(Buffer.from(corruptRecoveryRow.state_vector), corruptHigherVector);
+    console.log('PASS a non-containing higher-sequence recovery row is rejected before materialization');
+
+    const validHigherBase = own(createPlainTextDocument('valid-higher-recovery'));
+    await seed('valid-higher-recovery', validHigherBase);
+    let validHigherCommits = 0;
+    let validHigherMaterializations = 0;
+    const validHigherMigration = await runWithHooks({
+      commitFault: { position: 'after', remaining: 1 },
+      afterCommit: async () => {
+        if (validHigherCommits++ !== 0) return;
+        const committed = await readState('valid-higher-recovery');
+        const newer = own(new Y.Doc());
+        Y.applyUpdate(newer, committed.yjs_state);
+        const text = newer.getText('content');
+        text.insert(text.length, '-newer');
+        await controlPool.query(
+          `UPDATE ${stateTable}
+           SET yjs_state=$2, state_vector=$3, document_sequence=document_sequence + 1
+           WHERE document_id=$1`,
+          ['valid-higher-recovery', Buffer.from(Y.encodeStateAsUpdate(newer)), Buffer.from(Y.encodeStateVector(newer))],
+        );
+      },
+    }, () => persistence.changeCollaborationRepresentationWithSafeMarkdownNormalization({
+      documentId: 'valid-higher-recovery', expectedLifecycleGeneration: 1,
+      representation: 'tiptap_xml', schemaVersion: 2,
+      checkpoint: {
+        materialize: async ({ state }) => {
+          validHigherMaterializations++;
+          assert.equal(state.documentSequence, 2);
+          assert.equal(textFromUpdate(state.yjsState), 'normalized checkpoint-newer');
+          const checkpointed = await persistence.markCollaborationCheckpoint({
+            documentId: state.documentId, workspaceId: state.workspaceId, path: state.path,
+            lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
+            sequence: state.documentSequence, canonicalContent: 'normalized checkpoint-newer',
+            serializedContent: 'normalized checkpoint-newer',
+          });
+          assert(checkpointed);
+          return checkpointed;
+        },
+      },
+    }));
+    assert.equal(validHigherMaterializations, 1);
+    assert.equal(validHigherMigration.state.documentSequence, 2);
+    assert.equal(validHigherMigration.state.checkpointSequence, 2);
+    assert.equal(textFromUpdate(validHigherMigration.state.yjsState), 'normalized checkpoint-newer');
+    console.log('PASS a causally containing higher-sequence recovery row reaches materialization as the fresh state');
+
+    for (const corruption of ['bytes', 'vector'] as const) {
+      const documentId = `corrupt-materializer-${corruption}`;
+      const base = own(createPlainTextDocument(documentId));
+      const unrelated = own(createPlainTextDocument(`unrelated-${corruption}`));
+      await seed(documentId, base);
+      let callbackCount = 0;
+      await expectLifecycleError(
+        persistence.changeCollaborationRepresentationWithSafeMarkdownNormalization({
+          documentId, expectedLifecycleGeneration: 1,
+          representation: 'tiptap_xml', schemaVersion: 2,
+          checkpoint: {
+            materialize: async ({ state }) => {
+              callbackCount++;
+              return {
+                ...state,
+                checkpointSequence: state.documentSequence,
+                ...(corruption === 'bytes'
+                  ? { yjsState: Y.encodeStateAsUpdate(unrelated) }
+                  : { stateVector: Y.encodeStateVector(unrelated) }),
+              };
+            },
+          },
+        }),
+        'checkpoint_failed',
+        `same-sequence materializer ${corruption} corruption`,
+      );
+      assert.equal(callbackCount, 1);
+      const row = await readState(documentId);
+      assert.equal(Number(row.lifecycle_generation), 2);
+      assert.equal(Number(row.document_sequence), 1);
+      assert.equal(Number(row.checkpoint_sequence), 0);
+    }
+    console.log('PASS same-sequence materializer byte or vector corruption fails closed as checkpoint_failed');
 
     const reverseBase = own(createPlainTextDocument('reverse'));
     await seed('reverse-lock-order', reverseBase);

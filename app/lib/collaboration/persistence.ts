@@ -29,6 +29,7 @@ import {
 import { Y } from './server-runtime';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence } from './room-owner';
+import { executeLifecycleTransaction } from './lifecycle-transaction';
 
 export interface PersistedCollaborationState {
   documentId: string;
@@ -53,27 +54,10 @@ export interface PersistedCollaborationState {
 }
 
 export type SafeMarkdownNormalizationCheckpoint = {
-  write: (input: {
+  /** Projects only an already committed state, with restart-safe receipts. */
+  materialize: (input: {
     state: PersistedCollaborationState;
-    canonicalContent: string;
-  }) => Promise<{
-    content: string;
-    revisionId: string;
-    serializedContent: string;
-  }>;
-  restore: (input: {
-    state: PersistedCollaborationState;
-    canonicalContent: string;
-  }) => Promise<void>;
-  finalize: (input: {
-    state: PersistedCollaborationState;
-    canonicalContent: string;
-    fileWrite: {
-      content: string;
-      revisionId: string;
-      serializedContent: string;
-    };
-  }) => Promise<void> | void;
+  }) => Promise<PersistedCollaborationState>;
 };
 
 type StateRow = {
@@ -788,6 +772,7 @@ async function pendingAgentOperationCount(database: Awaited<ReturnType<typeof op
 
 async function writeStateBackup(input: {
   database: Awaited<ReturnType<typeof openDb>>;
+  backupId: string;
   state: PersistedCollaborationState;
   reason: 'compaction' | 'representation_change';
   now: number;
@@ -798,7 +783,7 @@ async function writeStateBackup(input: {
       yjs_state, state_vector, document_sequence, reason, created_at, expires_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
-      crypto.randomUUID(),
+      input.backupId,
       input.state.documentId,
       input.state.lifecycleGeneration,
       input.state.schemaVersion,
@@ -811,6 +796,70 @@ async function writeStateBackup(input: {
       input.now + 7 * 24 * 60 * 60_000,
     ],
   );
+}
+
+function isCurrentLifecycleOutcome(current: PersistedCollaborationState, expected: PersistedCollaborationState): boolean {
+  const matchesIdentity = current.documentId === expected.documentId && current.status === 'active'
+    && current.workspaceId === expected.workspaceId && current.organizationId === expected.organizationId
+    && current.path === expected.path && current.lifecycleGeneration === expected.lifecycleGeneration
+    && current.representation === expected.representation && current.schemaVersion === expected.schemaVersion
+    && current.documentSequence >= expected.documentSequence;
+  if (!matchesIdentity) return false;
+  if (current.documentSequence === expected.documentSequence) {
+    return Buffer.from(current.yjsState).equals(Buffer.from(expected.yjsState))
+      && Buffer.from(current.stateVector).equals(Buffer.from(expected.stateVector));
+  }
+  try {
+    // A later row is valid only if it causally contains our committed output,
+    // including deletions. This checks temporary copies; it never writes back.
+    const proof = mergeCollaborationPersistenceUpdates(current.yjsState, expected.yjsState);
+    return proof.disposition === 'unchanged'
+      && Buffer.from(proof.stateVector).equals(Buffer.from(current.stateVector));
+  } catch {
+    return false;
+  }
+}
+
+/** Positive same-transaction proof, never a text-based no-effect inference. */
+async function recoverLifecycleMutation(input: {
+  backupId: string;
+  reason: 'compaction' | 'representation_change';
+  predecessor: PersistedCollaborationState;
+  committed: PersistedCollaborationState;
+}): Promise<PersistedCollaborationState> {
+  return executeLifecycleTransaction({
+    openConnection: openDb,
+    execute: async (database) => {
+      // This fresh transaction waits out the discarded writer, then retains
+      // its row lock while reading the receipt and validating current scope.
+      const row = await database.get(
+        'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
+        [input.committed.documentId],
+      ) as StateRow | undefined;
+      const receipt = await database.get(
+        `SELECT backup_id FROM collaboration_yjs_state_backups
+         WHERE backup_id = $1 AND document_id = $2 AND reason = $3
+           AND lifecycle_generation = $4 AND schema_version = $5
+           AND representation = $6 AND document_sequence = $7
+           AND yjs_state = $8 AND state_vector = $9`,
+        [input.backupId, input.predecessor.documentId, input.reason,
+          input.predecessor.lifecycleGeneration, input.predecessor.schemaVersion,
+          input.predecessor.representation, input.predecessor.documentSequence,
+          Buffer.from(input.predecessor.yjsState), Buffer.from(input.predecessor.stateVector)],
+      );
+      if (!row || !receipt) {
+        throw new CollaborationRepresentationMigrationError('Lifecycle commit could not be proven; no file projection was attempted.', 'state_changed');
+      }
+      const current = mapState(row);
+      if (!isCurrentLifecycleOutcome(current, input.committed)) {
+        throw new CollaborationRepresentationMigrationError('The committed lifecycle was superseded before recovery.', 'state_changed');
+      }
+      return current;
+    },
+    // This recovery transaction only READS. Once its connection is discarded,
+    // losing its COMMIT reply cannot undo the positive proof already read.
+    recoverCommitted: async (verified) => verified,
+  });
 }
 
 /**
@@ -874,47 +923,41 @@ async function compactCollaborationStateWhileLocked(input: {
   const update = Y.encodeStateAsUpdate(fresh);
   const vector = Y.encodeStateVector(fresh);
   const now = Date.now();
-  const database = await openDb();
+  const backupId = crypto.randomUUID();
   try {
-    await database.run('BEGIN');
-    if (await pendingAgentOperationCount(database, state.documentId) > 0) {
-      throw new Error('Collaboration state cannot be compacted while agent operations or reviews are pending.');
-    }
-    const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
-    const nextSequence = lockedState.documentSequence + 1;
-    await writeStateBackup({ database, state: lockedState, reason: 'compaction', now });
-    const row = await database.get(
-      `UPDATE collaboration_yjs_states
-       SET yjs_state = $1, state_vector = $2, lifecycle_generation = lifecycle_generation + 1,
-           document_sequence = $3, checkpoint_sequence = $4, persisted_at = $5, checkpointed_at = $6,
-           canonical_hash = $7, compacted_at = $8, compaction_count = compaction_count + 1
-       WHERE document_id = $9 AND status = 'active' AND lifecycle_generation = $10
-         AND document_sequence = $11
-         AND degraded = 0 AND checkpoint_sequence >= document_sequence
-       RETURNING *`,
-      [
-        Buffer.from(update),
-        Buffer.from(vector),
-        nextSequence,
-        nextSequence,
-        now,
-        now,
-        sha256Text(canonicalContent),
-        now,
-        state.documentId,
-        state.lifecycleGeneration,
-        lockedState.documentSequence,
-      ],
-    ) as StateRow | undefined;
-    if (!row) throw new Error('Collaboration state changed concurrently during compaction.');
-    await database.run('COMMIT');
-    return mapState(row);
-  } catch (error) {
-    try { await database.run('ROLLBACK'); } catch {}
-    throw error;
+    return await executeLifecycleTransaction({
+      openConnection: openDb,
+      execute: async (database) => {
+        if (await pendingAgentOperationCount(database, state.documentId) > 0) {
+          throw new Error('Collaboration state cannot be compacted while agent operations or reviews are pending.');
+        }
+        const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
+        const nextSequence = lockedState.documentSequence + 1;
+        await writeStateBackup({ database, backupId, state: lockedState, reason: 'compaction', now });
+        const row = await database.get(
+          `UPDATE collaboration_yjs_states
+           SET yjs_state = $1, state_vector = $2, lifecycle_generation = lifecycle_generation + 1,
+               document_sequence = $3, checkpoint_sequence = $4, persisted_at = $5, checkpointed_at = $6,
+               canonical_hash = $7, compacted_at = $8, compaction_count = compaction_count + 1
+           WHERE document_id = $9 AND status = 'active' AND lifecycle_generation = $10
+             AND document_sequence = $11
+             AND degraded = 0 AND checkpoint_sequence >= document_sequence
+           RETURNING *`,
+          [
+            Buffer.from(update), Buffer.from(vector), nextSequence, nextSequence,
+            now, now, sha256Text(canonicalContent), now,
+            state.documentId, state.lifecycleGeneration, lockedState.documentSequence,
+          ],
+        ) as StateRow | undefined;
+        if (!row) throw new Error('Collaboration state changed concurrently during compaction.');
+        return mapState(row);
+      },
+      recoverCommitted: (committed) => recoverLifecycleMutation({
+        backupId, reason: 'compaction', predecessor: state, committed,
+      }),
+    });
   } finally {
     fresh.destroy();
-    await database.close();
   }
 }
 
@@ -1021,146 +1064,85 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   const update = Y.encodeStateAsUpdate(fresh);
   const vector = Y.encodeStateVector(fresh);
   const now = Date.now();
-  const database = await openDb();
-  let checkpointAttempted = false;
-  let checkpointFileWrite: Awaited<ReturnType<SafeMarkdownNormalizationCheckpoint['write']>> | null = null;
-  let committed = false;
+  const backupId = crypto.randomUUID();
+  let migratedState: PersistedCollaborationState;
   try {
-    await database.run('BEGIN');
-    const applying = await database.get(
-      `SELECT COUNT(*) AS count FROM collaboration_agent_operations
-       WHERE document_id = $1 AND status IN ('applying', 'applied_to_ydoc')`,
-      [state.documentId],
-    ) as { count?: number | string } | undefined;
-    if (Number(applying?.count || 0) > 0) {
-      throw new CollaborationRepresentationMigrationError(
-        'Representation migration cannot race with an authoritative agent apply.',
-        'agent_operation_pending',
-      );
-    }
-    await database.run(
-      `UPDATE collaboration_agent_operations
-       SET status = 'expired', error_code = 'lifecycle_representation_changed',
-           updated_at = $1, cas_version = cas_version + 1
-       WHERE document_id = $2 AND status NOT IN (${TERMINAL_AGENT_OPERATION_STATUSES.map((_, index) => `$${index + 3}`).join(', ')})`,
-      [now, state.documentId, ...TERMINAL_AGENT_OPERATION_STATUSES],
-    );
-    // Preserve the existing operation -> state lock order. Expiration above is
-    // transactional and rolls back if the snapshot changed; no file callback
-    // or backup is performed until the authoritative row has been validated.
-    const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
-    const nextSequence = lockedState.documentSequence + 1;
-    await writeStateBackup({ database, state: lockedState, reason: 'representation_change', now });
-    const row = await database.get(
-      `UPDATE collaboration_yjs_states
-       SET representation = $1, schema_version = $2, yjs_state = $3, state_vector = $4,
-           lifecycle_generation = lifecycle_generation + 1, document_sequence = $5,
-           checkpoint_sequence = $6, persisted_at = $7, checkpointed_at = $8,
-           canonical_hash = $9, compacted_at = $10
-       WHERE document_id = $11 AND status = 'active' AND lifecycle_generation = $12
-         AND document_sequence = $13
-       RETURNING *`,
-      [
-        input.representation,
-        input.schemaVersion,
-        Buffer.from(update),
-        Buffer.from(vector),
-        nextSequence,
-        checkpointRequired ? state.checkpointSequence : nextSequence,
-        now,
-        checkpointRequired ? state.checkpointedAt : now,
-        sha256Text(canonicalContent),
-        now,
-        state.documentId,
-        state.lifecycleGeneration,
-        lockedState.documentSequence,
-      ],
-    ) as StateRow | undefined;
-    if (!row) {
-      throw new CollaborationRepresentationMigrationError(
-        'Collaboration state changed concurrently during representation migration.',
-        'state_changed',
-      );
-    }
-    let migratedState = mapState(row);
-    if (checkpointRequired && input.checkpoint) {
-      checkpointAttempted = true;
-      checkpointFileWrite = await input.checkpoint.write({
-        state: migratedState,
-        canonicalContent,
-      });
-      const checkpointedRow = await database.get(
-        `UPDATE collaboration_yjs_states
-         SET checkpointed_at = $1, checkpoint_sequence = $2, canonical_hash = $3,
-             serialized_hash = $4, degraded = 0
-         WHERE document_id = $5 AND status = 'active' AND lifecycle_generation = $6
-           AND schema_version = $7 AND document_sequence = $8
-         RETURNING *`,
-        [
-          now,
-          nextSequence,
-          sha256Text(canonicalContent),
-          sha256Text(checkpointFileWrite.serializedContent),
-          state.documentId,
-          migratedState.lifecycleGeneration,
-          input.schemaVersion,
-          nextSequence,
-        ],
-      ) as StateRow | undefined;
-      if (!checkpointedRow) {
-        throw new CollaborationRepresentationMigrationError(
-          'Collaboration state changed before the normalized checkpoint could be confirmed.',
-          'state_changed',
+    migratedState = await executeLifecycleTransaction({
+      openConnection: openDb,
+      execute: async (database) => {
+        const applying = await database.get(
+          `SELECT COUNT(*) AS count FROM collaboration_agent_operations
+           WHERE document_id = $1 AND status IN ('applying', 'applied_to_ydoc')`,
+          [state.documentId],
+        ) as { count?: number | string } | undefined;
+        if (Number(applying?.count || 0) > 0) {
+          throw new CollaborationRepresentationMigrationError(
+            'Representation migration cannot race with an authoritative agent apply.', 'agent_operation_pending',
+          );
+        }
+        await database.run(
+          `UPDATE collaboration_agent_operations
+           SET status = 'expired', error_code = 'lifecycle_representation_changed',
+               updated_at = $1, cas_version = cas_version + 1
+           WHERE document_id = $2 AND status NOT IN (${TERMINAL_AGENT_OPERATION_STATUSES.map((_, index) => `$${index + 3}`).join(', ')})`,
+          [now, state.documentId, ...TERMINAL_AGENT_OPERATION_STATUSES],
         );
-      }
-      migratedState = mapState(checkpointedRow);
-    }
-    await database.run('COMMIT');
-    committed = true;
-    if (checkpointFileWrite && input.checkpoint) {
-      await input.checkpoint.finalize({
-        state: migratedState,
-        canonicalContent,
-        fileWrite: checkpointFileWrite,
-      });
-    }
-    return {
-      canonicalContent,
-      checkpointRequired,
-      state: migratedState,
-    };
-  } catch (error) {
-    if (!committed) {
-      try { await database.run('ROLLBACK'); } catch {}
-    }
-    if (!committed && checkpointAttempted && input.checkpoint) {
-      try {
-        await input.checkpoint.restore({
-          state,
-          canonicalContent: currentCanonicalContent,
-        });
-      } catch (restoreError) {
-        await markCollaborationDegraded(state.documentId, state.lifecycleGeneration);
-        throw new AggregateError(
-          [error, restoreError],
-          'Normalized collaboration migration failed and its file checkpoint could not be restored.',
-        );
-      }
-      if (!(error instanceof CollaborationRepresentationMigrationError)) {
-        throw new CollaborationRepresentationMigrationError(
-          error instanceof Error ? error.message : 'The normalized file checkpoint failed.',
-          'checkpoint_failed',
-        );
-      }
-    }
-    if (committed) {
-      await markCollaborationDegraded(state.documentId, state.lifecycleGeneration + 1);
-    }
-    throw error;
+        // Preserve operation -> state lock order; expiration rolls back with
+        // a stale snapshot. No external file work happens in this transaction.
+        const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
+        const nextSequence = lockedState.documentSequence + 1;
+        await writeStateBackup({ database, backupId, state: lockedState, reason: 'representation_change', now });
+        const row = await database.get(
+          `UPDATE collaboration_yjs_states
+           SET representation = $1, schema_version = $2, yjs_state = $3, state_vector = $4,
+               lifecycle_generation = lifecycle_generation + 1, document_sequence = $5,
+               checkpoint_sequence = $6, persisted_at = $7, checkpointed_at = $8,
+               canonical_hash = $9, compacted_at = $10
+           WHERE document_id = $11 AND status = 'active' AND lifecycle_generation = $12
+             AND document_sequence = $13
+           RETURNING *`,
+          [
+            input.representation, input.schemaVersion, Buffer.from(update), Buffer.from(vector), nextSequence,
+            checkpointRequired ? lockedState.checkpointSequence : nextSequence,
+            now, checkpointRequired ? lockedState.checkpointedAt : now,
+            checkpointRequired ? lockedState.canonicalHash : sha256Text(canonicalContent), now,
+            state.documentId, state.lifecycleGeneration, lockedState.documentSequence,
+          ],
+        ) as StateRow | undefined;
+        if (!row) {
+          throw new CollaborationRepresentationMigrationError(
+            'Collaboration state changed concurrently during representation migration.', 'state_changed',
+          );
+        }
+        return mapState(row);
+      },
+      recoverCommitted: (committed) => recoverLifecycleMutation({
+        backupId, reason: 'representation_change', predecessor: state, committed,
+      }),
+    });
   } finally {
     fresh.destroy();
-    await database.close();
   }
+  if (checkpointRequired && input.checkpoint) {
+    try {
+      // SQL is already authoritative. Its sequence gap survives a crash here;
+      // the normal projection pipeline records/retries every later file phase.
+      const projected = await input.checkpoint.materialize({ state: migratedState });
+      if (!isCurrentLifecycleOutcome(projected, migratedState)
+        || projected.checkpointSequence < migratedState.documentSequence
+        || projected.checkpointSequence > projected.documentSequence) {
+        throw new Error('The normalized checkpoint did not confirm the committed lifecycle.');
+      }
+      migratedState = projected;
+    } catch (cause) {
+      const error = new CollaborationRepresentationMigrationError(
+        'Representation migration is committed; its file projection remains pending.', 'checkpoint_failed',
+      );
+      error.cause = cause;
+      throw error;
+    }
+  }
+  return { canonicalContent: canonicalContentFromState(migratedState), checkpointRequired, state: migratedState };
 }
 
 export async function changeCollaborationRepresentation(input: {

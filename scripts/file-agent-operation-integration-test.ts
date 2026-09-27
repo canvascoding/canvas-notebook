@@ -1515,59 +1515,77 @@ try {
     safeNormalizationMigrationDocumentId,
   );
   assert(safeNormalizationStateBeforeFailedCheckpoint);
-  let restoredFailedNormalizationCheckpoint = false;
+  let failedNormalizationMaterializations = 0;
   await assert.rejects(
     () => changeCollaborationRepresentationWithSafeMarkdownNormalization({
       documentId: safeNormalizationMigrationDocumentId!,
       expectedLifecycleGeneration: safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
       schemaVersion: 1,
       checkpoint: {
-        write: async ({ canonicalContent }) => {
-          await fs.writeFile(
-            path.join(workspace.rootPath, safeNormalizationMigrationPath),
-            canonicalContent,
-            'utf8',
-          );
+        materialize: async () => {
+          failedNormalizationMaterializations++;
           throw new Error('synthetic normalized checkpoint failure');
-        },
-        restore: async ({ canonicalContent }) => {
-          restoredFailedNormalizationCheckpoint = true;
-          await fs.writeFile(
-            path.join(workspace.rootPath, safeNormalizationMigrationPath),
-            canonicalContent,
-            'utf8',
-          );
-        },
-        finalize: () => {
-          assert.fail('A failed normalized checkpoint must not finalize its file projection.');
         },
       },
     }),
     (error: unknown) => error instanceof CollaborationRepresentationMigrationError
       && error.code === 'checkpoint_failed',
   );
-  assert.equal(restoredFailedNormalizationCheckpoint, true);
+  assert.equal(failedNormalizationMaterializations, 1);
   const safeNormalizationStateAfterFailedCheckpoint = await loadCollaborationState(
     safeNormalizationMigrationDocumentId,
   );
   assert(safeNormalizationStateAfterFailedCheckpoint);
-  assert.equal(safeNormalizationStateAfterFailedCheckpoint.representation, 'plain_text');
+  assert.equal(safeNormalizationStateAfterFailedCheckpoint.representation, 'tiptap_xml');
   assert.equal(
     safeNormalizationStateAfterFailedCheckpoint.lifecycleGeneration,
-    safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
+    safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration + 1,
   );
   assert.equal(
     safeNormalizationStateAfterFailedCheckpoint.documentSequence,
-    safeNormalizationStateBeforeFailedCheckpoint.documentSequence,
+    safeNormalizationStateBeforeFailedCheckpoint.documentSequence + 1,
   );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.checkpointSequence,
+    safeNormalizationStateBeforeFailedCheckpoint.checkpointSequence,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.checkpointedAt,
+    safeNormalizationStateBeforeFailedCheckpoint.checkpointedAt,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.canonicalHash,
+    safeNormalizationStateBeforeFailedCheckpoint.canonicalHash,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.serializedHash,
+    safeNormalizationStateBeforeFailedCheckpoint.serializedHash,
+  );
+  assert.equal(await persistedText(safeNormalizationMigrationDocumentId), safeNormalizationExpected);
   assert.equal(
     await fs.readFile(path.join(workspace.rootPath, safeNormalizationMigrationPath), 'utf8'),
     safeNormalizationMigrationContent,
   );
+  const retriedNormalizationCheckpoint = await materializeCollaborationCheckpoint({
+    state: safeNormalizationStateAfterFailedCheckpoint,
+    workspace,
+    actorUserId: userId,
+    actorType: 'system',
+  });
+  assert.equal(
+    retriedNormalizationCheckpoint.state.checkpointSequence,
+    safeNormalizationStateAfterFailedCheckpoint.documentSequence,
+  );
   const safeNormalizationGrant = await createCollaborationSessionGrant({
     workspace,
     fileOptions: { workspace },
-    request: { path: safeNormalizationMigrationPath, provider: 'yjs', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 },
+    request: {
+      path: safeNormalizationMigrationPath,
+      provider: 'yjs',
+      representation: 'auto',
+      allowRichMigration: true,
+      expectedLifecycleGeneration: safeNormalizationStateAfterFailedCheckpoint.lifecycleGeneration,
+    },
   });
   assert.equal(safeNormalizationGrant.representation, 'tiptap_xml');
   assert.equal(safeNormalizationGrant.lifecycleGeneration, 2);

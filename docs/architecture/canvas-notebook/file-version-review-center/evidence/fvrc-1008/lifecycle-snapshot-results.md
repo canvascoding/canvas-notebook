@@ -129,6 +129,9 @@ weiterhin **0** aktivierte Owner-Epochen im App-Datenbestand.
   Normalisierungs-COMMIT künftig keine Rückschreibung der alten Datei auslösen.
   Dafür sind ein dauerhafter Ergebnisbeleg und gezielte Recovery-/Fault-Tests
   erforderlich; dieser Patch löst das nicht.
+  **Nachtrag:** Diese begrenzte Lücke ist im Folgepatch mit Commit-Beleg und
+  Post-Commit-Projektion behandelt; Nachweise und verbleibende Crash-Grenzen
+  stehen in [lifecycle-commit-recovery-results.md](lifecycle-commit-recovery-results.md).
 - Atomarer Kandidatencommit **vor** Live-Publish, vollständige PG-/MR-Abnahme
   und manueller Konflikteditor P12 bleiben offen. Owner-Aktivierung im normalen
   Bootstrap bleibt aus; gemischter Betrieb mit alten Servern ist nicht freigegeben.
