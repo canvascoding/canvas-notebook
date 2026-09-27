@@ -3,6 +3,11 @@ import 'server-only';
 import type { Doc } from 'yjs';
 import { createCollaborationRoomActivityGate } from './room-activity-gate';
 import {
+  captureCollaborationRoomReleaseSnapshot,
+  type CollaborationRoomReleaseReceipt,
+  type CollaborationRoomReleaseSnapshot,
+} from './room-owner-release';
+import {
   CollaborationRoomOwnerError,
   type CollaborationRoomOwnerFence,
   type CollaborationRoomOwnerScope,
@@ -12,7 +17,20 @@ import {
 type OwnerSession = Awaited<ReturnType<typeof createCollaborationRoomOwnerSession>>;
 export type CollaborationRoomOwnerRuntimeOptions = {
   createSession: (onInvalidated: () => void) => Promise<OwnerSession>;
+  recoverRelease?: (input: {
+    fence: CollaborationRoomOwnerFence;
+    snapshot: CollaborationRoomReleaseSnapshot;
+  }) => Promise<CollaborationRoomReleaseReceipt>;
   heartbeatMs?: number;
+};
+
+type TerminalDrain = {
+  idle: Promise<void>;
+  idleResolved: boolean;
+  released: boolean;
+  finished: boolean;
+  finishActivityDrain: () => void;
+  completion?: Promise<void>;
 };
 
 type OwnedRoom = {
@@ -21,6 +39,7 @@ type OwnedRoom = {
   claim: Promise<CollaborationRoomOwnerFence>;
   proof?: CollaborationRoomOwnerFence;
   releasing?: Promise<void>;
+  terminalDrain?: TerminalDrain;
   destroy: () => void;
 };
 
@@ -53,7 +72,7 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
     activities.dispose();
     if (heartbeat) clearInterval(heartbeat);
     for (const room of rooms.values()) {
-      if (room.document.isDestroyed) continue;
+      if (room.document.isDestroyed || room.terminalDrain?.released) continue;
       try { options.onLost(room.document); }
       catch { console.error('[Collaboration] Owned room invalidation handler failed.'); }
     }
@@ -125,6 +144,11 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
   const release = (document: Doc): Promise<void> => {
     const room = instances.get(document);
     if (!room) return Promise.resolve();
+    if (room.terminalDrain && !room.terminalDrain.completion) {
+      const rejected = Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
+      void rejected.catch(() => undefined);
+      return rejected;
+    }
     if (room.releasing) return room.releasing;
     // Set the promise before its first continuation. fence() now rejects even
     // while acquire or the database release acknowledgement is pending.
@@ -198,15 +222,80 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
     session!.assertActive(room.proof);
     return room.proof;
   };
+  const beginTerminalDrain = (document: Doc) => {
+    const proof = fence(document);
+    const room = instances.get(document)!;
+    if (room.terminalDrain || rooms.get(room.scope.documentId) !== room) {
+      throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+    }
+    const activityDrain = beginActivityDrain(room.scope.documentId);
+    const terminal: TerminalDrain = {
+      idle: activityDrain.idle,
+      idleResolved: false,
+      released: false,
+      finished: false,
+      finishActivityDrain: activityDrain.finish,
+    };
+    room.terminalDrain = terminal;
+    void terminal.idle.then(() => { terminal.idleResolved = true; });
+    return {
+      idle: terminal.idle,
+      releaseDurably(input: CollaborationRoomReleaseSnapshot): Promise<void> {
+        if (terminal.completion) return terminal.completion;
+        if (!terminal.idleResolved) {
+          return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
+        }
+        // Copy and validate before yielding or revoking the runtime proof. The
+        // owner session performs its own second capture before queueing SQL.
+        const snapshot = captureCollaborationRoomReleaseSnapshot(input);
+        const completion = Promise.resolve().then(async () => {
+          try {
+            await session!.release(proof, snapshot);
+          } catch (error) {
+            // Release acknowledgement uncertainty invalidates the entire
+            // shared owner session before receipt recovery may inspect it.
+            try { await closeSession(); }
+            catch (closeError) {
+              throw new AggregateError(
+                [error, closeError],
+                'Durable room release could not close its owner session before recovery.',
+              );
+            }
+            if (!options.recoverRelease) throw error;
+            await options.recoverRelease({ fence: proof, snapshot });
+          }
+          terminal.released = true;
+          // A later Y.Doc destroy is now an unload signal, never a legacy
+          // snapshot-less release of an already proven terminal handoff.
+          document.off('destroy', room.destroy);
+        });
+        terminal.completion = completion;
+        room.releasing = completion;
+        void completion.catch(() => undefined);
+        return completion;
+      },
+      finish() {
+        if (terminal.finished) return;
+        if (!terminal.released || !document.isDestroyed) {
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+        }
+        terminal.finishActivityDrain();
+        terminal.finished = true;
+        if (rooms.get(room.scope.documentId) === room) rooms.delete(room.scope.documentId);
+      },
+    };
+  };
   return {
     claim, fence, release, assertAvailable, admitActivity,
     // Quiescence only: the caller must still persist, prove release and retain
     // its lifecycle reservation before reopening admission with finish().
-    beginActivityDrain,
+    beginActivityDrain, beginTerminalDrain,
+    isDraining: (documentId: string) => activityDrains.has(documentId),
     // Failed/lost stores must not be followed by Hocuspocus's unconditional
     // direct-disconnect unload. Retain unacknowledged data for recovery.
     canUnload: (document: Doc) => {
       const room = instances.get(document);
+      if (room?.terminalDrain) return room.terminalDrain.released;
       return !room || (!lost && !disposed && !activityDrains.has(room.scope.documentId));
     },
     waitForRelease: async (documentName: string) => { await rooms.get(documentName)?.releasing; },

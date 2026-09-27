@@ -1624,6 +1624,7 @@
           "lifecycleCommitRecoveryEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/lifecycle-commit-recovery-results.md",
           "roomReleaseEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/room-release-results.md",
           "roomActivityEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/room-activity-results.md",
+          "terminalRoomDrainEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/terminal-room-drain-results.md",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",

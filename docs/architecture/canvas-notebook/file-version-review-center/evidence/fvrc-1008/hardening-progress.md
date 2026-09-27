@@ -957,3 +957,15 @@ Bytes, Backups, Vorschlagsstatus und externe Checkpoint-Callbacks geschützt.
 Das ist ein begrenzter Persistenzfix, kein vollständiger Mehrprozess-Drain.
 Operations-Admission, ungewisse Lifecycle-Commits und atomarer Publish bleiben
 als gesonderte Pflichtschritte dokumentiert. FVRC-1008 bleibt offen.
+
+### Terminaler lokaler Drain mit Startup-Abschlussgrenzen
+
+Der [terminale Room-Drain](terminal-room-drain-results.md) verbindet Activity-
+Quieszenz, finalen Hocuspocus-Store und SQL-Release-Beleg mit dem Entladen der
+exakten alten Doc-Instanz. Auth-/Load-/Connection-Abbrüche halten Admission,
+bis tatsächlich laufende Arbeit und deren Cleanup beendet sind. Eine
+fehlgeschlagene Session-Schließung berechtigt nicht zur Receipt-Recovery.
+
+Dies bleibt eine optionale lokale Anbindung ohne regulären Bootstrap-Cutover.
+Dauerhafter verteilter Entzug, atomarer Kandidatencommit vor Live-Publish,
+vollständige Crash-/Reconnect-Matrix und P12 sind weiterhin offen.

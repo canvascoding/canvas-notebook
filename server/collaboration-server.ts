@@ -1,7 +1,10 @@
 import type http from 'node:http';
 import type net from 'node:net';
+import { randomUUID } from 'node:crypto';
 
-import { Hocuspocus, type Connection, type Document, type onAwarenessUpdatePayload } from '@hocuspocus/server';
+import { Hocuspocus, MessageType, type Connection, type Document, type onAwarenessUpdatePayload } from '@hocuspocus/server';
+import { AuthMessageType } from '@hocuspocus/common';
+import * as decoding from 'lib0/decoding';
 import { WebSocketServer } from 'ws';
 import type { Doc as YDoc } from 'yjs';
 
@@ -55,6 +58,8 @@ import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lo
 import { acquireCollaborationRoomMutationLock, withCollaborationRoomMutationLock } from '@/app/lib/collaboration/room-mutation-lock';
 import { CollaborationRoomOwnerError } from '@/app/lib/collaboration/room-owner';
 import { createCollaborationRoomOwnerRuntime, type CollaborationRoomOwnerRuntimeOptions } from '@/app/lib/collaboration/room-owner-runtime';
+import { createCollaborationRoomStartupActivity } from '@/app/lib/collaboration/room-startup-activity';
+import { installLocalCollaborationRoomDrainer } from '@/app/lib/collaboration/local-room-drain';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -124,6 +129,7 @@ type CollaborationContext = {
   operationId: string | null;
   observedDocumentSequence: number | null;
   releaseRoomAdmission: (() => void) | null;
+  startupActivity?: ReturnType<typeof createCollaborationRoomStartupActivity>;
   stopAccessWatch?: () => void;
 };
 
@@ -140,13 +146,13 @@ export function isCollaborationWebSocketRequest(requestUrl?: string): boolean {
   return normalizedPath(requestUrl) !== null;
 }
 
-function requestFromIncoming(request: http.IncomingMessage): Request {
+function requestFromIncoming(request: http.IncomingMessage, signal?: AbortSignal): Request {
   const headers = new Headers();
   for (const [key, value] of Object.entries(request.headers)) {
     if (Array.isArray(value)) for (const item of value) headers.append(key, item);
     else if (value !== undefined) headers.set(key, value);
   }
-  return new Request(`http://${request.headers.host || 'localhost'}${request.url || COLLABORATION_PATH}`, { headers });
+  return new Request(`http://${request.headers.host || 'localhost'}${request.url || COLLABORATION_PATH}`, { headers, signal });
 }
 
 function reject(socket: net.Socket, status = '403 Forbidden'): void {
@@ -272,6 +278,9 @@ export function createCollaborationServer(server: http.Server, options: {
     try { return await operation(); }
     finally { activity?.release(); }
   };
+  const pendingStartups = new WeakMap<Request, Map<string, Set<ReturnType<typeof createCollaborationRoomStartupActivity>>>>();
+  const startupPhases = new WeakMap<ReturnType<typeof createCollaborationRoomStartupActivity>, 'auth' | 'authenticated' | 'loading' | 'loaded'>();
+  const lastRoomContexts = new WeakMap<Document, { context: CollaborationContext; origin: unknown }>();
   // Hocuspocus caches by document ID, while restore/migration reuse that ID
   // with a new generation. The room keeps the identity of the bytes it loaded.
   const roomIdentities = new WeakMap<YDoc, RoomIdentity>();
@@ -327,6 +336,7 @@ export function createCollaborationServer(server: http.Server, options: {
             }));
           }
         } catch (error) {
+          if (roomOwners?.isDraining(document.name)) return;
           if (!document.isDestroyed && hocuspocus.documents.get(document.name) === document) {
             const code = error instanceof CollaborationStateStaleError
               ? COLLABORATION_FAILURE_CODES.generationChanged : COLLABORATION_FAILURE_CODES.persistenceFailed;
@@ -387,7 +397,7 @@ export function createCollaborationServer(server: http.Server, options: {
     debounce: 350,
     maxDebounce: 2_000,
     timeout: 30_000,
-    async onAuthenticate({ token, documentName, requestHeaders, connectionConfig }) {
+    async onAuthenticate({ token, documentName, request, requestHeaders, connectionConfig }) {
       if (!liveCollaborationRuntimeAvailable()) throw new Error('Collaboration requires Postgres.');
       const protocols = requestHeaders.get('sec-websocket-protocol')
         ?.split(',')
@@ -397,110 +407,156 @@ export function createCollaborationServer(server: http.Server, options: {
         : null;
       const claims = mobileIdentity?.claims ?? verifyCollaborationTicket(token);
       if (claims.documentId !== documentName) throw new Error('Collaboration document scope mismatch.');
-      let authenticatedUser: {
-        id: string;
-        name: string;
-        email: string | null;
-        role?: string | null;
-      };
-      if (claims.guestInvitationId) {
-        if (mobileIdentity) throw new Error('Guest sessions cannot use mobile authentication.');
-        const cookieName = fileGuestCookieName(claims.guestInvitationId);
-        const guestToken = requestHeaders.get('cookie')?.split(';').map((value) => value.trim())
-          .find((value) => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) || '';
-        const guest = await fileGuestService.access(claims.guestInvitationId, { token: guestToken });
-        if (guest.guestSession.id !== claims.sessionId) throw new Error('Guest session scope mismatch.');
-        authenticatedUser = guest.user;
-      } else if (mobileIdentity) {
-        authenticatedUser = mobileIdentity.user;
-      } else {
-        const session = await auth.api.getSession({ headers: requestHeaders });
-        const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
-        if (!session || session.user.id !== claims.userId || sessionId !== claims.sessionId) {
-          throw new Error('Collaboration session is no longer authenticated.');
-        }
-        authenticatedUser = {
-          id: session.user.id,
-          name: session.user.name || session.user.email || 'User',
-          email: session.user.email,
-          role: session.user.role,
-        };
-      }
-      if (authenticatedUser.id !== claims.userId) {
-        throw new Error('Collaboration ticket user scope mismatch.');
-      }
-      const access = await resolveCollaborationSessionAccess(claims);
-      const workspace = access.workspace;
-      authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
-      const releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
-        claims.documentId,
-        async () => {
-          await assertCollaborationDocumentAccess(claims, workspace);
-          const room = hocuspocus.documents.get(claims.documentId);
-          if (room) assertRoomIdentity(room, claims);
-          return reserveCollaborationRoomAdmission(claims.documentId);
+      request.signal.throwIfAborted();
+      let releaseRoomAdmission: (() => void) | null = null;
+      const releaseAdmission = () => { releaseRoomAdmission?.(); };
+      const activity = roomOwners?.admitActivity(documentName);
+      const startupActivity = activity && createCollaborationRoomStartupActivity({
+        activity,
+        onFinished() {
+          request.signal.removeEventListener('abort', cancelStartup);
+          releaseRoomAdmission?.();
+          const documents = pendingStartups.get(request);
+          const startups = documents?.get(documentName);
+          if (startupActivity) startups?.delete(startupActivity);
+          if (!startups?.size) documents?.delete(documentName);
         },
-      );
-      connectionConfig.readOnly = claims.permission !== 'write';
-      const presenceProfile = claims.guestInvitationId ? null : await resolveCollaborationPresenceProfile({
-        workspaceId: claims.workspaceId,
-        userId: authenticatedUser.id,
-        name: authenticatedUser.name,
-        email: authenticatedUser.email,
       });
-      return {
-        claims,
-        workspace,
-        user: {
-          id: authenticatedUser.id,
+      const cancelStartup = () => { startupActivity?.cancel(); };
+      if (startupActivity) {
+        const documents = pendingStartups.get(request) ?? new Map();
+        const startups = documents.get(documentName) ?? new Set();
+        startups.add(startupActivity);
+        documents.set(documentName, startups);
+        pendingStartups.set(request, documents);
+        startupPhases.set(startupActivity, 'auth');
+        request.signal.addEventListener('abort', cancelStartup, { once: true });
+      }
+      const authenticate = async (): Promise<CollaborationContext> => {
+        let authenticatedUser: {
+          id: string;
+          name: string;
+          email: string | null;
+          role?: string | null;
+        };
+        if (claims.guestInvitationId) {
+          if (mobileIdentity) throw new Error('Guest sessions cannot use mobile authentication.');
+          const cookieName = fileGuestCookieName(claims.guestInvitationId);
+          const guestToken = requestHeaders.get('cookie')?.split(';').map((value) => value.trim())
+            .find((value) => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) || '';
+          const guest = await fileGuestService.access(claims.guestInvitationId, { token: guestToken });
+          if (guest.guestSession.id !== claims.sessionId) throw new Error('Guest session scope mismatch.');
+          authenticatedUser = guest.user;
+        } else if (mobileIdentity) {
+          authenticatedUser = mobileIdentity.user;
+        } else {
+          const session = await auth.api.getSession({ headers: requestHeaders });
+          const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
+          if (!session || session.user.id !== claims.userId || sessionId !== claims.sessionId) {
+            throw new Error('Collaboration session is no longer authenticated.');
+          }
+          authenticatedUser = {
+            id: session.user.id,
+            name: session.user.name || session.user.email || 'User',
+            email: session.user.email,
+            role: session.user.role,
+          };
+        }
+        if (authenticatedUser.id !== claims.userId) {
+          throw new Error('Collaboration ticket user scope mismatch.');
+        }
+        const access = await resolveCollaborationSessionAccess(claims);
+        const workspace = access.workspace;
+        authenticatedUser = { ...access.user, name: access.user.name || access.user.email || 'User' };
+        releaseRoomAdmission = await withCollaborationRoomLifecycleLock(
+          claims.documentId,
+          async () => {
+            await assertCollaborationDocumentAccess(claims, workspace);
+            const room = hocuspocus.documents.get(claims.documentId);
+            if (room) assertRoomIdentity(room, claims);
+            return reserveCollaborationRoomAdmission(claims.documentId);
+          },
+        );
+        connectionConfig.readOnly = claims.permission !== 'write';
+        const presenceProfile = claims.guestInvitationId ? null : await resolveCollaborationPresenceProfile({
+          workspaceId: claims.workspaceId,
+          userId: authenticatedUser.id,
           name: authenticatedUser.name,
           email: authenticatedUser.email,
-          profile: presenceProfile,
-        },
-        actorType: 'user',
-        versionSource: 'automatic_checkpoint',
-        versionBaseRevisionId: null,
-        versionSourceSessionId: null,
-        initiatedByUserId: null,
-        operationId: null,
-        observedDocumentSequence: null,
-        releaseRoomAdmission,
+        });
+        if (startupActivity) startupPhases.set(startupActivity, 'authenticated');
+        return {
+          claims,
+          workspace,
+          user: {
+            id: authenticatedUser.id,
+            name: authenticatedUser.name,
+            email: authenticatedUser.email,
+            profile: presenceProfile,
+          },
+          actorType: 'user',
+          versionSource: 'automatic_checkpoint',
+          versionBaseRevisionId: null,
+          versionSourceSessionId: null,
+          initiatedByUserId: null,
+          operationId: null,
+          observedDocumentSequence: null,
+          releaseRoomAdmission,
+          startupActivity,
+        };
       };
+      try { return startupActivity ? await startupActivity.run(authenticate) : await authenticate(); }
+      catch (error) { startupActivity?.finish(); releaseAdmission(); throw error; }
+      finally { if (!startupActivity) request.signal.removeEventListener('abort', cancelStartup); }
     },
     async connected({ context, connection }) {
-      context.releaseRoomAdmission?.();
-      context.releaseRoomAdmission = null;
-      context.stopAccessWatch = accessMonitor.add(connection);
-      await accessMonitor.check(connection);
-      const state = await loadCollaborationState(context.claims.documentId);
-      if (
-        !state
-        || state.workspaceId !== context.claims.workspaceId
-        || state.path !== context.claims.path
-        || state.lifecycleGeneration !== context.claims.lifecycleGeneration
-        || state.representation !== context.claims.representation
-        || state.schemaVersion !== context.claims.schemaVersion
-        || !matchesRoomIdentity(connection.document, context.claims)
-      ) {
-        connection.sendStateless(JSON.stringify({
-          type: 'degraded',
-          code: COLLABORATION_FAILURE_CODES.generationChanged,
-          message: 'The collaboration document generation changed. Reload to use the current document state.',
-        }));
+      const connect = async () => {
+        context.stopAccessWatch = accessMonitor.add(connection);
+        await accessMonitor.check(connection);
+        const state = await loadCollaborationState(context.claims.documentId);
+        if (
+          !state
+          || state.workspaceId !== context.claims.workspaceId
+          || state.path !== context.claims.path
+          || state.lifecycleGeneration !== context.claims.lifecycleGeneration
+          || state.representation !== context.claims.representation
+          || state.schemaVersion !== context.claims.schemaVersion
+          || !matchesRoomIdentity(connection.document, context.claims)
+        ) {
+          connection.sendStateless(JSON.stringify({
+            type: 'degraded',
+            code: COLLABORATION_FAILURE_CODES.generationChanged,
+            message: 'The collaboration document generation changed. Reload to use the current document state.',
+          }));
+          connection.close();
+          return;
+        }
+        context.startupActivity?.assertOpen();
+        roomOwners?.fence(connection.document);
+        connection.sendStateless(JSON.stringify(durabilitySnapshotPayload(state)));
+      };
+      try {
+        if (context.startupActivity) await context.startupActivity.run(connect);
+        else await connect();
+      } catch (error) {
+        connection.readOnly = true;
         connection.close();
-        return;
+        throw error;
+      } finally {
+        context.startupActivity?.finish();
+        context.releaseRoomAdmission?.();
+        context.releaseRoomAdmission = null;
       }
-      roomOwners?.fence(connection.document);
-      connection.sendStateless(JSON.stringify(durabilitySnapshotPayload(state)));
     },
-    async onLoadDocument({ documentName, document }) {
-      const state = await loadCollaborationState(documentName);
-      if (!state) throw new Error('Collaboration document was not initialized.');
-      roomIdentities.set(document, { documentId: state.documentId, workspaceId: state.workspaceId,
-        organizationId: state.organizationId, path: state.path, lifecycleGeneration: state.lifecycleGeneration,
-        representation: state.representation, schemaVersion: state.schemaVersion });
-      if (roomOwners) {
-        try {
+    async onLoadDocument({ documentName, document, context }) {
+      try {
+        const state = await loadCollaborationState(documentName);
+        if (!state) throw new Error('Collaboration document was not initialized.');
+        roomIdentities.set(document, { documentId: state.documentId, workspaceId: state.workspaceId,
+          organizationId: state.organizationId, path: state.path, lifecycleGeneration: state.lifecycleGeneration,
+          representation: state.representation, schemaVersion: state.schemaVersion });
+        if (context?.claims) lastRoomContexts.set(document, { context, origin: null });
+        if (roomOwners) {
           await roomOwners.claim(document, state);
           // A previous owner's last row-locked store can finish while this
           // claim waits. Never load the pre-claim snapshot into the new room.
@@ -513,13 +569,15 @@ export function createCollaborationServer(server: http.Server, options: {
           // callback otherwise runs after the hook and can throw/leak a claim.
           Y.applyUpdate(document, latest.yjsState);
           return;
-        } catch (error) {
-          await roomOwners.release(document).catch(() => undefined);
-          document.destroy();
-          throw error;
         }
+        return state.yjsState;
+      } catch (error) {
+        // A failed load is not in Hocuspocus.documents yet: its normal unload
+        // is a no-op, so explicitly destroy even a pre-claim failure's Doc.
+        await roomOwners?.release(document).catch(() => undefined);
+        document.destroy();
+        throw error;
       }
-      return state.yjsState;
     },
     async beforeUnloadDocument({ documentName, document }) {
       if (roomOwners && !roomOwners.canUnload(document)) throw new Error();
@@ -617,7 +675,8 @@ export function createCollaborationServer(server: http.Server, options: {
         });
       }
     },
-    async onChange({ documentName, document, context }) {
+    async onChange({ documentName, document, context, transactionOrigin }) {
+      if (context?.claims) lastRoomContexts.set(document, { context, origin: transactionOrigin });
       if (context.actorType !== 'user') return;
       try {
         await withRoomActivity(documentName, async () => {
@@ -690,6 +749,7 @@ export function createCollaborationServer(server: http.Server, options: {
       );
     },
     async onDisconnect({ context, document }) {
+      context?.startupActivity?.finish();
       context?.releaseRoomAdmission?.();
       context?.stopAccessWatch?.();
       if (context) context.releaseRoomAdmission = null;
@@ -796,6 +856,72 @@ export function createCollaborationServer(server: http.Server, options: {
       }
     },
   });
+  if (roomOwners) {
+    const createDocument = hocuspocus.createDocument.bind(hocuspocus);
+    hocuspocus.createDocument = async (...args) => {
+      const startup = args[4]?.startupActivity;
+      if (!startup) return createDocument(...args);
+      startupPhases.set(startup, 'loading');
+      let loaded: Document | undefined;
+      try {
+        const document = await startup.run(async () => { loaded = await createDocument(...args); return loaded; });
+        startupPhases.set(startup, 'loaded');
+        return document;
+      } catch (error) {
+        // No disconnect hook exists when setup fails before Connection exists.
+        // A shared load is awaited above before releasing its startup activity.
+        try { if (loaded) await hocuspocus.unloadDocument(loaded); }
+        finally { startup.finish(); }
+        throw error;
+      }
+    };
+    const uninstallDrainer = installLocalCollaborationRoomDrainer(async (scope) => {
+      const { document, drain } = await withCollaborationRoomLifecycleLock(scope.documentId, async () => {
+        const document = hocuspocus.documents.get(scope.documentId);
+        // Empty/loading rooms require the future distributed admission guard;
+        // this local primitive must not falsely certify them as released.
+        // An existing normal unload may already have passed our asynchronous
+        // beforeUnload hook. Its final library check does not recheck this gate.
+        if (!document || document.isLoading || hocuspocus.unloadingDocuments.has(scope.documentId)) {
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+        }
+        assertRoomIdentity(document, scope);
+        const drain = roomOwners.beginTerminalDrain(document);
+        for (const connection of document.getConnections()) connection.readOnly = true;
+        for (const connection of document.getConnections()) {
+          connection.close({ code: 1013, reason: 'Collaboration document transition' });
+        }
+        return { document, drain };
+      });
+      // In particular, do not retain workspace/lifecycle/room/save locks while
+      // an already-admitted Direct operation is finishing its final store.
+      await drain.idle;
+      await withCollaborationRoomMutationLock(document, async () => {
+        if (hocuspocus.documents.get(scope.documentId) !== document || document.isDestroyed) {
+          throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+        }
+        assertRoomIdentity(document, scope);
+        const last = lastRoomContexts.get(document);
+        if (!last || document.getConnectionsCount() !== 0) throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+        await hocuspocus.storeDocumentHooks(document, {
+          instance: hocuspocus, document, documentName: scope.documentId, clientsCount: 0,
+          lastContext: last.context, lastTransactionOrigin: last.origin,
+        }, true);
+        // The library swallows store errors. Only SQL receipt validation of
+        // these exact frozen bytes can establish a successful durable release.
+        await drain.releaseDurably({ releaseId: randomUUID(),
+          yjsState: Y.encodeStateAsUpdate(document), stateVector: Y.encodeStateVector(document) });
+      });
+      // A previous, rejected normal unload may still occupy Hocuspocus's map.
+      await hocuspocus.unloadingDocuments.get(scope.documentId);
+      await hocuspocus.unloadDocument(document);
+      if (!document.isDestroyed || hocuspocus.documents.get(scope.documentId) === document) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      }
+      drain.finish();
+    });
+    server.once('close', uninstallDrainer);
+  }
   collaborationInstance = hocuspocus;
   installCollaborationRoomInspector((documentId) => {
     const room = hocuspocus.documents.get(documentId);
@@ -924,7 +1050,35 @@ export function createCollaborationServer(server: http.Server, options: {
     ) return reject(socket as net.Socket);
     request.url = nextUrl;
     wss.handleUpgrade(request, socket, head, (websocket) => {
-      const connection = hocuspocus.handleConnection(websocket, requestFromIncoming(request));
+      const abort = new AbortController();
+      const collaborationRequest = requestFromIncoming(request, abort.signal);
+      const transport = roomOwners ? {
+        get readyState() { return websocket.readyState; },
+        close(code?: number, reason?: string) { abort.abort(); websocket.close(code, reason); },
+        send(data: Parameters<typeof websocket.send>[0]) {
+          try {
+            // Hocuspocus has no setup-failure hook. Its denied response is the
+            // final boundary even if no Connection/disconnect hook was created.
+            if (data instanceof Uint8Array) {
+              const decoder = decoding.createDecoder(data);
+              const address = decoding.readVarString(decoder).split('\0', 1)[0];
+              if (decoding.readVarUint(decoder) === MessageType.Auth
+                && decoding.readVarUint(decoder) === AuthMessageType.PermissionDenied) {
+                // A closed socket can delete Hocuspocus's hook context after
+                // auth but before createDocument. Other phases finish in their
+                // own catch/disconnect; never settle a parallel loaded attempt.
+                if (collaborationRequest.signal.aborted) {
+                  for (const startup of pendingStartups.get(collaborationRequest)?.get(address) ?? []) {
+                    if (startupPhases.get(startup) === 'authenticated') startup.finish();
+                  }
+                }
+              }
+            }
+            websocket.send(data);
+          } catch (error) { abort.abort(); throw error; }
+        },
+      } : websocket;
+      const connection = hocuspocus.handleConnection(transport, collaborationRequest);
       websocket.on('message', (data) => {
         const bytes = data instanceof ArrayBuffer
           ? new Uint8Array(data)
@@ -934,9 +1088,11 @@ export function createCollaborationServer(server: http.Server, options: {
         connection.handleMessage(bytes);
       });
       websocket.on('close', (code, reason) => {
+        abort.abort();
         connection.handleClose({ code, reason: reason.toString() } as CloseEvent);
       });
       websocket.on('error', (error) => {
+        abort.abort();
         console.error('[Collaboration] WebSocket peer error:', error);
       });
     });

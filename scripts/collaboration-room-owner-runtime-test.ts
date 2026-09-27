@@ -6,6 +6,10 @@ import {
   type CollaborationRoomOwnerFence,
   type CollaborationRoomOwnerScope,
 } from '../app/lib/collaboration/room-owner';
+import type {
+  CollaborationRoomReleaseReceipt,
+  CollaborationRoomReleaseSnapshot,
+} from '../app/lib/collaboration/room-owner-release';
 import { createCollaborationRoomOwnerRuntime } from '../app/lib/collaboration/room-owner-runtime';
 
 function deferred<T = void>() {
@@ -47,6 +51,14 @@ function makeDoc(name: string): Y.Doc {
   return document;
 }
 
+function releaseSnapshot(document: Y.Doc, releaseId: string): CollaborationRoomReleaseSnapshot {
+  return {
+    releaseId,
+    yjsState: Y.encodeStateAsUpdate(document),
+    stateVector: Y.encodeStateVector(document),
+  };
+}
+
 function lostError(error: unknown): boolean {
   return error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_LOST';
 }
@@ -68,8 +80,10 @@ type ReleaseBlock = {
 class FakeOwnerSession {
   readonly acquireCalls: CollaborationRoomOwnerScope[] = [];
   readonly releaseCalls: CollaborationRoomOwnerFence[] = [];
+  readonly releaseSnapshots: Array<CollaborationRoomReleaseSnapshot | undefined> = [];
   readonly active = new Map<string, CollaborationRoomOwnerFence>();
   closeCalls = 0;
+  closeError: Error | null = null;
   probeCalls = 0;
   probeError: Error | null = null;
   blockAcquire: AcquireBlock | null = null;
@@ -107,8 +121,9 @@ class FakeOwnerSession {
     return fence;
   }
 
-  async release(fence: CollaborationRoomOwnerFence): Promise<void> {
+  async release(fence: CollaborationRoomOwnerFence, snapshot?: CollaborationRoomReleaseSnapshot): Promise<void> {
     this.releaseCalls.push(fence);
+    this.releaseSnapshots.push(snapshot);
     const barrier = this.blockRelease;
     if (barrier?.token === fence.token) {
       this.blockRelease = null;
@@ -137,10 +152,14 @@ class FakeOwnerSession {
     this.closeCalls += 1;
     this.active.clear();
     this.onInvalidated();
+    if (this.closeError) throw this.closeError;
   }
 }
 
-function harness(heartbeatMs = 60) {
+function harness(heartbeatMs = 60, recoverRelease?: (input: {
+  fence: CollaborationRoomOwnerFence;
+  snapshot: CollaborationRoomReleaseSnapshot;
+}) => Promise<CollaborationRoomReleaseReceipt>) {
   let session: FakeOwnerSession | undefined;
   let createCalls = 0;
   const lostDocuments: Y.Doc[] = [];
@@ -151,6 +170,7 @@ function harness(heartbeatMs = 60) {
       session = new FakeOwnerSession(onInvalidated);
       return session;
     },
+    recoverRelease,
     onLost: (document) => { lostDocuments.push(document); },
   });
   return {
@@ -294,6 +314,8 @@ async function testFailedClaimCleanupAndExplicitReleaseAfterLoadFailure() {
     await runtime.release(recoveredDocument);
     assert.equal(session!.releaseCalls.length, 1,
       'the caller explicitly releases ownership when its subsequent document load fails');
+    assert.equal(session!.releaseSnapshots[0], undefined,
+      'ordinary cleanup release never fabricates a durable snapshot receipt');
     assert.throws(() => runtime.fence(recoveredDocument), lostError);
   } finally {
     await cleanup(runtime, [failedDocument, recoveredDocument]);
@@ -389,6 +411,240 @@ async function testReleaseFailureAndSessionLossFailClosedForEveryRoom() {
     assert.equal(lossHarness.session.acquireCalls.length, 2);
   } finally {
     await cleanup(lossHarness.runtime, [...liveRooms, newRoom]);
+  }
+}
+
+async function testTerminalDrainCopiesSnapshotAndReopensOnlyAfterDurableDestroy() {
+  const h = harness();
+  const document = makeDoc('terminal-durable');
+  const sameIdCandidate = makeDoc('terminal-durable');
+  const replacement = makeDoc('terminal-durable');
+  const releaseEntered = deferred();
+  const allowRelease = deferred();
+  try {
+    const fence = await h.runtime.claim(document, ownerScope('terminal-durable'));
+    const activity = h.runtime.admitActivity('terminal-durable');
+    const drain = h.runtime.beginTerminalDrain(document);
+    assert.equal(h.runtime.isDraining('terminal-durable'), true);
+    assert.equal(h.runtime.canUnload(document), false);
+    assert.equal(h.runtime.fence(document), fence,
+      'terminal quiescence retains the owner fence for the final store');
+    assert.throws(() => h.runtime.beginTerminalDrain(document),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.throws(() => h.runtime.beginTerminalDrain(sameIdCandidate), lostError,
+      'a terminal handle is bound to the exact claimed Y.Doc');
+    await assert.rejects(h.runtime.claim(sameIdCandidate, ownerScope('terminal-durable')),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY',
+      'the draining document ID cannot be claimed by another instance');
+    await assert.rejects(drain.releaseDurably(releaseSnapshot(
+      document, '11111111-1111-4111-8111-111111111111',
+    )), (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY',
+    'durable release is rejected until every admitted activity is idle');
+    assert.equal(h.session.releaseCalls.length, 0);
+
+    activity.release();
+    await bounded(drain.idle, 'terminal activity quiescence');
+    assert.equal(h.runtime.fence(document), fence,
+      'the final store can still use the exact fence after activity quiescence');
+    assert.throws(() => drain.finish(),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+    assert.throws(() => drain.releaseDurably({
+      releaseId: '55555555-5555-4555-8555-555555555555',
+      yjsState: new Uint8Array(),
+      stateVector: Uint8Array.of(1),
+    }), /verified durable release/u,
+    'invalid release bytes are rejected synchronously before revoking the fence');
+    assert.equal(h.runtime.fence(document), fence);
+
+    const input = releaseSnapshot(document, '22222222-2222-4222-8222-222222222222');
+    const expectedUpdate = new Uint8Array(input.yjsState);
+    const expectedVector = new Uint8Array(input.stateVector);
+    h.session.blockRelease = {
+      token: fence.token,
+      entered: releaseEntered.resolve,
+      wait: allowRelease.promise,
+    };
+    const release = drain.releaseDurably(input);
+    input.yjsState.fill(0);
+    input.stateVector.fill(0);
+    await bounded(releaseEntered.promise, 'terminal owner release acknowledgement');
+    assert.throws(() => h.runtime.fence(document), lostError,
+      'calling releaseDurably revokes the runtime fence before awaiting SQL');
+    assert.equal(h.runtime.canUnload(document), false,
+      'an unacknowledged durable release is not unloadable');
+    assert.deepEqual(h.session.releaseSnapshots[0]?.yjsState, expectedUpdate,
+      'releaseDurably copies update bytes synchronously');
+    assert.deepEqual(h.session.releaseSnapshots[0]?.stateVector, expectedVector,
+      'releaseDurably copies vector bytes synchronously');
+    const waitingClaim = h.runtime.claim(sameIdCandidate, ownerScope('terminal-durable'));
+    void waitingClaim.catch(() => undefined);
+    await Promise.resolve();
+    assert.equal(h.session.acquireCalls.length, 1,
+      'a new claim waits for the terminal release acknowledgement');
+    allowRelease.resolve();
+    await bounded(release, 'terminal durable owner release');
+    assert.deepEqual(h.lostDocuments, [], 'an acknowledged terminal release does not invalidate the owner session');
+    await assert.rejects(waitingClaim,
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY',
+      'an acknowledged release still cannot reopen the ID before finish');
+    assert.equal(h.runtime.canUnload(document), true,
+      'only the exact durably released Y.Doc becomes unloadable');
+    assert.equal(h.runtime.canUnload(sameIdCandidate), true,
+      'an unrelated unclaimed Y.Doc has no runtime quarantine state');
+    assert.throws(() => drain.finish(),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY',
+      'finish cannot reopen the ID before the released Y.Doc is destroyed');
+    await assert.rejects(h.runtime.claim(sameIdCandidate, ownerScope('terminal-durable')),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+
+    document.destroy();
+    await Promise.resolve();
+    assert.equal(h.session.releaseCalls.length, 1,
+      'destroy after durable proof does not trigger a second legacy release');
+    drain.finish();
+    assert.equal(h.runtime.isDraining('terminal-durable'), false);
+    const replacementFence = await h.runtime.claim(replacement, ownerScope('terminal-durable'));
+    drain.finish();
+    await drain.releaseDurably(input);
+    assert.equal(h.runtime.fence(replacement), replacementFence,
+      'a completed stale drain handle cannot affect the replacement room');
+    assert.equal(h.session.releaseCalls.length, 1,
+      'reusing a completed drain handle does not issue another owner release');
+  } finally {
+    allowRelease.resolve();
+    await cleanup(h.runtime, [document, sameIdCandidate, replacement]);
+  }
+}
+
+async function testTerminalDrainRecoversOnlyAfterClosingLostSession() {
+  let ownerSessionCloseCalls = () => 0;
+  const recoveryCalls: Array<{
+    fence: CollaborationRoomOwnerFence;
+    snapshot: CollaborationRoomReleaseSnapshot;
+  }> = [];
+  const h = harness(60, async (input) => {
+    assert.equal(ownerSessionCloseCalls(), 1,
+      'receipt recovery starts only after the uncertain owner session is closed');
+    recoveryCalls.push(input);
+    return { release_id: input.snapshot.releaseId } as CollaborationRoomReleaseReceipt;
+  });
+  ownerSessionCloseCalls = () => h.session.closeCalls;
+  const document = makeDoc('terminal-recovered');
+  const sibling = makeDoc('terminal-recovery-sibling');
+  try {
+    const [fence] = await Promise.all([
+      h.runtime.claim(document, ownerScope('terminal-recovered')),
+      h.runtime.claim(sibling, ownerScope('terminal-recovery-sibling')),
+    ]);
+    const drain = h.runtime.beginTerminalDrain(document);
+    await drain.idle;
+    h.session.blockRelease = {
+      token: fence.token,
+      entered: () => undefined,
+      wait: Promise.resolve(),
+      error: new Error('lost terminal release acknowledgement'),
+    };
+    const input = releaseSnapshot(document, '33333333-3333-4333-8333-333333333333');
+    await drain.releaseDurably(input);
+    assert.equal(h.session.closeCalls, 1);
+    assert.deepEqual(h.lostDocuments, [document, sibling],
+      'session close quarantines every room before recovery proves one release');
+    assert.equal(recoveryCalls.length, 1);
+    assert.equal(recoveryCalls[0].fence, fence);
+    assert.notEqual(recoveryCalls[0].snapshot, input);
+    assert.equal(h.runtime.canUnload(document), true,
+      'positive receipt recovery makes only the old terminal Y.Doc unloadable');
+    assert.equal(h.runtime.canUnload(sibling), false,
+      'other rooms on the lost session remain quarantined');
+    assert.throws(() => h.runtime.fence(sibling), lostError);
+    document.destroy();
+    drain.finish();
+    assert.equal(h.session.releaseCalls.length, 1);
+  } finally {
+    await cleanup(h.runtime, [document, sibling]);
+  }
+}
+
+async function testTerminalDrainRejectsUnprovenRecoveryAndLegacyAbandon() {
+  let recoverySawClosedSession = false;
+  let ownerSessionCloseCalls = () => 0;
+  const h = harness(60, async () => {
+    recoverySawClosedSession = ownerSessionCloseCalls() === 1;
+    throw new Error('release receipt not found');
+  });
+  ownerSessionCloseCalls = () => h.session.closeCalls;
+  const document = makeDoc('terminal-unproven');
+  const sibling = makeDoc('terminal-unproven-sibling');
+  try {
+    const [fence] = await Promise.all([
+      h.runtime.claim(document, ownerScope('terminal-unproven')),
+      h.runtime.claim(sibling, ownerScope('terminal-unproven-sibling')),
+    ]);
+    const drain = h.runtime.beginTerminalDrain(document);
+    await drain.idle;
+    await assert.rejects(h.runtime.release(document),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY',
+      'legacy snapshot-less release cannot abandon an unfinished terminal drain');
+    assert.equal(h.session.releaseCalls.length, 0);
+    h.session.blockRelease = {
+      token: fence.token,
+      entered: () => undefined,
+      wait: Promise.resolve(),
+      error: new Error('uncertain release'),
+    };
+    await assert.rejects(drain.releaseDurably(releaseSnapshot(
+      document, '44444444-4444-4444-8444-444444444444',
+    )), /release receipt not found/u);
+    assert.equal(recoverySawClosedSession, true);
+    assert.equal(h.runtime.canUnload(document), false,
+      'failed receipt recovery retains the terminal room quarantine');
+    assert.equal(h.runtime.canUnload(sibling), false);
+    document.destroy();
+    await Promise.resolve();
+    assert.equal(h.session.releaseCalls.length, 1,
+      'destroy cannot fall back to a second snapshot-less release');
+    assert.throws(() => drain.finish(),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+  } finally {
+    await cleanup(h.runtime, [document, sibling]);
+  }
+}
+
+async function testTerminalDrainDoesNotRecoverUntilSessionCloseIsProven() {
+  let recoveryCalls = 0;
+  const h = harness(60, async (input) => {
+    recoveryCalls += 1;
+    return { release_id: input.snapshot.releaseId } as CollaborationRoomReleaseReceipt;
+  });
+  const document = makeDoc('terminal-close-failure');
+  try {
+    const fence = await h.runtime.claim(document, ownerScope('terminal-close-failure'));
+    const drain = h.runtime.beginTerminalDrain(document);
+    await drain.idle;
+    const releaseError = new Error('uncertain terminal release');
+    const closeError = new Error('owner backend close failed');
+    h.session.blockRelease = {
+      token: fence.token,
+      entered: () => undefined,
+      wait: Promise.resolve(),
+      error: releaseError,
+    };
+    h.session.closeError = closeError;
+    await assert.rejects(drain.releaseDurably(releaseSnapshot(
+      document, '66666666-6666-4666-8666-666666666666',
+    )), (error) => error instanceof AggregateError
+      && error.errors[0] === releaseError && error.errors[1] === closeError);
+    assert.equal(h.session.closeCalls, 1);
+    assert.equal(recoveryCalls, 0,
+      'receipt recovery never overlaps an owner backend whose close failed');
+    assert.equal(h.runtime.canUnload(document), false,
+      'failed backend-close proof leaves the exact terminal room quarantined');
+    assert.equal(h.runtime.isDraining('terminal-close-failure'), true,
+      'a failed terminal release never reopens room activity admission');
+    assert.throws(() => drain.finish(),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY');
+  } finally {
+    await cleanup(h.runtime, [document]);
   }
 }
 
@@ -507,10 +763,14 @@ async function main() {
   await testFailedClaimCleanupAndExplicitReleaseAfterLoadFailure();
   await testNewInstanceWaitsForReleaseAcknowledgement();
   await testReleaseFailureAndSessionLossFailClosedForEveryRoom();
+  await testTerminalDrainCopiesSnapshotAndReopensOnlyAfterDurableDestroy();
+  await testTerminalDrainRecoversOnlyAfterClosingLostSession();
+  await testTerminalDrainRejectsUnprovenRecoveryAndLegacyAbandon();
+  await testTerminalDrainDoesNotRecoverUntilSessionCloseIsProven();
   await testLateFactoryResultIsClosedAfterDispose();
   await testHeartbeatKeepsOnlyOneProbeInFlight();
   await testFailedHeartbeatProbeInvalidatesEveryRoom();
-  console.log('collaboration room-owner runtime tests passed (8 scenarios)');
+  console.log('collaboration room-owner runtime tests passed (12 scenarios)');
 }
 
 main().catch((error: unknown) => {
