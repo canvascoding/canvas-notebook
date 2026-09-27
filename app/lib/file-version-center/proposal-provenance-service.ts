@@ -75,7 +75,8 @@ export type ProposalRelationshipPolicy = (input: {
   apply(node: ProposalNodeV1): Promise<void>;
 }>;
 export type ProposalProvenanceDependencies = {
-  withTransaction<T>(scope: ProposalDocumentScopeV1, action: (transaction: ProposalProvenanceTransaction) => Promise<T>): Promise<T>;
+  withTransaction<T>(scope: ProposalDocumentScopeV1, action: (transaction: ProposalProvenanceTransaction) => Promise<T>,
+    intent: 'read' | 'create_operation'): Promise<T>;
   /** Domain policy must cover document access and target-specific management separately. */
   authorize(input: ProposalProvenanceAuthorization): Promise<void>;
   relationshipPolicy?: ProposalRelationshipPolicy;
@@ -281,7 +282,7 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
         const inserted = await transaction.graph.insertProposal(node);
         return { node: inserted, proposal: creationResult(inserted, 'independent'), reused: false,
           authoringPreview: preview(sourceView.content, authored.content) };
-      });
+      }, 'create_operation');
     },
     async readExact(input: { scope: ProposalDocumentScopeV1; proposalId: string | null }): Promise<{
       metadata: ProposalToolReadResultV1; content: string; structure: ProposalProvenanceStructure; sourceStateVector: string;
@@ -318,7 +319,7 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
         return { ...result, sourceStateVector: Buffer.from(Y.encodeStateVectorFromUpdate(sourceUpdate)).toString('base64'),
           metadata: parseProposalToolReadResultV1({ contractVersion: 1, source,
           contentSha256: hash(result.content), graphRevision: graph.graphRevision }) };
-      });
+      }, 'read');
     },
 
     async create(input: {
@@ -357,6 +358,10 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
           return { node, proposal: creationResult({ ...node, relationships: existing.authoredRelationships }, request.creationKind),
             reused: true, authoringPreview: await storedPreview(transaction, node) };
         }
+        // Recheck new-write authorization after any owner-lock wait, before
+        // current content or new artifacts are prepared. Exact retries above
+        // retain their read-only route through the same transaction.
+        await dependencies.authorize({ scope: input.scope, action: 'create', proposalIds: referencedIds });
         if ((request.replaces || request.choice) && !dependencies.relationshipPolicy) fail(Codes.upgradeRequired, 'Relationship mutation requires the graph-aware domain orchestrator.');
         const graph = await transaction.graph.loadGraph({ includeProposalIds: referencedIds }); sameScope(graph.scope, input.scope);
         await dependencies.authorize({ scope: input.scope, action: 'read', proposalIds: referencedIds });
@@ -443,7 +448,7 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
         const final = await transaction.graph.getProposal(proposalId);
         if (!final || final.operationId !== operationId) fail(Codes.recoveryRequired, 'Atomic proposal insertion was not completed.');
         return { node: final, proposal: creationResult(final, request.creationKind), reused: false, authoringPreview: preview(sourceView.content, authored.content) };
-      });
+      }, 'create_operation');
     },
   };
 }

@@ -1496,6 +1496,7 @@ export async function prepareProposalAgentOperation(input: {
   const created = await createOrLoadOperation({
     ...input, database, requestedMode: 'review', operationType: 'apply',
     independentGroups: false, runGeneration: 1, directEditGrantId: null,
+    loadState: (documentId) => loadCollaborationStateOnConnection(database, documentId),
   });
   if (!created.created || created.row.operation_id !== input.operationId) {
     // Retry lookup belongs before source preparation in the provenance service.

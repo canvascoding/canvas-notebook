@@ -3,11 +3,14 @@ import 'server-only';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
 
+import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
-import { readPostgresWorkspaceForActor } from '../workspaces/postgres-runtime';
-import { resolveAgentExecutionContextForStoredSession, workspaceFromAgentExecutionContext } from '../pi/session-workspace-context';
-import { loadCollaborationState } from '../collaboration/persistence';
+import { resolveWorkspaceActor } from '../workspaces/context';
+import { findPostgresUserById, readPostgresWorkspaceForActor, readPostgresWorkspaceForActorOnConnection } from '../workspaces/postgres-runtime';
+import { readStoredAgentWorkspaceOnConnection, resolveAgentExecutionContextForStoredSession, workspaceFromAgentExecutionContext } from '../pi/session-workspace-context';
+import { loadCollaborationState, loadCollaborationStateOnConnection } from '../collaboration/persistence';
 import { readCurrentCollaborationDocument } from '../collaboration/document-access';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from '../collaboration/room-admission';
 import { prepareProposalAgentOperation } from '../collaboration/agent-operations';
 import { Y } from '../collaboration/server-runtime';
 import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterTransaction } from './database';
@@ -68,21 +71,50 @@ type ExistingOperation = {
   authored_relationships: ProposalRelationshipsV1 | null;
 };
 
+/** Read-only view; ownership and transaction boundaries stay with the runtime. */
+function transactionReader(sql: FileVersionCenterTransaction): SqlConnection {
+  return {
+    get: async (statement, params) => (await sql.query(statement, params)).rows[0],
+    all: async (statement, params) => (await sql.query(statement, params)).rows,
+    run: () => { throw new Error('A scoped proposal reader cannot write.'); },
+    close: () => { throw new Error('A scoped proposal reader cannot release its owner connection.'); },
+  };
+}
+
 /** Internal adapter, not a rollout switch. Public tool entrypoints must call the guard above. */
 export async function createRuntimeProposalAgentService(input: {
   workspace: WorkspaceContext; documentId: string; path: string;
   identity: { initiatedByUserId: string; actorId: string; actorSessionId?: string };
 }) {
+  input = { ...input, identity: { ...input.identity }, workspace: { ...input.workspace,
+    permissions: { ...input.workspace.permissions }, actor: input.workspace.actor ? { ...input.workspace.actor } : undefined } };
   const { workspace, identity } = input;
   const database = createRuntimeFileVersionCenterDatabase();
-  const activeTransaction = new AsyncLocalStorage<FileVersionCenterTransaction>();
+  const activeTransaction = new AsyncLocalStorage<{
+    sql: FileVersionCenterTransaction; reader: SqlConnection; canCreateOperation: boolean;
+  }>();
   const query = <T>(action: (sql: FileVersionCenterTransaction) => Promise<T>): Promise<T> => {
     const active = activeTransaction.getStore();
-    return active ? action(active) : database.transaction(action);
+    return active ? action(active.sql) : database.transaction(action);
   };
   const freshWorkspace = async (write: boolean): Promise<WorkspaceContext> => {
     try {
-      const fresh = identity.actorSessionId
+      const reader = activeTransaction.getStore()?.reader;
+      let fresh: WorkspaceContext | null;
+      if (reader) {
+        if (identity.actorSessionId) {
+          fresh = await readStoredAgentWorkspaceOnConnection(reader, {
+            sessionId: identity.actorSessionId, userId: identity.initiatedByUserId, agentId: identity.actorId,
+            workspaceId: workspace.workspaceId,
+            permissions: write ? ['canRead', 'canRunAgent', 'canWrite'] : ['canRead', 'canRunAgent'],
+          });
+        } else {
+          const user = await findPostgresUserById(reader, identity.initiatedByUserId);
+          if (!user) fail(Codes.accessDenied, 'The originating user is unavailable.');
+          fresh = await readPostgresWorkspaceForActorOnConnection(reader,
+            resolveWorkspaceActor({ id: user.id, email: user.email, role: user.role }), workspace.workspaceId);
+        }
+      } else fresh = identity.actorSessionId
         ? workspaceFromAgentExecutionContext(await resolveAgentExecutionContextForStoredSession({
           sessionId: identity.actorSessionId, userId: identity.initiatedByUserId, agentId: identity.actorId,
           permissions: write ? ['canRead', 'canRunAgent', 'canWrite'] : ['canRead', 'canRunAgent'],
@@ -136,7 +168,15 @@ export async function createRuntimeProposalAgentService(input: {
   const authorize = async (request: ProposalProvenanceAuthorization) => {
     sameScope(request.scope);
     const fresh = await freshWorkspace(request.action !== 'read');
-    if (request.action === 'create') assertProposalCreationEnabled(scope.workspaceId);
+    if (request.action === 'create') {
+      assertProposalCreationEnabled(scope.workspaceId);
+      const owner = activeTransaction.getStore();
+      if (owner) {
+        if (!owner.canCreateOperation) fail(Codes.accessDenied, 'A read transaction cannot create an operation.');
+        await assertCollaborationAdmissionOpen(async (statement, params) => (await owner.sql.query(statement, params)).rows,
+          { workspaceId: scope.workspaceId, documentId: scope.documentId, path: input.path });
+      }
+    }
     if (!request.proposalIds.length) return;
     const rows = await query(async (sql) => (await sql.query<{
       proposal_id: string; initiated_by_user_id: string; actor_id: string;
@@ -175,56 +215,77 @@ export async function createRuntimeProposalAgentService(input: {
     && row.initiated_by_user_id === identity.initiatedByUserId
     && row.actor_session_id === (identity.actorSessionId ?? null)
     && row.operation_type === 'apply' && row.requested_mode === 'review');
-  const storage = createProposalGraphStorage({ database });
+  // The storage adapter joins the outer owner transaction; it never borrows a
+  // second client while the admission/graph/identity locks are held.
+  const storage = createProposalGraphStorage({ database: { transaction: query } });
   const service = createProposalProvenanceService({ authorize,
     relationshipPolicy: createProposalToolRelationshipPolicy({ authorize }),
-    withTransaction: (requestedScope, action) => {
+    withTransaction: (requestedScope, action, intent) => {
       sameScope(requestedScope);
-      return storage.withLockedGraph(scope, {}, (graph, sql) => activeTransaction.run(sql, async () => {
-        // Locks persist through graph+operation commit. They protect durable
-        // identity/sequence, not in-memory room edits; those are compared below.
-        const locked = await readScopedRow(sql, true);
-        if (locked.lineage_id !== scope.lineageId) fail(Codes.staleLifecycle, 'Document lineage changed.');
-        let expectedCurrent: ProposalCurrentProofV1 | null = null;
-        const loadCurrent = async () => {
-          const row = await readScopedRow(sql, true);
-          if (row.lineage_id !== scope.lineageId || Number(row.document_sequence) !== Number(locked.document_sequence)) fail(Codes.currentChanged, 'Persisted document sequence changed during preparation.');
-          const update = await readCurrentCollaborationDocument({ documentId: scope.documentId, workspaceId: scope.workspaceId,
-            read: (doc) => Y.encodeStateAsUpdate(doc) });
-          const current = proposalYjsCurrentProof({ update, representation: state.representation, revisionId: null });
-          if (expectedCurrent && !isDeepStrictEqual(expectedCurrent, current)) fail(Codes.currentChanged, 'Live document changed during proposal preparation.');
-          expectedCurrent ??= current;
-          return { scope, representation: state.representation, revisionId: null, update };
-        };
-        const result = await action({ graph, loadCurrent,
-          lookupOperation: async ({ idempotencyKey, requestDigest }) => {
-            const row = await readStoredOperation(sql, idempotencyKey);
-            if (!row) return null;
-            let receipt: { fingerprint?: unknown } | null = null;
-            try { receipt = typeof row.file_edit_request_json === 'string' ? JSON.parse(row.file_edit_request_json) : row.file_edit_request_json; } catch { /* fail closed below */ }
-            if (!validStoredGraphOperation(row) || receipt?.fingerprint !== requestDigest) fail(Codes.idempotencyMismatch, 'The operation retry does not match its exact scoped proposal request.');
-            return { operationId: row.operation_id, proposalId: row.proposal_id!, authoredRelationships: row.authored_relationships! };
-          },
-          insertPreparedOperation: async (prepared) => {
-            sameScope(prepared.scope);
-            const fresh = await freshWorkspace(true);
-            assertProposalCreationEnabled(scope.workspaceId);
-            await loadCurrent();
-            if (!isDeepStrictEqual(prepared.source.current, expectedCurrent) || prepared.representation !== state.representation || !prepared.reviewRequired) {
-              fail(Codes.currentChanged, 'Prepared operation is not bound to the checked current document.');
-            }
-            await prepareProposalAgentOperation({ transaction: sql, operationId: prepared.operationId, documentId: scope.documentId,
-              workspace: fresh, initiatedByUserId: identity.initiatedByUserId, actorId: identity.actorId, actorSessionId: identity.actorSessionId,
-              idempotencyKey: prepared.idempotencyKey, targets: prepared.targets, documentPath: input.path,
-              documentRepresentation: state.representation, documentLifecycleGeneration: scope.lifecycleGeneration, documentSchemaVersion: scope.schemaVersion,
-              baseStateVector: prepared.sourceStateVector, baseDocumentSequence: Number(locked.document_sequence),
-              fileEditRequest: { fingerprint: prepared.requestDigest, beforeSha256: prepared.beforeSha256, proposedSha256: prepared.proposedSha256 } });
-          },
+      return database.transaction((sql) => activeTransaction.run({ sql, reader: transactionReader(sql),
+        canCreateOperation: intent === 'create_operation' }, async () => {
+        if (intent === 'create_operation') {
+          await lockCollaborationAdmissionWorkspace(async (statement, params) =>
+            (await sql.query(statement, params)).rows, scope.workspaceId);
+        }
+        // A permission/session revocation while waiting must not be hidden by
+        // the preflight authorization. Exact retries still need read access.
+        await freshWorkspace(false);
+        return storage.withLockedGraph(scope, {}, async (graph) => {
+          // Locks persist through graph+operation commit. They protect durable
+          // identity/sequence, not in-memory room edits; those are compared below.
+          const locked = await readScopedRow(sql, true);
+          if (locked.lineage_id !== scope.lineageId) fail(Codes.staleLifecycle, 'Document lineage changed.');
+          let expectedCurrent: ProposalCurrentProofV1 | null = null;
+          const loadCurrent = async () => {
+            const row = await readScopedRow(sql, true);
+            if (row.lineage_id !== scope.lineageId || Number(row.document_sequence) !== Number(locked.document_sequence)) fail(Codes.currentChanged, 'Persisted document sequence changed during preparation.');
+            const update = await readCurrentCollaborationDocument({ documentId: scope.documentId, workspaceId: scope.workspaceId,
+              loadState: (documentId) => loadCollaborationStateOnConnection(activeTransaction.getStore()!.reader, documentId),
+              read: (doc) => Y.encodeStateAsUpdate(doc) });
+            const current = proposalYjsCurrentProof({ update, representation: state.representation, revisionId: null });
+            if (expectedCurrent && !isDeepStrictEqual(expectedCurrent, current)) fail(Codes.currentChanged, 'Live document changed during proposal preparation.');
+            expectedCurrent ??= current;
+            return { scope, representation: state.representation, revisionId: null, update };
+          };
+          const result = await action({ graph, loadCurrent,
+            lookupOperation: async ({ idempotencyKey, requestDigest }) => {
+              const row = await readStoredOperation(sql, idempotencyKey);
+              if (!row) return null;
+              let receipt: { fingerprint?: unknown } | null = null;
+              try { receipt = typeof row.file_edit_request_json === 'string' ? JSON.parse(row.file_edit_request_json) : row.file_edit_request_json; } catch { /* fail closed below */ }
+              if (!validStoredGraphOperation(row) || receipt?.fingerprint !== requestDigest) fail(Codes.idempotencyMismatch, 'The operation retry does not match its exact scoped proposal request.');
+              return { operationId: row.operation_id, proposalId: row.proposal_id!, authoredRelationships: row.authored_relationships! };
+            },
+            insertPreparedOperation: async (prepared) => {
+              sameScope(prepared.scope);
+              const owner = activeTransaction.getStore();
+              if (!owner?.canCreateOperation || owner.sql !== sql) {
+                fail(Codes.accessDenied, 'Operation creation requires its owning admission transaction.');
+              }
+              const fresh = await freshWorkspace(true);
+              assertProposalCreationEnabled(scope.workspaceId);
+              await loadCurrent();
+              if (!isDeepStrictEqual(prepared.source.current, expectedCurrent) || prepared.representation !== state.representation || !prepared.reviewRequired) {
+                fail(Codes.currentChanged, 'Prepared operation is not bound to the checked current document.');
+              }
+              // Only a new operation needs admission. Durable, exact retries have
+              // already returned without reading today's candidate or this gate.
+              await assertCollaborationAdmissionOpen(async (statement, params) => (await sql.query(statement, params)).rows,
+                { workspaceId: scope.workspaceId, documentId: scope.documentId, path: input.path });
+              await prepareProposalAgentOperation({ transaction: sql, operationId: prepared.operationId, documentId: scope.documentId,
+                workspace: fresh, initiatedByUserId: identity.initiatedByUserId, actorId: identity.actorId, actorSessionId: identity.actorSessionId,
+                idempotencyKey: prepared.idempotencyKey, targets: prepared.targets, documentPath: input.path,
+                documentRepresentation: state.representation, documentLifecycleGeneration: scope.lifecycleGeneration, documentSchemaVersion: scope.schemaVersion,
+                baseStateVector: prepared.sourceStateVector, baseDocumentSequence: Number(locked.document_sequence),
+                fileEditRequest: { fingerprint: prepared.requestDigest, beforeSha256: prepared.beforeSha256, proposedSha256: prepared.proposedSha256 } });
+            },
+          });
+          // Retry-only reads intentionally do not consult today's candidate. Any
+          // newly evaluated/prepared content, however, must still match its read.
+          if (expectedCurrent) await loadCurrent();
+          return result;
         });
-        // Retry-only reads intentionally do not consult today's candidate. Any
-        // newly evaluated/prepared content, however, must still match its read.
-        if (expectedCurrent) await loadCurrent();
-        return result;
       }));
     },
   });

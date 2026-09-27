@@ -116,13 +116,32 @@ async function harness() {
   let reviewCenterWritable = true;
   let sessionAvailable = true;
   const sessionCalls: Array<{ sessionId: string; userId: string; agentId: string; permissions: string[] }> = [];
+  const sessionIdentities = new Set<string>();
+  const scopedSessionCalls: Array<{ reader: unknown; input: Record<string, unknown> }> = [];
+  const scopedWorkspaceCalls: Array<{ reader: unknown; actor: unknown; workspaceId: string }> = [];
+  let transactionStateReads = 0;
+  let liveReads = 0;
+  let liveUnavailable = false;
   const directAuthCalls: Array<{ userId: string; role: string }> = [];
   const forbiddenCalls: string[] = [];
   const forbidden = (name: string) => () => { forbiddenCalls.push(name); throw new Error(`Unexpected ${name}`); };
-  const loadState = async (documentId: string) => { assert.equal(documentId, scope.documentId); return { ...state }; };
+  const loadState = async (documentId: string) => {
+    assert.equal(activeSql, null, 'default state loads must not open a second connection under the graph transaction');
+    assert.equal(documentId, scope.documentId); return { ...state };
+  };
+  const loadStateOnConnection = async (reader: { get: (sql: string, params?: unknown[]) => Promise<unknown> }, documentId: string) => {
+    assert.ok(activeSql, 'current document state stays in the graph-owner transaction');
+    assert.equal(documentId, scope.documentId);
+    transactionStateReads++;
+    const persisted = await reader.get('SELECT document_id FROM collaboration_yjs_states WHERE document_id=$1', [documentId]) as { document_id: string };
+    assert.equal(persisted.document_id, scope.documentId);
+    return { ...state };
+  };
   process.env.CANVAS_COLLABORATION_TICKET_SECRET ??= 'proposal-runtime-test-secret-not-for-production';
   const bridge = compile<AgentBridge>('app/lib/collaboration/agent-operations.ts', {
-    '@/app/lib/db': { openDb: forbidden('openDb') }, './persistence': { loadCollaborationState: loadState },
+    '@/app/lib/db': { openDb: forbidden('openDb') }, './persistence': {
+      loadCollaborationState: loadState, loadCollaborationStateOnConnection: loadStateOnConnection,
+    },
     './server-runtime': { Y },
     '@/app/lib/file-version-center/agent-review-policy-adapter': {
       authorizeNewAgentDirectApply: forbidden('authorizeNewAgentDirectApply'),
@@ -143,23 +162,55 @@ async function harness() {
   });
   const runtime = compile<Runtime>('app/lib/file-version-center/proposal-agent-runtime.ts', {
     './database': { createRuntimeFileVersionCenterDatabase: () => database },
-    '../workspaces/postgres-runtime': { readPostgresWorkspaceForActor: async (actor: { userId: string; role: string }, workspaceId: string) => {
-      directAuthCalls.push(actor); assert.equal(workspaceId, scope.workspaceId); return freshWorkspace;
-    } },
+    '../workspaces/postgres-runtime': {
+      findPostgresUserById: async (reader: unknown, userId: string) => {
+        assert.ok(activeSql, 'sessionless authorization uses the existing graph transaction');
+        assert.ok(reader && typeof reader === 'object' && 'get' in reader && 'all' in reader);
+        assert.equal(userId, identity.initiatedByUserId);
+        return { id: identity.initiatedByUserId, email: 'member@example.test', role: 'member' };
+      },
+      readPostgresWorkspaceForActorOnConnection: async (reader: unknown, actor: unknown, workspaceId: string) => {
+        assert.ok(activeSql, 'workspace lookup uses the existing graph transaction');
+        scopedWorkspaceCalls.push({ reader, actor, workspaceId });
+        assert.equal(workspaceId, scope.workspaceId); return freshWorkspace;
+      },
+      readPostgresWorkspaceForActor: async (actor: { userId: string; role: string }, workspaceId: string) => {
+        assert.equal(activeSql, null, 'default sessionless workspace resolution must stay outside the graph transaction');
+        directAuthCalls.push(actor); assert.equal(workspaceId, scope.workspaceId); return freshWorkspace;
+      },
+    },
     '../pi/session-workspace-context': {
       resolveAgentExecutionContextForStoredSession: async (input: typeof sessionCalls[number]) => {
+        assert.equal(activeSql, null, 'default session/workspace resolution must stay outside the graph transaction');
         sessionCalls.push(input);
         if (!sessionAvailable) throw new Error('Session revoked');
         return { workspace: freshWorkspace };
       },
+      readStoredAgentWorkspaceOnConnection: async (reader: Record<string, unknown>, input: Record<string, unknown>) => {
+        assert.ok(activeSql, 'stored-session authorization uses the existing graph transaction');
+        assert.equal(typeof reader.get, 'function'); assert.equal(typeof reader.all, 'function');
+        assert.equal(typeof reader.run, 'function'); assert.equal(typeof reader.close, 'function');
+        assert.ok(sessionIdentities.has(JSON.stringify([input.sessionId, input.userId, input.agentId, input.workspaceId])),
+          'scoped session reader receives the exact captured service identity and workspace');
+        assert.equal(input.workspaceId, scope.workspaceId);
+        assert.deepEqual(input.permissions, (input.permissions as string[]).includes('canWrite')
+          ? ['canRead', 'canRunAgent', 'canWrite'] : ['canRead', 'canRunAgent']);
+        scopedSessionCalls.push({ reader, input });
+        if (!sessionAvailable) throw new Error('Session revoked');
+        return freshWorkspace;
+      },
       workspaceFromAgentExecutionContext: (context: { workspace: WorkspaceContext }) => context.workspace,
     },
-    '../collaboration/persistence': { loadCollaborationState: loadState },
+    '../collaboration/persistence': { loadCollaborationState: loadState, loadCollaborationStateOnConnection: loadStateOnConnection },
     '../collaboration/document-access': { readCurrentCollaborationDocument: async (input: {
-      documentId: string; workspaceId: string; read(document: Y.Doc): unknown;
+      documentId: string; workspaceId: string; loadState?: (documentId: string) => Promise<unknown>; read(document: Y.Doc): unknown;
     }) => {
       assert.equal(input.documentId, scope.documentId); assert.equal(input.workspaceId, scope.workspaceId);
       assert.ok(activeSql, 'current reads stay inside the graph transaction');
+      liveReads++;
+      if (liveUnavailable) throw new Error('No live or current candidate is available during exact retry.');
+      assert.ok(input.loadState, 'the graph-owner supplies the persisted-state reader');
+      await input.loadState!(input.documentId);
       return input.read(live);
     } },
     '../collaboration/agent-operations': bridge, '../collaboration/server-runtime': { Y },
@@ -167,8 +218,13 @@ async function harness() {
       graphEnabled && workspaceId === scope.workspaceId },
     './policy-v1': { resolveFileVersionRolloutV1: () => ({ restore: reviewCenterWritable }) },
   });
-  const factory = (override: Partial<Parameters<Runtime['createRuntimeProposalAgentService']>[0]> = {}) =>
-    runtime.createRuntimeProposalAgentService({ workspace, documentId: scope.documentId, path: state.path, identity, ...override });
+  const factory = (override: Partial<Parameters<Runtime['createRuntimeProposalAgentService']>[0]> = {}) => {
+    const serviceInput = { workspace, documentId: scope.documentId, path: state.path, identity, ...override };
+    const serviceIdentity = serviceInput.identity;
+    sessionIdentities.add(JSON.stringify([serviceIdentity.actorSessionId, serviceIdentity.initiatedByUserId,
+      serviceIdentity.actorId, serviceInput.workspace.workspaceId]));
+    return runtime.createRuntimeProposalAgentService(serviceInput);
+  };
   const resetLive = () => { live.destroy(); live = new Y.Doc({ gc: false }); Y.applyUpdate(live, originalUpdate); };
   const counts = async () => {
     const result: Record<string, unknown> = {};
@@ -179,6 +235,22 @@ async function harness() {
     result.graphs = (await database.query('SELECT graph_id,graph_revision FROM file_proposal_graphs ORDER BY graph_id')).rows;
     result.sequence = (await database.query('SELECT document_sequence,lifecycle_generation,schema_version FROM collaboration_yjs_states')).rows;
     return result;
+  };
+  const seedActiveAdmission = async () => {
+    await database.query(`INSERT INTO collaboration_admission_requests
+      (request_id,request_digest,intent_text,status,revision,created_at)
+      VALUES ('runtime-active-reservation','fixture-digest','{}','reserved',1,$1)`, [Date.now()]);
+    await database.query(`INSERT INTO collaboration_admission_scopes
+      (request_id,ordinal,workspace_id,organization_id,path,kind)
+      VALUES ('runtime-active-reservation',0,$1,$2,$3,'exact')`,
+    [scope.workspaceId, workspace.organizationId, state.path]);
+    await database.query(`INSERT INTO collaboration_admission_targets (request_id,document_id,snapshot_text)
+      VALUES ('runtime-active-reservation',$1,'{}')`, [scope.documentId]);
+  };
+  const clearActiveAdmission = async () => {
+    await database.query("DELETE FROM collaboration_admission_targets WHERE request_id='runtime-active-reservation'");
+    await database.query("DELETE FROM collaboration_admission_scopes WHERE request_id='runtime-active-reservation'");
+    await database.query("DELETE FROM collaboration_admission_requests WHERE request_id='runtime-active-reservation'");
   };
   const targets = (source: BuildSource, oldText: string, newText: string) => {
     assert.equal(source.representation, 'plain_text');
@@ -197,6 +269,12 @@ async function harness() {
     graphEnabled: (enabled: boolean) => { graphEnabled = enabled; },
     reviewCenterWritable: (enabled: boolean) => { reviewCenterWritable = enabled; },
     session: (available: boolean) => { sessionAvailable = available; },
+    liveUnavailable: (unavailable: boolean) => { liveUnavailable = unavailable; },
+    liveReads: () => liveReads,
+    scopedSessionCalls: () => [...scopedSessionCalls],
+    scopedWorkspaceCalls: () => [...scopedWorkspaceCalls],
+    transactionStateReads: () => transactionStateReads,
+    seedActiveAdmission, clearActiveAdmission,
     failSql: (predicate: typeof failStatement) => { failStatement = predicate; },
     afterSql: (callback: typeof afterStatement) => { afterStatement = callback; },
     close: async () => { live.destroy(); await database.close(); } };
@@ -224,7 +302,10 @@ async function main() {
     assert.deepEqual(await h.counts(), beforeUnseenProbe, 'read-only retry probe must not create even a graph metadata row');
     passed('rollout stays closed; internal factory and path/workspace scope are exact');
 
+    const readStart = h.statements.length;
     const authoritative = await runtime.service.readExact({ scope, proposalId: null });
+    assert.equal(h.statements.slice(readStart).some((sql) => sql.includes('pg_advisory_xact_lock')), false,
+      'readExact uses a read-intent transaction without the admission-creation guard');
     assert.equal(authoritative.content, 'Insurance 50. Tail.');
     assert.equal(authoritative.metadata.source.kind, 'authoritative');
     assert.equal(typeof authoritative.sourceStateVector, 'string');
@@ -241,7 +322,10 @@ async function main() {
     assert.deepEqual(await h.counts(), beforeDisabledCreate);
     assert.equal((await runtime.service.readExact({ scope, proposalId: null })).metadata.source.kind, 'authoritative');
     h.reviewCenterWritable(true);
+    const createStart = h.statements.length;
     const parent = await runtime.service.create(request);
+    assert.ok(h.statements.slice(createStart).some((sql) => sql.includes('pg_advisory_xact_lock')),
+      'create uses the admission-guarded transaction intent');
     assert.equal(parent.reused, false); assert.equal(parent.proposal.reviewRequired, true);
     assert.equal(parent.authoringPreview.beforeContent, 'Insurance 50. Tail.');
     assert.equal(parent.authoringPreview.proposedContent, 'Insurance 100. Tail.');
@@ -251,6 +335,27 @@ async function main() {
     assert.equal(Number(operation.base_document_sequence), 7); assert.equal(operation.error_code, 'proposal_graph_review_required');
     assert.equal(h.live().getText('content').toString(), authoritative.content);
     passed('actual operation SQL and graph insertion are atomic, review-only and never mutate live content');
+
+    await h.seedActiveAdmission();
+    try {
+      const liveReadsBeforeRetry = h.liveReads();
+      h.liveUnavailable(true);
+      const reservedRetry = await runtime.service.create({ ...request,
+        buildTargets: () => { throw new Error('Exact retry must not rebuild today’s live candidate.'); } });
+      assert.equal(reservedRetry.reused, true);
+      assert.equal(reservedRetry.node.proposalId, parent.node.proposalId);
+      assert.equal(h.liveReads(), liveReadsBeforeRetry, 'exact retry is resolved before live/current candidate reads');
+      h.liveUnavailable(false);
+
+      const beforeAdmissionReject = await h.counts();
+      await assert.rejects(runtime.service.create({ ...request, idempotencyKey: 'reserved-new-operation-key' }), code('ADMISSION_CONFLICT'));
+      assert.deepEqual(await h.counts(), beforeAdmissionReject,
+        'active admission atomically rejects a new operation, proposal, or artifacts');
+    } finally {
+      h.liveUnavailable(false);
+      await h.clearActiveAdmission();
+    }
+    passed('active reservation rejects new graph operations while an exact retry needs no current candidate');
 
     const parentRead = await runtime.service.readExact({ scope, proposalId: parent.node.proposalId });
     assert.equal(parentRead.content, 'Insurance 100. Tail.');
@@ -295,8 +400,11 @@ async function main() {
     await assert.rejects(runtime.service.create({ ...request, idempotencyKey: 'revoked-write-request' }), code('PROPOSAL_ACCESS_DENIED'));
     assert.equal((await runtime.service.readExact({ scope, proposalId: null })).content, authoritative.content);
     h.fresh(structuredClone(workspace));
-    await h.factory({ identity: { initiatedByUserId: identity.initiatedByUserId, actorId: identity.actorId } });
+    const sessionless = await h.factory({ identity: { initiatedByUserId: identity.initiatedByUserId, actorId: identity.actorId } });
+    await sessionless.service.readExact({ scope, proposalId: null });
     assert.deepEqual(h.directAuthCalls.at(-1), { userId: identity.initiatedByUserId, role: 'member' });
+    assert.ok(h.scopedWorkspaceCalls().length > 0, 'sessionless workspace reads use the transaction-bound reader');
+    assert.ok(h.transactionStateReads() > 0, 'current state reads use the owner transaction, never the default loader');
     assert.ok(h.sessionCalls.some((call) => call.permissions.includes('canWrite') && call.sessionId === identity.actorSessionId
       && call.userId === identity.initiatedByUserId && call.agentId === identity.actorId));
     passed('fresh session/workspace authorization is required for every access and write');
@@ -355,6 +463,26 @@ async function main() {
     assert.deepEqual(await h.counts(), beforeOrdinary, 'lookup-only must not create an operation or proposal');
     const root = await runtime.service.createIndependent(ordinary);
     assert.ok(root); assert.equal(root.reused, false); assert.equal(root.proposal.creationKind, 'independent');
+    await h.seedActiveAdmission();
+    try {
+      const liveReadsBeforeRetry = h.liveReads();
+      h.liveUnavailable(true);
+      const independentRetry = await runtime.service.createIndependent({ ...ordinary, allowCreate: false,
+        buildTargets: () => { throw new Error('Exact independent retry must not rebuild a live candidate.'); } });
+      assert.ok(independentRetry); assert.equal(independentRetry.reused, true);
+      assert.equal(independentRetry.node.proposalId, root.node.proposalId);
+      assert.equal(h.liveReads(), liveReadsBeforeRetry, 'existing independent retry bypasses current/live candidate reads');
+      h.liveUnavailable(false);
+
+      const beforeIndependentReject = await h.counts();
+      await assert.rejects(runtime.service.createIndependent({ ...ordinary,
+        idempotencyKey: 'ordinary-active-denied-request' }), code('ADMISSION_CONFLICT'));
+      assert.deepEqual(await h.counts(), beforeIndependentReject,
+        'active admission rejects a new independent operation and proposal atomically');
+    } finally {
+      h.liveUnavailable(false);
+      await h.clearActiveAdmission();
+    }
     h.graphEnabled(false);
     assert.equal(await h.runtime.hasPotentialProposalAgentRetryKey({ documentId: scope.documentId,
       initiatedByUserId: identity.initiatedByUserId, idempotencyKey: ordinary.idempotencyKey }), true);
@@ -376,12 +504,16 @@ async function main() {
     h.resetLive();
     passed('ordinary root uses one SQL unit, no live write and stable intent retry before current/source reads');
 
-    const lineageLock = h.statements.findIndex((sql) => sql.includes('SELECT id FROM file_collaboration_lineages') && sql.includes('FOR UPDATE'));
+    const admissionLock = h.statements.findIndex((sql) => sql.includes('pg_advisory_xact_lock'));
+    const lineageLock = h.statements.findIndex((sql, index) => index > admissionLock
+      && sql.includes('SELECT id FROM file_collaboration_lineages') && sql.includes('FOR UPDATE'));
     const documentLock = h.statements.findIndex((sql, index) => index > lineageLock
       && sql.includes('SELECT lineage_id FROM collaboration_documents') && sql.includes('FOR UPDATE'));
     const stateLock = h.statements.findIndex((sql, index) => index > documentLock
       && sql.includes('SELECT document_id FROM collaboration_yjs_states') && sql.includes('FOR UPDATE'));
-    assert.ok(lineageLock >= 0 && documentLock > lineageLock && stateLock > documentLock);
+    assert.ok(admissionLock >= 0 && admissionLock < lineageLock && lineageLock >= 0
+      && documentLock > lineageLock && stateLock > documentLock,
+    'create transaction obtains workspace admission guard before graph/identity/state row locks');
     assert.ok(h.statements.some((sql) => sql.includes('file_proposal_graphs') && sql.includes('FOR UPDATE')));
     assert.ok(h.statements.some((sql) => sql.includes('proposal.proposal_id=ANY($6::text[])')));
     assert.ok(h.statements.some((sql) => sql.includes("proposal.node_json->'relationships' AS authored_relationships")));

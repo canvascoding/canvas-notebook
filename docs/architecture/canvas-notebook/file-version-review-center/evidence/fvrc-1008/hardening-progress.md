@@ -36,8 +36,10 @@ eine kurze Admission-/State-Transaktion vor neuen Agentenoperationen sowie
 exakten lesenden Commit-Recovery. Graph-Writer und die weiteren Domainadapter
 werden dadurch nicht als umgestellt oder freigegeben ausgewiesen.
 Die [verbindungsgebundenen Leser](graph-scoped-read-results.md) bereiten die
-Graph-Anbindung ohne zusätzliche Pool-Leases unter Sperren vor; die dort
-beschriebene eigentliche Transaktions-/Admission-Anbindung bleibt offen.
+Graph-Anbindung ohne zusätzliche Pool-Leases unter Sperren vor.
+Die [Graph-Operationszulassung](graph-operation-admission-results.md) verbindet
+diese Leser jetzt mit der gemeinsamen Transaktionsgrenze; ihre Abnahme ist
+im verlinkten Nachweis separat aufgeführt. Graph-Actions bleiben offen.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue

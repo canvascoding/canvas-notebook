@@ -11,7 +11,8 @@ DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
 [DA-03/04/05: Kompaktierungssteuerung](compaction-coordinator-results.md),
 [DA-05: neue Dokumentidentitäten](initialization-admission-results.md),
 [DA-05: Legacy-Operationszulassung](legacy-operation-admission-results.md),
-[DA-05: verbindungsgebundene Graph-Leser](graph-scoped-read-results.md).
+[DA-05: verbindungsgebundene Graph-Leser](graph-scoped-read-results.md),
+[DA-05: Graph-Operationszulassung](graph-operation-admission-results.md).
 Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.

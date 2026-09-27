@@ -3,6 +3,10 @@
 Stand: 27. September 2026. **Vorstufe separat verifiziert; Graph-Zulassung bleibt offen.**
 Quellbasis: `8548921a8` plus die mit diesem Nachweis committierten Änderungen.
 
+Die anschließende Integration wird separat in
+[Graph-Operationszulassung](graph-operation-admission-results.md) abgenommen;
+die nachfolgenden Ergebnisse beschreiben ausschließlich die Vorstufe.
+
 ## Befund und begrenzte Änderung
 
 Eine Graph-Transaktion darf nicht erst eine Pool-Verbindung halten und dann

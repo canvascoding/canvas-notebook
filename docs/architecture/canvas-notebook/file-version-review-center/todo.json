@@ -1637,6 +1637,7 @@
           "initializationAdmissionEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/initialization-admission-results.md",
           "legacyOperationAdmissionEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/legacy-operation-admission-results.md",
           "graphScopedReadEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/graph-scoped-read-results.md",
+          "graphOperationAdmissionEvidence": "docs/architecture/canvas-notebook/file-version-review-center/evidence/fvrc-1008/graph-operation-admission-results.md",
           "area": "hardening-rollout",
           "dependsOn": ["FVRC-1007"],
           "implementationPlan": "docs/architecture/canvas-notebook/file-version-review-center/conflict-resolution-implementation-plan.md",
