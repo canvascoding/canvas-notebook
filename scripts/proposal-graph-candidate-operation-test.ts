@@ -303,6 +303,39 @@ test('graph candidate recovery finalizes a crash after mutation without replayin
   } finally { h.close(); }
 });
 
+test('graph candidate apply and recovery accept a later checkpointed durable operation', async () => {
+  for (const operation of ['applyProposalGraphCandidateOperation', 'recoverProposalGraphCandidateOperation'] as const) {
+    const h = harness();
+    try {
+      h.persistCandidate();
+      h.row.status = 'checkpointed_file';
+      h.row.version_revision_id = 'candidate-revision';
+      const result = await h.agent[operation](candidateActionInput(h));
+      assert.equal(result.revisionId, 'candidate-revision');
+      assert.equal(h.row.status, 'checkpointed_file');
+      assert.equal(h.directConnectionCalls, 0);
+      assert.equal(h.history.length, 0);
+    } finally { h.close(); }
+  }
+});
+
+test('graph candidate apply and recovery attach missing history after a durable pre-history crash', async () => {
+  for (const operation of ['applyProposalGraphCandidateOperation', 'recoverProposalGraphCandidateOperation'] as const) {
+    const h = harness();
+    try {
+      h.persistCandidate();
+      h.row.status = 'checkpointed_file';
+      const result = await h.agent[operation](candidateActionInput(h));
+      assert.equal(result.revisionId, 'candidate-revision');
+      assert.equal(h.row.status, 'checkpointed_file');
+      assert.equal(h.row.version_revision_id, 'candidate-revision');
+      assert.equal(h.directConnectionCalls, 0);
+      assert.equal(h.history.length, 1);
+      assert.equal(h.history[0]!.content, 'after');
+    } finally { h.close(); }
+  }
+});
+
 test('graph applying recovery accepts only the complete GC-compacted candidate without replay', async () => {
   for (const replacement of ['after', '']) {
     const h = harness(replacement);

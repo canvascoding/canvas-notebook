@@ -1,7 +1,8 @@
 # Prozessübergreifende Lifecycle-Zulassung: nächster Umsetzungsschritt
 
 Stand: 27. September 2026. **DA-01 und DA-02 implementiert und separat geprüft;
-DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
+DA-03/04/05 in Arbeit; für DA-06 ist der repräsentative Mehrprozess-Crash mit
+Offline-Peer in Personal und Team grün, die vollständige Gate-Matrix bleibt offen.** Nachweise:
 [DA-01](distributed-admission-results.md), [DA-02](admission-drain-results.md),
 [DA-03: normaler Unload](normal-room-unload-results.md),
 [DA-03: Quiescence-Belege](admission-quiescence-results.md),
@@ -13,7 +14,8 @@ DA-03/04/05 in Arbeit, DA-06 noch offen.** Nachweise:
 [DA-05: Legacy-Operationszulassung](legacy-operation-admission-results.md),
 [DA-05: verbindungsgebundene Graph-Leser](graph-scoped-read-results.md),
 [DA-05: Graph-Operationszulassung](graph-operation-admission-results.md),
-[DA-05: Review-Aktionszulassung](review-action-admission-results.md).
+[DA-05: Review-Aktionszulassung](review-action-admission-results.md),
+[DA-06: Mehrprozess-Crash/Offline](multiprocess-crash-offline-results.md).
 Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
@@ -240,6 +242,14 @@ Domain-/Runtime-Anbindung bleiben offen.
   Fehlerpfaden testen und committen, bevor der nächste umgestellt wird.
 
 ### DA-06 – Mehrprozess-/Recovery-Gate vor Aktivierung
+
+Status: Ein repräsentativer echter Zwei-Prozess-Fall für
+`persisted-before-history` ist in Personal und Team vollständig grün. Er belegt
+Owner-Konkurrenz, harten Prozessabbruch, Offline-Reconnect, unabhängigen Merge,
+Receipt-Recovery, Idempotenz und eine anschließende neue Review-Aktion. Die
+übrigen Crashgrenzen, Rechteentzug und die vollständige Konfliktmatrix bleiben
+offen; Details und Kommandos stehen im
+[Abnahmenachweis](multiprocess-crash-offline-results.md). Keine Runtime-Aktivierung.
 
 - Zwei echte App-/OS-Prozesse an getrennten PostgreSQL-Verbindungen verwenden,
   nicht lediglich zwei Serviceinstanzen oder eine simulierte Room-Map.

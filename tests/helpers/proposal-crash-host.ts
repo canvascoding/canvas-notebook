@@ -17,7 +17,7 @@ export type ProposalCrashHostOptions = Readonly<{
 export async function startProposalCrashHost(logPath: string, options: ProposalCrashHostOptions = {}) {
   if (process.env.CANVAS_PROPOSAL_CRASH_TEST !== '1') throw new Error('Explicit crash-test opt-in is required.');
   const port = options.port ?? 3000;
-  if (options.multiprocess !== (port !== 3000)) {
+  if (Boolean(options.multiprocess) !== (port !== 3000)) {
     throw new Error('Multi-process crash hosts are restricted to their dedicated backend ports.');
   }
   const artifactRoot = await realpath(path.resolve('test-results'));

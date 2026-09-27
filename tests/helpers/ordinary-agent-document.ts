@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../../app/lib/collaboration/types';
 import { createAuthenticatedContext, uploadWorkspaceTextFile, type AuthenticatedContextIdentity } from './managed-test-context';
-import { observeProposalReviewServerErrors } from './proposal-review-server-errors';
+import { observeProposalReviewServerErrors, type ProposalReviewServerErrorExpectation } from './proposal-review-server-errors';
 
 type Workspace = { id: string; name: string; type: string; legacy?: boolean; rootRelativePath: string;
   organizationId?: string | null; customerId?: string | null; projectId?: string | null;
@@ -26,10 +26,11 @@ export async function withOrdinaryAgentDocument(browser: Browser, initialContent
   run: (fixture: OrdinaryAgentDocument) => Promise<void>,
   options: { workspaceKind?: 'personal' | 'team'; identity?: AuthenticatedContextIdentity;
     cleanupIdentity?: AuthenticatedContextIdentity; initialReviewRequired?: boolean;
-    bindToolSessionToFixture?: boolean } = {}): Promise<void> {
+    bindToolSessionToFixture?: boolean;
+    expectedReviewServerErrors?: ReadonlyArray<ProposalReviewServerErrorExpectation> } = {}): Promise<void> {
   const workspaceKind = options.workspaceKind ?? 'personal';
   const context = await createAuthenticatedContext(browser, { viewport: { width: 1500, height: 950 } }, options.identity);
-  const assertNoServerErrors = observeProposalReviewServerErrors(context);
+  const assertNoServerErrors = observeProposalReviewServerErrors(context, options.expectedReviewServerErrors);
   const page = await context.newPage();
   const filePath = `fvrc-1008-ordinary-${randomUUID()}.md`;
   let workspaceId: string | undefined;

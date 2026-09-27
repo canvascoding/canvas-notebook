@@ -1,7 +1,8 @@
 import http from 'node:http';
 import net from 'node:net';
 
-const ALLOWED_BACKENDS = new Set([3101, 3102]);
+type BackendPort = 3101 | 3102;
+const ALLOWED_BACKENDS = new Set<BackendPort>([3101, 3102]);
 
 function requestHead(request: http.IncomingMessage): string {
   const lines = [`${request.method || 'GET'} ${request.url || '/'} HTTP/${request.httpVersion}`];
@@ -19,7 +20,7 @@ export async function startCollaborationFailoverProxy(initialBackend: 3101 | 310
     || port !== 3000 || !ALLOWED_BACKENDS.has(initialBackend)) {
     throw new Error('The failover proxy requires the explicit local multi-process acceptance harness.');
   }
-  let activeBackend = initialBackend;
+  let activeBackend: BackendPort = initialBackend;
   const sockets = new Set<net.Socket>();
   const server = http.createServer((request, response) => {
     const upstream = http.request({
@@ -66,7 +67,7 @@ export async function startCollaborationFailoverProxy(initialBackend: 3101 | 310
   return {
     port,
     activeBackend: () => activeBackend,
-    switchBackend(next: 3101 | 3102) {
+    switchBackend(next: BackendPort) {
       if (stopped || !ALLOWED_BACKENDS.has(next)) throw new Error('Invalid failover backend.');
       activeBackend = next;
     },

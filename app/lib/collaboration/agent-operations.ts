@@ -1665,9 +1665,9 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
       }
       await assertProposalGraphActionReceipt({ database, actionId: input.actionId, scope: input.scope,
         candidateSha256: input.candidateSha256, expectedCurrent: input.expectedCurrent });
-      if (row.status === 'persisted_yjs' && row.version_revision_id) {
-        return { operationId: row.operation_id, revisionId: row.version_revision_id,
-          current: { ...candidate.current, revisionId: row.version_revision_id } };
+      if (['persisted_yjs', 'checkpointed_file'].includes(row.status)) {
+        return await finalizeDurableProposalCandidateHistory({ database, row, workspace: input.workspace, candidate,
+          baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });
       }
       if (row.status !== 'preparing') {
         throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The action operation requires durable recovery.');
@@ -1789,9 +1789,9 @@ export async function recoverProposalGraphCandidateOperation(input: ProposalGrap
         if (error instanceof ProposalGraphContractError && error.code === 'PROPOSAL_CANDIDATE_CHANGED') throw error;
         throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The graph action receipt cannot be recovered safely.');
       }
-      if (row.status === 'persisted_yjs' && row.version_revision_id) {
-        return { operationId: row.operation_id, revisionId: row.version_revision_id,
-          current: { ...candidate.current, revisionId: row.version_revision_id } };
+      if (['persisted_yjs', 'checkpointed_file'].includes(row.status)) {
+        return await finalizeDurableProposalCandidateHistory({ database, row, workspace: input.workspace, candidate,
+          baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });
       }
       if (row.status === 'preparing') {
         row = await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'cancelled',
@@ -1874,6 +1874,52 @@ function proposalRecoverySnapshot(update: Uint8Array): Uint8Array | null {
   } finally {
     doc.destroy();
   }
+}
+
+async function finalizeDurableProposalCandidateHistory(input: {
+  database: SqlConnection;
+  row: AgentOperationRow;
+  workspace: WorkspaceContext;
+  candidate: PreparedProposalCandidate;
+  baseRevisionId: string | null | undefined;
+}): Promise<ProposalGraphCandidateApplyResult> {
+  let row = input.row;
+  if (!row.version_revision_id) {
+    const captured = await fileVersionHistoryService.capture({
+      workspace: input.workspace,
+      path: row.document_path!,
+      content: input.candidate.content,
+      source: 'agent_apply',
+      actorUserId: row.initiated_by_user_id,
+      actorType: 'agent',
+      sourceSessionId: row.actor_session_id,
+      baseRevisionId: input.baseRevisionId ?? null,
+      stateVector: input.candidate.stateVector,
+    });
+    if (!captured.revision) {
+      throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate version history is not available.');
+    }
+    for (let attempt = 0; attempt < 3 && !row.version_revision_id; attempt += 1) {
+      if (!['persisted_yjs', 'checkpointed_file'].includes(row.status)) {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The durable action changed before history recovery.');
+      }
+      try {
+        row = await transitionOperation({ database: input.database, row, expectedStatuses: [row.status], status: row.status,
+          fields: { version_revision_id: captured.revision.id } });
+      } catch {
+        const refreshed = await readOperation(input.database, row.operation_id);
+        if (!refreshed) {
+          throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The durable action disappeared during history recovery.');
+        }
+        row = refreshed;
+      }
+    }
+  }
+  if (!row.version_revision_id) {
+    throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate history could not be attached to the durable action.');
+  }
+  return { operationId: row.operation_id, revisionId: row.version_revision_id,
+    current: { ...input.candidate.current, revisionId: row.version_revision_id } };
 }
 
 async function waitForProposalCandidateDurability(input: {
