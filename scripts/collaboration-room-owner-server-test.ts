@@ -20,6 +20,11 @@ import type {
   CollaborationRoomReleaseReceipt,
   CollaborationRoomReleaseSnapshot,
 } from '../app/lib/collaboration/room-owner-release';
+import {
+  admissionDrainTicketForTarget,
+  type CollaborationAdmissionDrainTicket,
+} from '../app/lib/collaboration/room-admission-drain';
+import { createCollaborationRoomAdmissionWorker } from '../app/lib/collaboration/room-admission-worker';
 import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import * as RoomStartup from '../app/lib/collaboration/room-startup-activity';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
@@ -146,7 +151,8 @@ function makeState(documentId: string, text: string): PersistedCollaborationStat
 }
 
 async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
-  | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack') {
+  | 'terminal-success' | 'terminal-store-failure' | 'terminal-lost-ack'
+  | 'admission-terminal' | 'admission-unproven-release') {
   const workspace = {
     workspaceId: 'owner-workspace',
     organizationId: null,
@@ -169,6 +175,7 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let sessionActive = true;
   let sessionClosed = false;
   let releaseFailure: Error | null = null;
+  let releaseFailureMarksAdmissionReleased = false;
   let epoch = 0;
   let instance!: Hocuspocus<TestContext>;
   let ownerRuntime!: OwnerRuntime;
@@ -176,7 +183,11 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
   let direct!: Parameters<typeof Direct.installCollaborationDirectConnection>[0];
   let documentReader!: Reader;
   let localRoomDrainer: ((scope: CollaborationRoomOwnerScope) => Promise<void>) | undefined;
+  let localTicketDrainer: ((ticket: CollaborationAdmissionDrainTicket) => Promise<void>) | undefined;
   let localRoomDrainerUninstalls = 0;
+  const drainStatuses = new Map<string, 'draining' | 'released'>();
+  let readDrainFailure: Error | null = null;
+  let unloadFailureDocumentId: string | null = null;
   let unloadBarrier: { documentId: string; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let accessBarrier: { check: number; entered: ReturnType<typeof gate>; release: ReturnType<typeof gate> } | null = null;
   let accessChecks = 0;
@@ -218,8 +229,12 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
       if (releaseFailure) {
         const error = releaseFailure;
         releaseFailure = null;
+        if (releaseFailureMarksAdmissionReleased && snapshot?.admission) {
+          drainStatuses.set(snapshot.admission.releaseId, 'released');
+        }
         throw error;
       }
+      if (snapshot?.admission) drainStatuses.set(snapshot.admission.releaseId, 'released');
       fences.delete(fence.scope.documentId);
       released.push(fence);
     },
@@ -251,6 +266,10 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
             unloadBarrier = null;
             barrier.entered.resolve();
             await barrier.release.promise;
+          }
+          if (unloadFailureDocumentId === payload.documentName) {
+            unloadFailureDocumentId = null;
+            throw new Error('injected local unload failure');
           }
         },
       });
@@ -295,14 +314,25 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
     if (name.endsWith('/room-owner-runtime')) return runtimeForServer;
     if (name.endsWith('/room-owner')) return { CollaborationRoomOwnerError };
+    if (name.endsWith('/room-admission-drain')) return {
+      admissionDrainTicketForTarget,
+      matchesCollaborationAdmissionDrainFence: load(name).matchesCollaborationAdmissionDrainFence,
+      sameCollaborationAdmissionDrainTicket: load(name).sameCollaborationAdmissionDrainTicket,
+    };
+    if (name.endsWith('/room-admission-worker')) return { createCollaborationRoomAdmissionWorker };
     if (name.endsWith('/room-startup-activity')) return RoomStartup;
     if (name.endsWith('/local-room-drain')) return {
       installLocalCollaborationRoomDrainer: (
-        drainer: (scope: CollaborationRoomOwnerScope) => Promise<void>,
+        drainer: {
+          drain: (ticket: CollaborationAdmissionDrainTicket) => Promise<void>;
+          drainLegacy?: (scope: CollaborationRoomOwnerScope) => Promise<void>;
+        },
       ) => {
-        localRoomDrainer = drainer;
+        localTicketDrainer = drainer.drain;
+        localRoomDrainer = drainer.drainLegacy;
         return () => {
-          if (localRoomDrainer === drainer) localRoomDrainer = undefined;
+          if (localTicketDrainer === drainer.drain) localTicketDrainer = undefined;
+          if (localRoomDrainer === drainer.drainLegacy) localRoomDrainer = undefined;
           localRoomDrainerUninstalls += 1;
         };
       },
@@ -430,6 +460,20 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
         },
       } : {}),
       heartbeatMs: 60_000,
+      ...(mode === 'admission-terminal' || mode === 'admission-unproven-release' ? {
+        admission: {
+          pendingDrains: async () => [],
+          readDrain: async (ticket: CollaborationAdmissionDrainTicket) => {
+            if (readDrainFailure) {
+              const error = readDrainFailure;
+              readDrainFailure = null;
+              throw error;
+            }
+            return { ticket, status: drainStatuses.get(ticket.releaseId) ?? 'draining' };
+          },
+          pollMs: 60_000,
+        },
+      } : {}),
     },
   });
   const request = new Request('http://localhost/ws/collaboration');
@@ -509,11 +553,106 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
     httpServer.emit('close');
     await turn();
     assert.equal(localRoomDrainer, undefined, 'server close uninstalls its exact local room drainer');
+    assert.equal(localTicketDrainer, undefined, 'server close uninstalls its ticket-bound room drainer');
     assert.equal(localRoomDrainerUninstalls, 1);
     for (const document of instance.documents.values()) document.destroy();
     instance.documents.clear();
     await turn();
   };
+
+  if (mode === 'admission-terminal') {
+    const documentId = 'admission-terminal';
+    states.set(documentId, makeState(documentId, 'durable-admission'));
+    const document = await instance.createDocument(documentId, request, 'admission-loader', {
+      isAuthenticated: true,
+      readOnly: false,
+    }, contextFor(documentId));
+    const fence = fences.get(documentId)!;
+    const ticket = admissionDrainTicketForTarget('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'c'.repeat(64), {
+      document: { ...fence.scope, status: 'active' }, ownerEpoch: fence.epoch, ownerToken: fence.token,
+      ownerBackendPid: fence.backendPid, ownerBackendStart: fence.backendStart, documentSequence: 1,
+    });
+    drainStatuses.set(ticket.releaseId, 'draining');
+    if (!localTicketDrainer) throw new Error('Ticket-bound room drainer was not installed.');
+    readDrainFailure = new Error('known pre-release admission read failure');
+    await assert.rejects(localTicketDrainer(ticket), /known pre-release/u);
+    assert.equal(ownerRuntime.isDraining(documentId), false,
+      'a failed durable preflight is retryable without entering local quiescence');
+    assert.equal(ownerRuntime.fence(document), fence);
+    unloadFailureDocumentId = documentId;
+    await assert.rejects(localTicketDrainer(ticket),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY',
+      'a known local unload failure leaves the positive release resumable');
+    assert.equal(drainStatuses.get(ticket.releaseId), 'released');
+    assert.equal(document.isDestroyed, false);
+    assert.equal(instance.documents.get(documentId), document);
+    assert.equal(releaseSnapshots.filter((snapshot) => snapshot?.admission?.releaseId === ticket.releaseId).length, 1);
+    assert.deepEqual(ownerRuntime.listOwnedFences(), [fence],
+      'released proof remains visible until the exact old object finishes unloading');
+
+    await bounded(localTicketDrainer(ticket), 'released ticket unload retry');
+    assert.equal(document.isDestroyed, true);
+    assert.equal(instance.documents.has(documentId), false);
+    assert.equal(releaseSnapshots.filter((snapshot) => snapshot?.admission?.releaseId === ticket.releaseId).length, 1,
+      'released retry does not repeat store or owner release');
+
+    const replacement = await instance.createDocument(documentId, request, 'replacement-loader', {
+      isAuthenticated: true,
+      readOnly: false,
+    }, contextFor(documentId));
+    const replacementFence = fences.get(documentId)!;
+    await localTicketDrainer(ticket);
+    assert.equal(instance.documents.get(documentId), replacement,
+      'a repeated completed ticket is a no-op and never unloads the replacement object');
+    assert.equal(ownerRuntime.fence(replacement), replacementFence);
+
+    const staleFence = Object.freeze({ ...fence, epoch: fence.epoch + 100, token: 'stale-owner-token' });
+    const staleTicket = admissionDrainTicketForTarget('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'd'.repeat(64), {
+      document: { ...staleFence.scope, status: 'active' }, ownerEpoch: staleFence.epoch,
+      ownerToken: staleFence.token, ownerBackendPid: staleFence.backendPid,
+      ownerBackendStart: staleFence.backendStart, documentSequence: 1,
+    });
+    drainStatuses.set(staleTicket.releaseId, 'draining');
+    await assert.rejects(localTicketDrainer(staleTicket),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_LOST');
+    assert.equal(instance.documents.get(documentId), replacement,
+      'a late ticket for another epoch cannot enter quiescence on the new object');
+    assert.equal(ownerRuntime.fence(replacement), replacementFence);
+    console.log('PASS ticket drain retries positive unload, deduplicates release, and ignores completed/late epochs');
+    return;
+  }
+
+  if (mode === 'admission-unproven-release') {
+    const documentId = 'admission-unproven-release';
+    states.set(documentId, makeState(documentId, 'unproven-release'));
+    const document = await instance.createDocument(documentId, request, 'unproven-loader', {
+      isAuthenticated: true,
+      readOnly: false,
+    }, contextFor(documentId));
+    const fence = fences.get(documentId)!;
+    const ticket = admissionDrainTicketForTarget('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'e'.repeat(64), {
+      document: { ...fence.scope, status: 'active' }, ownerEpoch: fence.epoch, ownerToken: fence.token,
+      ownerBackendPid: fence.backendPid, ownerBackendStart: fence.backendStart, documentSequence: 1,
+    });
+    drainStatuses.set(ticket.releaseId, 'draining');
+    releaseFailureMarksAdmissionReleased = true;
+    releaseFailure = new Error('lost release acknowledgement without local receipt recovery');
+    if (!localTicketDrainer) throw new Error('Ticket-bound room drainer was not installed.');
+    await assert.rejects(localTicketDrainer(ticket), /lost release acknowledgement/u);
+    assert.equal(drainStatuses.get(ticket.releaseId), 'released',
+      'fixture models a committed target transition observed only by later polling');
+    assert.equal(ownerRuntime.resumeTerminalDrain(ticket)?.released, false);
+    assert.deepEqual(ownerRuntime.listOwnedFences(), [],
+      'an invalidated runtime never advertises an unproven local terminal release');
+    await assert.rejects(localTicketDrainer(ticket),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_LOST',
+      'durable target status alone cannot upgrade an unproven retained terminal handle');
+    assert.equal(document.isDestroyed, false);
+    assert.equal(instance.documents.get(documentId), document,
+      'the exact old object remains quarantined for full receipt recovery');
+    console.log('PASS released target cannot falsely finish a retained terminal handle without local receipt proof');
+    return;
+  }
 
   if (mode === 'terminal-success') {
     const unloadingId = 'terminal-unload-race';
@@ -1046,6 +1185,8 @@ async function main(mode: 'direct-store-failure' | 'queued-peer-loss'
 
 async function run() {
   const modes = [
+    'admission-terminal',
+    'admission-unproven-release',
     'terminal-success',
     'terminal-store-failure',
     'terminal-lost-ack',

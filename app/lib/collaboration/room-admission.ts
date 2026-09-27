@@ -2,8 +2,16 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import type { SqlConnection } from '@/app/lib/db';
-import type { CollaborationRoomOwnerScope } from './room-owner';
+import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
+import {
+  admissionDrainTicketForTarget,
+  captureCollaborationAdmissionDrainTicket,
+  captureCollaborationAdmissionOwnerFence,
+  lockCollaborationAdmissionDrain,
+  matchesCollaborationAdmissionDrainFence,
+  type CollaborationAdmissionDrainTicket,
+} from './room-admission-drain';
 import {
   CollaborationAdmissionError,
   captureCollaborationAdmissionRequest,
@@ -155,7 +163,77 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       }, recoverCommitted });
   const readCaptured = (captured: CapturedRequest) => transaction(
     (database) => readRequest(database, captured), async (verified) => verified);
+  const readDrain = (input: CollaborationAdmissionDrainTicket) => {
+    const ticket = captureCollaborationAdmissionDrainTicket(input);
+    return transaction(async (database) => {
+      const status = await lockCollaborationAdmissionDrain(async (sql, values) =>
+        await database.all(sql, values) as Array<Record<string, unknown>>, ticket);
+      return Object.freeze({ ticket, status });
+    }, async (verified) => verified);
+  };
   return {
+    readDrain,
+    startDrain(input: CollaborationAdmissionRequest, documentId: string): Promise<CollaborationAdmissionDrainTicket> {
+      const captured = captureCollaborationAdmissionRequest(input);
+      if (!captured.request.expectedDocuments.some((document) => document.documentId === documentId)) {
+        throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+      }
+      return transaction(async (database) => {
+        await database.get('SELECT request_id FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
+          [captured.request.requestId]);
+        const current = await readRequest(database, captured);
+        if (!current || !['reserved', 'draining'].includes(current.status) || current.revision >= Number.MAX_SAFE_INTEGER) {
+          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+        }
+        const target = current.targets.find((item) => item.document.documentId === documentId);
+        if (!target) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+        const ticket = admissionDrainTicketForTarget(current.requestId, current.requestDigest, target);
+        const row = await database.get(`SELECT status, active, release_id FROM collaboration_admission_targets
+          WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [ticket.requestId, documentId]) as Record<string, unknown>;
+        if (!row || row.active !== true || !['reserved', 'draining', 'released'].includes(row.status as string)
+          || row.release_id !== (row.status === 'released' ? ticket.releaseId : null)) {
+          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+        }
+        if (row.status === 'reserved') {
+          await database.run(`UPDATE collaboration_admission_targets SET status = 'draining'
+            WHERE request_id = $1 AND document_id = $2`, [ticket.requestId, documentId]);
+          await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
+            WHERE request_id = $1`, [ticket.requestId]);
+        } else if (current.status !== 'draining') {
+          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+        }
+        return ticket;
+      }, async (ticket) => {
+        await readDrain(ticket);
+        return ticket;
+      });
+    },
+    /** Durable polling also returns released targets whose local destruction still needs retry. */
+    pendingDrains(inputs: readonly CollaborationRoomOwnerFence[]): Promise<readonly CollaborationAdmissionDrainTicket[]> {
+      if (!Array.isArray(inputs) || inputs.length > 256) throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+      const fences = inputs.map(captureCollaborationAdmissionOwnerFence);
+      if (new Set(fences.map((fence) => fence.scope.documentId)).size !== fences.length) {
+        throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+      }
+      if (!fences.length) return Promise.resolve(Object.freeze([]));
+      return transaction(async (database) => {
+        const rows = await database.all(`SELECT r.request_id, r.request_digest, t.snapshot_text, t.status, t.release_id
+          FROM collaboration_admission_requests r JOIN collaboration_admission_targets t ON t.request_id = r.request_id
+          WHERE r.status = 'draining' AND t.active AND t.status IN ('draining', 'released')
+            AND t.document_id = ANY($1::text[]) ORDER BY r.request_id, t.document_id FOR SHARE OF r, t`,
+        [fences.map((fence) => fence.scope.documentId)]) as Array<Record<string, unknown>>;
+        return Object.freeze(rows.flatMap((row) => {
+          const ticket = admissionDrainTicketForTarget(row.request_id as string, row.request_digest as string,
+            JSON.parse(row.snapshot_text as string) as CollaborationAdmissionTarget);
+          const fence = fences.find((item) => item.scope.documentId === ticket.fence.scope.documentId);
+          if (!fence || !matchesCollaborationAdmissionDrainFence(ticket, fence)) return [];
+          if (row.release_id !== (row.status === 'released' ? ticket.releaseId : null)) {
+            throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+          }
+          return [ticket];
+        }));
+      }, async (verified) => verified);
+    },
     read(input: CollaborationAdmissionRequest) {
       const captured = captureCollaborationAdmissionRequest(input);
       return readCaptured(captured);

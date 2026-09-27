@@ -1,7 +1,8 @@
 # Prozessübergreifende Lifecycle-Zulassung: nächster Umsetzungsschritt
 
-Stand: 27. September 2026. **DA-01 implementiert und separat geprüft;
-DA-02 bis DA-06 noch offen.** Nachweise: [DA-01-Ergebnisse](distributed-admission-results.md).
+Stand: 27. September 2026. **DA-01 und DA-02 implementiert und separat geprüft;
+DA-03 bis DA-06 noch offen.** Nachweise: [DA-01](distributed-admission-results.md),
+[DA-02](admission-drain-results.md). Keine Runtime-Aktivierung.
 Fortsetzung des [lokalen terminalen Drains](terminal-room-drain-results.md),
 Teil von FVRC-1008. Keine Aktivierung, kein P12-Abschluss und keine Mergefreigabe.
 
@@ -76,6 +77,10 @@ abgeschlossenem Request. Nur Ablehnung zu testen genügt nicht.
 
 ### DA-02 – Owner-Benachrichtigung und exakter Drain-Auftrag
 
+Status: abgeschlossen für gebundene aktive Owner; normaler Unload, verlorene
+Owner und Vacancy bleiben DA-03. Durable Polling findet verlorene Wake-Hinweise
+wieder; der optionale Adapter ist im Default-Server nicht aktiv.
+
 - Dauerhafter Request ist die Wahrheit; Benachrichtigungen wecken nur auf.
   Doppelte oder verlorene Nachrichten müssen ungefährlich sein.
 - Auftrag an erwarteten Owner-Token/Epoch/Backend und Scope binden. Der heutige
@@ -141,6 +146,11 @@ mit fehlendem Finish, neue Serviceinstanz und danach tatsächliche Weiterarbeit.
 - Mutationsbeleg und Request-Abschluss soweit SQL-basiert atomar speichern;
   Dateiprojektion und nicht atomare Dateisystemschritte ausdrücklich über den
   vorhandenen Journal-/Recovery-Vertrag absichern, nicht als SQL-atomar ausgeben.
+- Nach Request-Abschluss muss ein bereits bewiesener alter Release für seinen
+  rein lokalen Finish weiterhin begrenzt lesbar bleiben. Ein fehlgeschlagener
+  Unload nach positivem SQL-Release darf nicht durch Terminalisierung aus dem
+  Polling verschwinden; der Finish-Vertrag erteilt weder neue Drain- noch
+  Mutationsrechte. Die heutigen DA-02-Reads erlauben bewusst nur `draining`.
 - Bei ungewissem Commit alte Verbindung beenden und exakten Beleg wiederfinden.
   Locks und Reservation nicht aufgrund eines verschluckten Fehlers freigeben.
 
@@ -188,8 +198,8 @@ Doppelwirkung und ohne verlorene unabhängige Änderungen.
 
 ## Nächster Commitumfang
 
-Als Nächstes folgt DA-02: exakter gebundener Drain-Auftrag und atomare
-Receipt-/Target-Bestätigung, einschließlich wiederaufnehmbaren lokalen Abschlusses.
-DA-01 liefert Schema, Reservation-Transaktion und atomare Claim-Sperre mit echten
-PostgreSQL-Race-/Recoverytests. Die bestehenden Lifecycle-Schutzprüfungen bleiben
-bis zur vollständigen Übergabe bestehen; DA-02 bis DA-06 sind nicht freigegeben.
+Als Nächstes folgt DA-03: positiver Receipt bei normalem Unload, expliziter
+Vacant-Proof und Wiederanlauf nach verlorenem Owner. DA-01/02 liefern Reservation,
+gebundenen Drain und atomare Receipt-/Target-Bestätigung. Die bestehenden
+Lifecycle-Schutzprüfungen bleiben bis zur vollständigen Übergabe bestehen;
+DA-03 bis DA-06 und die Aktivierung sind nicht freigegeben.

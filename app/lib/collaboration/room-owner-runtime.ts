@@ -1,6 +1,12 @@
 import 'server-only';
 
 import type { Doc } from 'yjs';
+import {
+  captureCollaborationAdmissionDrainTicket,
+  matchesCollaborationAdmissionDrainFence,
+  sameCollaborationAdmissionDrainTicket,
+  type CollaborationAdmissionDrainTicket,
+} from './room-admission-drain';
 import { createCollaborationRoomActivityGate } from './room-activity-gate';
 import {
   captureCollaborationRoomReleaseSnapshot,
@@ -24,13 +30,21 @@ export type CollaborationRoomOwnerRuntimeOptions = {
   heartbeatMs?: number;
 };
 
+type TerminalDrainHandle = {
+  idle: Promise<void>;
+  releaseDurably: (input: CollaborationRoomReleaseSnapshot) => Promise<void>;
+  finish: () => void;
+};
+
 type TerminalDrain = {
   idle: Promise<void>;
   idleResolved: boolean;
   released: boolean;
   finished: boolean;
+  ticket?: CollaborationAdmissionDrainTicket;
   finishActivityDrain: () => void;
   completion?: Promise<void>;
+  handle?: TerminalDrainHandle;
 };
 
 type OwnedRoom = {
@@ -222,10 +236,24 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
     session!.assertActive(room.proof);
     return room.proof;
   };
-  const beginTerminalDrain = (document: Doc) => {
+  const beginTerminalDrain = (document: Doc, input?: CollaborationAdmissionDrainTicket): TerminalDrainHandle => {
+    const ticket = input && captureCollaborationAdmissionDrainTicket(input);
+    const room = instances.get(document);
+    if (!room || rooms.get(room.scope.documentId) !== room) {
+      throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+    }
+    const existing = room.terminalDrain;
+    if (existing) {
+      if (!ticket || !existing.ticket || !sameCollaborationAdmissionDrainTicket(ticket, existing.ticket)) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
+      }
+      return existing.handle!;
+    }
     const proof = fence(document);
-    const room = instances.get(document)!;
-    if (room.terminalDrain || rooms.get(room.scope.documentId) !== room) {
+    if (ticket && !matchesCollaborationAdmissionDrainFence(ticket, proof)) {
+      throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+    }
+    if (rooms.get(room.scope.documentId) !== room) {
       throw new CollaborationRoomOwnerError('ROOM_OWNER_BUSY');
     }
     const activityDrain = beginActivityDrain(room.scope.documentId);
@@ -234,13 +262,20 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
       idleResolved: false,
       released: false,
       finished: false,
+      ticket,
       finishActivityDrain: activityDrain.finish,
     };
     room.terminalDrain = terminal;
     void terminal.idle.then(() => { terminal.idleResolved = true; });
-    return {
+    const handle: TerminalDrainHandle = {
       idle: terminal.idle,
       releaseDurably(input: CollaborationRoomReleaseSnapshot): Promise<void> {
+        if (terminal.ticket
+          ? !input.admission || input.releaseId !== terminal.ticket.releaseId
+            || !sameCollaborationAdmissionDrainTicket(terminal.ticket, input.admission)
+          : Boolean(input.admission)) {
+          return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED'));
+        }
         if (terminal.completion) return terminal.completion;
         if (!terminal.idleResolved) {
           return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
@@ -284,12 +319,42 @@ export function createCollaborationRoomOwnerRuntime(options: CollaborationRoomOw
         if (rooms.get(room.scope.documentId) === room) rooms.delete(room.scope.documentId);
       },
     };
+    terminal.handle = handle;
+    return handle;
+  };
+  const listOwnedFences = (): readonly CollaborationRoomOwnerFence[] => {
+    const fences: CollaborationRoomOwnerFence[] = [];
+    for (const room of rooms.values()) {
+      const proof = room.proof;
+      if (!proof || room.terminalDrain?.finished) continue;
+      // A positive durable release may outlive its owner session and local
+      // unload attempt. Retain only that exact proof until finish removes it.
+      if (room.terminalDrain?.released) {
+        fences.push(proof);
+        continue;
+      }
+      if (room.document.isDestroyed) continue;
+      if (lost || disposed || room.releasing) continue;
+      try {
+        session!.assertActive(proof);
+        fences.push(proof);
+      } catch { /* A stale local proof is never advertised to the dispatcher. */ }
+    }
+    return Object.freeze(fences);
+  };
+  const resumeTerminalDrain = (input: CollaborationAdmissionDrainTicket) => {
+    const ticket = captureCollaborationAdmissionDrainTicket(input);
+    const room = rooms.get(ticket.fence.scope.documentId);
+    const terminal = room?.terminalDrain;
+    if (!room || !terminal?.ticket || terminal.finished
+      || !sameCollaborationAdmissionDrainTicket(ticket, terminal.ticket)) return undefined;
+    return Object.freeze({ document: room.document, drain: terminal.handle!, released: terminal.released });
   };
   return {
     claim, fence, release, assertAvailable, admitActivity,
     // Quiescence only: the caller must still persist, prove release and retain
     // its lifecycle reservation before reopening admission with finish().
-    beginActivityDrain, beginTerminalDrain,
+    beginActivityDrain, beginTerminalDrain, resumeTerminalDrain, listOwnedFences,
     isDraining: (documentId: string) => activityDrains.has(documentId),
     // Failed/lost stores must not be followed by Hocuspocus's unconditional
     // direct-disconnect unload. Retain unacknowledged data for recovery.

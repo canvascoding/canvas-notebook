@@ -4,6 +4,12 @@ import { createHash } from 'node:crypto';
 import type { Client } from 'pg';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
 import {
+  captureCollaborationAdmissionDrainTicket,
+  lockCollaborationAdmissionDrain,
+  matchesCollaborationAdmissionDrainFence,
+  type CollaborationAdmissionDrainTicket,
+} from './room-admission-drain';
+import {
   assertCollaborationRoomOwnerFence,
   lockIdentity,
   type CollaborationRoomOwnerFence,
@@ -14,6 +20,7 @@ export type CollaborationRoomReleaseSnapshot = Readonly<{
   releaseId: string;
   yjsState: Uint8Array;
   stateVector: Uint8Array;
+  admission?: CollaborationAdmissionDrainTicket;
 }>;
 
 export type CollaborationRoomReleaseReceipt = Readonly<{
@@ -58,7 +65,9 @@ export function captureCollaborationRoomReleaseSnapshot(input: CollaborationRoom
     || input.stateVector.byteLength === 0 || input.stateVector.byteLength > maxBytes) {
     throw new CollaborationRoomReleaseError();
   }
-  return Object.freeze({ releaseId: input.releaseId,
+  const admission = input.admission && captureCollaborationAdmissionDrainTicket(input.admission);
+  if (admission && admission.releaseId !== input.releaseId) throw new CollaborationRoomReleaseError();
+  return Object.freeze({ releaseId: input.releaseId, ...(admission ? { admission } : {}),
     yjsState: new Uint8Array(input.yjsState), stateVector: new Uint8Array(input.stateVector) });
 }
 
@@ -127,6 +136,9 @@ export async function recoverCollaborationRoomRelease(input: {
 }): Promise<CollaborationRoomReleaseReceipt> {
   const fence = Object.freeze({ ...input.fence, scope: Object.freeze({ ...input.fence.scope }) });
   const snapshot = captureCollaborationRoomReleaseSnapshot(input.snapshot);
+  if (snapshot.admission && !matchesCollaborationAdmissionDrainFence(snapshot.admission, fence)) {
+    throw new CollaborationRoomReleaseError();
+  }
   const client = await input.createClient();
   const query = async (sql: string, values?: unknown[]) => {
     let timer: NodeJS.Timeout | undefined;
@@ -143,6 +155,9 @@ export async function recoverCollaborationRoomRelease(input: {
     const acquired = await query('SELECT pg_try_advisory_lock($1::bigint) AS locked', [lock.key]);
     if (acquired.rows[0]?.locked !== true) throw new CollaborationRoomReleaseError();
     await query('BEGIN');
+    if (snapshot.admission) {
+      await lockCollaborationAdmissionDrain(async (sql, values) => (await query(sql, values)).rows, snapshot.admission, 'released');
+    }
     const row = (await query('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
       [fence.scope.documentId])).rows[0] as ReleaseStateRow | undefined;
     if (!row || row.room_owner_token !== null || row.room_owner_backend_pid !== null || row.room_owner_backend_start !== null) {

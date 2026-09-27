@@ -7,6 +7,11 @@ import type { TextCollaborationRepresentation } from './types';
 import { CollaborationAdmissionError } from './room-admission-contract';
 import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
 import {
+  acknowledgeCollaborationAdmissionDrain,
+  lockCollaborationAdmissionDrain,
+  matchesCollaborationAdmissionDrainFence,
+} from './room-admission-drain';
+import {
   captureCollaborationRoomReleaseSnapshot,
   recordCollaborationRoomRelease,
   type CollaborationRoomReleaseSnapshot,
@@ -226,7 +231,12 @@ export async function createCollaborationRoomOwnerSession(
     if (queued >= MAX_QUEUED_COMMANDS) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
     // Capture before entering the queue. Buffer.slice() would retain aliases.
     let snapshot: CollaborationRoomReleaseSnapshot | undefined;
-    try { snapshot = input && captureCollaborationRoomReleaseSnapshot(input); }
+    try {
+      snapshot = input && captureCollaborationRoomReleaseSnapshot(input);
+      if (snapshot?.admission && !matchesCollaborationAdmissionDrainFence(snapshot.admission, fence)) {
+        throw new CollaborationRoomOwnerError('ROOM_OWNER_SCOPE_CHANGED');
+      }
+    }
     catch (error) { return Promise.reject(error); }
     // Stop new local mutations immediately, before waiting for a SQL writer.
     rooms.delete(fence.scope.documentId);
@@ -234,6 +244,8 @@ export async function createCollaborationRoomOwnerSession(
       try {
         const lock = lockIdentity(fence.scope.documentId);
         await query('BEGIN');
+        const admissionQuery = async (sql: string, values?: unknown[]) => (await query(sql, values)).rows;
+        if (snapshot?.admission) await lockCollaborationAdmissionDrain(admissionQuery, snapshot.admission, 'draining');
         const row = (await query('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE', [fence.scope.documentId])).rows[0] as CollaborationRoomOwnerRow | undefined;
         if (snapshot) {
           // Legacy/abandon release never creates a durability receipt.
@@ -249,6 +261,7 @@ export async function createCollaborationRoomOwnerSession(
           await query(`UPDATE collaboration_yjs_states SET room_owner_token = NULL,
             room_owner_backend_pid = NULL, room_owner_backend_start = NULL WHERE document_id = $1`, [fence.scope.documentId]);
         }
+        if (snapshot?.admission) await acknowledgeCollaborationAdmissionDrain(admissionQuery, snapshot.admission);
         await query('COMMIT');
         const unlocked = (await query('SELECT pg_advisory_unlock($1::bigint) AS unlocked', [lock.key])).rows[0];
         if (unlocked?.unlocked !== true) { await close(); throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE'); }

@@ -10,6 +10,7 @@ import type {
   CollaborationRoomReleaseReceipt,
   CollaborationRoomReleaseSnapshot,
 } from '../app/lib/collaboration/room-owner-release';
+import { admissionDrainTicketForTarget } from '../app/lib/collaboration/room-admission-drain';
 import { createCollaborationRoomOwnerRuntime } from '../app/lib/collaboration/room-owner-runtime';
 
 function deferred<T = void>() {
@@ -57,6 +58,17 @@ function releaseSnapshot(document: Y.Doc, releaseId: string): CollaborationRoomR
     yjsState: Y.encodeStateAsUpdate(document),
     stateVector: Y.encodeStateVector(document),
   };
+}
+
+function drainTicket(fence: CollaborationRoomOwnerFence, requestId = '77777777-7777-4777-8777-777777777777') {
+  return admissionDrainTicketForTarget(requestId, 'a'.repeat(64), {
+    document: { ...fence.scope, status: 'active' },
+    ownerEpoch: fence.epoch,
+    ownerToken: fence.token,
+    ownerBackendPid: fence.backendPid,
+    ownerBackendStart: fence.backendStart,
+    documentSequence: 0,
+  });
 }
 
 function lostError(error: unknown): boolean {
@@ -648,6 +660,43 @@ async function testTerminalDrainDoesNotRecoverUntilSessionCloseIsProven() {
   }
 }
 
+async function testAdmissionTicketBindsReentrantTerminalDrainAndRetainsReleasedProof() {
+  const h = harness();
+  const document = makeDoc('ticket-bound-terminal');
+  try {
+    const fence = await h.runtime.claim(document, ownerScope(document.guid));
+    const ticket = drainTicket(fence);
+    const other = drainTicket(fence, '88888888-8888-4888-8888-888888888888');
+    const drain = h.runtime.beginTerminalDrain(document, ticket);
+    assert.equal(h.runtime.beginTerminalDrain(document, ticket), drain,
+      'the exact repeated ticket resumes one local terminal drain');
+    assert.throws(() => h.runtime.beginTerminalDrain(document, other),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_BUSY',
+      'a different request cannot adopt an existing terminal drain');
+    await drain.idle;
+    await assert.rejects(drain.releaseDurably(releaseSnapshot(document, ticket.releaseId)),
+      (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_SCOPE_CHANGED',
+      'a bound drain rejects a release snapshot that omits its admission ticket');
+    await assert.rejects(drain.releaseDurably({
+      ...releaseSnapshot(document, other.releaseId), admission: other,
+    }), (error) => error instanceof CollaborationRoomOwnerError && error.code === 'ROOM_OWNER_SCOPE_CHANGED',
+    'a bound drain rejects another request before revoking its owner fence');
+    assert.equal(h.runtime.fence(document), fence);
+    await drain.releaseDurably({ ...releaseSnapshot(document, ticket.releaseId), admission: ticket });
+    document.destroy();
+    assert.deepEqual(h.runtime.listOwnedFences(), [fence],
+      'a released but unfinished exact proof survives destroy for dispatcher retry');
+    const resumed = h.runtime.resumeTerminalDrain(ticket);
+    assert.equal(resumed?.document, document);
+    assert.equal(resumed?.drain, drain);
+    drain.finish();
+    assert.deepEqual(h.runtime.listOwnedFences(), []);
+    assert.equal(h.runtime.resumeTerminalDrain(ticket), undefined);
+  } finally {
+    await cleanup(h.runtime, [document]);
+  }
+}
+
 async function testLateFactoryResultIsClosedAfterDispose() {
   const factoryStarted = deferred();
   const finishFactory = deferred<FakeOwnerSession>();
@@ -767,10 +816,11 @@ async function main() {
   await testTerminalDrainRecoversOnlyAfterClosingLostSession();
   await testTerminalDrainRejectsUnprovenRecoveryAndLegacyAbandon();
   await testTerminalDrainDoesNotRecoverUntilSessionCloseIsProven();
+  await testAdmissionTicketBindsReentrantTerminalDrainAndRetainsReleasedProof();
   await testLateFactoryResultIsClosedAfterDispose();
   await testHeartbeatKeepsOnlyOneProbeInFlight();
   await testFailedHeartbeatProbeInvalidatesEveryRoom();
-  console.log('collaboration room-owner runtime tests passed (12 scenarios)');
+  console.log('collaboration room-owner runtime tests passed (13 scenarios)');
 }
 
 main().catch((error: unknown) => {

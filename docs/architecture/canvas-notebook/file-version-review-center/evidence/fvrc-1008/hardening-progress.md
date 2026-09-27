@@ -10,8 +10,10 @@ Stand nochmals im gewöhnlichen Team-B/C-Browserpfad geprüft. DA-01 ergänzt nu
 die dauerhafte Reservation und atomare Claim-Sperre als getrennt testbare Mechanik.
 Echte PostgreSQL-Races, verlorene Commit-Antworten und erfolgreiche Weiterarbeit
 nach bestätigtem Cancel sind geprüft: [DA-01-Ergebnisse](distributed-admission-results.md).
-Die sequenziellen Bausteine DA-02 bis DA-06 samt atomarer Receipt-Bindung,
-normalem Unload und Crash-Recovery bleiben im
+DA-02 ergänzt den exakt gebundenen Drain, atomare Receipt-/Target-Bestätigung
+und wiederaufnehmbaren lokalen Unload: [DA-02-Ergebnisse](admission-drain-results.md).
+Die sequenziellen Bausteine DA-03 bis DA-06 samt normalem Unload, Vacancy und
+Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue
 Mechanik ist noch nicht aktiviert; keine Lifecycle-Schutzprüfung wird gelockert.
 
