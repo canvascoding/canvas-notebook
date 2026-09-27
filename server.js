@@ -801,7 +801,9 @@ async function startServer() {
     // Keep the custom server and Next server externals on the CommonJS Yjs
     // entry so the long-lived Node process has exactly one constructor set.
     const collaborationModule = require('./server/collaboration-server.ts');
-    collaborationModule.createCollaborationServer(server);
+    const collaborationOwnerTestModule = require('./app/lib/collaboration/room-owner-local-test.ts');
+    const roomOwner = collaborationOwnerTestModule.resolveLocalCollaborationRoomOwnerOptions();
+    collaborationModule.createCollaborationServer(server, roomOwner ? { roomOwner } : {});
     flushCollaborationDocuments = collaborationModule.flushCollaborationDocuments;
     const excalidrawCollaborationModule = require('./server/excalidraw-collaboration/server.ts');
     excalidrawCollaborationModule.createExcalidrawCollaborationServer(server);
