@@ -115,14 +115,15 @@ enthält die inaktive Owner-Epoche 0. `.ts`-Module werden nicht mehr als JSX
 transpiliert. Keine Merge-/Fence-No-ops und keine abgeschwächten Assertions.
 Die danach vollständig erneut ausgeführte Durability-Suite ist grün.
 
-Nicht als grün gewertet: Die ältere breite
+Zum Zeitpunkt dieses Bausteins nicht als grün gewertet: Die ältere breite
 `file-agent-operation-integration-test.ts`-Suite erreicht die neue Prüfung
 nicht. Frische DBs benötigen zuerst die regulären Startmigrationen. Danach
 fehlt in ihrem frühen Direktfreigabe-Fixture eine kanonische Dateiversions-
 Identität; nach diagnostischer Korrektur folgt ein weiterer veralteter
 `independentGroups`-Vertrag (heutige Policy erzwingt dort Review). Die temporäre
-Fixture-Korrektur wurde vollständig zurückgenommen, die breite Suite bleibt
-unverändert. Ihre Aktualisierung ist separat offen; weder Assertions noch
+Fixture-Korrektur wurde zunächst vollständig zurückgenommen. Ihre nachfolgende
+[separate Reparatur und vollständige Verifikation](operations-harness-results.md)
+ist inzwischen erfolgt; weder Assertions noch
 Produkt-Schutzregeln wurden abgeschwächt. Alle hierfür erzeugten Datenbanken
 wurden entfernt, die verwalteten Workspace-Daten nicht zurückgesetzt.
 

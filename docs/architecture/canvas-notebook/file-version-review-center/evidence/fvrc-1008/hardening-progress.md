@@ -907,3 +907,13 @@ deaktiviert. Lifecycle-Entzug, Quarantäne-Recovery, übrige Schreiber und der
 atomare Kandidatencommit bleiben zwingende nächste Schritte. Kein gemischter
 Betrieb mit alten Servern bei späterer Aktivierung. Dieser Baustein schließt
 FVRC-1008 oder die Crashlücke nicht ab.
+
+### Breite Operations-Regression wieder ausführbar
+
+Der [reparierte Operations-Testaufbau](operations-harness-results.md) besteht
+zweimal seriell in frisch migrierten PostgreSQL-Testdatenbanken, einschließlich
+Personal-Workspace-Suite. Kanonische Identitäten, explizite Prüfung der neuen
+Review-Pflicht, Erhalt historischer Teilanwendungs-/Recovery-Abdeckung und
+korrektes Cleanup ersetzen veraltete Testannahmen. Keine Produkt-Schutzregel
+wurde geändert. Diese Integrationstests schließen die weiterhin offenen
+Mehrprozess-, Lifecycle- und Crash-Gates nicht ab.
