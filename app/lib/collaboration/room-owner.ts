@@ -4,6 +4,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { Client } from 'pg';
 import type { SqlConnection } from '@/app/lib/db';
 import type { TextCollaborationRepresentation } from './types';
+import {
+  captureCollaborationRoomReleaseSnapshot,
+  recordCollaborationRoomRelease,
+  type CollaborationRoomReleaseSnapshot,
+} from './room-owner-release';
 
 export type CollaborationRoomOwnerScope = Readonly<{
   documentId: string;
@@ -53,7 +58,7 @@ const MAX_ROOMS = 256;
 const MAX_QUEUED_COMMANDS = 256;
 const COMMAND_TIMEOUT_MS = 5_000;
 
-function lockIdentity(documentId: string) {
+export function lockIdentity(documentId: string) {
   const hex = createHash('sha256').update(`canvas.collaboration.room-owner.v1\0${documentId}`).digest('hex').slice(0, 16);
   return { key: BigInt.asIntN(64, BigInt(`0x${hex}`)).toString(),
     high: Number.parseInt(hex.slice(0, 8), 16), low: Number.parseInt(hex.slice(8), 16) };
@@ -199,28 +204,49 @@ export async function createCollaborationRoomOwnerSession(
       return fence;
     });
   };
-  const release = (fence: CollaborationRoomOwnerFence): Promise<void> => {
+  const release = (fence: CollaborationRoomOwnerFence, input?: CollaborationRoomReleaseSnapshot): Promise<void> => {
     try { assertActive(fence); } catch (error) { return Promise.reject(error); }
     // Reserve capacity before revoking the local handle. A busy caller can
     // retry this exact handle; it must never leave an unreachable held lock.
     if (queued >= MAX_QUEUED_COMMANDS) return Promise.reject(new CollaborationRoomOwnerError('ROOM_OWNER_BUSY'));
+    // Capture before entering the queue. Buffer.slice() would retain aliases.
+    let snapshot: CollaborationRoomReleaseSnapshot | undefined;
+    try { snapshot = input && captureCollaborationRoomReleaseSnapshot(input); }
+    catch (error) { return Promise.reject(error); }
     // Stop new local mutations immediately, before waiting for a SQL writer.
     rooms.delete(fence.scope.documentId);
     return enqueue(async () => {
-      const lock = lockIdentity(fence.scope.documentId);
-      await query('BEGIN');
-      const row = (await query('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE', [fence.scope.documentId])).rows[0] as CollaborationRoomOwnerRow | undefined;
-      // Identity may have changed during rename/archive. Releasing our exact
-      // token is allowed then; never clear a replacement owner's token.
-      if (row && Number(row.room_owner_epoch) === fence.epoch && row.room_owner_token === fence.token
-        && row.room_owner_backend_pid === fence.backendPid && row.room_owner_backend_start === fence.backendStart) {
-        await query(`UPDATE collaboration_yjs_states SET room_owner_token = NULL,
-          room_owner_backend_pid = NULL, room_owner_backend_start = NULL WHERE document_id = $1`, [fence.scope.documentId]);
+      try {
+        const lock = lockIdentity(fence.scope.documentId);
+        await query('BEGIN');
+        const row = (await query('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE', [fence.scope.documentId])).rows[0] as CollaborationRoomOwnerRow | undefined;
+        if (snapshot) {
+          // Legacy/abandon release never creates a durability receipt.
+          await recordCollaborationRoomRelease({
+            query: async (sql, values) => (await query(sql, values)).rows,
+            row, fence, snapshot,
+          });
+        }
+        // Identity may have changed during rename/archive. Releasing our exact
+        // token is allowed then; never clear a replacement owner's token.
+        if (row && Number(row.room_owner_epoch) === fence.epoch && row.room_owner_token === fence.token
+          && row.room_owner_backend_pid === fence.backendPid && row.room_owner_backend_start === fence.backendStart) {
+          await query(`UPDATE collaboration_yjs_states SET room_owner_token = NULL,
+            room_owner_backend_pid = NULL, room_owner_backend_start = NULL WHERE document_id = $1`, [fence.scope.documentId]);
+        }
+        await query('COMMIT');
+        const unlocked = (await query('SELECT pg_advisory_unlock($1::bigint) AS unlocked', [lock.key])).rows[0];
+        if (unlocked?.unlocked !== true) { await close(); throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE'); }
+        lockKeys.delete(lock.key);
+      } catch (error) {
+        // Include COMMIT and unlock uncertainty, not just receipt validation:
+        // fresh recovery may start only after this backend's locks are gone.
+        if (snapshot) {
+          try { await close(); }
+          catch (closeError) { throw new AggregateError([error, closeError], 'Durable room release could not close its owner session.'); }
+        }
+        throw error;
       }
-      await query('COMMIT');
-      const unlocked = (await query('SELECT pg_advisory_unlock($1::bigint) AS unlocked', [lock.key])).rows[0];
-      if (unlocked?.unlocked !== true) { await close(); throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE'); }
-      lockKeys.delete(lock.key);
     });
   };
   return { acquire, release, assertActive, close, probe: () => enqueue(async () => { await query('SELECT 1'); }) };

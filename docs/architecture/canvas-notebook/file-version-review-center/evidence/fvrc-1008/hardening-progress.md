@@ -5,6 +5,15 @@ Stand: 26. September 2026. Ausgangscommit der Härtung: `83238a7e3`
 **FVRC-1008 ist in Arbeit, nicht abgenommen.**
 Produktionsaktivierung und der manuelle Konflikteditor P12 sind nicht freigegeben.
 
+## Ergänzung: Positiver Nachweis vor Raumfreigabe
+
+Die optionale Owner-Freigabe kann jetzt einen kausal geprüften Live-Snapshot
+gemeinsam mit dem Token-Clear belegen. Bei verlorener Commit-Antwort wird erst
+das alte Backend beendet, dann der exakte Beleg über eine neue Verbindung
+gelesen. Löschungen bei unverändertem Vector sind ausdrücklich abgedeckt.
+[room-release-results.md](room-release-results.md) dokumentiert die Unit-/PG-
+Nachweise und die noch fehlende Runtime-Drain-/Lifecycle-Integration.
+
 ## Ergänzung: Lifecycle-COMMIT vor Dateiprojektion
 
 Normalisierung schreibt jetzt erst nach positivem SQL-Commit-Nachweis in die
