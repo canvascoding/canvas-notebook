@@ -917,3 +917,14 @@ Review-Pflicht, Erhalt historischer Teilanwendungs-/Recovery-Abdeckung und
 korrektes Cleanup ersetzen veraltete Testannahmen. Keine Produkt-Schutzregel
 wurde geändert. Diese Integrationstests schließen die weiterhin offenen
 Mehrprozess-, Lifecycle- und Crash-Gates nicht ab.
+
+### Lifecycle-Umwandlungen ersetzen keine neueren Snapshots
+
+Die [gemeinsame Snapshot-Sperre](lifecycle-snapshot-results.md) verhindert, dass
+Kompaktierung oder Formatwechsel aus einem früher gelesenen Zustand einen
+zwischenzeitlich gespeicherten Yjs-Stand überschreiben. Der komplette Stand
+wird unter PostgreSQL-Zeilensperre geprüft; bei Abweichungen bleiben aktuelle
+Bytes, Backups, Vorschlagsstatus und externe Checkpoint-Callbacks geschützt.
+Das ist ein begrenzter Persistenzfix, kein vollständiger Mehrprozess-Drain.
+Operations-Admission, ungewisse Lifecycle-Commits und atomarer Publish bleiben
+als gesonderte Pflichtschritte dokumentiert. FVRC-1008 bleibt offen.

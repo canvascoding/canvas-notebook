@@ -814,6 +814,43 @@ async function writeStateBackup(input: {
 }
 
 /**
+ * Transformations are prepared outside the transaction. Lock and compare the
+ * complete input before replacing it: a generation/vector check alone misses
+ * stores in the same generation, including deletion-only Yjs updates.
+ * The caller must retain this row lock through COMMIT/ROLLBACK.
+ */
+async function lockUnchangedLifecycleSnapshot(
+  database: SqlConnection,
+  expected: PersistedCollaborationState,
+): Promise<PersistedCollaborationState> {
+  const row = await database.get(
+    'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
+    [expected.documentId],
+  ) as StateRow | undefined;
+  if (!row) {
+    throw new CollaborationRepresentationMigrationError('Collaboration state disappeared before lifecycle mutation.', 'state_changed');
+  }
+  // Owner-era documents require cross-process drain authority, even after an
+  // owner released its token. A process-local empty-room check is not proof.
+  // Keep this fail-closed until the lifecycle handoff protocol supplies that
+  // authority; never silently downgrade an owned document to the legacy path.
+  if (Number(row.room_owner_epoch) !== 0 || row.room_owner_token !== null
+    || row.room_owner_backend_pid !== null || row.room_owner_backend_start !== null) {
+    throw new CollaborationRepresentationMigrationError('Collaboration room ownership must be drained before lifecycle mutation.', 'room_active');
+  }
+  const current = mapState(row);
+  const { yjsState: expectedUpdate, stateVector: expectedVector, ...expectedMetadata } = expected;
+  const { yjsState: currentUpdate, stateVector: currentVector, ...currentMetadata } = current;
+  const keys = Object.keys(expectedMetadata) as Array<keyof typeof expectedMetadata>;
+  if (keys.some((key) => currentMetadata[key] !== expectedMetadata[key])
+    || !Buffer.from(currentUpdate).equals(Buffer.from(expectedUpdate))
+    || !Buffer.from(currentVector).equals(Buffer.from(expectedVector))) {
+    throw new CollaborationRepresentationMigrationError('Collaboration state changed while preparing lifecycle mutation.', 'state_changed');
+  }
+  return current;
+}
+
+/**
  * Re-encodes a fully checkpointed, idle document with Yjs GC enabled. The
  * lifecycle generation changes so offline clients cannot merge old tombstone
  * histories into the compacted room without an explicit reload/review.
@@ -837,20 +874,22 @@ async function compactCollaborationStateWhileLocked(input: {
   const update = Y.encodeStateAsUpdate(fresh);
   const vector = Y.encodeStateVector(fresh);
   const now = Date.now();
-  const nextSequence = state.documentSequence + 1;
   const database = await openDb();
   try {
     await database.run('BEGIN');
     if (await pendingAgentOperationCount(database, state.documentId) > 0) {
       throw new Error('Collaboration state cannot be compacted while agent operations or reviews are pending.');
     }
-    await writeStateBackup({ database, state, reason: 'compaction', now });
+    const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
+    const nextSequence = lockedState.documentSequence + 1;
+    await writeStateBackup({ database, state: lockedState, reason: 'compaction', now });
     const row = await database.get(
       `UPDATE collaboration_yjs_states
        SET yjs_state = $1, state_vector = $2, lifecycle_generation = lifecycle_generation + 1,
            document_sequence = $3, checkpoint_sequence = $4, persisted_at = $5, checkpointed_at = $6,
            canonical_hash = $7, compacted_at = $8, compaction_count = compaction_count + 1
        WHERE document_id = $9 AND status = 'active' AND lifecycle_generation = $10
+         AND document_sequence = $11
          AND degraded = 0 AND checkpoint_sequence >= document_sequence
        RETURNING *`,
       [
@@ -864,6 +903,7 @@ async function compactCollaborationStateWhileLocked(input: {
         now,
         state.documentId,
         state.lifecycleGeneration,
+        lockedState.documentSequence,
       ],
     ) as StateRow | undefined;
     if (!row) throw new Error('Collaboration state changed concurrently during compaction.');
@@ -981,7 +1021,6 @@ async function changeCollaborationRepresentationWhileLocked(input: {
   const update = Y.encodeStateAsUpdate(fresh);
   const vector = Y.encodeStateVector(fresh);
   const now = Date.now();
-  const nextSequence = state.documentSequence + 1;
   const database = await openDb();
   let checkpointAttempted = false;
   let checkpointFileWrite: Awaited<ReturnType<SafeMarkdownNormalizationCheckpoint['write']>> | null = null;
@@ -1006,7 +1045,12 @@ async function changeCollaborationRepresentationWhileLocked(input: {
        WHERE document_id = $2 AND status NOT IN (${TERMINAL_AGENT_OPERATION_STATUSES.map((_, index) => `$${index + 3}`).join(', ')})`,
       [now, state.documentId, ...TERMINAL_AGENT_OPERATION_STATUSES],
     );
-    await writeStateBackup({ database, state, reason: 'representation_change', now });
+    // Preserve the existing operation -> state lock order. Expiration above is
+    // transactional and rolls back if the snapshot changed; no file callback
+    // or backup is performed until the authoritative row has been validated.
+    const lockedState = await lockUnchangedLifecycleSnapshot(database, state);
+    const nextSequence = lockedState.documentSequence + 1;
+    await writeStateBackup({ database, state: lockedState, reason: 'representation_change', now });
     const row = await database.get(
       `UPDATE collaboration_yjs_states
        SET representation = $1, schema_version = $2, yjs_state = $3, state_vector = $4,
@@ -1014,6 +1058,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
            checkpoint_sequence = $6, persisted_at = $7, checkpointed_at = $8,
            canonical_hash = $9, compacted_at = $10
        WHERE document_id = $11 AND status = 'active' AND lifecycle_generation = $12
+         AND document_sequence = $13
        RETURNING *`,
       [
         input.representation,
@@ -1028,6 +1073,7 @@ async function changeCollaborationRepresentationWhileLocked(input: {
         now,
         state.documentId,
         state.lifecycleGeneration,
+        lockedState.documentSequence,
       ],
     ) as StateRow | undefined;
     if (!row) {
