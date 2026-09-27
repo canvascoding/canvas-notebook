@@ -46,16 +46,30 @@ function harness(markdown?: string) {
   let denyGrantLock = false;
   let failGrantCommit = false;
   let beforeGrantLock = () => {};
+  const lifecycleEvents: string[] = [];
   class GrantUnavailableError extends Error {}
 
   const database = {
-    get: async (sql: string) => sql.includes('FROM file_change_proposals') ? (graphBound ? { proposal_id: 'proposal' } : undefined)
+    get: async (sql: string) => sql.includes('FROM collaboration_yjs_states') ? undefined
+      : sql.includes('FROM file_change_proposals') ? (graphBound ? { proposal_id: 'proposal' } : undefined)
       : sql.includes('SELECT name, email') ? { name: 'User' }
       : newDelivery && sql.includes('WHERE document_id = $1 AND initiated_by_user_id') ? undefined : { ...row },
     close: async () => {},
-    all: async (sql: string) => sql.includes("WHERE status IN ('preparing'") ? [{ ...row }] : [],
+    all: async (sql: string) => {
+      if (sql.includes('pg_advisory_xact_lock')) lifecycleEvents.push('ADMISSION_WORKSPACE_LOCK');
+      if (sql.includes('collaboration_admission_scopes') || sql.includes('collaboration_admission_targets')) {
+        lifecycleEvents.push('ADMISSION_OPEN_CHECK');
+        return [];
+      }
+      return sql.includes("WHERE status IN ('preparing'") ? [{ ...row }] : [];
+    },
     run: async (sql: string, params: unknown[]) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.startsWith('SET LOCAL ')) {
+        lifecycleEvents.push(sql);
+        return { changes: 0 };
+      }
       if (sql.includes('INSERT INTO collaboration_agent_operations')) {
+        lifecycleEvents.push('INSERT collaboration_agent_operations');
         const insert = /\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)/.exec(sql)!;
         const columns = insert[1].split(',').map((value) => value.trim());
         const values = insert[2].split(',').map((value) => value.trim());
@@ -106,7 +120,13 @@ function harness(markdown?: string) {
         return null;
       },
     } };
-    if (name === './persistence') return { loadCollaborationState: async () => ({ ...state }) };
+    if (name === './persistence') return {
+      loadCollaborationState: async () => ({ ...state }),
+      loadCollaborationStateOnConnection: async (connection: unknown) => {
+        assert.equal(connection, database, 'new operation state is read on its owning transaction connection');
+        return { ...state };
+      },
+    };
     if (name === './document-access') return { readCurrentCollaborationDocument: async (input: { read: (doc: Y.Doc) => unknown }) => {
       reads++; return input.read(doc);
     } };
@@ -205,6 +225,7 @@ function harness(markdown?: string) {
     failGrantCommit: () => { failGrantCommit = true; },
     beforeGrantLock: (value: () => void) => { beforeGrantLock = value; }, directCalls: () => directCalls, reads: () => reads,
     historyCaptures: () => historyCaptures,
+    lifecycleEvents: () => [...lifecycleEvents],
     beforeApply: (value: () => void) => { beforeApply = value; }, close: () => doc.destroy() };
 }
 
@@ -368,6 +389,18 @@ test('a safe-direct document policy creates only the new operation authority and
     assert.equal(result.durability, 'persisted_yjs');
     assert.equal(h.row.direct_edit_grant_id, 'policy-generated');
     assert.equal(h.directCalls(), 1);
+    const lifecycle = h.lifecycleEvents();
+    assert.equal(lifecycle[0], 'BEGIN');
+    const statementTimeout = lifecycle.indexOf('SET LOCAL statement_timeout = \'5s\'');
+    const workspaceLock = lifecycle.indexOf('ADMISSION_WORKSPACE_LOCK');
+    const openCheck = lifecycle.indexOf('ADMISSION_OPEN_CHECK');
+    const insert = lifecycle.indexOf('INSERT collaboration_agent_operations');
+    const commit = lifecycle.indexOf('COMMIT');
+    assert.ok(statementTimeout >= 0 && workspaceLock >= 0 && openCheck >= 0 && insert >= 0 && commit >= 0,
+      'every expected lifecycle step is observed');
+    assert.ok(statementTimeout < workspaceLock && workspaceLock < openCheck && openCheck < insert,
+      'creation scopes state, locks admission, and checks reservations before inserting');
+    assert.ok(insert < commit);
     assert.match(h.doc.getText('content').toString(), /^Revised/);
   } finally { h.close(); }
 });

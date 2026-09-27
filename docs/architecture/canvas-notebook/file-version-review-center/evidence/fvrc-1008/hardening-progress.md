@@ -31,6 +31,10 @@ derselben gespeicherten Request-ID. Seine reguläre Runtime-Anbindung bleibt off
 Der [Initialisierungsschutz](initialization-admission-results.md) ordnet neue
 Dokumentmetadaten/Yjs-Zustände atomar gegen persistente Reservationen, ohne
 bereits zugelassene Checkpoints zu blockieren. Weitere Writer bleiben offen.
+Die [Legacy-Operationszulassung](legacy-operation-admission-results.md) ergänzt
+eine kurze Admission-/State-Transaktion vor neuen Agentenoperationen sowie
+exakten lesenden Commit-Recovery. Graph-Writer und die weiteren Domainadapter
+werden dadurch nicht als umgestellt oder freigegeben ausgewiesen.
 Die verbleibenden Bausteine DA-03 bis DA-06 einschließlich vollständiger
 Coordinator-Fortsetzung und Crash-Recovery bleiben im
 [Distributed-Admission-Plan](distributed-admission-plan.md) offen. Die neue

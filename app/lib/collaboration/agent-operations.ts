@@ -44,7 +44,10 @@ import {
   AgentDirectConnectionAuthorizationError,
   runCollaborationDirectConnection,
 } from './direct-connection';
-import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
+import { loadCollaborationState, loadCollaborationStateOnConnection, type PersistedCollaborationState } from './persistence';
+import { executeLifecycleTransaction } from './lifecycle-transaction';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
+import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError } from './room-admission-contract';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { logCollaborationDiagnostic } from './diagnostics';
 import { readCurrentCollaborationDocument } from './document-access';
@@ -1218,7 +1221,7 @@ async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Par
     || (row.expected_canonical_hash ?? null) !== (input.expectedCanonicalHash || null)) {
     throw new Error('Idempotency key was already used with a different or unverifiable agent file request.');
   }
-  const state = await loadCollaborationState(row.document_id);
+  const state = await (input.loadState ?? loadCollaborationState)(row.document_id);
   if (!state || state.status !== 'active' || state.workspaceId !== row.workspace_id || state.organizationId !== row.organization_id
     || state.path !== row.document_path || state.representation !== row.document_representation
     || state.lifecycleGeneration !== Number(row.document_lifecycle_generation) || state.schemaVersion !== Number(row.schema_version)) {
@@ -1228,6 +1231,9 @@ async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Par
 
 async function createOrLoadOperation(input: {
   database: SqlConnection;
+  /** Internal creation adapter; graph callers retain their existing transaction. */
+  loadState?: typeof loadCollaborationState;
+  beforeInsert?: (state: PersistedCollaborationState) => Promise<void>;
   /** Internal graph creation may reserve an ID in the same atomic transaction. */
   operationId?: string;
   documentId: string;
@@ -1314,7 +1320,7 @@ async function createOrLoadOperation(input: {
       return { row: chainDuplicate, created: false };
     }
   }
-  const state = await loadCollaborationState(input.documentId);
+  const state = await (input.loadState ?? loadCollaborationState)(input.documentId);
   if (
     !state
     || state.workspaceId !== input.workspace.workspaceId
@@ -1324,6 +1330,7 @@ async function createOrLoadOperation(input: {
   ) {
     throw new Error('Collaboration document is unavailable or stale.');
   }
+  await input.beforeInsert?.(state);
   const now = Date.now();
   const operationId = input.operationId ?? randomUUID();
   await input.database.run(
@@ -1373,6 +1380,64 @@ async function createOrLoadOperation(input: {
   const row = await readOperation(input.database, operationId);
   if (!row) throw new Error('Failed to create collaboration agent operation.');
   return { row, created: true };
+}
+
+/** Only legacy creation owns this short transaction; later work remains statementwise. */
+async function createOrLoadAdmittedOperation(
+  input: Omit<Parameters<typeof createOrLoadOperation>[0], 'database' | 'loadState' | 'beforeInsert'>,
+): Promise<{ row: AgentOperationRow; created: boolean }> {
+  // No caller-owned target, request receipt, or workspace object survives an await.
+  const captured = structuredClone(input);
+  return executeLifecycleTransaction({
+    openConnection: openDb,
+    execute: async (database) => {
+      await database.run("SET LOCAL statement_timeout = '5s'");
+      await database.run("SET LOCAL lock_timeout = '4s'");
+      const query = async (sql: string, values?: unknown[]) =>
+        await database.all(sql, values) as Array<Record<string, unknown>>;
+      await lockCollaborationAdmissionWorkspace(query, captured.workspace.workspaceId);
+      return createOrLoadOperation({ ...captured, database,
+        // Handoff terminalization does not take the workspace admission guard.
+        // Retain the state row so its generation/path cannot change between
+        // reading this snapshot, checking admission, and committing the INSERT.
+        loadState: (documentId) => loadCollaborationStateOnConnection(database, documentId, false, 'share'),
+        beforeInsert: async (state) => {
+          if (state.organizationId !== (captured.workspace.organizationId ?? null)
+            || (captured.documentLifecycleGeneration !== undefined
+              && state.lifecycleGeneration !== captured.documentLifecycleGeneration)
+            || (captured.documentSchemaVersion !== undefined && state.schemaVersion !== captured.documentSchemaVersion)) {
+            throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+          }
+          const scope = captureCollaborationAdmissionWriterScope({ documentId: captured.documentId,
+            workspaceId: captured.workspace.workspaceId, path: state.path });
+          await assertCollaborationAdmissionOpen(query, scope);
+        },
+      });
+    },
+    recoverCommitted: async (attempted, commitError) => {
+      // executeLifecycleTransaction has confirmed discard. This connection is
+      // read-only: a missing operation cannot be recreated by commit recovery.
+      const database = await openDb();
+      try {
+        const recovered = await readOperation(database, attempted.row.operation_id);
+        if (!recovered) throw commitError;
+        const immutable: Array<keyof AgentOperationRow> = ['operation_id', 'document_id', 'workspace_id',
+          'organization_id', 'document_path', 'document_representation', 'document_lifecycle_generation',
+          'schema_version', 'initiated_by_user_id', 'actor_id', 'actor_session_id', 'agent_run_id',
+          'idempotency_key', 'run_generation', 'payload_hash', 'operation_type', 'atomicity',
+          'supersedes_operation_id', 'correlation_id', 'causation_id', 'trigger_depth',
+          'expected_canonical_hash', 'file_edit_request_json', 'operation_payload', 'base_document_sequence', 'created_at'];
+        if (immutable.some((key) => !isDeepStrictEqual(recovered[key], attempted.row[key]))
+          || !Buffer.from(recovered.base_state_vector).equals(Buffer.from(attempted.row.base_state_vector))
+          || (Number(recovered.cas_version) === 0 && recovered.requested_mode !== attempted.row.requested_mode)) {
+          throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+        }
+        await assertLegacyActionIsIndependent(database, recovered.operation_id);
+        return { row: recovered, created: attempted.created && recovered.status === 'preparing'
+          && Number(recovered.cas_version) === 0 };
+      } finally { await database.close(); }
+    },
+  });
 }
 
 /**
@@ -2456,8 +2521,7 @@ export async function applyPersistedAgentTextOperation(input: {
         throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
           'Direct editing is no longer authorized. Start a fresh tool call for graph review; no legacy operation was created.');
       }
-      const created = await createOrLoadOperation({
-        database,
+      const created = await createOrLoadAdmittedOperation({
         documentId: input.documentId,
         workspace: input.workspace,
         initiatedByUserId: input.initiatedByUserId,

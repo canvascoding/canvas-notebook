@@ -163,16 +163,25 @@ async function loadCollaborationStateRow(
 ): Promise<PersistedCollaborationState | null> {
   const database = await openDb();
   try {
-    const row = await database.get(
-      `SELECT * FROM collaboration_yjs_states
-       WHERE document_id = $1${includeArchived ? '' : " AND status = 'active'"}
-       LIMIT 1`,
-      [documentId],
-    ) as StateRow | undefined;
-    return row ? mapState(row) : null;
+    return await loadCollaborationStateOnConnection(database, documentId, includeArchived);
   } finally {
     await database.close();
   }
+}
+
+/** Caller retains its connection/transaction; an optional share lock lasts until its commit. */
+export async function loadCollaborationStateOnConnection(
+  database: Pick<SqlConnection, 'get'>,
+  documentId: string,
+  includeArchived = false,
+  lock?: 'share',
+): Promise<PersistedCollaborationState | null> {
+  const row = await database.get(
+    `SELECT * FROM collaboration_yjs_states
+     WHERE document_id = $1${includeArchived ? '' : " AND status = 'active'"}
+     LIMIT 1${lock === 'share' ? ' FOR SHARE' : ''}`, [documentId],
+  ) as StateRow | undefined;
+  return row ? mapState(row) : null;
 }
 
 export async function loadCollaborationState(documentId: string): Promise<PersistedCollaborationState | null> {
