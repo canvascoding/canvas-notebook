@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { finalizeToolOutputBlocks } from './tool-output-block-storage';
-import { getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from './context-budget';
+import { estimatePiToolSchemaTokens, getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from './context-budget';
 import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
@@ -8,7 +8,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { prepareSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/session-runtime-service';
-import { resolveAndPinSessionRuntime, type ExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
+import { resolveAndPinSessionRuntime, resolveCompactionSummaryRuntime, type ExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
 import {
   RuntimeContextRevisionConflictError,
   SessionRuntimeContextRevisionConflictError,
@@ -20,6 +20,7 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { requireDelegationSource } from '@/app/lib/pi/delegation-policy';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSessionWithRuntimeSnapshot, savePiSession } from '@/app/lib/pi/session-store';
+import { attachManagedSteeringBridge, extractMessageText, type RuntimeInstance } from '@/app/lib/pi/delegation-managed-steering';
 import { withExclusivePiSessionExecution } from '@/app/lib/pi/session-exclusive-execution';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { DELEGATABLE_PI_TOOLSETS, PI_TOOLSETS, resolveDelegatedWorkerToolNames } from '@/app/lib/pi/toolsets';
@@ -44,8 +45,20 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 import { filterToolsToAllowedNames } from '@/app/lib/pi/email-agent-policy';
 import { getProgressiveGatewayCapabilityNames } from '@/app/lib/pi/progressive-tool-gateway';
+import { estimateTextTokens, isPiHistoryCompositionSendable, type PiSessionSummaryState } from '@/app/lib/pi/history-budget';
+import { getPiFinalPayloadPressure, getPiFinalPayloadRetryLoad, inspectPiRuntimeCompactionPressure, preparePiHermesCompactionCandidate, projectPiHermesHistory } from '@/app/lib/pi/compaction/runtime-engine';
+import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/policy';
+import { loadPiEffectiveCompactionPolicy, resolvePiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
+import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordinator';
+import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
+import { attachManagedProgressBridge } from '@/app/lib/pi/delegation-managed-progress';
+import { observePiDelegation } from '@/app/lib/pi/delegation-observability';
 
 type DelegateTaskArgs = {
+  action?: 'spawn' | 'list' | 'steer' | 'stop';
+  delegation_id?: string;
+  receipt_id?: string;
+  message?: string;
   target_agent_id?: string;
   goal?: string;
   context?: string;
@@ -71,6 +84,7 @@ export type DelegateTaskRequest = {
   waitForResult: boolean;
   timeoutSeconds: number;
   workerSessionId?: string;
+  runOwnerId?: string;
   onCompletion?: (result: DelegateTaskResult) => void | Promise<void>;
 };
 
@@ -87,16 +101,6 @@ export type DelegateTaskResult = {
   timeout_seconds: number;
   reply?: string;
   error?: string;
-};
-
-type RuntimeInstance = {
-  agentId: string;
-  agent: { state: { messages: AgentMessage[] } };
-  getStatus: () => { phase: string; canAbort: boolean };
-  subscribe: (subscriber: (event: { type: string; status?: { phase: string; canAbort: boolean }; error?: string }) => void) => () => void;
-  abort: () => Promise<unknown>;
-  reloadTools: () => Promise<void>;
-  startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
 const MAX_REPLY_CHARS = 8000;
@@ -257,29 +261,6 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
-function extractMessageText(message: AgentMessage): string {
-  if (!('content' in message)) {
-    return '';
-  }
-  const content = message.content;
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return '';
-  }
-  return content
-    .map((part) => {
-      if (part && typeof part === 'object' && 'type' in part && part.type === 'text' && typeof (part as { text?: unknown }).text === 'string') {
-        return (part as { text: string }).text;
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-}
-
 function latestAssistantReplyFromMessages(messages: AgentMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -421,18 +402,54 @@ export async function runEphemeralWorker(params: {
   signal: AbortSignal;
 }): Promise<DelegateTaskResult> {
   let finalMessages: AgentMessage[] = [params.promptMessage];
+  // message_end can precede execution of every tool in an assistant batch.
+  // Only turn_end proves the batch has all of its result messages.
+  const observedMessages: AgentMessage[] = [params.promptMessage];
+  const steeringMessageIds = new Map<AgentMessage, string>();
+  const injectedSteeringIds = new Set<string>();
+  let turnOrdinal = 1;
+  // The prompt is stored when the child session is created. Only advance this
+  // checkpoint after savePiSession has committed the complete new suffix.
+  let persistedLength = 1;
+  let summary: PiSessionSummaryState = {
+    summaryText: null,
+    summaryUpdatedAt: null,
+    summaryThroughTimestamp: null,
+    summaryThroughSequence: null,
+    summaryRevision: 0,
+  };
   const provider = params.runtime.selection.selection.providerId;
   const model = params.runtime.model;
   const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
   let effectiveSystemPrompt = params.systemPrompt;
-  const persistFinalMessages = async () => {
-    const persistedLength = finalMessages[0]?.role === 'user' ? 1 : 0;
+  const toolEventKey = (kind: 'tool_start' | 'tool_end', toolCallId: string) =>
+    `${kind}:${turnOrdinal}:${createHash('sha256').update(toolCallId).digest('hex')}`;
+  const appendProgress = async (
+    kind: 'tool_start' | 'tool_end' | 'compacting' | 'resumed',
+    eventKey: string,
+    preview: string,
+  ) => {
+    if (!params.request.delegationId) return;
+    const appended = await appendPiDelegationProgress({
+      delegationId: params.request.delegationId,
+      userId: params.request.userId,
+      kind,
+      eventKey,
+      preview,
+    });
+    if (!appended) throw new Error('Delegated worker is no longer in an active run.');
+  };
+  const checkpointMessages = async (messages: AgentMessage[]) => {
+    if (messages.length < persistedLength) {
+      throw new Error('Delegated worker message checkpoint moved backwards.');
+    }
+    if (messages.length === persistedLength) return;
     await savePiSession(
       params.sessionId,
       params.request.userId,
       provider,
       model.id,
-      finalMessages,
+      messages,
       undefined,
       {
         titleOverride: buildEphemeralSessionTitle(params.request.goal),
@@ -441,9 +458,35 @@ export async function runEphemeralWorker(params: {
         toolOutputModel: model,
       },
     );
+    persistedLength = messages.length;
+    finalMessages = messages.slice();
   };
 
   try {
+    const effectivePolicy = params.executionContext.organizationId
+      ? await loadPiEffectiveCompactionPolicy(params.executionContext.organizationId)
+      : resolvePiEffectiveCompactionPolicy();
+    const summaryRuntime = effectivePolicy.summaryModel
+      ? await resolveCompactionSummaryRuntime({
+          primary: params.runtime,
+          configuredIdentity: effectivePolicy.summaryModel,
+        })
+      : null;
+    const toolTokens = estimatePiToolSchemaTokens(params.tools);
+    const sessionSearchAvailable = params.tools.some((tool) => tool.name === 'session_search');
+    const preparePayload = async (messages: AgentMessage[]) => {
+      const { preparePiFinalPayload } = await import('@/app/lib/pi/multimodal-preparation');
+      return preparePiFinalPayload(
+        { messages, model, effectiveInstructions: [{ role: 'system', content: effectiveSystemPrompt }],
+          effectiveTools: params.tools, requestOutputTokenCap, runtimeContractRevision: 'canvas-pi-delegation-v1' },
+        {
+          workspaceImageRoot: params.executionContext.workspaceRoot,
+          allowedImageFileRoots: [params.executionContext.workspaceRoot],
+          uploadOwnerUserId: params.request.userId,
+          uploadWorkspaceId: params.executionContext.workspaceId,
+        },
+      );
+    };
     const { runAgentLoop } = await import('@earendil-works/pi-agent-core');
     const context: AgentContext = {
       systemPrompt: params.systemPrompt,
@@ -454,22 +497,163 @@ export async function runEphemeralWorker(params: {
     const config = {
       model,
       reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
-      convertToLlm: async (messages: AgentMessage[]) => {
-        const { preparePiFinalPayload } = await import('@/app/lib/pi/multimodal-preparation');
-        await finalizeToolOutputBlocks(messages, model, params.executionContext);
-        const prepared = await preparePiFinalPayload(
-          { messages, model, effectiveInstructions: [{ role: 'system', content: effectiveSystemPrompt }],
-            effectiveTools: params.tools, requestOutputTokenCap, runtimeContractRevision: 'canvas-pi-delegation-v1' },
-          {
-            workspaceImageRoot: params.executionContext.workspaceRoot,
-            allowedImageFileRoots: [params.executionContext.workspaceRoot],
-            uploadOwnerUserId: params.request.userId,
-            uploadWorkspaceId: params.executionContext.workspaceId,
-          },
+      getSteeringMessages: async () => {
+        if (!params.request.delegationId || !params.request.runOwnerId || params.signal.aborted) return [];
+        try {
+          const { claimNextPiDelegationSteering } = await import('@/app/lib/pi/delegation-steering');
+          const command = await claimNextPiDelegationSteering({
+            delegationId: params.request.delegationId,
+            userId: params.request.userId,
+            runOwnerId: params.request.runOwnerId,
+          });
+          if (!command) return [];
+          const message: Extract<AgentMessage, { role: 'user' }> = {
+            role: 'user',
+            content: `Correction for this delegated task:\n${command.message}`,
+            timestamp: Date.now(),
+          };
+          steeringMessageIds.set(message, command.id);
+          return [message];
+        } catch {
+          // The SDK requires steering polling to return normally. The durable
+          // command stays available for a later turn or becomes missed at exit.
+          return [];
+        }
+      },
+      transformContext: async (messages: AgentMessage[], signal?: AbortSignal) => {
+        throwIfDelegationAborted(params.signal);
+        const contextMessages = await finalizeToolOutputBlocks(messages, model, params.executionContext);
+        const systemPromptTokens = estimateTextTokens(effectiveSystemPrompt);
+        const project = (selectionMode: 'full' | 'hard_limit' | 'force' = 'full') => projectPiHermesHistory({
+          messages: contextMessages,
+          summary,
+          systemPromptTokens,
+          model,
+          requestOutputTokens: requestOutputTokenCap,
+          toolTokens,
+          sessionId: params.sessionId,
+          authorizedSessionId: params.sessionId,
+          sessionSearchAvailable,
+          selectionMode,
+          policy: effectivePolicy.contextBudgetPolicy,
+        }).composition;
+        const preflight = project();
+        let candidate = preflight.llmMessages;
+        let prepared = await preparePayload(candidate);
+        const inspection = inspectPiRuntimeCompactionPressure({
+          messages: contextMessages,
+          model,
+          outputReserveTokens: requestOutputTokenCap,
+          fixedRequestTokens: systemPromptTokens + toolTokens,
+          finalSnapshot: prepared.budgetSnapshot,
+          policy: effectivePolicy.contextBudgetPolicy,
+        });
+        const preflightSendable = !prepared.budgetSnapshot.contextBudgetExceeded
+          && !prepared.budgetSnapshot.payloadBudgetExceeded
+          && isPiHistoryCompositionSendable(preflight, summary);
+        if (preflightSendable && !inspection.pressure.shouldCompact) {
+          throwIfDelegationAborted(params.signal);
+          return candidate;
+        }
+
+        await checkpointMessages(messages);
+        let previousLoad = getPiFinalPayloadRetryLoad(prepared.budgetSnapshot);
+        let additionalContextTokens = 0;
+        let lastCompactionReason = 'no smaller sendable request';
+        const maximumAttempts = Math.max(1, effectivePolicy.contextBudgetPolicy.maxCompactionAttempts ?? 3);
+        for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+          throwIfDelegationAborted(params.signal);
+          const summarySnapshot = { ...summary };
+          const generation = createHash('sha256').update(JSON.stringify([
+            params.sessionId, model.id, persistedLength, summarySnapshot.summaryRevision,
+            effectiveSystemPrompt, toolTokens,
+          ])).digest('hex');
+          await appendProgress('compacting', `compacting:${generation}:${attempt}`, 'Compacting child context');
+          observePiDelegation({ event: 'worker_compaction_attempt', outcome: 'started' });
+          const result = await runPiSessionCompaction({
+            sessionId: params.sessionId,
+            userId: params.request.userId,
+            agentId: params.request.sourceAgentId,
+            workspaceId: params.executionContext.workspaceId,
+            trigger: 'automatic',
+            bypassCooldown: attempt > 0 && !preflightSendable,
+            generation,
+            expectedSummaryRevision: summarySnapshot.summaryRevision,
+            expectedThroughSequence: summarySnapshot.summaryThroughSequence,
+            provider,
+            model: model.id,
+            contractFingerprint: generation,
+            signal: signal ?? params.signal,
+            isGenerationCurrent: (value) => value === generation && !params.signal.aborted,
+            prepareCandidate: (candidateSignal, reportProgress) => preparePiHermesCompactionCandidate({
+              messages: messages.slice(),
+              summary: summarySnapshot,
+              systemPromptTokens,
+              model,
+              requestOutputTokens: requestOutputTokenCap,
+              toolTokens,
+              additionalContextTokens,
+              sessionId: params.sessionId,
+              authorizedSessionId: params.sessionId,
+              sessionSearchAvailable,
+              signal: candidateSignal,
+              streamFn: params.runtime.streamFn,
+              summaryModel: summaryRuntime?.model,
+              summaryStreamFn: summaryRuntime?.streamFn,
+              selectionMode: attempt > 0 ? 'force' : 'automatic',
+              triggerSnapshot: attempt === 0 ? prepared.budgetSnapshot : undefined,
+              policy: effectivePolicy.contextBudgetPolicy,
+              onSummaryProgress: reportProgress,
+            }),
+          }).then((value) => {
+            observePiDelegation({ event: 'worker_compaction_result', outcome: value.state });
+            return value;
+          }, (error: unknown) => {
+            observePiDelegation({ event: 'worker_compaction_result', outcome: 'failed' });
+            throw error;
+          });
+          throwIfDelegationAborted(params.signal);
+          lastCompactionReason = result.reasonCode ?? result.state;
+          if (result.state === 'succeeded' && result.summary) {
+            summary = result.summary;
+            await appendProgress('resumed', `resumed:${generation}:${attempt}`, 'Child context compacted');
+          }
+          const composition = result.composition ?? project('hard_limit');
+          if (isPiHistoryCompositionSendable(composition, summary)) {
+            candidate = composition.llmMessages;
+            prepared = await preparePayload(candidate);
+            if (!prepared.budgetSnapshot.contextBudgetExceeded && !prepared.budgetSnapshot.payloadBudgetExceeded) {
+              throwIfDelegationAborted(params.signal);
+              return candidate;
+            }
+          }
+          if (preflightSendable) {
+            throwIfDelegationAborted(params.signal);
+            return preflight.llmMessages;
+          }
+          if (result.state !== 'succeeded' && result.state !== 'no_op' && result.state !== 'deferred') break;
+          const nextLoad = getPiFinalPayloadRetryLoad(prepared.budgetSnapshot);
+          if (!sessionCompactionWarrantsAnotherPass({
+            originalTokens: previousLoad,
+            newTokens: nextLoad,
+            thresholdTokens: prepared.budgetSnapshot.contextWindowTokens,
+          })) break;
+          previousLoad = nextLoad;
+          additionalContextTokens += Math.max(1, getPiFinalPayloadPressure(prepared.budgetSnapshot));
+        }
+        observePiDelegation({ event: 'worker_context_overflow', outcome: 'compaction_exhausted' });
+        throw new Error(
+          `Delegated worker payload exceeds the selected model context or transfer budget after automatic compaction (${lastCompactionReason}).`,
         );
+      },
+      convertToLlm: async (messages: AgentMessage[]) => {
+        await finalizeToolOutputBlocks(messages, model, params.executionContext);
+        const prepared = await preparePayload(messages);
         if (prepared.budgetSnapshot.contextBudgetExceeded || prepared.budgetSnapshot.payloadBudgetExceeded) {
+          observePiDelegation({ event: 'worker_context_overflow', outcome: 'payload_guard' });
           throw new Error('Delegated worker payload exceeds the selected model context or transfer budget.');
         }
+        throwIfDelegationAborted(params.signal);
         return prepared.messages;
       },
       prepareNextTurn: async (turnContext: { context: AgentContext }) => {
@@ -495,13 +679,62 @@ export async function runEphemeralWorker(params: {
       context,
       config,
       async (event) => {
-        if (event.type === 'message_end' && !finalMessages.includes(event.message)) finalMessages.push(event.message);
+        if (event.type === 'message_end' && !observedMessages.includes(event.message)) {
+          observedMessages.push(event.message);
+        }
+        if (event.type === 'message_end' && steeringMessageIds.has(event.message)) {
+          await checkpointMessages(observedMessages);
+          injectedSteeringIds.add(steeringMessageIds.get(event.message)!);
+          steeringMessageIds.delete(event.message);
+        }
+        if (event.type === 'message_start' && event.message.role === 'assistant' && injectedSteeringIds.size > 0) {
+          const { confirmPiDelegationSteeringDelivered } = await import('@/app/lib/pi/delegation-steering');
+          for (const id of injectedSteeringIds) {
+            await confirmPiDelegationSteeringDelivered({
+              id,
+              delegationId: params.request.delegationId!,
+              userId: params.request.userId,
+              runOwnerId: params.request.runOwnerId!,
+            });
+          }
+          injectedSteeringIds.clear();
+        }
+        if (event.type === 'tool_execution_start') {
+          await appendProgress('tool_start', toolEventKey('tool_start', event.toolCallId), event.toolName);
+        }
+        if (event.type === 'turn_end') {
+          const expectedToolCallIds = event.message.role === 'assistant'
+            ? event.message.content.filter(part => part.type === 'toolCall').map(part => part.id).sort()
+            : [];
+          const completedToolCallIds = event.toolResults.map(result => result.toolCallId).sort();
+          if (expectedToolCallIds.length !== completedToolCallIds.length
+            || expectedToolCallIds.some((id, index) => id !== completedToolCallIds[index])) {
+            throw new Error('Delegated worker tool batch was interrupted before every result completed.');
+          }
+          await checkpointMessages(observedMessages);
+          for (const result of event.toolResults) {
+            await appendProgress(
+              'tool_end',
+              toolEventKey('tool_end', result.toolCallId),
+              result.toolName,
+            );
+          }
+          turnOrdinal += 1;
+        }
       },
       params.signal,
       withPiRequestOutputTokenCap(params.runtime.streamFn, requestOutputTokenCap),
     );
 
-    await persistFinalMessages();
+    await checkpointMessages(finalMessages);
+    throwIfDelegationAborted(params.signal);
+    const terminalAssistant = [...finalMessages].reverse().find((message) => message.role === 'assistant');
+    if (terminalAssistant?.role === 'assistant' && terminalAssistant.stopReason === 'aborted') {
+      throw new Error('Delegated worker model request was aborted.');
+    }
+    if (terminalAssistant?.role === 'assistant' && terminalAssistant.stopReason === 'error') {
+      throw new Error('Delegated worker model request failed.');
+    }
 
     return {
       delegation_id: params.request.delegationId,
@@ -517,7 +750,7 @@ export async function runEphemeralWorker(params: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown delegated worker error';
-    await persistFinalMessages().catch((persistError) => {
+    await checkpointMessages(finalMessages).catch((persistError) => {
       console.error('[delegate_task] Failed to persist ephemeral worker error state:', persistError);
     });
     return {
@@ -903,18 +1136,8 @@ async function ensureManagedDelegatedSession(
       if (collidingSessions.length !== 1) {
         throw new Error('Target session ID is ambiguous across multiple agents.');
       }
-      const targetContext = await resolveAgentExecutionContextForSession({
-        sessionId,
-        userId: request.userId,
-        agentId: targetAgentId,
-      });
-      if (
-        targetContext.workspaceId !== initialScope.executionContext.workspaceId
-        || targetContext.workspaceType !== initialScope.executionContext.workspaceType
-        || targetContext.organizationId !== initialScope.executionContext.organizationId
-      ) {
-        throw new Error('Target session belongs to a different workspace.');
-      }
+      if (!requestedSessionId) throw new Error('An existing target session must be selected explicitly.');
+      await requireManagedDelegatedSessionReuse(request, sessionId, initialScope);
       return sessionId;
     }
 
@@ -991,6 +1214,58 @@ async function ensureManagedDelegatedSession(
   });
 }
 
+/** Recheck the durable child-to-parent binding at admission and immediately before prompt start. */
+export async function requireManagedDelegatedSessionReuse(
+  request: DelegateTaskRequest,
+  sessionId: string,
+  sourceScope?: DelegationSourceScope,
+): Promise<AgentExecutionContext> {
+  const reject = (outcome: 'authorization' | 'binding' | 'workspace', message: string): never => {
+    if (request.sessionId) observePiDelegation({ event: 'resume_rejection', outcome });
+    throw new Error(message);
+  };
+  if (!request.targetAgentId) return reject('authorization', 'target_agent_id is required to resume a managed session.');
+  await requireDelegationSource({
+    userId: request.userId,
+    sourceSessionId: request.sourceSessionId,
+    sourceAgentId: request.sourceAgentId,
+  });
+  const scope = sourceScope ?? await resolveDelegationSourceScope(request);
+  const sessions = await db.query.piSessions.findMany({
+    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, request.userId)),
+    columns: {
+      agentId: true,
+      sessionKind: true,
+      delegationDepth: true,
+      parentSessionId: true,
+    },
+    limit: 3,
+  });
+  if (sessions.length !== 1) return reject('binding', 'Target managed session was not found or is ambiguous.');
+  const worker = sessions[0];
+  if (worker.agentId !== request.targetAgentId) return reject('binding', 'Target session belongs to a different agent.');
+  if (
+    worker.sessionKind !== 'delegation_worker'
+    || worker.delegationDepth !== 1
+    || worker.parentSessionId !== request.sourceSessionId
+  ) {
+    return reject('binding', 'Target session does not belong to this Bradley chat.');
+  }
+  const targetContext = await resolveAgentExecutionContextForSession({
+    sessionId,
+    userId: request.userId,
+    agentId: request.targetAgentId,
+  });
+  if (
+    targetContext.workspaceId !== scope.executionContext.workspaceId
+    || targetContext.workspaceType !== scope.executionContext.workspaceType
+    || targetContext.organizationId !== scope.executionContext.organizationId
+  ) {
+    return reject('workspace', 'Target session belongs to a different workspace.');
+  }
+  return targetContext;
+}
+
 type RuntimeIdleResult = { status: 'ok' | 'timeout' | 'error'; error?: string };
 
 function waitForRuntimeIdle(
@@ -1044,29 +1319,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     throwIfDelegationAborted(request.abortSignal);
     const sourceScope = await resolveDelegationSourceScope(request);
     assertSameDelegationWorkspace(initialScope, sourceScope);
-    const targetSessions = await db.query.piSessions.findMany({
-      where: and(
-        eq(piSessions.sessionId, sessionId),
-        eq(piSessions.userId, request.userId),
-      ),
-      columns: { agentId: true },
-      limit: 3,
-    });
-    if (targetSessions.length !== 1 || targetSessions[0].agentId !== request.targetAgentId) {
-      throw new Error('Target session ID became ambiguous before the delegated run could start.');
-    }
-    const targetContext = await resolveAgentExecutionContextForSession({
-      sessionId,
-      userId: request.userId,
-      agentId: request.targetAgentId,
-    });
-    if (
-      targetContext.workspaceId !== sourceScope.executionContext.workspaceId
-      || targetContext.workspaceType !== sourceScope.executionContext.workspaceType
-      || targetContext.organizationId !== sourceScope.executionContext.organizationId
-    ) {
-      throw new Error('Target session belongs to a different workspace.');
-    }
+    await requireManagedDelegatedSessionReuse(request, sessionId, sourceScope);
 
     const runtimeHandle = await getOrCreatePiRuntimeWithState(sessionId, request.userId);
     const runtime = runtimeHandle.runtime as RuntimeInstance;
@@ -1089,18 +1342,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
       }
       startScope = confirmedScope;
     }
-    const startTargetContext = await resolveAgentExecutionContextForSession({
-      sessionId,
-      userId: request.userId,
-      agentId: request.targetAgentId,
-    });
-    if (
-      startTargetContext.workspaceId !== startScope.executionContext.workspaceId
-      || startTargetContext.workspaceType !== startScope.executionContext.workspaceType
-      || startTargetContext.organizationId !== startScope.executionContext.organizationId
-    ) {
-      throw new Error('Target session workspace changed while the delegated run was starting.');
-    }
+    const startTargetContext = await requireManagedDelegatedSessionReuse(request, sessionId, startScope);
     if (delegationToolPermissionsChanged(startScope.executionContext, startTargetContext)) {
       throw new Error('Target workspace permissions changed after its tools were loaded.');
     }
@@ -1113,12 +1355,14 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
         ? waitForRuntimeIdle(runtime, request.timeoutSeconds)
       : null;
     const releaseAbortBinding = bindManagedRuntimeAbort(runtime, request.abortSignal);
+    const releaseProgress = attachManagedProgressBridge(runtime, request);
     try {
       throwIfDelegationAborted(request.abortSignal);
       runtime.startPrompt(promptMessage);
     } catch (error) {
       waitHandle?.cancel();
       releaseAbortBinding();
+      await releaseProgress();
       throw error;
     }
     return {
@@ -1126,12 +1370,16 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
       baselineMessageCount,
       promptMessage,
       completionPromise: waitHandle?.promise ?? null,
+      releaseProgress,
+      releaseSteering: attachManagedSteeringBridge(runtime, request, sessionId),
     };
   });
 
   if (request.onCompletion && started.completionPromise) {
     const notifyCompletion = request.onCompletion;
-    void started.completionPromise.then((completion) => {
+    void started.completionPromise.then(async (completion) => {
+      await started.releaseProgress();
+      try { await started.releaseSteering(); } catch { /* Completion must still be reported. */ }
       const result: DelegateTaskResult = completion.status === 'ok'
         ? {
           delegation_id: request.delegationId,
@@ -1178,6 +1426,8 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
   }
 
   const completion = await started.completionPromise;
+  await started.releaseProgress();
+  try { await started.releaseSteering(); } catch { /* The result still belongs to this run. */ }
   if (completion.status === 'ok') {
     return {
       delegation_id: request.delegationId,
@@ -1249,12 +1499,18 @@ export function createDelegateTaskTool(deps: {
     name: 'delegate_task',
     label: 'Delegating task',
     description:
-      'Dispatch a focused task to a background subagent and return immediately with a persistent task handle. ' +
-      'The result is delivered automatically in a later turn. By default this creates an ephemeral worker with no parent history or recursive delegation. ' +
-      'Optionally set target_agent_id to use an existing managed agent.',
+      'Spawn a background subagent, list your tasks, steer one active task, or stop one task. ' +
+      'Spawn returns a persistent task handle and later delivers the result. ' +
+      'A managed agent can reuse an authorized session_id for a new follow-up task.',
     parameters: Type.Object({
+      action: Type.Optional(Type.Union([
+        Type.Literal('spawn'), Type.Literal('list'), Type.Literal('steer'), Type.Literal('stop'),
+      ], { description: 'Default: spawn. Use steer only for a running task; use a new spawn for a completed task.' })),
+      delegation_id: Type.Optional(Type.String({ description: 'Exact task ID for steer, stop, or reading a receipt.' })),
+      receipt_id: Type.Optional(Type.String({ description: 'With action=list and delegation_id, read a steering receipt returned by steer.' })),
+      message: Type.Optional(Type.String({ description: 'Correction for the active task when action is steer.' })),
       target_agent_id: Type.Optional(Type.String({ description: 'Optional managed target agent ID. Omit to spawn an ephemeral worker.' })),
-      goal: Type.String({ description: 'The concrete task the worker should complete.' }),
+      goal: Type.Optional(Type.String({ description: 'The concrete task to spawn. Required only for spawn.' })),
       context: Type.Optional(Type.String({ description: 'Relevant context to pass to the worker. The parent chat history is not included automatically.' })),
       role: Type.Optional(Type.String({ description: 'Short worker role hint, e.g. researcher, coder, reviewer, planner. Ephemeral workers only.' })),
       toolsets: Type.Optional(Type.Array(Type.String(), { description: `Ephemeral worker toolsets. Defaults to ${DEFAULT_EPHEMERAL_TOOLSETS.join(', ')}.` })),
@@ -1262,7 +1518,7 @@ export function createDelegateTaskTool(deps: {
       wait_for_result: Type.Optional(Type.Boolean({ description: 'Deprecated compatibility field. Top-level delegation always runs in the background.' })),
       timeout_seconds: Type.Optional(Type.Number({ description: 'Deprecated compatibility field. Background delegation does not block this tool call.' })),
     }),
-    execute: async (_toolCallId, params, signal) => {
+    execute: async (toolCallId, params, signal) => {
       try {
         if (!deps.userId) {
           throw new Error('User ID is required for delegate_task.');
@@ -1275,6 +1531,69 @@ export function createDelegateTaskTool(deps: {
         const sourceAgentId = normalizeManagedAgentId(deps.sourceAgentId);
         if (sourceAgentId !== DEFAULT_AGENT_ID) {
           throw new Error('Only Bradley, the main agent, can use delegate_task.');
+        }
+
+        const action = args.action ?? 'spawn';
+        if (action === 'list') {
+          if (args.receipt_id?.trim()) {
+            const delegationId = args.delegation_id?.trim();
+            if (!delegationId) throw new Error('delegation_id is required when reading a steering receipt.');
+            const { readAuthorizedPiDelegationSteeringReceipt } = await import('@/app/lib/pi/delegation-steering');
+            const receipt = await readAuthorizedPiDelegationSteeringReceipt({
+              id: args.receipt_id.trim(), delegationId, userId: deps.userId, sourceSessionId,
+            });
+            if (!receipt) throw new Error('Steering receipt was not found.');
+            const result = { action, delegation_id: delegationId, receipt_id: receipt.id,
+              status: receipt.status === 'claimed' ? 'accepted' : receipt.status };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
+          }
+          const { authorizePiDelegationInspection, authorizePiDelegationParentRead } = await import('@/app/lib/pi/delegation-progress');
+          const { listOwnedPiDelegations } = await import('@/app/lib/pi/delegation-store');
+          const parent = await authorizePiDelegationParentRead({ userId: deps.userId, sourceSessionId });
+          if (parent.sourceAgentId !== sourceAgentId) throw new Error('Parent agent changed.');
+          const records = await listOwnedPiDelegations({ userId: deps.userId, sourceSessionId, limit: 50 });
+          const tasks = [] as Array<{ delegation_id: string; status: string; worker_type: string; target_agent_id: string | null; session_id: string }>;
+          for (const record of records) {
+            try {
+              await authorizePiDelegationInspection({ delegationId: record.id, userId: deps.userId, sourceSessionId });
+              tasks.push({
+                delegation_id: record.id,
+                status: record.status,
+                worker_type: record.workerType,
+                target_agent_id: record.targetAgentId,
+                session_id: record.workerSessionId,
+              });
+            } catch {
+              // An agent or workspace that became inaccessible must not leak through list.
+            }
+          }
+          return { content: [{ type: 'text', text: JSON.stringify({ tasks }) }], details: { action, tasks } };
+        }
+
+        if (action === 'steer' || action === 'stop') {
+          const delegationId = args.delegation_id?.trim();
+          if (!delegationId) throw new Error('delegation_id is required.');
+          const { authorizePiDelegationInspection } = await import('@/app/lib/pi/delegation-progress');
+          const { delegation } = await authorizePiDelegationInspection({
+            delegationId, userId: deps.userId, sourceSessionId,
+          });
+          if (delegation.sourceAgentId !== sourceAgentId) throw new Error('Parent agent changed.');
+          if (action === 'stop') {
+            const { cancelDelegatedTask } = await import('@/app/lib/pi/delegation-dispatcher');
+            const stopped = await cancelDelegatedTask(delegationId, deps.userId);
+            if (!stopped) throw new Error('Task is no longer available.');
+            const result = { action, delegation_id: delegationId, status: stopped.status === 'running' ? 'stop_requested' : stopped.status };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
+          }
+          const message = args.message?.trim();
+          if (!message) throw new Error('message is required for steer.');
+          const { acceptPiDelegationSteering } = await import('@/app/lib/pi/delegation-steering');
+          const receipt = await acceptPiDelegationSteering({
+            delegationId, userId: deps.userId, sourceSessionId,
+            idempotencyKey: toolCallId, message,
+          });
+          const result = { action, delegation_id: delegationId, receipt_id: receipt.id, status: receipt.status };
+          return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
         }
 
         const targetAgentId = args.target_agent_id?.trim()

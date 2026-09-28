@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { cancelDelegatedTask } from '@/app/lib/pi/delegation-dispatcher';
 import { getOwnedPiDelegation, piDelegationToolsets } from '@/app/lib/pi/delegation-store';
+import { authorizePiDelegationInspection } from '@/app/lib/pi/delegation-progress';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type RouteContext = {
@@ -13,8 +14,16 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   const { id } = await context.params;
-  const delegation = await getOwnedPiDelegation(id.trim(), session.user.id);
-  if (!delegation) return NextResponse.json({ success: false, error: 'Delegation task not found.' }, { status: 404 });
+  const sourceSessionId = request.nextUrl.searchParams.get('sourceSessionId')?.trim();
+  if (!sourceSessionId) return NextResponse.json({ success: false, error: 'Parent session is required.' }, { status: 400 });
+  let delegation: NonNullable<Awaited<ReturnType<typeof getOwnedPiDelegation>>>;
+  try {
+    ({ delegation } = await authorizePiDelegationInspection({
+      delegationId: id.trim(), userId: session.user.id, sourceSessionId,
+    }));
+  } catch {
+    return NextResponse.json({ success: false, error: 'Delegation task not found or inaccessible.' }, { status: 404 });
+  }
   return NextResponse.json({
     success: true,
     delegation: {
@@ -53,6 +62,15 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   const delegationId = id.trim();
   if (!delegationId) {
     return NextResponse.json({ success: false, error: 'Delegation task ID is required.' }, { status: 400 });
+  }
+  const sourceSessionId = request.nextUrl.searchParams.get('sourceSessionId')?.trim();
+  if (!sourceSessionId) {
+    return NextResponse.json({ success: false, error: 'Parent session is required.' }, { status: 400 });
+  }
+  try {
+    await authorizePiDelegationInspection({ delegationId, userId: session.user.id, sourceSessionId });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Delegation task not found or inaccessible.' }, { status: 404 });
   }
 
   const record = await cancelDelegatedTask(delegationId, session.user.id);

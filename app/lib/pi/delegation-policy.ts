@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piDelegations, piSessions } from '@/app/lib/db/schema';
@@ -87,23 +87,28 @@ export async function getDelegatedWorkerToolsets(input: {
       eq(piSessions.sessionId, input.sessionId),
       eq(piSessions.sessionKind, 'delegation_worker'),
     ),
-    columns: { delegationId: true },
+    columns: { agentId: true, parentSessionId: true },
   });
-  const delegation = await db.query.piDelegations.findFirst({
-    where: worker?.delegationId
-      ? and(eq(piDelegations.id, worker.delegationId), eq(piDelegations.userId, input.userId))
-      : and(
-        eq(piDelegations.userId, input.userId),
-        eq(piDelegations.workerSessionId, input.sessionId),
-        eq(piDelegations.workerType, 'managed'),
-        inArray(piDelegations.status, ['queued', 'running']),
-      ),
-    orderBy: (delegations, { desc }) => [desc(delegations.updatedAt), desc(delegations.id)],
+  if (!worker) return null;
+  if (!worker.parentSessionId) return [];
+
+  // The creation delegation is provenance, not the permission source for a
+  // reused worker. Only the current running task grants delegated tools.
+  const active = await db.query.piDelegations.findMany({
+    where: and(
+      eq(piDelegations.userId, input.userId),
+      eq(piDelegations.workerSessionId, input.sessionId),
+      eq(piDelegations.workerType, 'managed'),
+      eq(piDelegations.status, 'running'),
+      eq(piDelegations.sourceSessionId, worker.parentSessionId),
+      eq(piDelegations.targetAgentId, worker.agentId),
+    ),
     columns: { toolsetsJson: true },
+    limit: 2,
   });
-  if (!delegation) return worker?.delegationId ? [] : null;
+  if (active.length !== 1) return [];
   try {
-    const value = JSON.parse(delegation.toolsetsJson) as unknown;
+    const value = JSON.parse(active[0].toolsetsJson) as unknown;
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
   } catch {
     return [];
