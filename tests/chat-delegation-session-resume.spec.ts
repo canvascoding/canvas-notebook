@@ -48,7 +48,17 @@ test('a completed managed worker can be selected for a follow-up in the chat', a
   await page.route('**/api/delegations**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (request.method() === 'POST') {
+    const progressId = url.pathname.match(/^\/api\/delegations\/([^/]+)\/progress$/u)?.[1];
+    if (progressId) {
+      const taskId = decodeURIComponent(progressId);
+      const current = tasks.find((item) => item.id === taskId);
+      await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        success: true,
+        delegation: { id: taskId, workerSessionId: current?.workerSessionId,
+          status: current?.status, displayStatus: current?.status, leaseState: 'active', revision: 0 },
+        events: [], transcript: [],
+      }) });
+    } else if (request.method() === 'POST') {
       posted = request.postDataJSON() as Record<string, unknown>;
       await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ success: true }) });
     } else if (url.searchParams.get('options') === 'true') {

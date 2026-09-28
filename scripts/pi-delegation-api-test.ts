@@ -60,9 +60,10 @@ async function main() {
     testDatabase = await createPiTestDatabase();
     const { db } = testDatabase;
     const { piSessions, user } = await import('../app/lib/db/schema');
-    const { createPiDelegation, getPiDelegation } = await import('../app/lib/pi/delegation-store');
+    const { claimQueuedPiDelegation, completeRunningPiDelegation, createPiDelegation, getPiDelegation } = await import('../app/lib/pi/delegation-store');
     const listRoute = await import('../app/api/delegations/route');
     const cancelRoute = await import('../app/api/delegations/[id]/route');
+    const steeringRoute = await import('../app/api/delegations/[id]/steering/route');
 
     const now = new Date();
     await db.insert(user).values([
@@ -151,6 +152,44 @@ async function main() {
     );
     assert.equal(cancelResponse.status, 200);
     assert.equal((await getPiDelegation('delegation-api-task-1'))?.status, 'cancelled');
+
+    await db.insert(piSessions).values({ sessionId: 'worker-api-steering', userId: 'delegation-api-user-1', agentId: 'bradley',
+      provider: 'test', model: 'test', sessionKind: 'delegation_worker', parentSessionId: 'source-api-session',
+      delegationId: 'delegation-api-steering', delegationDepth: 1, workspaceId: 'workspace-api', organizationId: 'org-api',
+      createdAt: now, updatedAt: now });
+    await createPiDelegation({ id: 'delegation-api-steering', userId: 'delegation-api-user-1',
+      sourceSessionId: 'source-api-session', sourceAgentId: 'bradley', workerSessionId: 'worker-api-steering',
+      workerType: 'ephemeral', goal: 'Test steering API', toolsets: ['file'] });
+    assert.ok(await claimQueuedPiDelegation('delegation-api-steering', 'steering-api-owner'));
+    const steeringContext = { params: Promise.resolve({ id: 'delegation-api-steering' }) };
+    const steeringPost = (sourceSessionId: string, requestId: string) => steeringRoute.POST(new NextRequest(
+      'http://localhost:3000/api/delegations/delegation-api-steering/steering', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sourceSessionId, requestId, message: 'Check the exact file.' }),
+      },
+    ), steeringContext);
+    assert.equal((await steeringRoute.POST(new NextRequest(
+      'http://localhost:3000/api/delegations/delegation-api-steering/steering', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: 'null',
+      },
+    ), steeringContext)).status, 400);
+    assert.equal((await steeringPost('source-api-other', 'wrong-parent')).status, 404);
+    const accepted = await steeringPost('source-api-session', 'correct-parent');
+    assert.equal(accepted.status, 200);
+    const acceptedPayload = await accepted.json() as { receipt: { id: string; status: string }; message?: string };
+    assert.equal(acceptedPayload.receipt.status, 'accepted');
+    assert.doesNotMatch(JSON.stringify(acceptedPayload), /Check the exact file/u);
+    const receiptUrl = (parent: string) =>
+      `http://localhost:3000/api/delegations/delegation-api-steering/steering?sourceSessionId=${parent}&receiptId=${acceptedPayload.receipt.id}`;
+    assert.equal((await steeringRoute.GET(new NextRequest(receiptUrl('source-api-other')), steeringContext)).status, 404);
+    authenticatedUserId = 'delegation-api-user-2';
+    assert.equal((await steeringRoute.GET(new NextRequest(receiptUrl('source-api-session')), steeringContext)).status, 404);
+    authenticatedUserId = 'delegation-api-user-1';
+    const receiptResponse = await steeringRoute.GET(new NextRequest(receiptUrl('source-api-session')), steeringContext);
+    assert.equal(receiptResponse.status, 200);
+    assert.equal((await receiptResponse.json() as { receipt: { id: string } }).receipt.id, acceptedPayload.receipt.id);
+    await completeRunningPiDelegation({ id: 'delegation-api-steering', resultStatus: 'ok', runOwnerId: 'steering-api-owner' });
+    assert.equal((await steeringPost('source-api-session', 'too-late')).status, 409);
 
     authenticatedUserId = '';
     const unauthorized = await listRoute.GET(new NextRequest('http://localhost:3000/api/delegations'));

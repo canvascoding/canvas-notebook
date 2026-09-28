@@ -93,10 +93,19 @@
     {
       "id": "SA-05",
       "title": "Inline chat cards and worker detail view",
-      "status": "pending",
+      "status": "completed",
       "hermes": ["apps/desktop/src/components/assistant-ui/tool/delegate.tsx:57-163", "apps/desktop/src/app/chat/composer/status-stack/subagent-section.tsx:21-99"],
       "canvas": ["app/components/canvas-agent-chat/ChatDelegationPanel.tsx:250-420", "app/components/canvas-agent-chat/ChatToolRunMessages.tsx"],
-      "gate": "Correct card identity, status and controls for concurrent and sequential tasks after reload; approved UI test passes."
+      "gate": "Correct card identity, status and controls for concurrent and sequential tasks after reload; approved UI test passes.",
+      "evidence": [
+        "npm run test:pi:delegation-api",
+        "npx tsx scripts/chat-inline-delegation-test.tsx",
+        "npx tsx scripts/pi-delegation-detail-ui-test.ts",
+        "npx tsc --noEmit --pretty false",
+        "npx eslint on changed application and test TypeScript files",
+        "Playwright: tests/chat-delegation-live-inspection.spec.ts and tests/chat-delegation-session-resume.spec.ts",
+        "npm run build"
+      ]
     },
     {
       "id": "SA-06",

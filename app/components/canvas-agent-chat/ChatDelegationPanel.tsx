@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Ban,
+  Clock3,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleDashed,
   Loader2,
+  MessageSquareText,
   Plus,
   RotateCw,
   XCircle,
@@ -19,12 +21,15 @@ import { SubagentIcon } from '@/app/components/agents/SubagentIcon';
 import { DelegationAgentPicker } from '@/app/components/canvas-agent-chat/DelegationAgentPicker';
 import { DelegationToolsetIcon } from '@/app/components/canvas-agent-chat/DelegationToolsetIcon';
 import { DelegationToolsetPicker } from '@/app/components/canvas-agent-chat/DelegationToolsetPicker';
+import { ChatDelegationDetail } from '@/app/components/canvas-agent-chat/ChatDelegationDetail';
 import {
   cancelChatDelegation,
   fetchChatDelegations,
+  fetchChatDelegationProgress,
   fetchDelegationOptions,
   startChatDelegation,
   type ChatDelegation,
+  type ChatDelegationProgress,
   type DelegationOptions,
 } from '@/app/lib/chat/delegation-api';
 import {
@@ -47,12 +52,26 @@ import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 
 const POLL_INTERVAL_MS = 3_000;
+const PROGRESS_POLL_INTERVAL_MS = 8_000;
+
+type ProgressState = ChatDelegationProgress & { loadedAt: number };
+
+function elapsedText(task: ChatDelegation, now: number): string {
+  const from = Date.parse(task.startedAt || task.createdAt);
+  const to = task.completedAt ? Date.parse(task.completedAt) : now;
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return '—';
+  const totalSeconds = Math.max(0, Math.floor((to - from) / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
 
 function isActive(task: ChatDelegation): boolean {
   return task.status === 'queued' || task.status === 'running';
 }
 
-function statusTone(task: ChatDelegation): string {
+function statusTone(task: ChatDelegation, displayStatus?: string): string {
+  if (displayStatus === 'interrupted' || displayStatus === 'unknown') return 'text-amber-600 dark:text-amber-400';
   if (task.cancelRequestedAt) return 'text-amber-600 dark:text-amber-400';
   if (task.status === 'completed') return 'text-emerald-600 dark:text-emerald-400';
   if (task.status === 'failed') return 'text-destructive';
@@ -60,8 +79,9 @@ function statusTone(task: ChatDelegation): string {
   return 'text-blue-600 dark:text-blue-400';
 }
 
-function TaskStatusIcon({ task }: { task: ChatDelegation }) {
-  const className = cn('h-4 w-4 shrink-0', statusTone(task));
+function TaskStatusIcon({ task, displayStatus }: { task: ChatDelegation; displayStatus?: string }) {
+  const className = cn('h-4 w-4 shrink-0', statusTone(task, displayStatus));
+  if (displayStatus === 'interrupted' || displayStatus === 'unknown') return <CircleDashed className={className} />;
   if (task.cancelRequestedAt) return <Loader2 className={cn(className, 'animate-spin')} />;
   if (task.status === 'queued') return <CircleDashed className={className} />;
   if (task.status === 'running') return <Loader2 className={cn(className, 'animate-spin')} />;
@@ -85,6 +105,11 @@ export function ChatDelegationPanel({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cancellingIds, setCancellingIds] = useState<Set<string>>(() => new Set());
   const [expandedResultIds, setExpandedResultIds] = useState<Set<string>>(() => new Set());
+  const [progressById, setProgressById] = useState<Record<string, ProgressState>>({});
+  const [progressErrors, setProgressErrors] = useState<Set<string>>(() => new Set());
+  const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  const [tabVisible, setTabVisible] = useState(true);
+  const [now, setNow] = useState(() => Date.now());
   const [dialogOpen, setDialogOpen] = useState(false);
   const [delegationOptions, setDelegationOptions] = useState<DelegationOptions | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
@@ -96,6 +121,57 @@ export function ChatDelegationPanel({
   const [context, setContext] = useState('');
   const [selectedToolsets, setSelectedToolsets] = useState<Set<string>>(() => new Set());
   const requestInFlightRef = useRef(false);
+  const tasksRef = useRef(tasks);
+  const detailTaskIdRef = useRef(detailTaskId);
+  const progressInFlightRef = useRef(false);
+  const lastProgressPollRef = useRef(0);
+
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { detailTaskIdRef.current = detailTaskId; }, [detailTaskId]);
+  useEffect(() => {
+    const updateVisibility = () => setTabVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', updateVisibility);
+    return () => document.removeEventListener('visibilitychange', updateVisibility);
+  }, []);
+
+  const refreshProgress = useCallback(async (force = false) => {
+    if (document.visibilityState !== 'visible' || progressInFlightRef.current) return;
+    const tracked = tasksRef.current.filter((task) => isActive(task) || task.id === detailTaskIdRef.current);
+    if (tracked.length === 0) return;
+    const minimumGap = Math.max(PROGRESS_POLL_INTERVAL_MS, tracked.length * 700);
+    if (!force && Date.now() - lastProgressPollRef.current < minimumGap) return;
+    lastProgressPollRef.current = Date.now();
+    progressInFlightRef.current = true;
+    try {
+      const updates = await Promise.allSettled(tracked.map(async (task) => ({
+        id: task.id,
+        progress: await fetchChatDelegationProgress({
+          id: task.id,
+          sourceSessionId,
+          afterRevision: Math.max(0, (task.progressRevision ?? 0) - 100),
+        }),
+      })));
+      for (const update of updates) {
+        if (update.status === 'fulfilled') {
+          const { id, progress } = update.value;
+          setProgressById((current) => {
+            if ((current[id]?.delegation.revision ?? -1) > progress.delegation.revision) return current;
+            return { ...current, [id]: { ...progress, loadedAt: Date.now() } };
+          });
+          setProgressErrors((current) => {
+            if (!current.has(id)) return current;
+            const next = new Set(current); next.delete(id); return next;
+          });
+        } else {
+          // The list remains usable when a single detail request fails.
+          const id = tracked[updates.indexOf(update)]?.id;
+          if (id) setProgressErrors((current) => new Set(current).add(id));
+        }
+      }
+    } finally {
+      progressInFlightRef.current = false;
+    }
+  }, [sourceSessionId]);
 
   useEffect(() => {
     const restoreExpandedState = window.setTimeout(() => {
@@ -110,8 +186,10 @@ export function ChatDelegationPanel({
     try {
       const nextTasks = await fetchChatDelegations(sourceSessionId, signal);
       if (!signal?.aborted) {
+        tasksRef.current = nextTasks;
         setTasks(nextTasks);
         setLoadError(null);
+        void refreshProgress();
       }
     } catch {
       if (!signal?.aborted) {
@@ -121,7 +199,7 @@ export function ChatDelegationPanel({
       requestInFlightRef.current = false;
       if (!signal?.aborted) setLoading(false);
     }
-  }, [sourceSessionId, t]);
+  }, [refreshProgress, sourceSessionId, t]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -139,7 +217,27 @@ export function ChatDelegationPanel({
     };
   }, [refresh]);
 
-  const activeCount = useMemo(() => tasks.filter(isActive).length, [tasks]);
+  useEffect(() => {
+    if (!tabVisible) return;
+    const interval = window.setInterval(() => { void refreshProgress(); }, PROGRESS_POLL_INTERVAL_MS);
+    const initial = window.setTimeout(() => { void refreshProgress(true); }, 0);
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, [refreshProgress, tabVisible]);
+
+  useEffect(() => {
+    if (detailTaskId) void refreshProgress(true);
+  }, [detailTaskId, refreshProgress]);
+
+  const activeCount = useMemo(() => tasks.filter((task) => (
+    task.status === 'queued' || (task.status === 'running' && (
+      !progressById[task.id] || progressById[task.id].delegation.displayStatus === 'running'
+    ))
+  )).length, [progressById, tasks]);
   const agentsById = useMemo(
     () => new Map(agents.map((agent) => [agent.agentId, agent])),
     [agents],
@@ -158,6 +256,7 @@ export function ChatDelegationPanel({
     hour: '2-digit',
     minute: '2-digit',
   }), [locale]);
+  const detailTask = useMemo(() => tasks.find((task) => task.id === detailTaskId) ?? null, [detailTaskId, tasks]);
 
   const cancelTask = useCallback(async (id: string) => {
     setCancellingIds((current) => new Set(current).add(id));
@@ -182,15 +281,21 @@ export function ChatDelegationPanel({
     }
   }, [refresh, sourceSessionId, t]);
 
-  const openStartDialog = useCallback(async () => {
+  const openStartDialog = useCallback(async (followUp?: ChatDelegation) => {
     setDialogOpen(true);
     setStartError(null);
-    setSelectedSessionId('');
+    setSelectedSessionId(followUp?.workerSessionId ?? '');
+    if (followUp?.targetAgentId) setTargetAgentId(followUp.targetAgentId);
+    if (followUp) {
+      setGoal('');
+      setContext('');
+      setSelectedToolsets(new Set(followUp.toolsets));
+    }
     setOptionsLoading(true);
     try {
       const options = await fetchDelegationOptions(sourceSessionId);
       setDelegationOptions(options);
-      setTargetAgentId((current) => current || options.agents[0]?.agentId || '');
+      setTargetAgentId((current) => followUp?.targetAgentId || current || options.agents[0]?.agentId || '');
       setSelectedToolsets((current) => current.size > 0
         ? current
         : new Set(options.toolsets.map((toolset) => toolset.name)));
@@ -261,7 +366,10 @@ export function ChatDelegationPanel({
 
   return (
     <div
+      id="chat-delegation-panel"
       data-testid="chat-delegation-panel"
+      tabIndex={-1}
+      onFocus={() => { if (!expanded) setExpanded(true); }}
       className="mb-2 overflow-hidden rounded-md border border-border/70 bg-background/95 shadow-sm"
     >
       <div className="flex items-center px-2.5 py-1">
@@ -319,17 +427,27 @@ export function ChatDelegationPanel({
 
           {tasks.map((task) => {
             const canCancel = isActive(task) && !task.cancelRequestedAt;
-            const statusKey = task.cancelRequestedAt
-              ? 'delegationStatusCancelling'
-              : task.status === 'queued'
-                ? 'delegationStatusQueued'
-                : task.status === 'running'
-                  ? 'delegationStatusRunning'
-                  : task.status === 'completed'
-                    ? 'delegationStatusCompleted'
-                    : task.status === 'cancelled'
-                      ? 'delegationStatusCancelled'
-                      : 'delegationStatusFailed';
+            const progress = progressById[task.id];
+            const displayStatus = task.status === 'running'
+              ? progress?.delegation.displayStatus || 'unknown'
+              : task.status;
+            const latestEvent = progress?.events.at(-1);
+            const latestCompaction = progress?.events.findLast((event) => event.kind === 'compacting' || event.kind === 'resumed');
+            const statusKey = displayStatus === 'interrupted'
+              ? 'delegationDetailInterrupted'
+              : displayStatus === 'unknown'
+                ? 'delegationDetailUnknown'
+              : task.cancelRequestedAt
+                ? 'delegationStatusCancelling'
+                : task.status === 'queued'
+                  ? 'delegationStatusQueued'
+                  : task.status === 'running'
+                    ? 'delegationStatusRunning'
+                    : task.status === 'completed'
+                      ? 'delegationStatusCompleted'
+                      : task.status === 'cancelled'
+                        ? 'delegationStatusCancelled'
+                        : 'delegationStatusFailed';
             const workerAgent = task.targetAgentId ? agentsById.get(task.targetAgentId) : undefined;
             const workerLabel = workerAgent?.name
               || task.targetAgentId
@@ -341,8 +459,12 @@ export function ChatDelegationPanel({
             return (
               <div
                 key={task.id}
+                id={`chat-delegation-${task.id}`}
                 data-testid="chat-delegation-item"
+                data-delegation-id={task.id}
                 data-status={task.status}
+                tabIndex={-1}
+                onFocus={() => { if (!expanded) setExpanded(true); }}
                 className="border-b border-border/60 px-2.5 py-2 transition-colors last:border-b-0 hover:bg-muted/25"
               >
                 <div className="flex items-start gap-2">
@@ -353,18 +475,38 @@ export function ChatDelegationPanel({
                       iconClassName="h-3.5 w-3.5"
                     />
                     <span className="absolute -bottom-1 -right-1 inline-flex rounded-full bg-background p-0.5 shadow-sm">
-                      <TaskStatusIcon task={task} />
+                      <TaskStatusIcon task={task} displayStatus={displayStatus} />
                     </span>
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-xs font-medium text-foreground" title={task.goal}>{task.goal}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[10px] text-muted-foreground">
-                      <span className={statusTone(task)}>{t(statusKey)}</span>
+                      <span className={statusTone(task, displayStatus)}>{t(statusKey)}</span>
                       <span aria-hidden="true">·</span>
                       <span className="truncate">{workerLabel}</span>
                       <span aria-hidden="true">·</span>
                       <span>{timeFormatter.format(new Date(task.createdAt))}</span>
+                      <span aria-hidden="true">·</span>
+                      <span title={t('delegationDetailElapsed')}><Clock3 className="mr-0.5 inline h-2.5 w-2.5" />{elapsedText(task, now)}</span>
                     </div>
+                    {task.status === 'running' || progressErrors.has(task.id) ? (
+                      <div data-testid={`delegation-progress-${task.id}`} className="mt-1 text-[10px] leading-relaxed text-muted-foreground" aria-live="polite">
+                        {progressErrors.has(task.id)
+                          ? t('delegationDetailProgressFailed')
+                          : latestEvent
+                            ? `${t('delegationDetailLastStep')}: ${t(`delegationDetailEvent_${latestEvent.kind}`)}${latestEvent.preview ? ` · ${latestEvent.preview}` : ''}`
+                            : t('delegationDetailNoStep')}
+                      </div>
+                    ) : null}
+                    {latestCompaction && task.status === 'running' ? (
+                      <div className="mt-0.5 text-[10px] text-muted-foreground">
+                        {latestCompaction.kind === 'resumed'
+                          ? t('delegationDetailCompacted')
+                          : latestEvent?.kind === 'compacting' && displayStatus === 'running'
+                            ? t('delegationDetailCompacting')
+                            : t('delegationDetailCompactionUnknown')}
+                      </div>
+                    ) : null}
                     {visibleToolsets.length > 0 ? (
                       <div
                         className="mt-1.5 flex items-center gap-1"
@@ -411,12 +553,23 @@ export function ChatDelegationPanel({
                         {t('delegationDeliveryPending')}
                       </div>
                     ) : null}
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <Button type="button" variant="ghost" size="xs" data-testid={`delegation-open-${task.id}`} onClick={() => setDetailTaskId(task.id)} className="h-6 px-1 text-[10px]">
+                        <MessageSquareText className="h-3 w-3" />{t('delegationDetailView')}
+                      </Button>
+                      {task.workerType === 'managed' && !isActive(task) ? (
+                        <Button type="button" variant="ghost" size="xs" data-testid={`delegation-follow-up-${task.id}`} onClick={() => void openStartDialog(task)} className="h-6 px-1 text-[10px]">
+                          <Plus className="h-3 w-3" />{t('delegationDetailFollowUp')}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                   {canCancel ? (
                     <Button
                       type="button"
                       variant="ghost"
                       size="xs"
+                      data-testid={`delegation-stop-${task.id}`}
                       disabled={cancellingIds.has(task.id)}
                       onClick={() => void cancelTask(task.id)}
                       className="text-muted-foreground hover:text-destructive"
@@ -533,6 +686,16 @@ export function ChatDelegationPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {detailTask ? (
+        <ChatDelegationDetail
+          key={detailTask.id}
+          task={detailTask}
+          events={progressById[detailTask.id]?.events ?? []}
+          canSteer={progressById[detailTask.id]?.delegation.displayStatus === 'running'}
+          open={Boolean(detailTaskId)}
+          onOpenChange={(open) => { if (!open) setDetailTaskId(null); }}
+        />
+      ) : null}
     </div>
   );
 }

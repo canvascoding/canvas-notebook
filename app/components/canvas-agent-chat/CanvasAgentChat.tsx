@@ -1473,6 +1473,7 @@ export default function CanvasAgentChat({
               assistantName={activeAgentDisplayName}
               assistantAgentId={activeSessionAgentId}
               assistantIconId={activeAgentProfile?.iconId}
+              delegationAgents={chatAgentOptions}
               userProfile={currentUserProfile}
               runtimePhase={runtimeStatus?.phase}
               expandedRunKeys={expandedRunKeys}

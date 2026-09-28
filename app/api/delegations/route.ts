@@ -77,6 +77,7 @@ export async function GET(request: NextRequest) {
       workerRole: record.workerRole,
       toolsets: piDelegationToolsets(record),
       status: record.status,
+      progressRevision: record.progressRevision,
       resultStatus: record.resultStatus,
       resultText: record.resultText,
       errorText: record.errorText,

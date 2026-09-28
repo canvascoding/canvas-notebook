@@ -10,6 +10,7 @@ import type { ToolOutputScope } from './StoredToolOutputPreview';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { DEFAULT_FILE_REFERENCE_VIEW_STATE, FileReferenceCard, type FileReferenceViewState } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { ChatMessageIdentity } from '@/app/components/canvas-agent-chat/ChatMessageIdentity';
+import { InlineDelegationCard } from '@/app/components/canvas-agent-chat/InlineDelegationCard';
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import {
   formatChatRuntimeIdentity,
@@ -22,10 +23,11 @@ import {
   ToolBatchDisclosure,
 } from '@/app/components/canvas-agent-chat/ChatToolRunMessages';
 import { buildRunFileReferenceProjection } from '@/app/lib/chat/run-file-references';
+import { getSpawnDelegationId } from '@/app/lib/chat/delegation-inline';
 import { stripInternalProjectionNotices } from '@/app/lib/chat/display-text';
 import { buildToolBatchProjection } from '@/app/lib/chat/run-collapse';
 import { rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
-import type { AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
+import type { AgentProfile, AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
 import { contentToString, isAbortedAssistantPiMessage } from '@/app/lib/chat/message-content';
 import { getChatMessageSequence } from '@/app/lib/chat/message-metadata';
 import { getChatMessageRenderKey } from '@/app/lib/chat/message-render-key';
@@ -406,6 +408,7 @@ export function ChatMessageList({
   assistantName,
   assistantAgentId,
   assistantIconId,
+  delegationAgents = [],
   userProfile,
   runtimePhase,
   expandedRunKeys,
@@ -423,6 +426,7 @@ export function ChatMessageList({
   assistantName: string;
   assistantAgentId: string;
   assistantIconId?: string | null;
+  delegationAgents?: AgentProfile[];
   userProfile: ResolvedUserProfile | null;
   runtimePhase: RuntimeStatus['phase'] | null | undefined;
   expandedRunKeys: Set<string>;
@@ -487,6 +491,17 @@ export function ChatMessageList({
             onAttachmentOpen={onAttachmentOpen}
             previewGroups={toolImagePreviewGroups}
           /> : null}
+          {toolOutputScope?.sessionId ? toolBatch.calls.flatMap((call) => {
+            const delegationId = getSpawnDelegationId(call);
+            return delegationId ? [
+              <InlineDelegationCard
+                key={`${toolOutputScope.sessionId}:${delegationId}`}
+                delegationId={delegationId}
+                sourceSessionId={toolOutputScope.sessionId}
+                agents={delegationAgents}
+              />,
+            ] : [];
+          }) : null}
           <ToolAppMessages batch={toolBatch} />
           </>
         ) : null;
