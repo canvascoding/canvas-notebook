@@ -78,17 +78,25 @@ async function main() {
   testDatabase = await createPiTestDatabase();
   try {
     const { db } = testDatabase;
-    const { automationJobs, automationRuns, canvasOrganizationSettings, canvasWorkspaces, user } = await import('../app/lib/db/schema');
+    const { auditEvents, automationJobs, automationRuns, canvasOrganizationSettings, canvasWorkspaces, user } = await import('../app/lib/db/schema');
     const {
       SCHEDULED_RUN_MISFIRE_GRACE_MS,
       claimDueScheduledAutomationJobRun,
       deleteAutomationJob,
       discardMissedScheduledAutomationRuns,
+      getAutomationJob,
       listExecutableAutomationRuns,
+      listAutomationScheduleSkipDiagnostics,
       markAutomationRunStarted,
+      moveAutomationJobToWorkspace,
       scheduleAutomationJobRun,
       updateAutomationJob,
     } = await import('../app/lib/automations/store');
+    const readSkipDiagnostics = async (jobId: string) => {
+      const job = await getAutomationJob(jobId);
+      assert.ok(job);
+      return listAutomationScheduleSkipDiagnostics(job);
+    };
 
     await db.insert(user).values({
       id: OWNER_ID,
@@ -126,6 +134,31 @@ async function main() {
     assert.ok(misfireJob.nextRunAt && misfireJob.nextRunAt.getTime() > NOW.getTime(), 'an active misfired job must resume strictly in the future');
     const misfireRuns = await db.select().from(automationRuns).where(eq(automationRuns.jobId, 'job-misfire'));
     assert.equal(misfireRuns.length, 0, 'a skipped tick cannot produce a run, todo, or delivery side effect');
+    assert.deepEqual(await readSkipDiagnostics('job-misfire'), [{
+      kind: 'schedule_misfire',
+      scheduledFor: new Date(NOW.getTime() - SCHEDULED_RUN_MISFIRE_GRACE_MS - 1).toISOString(),
+      observedAt: NOW.toISOString(),
+      nextRunAt: misfireJob.nextRunAt?.toISOString() ?? null,
+      reason: 'scheduler_downtime',
+    }], 'an unqueued missed tick is visible as a scoped diagnostic');
+    assert.equal(await claimDueScheduledAutomationJobRun('job-misfire', NOW), null);
+    const misfireAuditRows = await db.select().from(auditEvents).where(eq(auditEvents.entityId, 'job-misfire'));
+    assert.equal(misfireAuditRows.length, 1, 'a repeated scheduler tick does not duplicate the diagnostic');
+
+    await insertJob({ id: 'job-parallel-misfire',
+      nextRunAt: new Date(NOW.getTime() - SCHEDULED_RUN_MISFIRE_GRACE_MS - 1) });
+    assert.deepEqual(await Promise.all([
+      claimDueScheduledAutomationJobRun('job-parallel-misfire', NOW),
+      claimDueScheduledAutomationJobRun('job-parallel-misfire', NOW),
+    ]), [null, null]);
+    assert.equal((await readSkipDiagnostics('job-parallel-misfire')).length, 1,
+      'parallel scheduler claims record the same missed tick once');
+
+    await insertJob({ id: 'job-once-misfire', schedule: { kind: 'once', date: '2026-09-11',
+      time: '09:00', timeZone: 'UTC' }, nextRunAt: new Date(NOW.getTime() - 60 * 60_000) });
+    assert.equal(await claimDueScheduledAutomationJobRun('job-once-misfire', NOW), null);
+    assert.equal((await readSkipDiagnostics('job-once-misfire'))[0]?.nextRunAt, null,
+      'a missed one-time job has no invented follow-up timestamp');
 
     await insertJob({ id: 'job-concurrent', nextRunAt: new Date(NOW.getTime() - 1_000) });
     const claims = await Promise.all([
@@ -136,6 +169,33 @@ async function main() {
     const concurrentRuns = await db.select().from(automationRuns).where(eq(automationRuns.jobId, 'job-concurrent'));
     assert.equal(concurrentRuns.length, 1);
     assert.equal(concurrentRuns[0].triggerType, 'scheduled');
+    assert.deepEqual(await readSkipDiagnostics('job-concurrent'), [],
+      'an on-time claim has no misfire diagnostic');
+
+    await db.insert(canvasWorkspaces).values({
+      id: 'scheduler-workspace-b', organizationId: ORGANIZATION_ID, type: 'personal',
+      rootRelativePath: 'workspaces/scheduler-owner-b/files', displayName: 'Other workspace',
+      workspaceIcon: 'clock', status: 'active', isDefault: false, createdAt: NOW, updatedAt: NOW,
+    });
+    const moveTarget = (workspaceId: string) => ({
+      scope: 'personal' as const, organizationId: ORGANIZATION_ID, workspaceId,
+      workspaceType: 'personal' as const, ownerUserId: OWNER_ID, responsibleUserId: OWNER_ID,
+      serviceActorId: null, approvedByUserId: null, lastEditedByUserId: OWNER_ID,
+      workspace: { workspaceId, workspaceType: 'personal' as const, organizationId: ORGANIZATION_ID,
+        customerId: null, projectId: null },
+    });
+    const priorScope = await getAutomationJob('job-misfire');
+    assert.ok(priorScope);
+    await moveAutomationJobToWorkspace('job-misfire', moveTarget('scheduler-workspace-b') as never,
+      { actorUserId: OWNER_ID, responsibleUserId: OWNER_ID });
+    assert.deepEqual(await listAutomationScheduleSkipDiagnostics(priorScope), [],
+      'a stale authorized job snapshot cannot read diagnostics after a workspace move');
+    assert.deepEqual(await readSkipDiagnostics('job-misfire'), [],
+      'a moved job cannot read old workspace diagnostics');
+    await moveAutomationJobToWorkspace('job-misfire', moveTarget(WORKSPACE_ID) as never,
+      { actorUserId: OWNER_ID, responsibleUserId: OWNER_ID });
+    assert.deepEqual(await readSkipDiagnostics('job-misfire'), [],
+      'moving back does not resurrect old skip diagnostics');
 
     await insertJob({ id: 'job-pause', nextRunAt: new Date(NOW.getTime() - 1_000) });
     const queuedBeforePause = await claimDueScheduledAutomationJobRun('job-pause', NOW);

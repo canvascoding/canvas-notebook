@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, gt, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { automationJobs, automationJobState, automationJobStateMutations, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
+import { auditEvents, automationJobs, automationJobState, automationJobStateMutations, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
 import {
   DEFAULT_MANAGED_AGENT_ID,
   readLegacyHeartbeatInstructions,
@@ -994,6 +994,61 @@ export async function listAutomationRuns(jobId: string): Promise<AutomationRunRe
     .limit(100);
 
   return mapRunRows(rows);
+}
+
+export type AutomationScheduleSkipDiagnostic = {
+  kind: 'schedule_misfire';
+  scheduledFor: string;
+  observedAt: string;
+  nextRunAt: string | null;
+  reason: 'scheduler_downtime';
+};
+
+/** Missed ticks are diagnostics, not runs: they never entered the execution queue. */
+export async function listAutomationScheduleSkipDiagnostics(
+  authorizedJob: Pick<AutomationJobRecord, 'id' | 'scope' | 'jobScope' | 'organizationId' | 'workspaceId'
+    | 'workspaceType' | 'ownerUserId' | 'createdByUserId'>,
+): Promise<AutomationScheduleSkipDiagnostic[]> {
+  return db.transaction(async (tx) => {
+    const [job] = await tx.select().from(automationJobs)
+      .where(eq(automationJobs.id, authorizedJob.id)).limit(1).for('update');
+    if (!job || job.deletedAt || job.scope !== authorizedJob.scope
+      || resolveStoredJobScope(job) !== authorizedJob.jobScope
+      || job.organizationId !== authorizedJob.organizationId
+      || job.workspaceId !== authorizedJob.workspaceId
+      || job.workspaceType !== authorizedJob.workspaceType
+      || job.ownerUserId !== authorizedJob.ownerUserId
+      || job.createdByUserId !== authorizedJob.createdByUserId) return [];
+    const rows = await tx.select({ createdAt: auditEvents.createdAt, metadataJson: auditEvents.metadataJson })
+      .from(auditEvents)
+      .where(and(
+        eq(auditEvents.source, 'automations'),
+        eq(auditEvents.entityType, 'automation_job'),
+        eq(auditEvents.entityId, job.id),
+        eq(auditEvents.action, 'schedule_misfire'),
+        sql`${auditEvents.organizationId} IS NOT DISTINCT FROM ${job.organizationId}`,
+        sql`${auditEvents.workspaceId} IS NOT DISTINCT FROM ${job.workspaceId}`,
+        ...(job.contextCutoffAt ? [gt(auditEvents.createdAt, job.contextCutoffAt)] : []),
+      ))
+      .orderBy(desc(auditEvents.createdAt), desc(auditEvents.id))
+      .limit(100);
+    return rows.flatMap((row): AutomationScheduleSkipDiagnostic[] => {
+      if (!row.metadataJson) return [];
+      try {
+        const metadata = JSON.parse(row.metadataJson) as Record<string, unknown>;
+        if (metadata.jobScope !== resolveStoredJobScope(job)
+          || metadata.workspaceType !== job.workspaceType
+          || metadata.reason !== 'scheduler_downtime'
+          || typeof metadata.scheduledFor !== 'string'
+          || (metadata.nextRunAt !== null && typeof metadata.nextRunAt !== 'string')) return [];
+        return [{ kind: 'schedule_misfire', scheduledFor: metadata.scheduledFor,
+          observedAt: row.createdAt.toISOString(), nextRunAt: metadata.nextRunAt,
+          reason: 'scheduler_downtime' }];
+      } catch {
+        return [];
+      }
+    });
+  });
 }
 
 export async function getAutomationRun(runId: string): Promise<AutomationRunRecord | null> {
@@ -2145,10 +2200,31 @@ export async function claimDueScheduledAutomationJobRun(
     const overdueBy = now.getTime() - scheduledFor.getTime();
     const nextRunAt = computeNextScheduledRunAt(job, now, overdueBy <= SCHEDULED_RUN_MISFIRE_GRACE_MS ? scheduledFor : now);
     if (overdueBy > SCHEDULED_RUN_MISFIRE_GRACE_MS) {
-      await tx
+      const [advanced] = await tx
         .update(automationJobs)
         .set({ nextRunAt, updatedAt: now })
-        .where(and(eq(automationJobs.id, jobId), eq(automationJobs.nextRunAt, scheduledFor)));
+        .where(and(eq(automationJobs.id, jobId), eq(automationJobs.nextRunAt, scheduledFor)))
+        .returning({ id: automationJobs.id });
+      if (advanced) {
+        await tx.insert(auditEvents).values({
+          id: `audit-${randomUUID()}`,
+          organizationId: job.organizationId,
+          workspaceId: job.workspaceId,
+          source: 'automations',
+          eventType: 'automation',
+          entityType: 'automation_job',
+          entityId: jobId,
+          action: 'schedule_misfire',
+          status: 'completed',
+          summary: 'Scheduled automation occurrence skipped after scheduler downtime.',
+          metadataJson: JSON.stringify({
+            jobScope: resolveStoredJobScope(job), workspaceType: job.workspaceType,
+            scheduledFor: scheduledFor.toISOString(), nextRunAt: nextRunAt?.toISOString() ?? null,
+            reason: 'scheduler_downtime',
+          }),
+          createdAt: now,
+        });
+      }
       return null;
     }
 

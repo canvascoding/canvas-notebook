@@ -212,6 +212,16 @@ type CustomWebhookDraft = {
 
 type AutomationJobStateMetadata = { key: string; revision: number; updatedAt: string };
 type AutomationJobStateValue = AutomationJobStateMetadata & { value: string };
+type AutomationRunDiagnostic = {
+  kind: 'schedule_misfire';
+  scheduledFor: string;
+  observedAt: string;
+  nextRunAt: string | null;
+  reason: 'scheduler_downtime';
+};
+type AutomationTimelineEntry =
+  | { kind: 'run'; run: AutomationRunRecord; timestamp: string }
+  | { kind: 'misfire'; diagnostic: AutomationRunDiagnostic; timestamp: string };
 
 type AutomationContextProvenance = {
   reason?: string;
@@ -1054,6 +1064,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     defaultCustomWebhookDraft(defaultAutomationWorkspaceId),
   );
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
+  const [runDiagnostics, setRunDiagnostics] = useState<AutomationRunDiagnostic[]>([]);
   const [jobStateMetadata, setJobStateMetadata] = useState<AutomationJobStateMetadata[]>([]);
   const [jobStateJobId, setJobStateJobId] = useState<string | null>(null);
   const [jobStateValues, setJobStateValues] = useState<Record<string, AutomationJobStateValue>>({});
@@ -1140,6 +1151,12 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     () => runs.find((run) => run.id === selectedRunId) || null,
     [runs, selectedRunId],
   );
+  const runTimeline = useMemo<AutomationTimelineEntry[]>(() => [
+    ...runs.map((run): AutomationTimelineEntry => ({ kind: 'run', run,
+      timestamp: run.scheduledFor || run.finishedAt || run.createdAt })),
+    ...runDiagnostics.map((diagnostic): AutomationTimelineEntry => ({ kind: 'misfire', diagnostic,
+      timestamp: diagnostic.scheduledFor })),
+  ].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)), [runs, runDiagnostics]);
   const selectedRun = useMemo(
     () => (selectedRunId ? runDetailsById[selectedRunId] || selectedRunSummary : null),
     [runDetailsById, selectedRunId, selectedRunSummary],
@@ -1321,9 +1338,12 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadRuns'));
+      if (selectedJobIdRef.current !== jobId) return;
 
       const nextRuns = payload.data as AutomationRunRecord[];
       setRuns(nextRuns);
+      setRunDiagnostics(Array.isArray(payload.diagnostics)
+        ? payload.diagnostics as AutomationRunDiagnostic[] : []);
       setRunDetailsById((current) => {
         const nextIds = new Set(nextRuns.map((run) => run.id));
         return Object.fromEntries(Object.entries(current).filter(([runId]) => nextIds.has(runId)));
@@ -1331,12 +1351,14 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
       const runToSelect = nextRuns.find((run) => run.id === preferredRunId) || nextRuns[0] || null;
       setSelectedRunId(runToSelect?.id || null);
     } catch (error) {
+      if (selectedJobIdRef.current !== jobId) return;
       setRuns([]);
+      setRunDiagnostics([]);
       setRunDetailsById({});
       setSelectedRunId(null);
       toast.error(error instanceof Error ? error.message : t('errors.loadRuns'));
     } finally {
-      setIsRefreshingRuns(false);
+      if (selectedJobIdRef.current === jobId) setIsRefreshingRuns(false);
     }
   }
 
@@ -1679,6 +1701,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     if (!selectedJobId) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setRuns([]);
+      setRunDiagnostics([]);
       setRunDetailsById({});
       setSelectedRunId(null);
       /* eslint-enable react-hooks/set-state-in-effect */
@@ -2985,47 +3008,67 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                 </CardHeader>
                 <CardContent className="space-y-4 p-4">
                   <div className="space-y-2" data-testid="automation-run-list">
-                    {isRefreshingRuns && runs.length === 0 ? (
+                    {isRefreshingRuns && runTimeline.length === 0 ? (
                       <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         {t('runs.loading')}
                       </div>
-                    ) : runs.length === 0 ? (
+                    ) : runTimeline.length === 0 ? (
                       <div className="rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
                         {t('runs.empty')}
                       </div>
                     ) : (
-                      runs.slice(0, visibleRunCount).map((run) => (
+                      runTimeline.slice(0, visibleRunCount).map((entry) => entry.kind === 'misfire' ? (
+                        <div key={`misfire-${entry.diagnostic.scheduledFor}`} role="status"
+                          className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3"
+                          data-testid="automation-schedule-misfire">
+                          <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-sm font-medium">{t('runs.misfireTitle')}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDateTime(entry.diagnostic.scheduledFor, locale, t('scheduleSummary.notScheduled'))}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">{t('runs.misfireReason')}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('runs.misfireObserved')}: {formatDateTime(entry.diagnostic.observedAt, locale, t('scheduleSummary.notScheduled'))}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('runs.misfireNext')}: {entry.diagnostic.nextRunAt
+                              ? formatDateTime(entry.diagnostic.nextRunAt, locale, t('scheduleSummary.notScheduled'))
+                              : t('runs.misfireNoNext')}
+                          </p>
+                        </div>
+                      ) : (
                         <button
-                          key={run.id}
+                          key={entry.run.id}
                           type="button"
-                          className={`w-full min-w-0 rounded-md border p-3 text-left transition ${selectedRunId === run.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
+                          className={`w-full min-w-0 rounded-md border p-3 text-left transition ${selectedRunId === entry.run.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
                           onClick={() => {
-                            setSelectedRunId(run.id);
+                            setSelectedRunId(entry.run.id);
                             setIsRunSheetOpen(true);
                           }}
-                          data-testid={`automation-run-${run.id}`}
+                          data-testid={`automation-run-${entry.run.id}`}
                         >
                           <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                            <span className="text-sm font-medium">{formatRunStatus(run.status, t)}</span>
+                            <span className="text-sm font-medium">{formatRunStatus(entry.run.status, t)}</span>
                             <span className="text-xs text-muted-foreground">
                               {formatDateTime(
-                                run.finishedAt || run.scheduledFor,
+                                entry.run.finishedAt || entry.run.scheduledFor,
                                 locale,
                                 t('scheduleSummary.notScheduled'),
                               )}
                             </span>
                           </div>
-                          {run.errorMessage ? (
+                          {entry.run.errorMessage ? (
                             <p className="mt-2 line-clamp-2 break-words text-xs text-destructive">
-                              {run.errorMessage}
+                              {entry.run.errorMessage}
                             </p>
                           ) : null}
                         </button>
                       ))
                     )}
                   </div>
-                  {runs.length > visibleRunCount ? (
+                  {runTimeline.length > visibleRunCount ? (
                     <Button
                       variant="ghost"
                       className="w-full"

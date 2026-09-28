@@ -180,6 +180,14 @@ const agents = [
   { agentId: 'research', name: 'Research', type: 'custom', removable: true },
 ];
 let chatFail = false;
+let runsFail = false;
+const misfire = {
+  kind: 'schedule_misfire' as const,
+  scheduledFor: '2026-09-06T09:00:00Z',
+  observedAt: '2026-09-06T09:02:01Z',
+  nextRunAt: '2026-09-06T15:00:00Z',
+  reason: 'scheduler_downtime' as const,
+};
 globalThis.fetch = async (input, init) => {
   const url = new URL(String(input), 'http://localhost');
   requests.push({
@@ -193,7 +201,12 @@ globalThis.fetch = async (input, init) => {
   }
   else if (url.pathname === '/api/automations/jobs/job-1' && init?.method === 'PATCH')
     payload = { success: true, data: { ...job, ...JSON.parse(String(init.body)) } };
-  else if (url.pathname === '/api/automations/jobs/job-1/runs') payload = { success: true, data: [run] };
+  else if (url.pathname === '/api/automations/jobs/job-1/runs') {
+    if (runsFail) return new Response(JSON.stringify({ success: false, error: 'Run load failed' }), { status: 503 });
+    payload = { success: true, data: [run], diagnostics: [misfire] };
+  }
+  else if (url.pathname === '/api/automations/jobs/job-2/runs')
+    payload = { success: true, data: [], diagnostics: [{ ...misfire, nextRunAt: null }] };
   else if (url.pathname === '/api/automations/runs/run-1') payload = { success: true, data: run };
   else if (url.pathname.endsWith('/logs'))
     payload = { success: true, data: { content: 'LOG_SENTINEL', truncated: false } };
@@ -361,6 +374,12 @@ async function main() {
   );
   assert.ok(document.body.textContent?.includes('RUN_RESULT_SENTINEL'));
   assert.ok(!document.body.textContent?.includes('TECHNICAL_SENTINEL'));
+  const runList = document.querySelector('[data-testid="automation-run-list"]');
+  assert.deepEqual([...runList!.children].map((element) => element.getAttribute('data-testid')),
+    ['automation-schedule-misfire', 'automation-run-run-1'],
+    'skipped occurrences appear in chronological order, separately from actual runs');
+  assert.match(runList!.textContent || '', /mehr als 90 Sekunden/);
+  assert.equal(document.querySelectorAll('[data-testid="automation-run-run-1"]').length, 1);
   await click(document.querySelector('[data-testid="automation-edit"]'));
   await click(document.querySelector('[data-testid="automation-save"]'));
   const saved = requests.find(({ method }) => method === 'PATCH')?.body;
@@ -380,6 +399,23 @@ async function main() {
   assert.ok(document.body.textContent?.includes('TECHNICAL_SENTINEL'));
   await act(async () => root.unmount());
   root = createRoot(container);
+  runsFail = true;
+  await mount(<AutomationsClient initialJobId="job-1" initialTimeZone="UTC" />);
+  assert.equal(document.querySelector('[data-testid="automation-schedule-misfire"]'), null,
+    'failed reload clears stale diagnostics');
+  assert.ok(errors.includes('Run load failed'));
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  runsFail = false;
+  await mount(<AutomationsClient initialJobId="job-2" initialTimeZone="UTC" />);
+  assert.equal(document.querySelectorAll('[data-testid="automation-schedule-misfire"]').length, 1,
+    'a skipped occurrence remains visible without a run');
+  assert.match(document.querySelector('[data-testid="automation-schedule-misfire"]')?.textContent || '',
+    /Kein weiterer Termin/);
+  assert.equal(document.querySelector('[data-testid="automation-run-run-1"]'), null,
+    'changing jobs does not retain an earlier run');
+  await act(async () => root.unmount());
+  root = createRoot(container);
   chatFail = true;
   await mount(<AutomationChatPicker workspaceId="ws-1" agentId="bradley" value="" onChange={() => {}} />);
   await click(document.querySelector('[data-testid="automation-chat-picker"]'));
@@ -387,7 +423,7 @@ async function main() {
   chatFail = false;
   await click(button('Erneut versuchen'));
   assert.ok(document.body.textContent?.includes('Project meeting'));
-  assert.equal(errors.length, 0, errors.join('\n'));
+  assert.deepEqual(errors, ['Run load failed']);
   await act(async () => root.unmount());
   console.log('automation-ui-test: ok (JSDOM component interactions; no browser automation)');
 }
