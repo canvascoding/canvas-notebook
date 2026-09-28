@@ -2,9 +2,25 @@
 
 Stand: 2026-09-28
 
-Status: Implementierungsplan, noch keine Produktänderung
+Status: Pakete A–E implementiert (lokaler Branch; Browser-E2E noch nicht freigegeben)
 
 Referenzstände: Canvas Notebook `4b8d4d485`, Hermes Agent `614b9b3f3c1ea8e24e6c7370bd85f9639f779bf0`
+
+## Umsetzungsstand
+
+| Paket | Commit | Ergebnis |
+| --- | --- | --- |
+| A | `3ec198a0e` | PostgreSQL-Schema, Migration, `continuityMode=off` und begrenzter Job-Zustand mit Revision/Mutation-ID |
+| B | `11339b17e` | Letztes relevantes eigenes Ergebnis mit Run-Pin, Scope-Prüfung, Promptbudget und Provenienz |
+| C | `2e017182f`, `19d61876e` | Nur für reguläre Automationsläufe gebundenes `automation_job_state`-Tool |
+| D | `038f20bb2` | Maximal drei Quell-Jobs, Zyklenschutz, Run-Pins, Workspace-Cutoff und redigierte Run-API |
+| E | `ab00b97ee` | Web-/Mobile-State-API, Editor-Einstellungen, Zustandsansicht und Run-Diagnose |
+
+Bestehende Jobs behalten `off` und eine leere Quellliste. Die automatischen Kontextblöcke bleiben bei `min(2.048 Tokens, 5 % des Modellfensters)` gedeckelt; ein voller Kontext lässt den aktuellen Auftrag unverändert weiterlaufen. Ein Workspace-Wechsel setzt die Kontextgrenze und entfernt Quellverknüpfungen. Ein gelöschter Quell-Job kann als konfigurierte, nicht mehr lesbare ID verbleiben und wird beim Lauf mit `source_missing` ausgelassen. Der Scheduler und seine 90-Sekunden-Regel wurden nicht geändert.
+
+Der Zustand ist über `GET /api/automations/jobs/:jobId/state` als Metadatenliste und über `GET .../state?key=...` für einen einzelnen Wert erreichbar. `DELETE .../state` setzt einen Schlüssel mit `expectedRevision` und `mutationId` zurück. Die Mobile-v1-Routen spiegeln den Vertrag. Run-APIs entfernen interne Retry-Pins und redigieren Quell-Run-IDs; Detailzugriffe prüfen den historischen Run-Workspace.
+
+Verifiziert wurden der Produktionsbuild, TypeScript, ESLint ohne Fehler, die gezielten Migration-/Store-/Runner-/API-/Mobile-/UI-Tests sowie Scheduler-Recovery und Delivery. Die bestehende npm-Alias `test:automation:workspace-scope` verweist auf eine nicht vorhandene Datei; die neuen Source-Job-Tests decken die Workspace-Grenzen direkt ab. Eine echte Browser-E2E-Prüfung ist wegen der in `AGENTS.md` verlangten ausdrücklichen Freigabe noch offen. Container wurden nicht gebaut.
 
 ## Ziel und Abgrenzung
 
