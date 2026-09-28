@@ -234,11 +234,13 @@ export async function POST(request: NextRequest) {
         overwrite,
         linkUpdates,
         linkStatus: linkAssessment.status,
+        backup: renameResult.backup,
         workspaceType: workspaceResult.workspace.workspaceType,
       },
     });
 
-    return jsonSuccess({ linkUpdates, linkStatus: linkAssessment.status, mutation: renameResult.mutation });
+    return jsonSuccess({ linkUpdates, linkStatus: linkAssessment.status,
+      mutation: renameResult.mutation, backup: renameResult.backup });
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to rename path';
@@ -246,6 +248,13 @@ export async function POST(request: NextRequest) {
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(message, 422, { code: 'PREVIEW_UNREADABLE' });
     if (error instanceof WorkspacePreviewBlockedError) return jsonError(message, 409, { code: 'PREVIEW_BLOCKED' });
     const operationError = error as { status?: number; code?: string };
+    if (error && typeof error === 'object' && 'backup' in error) {
+      return jsonError(message, 409, {
+        code: operationError.code ?? 'WORKSPACE_OPERATION_NEEDS_RECOVERY',
+        backup: error.backup,
+        operationId: 'operationId' in error ? error.operationId : undefined,
+      });
+    }
     if (operationError.status && [403, 409, 422, 503].includes(operationError.status)) {
       return jsonError(message, operationError.status, { code: operationError.code ?? 'WORKSPACE_OPERATION_FAILED' });
     }

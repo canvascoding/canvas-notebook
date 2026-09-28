@@ -667,7 +667,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'copy_path',
     label: 'Copying file or directory',
-    description: 'Copies one or more files/directories within allowed local paths. Supports directory copies without creating content snapshots, so it is suitable for bulk file operations. Prefer this over bash cp so the UI can show a clear file operation.',
+    description: 'Copies one or more files/directories within allowed local paths. Existing workspace destinations are backed up durably before overwrite and return backup IDs; live collaborative files cannot use raw overwrite. Prefer this over bash cp so the UI can show the operation and recovery details.',
     parameters: Type.Object({
       sourcePath: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative source path.' })),
       sourcePaths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative source path.' }), { description: 'Multiple source paths. When provided, destinationPath is treated as a directory.' })),
@@ -707,7 +707,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'move_path',
     label: 'Moving file or directory',
-    description: 'Moves, renames, or bulk-moves files/directories within allowed local paths. Does not create content snapshots. Prefer this over bash mv so the UI can show a clear file operation.',
+    description: 'Moves, renames, or bulk-moves files/directories within allowed local paths. Existing workspace destinations are backed up durably before overwrite and return backup IDs; live collaborative files cannot use raw overwrite. Prefer this over bash mv so the UI can show the operation and recovery details.',
     parameters: Type.Object({
       sourcePath: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative source path.' })),
       sourcePaths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative source path.' }), { description: 'Multiple source paths. When provided, destinationPath is treated as a directory.' })),
@@ -744,7 +744,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'delete_path',
     label: 'Deleting file or directory',
-    description: 'Deletes one or more files/directories within allowed local paths. Does not create content snapshots, so use carefully. Directories require recursive=true. Prefer this over bash rm so the UI can show a clear file operation.',
+    description: 'Deletes one or more files/directories within allowed local paths. Workspace paths go to the recoverable workspace trash and return restore entry IDs; paths outside a workspace are deleted directly. Directories require recursive=true. Prefer this over bash rm so the UI can show the operation and recovery details.',
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative path to delete.' })),
       paths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative path to delete.' }), { description: 'Multiple paths to delete.' })),

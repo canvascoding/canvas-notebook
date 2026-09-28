@@ -71,8 +71,16 @@ export function formatPathOperationResult(result: AgentPathOperationResult): str
     result.verified === true ? 'Verification: passed' : result.verified === false ? 'Verification: failed' : 'Verification: not applicable',
     result.linkStatus ? `Link status: ${result.linkStatus}` : null,
     ...result.linkWarnings.map((warning) => `Link warning: ${warning}`),
+    result.failedPaths?.length ? `Failed paths: ${result.failedPaths.length}` : null,
+    ...((result.failedPaths ?? []).map((failure) => `Delete failed: ${failure.path}: ${failure.error}`)),
+    ...((result.trashEntries ?? []).map((entry) => `Trash entry: ${entry.originalPath} (${entry.id}, expires ${entry.expiresAt})`)),
+    ...((result.backupIds ?? []).map((backupId) => `Operation backup: ${backupId}`)),
     result.truncated ? 'Summary truncated: yes' : 'Summary truncated: no',
-    'Snapshot: none (path copy/move/delete operations do not snapshot file contents)',
+    result.backupIds?.length
+      ? 'Snapshot: durable workspace operation backup'
+      : result.operation === 'delete_path' && result.trashEntries?.length
+        ? 'Restore: workspace paths can be restored from the trash entries above'
+        : 'Snapshot: none (no workspace path was overwritten)',
     ...entryLines,
   ].filter(Boolean).join('\n');
 }

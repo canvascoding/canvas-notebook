@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -37,6 +38,7 @@ async function main() {
     const { copyAgentPaths, moveAgentPaths, getAgentWorkspaceContext } = await import('../app/lib/pi/agent-file-operations');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const { getFileCollaborationState } = await import('../app/lib/files/collaboration-policy');
+    const { getWorkspaceOperationBackup, restoreWorkspaceOperationBackup } = await import('../app/lib/files/workspace-operation-backup');
     const workspaceRoot = path.join(root, 'workspace');
     await fs.mkdir(path.join(workspaceRoot, 'notes'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'notes', 'a.md'), '# Preserved');
@@ -72,6 +74,88 @@ async function main() {
       assert.equal(plainCopy.linkStatus, 'complete');
       assert.equal(plainCopy.operationIds?.length, 1);
       assert.equal(await fs.readFile(path.join(workspaceRoot, 'batch', 'one.bin'), 'utf8'), 'one');
+
+      const overwrittenBytes = Buffer.alloc(2 * 1024 * 1024 + 17, 0x38);
+      const replacementBytes = Buffer.from('replacement copy');
+      await fs.writeFile(path.join(workspaceRoot, 'backup', 'replace.bin'), overwrittenBytes);
+      await fs.writeFile(path.join(workspaceRoot, 'batch', 'replace.bin'), replacementBytes);
+      const overwrittenCopy = await copyAgentPaths({
+        sourcePaths: ['batch/replace.bin'], destinationPath: 'backup/replace.bin', overwrite: true,
+      });
+      assert.equal(overwrittenCopy.verified, true);
+      assert.equal(overwrittenCopy.backupIds?.length, 1);
+      assert.equal(overwrittenCopy.entries[0].backupId, overwrittenCopy.backupIds?.[0]);
+      assert.deepEqual(await fs.readFile(path.join(workspaceRoot, 'backup', 'replace.bin')), replacementBytes);
+      const copyBackup = await getWorkspaceOperationBackup({ workspace, backupId: overwrittenCopy.backupIds![0] });
+      assert.equal(copyBackup.sizeBytes, overwrittenBytes.length);
+      assert.equal(copyBackup.entries[0].type, 'file');
+      assert.equal((copyBackup.entries[0] as { sha256: string }).sha256,
+        createHash('sha256').update(overwrittenBytes).digest('hex'));
+      await fs.rm(path.join(workspaceRoot, 'backup', 'replace.bin'));
+      await restoreWorkspaceOperationBackup({ workspace, backupId: copyBackup.backupId });
+      assert.deepEqual(await fs.readFile(path.join(workspaceRoot, 'backup', 'replace.bin')), overwrittenBytes);
+
+      await fs.writeFile(path.join(workspaceRoot, 'batch', 'move-source.bin'), 'moved content');
+      await fs.writeFile(path.join(workspaceRoot, 'backup', 'move-target.bin'), 'previous target');
+      const overwrittenMove = await moveAgentPaths({
+        sourcePaths: ['batch/move-source.bin'], destinationPath: 'backup/move-target.bin', overwrite: true,
+      });
+      assert.equal(overwrittenMove.verified, true);
+      assert.equal(overwrittenMove.backupIds?.length, 2);
+      assert.equal(overwrittenMove.entries[0].backupId, overwrittenMove.backupIds?.[0]);
+      assert.equal(overwrittenMove.entries[0].sourceBackupId, overwrittenMove.backupIds?.[1]);
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'move-target.bin'), 'utf8'), 'moved content');
+      await assert.rejects(fs.stat(path.join(workspaceRoot, 'batch', 'move-source.bin')));
+      await fs.rm(path.join(workspaceRoot, 'backup', 'move-target.bin'));
+      await restoreWorkspaceOperationBackup({ workspace, backupId: overwrittenMove.entries[0].backupId! });
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'move-target.bin'), 'utf8'), 'previous target');
+      await restoreWorkspaceOperationBackup({ workspace, backupId: overwrittenMove.entries[0].sourceBackupId! });
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'batch', 'move-source.bin'), 'utf8'), 'moved content');
+
+      await fs.writeFile(path.join(workspaceRoot, 'batch', 'live.md'), '# Live source');
+      await fs.writeFile(path.join(workspaceRoot, 'backup', 'live.md'), '# Live destination');
+      await getFileCollaborationState({ workspace, path: 'backup/live.md', ensureDocument: true });
+      await assert.rejects(
+        () => copyAgentPaths({ sourcePaths: ['batch/live.md'], destinationPath: 'backup/live.md', overwrite: true }),
+        { code: 'AGENT_PATH_LIVE_DOCUMENT_REQUIRES_REVIEW' },
+      );
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'live.md'), 'utf8'), '# Live destination');
+
+      await fs.writeFile(path.join(workspaceRoot, 'batch', 'partial.bin'), 'new partial');
+      const partialDestination = path.join(workspaceRoot, 'backup', 'partial.bin');
+      await fs.writeFile(partialDestination, 'old partial');
+      const originalCopy = fs.cp;
+      let partialError: unknown;
+      fs.cp = (async (...args: Parameters<typeof fs.cp>) => {
+        if (String(args[1]) === partialDestination) throw new Error('injected copy failure');
+        return originalCopy(...args);
+      }) as typeof fs.cp;
+      try {
+        await copyAgentPaths({ sourcePaths: ['batch/partial.bin'], destinationPath: 'backup/partial.bin', overwrite: true });
+      } catch (error) {
+        partialError = error;
+      } finally {
+        fs.cp = originalCopy;
+      }
+      assert.match(String(partialError), /injected copy failure.*Recovery backup IDs/u);
+      const partialBackupIds = (partialError as Error & { backupIds: string[] }).backupIds;
+      assert.equal(partialBackupIds.length, 1);
+      await restoreWorkspaceOperationBackup({ workspace, backupId: partialBackupIds[0] });
+      assert.equal(await fs.readFile(partialDestination, 'utf8'), 'old partial');
+
+      await fs.writeFile(path.join(workspaceRoot, 'batch', 'failure-source.bin'), 'new content');
+      await fs.writeFile(path.join(workspaceRoot, 'backup', 'failure-target.bin'), 'old content');
+      const backupStorageRoot = path.join(root, '.workspace-operation-backups');
+      await fs.chmod(backupStorageRoot, 0o755);
+      try {
+        await assert.rejects(
+          () => copyAgentPaths({ sourcePaths: ['batch/failure-source.bin'], destinationPath: 'backup/failure-target.bin', overwrite: true }),
+          /private directory/u,
+        );
+      } finally {
+        await fs.chmod(backupStorageRoot, 0o700);
+      }
+      assert.equal(await fs.readFile(path.join(workspaceRoot, 'backup', 'failure-target.bin'), 'utf8'), 'old content');
       const before = await getFileCollaborationState({ workspace, path: 'stable.md', ensureDocument: true });
       const events: FileEvent[] = [];
       getFileWatcher().subscribe({ id: 'tab', workspaceId: workspace.workspaceId, workspace, send: (event) => events.push(event) });
