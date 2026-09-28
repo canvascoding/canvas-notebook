@@ -262,7 +262,9 @@ async function sendIdentityReport(
   }, fetchImpl);
 }
 
-function assertManagedMappings(local: LocalMember[], managed: ManagedMember[]): number {
+function assertManagedMappings(
+  local: LocalMember[], managed: ManagedMember[], phase: 'revoke' | 'full' = 'full',
+): number {
   const active = managed.filter((member) => member.status === 'active');
   const byIdentityKey = new Map(local.map((member) => [member.localIdentityKey, member]));
   if (new Set(managed.map((member) => member.externalUserId)).size !== managed.length) {
@@ -273,6 +275,7 @@ function assertManagedMappings(local: LocalMember[], managed: ManagedMember[]): 
       && (member.status !== 'active' || (member.role !== 'owner' && member.role !== 'admin'))) {
       throw new Error('MANAGED_TEAM_BOOTSTRAP_ADMIN_ACCESS_DENIED');
     }
+    if (phase === 'revoke' && member.status === 'active') continue;
     if (!member.localIdentityKey) throw new Error('LOCAL_IDENTITY_MAPPING_REQUIRED');
     const existing = byIdentityKey.get(member.localIdentityKey);
     if (!existing || (member.localUserId && existing.localUserId !== member.localUserId)
@@ -286,7 +289,8 @@ function assertManagedMappings(local: LocalMember[], managed: ManagedMember[]): 
     }
   }
   const mapped = new Set(managed.map((member) => member.localIdentityKey));
-  if (local.some((member) => member.status === 'active' && !mapped.has(member.localIdentityKey))) {
+  if (phase === 'full'
+    && local.some((member) => member.status === 'active' && !mapped.has(member.localIdentityKey))) {
     throw new Error('MANAGED_TEAM_UNMAPPED_ACTIVE_USER');
   }
   return active.length;
@@ -530,8 +534,7 @@ export async function runManagedTeamSyncCycle(options: {
     let appliedMemberCount = 0;
     let warningGrantId: string | null = null;
     try {
-      appliedMemberCount = assertManagedMappings(local.members, sync.members);
-      if (license.seatLimit < appliedMemberCount) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
+      assertManagedMappings(local.members, sync.members, 'revoke');
       const fingerprint = createHash('sha256').update(license.certificate).digest('hex');
       if (fingerprint !== license.fingerprint) throw new Error('MANAGED_TEAM_CERTIFICATE_FINGERPRINT_MISMATCH');
       const decoded = decodeLicenseJwt(license.certificate);
@@ -559,6 +562,8 @@ export async function runManagedTeamSyncCycle(options: {
       if (!verified) throw new Error('MANAGED_TEAM_CERTIFICATE_INVALID');
       await applyManagedMembership(database, local, sync.members, 'revoke', policy);
       const afterRevocation = await localMembers(database);
+      appliedMemberCount = assertManagedMappings(afterRevocation.members, sync.members);
+      if (license.seatLimit < appliedMemberCount) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
       const currentActive = afterRevocation.members.filter((member) => member.status === 'active').length;
       if (license.seatLimit < currentActive) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
       const status = await (options.activateCertificate ?? activateLicenseCert)(license.certificate);
@@ -604,7 +609,7 @@ export async function runManagedTeamSyncCycle(options: {
     if (error === 'LOCAL_IDENTITY_MAPPING_REQUIRED'
       || error === 'MANAGED_TEAM_UNMAPPED_ACTIVE_USER'
       || error === 'MANAGED_TEAM_PENDING_LOCAL_IDENTITY') {
-      await sendIdentityReport(instanceId, local.members, options.fetchImpl);
+      await sendIdentityReport(instanceId, (await localMembers(database)).members, options.fetchImpl);
     }
     const humanActivityAt = await lastHumanActivityAt().catch(() => null);
     await managedRequest(ACK_PATH, 'POST', {

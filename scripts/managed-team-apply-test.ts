@@ -103,6 +103,83 @@ async function setupDatabase(dataDir: string) {
   };
 }
 
+async function mixedPendingIdentityScenario() {
+  const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-mixed-'));
+  process.env.DATA = dataDir;
+  const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
+  const fixture = await setupDatabase(dataDir);
+  try {
+    await fixture.pg.query(`
+      INSERT INTO team_memberships (id, organization_id, user_id, candidate_email, role, status)
+      VALUES ('mixed-owner', $1, 'mixed-owner-user', 'owner@example.test', 'owner', 'active'),
+        ('mixed-revoked', $1, 'mixed-revoked-user', 'revoked@example.test', 'member', 'active')
+    `, [organizationId]);
+    await fixture.pg.query(`
+      INSERT INTO "user" (id, email, role, banned)
+      VALUES ('mixed-owner-user', 'owner@example.test', 'admin', 0),
+        ('mixed-revoked-user', 'revoked@example.test', 'user', 0)
+    `);
+    await fixture.pg.query(`
+      INSERT INTO organization_user_permissions (organization_id, user_id, role, status)
+      VALUES ($1, 'mixed-owner-user', 'owner', 'active'),
+        ($1, 'mixed-revoked-user', 'member', 'active')
+    `, [organizationId]);
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('mixed-revoked-session', 'mixed-revoked-user')`);
+    const members = [
+      { externalUserId: 'central-owner', email: 'owner@example.test', role: 'owner', status: 'active', localIdentityKey: 'mixed-owner', localUserId: 'mixed-owner-user' },
+      { externalUserId: 'central-revoked', email: 'revoked@example.test', role: 'member', status: 'removed', localIdentityKey: 'mixed-revoked', localUserId: 'mixed-revoked-user' },
+      { externalUserId: 'central-new', email: 'new@example.test', role: 'member', status: 'active', localIdentityKey: null, localUserId: null },
+    ];
+    const cert = certificate(2);
+    const acknowledgements: Array<Record<string, unknown>> = [];
+    const identityReports: Array<Record<string, unknown>> = [];
+    const requests: string[] = [];
+    let corruptFingerprint = true;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      requests.push(path);
+      if (path.endsWith('/sync')) return new Response(JSON.stringify({
+        status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
+        organizationId: centralOrganizationId, membershipRevision: 30,
+        memberHash: createHash('sha256').update(JSON.stringify([...members]
+          .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
+        members,
+        license: { certificate: cert, entitlementsVersion: 1783338368,
+          fingerprint: corruptFingerprint ? '0'.repeat(64) : createHash('sha256').update(cert).digest('hex'), seatLimit: 2 },
+      }), { status: 200 });
+      if (path.endsWith('/sync/ack')) {
+        acknowledgements.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ status: 'acknowledged' }), { status: 200 });
+      }
+      if (path.endsWith('/identity-report')) {
+        identityReports.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ status: 'received' }), { status: 200 });
+      }
+      throw new Error(`Unexpected endpoint ${path}`);
+    }) as typeof fetch;
+    const options = {
+      database: fixture.database, fetchImpl, verifyCertificate: async () => true,
+      activateCertificate: async () => { throw new Error('UNEXPECTED_CERTIFICATE_APPLY'); },
+    };
+    assert.equal(await runManagedTeamSyncCycle(options), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_CERTIFICATE_FINGERPRINT_MISMATCH');
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'mixed-revoked'`)).rows[0].status, 'active');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'mixed-revoked-user'`)).rows.length, 1);
+    corruptFingerprint = false;
+    assert.equal(await runManagedTeamSyncCycle(options), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'LOCAL_IDENTITY_MAPPING_REQUIRED');
+    assert.equal(requests.some((path) => path.endsWith('/identity-report')), true);
+    assert.equal((identityReports.at(-1)?.members as Array<{ localIdentityKey: string; status: string }> | undefined)
+      ?.find((member) => member.localIdentityKey === 'mixed-revoked')?.status, 'removed');
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'mixed-revoked'`)).rows[0].status, 'removed');
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'mixed-revoked-user'`)).rows[0].banned, 1);
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'mixed-revoked-user'`)).rows.length, 0);
+  } finally {
+    await fixture.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+}
+
 async function crashBoundaryScenario() {
   const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-crash-'));
   process.env.DATA = dataDir;
@@ -705,7 +782,7 @@ async function main() {
   }
 }
 
-main().then(crashBoundaryScenario).then(emailChangeScenario).catch((error) => {
+main().then(mixedPendingIdentityScenario).then(crashBoundaryScenario).then(emailChangeScenario).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
