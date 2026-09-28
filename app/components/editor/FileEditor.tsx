@@ -1260,6 +1260,9 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
               workspaceId={currentFileWorkspaceId}
               path={currentFile.path}
               documentId={collaboration?.document?.id}
+              agentOperations={agentOperationState?.documentId === collaborationDocumentId
+                ? agentOperationState.operations
+                : []}
             />
             <FileReviewPolicyControl
               workspaceId={currentFileWorkspaceId}
