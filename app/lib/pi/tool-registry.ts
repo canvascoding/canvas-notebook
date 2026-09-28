@@ -32,6 +32,7 @@ import {
 } from '@/app/lib/pi/workspace-email-automation-tools';
 import { createEmailAgentTools } from '@/app/lib/pi/workspace-email-tools';
 import { createAutomationJobStateTool } from '@/app/lib/pi/automation-job-state-tool';
+import { createAutomationRunResultTool } from '@/app/lib/pi/automation-run-result-tool';
 import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { piTools } from '@/app/lib/pi/core-tools';
 import {
@@ -498,6 +499,7 @@ export async function getPiTools(
     && options.automationJobState.runId?.trim() && !options.workspaceEmailAutomation
     && resolvedExecutionContext?.canWrite && workerToolsets === null) {
     allTools.push(createAutomationJobStateTool(options.automationJobState));
+    allTools.push(createAutomationRunResultTool(options.automationJobState));
   }
 
   if (resolvedExecutionContext) {
