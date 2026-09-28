@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Copy,
   FileJson,
   FilePlus,
@@ -58,6 +59,19 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, Dia
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
+import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
+
+function workspaceOperationReviewFromDetails(details: unknown): {
+  reviewId: string; workspaceId: string; status: 'pending' | 'blocked';
+} | null {
+  if (!details || typeof details !== 'object' || !('review' in details)) return null;
+  const review = details.review;
+  if (!review || typeof review !== 'object' || !('status' in review)
+    || (review.status !== 'pending' && review.status !== 'blocked')
+    || !('reviewId' in review) || typeof review.reviewId !== 'string'
+    || !('workspaceId' in review) || typeof review.workspaceId !== 'string') return null;
+  return { reviewId: review.reviewId, workspaceId: review.workspaceId, status: review.status };
+}
 
 const TOOL_TONE_ICONS: Record<ToolDisplayTone, ComponentType<{ className?: string }>> = {
   command: Terminal,
@@ -196,11 +210,14 @@ export function ToolCallPill({
   onOpenChange?: (open: boolean) => void;
 }) {
   const t = useTranslations('chat');
+  const reviewT = useTranslations('workspaceOperationReview');
   const locale = useLocale();
   const isMobile = useIsMobile();
   const [copied, setCopied] = useState(false);
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const display = getToolDisplayInfo(message.toolName, locale, getPiMessageDetails(message.piMessage));
+  const piDetails = getPiMessageDetails(message.piMessage);
+  const pendingReview = workspaceOperationReviewFromDetails(piDetails);
+  const display = getToolDisplayInfo(message.toolName, locale, piDetails);
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
   const isPending = message.status === 'pending';
   const isRunning = isPending || message.status === 'sending' || message.status === 'aborting';
@@ -252,6 +269,9 @@ export function ToolCallPill({
     >
       <Icon className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 truncate font-medium">{display.label}</span>
+      {pendingReview ? <span className="shrink-0 rounded-full border border-amber-500/35 bg-amber-500/10 px-1.5 text-[10px] font-medium text-amber-800 dark:text-amber-200">
+        {reviewT(pendingReview.status === 'pending' ? 'pendingBadge' : 'status_blocked')}
+      </span> : null}
       {targetPreview ? (
         <span className="min-w-0 max-w-[9rem] truncate text-muted-foreground/80 sm:max-w-[13rem]">
           {targetPreview}
@@ -327,6 +347,14 @@ export function ToolCallPill({
             {t('toolOutput')}
           </div>
           <StoredToolOutputPreview details={getPiMessageDetails(message.piMessage)} scope={toolOutputScope} />
+          {pendingReview ? <Button type="button" size="sm" variant="secondary" className="mb-2"
+            data-testid="workspace-operation-open-review"
+            onClick={() => {
+              handleOpenChange(false);
+              window.setTimeout(() => openWorkspaceOperationReview(pendingReview.reviewId, pendingReview.workspaceId), 0);
+            }}>
+            <ClipboardCheck className="mr-1.5 size-4" />{reviewT('openAction')}
+          </Button> : null}
           {imageAttachments.length > 0 ? (
             <div data-testid="chat-tool-attachments" className="mb-2 flex flex-wrap gap-2">
               {imageAttachments.map((attachment, index) => (

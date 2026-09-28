@@ -80,6 +80,7 @@ import {
 import { loadExcalidrawScene } from '@/app/lib/excalidraw-collaboration/repository';
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
 import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
+import { submitAgentWorkspacePathOperation } from '@/app/lib/files/workspace-operation-review-service';
 import { captureWorkspaceOperationBackup } from '@/app/lib/files/workspace-operation-backup';
 import {
   parseOptionalProposalToolEditV1, parseProposalToolReadRequestV1,
@@ -123,6 +124,7 @@ export type AgentFileChangeResult = {
   resolvedPath: string;
   changed: boolean;
   snapshot: AgentFileSnapshotMetadata | null;
+  trashEntry?: { id: string; originalPath: string; expiresAt: string };
   beforeSha256: string | null;
   afterSha256: string;
   size: number;
@@ -196,6 +198,8 @@ export type AgentPathOperationResult = {
   linkStatus: 'complete' | 'partial' | 'incomplete' | null;
   linkWarnings: string[];
   operationIds?: string[];
+  review?: { reviewId: string; planId: string; status: 'pending' | 'blocked'; workspaceId: string;
+    code?: string; message?: string };
   backupIds?: string[];
   trashEntries?: Array<{ id: string; originalPath: string; expiresAt: string }>;
   failedPaths?: Array<{ path: string; error: string }>;
@@ -2447,10 +2451,12 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
   return withAgentWorkspaceMutationLocks([fullPath], async () => {
     await assertAgentPathMutationStatesUnchanged([mutationState], 'restore_file_snapshot');
     const workspaceContext = getAgentWorkspaceContext();
-    if (workspaceContext) {
+    const workspacePath = workspaceContext && isPathWithin(fullPath, workspaceContext.rootPath)
+      ? workspaceRelativeAgentPath(workspaceContext, fullPath) : null;
+    if (workspaceContext && workspacePath && snapshot.existed) {
       await assertFileCollaborationWriteAllowed({
         workspace: workspaceContext,
-        path: workspaceRelativeAgentPath(workspaceContext, fullPath),
+        path: workspacePath,
         actorUserId: getAgentExecutionContext()?.userId ?? null,
         actorSessionId: getAgentExecutionContext()?.sessionId ?? null,
         actorType: 'agent',
@@ -2465,20 +2471,53 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
     });
 
     if (!snapshot.existed) {
-      await fs.rm(fullPath, { force: true });
-      await syncPublicSharesAfterDelete([fullPath]);
+      let trashEntry: AgentFileChangeResult['trashEntry'];
+      if (workspaceContext && workspacePath) {
+        if (before.existed) {
+          await assertAgentDeletablePathAllowed(fullPath);
+          const context = getAgentExecutionContext();
+          if (!context) throw new Error('A workspace-bound agent context is required to restore this snapshot.');
+          const trashed = await trashWorkspacePaths({
+            workspace: workspaceContext,
+            paths: [workspacePath],
+            deletedByUserId: context.userId,
+          });
+          if (trashed.failed.length > 0 || trashed.trashed.length !== 1) {
+            throw new Error(trashed.failed[0]?.error ?? `Unable to move ${workspacePath} to trash.`);
+          }
+          const entry = trashed.trashed[0];
+          trashEntry = { id: entry.id, originalPath: entry.originalPath, expiresAt: entry.expiresAt.toISOString() };
+          try {
+            await archiveFileCollaborationPaths({
+              workspace: workspaceContext,
+              paths: [{ path: entry.originalPath, trashEntryId: entry.id }],
+            });
+            await syncPublicSharesAfterDelete([entry.originalPath], workspaceContext);
+          } catch (error) {
+            throw new Error(`File moved to trash entry ${entry.id}, but collaboration or share cleanup failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+          }
+        } else {
+          await syncPublicSharesAfterDelete([workspacePath], workspaceContext);
+        }
+      } else {
+        await fs.rm(fullPath, { force: true });
+        await syncPublicSharesAfterDelete([fullPath]);
+      }
       const result: AgentFileChangeResult = {
         path: snapshot.path,
         resolvedPath: fullPath,
         changed: before.existed,
         snapshot: undoSnapshot,
+        ...(trashEntry ? { trashEntry } : {}),
         beforeSha256: before.buffer ? sha256Buffer(before.buffer) : null,
         afterSha256: sha256Text(''),
         size: 0,
         diff: before.buffer && !isProbablyBinary(before.buffer)
           ? createUnifiedDiff(before.buffer.toString('utf8'), '', `${snapshot.path} (before restore)`, `${snapshot.path} (after restore)`)
           : '(file removed; textual diff unavailable)',
-        validation: { ok: true, checks: [{ name: 'restore', ok: true, message: 'Restored snapshot by removing file that did not exist before the original edit.' }] },
+        validation: { ok: true, checks: [{ name: 'restore', ok: true, message: trashEntry
+          ? `Restored snapshot by moving the created file to workspace trash entry ${trashEntry.id}.`
+          : 'Restored snapshot by removing file that did not exist before the original edit.' }] },
       };
       publishAgentWorkspaceMutation(fullPath, 'unlink');
       await recordAgentFileChangeAudit(result, 'restore_file_snapshot');
@@ -2902,6 +2941,73 @@ function throwAgentOverwriteFailure(error: unknown, backupIds: string[]): never 
   throw Object.assign(new Error(`${String(error)} ${detail}`), { backupIds });
 }
 
+/** Only workspace-local proposals have a complete, revalidatable review plan. */
+async function submitAgentPathReview(input: {
+  operation: AgentPathOperationResult['operation'];
+  entries: AgentPathOperationEntry[];
+  destinationPath?: string;
+  destinationFullPath?: string;
+  idempotencyKey?: string;
+}): Promise<AgentPathOperationResult | null> {
+  const workspace = getAgentWorkspaceContext();
+  const context = getAgentExecutionContext();
+  if (!workspace || !context || input.entries.length === 0) return null;
+
+  const sourceInWorkspace = input.entries.map((entry) => isPathWithin(entry.sourceResolvedPath, workspace.rootPath));
+  const destinationInWorkspace = input.entries.map((entry) => entry.destinationResolvedPath
+    ? isPathWithin(entry.destinationResolvedPath, workspace.rootPath)
+    : false);
+  if (!sourceInWorkspace.some(Boolean) && !destinationInWorkspace.some(Boolean)) return null;
+
+  const allWorkspaceLocal = sourceInWorkspace.every(Boolean)
+    && (input.operation === 'delete_path' || destinationInWorkspace.every(Boolean));
+  if (!allWorkspaceLocal) {
+    // Publishing a fresh temp artifact remains possible, but carries the
+    // legacy incomplete-link warning. A mixed/destructive batch cannot skip
+    // the workspace review decision because its plan is not representable.
+    const tempToWorkspace = input.operation !== 'delete_path'
+      && sourceInWorkspace.every((inside) => !inside)
+      && destinationInWorkspace.every(Boolean)
+      && input.entries.every((entry) => !entry.overwritten);
+    if (tempToWorkspace) return null;
+    throw Object.assign(new Error('This workspace path operation needs a review plan that cannot represent paths outside the workspace.'), {
+      code: input.entries.some((entry) => entry.overwritten) ? 'PREVIEW_UNSUPPORTED_OVERWRITE' : 'AGENT_PATH_REVIEW_UNSUPPORTED_SCOPE',
+      status: 409,
+    });
+  }
+
+  const identity = collaborationAgentIdentity(context);
+  const fileOptions = { workspace, mutationActorUserId: context.userId };
+  const submission = await submitAgentWorkspacePathOperation({
+    kind: input.operation === 'copy_path' ? 'copy' : input.operation === 'move_path' ? 'move' : 'delete',
+    source: { workspace, fileOptions },
+    ...(input.operation === 'delete_path' ? {} : { destination: { workspace, fileOptions } }),
+    selections: input.entries.map((entry) => ({
+      sourcePath: workspaceRelativeAgentPath(workspace, entry.sourceResolvedPath),
+      ...(entry.destinationResolvedPath
+        ? { destinationPath: workspaceRelativeAgentPath(workspace, entry.destinationResolvedPath) }
+        : {}),
+    })),
+    actorUserId: context.userId,
+    actorId: identity.actorId,
+    actorDisplayName: identity.actorDisplayName,
+    actorSessionId: context.sessionId,
+    idempotencyKey: input.idempotencyKey,
+  });
+  if (submission.mode === 'direct') return null;
+  for (const entry of input.entries) entry.changed = false;
+  const result = pathOperationSummary(input.operation, input.entries, input.destinationPath, input.destinationFullPath);
+  result.review = submission.mode === 'blocked'
+    ? { reviewId: submission.reviewId, planId: submission.planId, status: 'blocked',
+        workspaceId: submission.workspaceId, code: submission.code, message: submission.message }
+    : { reviewId: submission.reviewId, planId: submission.planId, status: 'pending', workspaceId: submission.workspaceId };
+  result.operationIds = [submission.reviewId];
+  result.linkStatus = submission.mode === 'blocked' ? 'incomplete' : null;
+  result.linkWarnings = submission.mode === 'blocked'
+    ? [`Review blocked (${submission.code}): ${submission.message}`] : [];
+  return result;
+}
+
 /** Route supported in-workspace agent paths through the same durable operation as the UI. */
 async function executeAgentWorkspacePathOperation(input: {
   operation: 'copy_path' | 'move_path';
@@ -3019,6 +3125,7 @@ export async function copyAgentPaths(params: {
   destinationPath: string;
   overwrite?: boolean;
   recursive?: boolean;
+  idempotencyKey?: string;
 }): Promise<AgentPathOperationResult> {
   const sourcePaths = normalizePathList(params.sourcePaths, 'sourcePaths');
   const multipleSources = sourcePaths.length > 1;
@@ -3076,6 +3183,12 @@ export async function copyAgentPaths(params: {
     captureAgentPathMutationState(entry.sourcePath, entry.sourceResolvedPath),
     captureAgentPathMutationState(entry.destinationPath!, entry.destinationResolvedPath!),
   ]));
+  const review = await submitAgentPathReview({
+    operation: 'copy_path', entries,
+    destinationPath: params.destinationPath, destinationFullPath,
+    idempotencyKey: params.idempotencyKey,
+  });
+  if (review) return review;
   return withAgentWorkspaceMutationLocks(
     mutationStates.map((state) => state.fullPath),
     async () => {
@@ -3168,6 +3281,7 @@ export async function moveAgentPaths(params: {
   sourcePaths: string[];
   destinationPath: string;
   overwrite?: boolean;
+  idempotencyKey?: string;
 }): Promise<AgentPathOperationResult> {
   const sourcePaths = normalizePathList(params.sourcePaths, 'sourcePaths');
   const multipleSources = sourcePaths.length > 1;
@@ -3221,6 +3335,12 @@ export async function moveAgentPaths(params: {
     captureAgentPathMutationState(entry.sourcePath, entry.sourceResolvedPath),
     captureAgentPathMutationState(entry.destinationPath!, entry.destinationResolvedPath!),
   ]));
+  const review = await submitAgentPathReview({
+    operation: 'move_path', entries,
+    destinationPath: params.destinationPath, destinationFullPath,
+    idempotencyKey: params.idempotencyKey,
+  });
+  if (review) return review;
   return withAgentWorkspaceMutationLocks(
     mutationStates.map((state) => state.fullPath),
     async () => {
@@ -3341,6 +3461,7 @@ export async function deleteAgentPaths(params: {
   paths: string[];
   recursive?: boolean;
   ignoreMissing?: boolean;
+  idempotencyKey?: string;
 }): Promise<AgentPathOperationResult> {
   const requestedPaths = normalizePathList(params.paths, 'paths');
   const seenResolvedPaths = new Set<string>();
@@ -3392,6 +3513,11 @@ export async function deleteAgentPaths(params: {
   const mutationStates = await Promise.all(
     deletableEntries.map((entry) => captureAgentPathMutationState(entry.sourcePath, entry.sourceResolvedPath)),
   );
+  const review = await submitAgentPathReview({
+    operation: 'delete_path', entries: deletableEntries,
+    idempotencyKey: params.idempotencyKey,
+  });
+  if (review) return review;
   return withAgentWorkspaceMutationLocks(
     mutationStates.map((state) => state.fullPath),
     async () => {

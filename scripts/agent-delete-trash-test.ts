@@ -41,6 +41,11 @@ async function main() {
   moduleInternals._load = (request, parent, isMain) => {
     if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
     if (request === 'server-only') return {};
+    // This test isolates the trash executor. Agent review admission and apply
+    // are exercised separately by the file-operation review tests.
+    if (request === '@/app/lib/files/workspace-operation-review-service') {
+      return { submitAgentWorkspacePathOperation: async () => ({ mode: 'direct' }) };
+    }
     if (request === '@/app/lib/filesystem/workspace-trash') {
       const real = originalLoad(request, parent, isMain) as typeof import('../app/lib/filesystem/workspace-trash');
       return {
@@ -55,10 +60,10 @@ async function main() {
   };
 
   try {
-    const { deleteAgentPaths } = await import('../app/lib/pi/agent-file-operations');
-    const { formatPathOperationResult } = await import('../app/lib/pi/tool-file-formatters');
+    const { deleteAgentPaths, restoreAgentFileSnapshot, writeAgentTextFile } = await import('../app/lib/pi/agent-file-operations');
+    const { formatFileChangeResult, formatPathOperationResult } = await import('../app/lib/pi/tool-file-formatters');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
-    const { restoreWorkspaceTrashEntry } = await import('../app/lib/filesystem/workspace-trash');
+    const { listWorkspaceTrashEntries, restoreWorkspaceTrashEntry } = await import('../app/lib/filesystem/workspace-trash');
     const { restoreFileCollaborationPath } = await import('../app/lib/files/collaboration-policy');
     const workspace = {
       workspaceId: 'agent-trash-test', workspaceType: 'personal' as const,
@@ -123,7 +128,40 @@ async function main() {
     const audits = await testDatabase.db.select().from(auditEvents);
     assert(audits.some((entry) => entry.action === 'agent_path.delete_path' && entry.status === 'failure'));
 
-    console.log('Agent workspace trash: large Markdown, binary, directory, hash-identical restore, and audited partial failure passed.');
+    const createdContent = '# Created after the snapshot\n';
+    const created = await runWithAgentExecutionContext(context, () => writeAgentTextFile({
+      path: 'snapshot-created.md', content: createdContent,
+    }));
+    assert.equal(created.snapshot?.existed, false);
+    const createdSnapshotId = created.snapshot!.id;
+    failTrashFor = 'snapshot-created.md';
+    await assert.rejects(
+      runWithAgentExecutionContext(context, () => restoreAgentFileSnapshot({ snapshotId: createdSnapshotId })),
+      /Simulated trash storage failure/u,
+    );
+    failTrashFor = null;
+    assert.equal(await fs.readFile(path.join(workspaceRoot, 'snapshot-created.md'), 'utf8'), createdContent);
+    await assert.rejects(
+      runWithAgentExecutionContext({ ...context, canDelete: false }, () => restoreAgentFileSnapshot({ snapshotId: createdSnapshotId })),
+      /deletes are disabled/u,
+    );
+    assert.equal(await fs.readFile(path.join(workspaceRoot, 'snapshot-created.md'), 'utf8'), createdContent);
+    const undo = await runWithAgentExecutionContext(context, () => restoreAgentFileSnapshot({ snapshotId: createdSnapshotId }));
+    assert.equal(undo.changed, true);
+    assert.equal(undo.trashEntry?.originalPath, 'snapshot-created.md');
+    assert.match(formatFileChangeResult(undo), /Trash entry: snapshot-created\.md/u);
+    await assert.rejects(fs.stat(path.join(workspaceRoot, 'snapshot-created.md')), { code: 'ENOENT' });
+    const trash = await listWorkspaceTrashEntries({ workspace });
+    assert(trash.some((entry) => entry.id === undo.trashEntry?.id));
+    const restoredCreated = await restoreWorkspaceTrashEntry({
+      workspace, entryId: undo.trashEntry!.id, restoredByUserId: context.userId,
+    });
+    await restoreFileCollaborationPath({
+      workspace, path: restoredCreated.originalPath, trashEntryId: undo.trashEntry!.id,
+    });
+    assert.equal(sha256(await fs.readFile(path.join(workspaceRoot, 'snapshot-created.md'))), sha256(Buffer.from(createdContent)));
+
+    console.log('Agent workspace trash: large Markdown, binary, directory, snapshot-delete restore, hash-identical restore, and audited partial failure passed.');
   } finally {
     moduleInternals._load = originalLoad;
     await testDatabase.close();

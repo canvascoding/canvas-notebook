@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
+import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -31,6 +32,13 @@ async function main() {
     run: async (sql, params = []) => ({ changes: (await postgres.query(sql, params)).affectedRows ?? 0 }),
     close: () => undefined,
   };
+  const moduleInternals = Module as typeof Module & {
+    _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleInternals._load;
+  moduleInternals._load = (request, parent, isMain) => request === '@/app/lib/files/workspace-operation-review-service'
+    ? { submitAgentWorkspacePathOperation: async () => ({ mode: 'direct' }) }
+    : originalLoad(request, parent, isMain);
   const { getFileWatcher } = await import('../app/lib/filesystem/file-watcher');
   try {
     await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
@@ -188,6 +196,7 @@ async function main() {
     });
     console.log('notebook-agent-path-mutations-test: ok');
   } finally {
+    moduleInternals._load = originalLoad;
     getFileWatcher().stop();
     setFileCollaborationConnectionFactoryForTests(null);
     Object.assign(Pool.prototype, original);

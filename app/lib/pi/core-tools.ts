@@ -667,7 +667,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'copy_path',
     label: 'Copying file or directory',
-    description: 'Copies one or more files/directories within allowed local paths. Existing workspace destinations are backed up durably before overwrite and return backup IDs; live collaborative files cannot use raw overwrite. Prefer this over bash cp so the UI can show the operation and recovery details.',
+    description: 'Copies one or more files/directories within allowed local paths. Workspace copies may return a pending Review Center proposal without changing files. Workspace overwrite is blocked until its full preview can be reviewed. Prefer this over bash cp so the UI can show the operation and recovery details.',
     parameters: Type.Object({
       sourcePath: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative source path.' })),
       sourcePaths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative source path.' }), { description: 'Multiple source paths. When provided, destinationPath is treated as a directory.' })),
@@ -690,10 +690,12 @@ export const piTools: AgentTool[] = [
           destinationPath: typedParams.destinationPath,
           overwrite: typedParams.overwrite,
           recursive: typedParams.recursive ?? true,
+          idempotencyKey: _toolCallId,
         });
         return {
           content: [{ type: 'text', text: formatPathOperationResult(result) }],
           details: result,
+          ...(result.review?.status === 'blocked' ? { isError: true } : {}),
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -707,7 +709,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'move_path',
     label: 'Moving file or directory',
-    description: 'Moves, renames, or bulk-moves files/directories within allowed local paths. Existing workspace destinations are backed up durably before overwrite and return backup IDs; live collaborative files cannot use raw overwrite. Prefer this over bash mv so the UI can show the operation and recovery details.',
+    description: 'Moves, renames, or bulk-moves files/directories within allowed local paths. Workspace moves may return a pending Review Center proposal without changing files. Workspace overwrite is blocked until its full preview can be reviewed. Prefer this over bash mv so the UI can show the operation and recovery details.',
     parameters: Type.Object({
       sourcePath: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative source path.' })),
       sourcePaths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative source path.' }), { description: 'Multiple source paths. When provided, destinationPath is treated as a directory.' })),
@@ -727,10 +729,12 @@ export const piTools: AgentTool[] = [
           sourcePaths,
           destinationPath: typedParams.destinationPath,
           overwrite: typedParams.overwrite,
+          idempotencyKey: _toolCallId,
         });
         return {
           content: [{ type: 'text', text: formatPathOperationResult(result) }],
           details: result,
+          ...(result.review?.status === 'blocked' ? { isError: true } : {}),
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -744,7 +748,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'delete_path',
     label: 'Deleting file or directory',
-    description: 'Deletes one or more files/directories within allowed local paths. Workspace paths go to the recoverable workspace trash and return restore entry IDs; paths outside a workspace are deleted directly. Directories require recursive=true. Prefer this over bash rm so the UI can show the operation and recovery details.',
+    description: 'Deletes one or more files/directories within allowed local paths. Workspace deletes first return a pending Review Center proposal; accepted deletes go to the recoverable workspace trash. Paths outside a workspace are deleted directly. Directories require recursive=true. Prefer this over bash rm so the UI can show the operation and recovery details.',
     parameters: Type.Object({
       path: Type.Optional(Type.String({ description: 'Absolute path or workspace-relative path to delete.' })),
       paths: Type.Optional(Type.Array(Type.String({ description: 'Absolute path or workspace-relative path to delete.' }), { description: 'Multiple paths to delete.' })),
@@ -759,10 +763,12 @@ export const piTools: AgentTool[] = [
           paths,
           recursive: typedParams.recursive,
           ignoreMissing: typedParams.ignoreMissing,
+          idempotencyKey: _toolCallId,
         });
         return {
           content: [{ type: 'text', text: formatPathOperationResult(result) }],
           details: result,
+          ...(result.review?.status === 'blocked' ? { isError: true } : {}),
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
