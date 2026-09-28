@@ -2,6 +2,12 @@
 
 Stand: 2026-07-17
 
+Der Stand vom 17. Juli 2026 dokumentiert das damalige 45-Paket-Python-Image.
+Der Diktat-Kandidat vom 28. September 2026 enthaelt 58 per pip installierte
+Pakete; sein technischer Hash- und Lizenzmetadatenabgleich sowie die noch
+ausstehende Image-/Release-Freigabe stehen in
+[`docker-runtime-review.md`](docker-runtime-review.md).
+
 ## Zweck und rechtliche Einordnung
 
 Dieses Runbook beschreibt den technischen und organisatorischen Prozess, mit

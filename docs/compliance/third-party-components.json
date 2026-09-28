@@ -4,23 +4,34 @@
   "packageVersion": "2026.9.27.1",
   "lockfileSha256": "debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5",
   "summary": {
-    "totalComponents": 1967,
+    "totalComponents": 1969,
     "npmComponents": 1943,
-    "nonNpmComponents": 24,
-    "runtimeComponents": 1449,
+    "nonNpmComponents": 26,
+    "runtimeComponents": 1451,
     "developmentOnlyComponents": 518,
-    "allowed": 1931,
-    "reviewRequired": 36,
+    "allowed": 1932,
+    "reviewRequired": 37,
     "blocked": 0,
-    "distributedReviewRequired": 0,
+    "distributedReviewRequired": 1,
     "developmentOnlyReviewRequired": 36
   },
   "releaseGate": {
-    "status": "approved",
-    "approvalStatus": "approved",
-    "approvalReviewedBy": "Frank Alexander Weber",
-    "approvalReviewedAt": "2026-07-17",
-    "blockers": []
+    "status": "blocked",
+    "approvalStatus": "pending",
+    "approvalReviewedBy": null,
+    "approvalReviewedAt": null,
+    "blockers": [
+      {
+        "name": "first-commercial-release-approval",
+        "versionOrCommit": "2026.9.27.1",
+        "reason": "The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must review the new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release."
+      },
+      {
+        "name": "docker-python:tqdm",
+        "versionOrCommit": "4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
+        "reason": "The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image."
+      }
+    ]
   },
   "components": [
     {
@@ -10544,6 +10555,42 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "The wheel and exact PyPI sdist SHA-256 e5bdbaffd971b29598c7c39ef0e9afce2f08c0751fbfa4e4257678ebaf8cfc7e omit LICENSE. The signed v0.1.6 tag resolves to this commit and contains the exact MIT text and Microsoft copyright without NOTICE."
+    },
+    {
+      "name": "docker-python:tokenizers",
+      "versionOrCommit": "0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3",
+      "sourceUrl": "https://github.com/huggingface/tokenizers/tree/88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/tokenizers-0.23.2.dist-info",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "Apache-2.0 (Cargo.toml and PyPI classifier; Python wheel metadata omits it)",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "docs/compliance/license-texts/tokenizers-0.23.2-APACHE-2.0.txt",
+      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "PyPI 0.23.2 sdist SHA-256 7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac contains tokenizers/LICENSE; its SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4 matches the LICENSE at v0.23.2 commit 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3. Tagged Cargo.toml declares version 0.23.2 and Apache-2.0. The Python wheel omits the license metadata and text; the exact source text is bundled separately. The overall new image remains release-pending."
+    },
+    {
+      "name": "docker-python:tqdm",
+      "versionOrCommit": "4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
+      "sourceUrl": "https://github.com/tqdm/tqdm/tree/9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/tqdm-4.70.1.dist-info",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "MPL-2.0 AND MIT",
+      "verifiedLicense": "MPL-2.0 AND MIT",
+      "licenseTextRef": "docs/compliance/license-texts/tqdm-4.70.1-LICENCE.txt",
+      "licenseTextSha256": "fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "review_required",
+      "reviewNotes": "The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image."
     },
     {
       "name": "electron-runtime",

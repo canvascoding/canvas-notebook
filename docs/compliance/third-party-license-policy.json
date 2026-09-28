@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "releaseApproval": {
-    "status": "approved",
-    "reviewedBy": "Frank Alexander Weber",
-    "reviewedAt": "2026-07-17",
-    "notes": "The responsible product owner approved the first deterministic commercial inventory by explicit Codex task instruction on 2026-07-17. This approval is documented in docs/compliance/third-party-release-approval-2026.7.17.1.md and does not override component-level blockers or unfulfilled license obligations."
+    "status": "pending",
+    "reviewedBy": null,
+    "reviewedAt": null,
+    "notes": "The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must review the new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release."
   },
   "licenseDecisions": {
     "0BSD": "allowed",
@@ -783,6 +783,36 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "The wheel and exact PyPI sdist SHA-256 e5bdbaffd971b29598c7c39ef0e9afce2f08c0751fbfa4e4257678ebaf8cfc7e omit LICENSE. The signed v0.1.6 tag resolves to this commit and contains the exact MIT text and Microsoft copyright without NOTICE."
+    },
+    {
+      "name": "docker-python:tokenizers",
+      "versionOrCommit": "0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3",
+      "sourceUrl": "https://github.com/huggingface/tokenizers/tree/88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/tokenizers-0.23.2.dist-info",
+      "usage": "native",
+      "distributedIn": ["docker-image"],
+      "declaredLicense": "Apache-2.0 (Cargo.toml and PyPI classifier; Python wheel metadata omits it)",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextPath": "docs/compliance/license-texts/tokenizers-0.23.2-APACHE-2.0.txt",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "PyPI 0.23.2 sdist SHA-256 7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac contains tokenizers/LICENSE; its SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4 matches the LICENSE at v0.23.2 commit 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3. Tagged Cargo.toml declares version 0.23.2 and Apache-2.0. The Python wheel omits the license metadata and text; the exact source text is bundled separately. The overall new image remains release-pending."
+    },
+    {
+      "name": "docker-python:tqdm",
+      "versionOrCommit": "4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
+      "sourceUrl": "https://github.com/tqdm/tqdm/tree/9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/tqdm-4.70.1.dist-info",
+      "usage": "native",
+      "distributedIn": ["docker-image"],
+      "declaredLicense": "MPL-2.0 AND MIT",
+      "verifiedLicense": "MPL-2.0 AND MIT",
+      "licenseTextPath": "docs/compliance/license-texts/tqdm-4.70.1-LICENCE.txt",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "review_required",
+      "reviewNotes": "The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image."
     },
     {
       "name": "docker-global-npm:@sigstore/verify",

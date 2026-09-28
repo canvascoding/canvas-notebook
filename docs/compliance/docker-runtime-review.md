@@ -2,6 +2,95 @@
 
 Stand: 2026-07-17
 
+## Kandidat mit lokaler Diktatfunktion (2026-09-28)
+
+Der Merge von `main` erweitert `requirements/runtime-python.txt` fuer
+Faster-Whisper von 45 auf 58 per pip installierte Pakete. Der alte
+Schema-4-Image-Nachweis fuer `v2026.7.17.5` gilt weiterhin nur fuer dessen
+45-Paket-Lock und ist keine Freigabe dieses Kandidaten. Der neue Lock hat SHA-256
+`c7f508dc3b17741b74e76911182003a95439187f25985313323d40dcef521533`.
+
+Die folgenden 13 neuen Pakete wurden jeweils anhand der exakten
+[PyPI-Versionsmetadaten](https://pypi.org/) geprueft. Saemtliche 105 im Lock
+aufgefuehrten neuen SHA-256-Dateihashes stimmen mit den Dateien derselben
+PyPI-Version ueberein; es gab keinen unbekannten Hash. Die Lizenzspalte gibt
+die dortige SPDX-Expression oder, wenn sie fehlt, die PyPI-Klassifikation an.
+
+| Paket | Version | Lock-Hashes | PyPI-Lizenzmetadaten |
+| --- | --- | ---: | --- |
+| [anyio](https://pypi.org/project/anyio/4.15.1/) | 4.15.1 | 2 | MIT |
+| [av](https://pypi.org/project/av/18.1.0/) | 18.1.0 | 19 | BSD-3-Clause |
+| [ctranslate2](https://pypi.org/project/ctranslate2/4.8.2/) | 4.8.2 | 35 | MIT |
+| [faster-whisper](https://pypi.org/project/faster-whisper/1.2.1/) | 1.2.1 | 1 | MIT |
+| [filelock](https://pypi.org/project/filelock/4.0.5/) | 4.0.5 | 2 | MIT |
+| [fsspec](https://pypi.org/project/fsspec/2026.9.0/) | 2026.9.0 | 2 | BSD-3-Clause |
+| [h11](https://pypi.org/project/h11/0.16.0/) | 0.16.0 | 2 | MIT |
+| [hf-xet](https://pypi.org/project/hf-xet/1.6.0/) | 1.6.0 | 17 | Apache-2.0 |
+| [httpcore](https://pypi.org/project/httpcore/1.0.9/) | 1.0.9 | 2 | BSD-3-Clause |
+| [httpx](https://pypi.org/project/httpx/0.28.1/) | 0.28.1 | 2 | BSD-3-Clause |
+| [huggingface-hub](https://pypi.org/project/huggingface-hub/1.33.0/) | 1.33.0 | 2 | Apache-2.0 |
+| [tokenizers](https://pypi.org/project/tokenizers/0.23.2/) | 0.23.2 | 17 | Apache-2.0 (Klassifikation) |
+| [tqdm](https://pypi.org/project/tqdm/4.70.1/) | 4.70.1 | 2 | MPL-2.0 AND MIT (Freitext; gesonderte Lizenzentscheidung erforderlich) |
+
+Die Hashpruefung und der statische `test:licenses`-Gate bestaetigen
+Reproduzierbarkeit und bekannte Bezugsdateien, aber ersetzen weder das
+Image-Inventar noch die Freigabe der neuen Runtime-Lizenzen. Insbesondere
+`tqdm` faellt wegen der kombinierten MPL-/MIT-Angabe nicht unter die alte
+MIT-Standardentscheidung. Vor einer neuen Image-Veroeffentlichung sind die
+beiden Plattform-Inventare, deren Lizenzdateien und der Release-Gate erneut zu
+pruefen und die versionsgenaue Owner-Entscheidung festzuhalten.
+
+Der erste isolierte arm64-Image-Build zeigte ausserdem, dass `av@18.1.0`
+Python-Bytecode unter `.dist-info/licenses/__pycache__` mitliefert. Der
+Collector verwirft jetzt nur Cache-/Bytecode-Pfade und behaelt die echten
+PEP-639-Texte; eine synthetische PyAV-Fixture und der Image-Build pruefen
+diese Grenze. Der naechste Image-Gate fand bei `tokenizers@0.23.2` weder
+Lizenz-Metadaten noch einen Lizenztext im Python-Wheel. Das exakte
+[PyPI-sdist](https://pypi.org/project/tokenizers/0.23.2/#files) mit SHA-256
+`7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac`
+enthaelt `tokenizers/LICENSE`. Dessen SHA-256
+`c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`
+ist byte-identisch zum Root-`LICENSE` am offiziellen
+[Tag `v0.23.2`](https://github.com/huggingface/tokenizers/releases/tag/v0.23.2)
+(`88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3`); das zugehoerige
+`tokenizers/Cargo.toml` nennt Version 0.23.2 und Apache-2.0. Der Text ist
+separat in den Notices und im Image enthalten, und der Runtime-Test bindet
+ihn an Version, Commit und Dateihash. Eine blosse PyPI-Klassifikation reicht
+dafuer nicht aus.
+
+Das [PyPI-sdist fuer `tqdm@4.70.1`](https://pypi.org/project/tqdm/4.70.1/#files)
+hat SHA-256 `cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4`.
+Sein `LICENCE`-Text ist mit dem offiziellen Tag `v4.70.1`
+(`9cf5a12b1f955468a17f0ba3c59092b23e4258ac`) byte-identisch
+(SHA-256 `fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de`)
+und wird ebenfalls in die Notices aufgenommen. Die Policy markiert diesen
+Eintrag `review_required` und die Freigabe des gesamten neuen Image-Kandidaten
+`pending`; die Freigabe vom Juli bleibt nur historisch gueltig. Der statische
+Release-Gate muss deshalb blockieren, bis der Owner die neuen nativen
+Abhaengigkeiten und MPL-/MIT-Bedingungen bewertet hat.
+
+Ein `pip download --require-hashes --only-binary=:all:` mit CPython 3.11 und
+`manylinux_2_28`/`manylinux2014` fuer x86_64 waehlt genau 58 Wheels und
+akzeptiert deren Lock-Hashes. Die bereits vorher enthaltene Version
+`pypdfium2@5.12.0` ist auf PyPI inzwischen als yanked markiert; pip nennt
+als Grund einen Setup-Fehler in einigen Bindgen-Pfaden und bezeichnet die
+Wheels als effektiv identisch zu 5.12.1. Das aendert keine Lizenzentscheidung
+dieses Diktat-Merges, muss aber vor einem neuen Release bewusst geprueft werden.
+
+Ein isolierter lokaler arm64-Docker-Build des Kandidaten (Image-ID
+`sha256:9aeab5c353db702dde9ef4fbb13c767a65671b11ff1d1f5079e683dc1ddb771b`)
+bestand den fokussierten PEP-639-Test, den vollstaendigen Runtime-Inventartest
+und den Sharp-Linkage-Test. Das aus dem gestoppten Image entnommene Inventar
+enthaelt 509 Debian-Pakete, 61 Python-Distributionen (58 pip- und drei
+Debian-verwaltete) sowie 153 globale npm-Pakete. Sein Python-Lock-Hash stimmt
+mit der obigen Datei ueberein. Fuer `av@18.1.0` blieben drei echte
+Lizenzdateien und kein Bytecode als Beleg; `tokenizers@0.23.2` hat weiterhin
+null Wheel-eigene Belege und wird nur durch die versionierte externe
+Apache-2.0-Evidenz akzeptiert; `tqdm@4.70.1` hat einen Wheel-eigenen Beleg
+und die separate gebundene `LICENCE`-Kopie. Das Image wurde weder gestartet
+noch fuer den vorhandenen lokalen Vier-Dienste-Teststack eingesetzt. Ein
+finales amd64-Image-Inventar und die Owner-Freigabe stehen noch aus.
+
 ## Abschlussupdate fuer Schema 4
 
 Der zuvor blockierende Sammelposten `node-docker-base` ist fuer den exakt

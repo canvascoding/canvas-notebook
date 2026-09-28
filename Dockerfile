@@ -231,6 +231,7 @@ RUN test ! -e ./node_modules/better-sqlite3 \
 
 # Capture and verify the final OS/Python/npm/native payload only after the
 # production node_modules and locally-built sharp addons are present.
+RUN node ./scripts/python-license-inventory-test.mjs
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
   --base-image "${NODE_BASE_IMAGE}" \
   --platform "${TARGETPLATFORM}" \

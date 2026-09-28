@@ -5,8 +5,8 @@ versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.27.1
 - Lockfile SHA-256: `debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5`
-- Distributed components: 1449
-- Release gate: **approved**
+- Distributed components: 1451
+- Release gate: **blocked**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
 Third-party trademarks and branding are not granted by the software licenses below.
@@ -36,6 +36,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
 | docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
 | docker-python:markitdown | 0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551 | native | MIT | allowed |
+| docker-python:tokenizers | 0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3 | native | Apache-2.0 | allowed |
+| docker-python:tqdm | 4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac | native | MPL-2.0 AND MIT | review_required |
 | electron-runtime | 42.6.1 | native | MIT | allowed |
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | allowed |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
@@ -1464,6 +1466,13 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | zustand | 4.5.7 | runtime | MIT | allowed |
 | zustand | 5.0.14 | runtime | MIT | allowed |
 | zwitch | 2.0.4 | runtime | MIT | allowed |
+
+## Commercial release blockers
+
+The following entries require a documented responsible/legal decision before a commercial release:
+
+- **first-commercial-release-approval 2026.9.27.1:** The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must review the new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release.
+- **docker-python:tqdm 4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac:** The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image.
 
 ## License texts and copyright notices
 
@@ -23980,7 +23989,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTH
 
 ### License text c71d239df917
 
-Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, standardwebhooks@1.1.1, text-decoder@1.2.7.
+Applies to docker-python:tokenizers@0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3, @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, standardwebhooks@1.1.1, text-decoder@1.2.7.
 
 Copyright notices:
 
@@ -29950,6 +29959,62 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### License text fcff87c3a47c
+
+Applies to docker-python:tqdm@4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac.
+
+```text
+`tqdm` is a product of collaborative work.
+Unless otherwise stated, all authors (see commit logs) retain copyright
+for their respective work, and release the work under the MIT licence
+(text below).
+
+Exceptions or notable authors are listed below
+in reverse chronological order:
+
+* files: *
+  MPL-2.0 2015-2026 (c) Casper da Costa-Luis
+  [casperdcl](https://github.com/casperdcl).
+* files: tqdm/_tqdm.py
+  MIT 2016 (c) [PR #96] on behalf of Google Inc.
+* files: tqdm/_tqdm.py README.rst .gitignore
+  MIT 2013 (c) Noam Yorav-Raphael, original author.
+
+[PR #96]: https://github.com/tqdm/tqdm/pull/96
+
+
+Mozilla Public Licence (MPL) v. 2.0 - Exhibit A
+-----------------------------------------------
+
+This Source Code Form is subject to the terms of the
+Mozilla Public License, v. 2.0.
+If a copy of the MPL was not distributed with this project,
+You can obtain one at https://mozilla.org/MPL/2.0/.
+
+
+MIT License (MIT)
+-----------------
+
+Copyright (c) 2013 noamraph
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text fd1f049b3bb5

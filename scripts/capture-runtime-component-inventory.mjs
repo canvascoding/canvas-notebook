@@ -275,6 +275,8 @@ for distribution in importlib.metadata.distributions():
         relative_path = str(entry)
         basename = os.path.basename(relative_path)
         path_parts = [part.lower() for part in relative_path.replace("\\\\", "/").split("/")]
+        if "__pycache__" in path_parts or basename.lower().endswith((".pyc", ".pyo")):
+            continue
         is_pep639_license = any(
             part.endswith(".dist-info")
             and index + 1 < len(path_parts)

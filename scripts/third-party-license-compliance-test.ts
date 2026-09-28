@@ -105,15 +105,18 @@ assert.equal(
     .filter(([packagePath, value]) => packagePath.startsWith('node_modules/') && value.version)
     .length,
 );
-assert.equal(inventory.releaseGate.approvalStatus, 'approved');
-assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
-assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
-assert.equal(inventory.releaseGate.status, 'approved');
-assert.deepEqual(inventory.releaseGate.blockers, []);
+assert.equal(inventory.releaseGate.approvalStatus, 'pending');
+assert.equal(inventory.releaseGate.approvalReviewedBy, null);
+assert.equal(inventory.releaseGate.approvalReviewedAt, null);
+assert.equal(inventory.releaseGate.status, 'blocked');
+assert.deepEqual(
+  inventory.releaseGate.blockers.map((blocker) => blocker.name),
+  ['first-commercial-release-approval', 'docker-python:tqdm'],
+);
 assert.equal(
   inventory.summary.distributedReviewRequired,
-  0,
-  'a production-ready release must not contain unreviewed distributed components',
+  1,
+  'the new native runtime must keep its pending dual-license review visible',
 );
 assert.equal(
   inventory.summary.developmentOnlyReviewRequired,
@@ -270,7 +273,7 @@ const pythonEntries = pythonRequirementBody
     assert(match, `invalid Python requirement block: ${block}`);
     return [match[1], match[2], block] as const;
   });
-assert.equal(pythonEntries.length, 45, 'the Docker Python lock must retain the reviewed package set');
+assert.equal(pythonEntries.length, 58, 'the Docker Python lock must retain the exact hash-locked package set');
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
 for (const [name, version, hashes] of pythonEntries) {
   assert(version, `${name} must use an exact Python version`);
@@ -572,6 +575,7 @@ for (const name of [
   'docker-python:flatbuffers',
   'docker-python:magika',
   'docker-python:markitdown',
+  'docker-python:tokenizers',
   'docker-global-npm:@sigstore/verify',
   'docker-global-npm:imurmurhash',
   'docker-global-npm:spdx-license-ids',
@@ -582,6 +586,12 @@ for (const name of [
   assert.equal(component.distributedIn.join(','), 'docker-image');
   assert(component.licenseTextSha256);
 }
+
+const tqdmReview = inventory.components.find((component) => component.name === 'docker-python:tqdm');
+assert(tqdmReview);
+assert.equal(tqdmReview.policyDecision, 'review_required');
+assert.equal(tqdmReview.verifiedLicense, 'MPL-2.0 AND MIT');
+assert.equal(tqdmReview.licenseTextSha256, 'fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de');
 
 const canvasLibvips = inventory.components.find((component) => (
   component.name === 'canvas-built-libvips'
