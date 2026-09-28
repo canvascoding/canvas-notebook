@@ -28,6 +28,10 @@ async function main() {
     if (request === '@/app/lib/pi/session-store') return { savePiSession: async (_session: string, _user: string, _provider: string, _model: string, messages: AgentMessage[], _summary: unknown, options: { toolOutputModel?: unknown }) => {
       saved = structuredClone(messages); savedModel = options.toolOutputModel;
     } };
+    if (request === '@/app/lib/pi/session-compaction-coordinator') return {
+      runPiSessionCompaction: async () => ({ state: 'failed', reasonCode: 'summary_not_smaller',
+        attemptId: 'mock-compaction', summary: null, composition: null }),
+    };
     if (request === '@/app/lib/agents/workspace-file-tree-context') return {
       buildWorkspaceFileTreePrompt: async () => { onRefresh?.(); return { promptBlock: 'workspace updated' }; },
       replaceWorkspaceFileTreePromptBlock: () => 'updated system instructions',
@@ -89,6 +93,17 @@ async function main() {
     assert.match(cancelled.error || '', /cancelled during workspace refresh/);
     assert.equal(providerCalls, 1, 'cancellation during prepareNextTurn never invokes a second provider request');
     assert.equal(saved.filter(message => message.role === 'toolResult').length, 6, 'completed output survives the cancelled preparation');
+    onRefresh = undefined;
+    const interruptedReply = { ...assistant, content: [{ type: 'text' as const, text: 'The stream was interrupted.' }],
+      stopReason: 'aborted' as const, timestamp: 30 };
+    const interrupted = await runEphemeralWorker({ ...params,
+      runtime: { ...params.runtime, streamFn: async () => ({
+        async *[Symbol.asyncIterator]() { yield { type: 'done', reason: 'aborted', message: interruptedReply }; },
+        result: async () => interruptedReply,
+      }) as unknown as Awaited<ReturnType<StreamFn>> },
+    });
+    assert.equal(interrupted.status, 'error', 'a provider-aborted stream must not be reported as a successful delegated run');
+    assert.match(interrupted.error || '', /abort|interrupt/i);
     console.log('delegated-tool-output-budget-test: ok (real worker and agent loop, mocked persistence/transport)');
   } finally { modules._load = originalLoad; await fs.rm(root, { recursive: true, force: true }); }
 }

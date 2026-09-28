@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "feature": "subagent-lifecycle-and-compaction",
   "updatedAt": "2026-09-28",
-  "status": "planned",
+  "status": "in_progress",
   "plan": "docs/architecture/canvas-notebook/subagent-lifecycle/plan.md",
   "hermesReference": {
     "repository": "https://github.com/NousResearch/hermes-agent",
@@ -22,10 +22,17 @@
     {
       "id": "SA-01",
       "title": "Ephemeral worker compaction through the existing Canvas engine",
-      "status": "pending",
+      "status": "completed",
       "hermes": ["agent/turn_context_compaction.py:129-140", "agent/turn_preflight.py:244-317"],
       "canvas": ["app/lib/pi/delegate-task-tool.ts:414-535", "app/lib/pi/live-runtime.ts:845-888"],
-      "gate": "Ephemeral worker completes after two compaction cycles; summary watermarks follow persisted complete child messages; failed/aborted compaction leaves raw history intact."
+      "gate": "Ephemeral worker completes after two compaction cycles; summary watermarks follow persisted complete child messages; failed/aborted compaction leaves raw history intact.",
+      "evidence": [
+        "npm run test:pi:delegate-task",
+        "npx tsx scripts/delegated-tool-output-budget-test.ts",
+        "npm run test:pi:live-compaction",
+        "npx tsc --noEmit",
+        "npm run build"
+      ]
     },
     {
       "id": "SA-02",

@@ -1,6 +1,6 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { finalizeToolOutputBlocks } from './tool-output-block-storage';
-import { getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from './context-budget';
+import { estimatePiToolSchemaTokens, getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from './context-budget';
 import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
@@ -8,7 +8,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import { prepareSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/session-runtime-service';
-import { resolveAndPinSessionRuntime, type ExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
+import { resolveAndPinSessionRuntime, resolveCompactionSummaryRuntime, type ExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
 import {
   RuntimeContextRevisionConflictError,
   SessionRuntimeContextRevisionConflictError,
@@ -44,6 +44,11 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 import { filterToolsToAllowedNames } from '@/app/lib/pi/email-agent-policy';
 import { getProgressiveGatewayCapabilityNames } from '@/app/lib/pi/progressive-tool-gateway';
+import { estimateTextTokens, isPiHistoryCompositionSendable, type PiSessionSummaryState } from '@/app/lib/pi/history-budget';
+import { getPiFinalPayloadPressure, getPiFinalPayloadRetryLoad, inspectPiRuntimeCompactionPressure, preparePiHermesCompactionCandidate, projectPiHermesHistory } from '@/app/lib/pi/compaction/runtime-engine';
+import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/policy';
+import { loadPiEffectiveCompactionPolicy, resolvePiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
+import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordinator';
 
 type DelegateTaskArgs = {
   target_agent_id?: string;
@@ -421,18 +426,31 @@ export async function runEphemeralWorker(params: {
   signal: AbortSignal;
 }): Promise<DelegateTaskResult> {
   let finalMessages: AgentMessage[] = [params.promptMessage];
+  // The prompt is stored when the child session is created. Only advance this
+  // checkpoint after savePiSession has committed the complete new suffix.
+  let persistedLength = 1;
+  let summary: PiSessionSummaryState = {
+    summaryText: null,
+    summaryUpdatedAt: null,
+    summaryThroughTimestamp: null,
+    summaryThroughSequence: null,
+    summaryRevision: 0,
+  };
   const provider = params.runtime.selection.selection.providerId;
   const model = params.runtime.model;
   const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
   let effectiveSystemPrompt = params.systemPrompt;
-  const persistFinalMessages = async () => {
-    const persistedLength = finalMessages[0]?.role === 'user' ? 1 : 0;
+  const checkpointMessages = async (messages: AgentMessage[]) => {
+    if (messages.length < persistedLength) {
+      throw new Error('Delegated worker message checkpoint moved backwards.');
+    }
+    if (messages.length === persistedLength) return;
     await savePiSession(
       params.sessionId,
       params.request.userId,
       provider,
       model.id,
-      finalMessages,
+      messages,
       undefined,
       {
         titleOverride: buildEphemeralSessionTitle(params.request.goal),
@@ -441,9 +459,35 @@ export async function runEphemeralWorker(params: {
         toolOutputModel: model,
       },
     );
+    persistedLength = messages.length;
+    finalMessages = messages.slice();
   };
 
   try {
+    const effectivePolicy = params.executionContext.organizationId
+      ? await loadPiEffectiveCompactionPolicy(params.executionContext.organizationId)
+      : resolvePiEffectiveCompactionPolicy();
+    const summaryRuntime = effectivePolicy.summaryModel
+      ? await resolveCompactionSummaryRuntime({
+          primary: params.runtime,
+          configuredIdentity: effectivePolicy.summaryModel,
+        })
+      : null;
+    const toolTokens = estimatePiToolSchemaTokens(params.tools);
+    const sessionSearchAvailable = params.tools.some((tool) => tool.name === 'session_search');
+    const preparePayload = async (messages: AgentMessage[]) => {
+      const { preparePiFinalPayload } = await import('@/app/lib/pi/multimodal-preparation');
+      return preparePiFinalPayload(
+        { messages, model, effectiveInstructions: [{ role: 'system', content: effectiveSystemPrompt }],
+          effectiveTools: params.tools, requestOutputTokenCap, runtimeContractRevision: 'canvas-pi-delegation-v1' },
+        {
+          workspaceImageRoot: params.executionContext.workspaceRoot,
+          allowedImageFileRoots: [params.executionContext.workspaceRoot],
+          uploadOwnerUserId: params.request.userId,
+          uploadWorkspaceId: params.executionContext.workspaceId,
+        },
+      );
+    };
     const { runAgentLoop } = await import('@earendil-works/pi-agent-core');
     const context: AgentContext = {
       systemPrompt: params.systemPrompt,
@@ -454,22 +498,127 @@ export async function runEphemeralWorker(params: {
     const config = {
       model,
       reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
-      convertToLlm: async (messages: AgentMessage[]) => {
-        const { preparePiFinalPayload } = await import('@/app/lib/pi/multimodal-preparation');
-        await finalizeToolOutputBlocks(messages, model, params.executionContext);
-        const prepared = await preparePiFinalPayload(
-          { messages, model, effectiveInstructions: [{ role: 'system', content: effectiveSystemPrompt }],
-            effectiveTools: params.tools, requestOutputTokenCap, runtimeContractRevision: 'canvas-pi-delegation-v1' },
-          {
-            workspaceImageRoot: params.executionContext.workspaceRoot,
-            allowedImageFileRoots: [params.executionContext.workspaceRoot],
-            uploadOwnerUserId: params.request.userId,
-            uploadWorkspaceId: params.executionContext.workspaceId,
-          },
+      transformContext: async (messages: AgentMessage[], signal?: AbortSignal) => {
+        throwIfDelegationAborted(params.signal);
+        const contextMessages = await finalizeToolOutputBlocks(messages, model, params.executionContext);
+        const systemPromptTokens = estimateTextTokens(effectiveSystemPrompt);
+        const project = (selectionMode: 'full' | 'hard_limit' | 'force' = 'full') => projectPiHermesHistory({
+          messages: contextMessages,
+          summary,
+          systemPromptTokens,
+          model,
+          requestOutputTokens: requestOutputTokenCap,
+          toolTokens,
+          sessionId: params.sessionId,
+          authorizedSessionId: params.sessionId,
+          sessionSearchAvailable,
+          selectionMode,
+          policy: effectivePolicy.contextBudgetPolicy,
+        }).composition;
+        const preflight = project();
+        let candidate = preflight.llmMessages;
+        let prepared = await preparePayload(candidate);
+        const inspection = inspectPiRuntimeCompactionPressure({
+          messages: contextMessages,
+          model,
+          outputReserveTokens: requestOutputTokenCap,
+          fixedRequestTokens: systemPromptTokens + toolTokens,
+          finalSnapshot: prepared.budgetSnapshot,
+          policy: effectivePolicy.contextBudgetPolicy,
+        });
+        const preflightSendable = !prepared.budgetSnapshot.contextBudgetExceeded
+          && !prepared.budgetSnapshot.payloadBudgetExceeded
+          && isPiHistoryCompositionSendable(preflight, summary);
+        if (preflightSendable && !inspection.pressure.shouldCompact) {
+          throwIfDelegationAborted(params.signal);
+          return candidate;
+        }
+
+        await checkpointMessages(messages);
+        let previousLoad = getPiFinalPayloadRetryLoad(prepared.budgetSnapshot);
+        let additionalContextTokens = 0;
+        let lastCompactionReason = 'no smaller sendable request';
+        const maximumAttempts = Math.max(1, effectivePolicy.contextBudgetPolicy.maxCompactionAttempts ?? 3);
+        for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+          throwIfDelegationAborted(params.signal);
+          const summarySnapshot = { ...summary };
+          const generation = createHash('sha256').update(JSON.stringify([
+            params.sessionId, model.id, persistedLength, summarySnapshot.summaryRevision,
+            effectiveSystemPrompt, toolTokens,
+          ])).digest('hex');
+          const result = await runPiSessionCompaction({
+            sessionId: params.sessionId,
+            userId: params.request.userId,
+            agentId: params.request.sourceAgentId,
+            workspaceId: params.executionContext.workspaceId,
+            trigger: 'automatic',
+            bypassCooldown: attempt > 0 && !preflightSendable,
+            generation,
+            expectedSummaryRevision: summarySnapshot.summaryRevision,
+            expectedThroughSequence: summarySnapshot.summaryThroughSequence,
+            provider,
+            model: model.id,
+            contractFingerprint: generation,
+            signal: signal ?? params.signal,
+            isGenerationCurrent: (value) => value === generation && !params.signal.aborted,
+            prepareCandidate: (candidateSignal, reportProgress) => preparePiHermesCompactionCandidate({
+              messages: messages.slice(),
+              summary: summarySnapshot,
+              systemPromptTokens,
+              model,
+              requestOutputTokens: requestOutputTokenCap,
+              toolTokens,
+              additionalContextTokens,
+              sessionId: params.sessionId,
+              authorizedSessionId: params.sessionId,
+              sessionSearchAvailable,
+              signal: candidateSignal,
+              streamFn: params.runtime.streamFn,
+              summaryModel: summaryRuntime?.model,
+              summaryStreamFn: summaryRuntime?.streamFn,
+              selectionMode: attempt > 0 ? 'force' : 'automatic',
+              triggerSnapshot: attempt === 0 ? prepared.budgetSnapshot : undefined,
+              policy: effectivePolicy.contextBudgetPolicy,
+              onSummaryProgress: reportProgress,
+            }),
+          });
+          throwIfDelegationAborted(params.signal);
+          lastCompactionReason = result.reasonCode ?? result.state;
+          if (result.state === 'succeeded' && result.summary) summary = result.summary;
+          const composition = result.composition ?? project('hard_limit');
+          if (isPiHistoryCompositionSendable(composition, summary)) {
+            candidate = composition.llmMessages;
+            prepared = await preparePayload(candidate);
+            if (!prepared.budgetSnapshot.contextBudgetExceeded && !prepared.budgetSnapshot.payloadBudgetExceeded) {
+              throwIfDelegationAborted(params.signal);
+              return candidate;
+            }
+          }
+          if (preflightSendable) {
+            throwIfDelegationAborted(params.signal);
+            return preflight.llmMessages;
+          }
+          if (result.state !== 'succeeded' && result.state !== 'no_op' && result.state !== 'deferred') break;
+          const nextLoad = getPiFinalPayloadRetryLoad(prepared.budgetSnapshot);
+          if (!sessionCompactionWarrantsAnotherPass({
+            originalTokens: previousLoad,
+            newTokens: nextLoad,
+            thresholdTokens: prepared.budgetSnapshot.contextWindowTokens,
+          })) break;
+          previousLoad = nextLoad;
+          additionalContextTokens += Math.max(1, getPiFinalPayloadPressure(prepared.budgetSnapshot));
+        }
+        throw new Error(
+          `Delegated worker payload exceeds the selected model context or transfer budget after automatic compaction (${lastCompactionReason}).`,
         );
+      },
+      convertToLlm: async (messages: AgentMessage[]) => {
+        await finalizeToolOutputBlocks(messages, model, params.executionContext);
+        const prepared = await preparePayload(messages);
         if (prepared.budgetSnapshot.contextBudgetExceeded || prepared.budgetSnapshot.payloadBudgetExceeded) {
           throw new Error('Delegated worker payload exceeds the selected model context or transfer budget.');
         }
+        throwIfDelegationAborted(params.signal);
         return prepared.messages;
       },
       prepareNextTurn: async (turnContext: { context: AgentContext }) => {
@@ -501,7 +650,15 @@ export async function runEphemeralWorker(params: {
       withPiRequestOutputTokenCap(params.runtime.streamFn, requestOutputTokenCap),
     );
 
-    await persistFinalMessages();
+    await checkpointMessages(finalMessages);
+    throwIfDelegationAborted(params.signal);
+    const terminalAssistant = [...finalMessages].reverse().find((message) => message.role === 'assistant');
+    if (terminalAssistant?.role === 'assistant' && terminalAssistant.stopReason === 'aborted') {
+      throw new Error('Delegated worker model request was aborted.');
+    }
+    if (terminalAssistant?.role === 'assistant' && terminalAssistant.stopReason === 'error') {
+      throw new Error('Delegated worker model request failed.');
+    }
 
     return {
       delegation_id: params.request.delegationId,
@@ -517,7 +674,7 @@ export async function runEphemeralWorker(params: {
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown delegated worker error';
-    await persistFinalMessages().catch((persistError) => {
+    await checkpointMessages(finalMessages).catch((persistError) => {
       console.error('[delegate_task] Failed to persist ephemeral worker error state:', persistError);
     });
     return {
