@@ -49,6 +49,7 @@ import { getPiFinalPayloadPressure, getPiFinalPayloadRetryLoad, inspectPiRuntime
 import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/policy';
 import { loadPiEffectiveCompactionPolicy, resolvePiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordinator';
+import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
 
 type DelegateTaskArgs = {
   target_agent_id?: string;
@@ -426,6 +427,10 @@ export async function runEphemeralWorker(params: {
   signal: AbortSignal;
 }): Promise<DelegateTaskResult> {
   let finalMessages: AgentMessage[] = [params.promptMessage];
+  // message_end can precede execution of every tool in an assistant batch.
+  // Only turn_end proves the batch has all of its result messages.
+  const observedMessages: AgentMessage[] = [params.promptMessage];
+  let turnOrdinal = 1;
   // The prompt is stored when the child session is created. Only advance this
   // checkpoint after savePiSession has committed the complete new suffix.
   let persistedLength = 1;
@@ -440,6 +445,23 @@ export async function runEphemeralWorker(params: {
   const model = params.runtime.model;
   const requestOutputTokenCap = getPiRequestOutputTokenCap(model);
   let effectiveSystemPrompt = params.systemPrompt;
+  const toolEventKey = (kind: 'tool_start' | 'tool_end', toolCallId: string) =>
+    `${kind}:${turnOrdinal}:${createHash('sha256').update(toolCallId).digest('hex')}`;
+  const appendProgress = async (
+    kind: 'tool_start' | 'tool_end' | 'compacting' | 'resumed',
+    eventKey: string,
+    preview: string,
+  ) => {
+    if (!params.request.delegationId) return;
+    const appended = await appendPiDelegationProgress({
+      delegationId: params.request.delegationId,
+      userId: params.request.userId,
+      kind,
+      eventKey,
+      preview,
+    });
+    if (!appended) throw new Error('Delegated worker is no longer in an active run.');
+  };
   const checkpointMessages = async (messages: AgentMessage[]) => {
     if (messages.length < persistedLength) {
       throw new Error('Delegated worker message checkpoint moved backwards.');
@@ -546,6 +568,7 @@ export async function runEphemeralWorker(params: {
             params.sessionId, model.id, persistedLength, summarySnapshot.summaryRevision,
             effectiveSystemPrompt, toolTokens,
           ])).digest('hex');
+          await appendProgress('compacting', `compacting:${generation}:${attempt}`, 'Compacting child context');
           const result = await runPiSessionCompaction({
             sessionId: params.sessionId,
             userId: params.request.userId,
@@ -584,7 +607,10 @@ export async function runEphemeralWorker(params: {
           });
           throwIfDelegationAborted(params.signal);
           lastCompactionReason = result.reasonCode ?? result.state;
-          if (result.state === 'succeeded' && result.summary) summary = result.summary;
+          if (result.state === 'succeeded' && result.summary) {
+            summary = result.summary;
+            await appendProgress('resumed', `resumed:${generation}:${attempt}`, 'Child context compacted');
+          }
           const composition = result.composition ?? project('hard_limit');
           if (isPiHistoryCompositionSendable(composition, summary)) {
             candidate = composition.llmMessages;
@@ -644,7 +670,31 @@ export async function runEphemeralWorker(params: {
       context,
       config,
       async (event) => {
-        if (event.type === 'message_end' && !finalMessages.includes(event.message)) finalMessages.push(event.message);
+        if (event.type === 'message_end' && !observedMessages.includes(event.message)) {
+          observedMessages.push(event.message);
+        }
+        if (event.type === 'tool_execution_start') {
+          await appendProgress('tool_start', toolEventKey('tool_start', event.toolCallId), event.toolName);
+        }
+        if (event.type === 'turn_end') {
+          const expectedToolCallIds = event.message.role === 'assistant'
+            ? event.message.content.filter(part => part.type === 'toolCall').map(part => part.id).sort()
+            : [];
+          const completedToolCallIds = event.toolResults.map(result => result.toolCallId).sort();
+          if (expectedToolCallIds.length !== completedToolCallIds.length
+            || expectedToolCallIds.some((id, index) => id !== completedToolCallIds[index])) {
+            throw new Error('Delegated worker tool batch was interrupted before every result completed.');
+          }
+          await checkpointMessages(observedMessages);
+          for (const result of event.toolResults) {
+            await appendProgress(
+              'tool_end',
+              toolEventKey('tool_end', result.toolCallId),
+              result.toolName,
+            );
+          }
+          turnOrdinal += 1;
+        }
       },
       params.signal,
       withPiRequestOutputTokenCap(params.runtime.streamFn, requestOutputTokenCap),

@@ -53,10 +53,22 @@
     {
       "id": "SA-03",
       "title": "Durable checkpoints and authorized live inspection",
-      "status": "pending",
+      "status": "completed",
       "hermes": ["tools/delegate_tool_progress.py:316-375", "tui_gateway/methods_subagents.py:105-128"],
       "canvas": ["app/lib/pi/delegation-dispatcher.ts:285-365", "app/lib/pi/delegate-task-tool.ts:428-443"],
-      "gate": "Both worker types expose bounded current progress and confirmed transcript after reload without cross-session access."
+      "gate": "Both worker types expose bounded current progress and confirmed transcript after reload without cross-session access.",
+      "evidence": [
+        "npm run test:pi:delegate-task",
+        "npm run test:pi:delegation-store",
+        "npm run test:pi:delegation-dispatcher",
+        "npm run test:pi:delegation-progress",
+        "npm run test:pi:delegation-api",
+        "npm run test:pi:delegation-ui",
+        "npx tsc --noEmit --pretty false",
+        "npx eslint on changed application TypeScript files",
+        "Playwright: tests/chat-delegation-session-resume.spec.ts",
+        "npm run build"
+      ]
     },
     {
       "id": "SA-04",

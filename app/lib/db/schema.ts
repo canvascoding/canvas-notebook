@@ -1408,8 +1408,13 @@ export const piDelegations = pgTable("pi_delegations", {
   resultText: text("result_text"),
   errorText: text("error_text"),
   deliveryStatus: text("delivery_status").notNull().default("pending"),
+  deliveryOwnerId: text("delivery_owner_id"),
+  deliveryHeartbeatAt: pgTimestamp("delivery_heartbeat_at"),
   deliveryErrorText: text("delivery_error_text"),
   attemptCount: bigint("attempt_count", { mode: "number" }).notNull().default(0),
+  runOwnerId: text("run_owner_id"),
+  runHeartbeatAt: pgTimestamp("run_heartbeat_at"),
+  progressRevision: bigint("progress_revision", { mode: "number" }).notNull().default(0),
   cancelRequestedAt: pgTimestamp("cancel_requested_at"),
   startedAt: pgTimestamp("started_at"),
   completedAt: pgTimestamp("completed_at"),
@@ -1428,6 +1433,22 @@ export const piDelegations = pgTable("pi_delegations", {
   workerTypeCheck: check("pi_delegations_worker_type_check", sql`${table.workerType} IN ('ephemeral', 'managed')`),
   statusCheck: check("pi_delegations_status_check", sql`${table.status} IN ('queued', 'running', 'completed', 'failed', 'cancelled')`),
   deliveryStatusCheck: check("pi_delegations_delivery_status_check", sql`${table.deliveryStatus} IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')`),
+}));
+
+// The parent row serializes revision allocation. A key makes retries of the
+// same confirmed worker boundary idempotent across process restarts.
+export const piDelegationProgress = pgTable("pi_delegations_progress", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  delegationId: text("delegation_id").notNull().references(() => piDelegations.id, { onDelete: 'cascade' }),
+  revision: bigint("revision", { mode: "number" }).notNull(),
+  eventKey: text("event_key"),
+  kind: text("kind").notNull(),
+  preview: text("preview"),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  revisionIdx: uniqueIndex("idx_pi_delegations_progress_revision").on(table.delegationId, table.revision),
+  eventKeyIdx: uniqueIndex("idx_pi_delegations_progress_key").on(table.delegationId, table.eventKey),
+  kindCheck: check("pi_delegations_progress_kind_check", sql`${table.kind} IN ('queued', 'running', 'tool_start', 'tool_end', 'compacting', 'resumed', 'completed', 'failed', 'cancelled')`),
 }));
 
 export const agents = pgTable("agents", {

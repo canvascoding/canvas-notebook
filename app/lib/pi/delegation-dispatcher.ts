@@ -5,18 +5,21 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 import type { DelegateTaskRequest, DelegateTaskResult } from '@/app/lib/pi/delegate-task-tool';
 import { createDelegationCompletionMessage } from '@/app/lib/pi/delegation-completion-message';
+import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
 import {
   cancelRunningPiDelegation,
   claimPiDelegationDelivery,
   claimQueuedPiDelegation,
   completeRunningPiDelegation,
   createPiDelegation,
+  heartbeatOwnedPiDelegations,
   getPiDelegation,
   listDeliverablePiDelegations,
   listQueuedPiDelegations,
+  listStaleRunningPiDelegations,
   piDelegationToolsets,
   recoverInterruptedPiDelegationDeliveries,
-  requeueInterruptedPiDelegations,
+  failInterruptedPiDelegations,
   requestPiDelegationCancellation,
   updatePiDelegationDelivery,
   updateRunningPiDelegationWorkerSession,
@@ -27,6 +30,8 @@ const DEFAULT_MAX_CONCURRENCY = 4;
 const MAX_CONFIGURED_CONCURRENCY = 32;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DELIVERY_RETRY_INTERVAL_MS = 30_000;
+const LEASE_HEARTBEAT_INTERVAL_MS = 5_000;
+const LEASE_RECOVERY_INTERVAL_MS = 15_000;
 
 type StartDelegatedRun = (request: DelegateTaskRequest) => Promise<DelegateTaskResult>;
 type DeliverDelegationCompletion = (record: PiDelegationRecord) => Promise<void>;
@@ -73,6 +78,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown delegation dispatcher error';
 }
 
+async function persistLifecycleProgress(input: Parameters<typeof appendPiDelegationProgress>[0]): Promise<void> {
+  try {
+    await appendPiDelegationProgress(input);
+  } catch {
+    // The delegation row is authoritative. A progress write must not strand a
+    // claimed run or make an accepted task appear rejected to its caller.
+    console.warn('[delegation-dispatcher] Could not persist a lifecycle progress event.');
+  }
+}
+
 function messageText(message: AgentMessage): string {
   if (!('content' in message)) return '';
   if (typeof message.content === 'string') return message.content;
@@ -102,8 +117,18 @@ async function recoverPersistedWorkerResult(record: PiDelegationRecord): Promise
   const following = messages.slice(promptIndex + 1);
   const nextUserIndex = following.findIndex((message) => message.role === 'user');
   const taskMessages = nextUserIndex >= 0 ? following.slice(0, nextUserIndex) : following;
-  const assistant = [...taskMessages].reverse().find((message) => message.role === 'assistant');
-  if (!assistant || assistant.role !== 'assistant') return null;
+  const assistant = taskMessages.at(-1);
+  if (!assistant || assistant.role !== 'assistant' || (assistant.stopReason !== 'stop' && assistant.stopReason !== 'error')) return null;
+  const unresolvedTools = new Set<string>();
+  for (const message of taskMessages) {
+    if (message.role === 'assistant' && Array.isArray(message.content)) {
+      for (const part of message.content) {
+        if (part.type === 'toolCall') unresolvedTools.add(part.id);
+      }
+    }
+    if (message.role === 'toolResult') unresolvedTools.delete(message.toolCallId);
+  }
+  if (unresolvedTools.size > 0) return null;
 
   const reply = messageText(assistant);
   const failed = assistant.stopReason === 'error';
@@ -124,18 +149,23 @@ async function recoverPersistedWorkerResult(record: PiDelegationRecord): Promise
 }
 
 export class PiDelegationDispatcher {
+  private readonly ownerId = randomUUID();
   private readonly maxConcurrency: number;
   private readonly pollIntervalMs: number;
   private readonly recoverInterrupted: boolean;
   private readonly startDelegatedRunFn: StartDelegatedRun;
   private readonly deliverCompletionFn: DeliverDelegationCompletion;
   private readonly active = new Map<string, AbortController>();
+  private readonly delivering = new Set<string>();
   private initialized = false;
   private initializePromise: Promise<void> | null = null;
   private pumpPromise: Promise<void> | null = null;
   private pumpScheduled = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private deliveryRetryTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private recoveryTimer: ReturnType<typeof setInterval> | null = null;
+  private recoveryPromise: Promise<void> | null = null;
 
   constructor(options: DelegationDispatcherOptions = {}) {
     this.maxConcurrency = Math.max(
@@ -154,14 +184,7 @@ export class PiDelegationDispatcher {
 
     this.initializePromise = (async () => {
       if (this.recoverInterrupted) {
-        const recovered = await requeueInterruptedPiDelegations();
-        if (recovered > 0) {
-          console.warn(`[delegation-dispatcher] Requeued ${recovered} interrupted delegation task(s).`);
-        }
-        const recoveredDeliveries = await recoverInterruptedPiDelegationDeliveries();
-        if (recoveredDeliveries > 0) {
-          console.warn(`[delegation-dispatcher] Retrying ${recoveredDeliveries} interrupted completion delivery attempt(s).`);
-        }
+        await this.recoverExpiredLeases();
       }
 
       this.initialized = true;
@@ -173,6 +196,18 @@ export class PiDelegationDispatcher {
         });
       }, DELIVERY_RETRY_INTERVAL_MS);
       this.deliveryRetryTimer.unref?.();
+      this.heartbeatTimer = setInterval(() => {
+        void this.heartbeatOwned().catch(() => {
+          for (const controller of this.active.values()) controller.abort(new Error('Delegation lease could not be renewed.'));
+        });
+      }, LEASE_HEARTBEAT_INTERVAL_MS);
+      this.heartbeatTimer.unref?.();
+      if (this.recoverInterrupted) {
+        this.recoveryTimer = setInterval(() => {
+          void this.recoverExpiredLeases().catch(() => console.warn('[delegation-dispatcher] Lease recovery is temporarily unavailable.'));
+        }, LEASE_RECOVERY_INTERVAL_MS);
+        this.recoveryTimer.unref?.();
+      }
 
       await this.deliverPending();
       this.schedulePump();
@@ -221,6 +256,7 @@ export class PiDelegationDispatcher {
       workerRole: request.workerRole,
       toolsets: request.toolsets,
     });
+    await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'queued', eventKey: 'queued' });
     this.schedulePump();
 
     return {
@@ -239,6 +275,9 @@ export class PiDelegationDispatcher {
 
   async cancel(id: string, userId: string): Promise<PiDelegationRecord | null> {
     const record = await requestPiDelegationCancellation(id, userId);
+    if (record?.status === 'cancelled') {
+      await persistLifecycleProgress({ delegationId: id, userId, kind: 'cancelled', eventKey: 'cancelled' });
+    }
     if (record?.status === 'running') {
       this.active.get(id)?.abort(new Error('Delegated task was cancelled by the user.'));
     }
@@ -253,8 +292,55 @@ export class PiDelegationDispatcher {
   stop(): void {
     if (this.pollTimer) clearInterval(this.pollTimer);
     if (this.deliveryRetryTimer) clearInterval(this.deliveryRetryTimer);
+    if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
     this.pollTimer = null;
     this.deliveryRetryTimer = null;
+    this.heartbeatTimer = null;
+    this.recoveryTimer = null;
+  }
+
+  private async heartbeatOwned(): Promise<void> {
+    const runningIds = [...this.active.keys()];
+    const deliveringIds = [...this.delivering];
+    if (runningIds.length === 0 && deliveringIds.length === 0) return;
+    const refreshed = await heartbeatOwnedPiDelegations({ runOwnerId: this.ownerId, runningIds, deliveringIds });
+    const ownedRunning = new Set(refreshed.runningIds);
+    for (const id of runningIds) {
+      if (!ownedRunning.has(id)) this.active.get(id)?.abort(new Error('Delegation run lease was lost.'));
+    }
+  }
+
+  private async recoverExpiredLeases(): Promise<void> {
+    if (this.recoveryPromise) return this.recoveryPromise;
+    this.recoveryPromise = (async () => {
+      for (const record of await listStaleRunningPiDelegations()) {
+        const persistedResult = await recoverPersistedWorkerResult(record);
+        if (!persistedResult) continue;
+        const completed = await completeRunningPiDelegation({
+          id: record.id,
+          resultStatus: persistedResult.status === 'ok' ? 'ok' : 'error',
+          resultText: persistedResult.reply,
+          errorText: persistedResult.error,
+          runOwnerId: record.runOwnerId ?? undefined,
+          staleRecovery: true,
+        });
+        if (completed) await persistLifecycleProgress({
+          delegationId: completed.id, userId: completed.userId,
+          kind: completed.status === 'completed' ? 'completed' : 'failed', eventKey: 'terminal',
+        });
+      }
+      const interrupted = await failInterruptedPiDelegations();
+      for (const record of interrupted) {
+        await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'failed', eventKey: 'interrupted-after-restart' });
+      }
+      const uncertainDeliveries = await recoverInterruptedPiDelegationDeliveries();
+      if (interrupted.length > 0 || uncertainDeliveries > 0) {
+        console.warn(`[delegation-dispatcher] Recovered ${interrupted.length} expired worker lease(s), ${uncertainDeliveries} uncertain completion delivery receipt(s).`);
+      }
+      if (interrupted.length > 0) await this.deliverPending();
+    })();
+    try { await this.recoveryPromise; } finally { this.recoveryPromise = null; }
   }
 
   private schedulePump(): void {
@@ -277,7 +363,7 @@ export class PiDelegationDispatcher {
       const queued = await listQueuedPiDelegations(availableSlots);
       for (const candidate of queued) {
         if (this.active.size >= this.maxConcurrency) break;
-        const claimed = await claimQueuedPiDelegation(candidate.id);
+        const claimed = await claimQueuedPiDelegation(candidate.id, this.ownerId);
         if (!claimed) continue;
         this.startClaimed(claimed);
       }
@@ -293,7 +379,10 @@ export class PiDelegationDispatcher {
   private startClaimed(record: PiDelegationRecord): void {
     const controller = new AbortController();
     this.active.set(record.id, controller);
-    void this.runClaimed(record, controller).catch((error) => {
+    void (async () => {
+      await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'running', eventKey: 'running' });
+      await this.runClaimed(record, controller);
+    })().catch((error) => {
       console.error(`[delegation-dispatcher] Task ${record.id} failed:`, error);
     }).finally(() => {
       this.active.delete(record.id);
@@ -312,10 +401,19 @@ export class PiDelegationDispatcher {
         await this.finalize(record.id, persistedResult, controller.signal);
         return;
       }
-      if (record.workerType === 'ephemeral') {
-        const replacement = await updateRunningPiDelegationWorkerSession(record.id, buildWorkerSessionId());
-        if (replacement) record = replacement;
-      }
+      await this.finalize(record.id, {
+        delegation_id: record.id,
+        status: 'error',
+        worker_type: record.workerType as 'ephemeral' | 'managed',
+        source_agent_id: record.sourceAgentId,
+        target_agent_id: record.targetAgentId ?? undefined,
+        session_id: record.workerSessionId,
+        toolsets: piDelegationToolsets(record),
+        wait_for_result: false,
+        timeout_seconds: 0,
+        error: 'Delegated task was interrupted before completion. Start a new task to continue.',
+      }, controller.signal);
+      return;
     }
 
     let resolveCompletion!: (result: DelegateTaskResult) => void;
@@ -348,7 +446,7 @@ export class PiDelegationDispatcher {
         onCompletion: reportCompletion,
       });
       if (started.session_id && started.session_id !== record.workerSessionId) {
-        const updated = await updateRunningPiDelegationWorkerSession(record.id, started.session_id);
+        const updated = await updateRunningPiDelegationWorkerSession(record.id, started.session_id, this.ownerId);
         if (updated) record = updated;
       }
       if (started.status !== 'accepted') reportCompletion(started);
@@ -378,13 +476,15 @@ export class PiDelegationDispatcher {
     signal: AbortSignal,
   ): Promise<void> {
     const current = await getPiDelegation(id);
-    if (!current || current.status !== 'running') return;
+    if (!current || current.status !== 'running' || current.runOwnerId !== this.ownerId) return;
 
     if (current.cancelRequestedAt || signal.aborted) {
-      await cancelRunningPiDelegation(
+      const cancelled = await cancelRunningPiDelegation(
         id,
         result.error || (signal.reason instanceof Error ? signal.reason.message : 'Delegated task was cancelled.'),
+        this.ownerId,
       );
+      if (cancelled) await persistLifecycleProgress({ delegationId: id, userId: cancelled.userId, kind: 'cancelled', eventKey: 'cancelled' });
       return;
     }
 
@@ -393,25 +493,38 @@ export class PiDelegationDispatcher {
       resultStatus: result.status === 'ok' ? 'ok' : result.status === 'timeout' ? 'timeout' : 'error',
       resultText: result.reply,
       errorText: result.error,
+      runOwnerId: this.ownerId,
     });
-    if (completed) await this.deliver(completed.id);
+    if (completed) {
+      await persistLifecycleProgress({
+        delegationId: id,
+        userId: completed.userId,
+        kind: completed.status === 'completed' ? 'completed' : 'failed',
+        eventKey: 'terminal',
+      });
+      await this.deliver(completed.id);
+    }
   }
 
   private async deliver(id: string): Promise<void> {
-    const claimed = await claimPiDelegationDelivery(id);
+    const claimed = await claimPiDelegationDelivery(id, this.ownerId);
     if (!claimed) return;
+    this.delivering.add(id);
 
     try {
       await this.deliverCompletionFn(claimed);
-      await updatePiDelegationDelivery({ id, status: 'delivered' });
+      await updatePiDelegationDelivery({ id, status: 'delivered', deliveryOwnerId: this.ownerId });
     } catch (error) {
       const message = errorMessage(error);
       await updatePiDelegationDelivery({
         id,
         status: 'failed',
         deliveryErrorText: message,
+        deliveryOwnerId: this.ownerId,
       });
       console.error(`[delegation-dispatcher] Failed to deliver task ${id}:`, error);
+    } finally {
+      this.delivering.delete(id);
     }
   }
 

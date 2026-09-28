@@ -4,11 +4,13 @@ import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'canvas-pi-delegation-api-'));
 process.env.DATA = dataDir;
 
 let authenticatedUserId = 'delegation-api-user-1';
+let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>>;
 
 function matchesModule(request: string, suffix: string): boolean {
   const normalized = request.replace(/\\/gu, '/').replace(/\.(?:c|m)?(?:js|ts)$/u, '');
@@ -21,6 +23,21 @@ const moduleLoader = Module as unknown as {
 const originalLoad = moduleLoader._load;
 moduleLoader._load = function loadWithMocks(request, parent, isMain) {
   if (request === 'server-only') return {};
+  if (testDatabase && matchesModule(request, 'app/lib/db')) return testDatabase;
+  if (matchesModule(request, 'app/lib/agents/access')) return { requireAgentAccess: async () => undefined };
+  if (matchesModule(request, 'app/lib/pi/session-workspace-context')) return {
+    resolveAgentSessionWorkspaceForUser: async () => ({ workspaceId: 'workspace-api', organizationId: 'org-api', projectId: null, workspaceType: 'personal' }),
+  };
+  if (matchesModule(request, 'app/lib/agents/management-actions')) return { listManagedAgents: async () => [] };
+  if (matchesModule(request, 'app/lib/pi/delegation-actions')) return { prepareUserDelegation: async () => { throw new Error('unused'); } };
+  if (matchesModule(request, 'app/lib/pi/delegation-dispatcher')) return {
+    enqueueDelegatedTask: async () => { throw new Error('unused'); },
+    cancelDelegatedTask: async (id: string, userId: string) => {
+      const store = await import('../app/lib/pi/delegation-store');
+      return store.requestPiDelegationCancellation(id, userId);
+    },
+  };
+  if (matchesModule(request, 'app/lib/utils/rate-limit')) return { rateLimit: () => ({ ok: true }) };
   if (request === '@earendil-works/pi-ai/compat') {
     return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
   }
@@ -40,8 +57,9 @@ moduleLoader._load = function loadWithMocks(request, parent, isMain) {
 
 async function main() {
   try {
-    const { db } = await import('../app/lib/db');
-    const { user } = await import('../app/lib/db/schema');
+    testDatabase = await createPiTestDatabase();
+    const { db } = testDatabase;
+    const { piSessions, user } = await import('../app/lib/db/schema');
     const { createPiDelegation, getPiDelegation } = await import('../app/lib/pi/delegation-store');
     const listRoute = await import('../app/api/delegations/route');
     const cancelRoute = await import('../app/api/delegations/[id]/route');
@@ -65,11 +83,25 @@ async function main() {
         updatedAt: now,
       },
     ]);
+    await db.insert(piSessions).values([
+      { sessionId: 'source-api-session', userId: 'delegation-api-user-1', agentId: 'bradley', provider: 'test', model: 'test',
+        sessionKind: 'conversation', delegationDepth: 0, workspaceId: 'workspace-api', organizationId: 'org-api', createdAt: now, updatedAt: now },
+      { sessionId: 'source-api-other', userId: 'delegation-api-user-1', agentId: 'bradley', provider: 'test', model: 'test',
+        sessionKind: 'conversation', delegationDepth: 0, workspaceId: 'workspace-api', organizationId: 'org-api', createdAt: now, updatedAt: now },
+      { sessionId: 'source-api-session', userId: 'delegation-api-user-2', agentId: 'bradley', provider: 'test', model: 'test',
+        sessionKind: 'conversation', delegationDepth: 0, workspaceId: 'workspace-api', organizationId: 'org-api', createdAt: now, updatedAt: now },
+      { sessionId: 'worker-api-session', userId: 'delegation-api-user-1', agentId: 'bradley', provider: 'test', model: 'test',
+        sessionKind: 'delegation_worker', parentSessionId: 'source-api-session', delegationId: 'delegation-api-task-1', delegationDepth: 1,
+        workspaceId: 'workspace-api', organizationId: 'org-api', createdAt: now, updatedAt: now },
+      { sessionId: 'worker-api-session-2', userId: 'delegation-api-user-2', agentId: 'bradley', provider: 'test', model: 'test',
+        sessionKind: 'delegation_worker', parentSessionId: 'source-api-session', delegationId: 'delegation-api-task-2', delegationDepth: 1,
+        workspaceId: 'workspace-api', organizationId: 'org-api', createdAt: now, updatedAt: now },
+    ]);
     await createPiDelegation({
       id: 'delegation-api-task-1',
       userId: 'delegation-api-user-1',
       sourceSessionId: 'source-api-session',
-      sourceAgentId: 'canvas-agent',
+      sourceAgentId: 'bradley',
       workerSessionId: 'worker-api-session',
       workerType: 'ephemeral',
       goal: 'Test the delegation API',
@@ -79,7 +111,7 @@ async function main() {
       id: 'delegation-api-task-2',
       userId: 'delegation-api-user-2',
       sourceSessionId: 'source-api-session',
-      sourceAgentId: 'canvas-agent',
+      sourceAgentId: 'bradley',
       workerSessionId: 'worker-api-session-2',
       workerType: 'ephemeral',
       goal: 'Must remain private',
@@ -97,10 +129,16 @@ async function main() {
     assert.equal(listPayload.success, true);
     assert.deepEqual(listPayload.delegations.map((record) => record.id), ['delegation-api-task-1']);
     assert.deepEqual(listPayload.delegations[0]?.toolsets, ['file']);
+    const wrongParentCancel = await cancelRoute.DELETE(
+      new NextRequest('http://localhost:3000/api/delegations/delegation-api-task-1?sourceSessionId=source-api-other', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'delegation-api-task-1' }) },
+    );
+    assert.equal(wrongParentCancel.status, 404);
+    assert.equal((await getPiDelegation('delegation-api-task-1'))?.status, 'queued');
 
     authenticatedUserId = 'delegation-api-user-2';
     const forbiddenCancel = await cancelRoute.DELETE(
-      new NextRequest('http://localhost:3000/api/delegations/delegation-api-task-1', { method: 'DELETE' }),
+      new NextRequest('http://localhost:3000/api/delegations/delegation-api-task-1?sourceSessionId=source-api-session', { method: 'DELETE' }),
       { params: Promise.resolve({ id: 'delegation-api-task-1' }) },
     );
     assert.equal(forbiddenCancel.status, 404);
@@ -108,7 +146,7 @@ async function main() {
 
     authenticatedUserId = 'delegation-api-user-1';
     const cancelResponse = await cancelRoute.DELETE(
-      new NextRequest('http://localhost:3000/api/delegations/delegation-api-task-1', { method: 'DELETE' }),
+      new NextRequest('http://localhost:3000/api/delegations/delegation-api-task-1?sourceSessionId=source-api-session', { method: 'DELETE' }),
       { params: Promise.resolve({ id: 'delegation-api-task-1' }) },
     );
     assert.equal(cancelResponse.status, 200);
@@ -121,6 +159,7 @@ async function main() {
     console.log('pi-delegation-api-test: ok');
   } finally {
     moduleLoader._load = originalLoad;
+    await testDatabase?.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }

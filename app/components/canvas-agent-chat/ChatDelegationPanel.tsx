@@ -165,7 +165,7 @@ export function ChatDelegationPanel({
       task.id === id ? { ...task, cancelRequestedAt: new Date().toISOString() } : task
     )));
     try {
-      const cancelled = await cancelChatDelegation(id);
+      const cancelled = await cancelChatDelegation(id, sourceSessionId);
       setTasks((current) => current.map((task) => (
         task.id === id ? { ...task, ...cancelled } : task
       )));
@@ -180,7 +180,7 @@ export function ChatDelegationPanel({
         return next;
       });
     }
-  }, [refresh, t]);
+  }, [refresh, sourceSessionId, t]);
 
   const openStartDialog = useCallback(async () => {
     setDialogOpen(true);

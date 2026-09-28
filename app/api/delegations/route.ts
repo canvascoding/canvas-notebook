@@ -5,6 +5,7 @@ import { listOwnedPiDelegations, piDelegationToolsets } from '@/app/lib/pi/deleg
 import { prepareUserDelegation } from '@/app/lib/pi/delegation-actions';
 import { enqueueDelegatedTask } from '@/app/lib/pi/delegation-dispatcher';
 import { requireDelegationSource } from '@/app/lib/pi/delegation-policy';
+import { authorizePiDelegationParentRead } from '@/app/lib/pi/delegation-progress';
 import { listManagedAgents } from '@/app/lib/agents/management-actions';
 import { DELEGATABLE_PI_TOOLSETS, PI_TOOLSETS } from '@/app/lib/pi/toolsets';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -23,10 +24,15 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   const sourceSessionId = request.nextUrl.searchParams.get('sourceSessionId')?.trim() || undefined;
+  if (!sourceSessionId) {
+    return NextResponse.json({ success: false, error: 'sourceSessionId is required.' }, { status: 400 });
+  }
+  try {
+    await authorizePiDelegationParentRead({ userId: session.user.id, sourceSessionId });
+  } catch {
+    return NextResponse.json({ success: false, error: 'Parent session is not accessible.' }, { status: 403 });
+  }
   if (request.nextUrl.searchParams.get('options') === 'true') {
-    if (!sourceSessionId) {
-      return NextResponse.json({ success: false, error: 'sourceSessionId is required.' }, { status: 400 });
-    }
     try {
       const source = await requireDelegationSource({ userId: session.user.id, sourceSessionId });
       const agents = await listManagedAgents({

@@ -71,13 +71,14 @@ export async function fetchChatDelegations(
   return payload.delegations ?? [];
 }
 
-export async function cancelChatDelegation(id: string): Promise<{
+export async function cancelChatDelegation(id: string, sourceSessionId: string): Promise<{
   id: string;
   status: ChatDelegation['status'];
   cancelRequestedAt: string | null;
   completedAt: string | null;
 }> {
-  const response = await fetch(`/api/delegations/${encodeURIComponent(id)}`, {
+  const query = new URLSearchParams({ sourceSessionId });
+  const response = await fetch(`/api/delegations/${encodeURIComponent(id)}?${query.toString()}`, {
     method: 'DELETE',
   });
   const payload = await safeFetchJson<{

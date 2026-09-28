@@ -69,7 +69,7 @@ async function main() {
 
   try {
     const { db } = database;
-    const { piMessages, piSessionCompactionAttempts, user } = await import('../app/lib/db/schema');
+    const { piDelegationProgress, piDelegations, piMessages, piSessionCompactionAttempts, user } = await import('../app/lib/db/schema');
     const { runEphemeralWorker } = await import('../app/lib/pi/delegate-task-tool');
     const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
     const { loadPiSessionWithSummary, savePiSession } = await import('../app/lib/pi/session-store');
@@ -89,6 +89,13 @@ async function main() {
       where: (table, { eq }) => eq(table.sessionId, sessionId),
     });
     assert.ok(session?.workspaceId);
+    const delegationId = 'delegation-ephemeral-progress';
+    await db.insert(piDelegations).values({
+      id: delegationId, userId, sourceSessionId: 'parent-session', sourceAgentId: 'canvas-agent',
+      workerSessionId: sessionId, workerType: 'ephemeral', goal: promptMessage.content,
+      status: 'running', runOwnerId: 'test-worker-owner', runHeartbeatAt: new Date(),
+      createdAt: now, updatedAt: now,
+    });
 
     let modelCalls = 0;
     let summaryCalls = 0;
@@ -111,6 +118,21 @@ async function main() {
       }
       modelCalls += 1;
       modelContexts.push(JSON.stringify(context.messages));
+      if (modelCalls > 1) {
+        const inFlightRows = (await db.query.piMessages.findMany({
+          where: (table, { eq }) => eq(table.piSessionDbId, session!.id),
+        })).sort((left, right) => left.sequence! - right.sequence!);
+        const inFlightMessages = inFlightRows.map(row => JSON.parse(row.content) as AgentMessage);
+        const inFlightCalls = inFlightMessages.flatMap(message => message.role === 'assistant'
+          ? message.content.filter(part => part.type === 'toolCall').map(part => part.id)
+          : []);
+        const inFlightResults = inFlightMessages.flatMap(message => message.role === 'toolResult'
+          ? [message.toolCallId] : []);
+        assert.deepEqual(inFlightResults, inFlightCalls,
+          'the previous tool batch is durably checkpointed before the next model request');
+        assert.equal(inFlightResults.length, modelCalls - 1,
+          'each completed turn becomes visible before the final answer');
+      }
       if (summaryCalls < 2) {
         assert.ok(modelCalls <= 30, 'compaction must make progress within a bounded number of tool turns');
         return completedStream(assistant([{
@@ -126,15 +148,24 @@ async function main() {
       customerId: null, projectId: null, workspaceRoot: root, workspaceRootRelativePath: null,
       canWrite: false, canDelete: false, canShare: false, legacy: false,
     };
+    const duringToolCheckpoints: Array<{ actual: number; expected: number }> = [];
     const fixtureTool = {
       name: 'fixture', label: 'Fixture', description: 'Return a large source result', parameters: Type.Object({}),
-      execute: async (toolCallId: string) => ({
-        content: [{ type: 'text' as const, text: `SOURCE ${toolCallId}: ${'durable source evidence '.repeat(350)}` }],
-        details: {},
-      }),
+      execute: async (toolCallId: string) => {
+        if (toolCallId.startsWith('source-call-')) {
+          const duringToolRows = await db.query.piMessages.findMany({
+            where: (table, { eq }) => eq(table.piSessionDbId, session.id),
+          });
+          duringToolCheckpoints.push({ actual: duringToolRows.length, expected: 1 + (2 * (modelCalls - 1)) });
+        }
+        return {
+          content: [{ type: 'text' as const, text: `SOURCE ${toolCallId}: ${'durable source evidence '.repeat(350)}` }],
+          details: {},
+        };
+      },
     };
     const result = await runEphemeralWorker({
-      request: { userId, sourceAgentId: 'canvas-agent', sourceSessionId: 'parent-session',
+      request: { delegationId, userId, sourceAgentId: 'canvas-agent', sourceSessionId: 'parent-session',
         goal: promptMessage.content, workerRole: 'researcher', toolsets: ['web'],
         waitForResult: true, timeoutSeconds: 60 },
       sessionId, promptMessage, executionContext: identity,
@@ -144,8 +175,22 @@ async function main() {
     });
     assert.equal(result.status, 'ok', JSON.stringify({ result, modelCalls, summaryCalls }));
     assert.equal(result.reply, 'Both batches synthesized.');
+    assert.ok(duringToolCheckpoints.length > 0);
+    assert.ok(duringToolCheckpoints.every(checkpoint => checkpoint.actual === checkpoint.expected),
+      'an assistant tool call is not checkpointed before its complete result batch');
     assert.ok(modelCalls > 2, 'the worker continues over multiple tool turns');
     assert.ok(summaryCalls >= 2, 'at least two real summary-provider calls are required');
+    const progress = await db.select().from(piDelegationProgress)
+      .orderBy(piDelegationProgress.revision);
+    assert.deepEqual(progress.map(event => event.revision),
+      Array.from({ length: progress.length }, (_, index) => index + 1),
+      'worker progress revisions remain durable and strictly increasing');
+    assert.equal(progress.filter(event => event.kind === 'tool_start').length, modelCalls - 1);
+    assert.equal(progress.filter(event => event.kind === 'tool_end').length, modelCalls - 1);
+    assert.ok(progress.some(event => event.kind === 'compacting'));
+    assert.ok(progress.some(event => event.kind === 'resumed'));
+    assert.ok(progress.every(event => event.preview === null || event.preview === 'fixture'),
+      'progress previews contain only safe tool names, never raw tool output');
     assert.match(modelContexts.at(-1) || '', /Source results were collected|canvas-session-summary:v2/,
       'the second committed summary reaches the subsequent child model request');
 
@@ -263,6 +308,48 @@ async function main() {
     });
     assert.ok(abortedRows.some(row => row.role === 'toolResult'),
       'an aborted summary keeps completed raw tool results');
+
+    const interruptedSessionId = 'worker-ephemeral-interrupted-tool-batch';
+    await savePiSession(interruptedSessionId, userId, model.provider, model.id, [promptMessage], undefined, {
+      agentId: 'canvas-agent', persistedLength: 0,
+      systemPromptSnapshot: buildPiSystemPromptSnapshotFromText('worker system instructions', now),
+    });
+    const interruptedSession = await db.query.piSessions.findFirst({
+      where: (table, { eq }) => eq(table.sessionId, interruptedSessionId),
+    });
+    assert.ok(interruptedSession);
+    const interruptedController = new AbortController();
+    let executedTools = 0;
+    const interruptedResult = await runEphemeralWorker({
+      request: { userId, sourceAgentId: 'canvas-agent', sourceSessionId: 'parent-session',
+        goal: promptMessage.content, workerRole: 'researcher', toolsets: ['web'],
+        waitForResult: true, timeoutSeconds: 60 },
+      sessionId: interruptedSessionId, promptMessage,
+      executionContext: { ...identity, sessionId: interruptedSessionId },
+      baseSystemPrompt: 'worker system instructions', systemPrompt: 'worker system instructions',
+      tools: [{ name: 'interrupted_fixture', label: 'Interrupted Fixture', description: 'Abort a sequential batch',
+        parameters: Type.Object({}), executionMode: 'sequential' as const,
+        execute: async () => {
+          executedTools += 1;
+          interruptedController.abort(new Error('interrupted after first tool'));
+          return { content: [{ type: 'text' as const, text: 'first effect completed' }], details: {} };
+        },
+      }],
+      signal: interruptedController.signal,
+      runtime: { model, selection: { selection: { providerId: model.provider, thinkingLevel: 'off' } },
+        streamFn: async () => completedStream(assistant([
+          { type: 'toolCall', id: 'interrupted-call-1', name: 'interrupted_fixture', arguments: {} },
+          { type: 'toolCall', id: 'interrupted-call-2', name: 'interrupted_fixture', arguments: {} },
+        ], 'toolUse', now.getTime() + 500)),
+      } as unknown as Parameters<typeof runEphemeralWorker>[0]['runtime'],
+    });
+    assert.equal(interruptedResult.status, 'error');
+    assert.equal(executedTools, 1, 'the second tool must not replay after interruption');
+    const interruptedRows = await db.query.piMessages.findMany({
+      where: (table, { eq }) => eq(table.piSessionDbId, interruptedSession.id),
+    });
+    assert.equal(interruptedRows.length, 1,
+      'an interrupted tool batch does not persist an orphan assistant call or partial results');
     console.log('pi-ephemeral-compaction-integration-test: ok');
   } finally {
     modules._load = originalLoad;

@@ -240,7 +240,8 @@ async function main() {
       goal: 'Recover the persisted worker result',
       toolsets: ['file'],
     });
-    await claimQueuedPiDelegation(interrupted.id);
+    await claimQueuedPiDelegation(interrupted.id, 'crashed-dispatcher');
+    await db.update(piDelegations).set({ runHeartbeatAt: new Date(1) }).where((await import('drizzle-orm')).eq(piDelegations.id, interrupted.id));
 
     let recoveredWorkerStarts = 0;
     const recoveredDeliveries: string[] = [];
@@ -261,7 +262,7 @@ async function main() {
     const recoveredRecord = await getPiDelegation(interrupted.id);
     assert.equal(recoveredWorkerStarts, 0);
     assert.equal(recoveredRecord?.status, 'completed');
-    assert.equal(recoveredRecord?.attemptCount, 2);
+    assert.equal(recoveredRecord?.attemptCount, 1);
     assert.equal(recoveredRecord?.resultText, 'Recovered persisted result.');
     assert.equal(recoveredRecord?.deliveryStatus, 'delivered');
 

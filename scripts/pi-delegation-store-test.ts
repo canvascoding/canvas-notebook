@@ -36,7 +36,7 @@ async function main() {
       listOwnedPiDelegations,
       piDelegationToolsets,
       recoverInterruptedPiDelegationDeliveries,
-      requeueInterruptedPiDelegations,
+      failInterruptedPiDelegations,
       requestPiDelegationCancellation,
       updatePiDelegationDelivery,
     } = await import('../app/lib/pi/delegation-store');
@@ -270,11 +270,13 @@ async function main() {
       goal: 'Recover after restart',
       toolsets: ['file'],
     });
-    await claimQueuedPiDelegation(interrupted.id);
-    assert.equal(await requeueInterruptedPiDelegations(), 1);
-    const recovered = await claimQueuedPiDelegation(interrupted.id);
-    assert.equal(recovered?.status, 'running');
-    assert.equal(recovered?.attemptCount, 2);
+    await claimQueuedPiDelegation(interrupted.id, 'crashed-process');
+    await db.update(piDelegations).set({ runHeartbeatAt: new Date(1) }).where((await import('drizzle-orm')).eq(piDelegations.id, interrupted.id));
+    const failedAfterRestart = await failInterruptedPiDelegations();
+    assert.equal(failedAfterRestart.length, 1);
+    assert.equal(failedAfterRestart[0].status, 'failed');
+    assert.match(failedAfterRestart[0].errorText || '', /interrupted by a process restart/u);
+    assert.equal(await claimQueuedPiDelegation(interrupted.id), null, 'an interrupted worker must never replay');
 
     const interruptedDelivery = await createPiDelegation({
       id: 'delegation-interrupted-delivery',
@@ -292,11 +294,12 @@ async function main() {
       resultStatus: 'ok',
       resultText: 'Ready for delivery.',
     });
-    assert.equal((await claimPiDelegationDelivery(interruptedDelivery.id))?.deliveryStatus, 'delivering');
+    assert.equal((await claimPiDelegationDelivery(interruptedDelivery.id, 'crashed-delivery'))?.deliveryStatus, 'delivering');
+    await db.update(piDelegations).set({ deliveryHeartbeatAt: new Date(1) }).where((await import('drizzle-orm')).eq(piDelegations.id, interruptedDelivery.id));
     assert.equal(await recoverInterruptedPiDelegationDeliveries(), 1);
     const recoveredDelivery = await getOwnedPiDelegation(interruptedDelivery.id, 'delegation-user-1');
-    assert.equal(recoveredDelivery?.deliveryStatus, 'failed');
-    assert.match(recoveredDelivery?.deliveryErrorText ?? '', /will be retried/);
+    assert.equal(recoveredDelivery?.deliveryStatus, 'skipped');
+    assert.match(recoveredDelivery?.deliveryErrorText ?? '', /receipt is uncertain/);
 
     const rows = await db.select().from(piDelegations);
     assert.equal(rows.length, 9);

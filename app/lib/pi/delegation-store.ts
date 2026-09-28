@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piDelegations } from '@/app/lib/db/schema';
@@ -10,6 +10,12 @@ export type PiDelegationStatus = 'queued' | 'running' | 'completed' | 'failed' |
 export type PiDelegationDeliveryStatus = 'pending' | 'delivering' | 'delivered' | 'failed' | 'skipped';
 export type PiDelegationResultStatus = 'ok' | 'timeout' | 'error';
 export type PiDelegationRecord = typeof piDelegations.$inferSelect;
+export const PI_DELEGATION_LEASE_TIMEOUT_MS = 30_000;
+const databaseNowMs = sql`floor(extract(epoch from clock_timestamp()) * 1000)::bigint`;
+const staleRunLease = sql`${piDelegations.runHeartbeatAt} < ${databaseNowMs} - ${PI_DELEGATION_LEASE_TIMEOUT_MS}`;
+const freshRunLease = sql`${piDelegations.runHeartbeatAt} >= ${databaseNowMs} - ${PI_DELEGATION_LEASE_TIMEOUT_MS}`;
+const staleDeliveryLease = sql`${piDelegations.deliveryHeartbeatAt} < ${databaseNowMs} - ${PI_DELEGATION_LEASE_TIMEOUT_MS}`;
+const freshDeliveryLease = sql`${piDelegations.deliveryHeartbeatAt} >= ${databaseNowMs} - ${PI_DELEGATION_LEASE_TIMEOUT_MS}`;
 
 export type CreatePiDelegationInput = {
   id: string;
@@ -139,11 +145,20 @@ export async function listQueuedPiDelegations(limit: number): Promise<PiDelegati
   });
 }
 
-export async function claimQueuedPiDelegation(id: string): Promise<PiDelegationRecord | null> {
+export async function listStaleRunningPiDelegations(): Promise<PiDelegationRecord[]> {
+  return db.query.piDelegations.findMany({
+    where: and(eq(piDelegations.status, 'running'), isNotNull(piDelegations.runOwnerId), staleRunLease),
+    orderBy: [asc(piDelegations.startedAt), asc(piDelegations.id)],
+  });
+}
+
+export async function claimQueuedPiDelegation(id: string, runOwnerId?: string): Promise<PiDelegationRecord | null> {
   const now = new Date();
   const [claimed] = await db.update(piDelegations)
     .set({
       status: 'running',
+      runOwnerId: runOwnerId ?? null,
+      runHeartbeatAt: runOwnerId ? databaseNowMs : null,
       startedAt: now,
       updatedAt: now,
       attemptCount: sql`${piDelegations.attemptCount} + 1`,
@@ -156,13 +171,34 @@ export async function claimQueuedPiDelegation(id: string): Promise<PiDelegationR
   return claimed ?? null;
 }
 
+export async function heartbeatOwnedPiDelegations(input: {
+  runOwnerId: string;
+  runningIds: string[];
+  deliveringIds: string[];
+}): Promise<{ runningIds: string[]; deliveringIds: string[] }> {
+  const running = input.runningIds.length > 0
+    ? await db.update(piDelegations)
+      .set({ runHeartbeatAt: databaseNowMs })
+      .where(and(inArray(piDelegations.id, input.runningIds), eq(piDelegations.status, 'running'), eq(piDelegations.runOwnerId, input.runOwnerId), freshRunLease))
+      .returning({ id: piDelegations.id })
+    : [];
+  const delivering = input.deliveringIds.length > 0
+    ? await db.update(piDelegations)
+      .set({ deliveryHeartbeatAt: databaseNowMs })
+      .where(and(inArray(piDelegations.id, input.deliveringIds), eq(piDelegations.deliveryStatus, 'delivering'), eq(piDelegations.deliveryOwnerId, input.runOwnerId), freshDeliveryLease))
+      .returning({ id: piDelegations.id })
+    : [];
+  return { runningIds: running.map(row => row.id), deliveringIds: delivering.map(row => row.id) };
+}
+
 export async function updateRunningPiDelegationWorkerSession(
   id: string,
   workerSessionId: string,
+  runOwnerId?: string,
 ): Promise<PiDelegationRecord | null> {
   const [updated] = await db.update(piDelegations)
     .set({ workerSessionId, updatedAt: new Date() })
-    .where(and(eq(piDelegations.id, id), eq(piDelegations.status, 'running')))
+    .where(and(eq(piDelegations.id, id), eq(piDelegations.status, 'running'), ...(runOwnerId ? [eq(piDelegations.runOwnerId, runOwnerId), freshRunLease] : [])))
     .returning();
   return updated ?? null;
 }
@@ -172,6 +208,8 @@ export async function completeRunningPiDelegation(input: {
   resultStatus: PiDelegationResultStatus;
   resultText?: string;
   errorText?: string;
+  runOwnerId?: string;
+  staleRecovery?: boolean;
 }): Promise<PiDelegationRecord | null> {
   const now = new Date();
   const nextStatus: PiDelegationStatus = input.resultStatus === 'ok' ? 'completed' : 'failed';
@@ -184,7 +222,12 @@ export async function completeRunningPiDelegation(input: {
       completedAt: now,
       updatedAt: now,
     })
-    .where(and(eq(piDelegations.id, input.id), eq(piDelegations.status, 'running')))
+    .where(and(
+      eq(piDelegations.id, input.id), eq(piDelegations.status, 'running'),
+      ...(input.runOwnerId ? [eq(piDelegations.runOwnerId, input.runOwnerId)] : []),
+      ...(input.staleRecovery ? [isNotNull(piDelegations.runOwnerId), staleRunLease] : []),
+      ...(!input.staleRecovery && input.runOwnerId ? [freshRunLease] : []),
+    ))
     .returning();
   return updated ?? null;
 }
@@ -245,7 +288,7 @@ export async function requestPiDelegationCancellation(
   return updated ?? getOwnedPiDelegation(id, userId);
 }
 
-export async function cancelRunningPiDelegation(id: string, errorText: string): Promise<PiDelegationRecord | null> {
+export async function cancelRunningPiDelegation(id: string, errorText: string, runOwnerId?: string): Promise<PiDelegationRecord | null> {
   const now = new Date();
   const [updated] = await db.update(piDelegations)
     .set({
@@ -256,7 +299,7 @@ export async function cancelRunningPiDelegation(id: string, errorText: string): 
       deliveryStatus: 'skipped',
       updatedAt: now,
     })
-    .where(and(eq(piDelegations.id, id), eq(piDelegations.status, 'running')))
+    .where(and(eq(piDelegations.id, id), eq(piDelegations.status, 'running'), ...(runOwnerId ? [eq(piDelegations.runOwnerId, runOwnerId), freshRunLease] : [])))
     .returning();
   return updated ?? null;
 }
@@ -265,6 +308,7 @@ export async function updatePiDelegationDelivery(input: {
   id: string;
   status: PiDelegationDeliveryStatus;
   deliveryErrorText?: string;
+  deliveryOwnerId?: string;
 }): Promise<PiDelegationRecord | null> {
   const now = new Date();
   const [updated] = await db.update(piDelegations)
@@ -274,7 +318,7 @@ export async function updatePiDelegationDelivery(input: {
       deliveryErrorText: input.deliveryErrorText ?? null,
       updatedAt: now,
     })
-    .where(eq(piDelegations.id, input.id))
+    .where(and(eq(piDelegations.id, input.id), ...(input.deliveryOwnerId ? [eq(piDelegations.deliveryOwnerId, input.deliveryOwnerId), freshDeliveryLease] : [])))
     .returning();
   return updated ?? null;
 }
@@ -290,10 +334,12 @@ export async function listDeliverablePiDelegations(limit: number): Promise<PiDel
   });
 }
 
-export async function claimPiDelegationDelivery(id: string): Promise<PiDelegationRecord | null> {
+export async function claimPiDelegationDelivery(id: string, deliveryOwnerId?: string): Promise<PiDelegationRecord | null> {
   const [claimed] = await db.update(piDelegations)
     .set({
       deliveryStatus: 'delivering',
+      deliveryOwnerId: deliveryOwnerId ?? null,
+      deliveryHeartbeatAt: deliveryOwnerId ? databaseNowMs : null,
       deliveryErrorText: null,
       updatedAt: new Date(),
     })
@@ -309,36 +355,51 @@ export async function claimPiDelegationDelivery(id: string): Promise<PiDelegatio
   return claimed ?? null;
 }
 
-export async function requeueInterruptedPiDelegations(): Promise<number> {
+/** A crashed worker may already have caused external side effects. Never replay it. */
+export async function failInterruptedPiDelegations(): Promise<PiDelegationRecord[]> {
   const interrupted = await db.query.piDelegations.findMany({
-    where: eq(piDelegations.status, 'running'),
+    where: and(eq(piDelegations.status, 'running'), isNotNull(piDelegations.runOwnerId), staleRunLease),
     columns: { id: true },
   });
-  if (interrupted.length === 0) return 0;
+  if (interrupted.length === 0) return [];
 
-  await db.update(piDelegations)
+  const now = new Date();
+  return await db.update(piDelegations)
     .set({
-      status: 'queued',
-      startedAt: null,
-      updatedAt: new Date(),
+      status: 'failed',
+      resultStatus: 'error',
+      errorText: 'Delegated task was interrupted by a process restart. Start a new task to continue.',
+      completedAt: now,
+      updatedAt: now,
     })
-    .where(inArray(piDelegations.id, interrupted.map((record) => record.id)));
-  return interrupted.length;
+    .where(and(
+      inArray(piDelegations.id, interrupted.map((record) => record.id)),
+      eq(piDelegations.status, 'running'),
+      isNotNull(piDelegations.runOwnerId),
+      staleRunLease,
+    ))
+    .returning();
 }
 
 export async function recoverInterruptedPiDelegationDeliveries(): Promise<number> {
   const interrupted = await db.query.piDelegations.findMany({
-    where: eq(piDelegations.deliveryStatus, 'delivering'),
+    where: and(eq(piDelegations.deliveryStatus, 'delivering'), isNotNull(piDelegations.deliveryOwnerId), staleDeliveryLease),
     columns: { id: true },
   });
   if (interrupted.length === 0) return 0;
 
-  await db.update(piDelegations)
+  const changed = await db.update(piDelegations)
     .set({
-      deliveryStatus: 'failed',
-      deliveryErrorText: 'Completion delivery was interrupted and will be retried.',
+      deliveryStatus: 'skipped',
+      deliveryErrorText: 'Completion delivery was interrupted and its receipt is uncertain. Inspect the task result before sending again.',
       updatedAt: new Date(),
     })
-    .where(inArray(piDelegations.id, interrupted.map((record) => record.id)));
-  return interrupted.length;
+    .where(and(
+      inArray(piDelegations.id, interrupted.map((record) => record.id)),
+      eq(piDelegations.deliveryStatus, 'delivering'),
+      isNotNull(piDelegations.deliveryOwnerId),
+      staleDeliveryLease,
+    ))
+    .returning({ id: piDelegations.id });
+  return changed.length;
 }
