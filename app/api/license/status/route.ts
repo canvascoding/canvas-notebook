@@ -9,6 +9,7 @@ import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
 import { logLicenseError, logLicenseInfoThrottled } from '@/app/lib/license/logging';
 import { publicLicenseStatus } from '@/app/lib/license/status-response';
 import { buildTeamSeatHealth } from '@/app/lib/license/team-seat-health';
+import { readTeamLicenseEmailOutboxDiagnostics } from '@/app/lib/license/team-license-email-outbox';
 import { readTeamSeatSyncDiagnostics } from '@/app/lib/license/team-seat-outbox';
 import { resolveTeamSeatRolloutStatus } from '@/app/lib/license/team-seat-rollout';
 import {
@@ -41,17 +42,21 @@ export async function GET(request: NextRequest) {
       ) {
         const database = await openDb();
         try {
-          const [diagnostics, claim] = await Promise.all([
+          const [diagnostics, claim, emailDelivery] = await Promise.all([
             readTeamSeatSyncDiagnostics(database, organization.organizationId),
             getCommunityLicenseClaimStatus(),
+            readTeamLicenseEmailOutboxDiagnostics(database, organization.organizationId),
           ]);
           ownerHealth = {
-            teamSeatHealth: buildTeamSeatHealth({
-              organizationId: organization.organizationId,
-              diagnostics,
-              claim,
-              licenseStatus: status,
-            }),
+            teamSeatHealth: {
+              ...buildTeamSeatHealth({
+                organizationId: organization.organizationId,
+                diagnostics,
+                claim,
+                licenseStatus: status,
+              }),
+              emailDelivery,
+            },
           };
         } finally {
           await database.close();

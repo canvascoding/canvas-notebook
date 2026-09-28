@@ -108,6 +108,8 @@ function copyFor(locale: string) {
         notificationSettingDetail: 'Benachrichtigt dich als Owner über tatsächlich angewendete Zugangssperren und Wiederherstellungen. E-Mails werden dadurch nicht versendet.',
         emailNotificationSetting: 'E-Mail bei Team-Zugangsänderungen',
         emailNotificationSettingDetail: 'Sendet dem Owner und betroffenen Mitgliedern eine E-Mail nach einer tatsächlichen Sperre oder Wiederherstellung. Der System-E-Mail-Versand muss eingerichtet sein.',
+        emailManualReview: 'Lizenz-E-Mails manuell prüfen',
+        emailRetryPending: 'Lizenz-E-Mails warten auf Versand',
         notificationSettingUnavailable: 'Die Benachrichtigungseinstellung konnte nicht geladen oder gespeichert werden.',
         queuedSync: 'Membership-Abgleich wurde eingeplant.',
         queuedRefresh: 'Lizenz-Refresh wurde eingeplant.',
@@ -190,6 +192,8 @@ function copyFor(locale: string) {
         notificationSettingDetail: 'Notifies you as owner when team access is actually paused or restored. This does not send email.',
         emailNotificationSetting: 'Email for team access changes',
         emailNotificationSettingDetail: 'Emails the owner and affected members after access is actually paused or restored. System email delivery must be configured.',
+        emailManualReview: 'License emails requiring manual review',
+        emailRetryPending: 'License emails awaiting delivery',
         notificationSettingUnavailable: 'The notification setting could not be loaded or saved.',
         queuedSync: 'Membership sync was scheduled.',
         queuedRefresh: 'License refresh was scheduled.',
@@ -582,6 +586,14 @@ export function TeamSeatHealthPanel({
               <div className="flex items-start justify-between gap-4">
                 <dt className="text-muted-foreground">{copy.failed}</dt>
                 <dd className="font-mono tabular-nums">{health.sync.failedOperations}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-muted-foreground">{copy.emailRetryPending}</dt>
+                <dd className="font-mono tabular-nums">{health.emailDelivery?.retryPending ?? 0}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-muted-foreground">{copy.emailManualReview}</dt>
+                <dd className="font-mono tabular-nums">{health.emailDelivery?.manualReview ?? 0}</dd>
               </div>
             </dl>
           </div>

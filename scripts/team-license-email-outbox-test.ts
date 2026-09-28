@@ -24,10 +24,40 @@ async function main() {
   process.env.DATA = dataDir;
   try {
     const { reconcileTeamLicenseLifecycle } = await import('../app/lib/license/team-license-lifecycle');
-    const { enqueueTeamLicenseEmail, processTeamLicenseEmailOutbox } = await import('../app/lib/license/team-license-email-outbox');
+    const { enqueueTeamLicenseEmail, processTeamLicenseEmailOutbox, readTeamLicenseEmailOutboxDiagnostics } = await import('../app/lib/license/team-license-email-outbox');
+    const { ManagedSystemEmailDeliveryUnknownError, ManagedSystemEmailHttpError, sendManagedSystemEmail } = await import('../app/lib/email/managed-system-email-client');
     const { adoptActiveTeamMembership } = await import('../app/lib/organization/team-membership');
     const { updateUserPreferences } = await import('../app/lib/user-preferences');
     const { seedTeamSeatOrganization, withTeamSeatTestDatabase } = await import('./team-seat-test-db');
+    const previousFetch = globalThis.fetch;
+    const previousManaged = process.env.CANVAS_MANAGED_SERVICES_ENABLED;
+    const previousToken = process.env.CANVAS_INSTANCE_TOKEN;
+    const previousControlPlane = process.env.CANVAS_CONTROL_PLANE_URL;
+    process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
+    process.env.CANVAS_INSTANCE_TOKEN = 'fake-test-token';
+    process.env.CANVAS_CONTROL_PLANE_URL = 'http://127.0.0.1:9';
+    const managedMessage = {
+      purpose: 'automation_alert' as const, to: ['owner@example.test'],
+      subject: 'Test', body: 'Test body', idempotencyKey: 'test-idempotency',
+    };
+    try {
+      globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Delivery state unknown.' }), { status: 409 });
+      await assert.rejects(sendManagedSystemEmail(managedMessage), ManagedSystemEmailDeliveryUnknownError);
+      globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Definite transient failure.' }), { status: 502 });
+      await assert.rejects(sendManagedSystemEmail(managedMessage), (error: unknown) => (
+        error instanceof ManagedSystemEmailHttpError && error.statusCode === 502
+      ));
+      globalThis.fetch = async () => { throw new TypeError('Fake connection reset'); };
+      await assert.rejects(sendManagedSystemEmail(managedMessage), ManagedSystemEmailDeliveryUnknownError);
+    } finally {
+      globalThis.fetch = previousFetch;
+      if (previousManaged === undefined) delete process.env.CANVAS_MANAGED_SERVICES_ENABLED;
+      else process.env.CANVAS_MANAGED_SERVICES_ENABLED = previousManaged;
+      if (previousToken === undefined) delete process.env.CANVAS_INSTANCE_TOKEN;
+      else process.env.CANVAS_INSTANCE_TOKEN = previousToken;
+      if (previousControlPlane === undefined) delete process.env.CANVAS_CONTROL_PLANE_URL;
+      else process.env.CANVAS_CONTROL_PLANE_URL = previousControlPlane;
+    }
     await withTeamSeatTestDatabase(async (database) => {
       await seedTeamSeatOrganization(database, organizationId, startedAt);
       await database.run(`
@@ -68,10 +98,10 @@ async function main() {
       const first = await processTeamLicenseEmailOutbox({
         database, now: pausedAt, deliver: async (message) => {
           attempted.push(message.idempotencyKey);
-          throw new Error('Fake transport failure');
+          throw new ManagedSystemEmailHttpError('Definite transient fake transport failure', 502);
         },
       });
-      assert.deepEqual(first, { delivered: 0, failed: 2, skipped: 0 });
+      assert.deepEqual(first, { delivered: 0, failed: 2, skipped: 0, manualReview: 0 });
       assert.equal((await database.all("SELECT id FROM team_license_email_outbox WHERE status = 'delivered'")).length, 0);
       const successful: string[] = [];
       const second = await processTeamLicenseEmailOutbox({
@@ -80,11 +110,11 @@ async function main() {
           return { messageId: 'fake-message' };
         },
       });
-      assert.deepEqual(second, { delivered: 2, failed: 0, skipped: 0 });
+      assert.deepEqual(second, { delivered: 2, failed: 0, skipped: 0, manualReview: 0 });
       assert.deepEqual(successful.sort(), attempted.sort());
       assert.deepEqual(await processTeamLicenseEmailOutbox({
         database, now: pausedAt + 60_000, deliver: async () => { throw new Error('Duplicate send'); },
-      }), { delivered: 0, failed: 0, skipped: 0 });
+      }), { delivered: 0, failed: 0, skipped: 0, manualReview: 0 });
 
       await updateUserPreferences(memberId, { teamLicenseEmailNotificationsEnabled: false });
       const restoredAt = startedAt + 120_000;
@@ -98,7 +128,7 @@ async function main() {
           return { messageId: 'fake-owner-restore' };
         },
       });
-      assert.deepEqual(third, { delivered: 1, failed: 0, skipped: 1 });
+      assert.deepEqual(third, { delivered: 1, failed: 0, skipped: 1, manualReview: 0 });
       const states = await database.all('SELECT event_kind, status FROM team_license_email_outbox ORDER BY created_at, id') as Array<{
         event_kind: string; status: string;
       }>;
@@ -123,7 +153,27 @@ async function main() {
           return { messageId: 'fake-current-message' };
         },
       });
-      assert.deepEqual(final, { delivered: 1, failed: 0, skipped: 0 });
+      assert.deepEqual(final, { delivered: 1, failed: 0, skipped: 0, manualReview: 0 });
+
+      await enqueueTeamLicenseEmail(database, {
+        auditEventId: 'unknown-audit', organizationId, userId: ownerId,
+        kind: 'owner_restricted', reason: 'expired', seatLimit: 1, now: restoredAt + 3000,
+      });
+      const unknown = await processTeamLicenseEmailOutbox({
+        database, now: restoredAt + 3000,
+        deliver: async () => { throw new ManagedSystemEmailDeliveryUnknownError('Managed delivery unknown (409).'); },
+      });
+      assert.deepEqual(unknown, { delivered: 0, failed: 0, skipped: 0, manualReview: 1 });
+      assert.equal((await database.get(`
+        SELECT status FROM team_license_email_outbox WHERE audit_event_id = 'unknown-audit'
+      `) as { status: string }).status, 'manual_review');
+      assert.deepEqual(await readTeamLicenseEmailOutboxDiagnostics(database, organizationId), {
+        manualReview: 1, retryPending: 0,
+      });
+      assert.deepEqual(await processTeamLicenseEmailOutbox({
+        database, now: restoredAt + 60_000,
+        deliver: async () => { throw new Error('Unknown delivery must not auto-retry'); },
+      }), { delivered: 0, failed: 0, skipped: 0, manualReview: 0 });
     });
   } finally {
     if (previousData === undefined) delete process.env.DATA;

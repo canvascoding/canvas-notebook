@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { getUserPreferences } from '@/app/lib/user-preferences';
 import { getSystemSmtpConfigurationStatus } from '@/app/lib/email/system-smtp-config';
-import { getManagedSystemEmailAvailability, sendManagedSystemEmail } from '@/app/lib/email/managed-system-email-client';
+import { getManagedSystemEmailAvailability, ManagedSystemEmailDeliveryUnknownError, sendManagedSystemEmail } from '@/app/lib/email/managed-system-email-client';
 import { sendSystemSmtpEmail } from '@/app/lib/email/system-smtp-service';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 
@@ -23,6 +23,23 @@ type EmailJob = {
 
 type EmailMessage = { to: string; subject: string; body: string; idempotencyKey: string };
 type Delivery = (message: EmailMessage) => Promise<{ messageId: string | null }>;
+
+export async function readTeamLicenseEmailOutboxDiagnostics(
+  database: Pick<SqlConnection, 'get'>,
+  organizationId: string,
+): Promise<{ manualReview: number; retryPending: number }> {
+  const row = await database.get(`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'manual_review') AS manual_review,
+      COUNT(*) FILTER (WHERE status IN ('pending', 'failed', 'sending')) AS retry_pending
+    FROM team_license_email_outbox
+    WHERE organization_id = $1
+  `, [organizationId]) as { manual_review?: number | string; retry_pending?: number | string } | undefined;
+  return {
+    manualReview: Number(row?.manual_review || 0),
+    retryPending: Number(row?.retry_pending || 0),
+  };
+}
 
 export async function enqueueTeamLicenseEmail(
   database: EmailDatabase,
@@ -104,11 +121,11 @@ export async function processTeamLicenseEmailOutbox(options: {
   deliver?: Delivery;
   now?: number;
   limit?: number;
-} = {}): Promise<{ delivered: number; failed: number; skipped: number }> {
+} = {}): Promise<{ delivered: number; failed: number; skipped: number; manualReview: number }> {
   const database = options.database ?? await openDb();
   const ownsDatabase = !options.database;
   const now = options.now ?? Date.now();
-  const counts = { delivered: 0, failed: 0, skipped: 0 };
+  const counts = { delivered: 0, failed: 0, skipped: 0, manualReview: 0 };
   try {
     for (let index = 0; index < Math.min(Math.max(options.limit ?? 20, 0), 100); index += 1) {
       const job = await database.get(`
@@ -155,6 +172,16 @@ export async function processTeamLicenseEmailOutbox(options: {
         `, [job.id, response.messageId, now]);
         counts.delivered += 1;
       } catch (error) {
+        if (error instanceof ManagedSystemEmailDeliveryUnknownError) {
+          await database.run(`
+            UPDATE team_license_email_outbox SET status = 'manual_review', lease_until = NULL,
+              error = $2, updated_at = $3
+            WHERE id = $1 AND status = 'sending'
+          `, [job.id, redactTeamControlPlaneLogText(error.message).slice(0, 500), now]);
+          counts.manualReview += 1;
+          console.warn('[license/email-outbox] Delivery requires manual review', { jobId: job.id });
+          continue;
+        }
         const attempt = Number(job.attempts);
         const delay = Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempt - 1, 7));
         await database.run(`
