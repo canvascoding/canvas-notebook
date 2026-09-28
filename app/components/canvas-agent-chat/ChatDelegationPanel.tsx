@@ -91,6 +91,7 @@ export function ChatDelegationPanel({
   const [startError, setStartError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const [targetAgentId, setTargetAgentId] = useState('');
+  const [selectedSessionId, setSelectedSessionId] = useState('');
   const [goal, setGoal] = useState('');
   const [context, setContext] = useState('');
   const [selectedToolsets, setSelectedToolsets] = useState<Set<string>>(() => new Set());
@@ -143,6 +144,16 @@ export function ChatDelegationPanel({
     () => new Map(agents.map((agent) => [agent.agentId, agent])),
     [agents],
   );
+  const reusableSessions = useMemo(() => {
+    const activeSessionIds = new Set(tasks.filter(isActive).map((task) => task.workerSessionId));
+    const seen = new Set<string>();
+    return tasks.filter((task) => {
+      if (task.workerType !== 'managed' || task.targetAgentId !== targetAgentId) return false;
+      if (isActive(task) || activeSessionIds.has(task.workerSessionId) || seen.has(task.workerSessionId)) return false;
+      seen.add(task.workerSessionId);
+      return true;
+    });
+  }, [tasks, targetAgentId]);
   const timeFormatter = useMemo(() => new Intl.DateTimeFormat(locale, {
     hour: '2-digit',
     minute: '2-digit',
@@ -174,6 +185,7 @@ export function ChatDelegationPanel({
   const openStartDialog = useCallback(async () => {
     setDialogOpen(true);
     setStartError(null);
+    setSelectedSessionId('');
     setOptionsLoading(true);
     try {
       const options = await fetchDelegationOptions(sourceSessionId);
@@ -197,6 +209,7 @@ export function ChatDelegationPanel({
       await startChatDelegation({
         sourceSessionId,
         targetAgentId,
+        sessionId: selectedSessionId || undefined,
         goal: goal.trim(),
         context: context.trim() || undefined,
         toolsets: Array.from(selectedToolsets),
@@ -205,12 +218,12 @@ export function ChatDelegationPanel({
       setGoal('');
       setContext('');
       void refresh();
-    } catch {
-      setStartError(t('delegationStartFailed'));
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : t('delegationStartFailed'));
     } finally {
       setStarting(false);
     }
-  }, [context, goal, refresh, selectedToolsets, sourceSessionId, t, targetAgentId]);
+  }, [context, goal, refresh, selectedSessionId, selectedToolsets, sourceSessionId, t, targetAgentId]);
 
   const toggleToolset = useCallback((toolset: string) => {
     setSelectedToolsets((current) => {
@@ -449,7 +462,10 @@ export function ChatDelegationPanel({
                         <DelegationAgentPicker
                           agents={delegationOptions.agents}
                           value={targetAgentId}
-                          onValueChange={setTargetAgentId}
+                          onValueChange={(value) => {
+                            setTargetAgentId(value);
+                            setSelectedSessionId('');
+                          }}
                         />
                       </div>
                     ) : (
@@ -457,6 +473,24 @@ export function ChatDelegationPanel({
                         {t('delegationNoAgents')}
                       </p>
                     )}
+
+                    {reusableSessions.length > 0 ? (
+                      <label className="grid gap-1.5 text-sm font-medium">
+                        {t('delegationSession')}
+                        <select
+                          value={selectedSessionId}
+                          onChange={(event) => setSelectedSessionId(event.target.value)}
+                          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                        >
+                          <option value="">{t('delegationNewSession')}</option>
+                          {reusableSessions.map((task) => (
+                            <option key={task.workerSessionId} value={task.workerSessionId}>
+                              {t('delegationResumeSession')}: {task.goal.slice(0, 64)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
 
                     <label className="grid gap-1.5 text-sm font-medium">
                       {t('delegationGoal')}

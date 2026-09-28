@@ -1060,18 +1060,8 @@ async function ensureManagedDelegatedSession(
       if (collidingSessions.length !== 1) {
         throw new Error('Target session ID is ambiguous across multiple agents.');
       }
-      const targetContext = await resolveAgentExecutionContextForSession({
-        sessionId,
-        userId: request.userId,
-        agentId: targetAgentId,
-      });
-      if (
-        targetContext.workspaceId !== initialScope.executionContext.workspaceId
-        || targetContext.workspaceType !== initialScope.executionContext.workspaceType
-        || targetContext.organizationId !== initialScope.executionContext.organizationId
-      ) {
-        throw new Error('Target session belongs to a different workspace.');
-      }
+      if (!requestedSessionId) throw new Error('An existing target session must be selected explicitly.');
+      await requireManagedDelegatedSessionReuse(request, sessionId, initialScope);
       return sessionId;
     }
 
@@ -1148,6 +1138,54 @@ async function ensureManagedDelegatedSession(
   });
 }
 
+/** Recheck the durable child-to-parent binding at admission and immediately before prompt start. */
+export async function requireManagedDelegatedSessionReuse(
+  request: DelegateTaskRequest,
+  sessionId: string,
+  sourceScope?: DelegationSourceScope,
+): Promise<AgentExecutionContext> {
+  if (!request.targetAgentId) throw new Error('target_agent_id is required to resume a managed session.');
+  await requireDelegationSource({
+    userId: request.userId,
+    sourceSessionId: request.sourceSessionId,
+    sourceAgentId: request.sourceAgentId,
+  });
+  const scope = sourceScope ?? await resolveDelegationSourceScope(request);
+  const sessions = await db.query.piSessions.findMany({
+    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, request.userId)),
+    columns: {
+      agentId: true,
+      sessionKind: true,
+      delegationDepth: true,
+      parentSessionId: true,
+    },
+    limit: 3,
+  });
+  if (sessions.length !== 1) throw new Error('Target managed session was not found or is ambiguous.');
+  const worker = sessions[0];
+  if (worker.agentId !== request.targetAgentId) throw new Error('Target session belongs to a different agent.');
+  if (
+    worker.sessionKind !== 'delegation_worker'
+    || worker.delegationDepth !== 1
+    || worker.parentSessionId !== request.sourceSessionId
+  ) {
+    throw new Error('Target session does not belong to this Bradley chat.');
+  }
+  const targetContext = await resolveAgentExecutionContextForSession({
+    sessionId,
+    userId: request.userId,
+    agentId: request.targetAgentId,
+  });
+  if (
+    targetContext.workspaceId !== scope.executionContext.workspaceId
+    || targetContext.workspaceType !== scope.executionContext.workspaceType
+    || targetContext.organizationId !== scope.executionContext.organizationId
+  ) {
+    throw new Error('Target session belongs to a different workspace.');
+  }
+  return targetContext;
+}
+
 type RuntimeIdleResult = { status: 'ok' | 'timeout' | 'error'; error?: string };
 
 function waitForRuntimeIdle(
@@ -1201,29 +1239,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     throwIfDelegationAborted(request.abortSignal);
     const sourceScope = await resolveDelegationSourceScope(request);
     assertSameDelegationWorkspace(initialScope, sourceScope);
-    const targetSessions = await db.query.piSessions.findMany({
-      where: and(
-        eq(piSessions.sessionId, sessionId),
-        eq(piSessions.userId, request.userId),
-      ),
-      columns: { agentId: true },
-      limit: 3,
-    });
-    if (targetSessions.length !== 1 || targetSessions[0].agentId !== request.targetAgentId) {
-      throw new Error('Target session ID became ambiguous before the delegated run could start.');
-    }
-    const targetContext = await resolveAgentExecutionContextForSession({
-      sessionId,
-      userId: request.userId,
-      agentId: request.targetAgentId,
-    });
-    if (
-      targetContext.workspaceId !== sourceScope.executionContext.workspaceId
-      || targetContext.workspaceType !== sourceScope.executionContext.workspaceType
-      || targetContext.organizationId !== sourceScope.executionContext.organizationId
-    ) {
-      throw new Error('Target session belongs to a different workspace.');
-    }
+    await requireManagedDelegatedSessionReuse(request, sessionId, sourceScope);
 
     const runtimeHandle = await getOrCreatePiRuntimeWithState(sessionId, request.userId);
     const runtime = runtimeHandle.runtime as RuntimeInstance;
@@ -1246,18 +1262,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
       }
       startScope = confirmedScope;
     }
-    const startTargetContext = await resolveAgentExecutionContextForSession({
-      sessionId,
-      userId: request.userId,
-      agentId: request.targetAgentId,
-    });
-    if (
-      startTargetContext.workspaceId !== startScope.executionContext.workspaceId
-      || startTargetContext.workspaceType !== startScope.executionContext.workspaceType
-      || startTargetContext.organizationId !== startScope.executionContext.organizationId
-    ) {
-      throw new Error('Target session workspace changed while the delegated run was starting.');
-    }
+    const startTargetContext = await requireManagedDelegatedSessionReuse(request, sessionId, startScope);
     if (delegationToolPermissionsChanged(startScope.executionContext, startTargetContext)) {
       throw new Error('Target workspace permissions changed after its tools were loaded.');
     }

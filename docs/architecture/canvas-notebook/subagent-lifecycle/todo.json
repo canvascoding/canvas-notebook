@@ -37,10 +37,18 @@
     {
       "id": "SA-02",
       "title": "Safe reuse of managed worker sessions",
-      "status": "pending",
+      "status": "completed",
       "hermes": ["tools/delegate_tool_registry.py:213-235"],
       "canvas": ["app/lib/pi/delegate-task-tool.ts:881-991", "app/lib/pi/delegation-policy.ts:80-110"],
-      "gate": "Second task reuses one authorized session with its own active toolsets; cross-parent and concurrent reuse fail."
+      "gate": "Second task reuses one authorized session with its own active toolsets; cross-parent and concurrent reuse fail.",
+      "evidence": [
+        "npm run test:pi:delegation-store",
+        "npm run test:pi:delegation-dispatcher",
+        "npx tsc --noEmit --pretty false",
+        "npx eslint on changed TypeScript files",
+        "Playwright: tests/chat-delegation-session-resume.spec.ts",
+        "npm run build"
+      ]
     },
     {
       "id": "SA-03",

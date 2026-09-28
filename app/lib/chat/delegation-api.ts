@@ -41,6 +41,7 @@ export async function fetchDelegationOptions(sourceSessionId: string): Promise<D
 export async function startChatDelegation(input: {
   sourceSessionId: string;
   targetAgentId: string;
+  sessionId?: string;
   goal: string;
   context?: string;
   toolsets: string[];

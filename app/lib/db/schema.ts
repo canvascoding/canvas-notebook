@@ -1422,6 +1422,9 @@ export const piDelegations = pgTable("pi_delegations", {
   statusCreatedIdx: index("idx_pi_delegations_status_created").on(table.status, table.createdAt),
   deliveryIdx: index("idx_pi_delegations_delivery").on(table.deliveryStatus, table.completedAt),
   workerSessionIdx: index("idx_pi_delegations_worker_session").on(table.userId, table.workerSessionId),
+  activeManagedWorkerIdx: uniqueIndex("idx_pi_delegations_active_managed_worker")
+    .on(table.userId, table.workerSessionId)
+    .where(sql`${table.workerType} = 'managed' AND ${table.status} IN ('queued', 'running')`),
   workerTypeCheck: check("pi_delegations_worker_type_check", sql`${table.workerType} IN ('ephemeral', 'managed')`),
   statusCheck: check("pi_delegations_status_check", sql`${table.status} IN ('queued', 'running', 'completed', 'failed', 'cancelled')`),
   deliveryStatusCheck: check("pi_delegations_delivery_status_check", sql`${table.deliveryStatus} IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')`),

@@ -914,6 +914,43 @@ async function ensurePostgresCompactionAttemptIndexes(pool: PgQueryable): Promis
   `);
 }
 
+async function ensurePostgresManagedWorkerAdmission(pool: PgQueryable): Promise<void> {
+  // Older dispatchers could queue multiple tasks for one managed session.
+  // Preserve the running task (or oldest queued task), and deliver an explicit
+  // failure for each duplicate instead of silently dropping an accepted task.
+  // The table lock keeps cleanup and index creation atomic with admissions.
+  await pool.query(`
+    DO $managed_worker_admission$
+    DECLARE
+      migration_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
+    BEGIN
+      LOCK TABLE pi_delegations IN SHARE ROW EXCLUSIVE MODE;
+      WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY user_id, worker_session_id
+                 ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END,
+                          started_at ASC NULLS LAST, created_at ASC, id ASC
+               ) AS admission_rank
+        FROM pi_delegations
+        WHERE worker_type = 'managed' AND status IN ('queued', 'running')
+      )
+      UPDATE pi_delegations AS task
+      SET status = 'failed', result_status = 'error', result_text = NULL,
+          error_text = 'Managed worker session was already busy. Start this task again after the current task finishes.',
+          delivery_status = 'pending', delivery_error_text = NULL,
+          completed_at = migration_now, updated_at = migration_now
+      FROM ranked
+      WHERE task.id = ranked.id AND ranked.admission_rank > 1;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_delegations_active_managed_worker
+      ON pi_delegations (user_id, worker_session_id)
+      WHERE worker_type = 'managed' AND status IN ('queued', 'running');
+    END
+    $managed_worker_admission$;
+  `);
+}
+
 async function ensurePostgresCompactionAttemptTelemetry(pool: PgQueryable): Promise<void> {
   await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS idle_deadline_at bigint');
   await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS last_progress_at bigint');
@@ -1514,6 +1551,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
 
   await deduplicatePiSessions(pool);
   await ensurePostgresPiMessageSequenceIntegrityIndex(pool);
+  await ensurePostgresManagedWorkerAdmission(pool);
 
   // Deduplicate license certs that were repeatedly inserted by older code.
   // Keep the newest row per (instance_id, cert) so the unique index from the

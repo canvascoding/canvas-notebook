@@ -18,6 +18,19 @@ let testDatabase: Awaited<ReturnType<typeof createPiTestDatabase>>;
 moduleLoader._load = function loadWithServerOnlyMock(request, parent, isMain) {
   if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
   if (request === 'server-only') return {};
+  if (request === '@earendil-works/pi-agent-core') return {};
+  if (request === '@/app/lib/pi/session-workspace-context') return {
+    resolveAgentExecutionContextForSession: async ({ sessionId }: { sessionId: string }) => ({
+      organizationId: 'managed-org',
+      workspaceId: ['managed-parent-other-workspace', 'managed-worker-other-workspace'].includes(sessionId)
+        ? 'other-workspace' : 'managed-workspace',
+      workspaceType: 'personal',
+      workspaceRoot: '/test-workspace',
+    }),
+    resolveAgentSessionWorkspaceForUser: async ({ workspaceId }: { workspaceId: string }) => ({
+      organizationId: 'managed-org', workspaceId, workspaceType: 'personal',
+    }),
+  };
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
       registerBuiltInApiProviders: () => undefined,
@@ -58,7 +71,7 @@ async function main() {
   let dispatcher: import('../app/lib/pi/delegation-dispatcher').PiDelegationDispatcher | null = null;
   try {
     const { db } = testDatabase;
-    const { piMessages, piSessions, user } = await import('../app/lib/db/schema');
+    const { piDelegations, piMessages, piSessions, user } = await import('../app/lib/db/schema');
     const { createDelegationCompletionMessage, isDelegationCompletionMessage } = await import(
       '../app/lib/pi/delegation-completion-message'
     );
@@ -251,6 +264,113 @@ async function main() {
     assert.equal(recoveredRecord?.attemptCount, 2);
     assert.equal(recoveredRecord?.resultText, 'Recovered persisted result.');
     assert.equal(recoveredRecord?.deliveryStatus, 'delivered');
+
+    dispatcher.stop();
+    await db.insert(user).values({
+      id: 'dispatcher-foreign-user', name: 'Foreign User', email: 'dispatcher-foreign@example.test',
+      emailVerified: true, createdAt: now, updatedAt: now,
+    });
+    await db.insert(piSessions).values([
+      { sessionId: 'managed-parent-original', userId: 'dispatcher-user', agentId: 'bradley',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'conversation', delegationDepth: 0,
+        organizationId: 'managed-org', workspaceId: 'managed-workspace', workspaceType: 'personal',
+        createdAt: now, updatedAt: now },
+      { sessionId: 'managed-parent-other', userId: 'dispatcher-user', agentId: 'bradley',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'conversation', delegationDepth: 0,
+        organizationId: 'managed-org', workspaceId: 'managed-workspace', workspaceType: 'personal',
+        createdAt: now, updatedAt: now },
+      { sessionId: 'managed-parent-other-workspace', userId: 'dispatcher-user', agentId: 'bradley',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'conversation', delegationDepth: 0,
+        organizationId: 'managed-org', workspaceId: 'other-workspace', workspaceType: 'personal',
+        createdAt: now, updatedAt: now },
+      { sessionId: 'managed-parent-foreign-user', userId: 'dispatcher-foreign-user', agentId: 'bradley',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'conversation', delegationDepth: 0,
+        organizationId: 'managed-org', workspaceId: 'managed-workspace', workspaceType: 'personal',
+        createdAt: now, updatedAt: now },
+      { sessionId: 'managed-worker-reused', userId: 'dispatcher-user', agentId: 'research-agent',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'delegation_worker', delegationDepth: 1,
+        parentSessionId: 'managed-parent-original', delegationId: 'managed-prior-task',
+        organizationId: 'managed-org', workspaceId: 'managed-workspace', workspaceType: 'personal',
+        createdAt: now, updatedAt: now },
+      { sessionId: 'managed-worker-wrong-kind', userId: 'dispatcher-user', agentId: 'research-agent',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'conversation', delegationDepth: 0,
+        parentSessionId: 'managed-parent-original', organizationId: 'managed-org',
+        workspaceId: 'managed-workspace', workspaceType: 'personal', createdAt: now, updatedAt: now },
+      { sessionId: 'managed-worker-wrong-depth', userId: 'dispatcher-user', agentId: 'research-agent',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'delegation_worker', delegationDepth: 0,
+        parentSessionId: 'managed-parent-original', organizationId: 'managed-org',
+        workspaceId: 'managed-workspace', workspaceType: 'personal', createdAt: now, updatedAt: now },
+      { sessionId: 'managed-worker-other-workspace', userId: 'dispatcher-user', agentId: 'research-agent',
+        provider: 'test-provider', model: 'test-model', sessionKind: 'delegation_worker', delegationDepth: 1,
+        parentSessionId: 'managed-parent-original', organizationId: 'managed-org',
+        workspaceId: 'other-workspace', workspaceType: 'personal', createdAt: now, updatedAt: now },
+    ]);
+    const managedWorker = await db.query.piSessions.findFirst({
+      where: (sessions, { eq }) => eq(sessions.sessionId, 'managed-worker-reused'),
+      columns: { id: true },
+    });
+    assert.ok(managedWorker);
+    await db.insert(piMessages).values({
+      piSessionDbId: managedWorker.id,
+      role: 'user',
+      content: JSON.stringify({ role: 'user', content: 'Prior managed context', timestamp: 3 }),
+      timestamp: 3,
+      sequence: 1,
+    });
+    await createPiDelegation({
+      id: 'managed-prior-task', userId: 'dispatcher-user', sourceSessionId: 'managed-parent-original',
+      sourceAgentId: 'bradley', workerSessionId: 'managed-worker-reused', workerType: 'managed',
+      targetAgentId: 'research-agent', goal: 'Previous managed task', toolsets: ['web'],
+    });
+    await claimQueuedPiDelegation('managed-prior-task');
+    const { completeRunningPiDelegation } = await import('../app/lib/pi/delegation-store');
+    const { getDelegatedWorkerToolsets } = await import('../app/lib/pi/delegation-policy');
+    await completeRunningPiDelegation({ id: 'managed-prior-task', resultStatus: 'ok', resultText: 'Done.' });
+    assert.deepEqual(await getDelegatedWorkerToolsets({ userId: 'dispatcher-user', sessionId: 'managed-worker-reused' }), []);
+    let resumedRequest: DelegateTaskRequest | undefined;
+    dispatcher = new PiDelegationDispatcher({
+      maxConcurrency: 1, pollIntervalMs: 60_000, recoverInterrupted: false,
+      startDelegatedRunFn: async (request) => {
+        resumedRequest = request;
+        return { ...completionResult(request, ''), status: 'accepted', reply: undefined };
+      },
+      deliverCompletionFn: async () => undefined,
+    });
+    const managedRequest = {
+      userId: 'dispatcher-user', sourceAgentId: 'bradley', sourceSessionId: 'managed-parent-original',
+      targetAgentId: 'research-agent', sessionId: 'managed-worker-reused',
+      goal: 'Follow up on prior work', toolsets: ['file'], waitForResult: false, timeoutSeconds: 0,
+    } satisfies DelegateTaskRequest;
+    const initialCount = (await db.select().from(piDelegations)).length;
+    for (const { request, reason } of [
+      { request: { ...managedRequest, sourceSessionId: 'managed-parent-other' }, reason: /does not belong to this Bradley chat/u },
+      { request: { ...managedRequest, sourceSessionId: 'managed-parent-other-workspace' }, reason: /does not belong to this Bradley chat/u },
+      { request: { ...managedRequest, userId: 'dispatcher-foreign-user', sourceSessionId: 'managed-parent-foreign-user' }, reason: /not found or is ambiguous/u },
+      { request: { ...managedRequest, targetAgentId: 'other-agent' }, reason: /belongs to a different agent/u },
+      { request: { ...managedRequest, sessionId: 'managed-worker-wrong-kind' }, reason: /does not belong to this Bradley chat/u },
+      { request: { ...managedRequest, sessionId: 'managed-worker-wrong-depth' }, reason: /does not belong to this Bradley chat/u },
+      { request: { ...managedRequest, sessionId: 'managed-worker-other-workspace' }, reason: /different workspace/u },
+    ]) {
+      await assert.rejects(dispatcher.enqueue(request), reason);
+      assert.equal((await db.select().from(piDelegations)).length, initialCount,
+        'an unauthorized managed-session reuse must be rejected before queue persistence');
+    }
+    const validFollowup = await dispatcher.enqueue(managedRequest);
+    assert.equal(validFollowup.status, 'accepted');
+    assert.equal(validFollowup.session_id, 'managed-worker-reused');
+    assert.notEqual(validFollowup.delegation_id, 'managed-prior-task');
+    assert.equal((await db.select().from(piDelegations)).length, initialCount + 1);
+    await waitFor(() => Boolean(resumedRequest), 'The valid managed follow-up did not start.');
+    assert.equal(resumedRequest?.workerSessionId, 'managed-worker-reused');
+    assert.deepEqual(resumedRequest?.toolsets, ['file']);
+    assert.deepEqual(await getDelegatedWorkerToolsets({ userId: 'dispatcher-user', sessionId: 'managed-worker-reused' }), ['file']);
+    await resumedRequest?.onCompletion?.(completionResult(resumedRequest, 'Follow-up complete.'));
+    await waitFor(() => dispatcher!.getActiveCount() === 0, 'The managed follow-up did not settle.');
+    assert.equal((await getPiDelegation(validFollowup.delegation_id!))?.status, 'completed');
+    assert.deepEqual(await getDelegatedWorkerToolsets({ userId: 'dispatcher-user', sessionId: 'managed-worker-reused' }), []);
+    const { loadPiSession } = await import('../app/lib/pi/session-store');
+    const savedWorkerHistory = await loadPiSession('managed-worker-reused', 'dispatcher-user', 'research-agent');
+    assert.ok(savedWorkerHistory?.some((message) => message.role === 'user' && message.content === 'Prior managed context'));
 
     console.log('pi-delegation-dispatcher-test: ok');
   } finally {

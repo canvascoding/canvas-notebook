@@ -98,6 +98,7 @@ export async function POST(request: NextRequest) {
       userId: session.user.id,
       sourceSessionId: typeof payload?.sourceSessionId === 'string' ? payload.sourceSessionId : '',
       targetAgentId: typeof payload?.targetAgentId === 'string' ? payload.targetAgentId : '',
+      sessionId: payload?.sessionId,
       goal: payload?.goal,
       context: payload?.context,
       toolsets: payload?.toolsets,

@@ -26,6 +26,24 @@ export type CreatePiDelegationInput = {
   toolsets: string[];
 };
 
+export class ManagedWorkerBusyError extends Error {
+  readonly code = 'MANAGED_WORKER_BUSY';
+
+  constructor() {
+    super('Managed worker session already has a queued or running task. Wait for it to finish before continuing this session.');
+    this.name = 'ManagedWorkerBusyError';
+  }
+}
+
+function isPostgresUniqueViolation(error: unknown): boolean {
+  for (let depth = 0; depth < 5 && error && typeof error === 'object'; depth += 1) {
+    const candidate = error as { code?: unknown; cause?: unknown };
+    if (candidate.code === '23505') return true;
+    error = candidate.cause;
+  }
+  return false;
+}
+
 function parseToolsets(value: string): string[] {
   try {
     const parsed = JSON.parse(value) as unknown;
@@ -43,25 +61,42 @@ export function piDelegationToolsets(record: Pick<PiDelegationRecord, 'toolsetsJ
 
 export async function createPiDelegation(input: CreatePiDelegationInput): Promise<PiDelegationRecord> {
   const now = new Date();
-  const [created] = await db.insert(piDelegations).values({
-    id: input.id,
-    userId: input.userId,
-    sourceSessionId: input.sourceSessionId,
-    sourceAgentId: input.sourceAgentId,
-    workerSessionId: input.workerSessionId,
-    requestedSessionId: input.requestedSessionId ?? null,
-    targetAgentId: input.targetAgentId ?? null,
-    workerType: input.workerType,
-    goal: input.goal,
-    context: input.context ?? null,
-    workerRole: input.workerRole ?? null,
-    toolsetsJson: JSON.stringify(input.toolsets),
-    status: 'queued',
-    deliveryStatus: 'pending',
-    attemptCount: 0,
-    createdAt: now,
-    updatedAt: now,
-  }).returning();
+  let created: PiDelegationRecord | undefined;
+  try {
+    [created] = await db.insert(piDelegations).values({
+      id: input.id,
+      userId: input.userId,
+      sourceSessionId: input.sourceSessionId,
+      sourceAgentId: input.sourceAgentId,
+      workerSessionId: input.workerSessionId,
+      requestedSessionId: input.requestedSessionId ?? null,
+      targetAgentId: input.targetAgentId ?? null,
+      workerType: input.workerType,
+      goal: input.goal,
+      context: input.context ?? null,
+      workerRole: input.workerRole ?? null,
+      toolsetsJson: JSON.stringify(input.toolsets),
+      status: 'queued',
+      deliveryStatus: 'pending',
+      attemptCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    }).returning();
+  } catch (error) {
+    if (input.workerType === 'managed' && isPostgresUniqueViolation(error)) {
+      const active = await db.query.piDelegations.findFirst({
+        where: and(
+          eq(piDelegations.userId, input.userId),
+          eq(piDelegations.workerSessionId, input.workerSessionId),
+          eq(piDelegations.workerType, 'managed'),
+          inArray(piDelegations.status, ['queued', 'running']),
+        ),
+        columns: { id: true },
+      });
+      if (active) throw new ManagedWorkerBusyError();
+    }
+    throw error;
+  }
   if (!created) {
     throw new Error('Delegation task could not be persisted.');
   }

@@ -194,8 +194,16 @@ export class PiDelegationDispatcher {
     }
 
     await this.initialize();
+    const requestedSessionId = request.sessionId?.trim();
+    if (requestedSessionId) {
+      if (!request.targetAgentId) {
+        throw new Error('session_id can only be used with target_agent_id.');
+      }
+      const { requireManagedDelegatedSessionReuse } = await import('@/app/lib/pi/delegate-task-tool');
+      await requireManagedDelegatedSessionReuse(request, requestedSessionId);
+    }
     const delegationId = request.delegationId?.trim() || buildDelegationId();
-    const workerSessionId = request.sessionId?.trim()
+    const workerSessionId = requestedSessionId
       || request.workerSessionId?.trim()
       || buildWorkerSessionId();
     const workerType = request.targetAgentId ? 'managed' : 'ephemeral';
