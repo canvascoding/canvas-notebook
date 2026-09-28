@@ -23,8 +23,9 @@ async function harness() {
   const load = createRequire(file);
   const rows = new Map<string, Row>();
   const audits = new Set<string>();
-  const controls = { planId: PLAN_A, blocked: false, executionCount: 0,
+  const controls = { planId: PLAN_A, blocked: false, coverageComplete: true, executionCount: 0,
     auditAvailable: true, auditWrites: 0, journalStatus: 'completed',
+    metrics: [] as Array<Record<string, unknown>>,
     lastExecutionInput: null as Record<string, unknown> | null,
     snapshotEntries: [] as Array<{ path: string; kind: 'file' | 'directory'; identity: string;
       markdownContent?: string }> };
@@ -103,11 +104,15 @@ async function harness() {
           sourceIdentity: 'identity', sourceWorkspaceId: 'workspace-one', destinationWorkspaceId: 'workspace-one' }],
         linkEdits: [{ sourcePathBefore: 'index.md', sourcePathAfter: 'index.md',
           previousTargetLiteral: './target.md', nextTargetLiteral: './moved.md' }],
-        coverage: { complete: true, omittedSources: [], unresolvedLinks: [] }, expectedPathState: [],
+        coverage: { complete: controls.coverageComplete,
+          omittedSources: controls.coverageComplete ? [] : [{ path: 'big.md', reason: 'source-too-large' }],
+          unresolvedLinks: [] }, expectedPathState: [],
         collisions: controls.blocked ? [{ workspaceId: 'workspace-one', path: 'moved.md' }] : [],
-        recoveryReady: true, readiness: controls.blocked ? 'blocked' : 'ready',
+        recoveryReady: true, readiness: controls.blocked || !controls.coverageComplete ? 'blocked' : 'ready',
         issues: controls.blocked ? [{ code: 'destination-collision', workspaceId: 'workspace-one',
-          path: 'moved.md', detail: 'occupied' }] : [], previewContents: [] }),
+          path: 'moved.md', detail: 'occupied' }] : controls.coverageComplete ? [] : [{
+          code: 'incomplete-index', workspaceId: 'workspace-one', path: '.', detail: 'big Markdown file',
+        }], previewContents: [] }),
       buildWorkspacePlannerSnapshot: async () => ({ workspaceId: 'workspace-one', entries: controls.snapshotEntries }),
       assertFreshWorkspaceFileOperationPlan: (_plan: { planId: string }, planId: string) => {
         if (_plan.planId !== planId) throw Error('stale');
@@ -115,6 +120,9 @@ async function harness() {
     };
     if (name === '@/app/lib/public-sharing/public-file-shares') return { syncPublicSharesAfterDelete: async () => undefined };
     if (name === '@/app/lib/workspaces/path-guard') return { resolveWorkspacePath: (_workspace: unknown, value: string) => ({ relativePath: value }) };
+    if (name === './workspace-operation-observability') return {
+      observeWorkspaceOperation: (input: Record<string, unknown>) => { controls.metrics.push(input); },
+    };
     if (name === './workspace-file-operation-service') return { executeWorkspaceFileOperationService: async (input: Record<string, unknown>) => {
       controls.executionCount += 1;
       controls.lastExecutionInput = input;
@@ -142,6 +150,7 @@ test('blocked collision preview remains readable and appears in attention list',
   const h = await harness(); h.controls.blocked = true;
   const submitted = await h.submit();
   assert.equal(submitted.mode, 'blocked');
+  assert.deepEqual(h.controls.metrics, [{ scope: 'review', kind: 'move', phase: 'preview', outcome: 'conflict' }]);
   if (submitted.mode !== 'blocked') return;
   const review = await h.service.getWorkspaceOperationReview(submitted.reviewId);
   assert.equal(review?.status, 'blocked');
@@ -150,6 +159,16 @@ test('blocked collision preview remains readable and appears in attention list',
   await assert.rejects(h.accept(submitted.reviewId, submitted.planId), { code: 'REVIEW_CONFLICT' });
   const dismissed = await h.service.rejectWorkspaceOperationReview(submitted.reviewId, submitted.planId);
   assert.equal(dismissed.status, 'rejected');
+});
+
+test('an incomplete link plan emits one bounded event per persisted proposal', async () => {
+  const h = await harness(); h.controls.coverageComplete = false;
+  const submitted = await h.submit();
+  assert.equal(submitted.mode, 'blocked');
+  assert.deepEqual(h.controls.metrics, [{ scope: 'review', kind: 'move', phase: 'preview',
+    outcome: 'incomplete_link_plan', omittedSourceCount: 1, unresolvedLinkCount: 0 }]);
+  await h.submit();
+  assert.equal(h.controls.metrics.length, 1);
 });
 
 test('stale plan and revoked access stop before any mutation', async () => {
@@ -166,6 +185,7 @@ test('stale plan and revoked access stop before any mutation', async () => {
   await assert.rejects(h.accept(submitted.reviewId, submitted.planId), { code: 'PREVIEW_STALE' });
   assert.equal(h.controls.executionCount, 0);
   assert.equal((await h.service.getWorkspaceOperationReview(submitted.reviewId))?.status, 'stale');
+  assert.deepEqual(h.controls.metrics, [{ scope: 'review', kind: 'move', phase: 'apply', outcome: 'conflict' }]);
 });
 
 test('two concurrent accepts execute one operation with one audit receipt', async () => {
@@ -205,6 +225,7 @@ test('unavailable audit keeps applied data visible for recovery and later receip
   const first = await h.accept(submitted.reviewId, submitted.planId);
   assert.equal(first.status, 'needs_recovery');
   assert.equal(first.errorCode, 'AUDIT_WRITE_FAILED');
+  assert.deepEqual(h.controls.metrics, [{ scope: 'review', kind: 'move', phase: 'recovery', outcome: 'needs_recovery' }]);
   assert.equal(h.controls.executionCount, 1);
   h.controls.auditAvailable = true;
   const recovered = await h.service.getWorkspaceOperationReview(submitted.reviewId);

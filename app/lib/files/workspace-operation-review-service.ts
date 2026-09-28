@@ -19,6 +19,7 @@ import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-fil
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
+import { observeWorkspaceOperation } from './workspace-operation-observability';
 import { executeWorkspaceFileOperationService } from './workspace-file-operation-service';
 import { WorkspaceOperationJournal } from './workspace-operation-journal';
 import type { WorkspaceOperationDeletePreview, WorkspaceOperationReviewKind,
@@ -273,6 +274,12 @@ export async function submitAgentWorkspacePathOperation(input: SubmitAgentWorksp
     if (!concurrent || concurrent.request_hash !== requestHash || concurrent.plan_id !== preview.planId) {
       fail('REVIEW_IDEMPOTENCY_CONFLICT', 409, 'The review changed while creating it.');
     }
+  } else {
+    if (!preview.coverage.complete) observeWorkspaceOperation({ scope: 'review', kind: request.kind, phase: 'preview',
+      outcome: 'incomplete_link_plan', omittedSourceCount: preview.coverage.omittedSources.length,
+      unresolvedLinkCount: preview.coverage.unresolvedLinks.length });
+    if (collision) observeWorkspaceOperation({ scope: 'review', kind: request.kind,
+      phase: 'preview', outcome: 'conflict' });
   }
   return blocked
     ? { mode: 'blocked', reviewId, planId: preview.planId, workspaceId: sourceWorkspaceId,
@@ -342,8 +349,8 @@ export async function getWorkspaceOperationReview(reviewId: string): Promise<Wor
 
 export async function listWorkspaceOperationReviews(workspaceId: string): Promise<WorkspaceOperationReviewPublic[]> {
   const rows = await all(`SELECT * FROM workspace_file_operation_reviews
-    WHERE source_workspace_id = $1 AND status IN ('pending','blocked','stale','needs_recovery','failed','applying')
-    ORDER BY created_at DESC, review_id DESC LIMIT 100`, [workspaceId]);
+    WHERE source_workspace_id = $1 AND status IN ('pending','blocked','stale','needs_recovery','failed','applying','applied')
+    ORDER BY CASE WHEN status = 'applied' THEN 1 ELSE 0 END, created_at DESC, review_id DESC LIMIT 100`, [workspaceId]);
   return rows.map(readRow);
 }
 
@@ -359,7 +366,16 @@ async function updateReview(reviewId: string, expectedStatus: WorkspaceOperation
   [reviewId, expectedStatus, status, changes.operationId ?? null, changes.errorCode ?? null,
     changes.trashEntryIds ? JSON.stringify(changes.trashEntryIds) : null,
     changes.reviewerUserId ?? null, Date.now()]);
-  return row ? readRow(row) : null;
+  if (!row) return null;
+  const review = readRow(row);
+  if (expectedStatus !== status) {
+    const outcome = status === 'stale' ? 'conflict'
+      : status === 'needs_recovery' ? 'needs_recovery'
+        : status === 'failed' ? 'failed' : null;
+    if (outcome) observeWorkspaceOperation({ scope: 'review', kind: review.kind,
+      phase: status === 'needs_recovery' ? 'recovery' : 'apply', outcome });
+  }
+  return review;
 }
 
 export async function rejectWorkspaceOperationReview(reviewId: string, planId: string): Promise<WorkspaceOperationReviewPublic> {

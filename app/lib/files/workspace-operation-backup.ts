@@ -41,6 +41,13 @@ export type WorkspaceOperationBackup = {
   entries: WorkspaceOperationBackupEntry[];
 };
 
+export type WorkspaceOperationBackupListEntry =
+  | { status: 'manifest_valid'; backupId: string; operationId: string; originalPath: string;
+      itemType: WorkspaceOperationBackup['itemType']; capturedAt: string;
+      retention: WorkspaceOperationBackup['retention']; sizeBytes: number;
+      fileCount: number; directoryCount: number; contentSha256: string }
+  | { status: 'unavailable'; backupId: string };
+
 export class WorkspaceOperationBackupError extends Error {
   readonly status = 409;
   constructor(readonly code: 'INVALID_BACKUP' | 'CORRUPT_BACKUP' | 'UNSAFE_PATH' | 'RESTORE_COLLISION' | 'SOURCE_CHANGED', message: string) {
@@ -339,6 +346,40 @@ export async function getWorkspaceOperationBackup(input: {
   backupId: string;
 }): Promise<WorkspaceOperationBackup> {
   return (await loadBackup(input.workspace, input.backupId)).backup;
+}
+
+/** Workspace-scoped, bounded metadata listing. Payload integrity is verified at restore time. */
+export async function listWorkspaceOperationBackups(input: {
+  workspace: WorkspaceContext;
+  limit?: number;
+  cursor?: string;
+}): Promise<{ backups: WorkspaceOperationBackupListEntry[]; nextCursor: string | null }> {
+  if (input.cursor !== undefined && !ID_PATTERN.test(input.cursor)) {
+    fail('INVALID_BACKUP', 'Invalid file operation backup cursor.');
+  }
+  const limit = input.limit ?? 50;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    fail('INVALID_BACKUP', 'Backup list limit must be between 1 and 100.');
+  }
+  const scope = await storageRoot(input.workspace);
+  const names = (await fs.readdir(scope))
+    .filter((name) => ID_PATTERN.test(name) && (!input.cursor || name > input.cursor))
+    .sort();
+  const selected = names.slice(0, limit);
+  const backups: WorkspaceOperationBackupListEntry[] = [];
+  for (const backupId of selected) {
+    try {
+      const { backup } = await loadBackup(input.workspace, backupId);
+      backups.push({ status: 'manifest_valid', backupId, operationId: backup.operationId,
+        originalPath: backup.originalPath, itemType: backup.itemType, capturedAt: backup.capturedAt,
+        retention: backup.retention, sizeBytes: backup.sizeBytes, fileCount: backup.fileCount,
+        directoryCount: backup.directoryCount, contentSha256: backup.contentSha256 });
+    } catch {
+      // Keep a corrupt snapshot visible for support instead of silently omitting it.
+      backups.push({ status: 'unavailable', backupId });
+    }
+  }
+  return { backups, nextCursor: names.length > selected.length ? selected.at(-1) ?? null : null };
 }
 
 /** Verifies all stored bytes before restoring; never overwrites an existing target. Caller owns the mutation lock. */

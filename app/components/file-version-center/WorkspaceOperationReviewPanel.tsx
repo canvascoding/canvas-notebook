@@ -13,6 +13,11 @@ import {
   readWorkspaceOperationReview,
   WorkspaceOperationReviewClientError,
 } from '@/app/lib/files/workspace-operation-review-client';
+import {
+  readWorkspaceOperationUndoAvailability,
+  undoWorkspaceOperation,
+  type WorkspaceOperationUndoAvailability,
+} from '@/app/lib/files/workspace-operation-undo-client';
 import { useFileStore } from '@/app/store/file-store';
 import {
   closeWorkspaceOperationReview,
@@ -20,6 +25,7 @@ import {
   openWorkspaceOperationReviewList,
   type WorkspaceOperationReviewRequest,
 } from '@/app/store/workspace-operation-review-store';
+import { WorkspaceOperationBackupPanel } from './WorkspaceOperationBackupPanel';
 
 type ReviewData = { reviews: WorkspaceOperationReviewPublic[]; review: WorkspaceOperationReviewPublic | null };
 
@@ -149,6 +155,12 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
   const [error, setError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
   const [action, setAction] = useState<'accept' | 'reject' | null>(null);
+  const [undoAvailability, setUndoAvailability] = useState<{
+    operationId: string; value: WorkspaceOperationUndoAvailability;
+  } | null>(null);
+  const [undoAction, setUndoAction] = useState(false);
+  const [undoneOperationId, setUndoneOperationId] = useState<string | null>(null);
+  const [undoReload, setUndoReload] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -166,6 +178,38 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
     });
     return () => controller.abort();
   }, [request, reload, t]);
+
+  const appliedOperationId = data.review?.status === 'applied' ? data.review.operationId : null;
+  const appliedAt = data.review?.status === 'applied' ? data.review.updatedAt : null;
+  useEffect(() => {
+    if (!appliedOperationId) return;
+    const controller = new AbortController();
+    let retryTimer: number | null = null;
+    let projectionRetries = 0;
+    const check = async () => {
+      try {
+        const value = await readWorkspaceOperationUndoAvailability(appliedOperationId, request.workspaceId, controller.signal);
+        if (controller.signal.aborted) return;
+        if (value.reasonCode === 'UNDO_CONFLICT' && appliedAt && Date.now() - appliedAt < 45_000
+          && projectionRetries < 15) {
+          // The Yjs link can still be projecting to disk immediately after
+          // apply. Keep the action in a checking state for a bounded period.
+          projectionRetries += 1;
+          retryTimer = window.setTimeout(() => { void check(); }, 2000);
+          return;
+        }
+        setUndoAvailability({ operationId: appliedOperationId, value });
+      } catch {
+        if (!controller.signal.aborted) setUndoAvailability({ operationId: appliedOperationId,
+          value: { available: false, reason: null, reasonCode: 'UNDO_UNAVAILABLE', undoOperationId: null } });
+      }
+    };
+    void check();
+    return () => {
+      controller.abort();
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
+  }, [appliedAt, appliedOperationId, request.workspaceId, undoneOperationId, undoReload]);
 
   const retry = () => {
     setLoading(true);
@@ -197,7 +241,31 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
     }
   };
 
+  const undo = async () => {
+    const operationId = data.review?.operationId;
+    if (!operationId || undoAction || !undoAvailability?.value.available
+      || undoAvailability.operationId !== operationId) return;
+    setUndoAction(true);
+    setError(null);
+    try {
+      const result = await undoWorkspaceOperation(operationId, request.workspaceId);
+      if (result.status !== 'applied') throw new Error(result.status === 'needs_recovery'
+        ? `${t('undoNeedsRecovery')} ${result.undoOperationId}` : t('undoFailed'));
+      setUndoneOperationId(operationId);
+      setUndoAvailability({ operationId, value: { available: false,
+        reason: null, reasonCode: 'ALREADY_UNDONE', undoOperationId: result.undoOperationId } });
+      void useFileStore.getState().refreshVisibleTree();
+    } catch (undoError) {
+      setError(undoError instanceof Error ? undoError.message : t('undoFailed'));
+    } finally {
+      setUndoAction(false);
+    }
+  };
+
   const review = data.review;
+  const currentUndoAvailability = undoAvailability && review?.operationId === undoAvailability.operationId
+    ? undoAvailability.value : null;
+  const undoLoading = Boolean(appliedOperationId) && currentUndoAvailability === null;
   const canReject = review && ['pending', 'blocked', 'stale'].includes(review.status);
   const canAccept = review?.status === 'pending' && review.preview.readiness === 'ready';
   return <DialogContent layout="viewport" data-testid="workspace-operation-review-center" aria-busy={loading || action !== null}>
@@ -229,8 +297,24 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
             </span>
           </span>
         </button>)}
+        <WorkspaceOperationBackupPanel workspaceId={request.workspaceId} />
       </div> : null}
       {!loading && review ? <ReviewDetails review={review} /> : null}
+      {!loading && review?.status === 'applied' && review.operationId ? <div className="space-y-2 px-4 pb-4 text-xs sm:px-6">
+        {undoLoading ? <p role="status" className="text-muted-foreground">{t('undoChecking')}</p> : null}
+        {undoneOperationId === review.operationId || currentUndoAvailability?.reasonCode === 'ALREADY_UNDONE'
+          ? <p role="status" className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-3">{t('undone')}</p>
+          : currentUndoAvailability && !currentUndoAvailability.available
+            ? <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/20 p-3 text-muted-foreground">
+              <span className="min-w-0 flex-1">{t(currentUndoAvailability.reasonCode === 'UNDO_CONFLICT'
+                ? 'undoConflict' : 'undoUnavailable')}</span>
+              <Button variant="outline" size="sm" onClick={() => {
+                setUndoAvailability(null);
+                setUndoReload((value) => value + 1);
+              }}>{t('undoRetry')}</Button>
+            </div>
+            : null}
+      </div> : null}
     </div>
     <DialogFooter className="shrink-0 border-t px-4 py-3 sm:px-6">
       {request.mode === 'detail' ? <Button variant="ghost" onClick={() => openWorkspaceOperationReviewList(request.workspaceId)}>
@@ -247,6 +331,11 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
       {canAccept ? <Button onClick={() => void decide('accept')} disabled={action !== null}>
         {action === 'accept' ? <Loader2 className="size-4 animate-spin" /> : null}{t('accept')}
       </Button> : null}
+      {review?.status === 'applied' && review.operationId
+        && currentUndoAvailability?.available
+        ? <Button variant="outline" onClick={() => void undo()} disabled={undoAction || action !== null}>
+          {undoAction ? <Loader2 className="size-4 animate-spin" /> : null}{t('undo')}
+        </Button> : null}
     </DialogFooter>
   </DialogContent>;
 }

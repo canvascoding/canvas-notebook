@@ -47,6 +47,8 @@ async function compileUi(controls: {
   reads: string[];
   decisions: Array<{ reviewId: string; planId: string; action: string }>;
   opens: string[];
+  undoChecks: string[];
+  undoCalls: string[];
   current: () => WorkspaceOperationReviewPublic;
   decide: (action: 'accept' | 'reject') => Promise<WorkspaceOperationReviewPublic>;
 }) {
@@ -83,6 +85,22 @@ async function compileUi(controls: {
         return controls.decide(input.action);
       },
     },
+    '@/app/lib/files/workspace-operation-undo-client': {
+      readWorkspaceOperationUndoAvailability: async (id: string) => {
+        controls.undoChecks.push(id);
+        return controls.undoCalls.length
+          ? { available: false, reason: 'Operation already undone.', reasonCode: 'ALREADY_UNDONE', undoOperationId: 'undo-one' }
+          : { available: true, reason: null, reasonCode: null, undoOperationId: 'undo-one' };
+      },
+      undoWorkspaceOperation: async (id: string) => {
+        controls.undoCalls.push(id);
+        return { originalOperationId: id, undoOperationId: 'undo-one', kind: 'move',
+          status: 'applied', restoredPaths: ['Docs/target.md'], linkStatus: 'complete' };
+      },
+    },
+    './WorkspaceOperationBackupPanel': {
+      WorkspaceOperationBackupPanel: () => <section data-testid="workspace-operation-backups" />,
+    },
     '@/app/store/file-store': { useFileStore: { getState: () => ({ refreshVisibleTree: async () => undefined }) } },
     '@/app/store/workspace-operation-review-store': {
       closeWorkspaceOperationReview: () => undefined,
@@ -107,10 +125,10 @@ test('workspace operation review shows all decisions against the displayed plan 
   Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
   Object.defineProperty(globalThis, 'HTMLElement', { configurable: true, value: dom.window.HTMLElement });
   Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, writable: true, value: true });
-  const controls = {
+  const controls: Parameters<typeof compileUi>[0] = {
     reads: [] as string[], decisions: [] as Array<{ reviewId: string; planId: string; action: string }>,
-    opens: [] as string[], current: () => review(),
-    decide: async (_action: 'accept' | 'reject') => review('applied'),
+    opens: [] as string[], undoChecks: [] as string[], undoCalls: [] as string[], current: () => review(),
+    decide: async (_action: 'accept' | 'reject') => ({ ...review('applied'), operationId: 'operation-one' }),
   };
   const ui = await compileUi(controls);
   const { createRoot } = await import('react-dom/client');
@@ -135,6 +153,12 @@ test('workspace operation review shows all decisions against the displayed plan 
     assert.deepEqual(controls.decisions, [{ reviewId, workspaceId, planId: 'plan-sha-123', action: 'accept' }]);
     assert.match(document.body.textContent ?? '', /Applied/u);
     assert.equal(findButton(translate('accept')), undefined);
+    assert.deepEqual(controls.undoChecks, ['operation-one']);
+    assert.ok(findButton(translate('undo')), 'applied operation exposes a checked undo action');
+    await act(async () => findButton(translate('undo'))?.click());
+    assert.deepEqual(controls.undoCalls, ['operation-one']);
+    assert.match(document.body.textContent ?? '', /file action was undone/u);
+    assert.equal(findButton(translate('undo')), undefined);
 
     controls.current = () => review('stale');
     await act(async () => root.render(<ui.WorkspaceOperationReviewPanel key="stale" request={{ mode: 'detail', reviewId, workspaceId }} />));

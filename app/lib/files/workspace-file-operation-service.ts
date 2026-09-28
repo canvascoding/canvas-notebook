@@ -6,13 +6,15 @@ import path from 'node:path';
 import { copyFileBetweenWorkspaces, readFile, withWorkspaceCopyMutationLocks,
   type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview,
-  WorkspacePreviewBlockedError } from '@/app/lib/markdown/workspace-file-operation-preview';
+  WorkspacePreviewBlockedError, WorkspacePreviewStaleError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-write-groups';
 import { applyWorkspaceLinkWriteGroup, preflightWorkspaceLinkWrites,
   probeWorkspaceLinkWriteGroup, type WorkspaceLinkWriteExecutorInput } from '@/app/lib/markdown/workspace-link-write-executor';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { initializeCopiedFileCollaborationPaths } from './collaboration-policy';
+import { observeWorkspaceOperation, type WorkspaceOperationMetricPhase } from './workspace-operation-observability';
+import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { createWorkspaceFileOperationExecutor, type WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
 import { WorkspaceOperationJournal, type WorkspaceOperationRequest } from './workspace-operation-journal';
 import { probeWorkspacePathOperation, probeWorkspacePathSelectionOperation } from './workspace-operation-path-probe';
@@ -108,6 +110,13 @@ function sameRequestedSelections(input: WorkspaceFileOperationServiceInput, requ
   });
 }
 
+function observeExecutionStatus(kind: WorkspaceFileOperationServiceInput['kind'],
+  status: WorkspaceOperationExecutionResult['status'], phase: WorkspaceOperationMetricPhase): void {
+  if (status === 'needs_recovery' || status === 'failed') {
+    observeWorkspaceOperation({ scope: 'executor', kind, phase, outcome: status });
+  }
+}
+
 /** Browser/mobile and in-workspace agent operations enter through the same fenced executor. */
 export async function executeWorkspaceFileOperationService(
   input: WorkspaceFileOperationServiceInput,
@@ -116,7 +125,8 @@ export async function executeWorkspaceFileOperationService(
   const operationId = operationIdFor(input);
   const sourceWorkspaceId = input.source.workspace.workspaceId;
   const destinationWorkspaceId = input.destination.workspace.workspaceId;
-  return withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, async () => {
+  try {
+    return await withWorkspaceCopyMutationLocks(input.source.fileOptions, input.destination.fileOptions, async () => {
     const journal = new WorkspaceOperationJournal();
     const staging = new WorkspaceOperationStaging();
     let rename: WorkspacePathRenameResult | null = null;
@@ -138,6 +148,12 @@ export async function executeWorkspaceFileOperationService(
         kind: input.kind, sourceWorkspaceId, destinationWorkspaceId,
         sourceOptions: input.source.fileOptions, destinationOptions: input.destination.fileOptions,
         selections: input.selections, renameOnCollision: input.renameOnCollision,
+      });
+      if (!plan.coverage.complete) observeWorkspaceOperation({ scope: 'executor', kind: input.kind, phase: 'preview',
+        outcome: 'incomplete_link_plan', omittedSourceCount: plan.coverage.omittedSources.length,
+        unresolvedLinkCount: plan.coverage.unresolvedLinks.length });
+      if (plan.collisions.length > 0) observeWorkspaceOperation({
+        scope: 'executor', kind: input.kind, phase: 'preview', outcome: 'conflict',
       });
       if (input.expectedPlanId) assertFreshWorkspaceFileOperationPlan(plan, input.expectedPlanId);
       else if (plan.readiness !== 'ready') throw new WorkspacePreviewBlockedError();
@@ -167,13 +183,19 @@ export async function executeWorkspaceFileOperationService(
           apply: async () => {
             if (request.kind === 'copy') throw new Error('Copy requires a per-selection path step.');
             const selection = request.selections[0];
+            // Keep the original bytes after the recovery stage is retired. Undo
+            // only uses this snapshot after checking every current path and link.
+            const undoBackup = await captureWorkspaceOperationBackup({
+              workspace: input.source.workspace, path: selection.sourcePath, operationId,
+            });
             rename = await renameWorkspacePath({
               workspace: input.source.workspace,
               oldPath: selection.sourcePath, newPath: selection.destinationPath,
               overwrite: false, fileOptions: input.source.fileOptions,
             });
             return { kind: request.kind, sourcePath: selection.sourcePath,
-              destinationPath: selection.destinationPath, mutationId: rename.mutation.operationId };
+              destinationPath: selection.destinationPath, mutationId: rename.mutation.operationId,
+              undoBackupId: undoBackup.backupId };
           },
           applySelection: async (_stage, selection) => {
             if (request.kind !== 'copy') throw new Error('Selection copy cannot apply to rename or move.');
@@ -212,6 +234,7 @@ export async function executeWorkspaceFileOperationService(
     if (known) {
       const execution = await executor.recover({ operationId, planId: known.planId,
         sourceWorkspaceId, destinationWorkspaceId });
+      observeExecutionStatus(input.kind, execution.status, 'recovery');
       if (request.kind === 'copy' && execution.status === 'complete') {
         copied.push(...request.selections.map((selection) => selection.destinationPath));
       }
@@ -227,6 +250,16 @@ export async function executeWorkspaceFileOperationService(
       operationId, actor: { type: input.actorType ?? 'user', id: input.actorUserId },
       request, preview, sourceWorkspaceId, destinationWorkspaceId, originalDocuments,
     });
+    observeExecutionStatus(input.kind, execution.status, 'apply');
     return { execution, plan: preview, rename, copied, alreadyKnown: false };
-  });
+    });
+  } catch (error) {
+    if (error instanceof WorkspacePreviewStaleError || (error as { status?: unknown })?.status === 409) {
+      observeWorkspaceOperation({ scope: 'executor', kind: input.kind, phase: 'apply', outcome: 'conflict' });
+    } else if (!(error instanceof WorkspacePreviewBlockedError)
+      && ![403, 422].includes(Number((error as { status?: unknown })?.status))) {
+      observeWorkspaceOperation({ scope: 'executor', kind: input.kind, phase: 'apply', outcome: 'failed' });
+    }
+    throw error;
+  }
 }
