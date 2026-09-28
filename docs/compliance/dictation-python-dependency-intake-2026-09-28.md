@@ -37,3 +37,44 @@ declared license combination. Then update the Docker runtime review and
 version-specific review decisions, run the final image compliance gates, and
 record the responsible release decision. The existing `releaseApproval` entry
 documents the prior inventory; this intake does not extend that approval.
+
+## Technical wheel review, 2026-09-28
+
+The 13 additions were downloaded as CPython 3.11 wheels for both Linux target
+architectures (`manylinux_2_28`/`manylinux2014`, amd64 and arm64). Every selected
+wheel's SHA-256 matches a hash in `requirements/runtime-python.txt`. The normal
+`npm run test:licenses` check passes with 1967 components and 13 release blockers;
+`npm run test:licenses:release` fails on those blockers as intended. This is a
+wheel-content review, not a review of either final Docker image.
+
+Nine distributions have no native `.so` payload in their wheels: anyio,
+faster-whisper, filelock, fsspec, h11, httpcore, httpx, huggingface-hub, and
+tqdm. All nine include a license file. `tqdm` declares `MPL-2.0 AND MIT`; its
+wheel's `LICENCE` contains the MIT text and an MPL-2.0 Exhibit A reference,
+but not the complete MPL-2.0 text. It therefore still needs the MPL text,
+file-level obligations, and notices checked for the actual distribution.
+
+The four native-wheel findings are:
+
+| Distribution | amd64 wheel SHA-256 | arm64 wheel SHA-256 | Finding |
+| --- | --- | --- | --- |
+| `av 18.1.0` | `8a032e8d8ebc73dec079364b9b4a6837638a2d106e8472314e685ffbf163e700` | `6fc837cc51adf80331ac850779cd53b5d4c4460bebe9057a02a921c6736f19d` | PyAV's BSD text is present, but the wheels also contain 32/31 `av.libs` shared libraries. `libavcodec` has ELF `NEEDED` entries for bundled `libx264` and `libx265` on both architectures. The wheel does not contain corresponding FFmpeg/codec license texts or source-offer evidence. |
+| `ctranslate2 4.8.2` | `a24e0a95151b970941867fec94c983df978630f1996242a587c072d455607d28` | `3823c9883c2c410a76b2f19feda9da628a3c112cedfd912db815e0055c8235e2` | The MIT declaration is present in metadata, but neither wheel contains a license file. Both bundle `libctranslate2` and `libgomp`; their exact notice/source obligations still need review. |
+| `hf-xet 1.6.0` | `d62671bb130879cef0ee4c9ebe47a14af6c66ec53e6d84dc15936e5ffdfac82f` | `0e6e21fa3cdfcdcd76748564bf593870a5e013f47d97cf10aed63aa222cff5b7` | Apache-2.0 text is present. The Rust/Python native extension still needs a version-specific review of bundled third-party code and notices. |
+| `tokenizers 0.23.2` | `41c2f84d172449b4dadb9cdc508e3e364076613c35b16e76ecfe47a60d1e3305` | `a37039b5dfc4af84eb3ef0a92f4307e28936c8f9adccba2629d36f652e9bf7a2` | Both wheels contain a native extension but no license file or license expression. The exact PyPI source distribution (`sha256:7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac`) does include an Apache-2.0 `tokenizers/LICENSE`; wheel notices and native transitive code remain to be accounted for. |
+
+The `av` finding is the material release concern. [FFmpeg's license
+documentation](https://ffmpeg.org/doxygen/trunk/md_LICENSE.html) identifies
+`libx264` and `libx265` as GPL libraries and says that combining them with
+FFmpeg requires GPL treatment. The exact wheels' ELF dependencies establish
+that these libraries are linked into the bundled FFmpeg payload; PyAV's
+BSD-3-Clause metadata alone does not cover it. The effect on the Canvas
+distribution and any corresponding-source obligations require a responsible
+legal/owner decision. Rebuilding PyAV against a reviewed FFmpeg configuration
+or using a different decoder is a potential remediation, but neither has been
+implemented or verified here.
+
+Do not remove the 13 policy blockers or extend the earlier release approval on
+the basis of this review. Before release, resolve the PyAV/FFmpeg codec payload,
+complete the remaining native and notice/source checks, inspect the final
+amd64/arm64 image inventories, and record a new version-specific approval.
