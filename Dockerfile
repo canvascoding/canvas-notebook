@@ -240,6 +240,10 @@ RUN node ./scripts/capture-runtime-component-inventory.mjs \
 RUN node ./scripts/runtime-component-inventory-test.mjs \
   /app/docs/compliance/runtime-components.json \
   /app/requirements/runtime-python.txt
+RUN python3 ./scripts/capture-dictation-native-evidence.py \
+  /app/docs/compliance/dictation-native-evidence.json \
+  && node ./scripts/dictation-native-evidence-test.mjs \
+    /app/docs/compliance/dictation-native-evidence.json
 RUN node ./scripts/sharp-runtime-linkage-test.mjs \
   /app/docs/compliance/sharp-linkage.json
 
