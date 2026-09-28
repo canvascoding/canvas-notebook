@@ -130,6 +130,15 @@ async function main() {
     assert.equal(calls[0].context, 'Look only at the docs folder');
     assert.equal(calls[0].timeoutSeconds, 0);
 
+    const controlSchema = tool.parameters as { required?: string[]; properties?: Record<string, unknown> };
+    assert.equal(controlSchema.required?.includes('goal') ?? false, false);
+    assert.ok(controlSchema.properties?.action);
+    assert.match(getText(await tool.execute('missing-goal', { action: 'spawn' })), /goal is required/);
+    assert.match(getText(await tool.execute('missing-stop-id', { action: 'stop' })), /delegation_id is required/);
+    assert.match(getText(await tool.execute('missing-steer-id', { action: 'steer', message: 'Adjust' })), /delegation_id is required/);
+    assert.match(getText(await tool.execute('missing-receipt-task', { action: 'list', receipt_id: 'steer-1' })), /delegation_id is required/);
+    assert.match(getText(await tool.execute('unauthorized-list', { action: 'list' })), /Error:/);
+
     const compatibilityDispatch = await tool.execute('delegate-wait', {
       goal: 'Summarize the deployment notes',
       wait_for_result: true,

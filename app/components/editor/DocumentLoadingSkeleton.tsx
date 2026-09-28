@@ -12,7 +12,7 @@ export function DocumentLoadingSkeleton({ label, path, showHeader = false }: {
       className="flex h-full min-h-24 flex-col bg-background">
       <span className="sr-only">{label}</span>
       {showHeader ? (
-        <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
+        <div className="flex h-10 shrink-0 items-center justify-between gap-3 border-b border-border px-3 py-2 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
             <Skeleton className="h-4 w-10 shrink-0" />
             <div className="min-w-0">

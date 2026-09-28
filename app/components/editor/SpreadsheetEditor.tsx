@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as XLSX from 'xlsx';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import jspreadsheet from 'jspreadsheet-ce';
 import { workspaceDownloadUrl, workspaceHeaders } from '@/app/lib/files/client';
 
@@ -70,6 +71,8 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     const [fileExtension, setFileExtension] = useState<string>('');
     const [sheetNames, setSheetNames] = useState<string[]>([]);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const onChangeRef = useRef(onChange);
+    useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
 
     const getSheetData = (sheetIndex: number): SpreadsheetCellValue[][] => {
       const instance = jspreadsheetInstanceRef.current;
@@ -129,6 +132,10 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     useEffect(() => {
       const extension = path.split('.').pop()?.toLowerCase() || '';
       setFileExtension(extension);
+      const abortController = new AbortController();
+      const containerElement = containerRef.current;
+      let active = true;
+      let ownedInstance: ReturnType<typeof jspreadsheet> | null = null;
 
       const loadSpreadsheet = async () => {
         try {
@@ -138,23 +145,26 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
           console.log('[SpreadsheetEditor] Loading file:', path);
           
           // Fetch file content
-          const fetchOptions: RequestInit = { credentials: 'include' };
+          const fetchOptions: RequestInit = { credentials: 'include', signal: abortController.signal };
           if (!sourceUrl) {
             fetchOptions.headers = workspaceHeaders();
           }
 
           const response = await fetch(sourceUrl ?? workspaceDownloadUrl(path), fetchOptions);
+          if (!active) return;
           
           console.log('[SpreadsheetEditor] Response status:', response.status, response.statusText);
           console.log('[SpreadsheetEditor] Content-Type:', response.headers.get('content-type'));
           
           if (!response.ok) {
             const errorText = await response.text();
+            if (!active) return;
             console.error('[SpreadsheetEditor] API Error response:', errorText);
             throw new Error(`Failed to load file: ${response.status} ${response.statusText}`);
           }
 
           const arrayBuffer = await response.arrayBuffer();
+          if (!active) return;
           
           console.log('[SpreadsheetEditor] ArrayBuffer size:', arrayBuffer.byteLength);
           
@@ -219,12 +229,13 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
             });
           }
 
+          if (!active) return;
           setSheetNames(sheets.map(s => s.name));
           
           // Initialize Jspreadsheet with all worksheets
-          if (containerRef.current) {
+          if (containerElement) {
             // Clear any existing content
-            containerRef.current.innerHTML = '';
+            containerElement.innerHTML = '';
             
             const worksheets = sheets.map(sheet => ({
               data: sheet.data,
@@ -233,25 +244,28 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
               name: sheet.name,
             }));
             
-            const instance = jspreadsheet(containerRef.current, {
+            const instance = jspreadsheet(containerElement, {
               worksheets: worksheets,
               parseFormulas: true,
               tabs: sheets.length > 1,
               onchange: () => {
-                if (readOnly) return;
+                if (!active || readOnly) return;
                 setHasUnsavedChanges(true);
-                onChange?.();
+                onChangeRef.current?.();
               },
               onload: () => {
+                if (!active) return;
                 setHasUnsavedChanges(false);
                 setIsLoading(false);
               },
               editable: !readOnly,
             } as Parameters<typeof jspreadsheet>[1]);
 
+            ownedInstance = instance;
             jspreadsheetInstanceRef.current = instance;
           }
         } catch (err) {
+          if (!active || abortController.signal.aborted) return;
           console.error('[SpreadsheetEditor] Error:', err);
           setError(err instanceof Error ? err.message : 'Unknown error loading file');
           setIsLoading(false);
@@ -260,19 +274,17 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
 
       loadSpreadsheet();
 
-      // Store ref value in a variable for the cleanup function
-      const containerElement = containerRef.current;
-
       return () => {
-        // Cleanup
-        if (jspreadsheetInstanceRef.current) {
-          if (containerElement) {
-            jspreadsheet.destroy(containerElement as Parameters<typeof jspreadsheet.destroy>[0], true);
-          }
+        active = false;
+        abortController.abort();
+        if (ownedInstance && containerElement) {
+          jspreadsheet.destroy(containerElement as Parameters<typeof jspreadsheet.destroy>[0], true);
+        }
+        if (jspreadsheetInstanceRef.current === ownedInstance) {
           jspreadsheetInstanceRef.current = null;
         }
       };
-    }, [path, onChange, readOnly, sourceUrl]);
+    }, [path, readOnly, sourceUrl]);
 
     const convertToBase64 = useCallback((extension: string): string => {
       if (extension === 'csv') {
@@ -364,13 +376,10 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     }
 
     return (
-      <div className="spreadsheet-editor-shell flex h-full w-full flex-col bg-background">
+      <div className="spreadsheet-editor-shell relative flex h-full w-full flex-col bg-background">
         {isLoading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="text-xs text-muted-foreground">Loading spreadsheet...</span>
-            </div>
+          <div className="absolute inset-0 z-50 bg-background">
+            <DocumentLoadingSkeleton path={path} label="Loading spreadsheet" />
           </div>
         )}
         <div 

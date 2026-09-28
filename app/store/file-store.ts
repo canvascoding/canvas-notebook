@@ -1039,13 +1039,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       };
     }
     const shouldRevealInExplorer = options.explorerBehavior !== 'preserve';
+    const currentFile = get().currentFile;
+    const needsFileLoad = currentFile?.path !== normalizedPath
+      || get().currentFileWorkspaceId !== workspaceId
+      || Boolean(options.expectedDocumentId && currentFile?.collaboration?.document?.id !== options.expectedDocumentId);
     const openRequestId = get().openFileRequestId + 1;
     // Even selecting the already open file cancels an older in-flight load.
     set((state) => ({
       openFileRequestId: openRequestId,
       fileLoadRequestId: state.fileLoadRequestId + 1,
-      isLoadingFile: false,
-      loadingFilePath: null,
+      isLoadingFile: needsFileLoad,
+      loadingFilePath: needsFileLoad ? normalizedPath : null,
       ...(shouldRevealInExplorer ? { searchQuery: '' } : {}),
       browserReveal: shouldRevealInExplorer && options.revealInTree !== false
         ? { path: normalizedPath, workspaceId, requestId: openRequestId, status: 'loading' }
@@ -1057,9 +1061,15 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       useWorkspaceStore.getState().activeWorkspaceId === workspaceId &&
       (!options.isCurrent || options.isCurrent())
     );
+    const superseded = () => {
+      if (get().openFileRequestId === openRequestId) {
+        set({ isLoadingFile: false, loadingFilePath: null, browserReveal: null });
+      }
+      return { status: 'superseded' as const, path: normalizedPath };
+    };
 
     if (!isLatestOpen()) {
-      return { status: 'superseded', path: normalizedPath };
+      return superseded();
     }
 
     if (get().currentFile?.path !== normalizedPath || (options.expectedDocumentId
@@ -1067,12 +1077,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       try {
         await get().prepareCurrentFileForTransition();
       } catch (error) {
-        if (!isLatestOpen()) return { status: 'superseded', path: normalizedPath };
-        set({ browserReveal: null });
+        if (!isLatestOpen()) return superseded();
+        set({ browserReveal: null, isLoadingFile: false, loadingFilePath: null });
         return { status: 'failed', path: normalizedPath,
           error: error instanceof Error ? error.message : 'Failed to save the current file' };
       }
-      if (!isLatestOpen()) return { status: 'superseded', path: normalizedPath };
+      if (!isLatestOpen()) return superseded();
     }
 
     const parentDir = getParentDirectory(normalizedPath);
@@ -1133,7 +1143,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
     const [loadResult, reveal] = await Promise.all([loadPromise, revealPromise]);
     if (!isLatestOpen() || loadResult.status === 'superseded') {
-      return { status: 'superseded', path: normalizedPath };
+      return superseded();
     }
     if (loadResult.status === 'missing' || loadResult.status === 'failed') {
       set({ browserReveal: null });

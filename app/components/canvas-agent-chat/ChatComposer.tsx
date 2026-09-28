@@ -14,6 +14,7 @@ import { useTranslations } from 'next-intl';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelSelector';
 import { ChatQueuePanel } from '@/app/components/canvas-agent-chat/ChatQueuePanel';
+import { DictationControl } from '@/app/components/canvas-agent-chat/DictationControl';
 import {
   ComposerReferencePicker,
   type ComposerReferencePickerItem,
@@ -107,6 +108,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   primaryActionDisabled: boolean;
   onStop: () => void | Promise<void>;
   onSend: () => void | Promise<void>;
+  onDictationTranscript: (text: string) => void;
   selectedAgentId: string;
   sessionId: string | null;
   runtimeSelection: AiRuntimeSelection | null;
@@ -168,6 +170,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   primaryActionDisabled,
   onStop,
   onSend,
+  onDictationTranscript,
   selectedAgentId,
   sessionId,
   runtimeSelection,
@@ -274,6 +277,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
       )}
 
       <div className="flex items-end gap-2">
+        <DictationControl disabled={composerDisabled || isWebSocketUnavailable} onTranscript={onDictationTranscript} />
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}

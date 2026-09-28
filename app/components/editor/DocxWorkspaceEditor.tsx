@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { Document as OfficeDocument } from '@eigenpal/docx-js-editor/core';
-import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { registerDocumentTransitionGuard } from '@/app/lib/files/document-transition';
@@ -15,6 +14,7 @@ import { serializeDocxForEditor } from '@/app/lib/office/serialize-docx-for-edit
 import { useEditorStore } from '@/app/store/editor-store';
 import { useFileStore } from '@/app/store/file-store';
 import { DocxEditorWrapper } from './DocxEditor';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 
 type Version = { contentHash: string; createdAt: number; status: string };
 type History = { lineageId: string | null; lineages: { id: string; status: 'active' | 'archived'; createdAt: number }[]; versions: Version[] };
@@ -193,7 +193,9 @@ export function DocxWorkspaceEditor({ path, workspaceId }: { path: string; works
   </div>;
 
   if (!workspaceId) return <div className="p-4 text-sm">{t('workspaceMissing')}</div>;
-  if (!documentSeed) return <div className="flex h-full flex-col gap-2 p-4 text-sm">{error || history ? <><p>{error ?? t('openFailed')}</p><div className="flex gap-2"><Button variant="outline" disabled={busy} onClick={() => void run(reopen)}>{t('retry')}</Button><Button variant="outline" disabled={busy} onClick={() => void run(() => loadHistory())}>{t('versions')}</Button></div>{historyPanel}</> : <div className="flex items-center justify-center gap-2"><Loader2 className="h-5 w-5 animate-spin" />{t('loading')}</div>}</div>;
+  if (!documentSeed) return error || history
+    ? <div className="flex h-full flex-col gap-2 p-4 text-sm"><p>{error ?? t('openFailed')}</p><div className="flex gap-2"><Button variant="outline" disabled={busy} onClick={() => void run(reopen)}>{t('retry')}</Button><Button variant="outline" disabled={busy} onClick={() => void run(() => loadHistory())}>{t('versions')}</Button></div>{historyPanel}</div>
+    : <DocumentLoadingSkeleton path={path} label={t('loading')} />;
   return <div className="flex h-full min-h-0 flex-col" data-testid="docx-workspace-editor">
     <div className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-background px-3 py-2 text-xs">
       <span role="status" aria-live="polite" data-testid="docx-save-status" className="mr-auto">{t(status)}</span>

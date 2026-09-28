@@ -30,7 +30,9 @@ const session = (id: string, workspaceId: string): AISession => ({ id: 1, sessio
   title: id, agentId: 'canvas-agent', model: 'test', engine: 'pi', createdAt: new Date().toISOString(),
   workspace: { workspaceId } as AISession['workspace'] });
 const finishLoad = deferred<void>();
+let loadBarrier: Promise<void> = finishLoad.promise;
 const loads: string[] = [];
+const loadVersions: number[] = [];
 const noop = () => {};
 type Send = Parameters<typeof useChatSessionBootstrap>[0]['handleControlAction'];
 let sendHandler: Send = async () => {};
@@ -38,8 +40,8 @@ const send: Send = async (...args) => { await sendHandler(...args); };
 let historyState!: ReturnType<typeof useChatSessionHistory>;
 let bootstrapState!: ReturnType<typeof useChatSessionBootstrap>;
 
-function Harness({ workspaceId, requested = null, restore = false, showHistory = false, initialPromptStorageKey, isAuthReady = true }: {
-  workspaceId: string; requested?: string | null; restore?: boolean; showHistory?: boolean; initialPromptStorageKey?: string; isAuthReady?: boolean;
+function Harness({ workspaceId, requested = null, restore = false, showHistory = false, initialPromptStorageKey, isAuthReady = true, layoutVersion = 0 }: {
+  workspaceId: string; requested?: string | null; restore?: boolean; showHistory?: boolean; initialPromptStorageKey?: string; isAuthReady?: boolean; layoutVersion?: number;
 }) {
   const t = useTranslations('chat');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -61,10 +63,11 @@ function Harness({ workspaceId, requested = null, restore = false, showHistory =
   const newChat = useRef(false);
   const loadSession = useCallback(async (value: AISession) => {
     loads.push(value.sessionId);
+    loadVersions.push(layoutVersion);
     idRef.current = value.sessionId;
     setSessionId(value.sessionId);
-    await finishLoad.promise;
-  }, []);
+    await loadBarrier;
+  }, [layoutVersion]);
   const bootstrap = useChatSessionBootstrap({ activeWorkspaceId: workspaceId, addSessionToHistory: history.addSessionToHistory,
     appendSystemMessage: noop, clearSessionParamFromUrl: noop, fetchHistory: history.fetchHistory,
     handleControlAction: send, initialPromptStorageKey, isAuthReady, hasLoadedSessionListRef: history.hasLoadedSessionListRef,
@@ -98,30 +101,67 @@ async function main() {
     return Response.json({ success: true, sessions: [] });
   };
   writeCanvasChatActiveSessionStorage('w1', 'saved');
-  await render({ workspaceId: 'w1', restore: true });
+  await render({ workspaceId: 'w1', restore: true, layoutVersion: 1 });
   await tick();
   assert.deepEqual(loads, ['saved']);
   assert.equal(bootstrapCalls, 1);
   assert.equal(listCalls, 0, 'restoring a chat does not wait for session history');
   assert.equal(document.querySelector('[data-resolving]')?.getAttribute('data-resolving'), 'true');
+  await render({ workspaceId: 'w1', restore: true, layoutVersion: 2 });
   await act(async () => { finishLoad.resolve(); });
   await tick();
   assert.equal(document.querySelector('[data-resolving]')?.getAttribute('data-resolving'), 'false',
-    'setting sessionId while restoring must not cancel the final loading transition');
+    'a layout callback change while restoring must not strand the initial loader');
+  assert.deepEqual(loads, ['saved'], 'a callback change must not reload an active session');
+
+  // A requested session must also finish when its load callback changes mid-load.
+  const requestedLoad = deferred<void>();
+  loadBarrier = requestedLoad.promise;
+  globalThis.fetch = async () => Response.json({ success: true, session: session('requested-layout', 'w1'),
+    messages: { success: true, messages: [] } });
+  loads.length = 0;
+  await render({ workspaceId: 'w1', requested: 'requested-layout', layoutVersion: 1 }, 'requested-layout');
+  await tick();
+  assert.deepEqual(loads, ['requested-layout']);
+  await render({ workspaceId: 'w1', requested: 'requested-layout', layoutVersion: 2 }, 'requested-layout');
+  await act(async () => { requestedLoad.resolve(); });
+  await tick();
+  assert.equal(document.querySelector('[data-resolving]')?.getAttribute('data-resolving'), 'false',
+    'a layout callback change while loading a requested session must settle');
+  assert.deepEqual(loads, ['requested-layout']);
+  loadBarrier = finishLoad.promise;
+
+  // A callback replacement before metadata arrives must use the committed callback.
+  const latestBootstrap = deferred<Response>();
+  let latestBootstrapCalls = 0;
+  globalThis.fetch = async () => { latestBootstrapCalls++; return latestBootstrap.promise; };
+  loads.length = 0;
+  loadVersions.length = 0;
+  await render({ workspaceId: 'w1', requested: 'requested-latest', layoutVersion: 1 }, 'requested-latest');
+  await tick();
+  await render({ workspaceId: 'w1', requested: 'requested-latest', layoutVersion: 2 }, 'requested-latest');
+  await act(async () => { latestBootstrap.resolve(Response.json({ success: true,
+    session: session('requested-latest', 'w1'), messages: { success: true, messages: [] } })); });
+  await tick();
+  assert.equal(latestBootstrapCalls, 1, 'a callback replacement must not restart metadata loading');
+  assert.deepEqual(loads, ['requested-latest']);
+  assert.deepEqual(loadVersions, [2], 'use the latest callback after metadata resolves');
+  assert.equal(document.querySelector('[data-resolving]')?.getAttribute('data-resolving'), 'false');
 
   // A delayed requested A must not replace newer explicit B.
   dom.window.sessionStorage.clear();
   const requestedA = deferred<Response>();
   globalThis.fetch = async (input) => String(input).includes('/request-A/') ? requestedA.promise
-    : Response.json({ success: true, session: session('request-B', 'w1'), messages: { success: true, messages: [] } });
+    : Response.json({ success: true, session: session('request-B', 'B'), messages: { success: true, messages: [] } });
   loads.length = 0;
-  await render({ workspaceId: 'w1', requested: 'request-A' }, 'requested');
-  await render({ workspaceId: 'w1', requested: 'request-B' }, 'requested');
+  await render({ workspaceId: 'A', requested: 'request-A' }, 'requested');
+  await render({ workspaceId: 'B', requested: 'request-B' }, 'requested');
   await tick();
   await act(async () => { requestedA.resolve(Response.json({ success: true,
-    session: session('request-A', 'w1'), messages: { success: true, messages: [] } })); });
+    session: session('request-A', 'A'), messages: { success: true, messages: [] } })); });
   await tick();
   assert.deepEqual(loads, ['request-B']);
+  assert.equal(document.querySelector('[data-resolving]')?.getAttribute('data-resolving'), 'false');
   globalThis.fetch = async () => { listCalls++; return Response.json({ success: true, sessions: [] }); };
 
   // The authorized targeted endpoint can return legacy personal metadata.

@@ -103,9 +103,9 @@ async function main() {
     assert.equal(requests[0]?.url, '/api/delegations?sourceSessionId=source+session%2Fone');
     assert.equal(requests[0]?.init?.cache, 'no-store');
 
-    const cancelled = await cancelChatDelegation('delegation/ui-1');
+    const cancelled = await cancelChatDelegation('delegation/ui-1', 'source session/one');
     assert.equal(cancelled.status, 'cancelled');
-    assert.equal(requests[1]?.url, '/api/delegations/delegation%2Fui-1');
+    assert.equal(requests[1]?.url, '/api/delegations/delegation%2Fui-1?sourceSessionId=source+session%2Fone');
     assert.equal(requests[1]?.init?.method, 'DELETE');
 
     const options = await fetchDelegationOptions('source session/one');

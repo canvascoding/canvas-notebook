@@ -38,7 +38,9 @@ async function main() {
   function Entry({ search, restoredPath, docked = false }: { search: string; restoredPath: string | null; docked?: boolean }) {
     const [state, dispatch] = useReducer(notebookLayoutReducer, { ...initialNotebookLayoutState, chatDocked: docked });
     const [tabsReady, setTabsReady] = useState(false);
+    const [pendingDocumentOpen, setPendingDocumentOpen] = useState<{ path: string } | null>(null);
     const initialNotebookStateResolvedRef = useRef(false);
+    const documentOpenGenerationRef = useRef(0);
     const openedPathRef = useRef<string | null>(null);
     const searchParams = new URLSearchParams(search);
     const intent = getNotebookNavigationIntent(searchParams);
@@ -48,19 +50,24 @@ async function main() {
       layout: { preferencesHydrated: true, viewportWidth: 1200 },
       activeWorkspaceId: 'workspace-a', workspaceReady: true, routeWorkspaceId: intent.workspaceId,
       workspaceScopedNavigationMatches, initialNotebookStateResolvedRef,
+      documentOpenGenerationRef, setPendingDocumentOpen,
       hydrateDocumentTabs: () => { setTabsReady(true); return { activePath: restoredPath }; },
       resolveNotebookEntry, getNotebookNavigationIntent, searchParams, hasStoredInitialPrompt: false,
       shouldForceChatOpen: intent.shouldOpenChat, routeFilePath: intent.path, dispatch, openedPathRef,
-      openNotebookFile: () => new Promise<void>(resolve => { finishDocumentLookup = resolve; }),
-      useFileStore: { getState: () => ({ clearCurrentFile() {} }) },
+      openNotebookEntry: () => new Promise<void>(resolve => { finishDocumentLookup = resolve; }),
+      useFileStore: { getState: () => ({ clearCurrentFile() {}, openFileRequestId: 0 }) },
     }), []);
-    return tabsReady ? <NotebookSurfaceMount active={state.mainSurface === 'chat' || state.chatDocked}><Chat /></NotebookSurfaceMount> : <span>loading entry</span>;
+    return tabsReady ? <>
+      {pendingDocumentOpen ? <span data-testid="pending-document">{pendingDocumentOpen.path}</span> : null}
+      <NotebookSurfaceMount active={state.mainSurface === 'chat' || state.chatDocked}><Chat /></NotebookSurfaceMount>
+    </> : <span>loading entry</span>;
   }
   try {
     await act(async () => { root.render(<Entry key="explicit-document" search="path=report.md&workspaceId=workspace-a" restoredPath={null} />); });
     assert.equal(chatMounts, 0, 'explicit document entry never mounts the default chat between hydration and route effects');
     await act(async () => { root.render(<Entry key="restored-document" search="workspaceId=workspace-a" restoredPath="report.md" />); });
     assert.ok(finishDocumentLookup, 'restored document starts asynchronous lookup');
+    assert.equal(document.querySelector('[data-testid="pending-document"]')?.textContent, 'report.md', 'restored document is pending before lookup finishes');
     assert.equal(chatMounts, 0, 'pending restored document lookup does not mount the default chat');
     await act(async () => { finishDocumentLookup!(); });
     assert.equal(chatMounts, 0);

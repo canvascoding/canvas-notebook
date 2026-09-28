@@ -16,11 +16,77 @@
     "developmentOnlyReviewRequired": 36
   },
   "releaseGate": {
-    "status": "approved",
+    "status": "blocked",
     "approvalStatus": "approved",
     "approvalReviewedBy": "Frank Alexander Weber",
     "approvalReviewedAt": "2026-07-17",
-    "blockers": []
+    "blockers": [
+      {
+        "name": "docker-python:anyio",
+        "versionOrCommit": "4.15.1",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:av",
+        "versionOrCommit": "18.1.0",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
+      },
+      {
+        "name": "docker-python:ctranslate2",
+        "versionOrCommit": "4.8.2",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
+      },
+      {
+        "name": "docker-python:faster-whisper",
+        "versionOrCommit": "1.2.1",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:filelock",
+        "versionOrCommit": "4.0.5",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:fsspec",
+        "versionOrCommit": "2026.9.0",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:h11",
+        "versionOrCommit": "0.16.0",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:hf-xet",
+        "versionOrCommit": "1.6.0",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
+      },
+      {
+        "name": "docker-python:httpcore",
+        "versionOrCommit": "1.0.9",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:httpx",
+        "versionOrCommit": "0.28.1",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:huggingface-hub",
+        "versionOrCommit": "1.33.0",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
+      },
+      {
+        "name": "docker-python:tokenizers",
+        "versionOrCommit": "0.23.2",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
+      },
+      {
+        "name": "docker-python:tqdm",
+        "versionOrCommit": "4.70.1",
+        "reason": "Dictation dependency added after the 2026-07-17 approval; exact wheel and declared MPL-2.0 AND MIT terms review pending."
+      }
+    ]
   },
   "components": [
     {
