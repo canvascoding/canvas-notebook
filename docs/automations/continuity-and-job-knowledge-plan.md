@@ -2,7 +2,7 @@
 
 Stand: 2026-09-28
 
-Status: Pakete A–E einschließlich Abschlusslücken implementiert (lokaler Branch; Browser-E2E noch nicht freigegeben)
+Status: Pakete A–E implementiert und lokal abgenommen (einschließlich Browser-E2E im verwalteten Test-Stack)
 
 Referenzstände: Canvas Notebook `4b8d4d485`, Hermes Agent `614b9b3f3c1ea8e24e6c7370bd85f9639f779bf0`
 
@@ -21,7 +21,7 @@ Bestehende Jobs behalten `off` und eine leere Quellliste. Die automatischen Kont
 
 Der Zustand ist über `GET /api/automations/jobs/:jobId/state` als Metadatenliste und über `GET .../state?key=...` für einen einzelnen Wert erreichbar. `DELETE .../state` setzt einen Schlüssel mit `expectedRevision` und `mutationId` zurück. Die Mobile-v1-Routen spiegeln den Vertrag. Run-APIs entfernen interne Retry-Pins und redigieren Quell-Run-IDs; Detailzugriffe prüfen den historischen Run-Workspace. Übersprungene, nie eingereihte Termine werden atomar als Audit-Ereignis gespeichert und getrennt von Runs im Verlauf gezeigt; die 90-Sekunden-Regel und das Ausbleiben eines Runs bleiben erhalten. Das Agent-Tool `automation_run_result` liest auf Anforderung nur das an den laufenden Run gepinnte eigene oder konfigurierte Quell-Ergebnis und begrenzt jede Antwort auf 8 KiB sowie 2.048 geschätzte Tokens.
 
-Verifiziert wurden der Produktionsbuild, TypeScript, ESLint ohne Fehler, die gezielten Migration-/Store-/Runner-/API-/Mobile-/UI-Tests sowie Scheduler-Recovery und Delivery. `test:automation:workspace-scope` läuft mit einem eigenen PGlite-Integrationstest. Zusätzlich sind die Registry-Gates und die Größen-/Rechteprüfung des Run-Lesers getestet. Eine echte Browser-E2E-Prüfung ist wegen der in `AGENTS.md` verlangten ausdrücklichen Freigabe noch offen. Container wurden nicht gebaut.
+Verifiziert wurden der Produktionsbuild, TypeScript, ESLint ohne Fehler, die gezielten Migration-/Store-/Runner-/API-/Mobile-/UI-Tests sowie Scheduler-Recovery und Delivery. `test:automation:workspace-scope` läuft mit einem eigenen PGlite-Integrationstest. Zusätzlich sind die Registry-Gates und die Größen-/Rechteprüfung des Run-Lesers getestet. Nach ausdrücklicher Freigabe wurde das aktuelle Notebook-Image im verwalteten lokalen Stack gebaut und der Container neu erstellt; Notebook, Control Plane und PostgreSQL waren gesund. `tests/automation-continuity.spec.ts` bestand gegen `http://127.0.0.1:3100` mit 2/2 Playwright-Tests: Persistenz von `last_relevant` und einer erlaubten Quelle nach Reload sowie Anzeige/Abruf/Reset von Job-Wissen und getrennte Misfire-Diagnose ohne Run. Die zweite Browserprüfung verwendet gezielte API-Fixtures für State und Misfire; die echte Scheduler-Persistenz wurde separat mit `test:automation:scheduler-recovery` geprüft. Danach liefen `test:automation:workspace-scope`, `test:automation:scheduler-recovery`, `test:automation:ui`, `test:automation:runner` und `test:automation:history-compaction` erneut erfolgreich.
 
 ## Ziel und Abgrenzung
 
