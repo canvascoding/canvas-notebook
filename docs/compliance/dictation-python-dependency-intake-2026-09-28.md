@@ -1,5 +1,10 @@
 # Dictation Python dependency intake (approval pending)
 
+This document audits the earlier image that bundled the 13 dictation wheels.
+The [optional runtime change](optional-dictation-runtime-2026-09-28.md) moves
+those wheels out of the default image; the evidence below remains the review
+record for wheels installed later at an administrator's request.
+
 Commit `bae04f940` added 13 pinned Python packages for local dictation to
 `requirements/runtime-python.txt`. The Docker lock now contains 58 packages,
 while the static compliance test still expected the 45-package set from the

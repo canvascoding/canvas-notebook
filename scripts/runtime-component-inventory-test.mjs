@@ -132,12 +132,15 @@ for (const component of inventory.pythonPackages) {
   );
 }
 
-const tokenizersComponent = inventory.pythonPackages.find((component) => (
-  normalizePythonName(component.name) === 'tokenizers'
-));
-assert(tokenizersComponent, 'the locked tokenizers distribution must be inventoried');
-assert.equal(tokenizersComponent.version, '0.23.2');
-assert(tokenizersComponent.licenseClassifiers.includes('License :: OSI Approved :: Apache Software License'));
+for (const optionalName of [
+  'anyio', 'av', 'ctranslate2', 'faster-whisper', 'filelock', 'fsspec', 'h11',
+  'hf-xet', 'httpcore', 'httpx', 'huggingface-hub', 'tokenizers', 'tqdm',
+]) {
+  assert(
+    !inventory.pythonPackages.some((component) => normalizePythonName(component.name) === optionalName),
+    `${optionalName} must not be installed in the distributed Docker image`,
+  );
+}
 
 const packagingComponent = inventory.pythonPackages.find((component) => (
   normalizePythonName(component.name) === 'packaging'

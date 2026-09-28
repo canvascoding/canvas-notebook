@@ -173,9 +173,12 @@ RUN set -eux; \
   libreoffice --headless --version
 RUN test -x /usr/local/libexec/canvas-agent-landlock
 
-# Install the exact cross-platform Python wheel set required by skills.
+# Install only the reviewed Python runtime required by bundled features.
 COPY --from=builder /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt
 RUN pip3 install --no-cache-dir --break-system-packages --require-hashes -r /app/requirements/runtime-python.txt
+# The optional dictation lock is shipped as text only. An instance admin can
+# install its pinned wheels into persistent DATA after deployment.
+COPY --from=builder /app/requirements/dictation-python.txt /app/requirements/dictation-python.txt
 RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \

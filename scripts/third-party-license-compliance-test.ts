@@ -78,6 +78,7 @@ const runtimePythonRequirements = fs.readFileSync(
   nativeDistributionPolicy.pythonRequirements,
   'utf8',
 );
+const optionalDictationRequirements = fs.readFileSync('requirements/dictation-python.txt', 'utf8');
 
 assert.equal(
   packageJson.dependencies?.['@jspreadsheet/react'],
@@ -109,7 +110,9 @@ assert.equal(inventory.releaseGate.approvalStatus, 'approved');
 assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
 assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
 assert.equal(inventory.releaseGate.status, 'blocked');
-assert.equal(inventory.releaseGate.blockers.length, 13);
+assert.deepEqual(inventory.releaseGate.blockers.map(({ name }) => name), [
+  'docker-runtime:optional-dictation-boundary',
+]);
 assert.equal(
   inventory.summary.distributedReviewRequired,
   0,
@@ -158,6 +161,7 @@ for (const requiredDockerFragment of [
   'npm --prefix node_modules/sharp run build',
   "find node_modules -type d -path '*/@img/sharp-*'",
   '--require-hashes -r /app/requirements/runtime-python.txt',
+  'COPY --from=builder /app/requirements/dictation-python.txt /app/requirements/dictation-python.txt',
   'capture-runtime-component-inventory.mjs',
   'runtime-component-inventory-test.mjs',
   'sharp-runtime-linkage-test.mjs',
@@ -200,6 +204,8 @@ for (const requiredWorkflowFragment of [
   'runtime-multiarch-compliance-test.mjs',
   'sharp-linkage-linux-amd64.json',
   'sharp-linkage-linux-arm64.json',
+  'runtime-compliance/amd64/dictation-python.txt',
+  'runtime-compliance/arm64/dictation-python.txt',
   'vips-8.18.6.tar.xz',
   'Package native compliance evidence',
   'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
@@ -259,17 +265,20 @@ for (const artifact of nativeDistributionPolicy.postgresql.sourceArtifacts) {
   assert.match(artifact.sha256, /^[a-f0-9]{64}$/u);
 }
 
-const pythonRequirementBody = runtimePythonRequirements
-  .split(/\r?\n/u)
-  .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
-  .join('\n');
-const pythonEntries = pythonRequirementBody
-  .split(/(?=^[a-z0-9][a-z0-9._-]*==)/gimu)
-  .map((block) => {
-    const match = block.match(/^([a-z0-9][a-z0-9._-]*)==([^\s\\]+)/iu);
-    assert(match, `invalid Python requirement block: ${block}`);
-    return [match[1], match[2], block] as const;
-  });
+function parsePythonEntries(requirements: string) {
+  return requirements
+    .split(/\r?\n/u)
+    .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
+    .join('\n')
+    .split(/(?=^[a-z0-9][a-z0-9._-]*==)/gimu)
+    .map((block) => {
+      const match = block.match(/^([a-z0-9][a-z0-9._-]*)==([^\s\\]+)/iu);
+      assert(match, `invalid Python requirement block: ${block}`);
+      return [match[1], match[2], block] as const;
+    });
+}
+const pythonEntries = parsePythonEntries(runtimePythonRequirements);
+const dictationEntries = parsePythonEntries(optionalDictationRequirements);
 const dictationPythonVersions = new Map([
   ['anyio', '4.15.1'],
   ['av', '18.1.0'],
@@ -285,34 +294,31 @@ const dictationPythonVersions = new Map([
   ['tokenizers', '0.23.2'],
   ['tqdm', '4.70.1'],
 ]);
-assert.deepEqual(
-  inventory.releaseGate.blockers
-    .map(({ name, versionOrCommit }) => [name, versionOrCommit])
-    .sort(([left], [right]) => left.localeCompare(right)),
-  [...dictationPythonVersions.entries()]
-    .map(([name, version]) => [`docker-python:${name}`, version])
-    .sort(([left], [right]) => left.localeCompare(right)),
-  'the commercial release gate must retain every pending dictation package review',
-);
 assert.equal(
   pythonEntries.length,
-  45 + dictationPythonVersions.size,
-  'the Docker Python lock must retain the original package set and the pinned dictation dependencies',
+  45,
+  'the bundled Python lock must retain only the reviewed base package set',
 );
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
 assert.deepEqual(
-  pythonEntries
-    .filter(([name]) => dictationPythonVersions.has(name.toLowerCase()))
+  pythonEntries.filter(([name]) => dictationPythonVersions.has(name.toLowerCase())),
+  [],
+  'optional dictation wheels must not be installed in the Docker base image',
+);
+assert.equal(dictationEntries.length, dictationPythonVersions.size);
+assert.deepEqual(
+  dictationEntries
     .map(([name, version]) => [name.toLowerCase(), version])
     .sort(([left], [right]) => left.localeCompare(right)),
   [...dictationPythonVersions.entries()].sort(([left], [right]) => left.localeCompare(right)),
-  'the dictation dependencies must retain their pinned package names and versions',
+  'the optional dictation lock must retain its pinned package names and versions',
 );
-for (const [name, version, hashes] of pythonEntries) {
+for (const [name, version, hashes] of [...pythonEntries, ...dictationEntries]) {
   assert(version, `${name} must use an exact Python version`);
   assert.match(hashes, /--hash=sha256:[a-f0-9]{64}/u, `${name} must retain wheel hashes`);
   assert.doesNotMatch(hashes, /--hash=sha256:(?![a-f0-9]{64})/u);
 }
+assert.doesNotMatch(dockerfile, /pip3 install[^\n]*dictation-python\.txt/u);
 
 for (const [packagePath, lockPackage] of Object.entries(lockfile.packages)) {
   if (
