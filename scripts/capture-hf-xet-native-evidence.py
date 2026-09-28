@@ -88,17 +88,32 @@ def inspect(image, architecture, readelf, destination):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--amd64-image", required=True)
-    parser.add_argument("--arm64-image", required=True)
+    parser.add_argument("--image")
+    parser.add_argument("--architecture", choices=("amd64", "arm64"))
+    parser.add_argument("--amd64-image")
+    parser.add_argument("--arm64-image")
     parser.add_argument("--readelf", default=shutil.which("llvm-readelf") or shutil.which("readelf"))
     parser.add_argument("--output", type=Path, required=True)
     options = parser.parse_args()
     if not options.readelf:
         parser.error("llvm-readelf or readelf is required")
+    single = options.image is not None or options.architecture is not None
+    dual = options.amd64_image is not None or options.arm64_image is not None
+    if single == dual:
+        parser.error("provide either --image and --architecture or both architecture images")
+    if single and (not options.image or not options.architecture):
+        parser.error("--image and --architecture are required together")
+    if dual and (not options.amd64_image or not options.arm64_image):
+        parser.error("--amd64-image and --arm64-image are required together")
+    sources = (
+        ((options.architecture, options.image),)
+        if single
+        else (("amd64", options.amd64_image), ("arm64", options.arm64_image))
+    )
     with tempfile.TemporaryDirectory(prefix="canvas-hf-xet-evidence-") as temporary:
         root = Path(temporary)
         entries = []
-        for architecture, image in (("amd64", options.amd64_image), ("arm64", options.arm64_image)):
+        for architecture, image in sources:
             destination = root / architecture
             destination.mkdir()
             entries.append(inspect(image, architecture, options.readelf, destination))

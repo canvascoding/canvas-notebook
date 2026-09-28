@@ -163,6 +163,14 @@ statisch eingebetteter Rust-/Drittkomponenten sowie die kommerzielle
 Freigabe bleiben offen. Ein neuer Release-Image-Build muss separat gegen
 seine eigene Image-ID geprueft werden.
 
+Der Release-Workflow erfasst die Erweiterung deshalb nach jedem amd64- und
+arm64-Image-Build erneut auf dem jeweiligen Runner. Er prueft die beiden
+Architekturbelege gegen die gelockten Wheel-Hashes, vereinigt sie im
+Multi-Arch-Gate und nimmt sie in das native Compliance-Artefakt auf. Ein
+abweichender Hash oder eine fehlende Erweiterung stoppt den Release-Pfad.
+Dieser Workflow laeuft fuer Tags, Zeitplan oder manuellen Start; er ist
+noch kein aktueller Image-Nachweis fuer diesen Draft-PR.
+
 Der exakte CTranslate2-Tag `v4.8.2` verweist auf Commit
 `d44d2d069eb88c7b7804da864c10c201501cb4a9`. Sein
 [MIT-Lizenztext](https://github.com/OpenNMT/CTranslate2/blob/v4.8.2/LICENSE)

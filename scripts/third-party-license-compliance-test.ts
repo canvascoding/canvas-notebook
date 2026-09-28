@@ -201,6 +201,10 @@ for (const requiredWorkflowFragment of [
   'runtime-multiarch-compliance-test.mjs',
   'sharp-linkage-linux-amd64.json',
   'sharp-linkage-linux-arm64.json',
+  'capture-hf-xet-native-evidence.py',
+  'hf-xet-native-evidence-test.mjs',
+  'hf-xet-native-evidence-linux-amd64.json',
+  'hf-xet-native-evidence-linux-arm64.json',
   'vips-8.18.6.tar.xz',
   'Package native compliance evidence',
   'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
@@ -238,6 +242,16 @@ assert(
   nativeBuildWorkflow.indexOf('Upload gated release bundle')
     > nativeBuildWorkflow.indexOf('Verify multi-architecture native compliance'),
   'the release bundle must be uploaded only after multi-architecture native compliance succeeds',
+);
+assert(
+  nativeBuildWorkflow.indexOf('Package native compliance evidence')
+    > nativeBuildWorkflow.lastIndexOf('node scripts/hf-xet-native-evidence-test.mjs'),
+  'the native compliance package must follow the cross-architecture hf-xet evidence gate',
+);
+assert.equal(
+  nativeBuildWorkflow.split('node scripts/hf-xet-native-evidence-test.mjs').length - 1,
+  3,
+  'each architecture and the combined release evidence must be checked',
 );
 assert.equal(
   (dockerfile.match(/find node_modules -type d -path '\*\/@img\/sharp-\*'/gu) || []).length,
