@@ -84,6 +84,8 @@ export function NotificationBell() {
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [memoryDecisions, setMemoryDecisions] = useState<Record<string, 'approve' | 'reject' | null>>({});
+  const [licenseNoticeEnabled, setLicenseNoticeEnabled] = useState<boolean | null>(null);
+  const [savingLicenseNotice, setSavingLicenseNotice] = useState(false);
   const [licenseEmailEnabled, setLicenseEmailEnabled] = useState<boolean | null>(null);
   const [savingLicenseEmail, setSavingLicenseEmail] = useState(false);
 
@@ -132,13 +134,44 @@ export function NotificationBell() {
       void refresh();
       void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' })
         .then(async (response) => {
-          const payload = await response.json() as { success?: boolean; data?: { teamLicenseEmailNotificationsEnabled?: boolean } };
+          const payload = await response.json() as { success?: boolean; data?: {
+            teamLicenseNotificationsEnabled?: boolean; teamLicenseEmailNotificationsEnabled?: boolean;
+          } };
           if (!response.ok || !payload.success) throw new Error('Preferences unavailable');
+          setLicenseNoticeEnabled(payload.data?.teamLicenseNotificationsEnabled !== false);
           setLicenseEmailEnabled(payload.data?.teamLicenseEmailNotificationsEnabled !== false);
         })
-        .catch(() => setLicenseEmailEnabled(null));
+        .catch(() => {
+          setLicenseNoticeEnabled(null);
+          setLicenseEmailEnabled(null);
+          toast.error(locale.toLowerCase().startsWith('de')
+            ? 'Die Lizenz-Benachrichtigungseinstellungen konnten nicht geladen werden.'
+            : 'License notification settings could not be loaded.');
+        });
     }
-  }, [refresh]);
+  }, [locale, refresh]);
+
+  const saveLicenseNoticePreference = useCallback(async (enabled: boolean) => {
+    setSavingLicenseNotice(true);
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'PATCH', credentials: 'include', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamLicenseNotificationsEnabled: enabled }),
+      });
+      const payload = await response.json() as { success?: boolean };
+      if (!response.ok || !payload.success) throw new Error('Preference update failed');
+      setLicenseNoticeEnabled(enabled);
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+      await refresh();
+    } catch {
+      toast.error(locale.toLowerCase().startsWith('de')
+        ? 'Die In-App-Einstellung konnte nicht gespeichert werden.'
+        : 'The in-app notification setting could not be saved.');
+    } finally {
+      setSavingLicenseNotice(false);
+    }
+  }, [locale, refresh]);
 
   const saveLicenseEmailPreference = useCallback(async (enabled: boolean) => {
     setSavingLicenseEmail(true);
@@ -437,6 +470,18 @@ export function NotificationBell() {
               ) : null}
             </div>
           )}
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+          <label htmlFor="notification-license-in-app" className="text-xs text-muted-foreground">
+            {locale.toLowerCase().startsWith('de') ? 'In-App-Hinweise zur Team-Lizenz' : 'In-app team license alerts'}
+          </label>
+          <Switch
+            id="notification-license-in-app"
+            checked={licenseNoticeEnabled ?? true}
+            onCheckedChange={(enabled) => void saveLicenseNoticePreference(enabled)}
+            disabled={licenseNoticeEnabled === null || savingLicenseNotice}
+            aria-label={locale.toLowerCase().startsWith('de') ? 'Lizenzhinweise in der App' : 'In-app license alerts'}
+          />
         </div>
         <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
           <label htmlFor="notification-license-email" className="text-xs text-muted-foreground">
