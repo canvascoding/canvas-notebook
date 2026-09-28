@@ -2,8 +2,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
 
 import type { LicenseStatus } from '../app/lib/license/types';
+import { runPostgresMigrations } from '../app/lib/db/postgres';
+import { seedTeamSeatOrganization, teamSeatTestConnection } from './team-seat-test-db';
 
 const organizationId = 'team-license-email-outbox';
 const ownerId = `owner-${organizationId}`;
@@ -16,6 +19,59 @@ function license(state: 'active' | 'expired'): LicenseStatus {
     licenseState: state, seatLimit: 2, licenseClass: 'manual',
     entitlementsVersion: state === 'active' ? 2 : 1,
   } as LicenseStatus;
+}
+
+async function verifyInterruptedDeliveryRecovery(dataDir: string) {
+  const { enqueueTeamLicenseEmail, processTeamLicenseEmailOutbox, readTeamLicenseEmailOutboxDiagnostics } = await import('../app/lib/license/team-license-email-outbox');
+  const postgresPath = join(dataDir, 'interrupted-delivery');
+  const interruptedAt = startedAt + 300_000;
+  const firstProcess = new PGlite(postgresPath);
+  try {
+    await runPostgresMigrations(firstProcess as unknown as Parameters<typeof runPostgresMigrations>[0]);
+    const database = teamSeatTestConnection(firstProcess);
+    await seedTeamSeatOrganization(database, 'interrupted-delivery', interruptedAt);
+    await enqueueTeamLicenseEmail(database, {
+      auditEventId: 'accepted-before-crash', organizationId: 'interrupted-delivery',
+      userId: 'owner-interrupted-delivery', kind: 'owner_restricted',
+      reason: 'expired', seatLimit: 1, now: interruptedAt,
+    });
+    await database.run(`
+      UPDATE team_license_email_outbox
+      SET status = 'sending', lease_until = $2, attempts = 1, updated_at = $1
+      WHERE audit_event_id = 'accepted-before-crash'
+    `, [interruptedAt, interruptedAt + 120_000]);
+  } finally {
+    await firstProcess.close();
+  }
+
+  const recoveredProcess = new PGlite(postgresPath);
+  try {
+    const database = teamSeatTestConnection(recoveredProcess);
+    let duplicateDeliveries = 0;
+    assert.deepEqual(await processTeamLicenseEmailOutbox({
+      database, now: interruptedAt + 120_001,
+      deliver: async () => { duplicateDeliveries += 1; return { messageId: 'duplicate' }; },
+    }), { delivered: 0, failed: 0, skipped: 0, manualReview: 1 });
+    assert.equal(duplicateDeliveries, 0);
+    assert.deepEqual(await readTeamLicenseEmailOutboxDiagnostics(database, 'interrupted-delivery'), {
+      manualReview: 1, retryPending: 0,
+    });
+    const row = await database.get(`
+      SELECT status, error, attempts, message_id FROM team_license_email_outbox
+      WHERE audit_event_id = 'accepted-before-crash'
+    `) as { status: string; error: string; attempts: number | string; message_id: string | null };
+    assert.equal(row.status, 'manual_review');
+    assert.match(row.error, /Delivery state unknown/u);
+    assert.equal(Number(row.attempts), 1);
+    assert.equal(row.message_id, null);
+    assert.deepEqual(await processTeamLicenseEmailOutbox({
+      database, now: interruptedAt + 240_000,
+      deliver: async () => { duplicateDeliveries += 1; return { messageId: 'duplicate' }; },
+    }), { delivered: 0, failed: 0, skipped: 0, manualReview: 0 });
+    assert.equal(duplicateDeliveries, 0);
+  } finally {
+    await recoveredProcess.close();
+  }
 }
 
 async function main() {
@@ -231,12 +287,13 @@ async function main() {
         await clearSystemSmtpConfiguration();
       }
     });
+    await verifyInterruptedDeliveryRecovery(dataDir);
   } finally {
     if (previousData === undefined) delete process.env.DATA;
     else process.env.DATA = previousData;
     await rm(dataDir, { recursive: true, force: true });
   }
-  console.info('team license email outbox persisted, retried, deduplicated, and respected user preference');
+  console.info('team license email outbox persisted, retried, held interrupted delivery, and respected user preference');
 }
 
 main().catch((error) => {

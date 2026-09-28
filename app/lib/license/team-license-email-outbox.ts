@@ -188,13 +188,29 @@ export async function processTeamLicenseEmailOutbox(options: {
   const counts = { delivered: 0, failed: 0, skipped: 0, manualReview: 0 };
   try {
     for (let index = 0; index < Math.min(Math.max(options.limit ?? 20, 0), 100); index += 1) {
+      const interrupted = await database.get(`
+        UPDATE team_license_email_outbox outbox
+        SET status = 'manual_review', lease_until = NULL,
+          error = 'Delivery state unknown after worker interruption.', updated_at = $1
+        WHERE outbox.id = (
+          SELECT id FROM team_license_email_outbox
+          WHERE status = 'sending' AND lease_until <= $1
+          ORDER BY lease_until ASC, id ASC LIMIT 1
+          FOR UPDATE SKIP LOCKED
+        )
+        RETURNING outbox.id
+      `, [now]) as { id: string } | undefined;
+      if (interrupted) {
+        counts.manualReview += 1;
+        console.warn('[license/email-outbox] Interrupted delivery requires manual review', { jobId: interrupted.id });
+        continue;
+      }
       const job = await database.get(`
         UPDATE team_license_email_outbox outbox
         SET status = 'sending', lease_until = $2, attempts = attempts + 1, updated_at = $1
         WHERE outbox.id = (
           SELECT id FROM team_license_email_outbox
-          WHERE ((status IN ('pending', 'failed') AND next_attempt_at <= $1)
-            OR (status = 'sending' AND lease_until <= $1))
+          WHERE status IN ('pending', 'failed') AND next_attempt_at <= $1
           ORDER BY next_attempt_at ASC, id ASC LIMIT 1
           FOR UPDATE SKIP LOCKED
         )
