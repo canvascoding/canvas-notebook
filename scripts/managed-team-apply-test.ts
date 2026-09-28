@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -101,6 +101,163 @@ async function setupDatabase(dataDir: string) {
       async close() {},
     },
   };
+}
+
+async function crashBoundaryScenario() {
+  const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-crash-'));
+  process.env.DATA = dataDir;
+  const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
+  const fixture = await setupDatabase(dataDir);
+  const { database } = fixture;
+  const certificatePath = join(dataDir, 'activated-certificate.txt');
+  try {
+    await fixture.pg.query(`
+      INSERT INTO team_memberships (id, organization_id, user_id, candidate_email, role, status)
+      VALUES ('member-owner', $1, 'user-owner', 'owner@example.test', 'owner', 'active'),
+        ('member-revoked', $1, 'user-revoked', 'revoked@example.test', 'member', 'active'),
+        ('member-new', $1, NULL, 'new@example.test', 'member', 'approval_required')
+    `, [organizationId]);
+    await fixture.pg.query(`
+      INSERT INTO "user" (id, email, role, banned, ban_reason)
+      VALUES ('user-owner', 'owner@example.test', 'admin', 0, NULL),
+        ('user-revoked', 'revoked@example.test', 'user', 0, NULL),
+        ('user-new', 'new@example.test', 'user', 1, 'canvas_team_membership_pending')
+    `);
+    await fixture.pg.query(`
+      INSERT INTO managed_team_pending_identities (local_identity_key, organization_id, pending_user_id)
+      VALUES ('member-new', $1, 'user-new')
+    `, [organizationId]);
+    await fixture.pg.query(`
+      INSERT INTO organization_user_permissions (organization_id, user_id, role, status)
+      VALUES ($1, 'user-owner', 'owner', 'active'), ($1, 'user-revoked', 'member', 'active')
+    `, [organizationId]);
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('revoked-session', 'user-revoked')`);
+    const members = [
+      { externalUserId: 'central-owner', email: 'owner@example.test', role: 'owner', status: 'active', localIdentityKey: 'member-owner', localUserId: 'user-owner' },
+      { externalUserId: 'central-revoked', email: 'revoked@example.test', role: 'member', status: 'removed', localIdentityKey: 'member-revoked', localUserId: 'user-revoked' },
+      { externalUserId: 'central-new', email: 'new@example.test', role: 'member', status: 'active', localIdentityKey: 'member-new', localUserId: 'user-new' },
+    ];
+    const cert = certificate(2);
+    const fingerprint = createHash('sha256').update(cert).digest('hex');
+    let payload: Record<string, unknown> = {
+      status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
+      organizationId: centralOrganizationId, membershipRevision: 20,
+      memberHash: createHash('sha256').update(JSON.stringify([...members]
+        .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'), members,
+      license: { certificate: cert, entitlementsVersion: 1783338368, fingerprint, seatLimit: 2 },
+    };
+    const acknowledgements: Array<Record<string, unknown>> = [];
+    let loseAck = false;
+    let offline = false;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      if (offline) throw new Error('CONTROL_PLANE_OFFLINE');
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/sync')) return new Response(JSON.stringify(payload), { status: 200 });
+      if (path.endsWith('/sync/ack')) {
+        acknowledgements.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        if (loseAck) throw new Error('ACK_RESPONSE_LOST');
+        return new Response(JSON.stringify({ status: 'acknowledged' }), { status: 200 });
+      }
+      throw new Error(`Unexpected endpoint ${path}`);
+    }) as typeof fetch;
+    const options = {
+      database, fetchImpl, verifyCertificate: async () => true,
+      activateCertificate: async () => {
+        await writeFile(certificatePath, fingerprint);
+        return { licensed: true, hostingMode: 'cloud', edition: 'team', seatLimit: 2 } as
+          Awaited<ReturnType<typeof import('../app/lib/license').activateLicenseCert>>;
+      },
+    };
+    assert.equal(await runManagedTeamSyncCycle({
+      ...options, activateCertificate: async () => { throw new Error('CERTIFICATE_STORAGE_FAILED'); },
+    }), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'CERTIFICATE_STORAGE_FAILED');
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-revoked'`)).rows[0].status, 'removed');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 0);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'approval_required');
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 1);
+    await assert.rejects(readFile(certificatePath), { code: 'ENOENT' });
+
+    await fixture.reopen();
+    const failedActivationDatabase = {
+      ...database,
+      async run(sql: string, params?: unknown[]) {
+        if (/UPDATE "user" SET role = \$1, banned = 0/u.test(sql)) return { changes: 0 };
+        return database.run(sql, params);
+      },
+    };
+    assert.equal(await runManagedTeamSyncCycle({ ...options, database: failedActivationDatabase }), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_PENDING_IDENTITY_CHANGED');
+    assert.equal(await readFile(certificatePath, 'utf8'), fingerprint);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'approval_required');
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 1);
+    assert.equal((await fixture.pg.query(`SELECT user_id FROM organization_user_permissions WHERE user_id = 'user-new'`)).rows.length, 0);
+
+    await fixture.reopen();
+    loseAck = true;
+    await assert.rejects(runManagedTeamSyncCycle(options), /ACK_RESPONSE_LOST/);
+    assert.equal(acknowledgements.at(-1)?.error, undefined);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 0);
+    const mutationsAfterApply = fixture.mutationCount;
+    await fixture.reopen();
+    loseAck = false;
+    assert.equal(await runManagedTeamSyncCycle(options), 'applied');
+    assert.equal(acknowledgements.at(-1)?.error, undefined);
+    assert.equal(fixture.mutationCount, mutationsAfterApply);
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 0);
+    assert.equal(await readFile(certificatePath, 'utf8'), fingerprint);
+
+    const originalNow = Date.now;
+    const certificateEnd = Math.floor(originalNow() / 1000) * 1000 + 60_000;
+    const restrictedMembers = members.map((member) => member.externalUserId === 'central-new'
+      ? { ...member, status: 'suspended' } : member);
+    const restrictedCertificate = certificate(1, 1783338369, true, certificateEnd);
+    payload = {
+      status: 'policy_ready', instanceId: process.env.CANVAS_INSTANCE_ID,
+      organizationId: centralOrganizationId, membershipRevision: 21,
+      memberHash: createHash('sha256').update(JSON.stringify([...restrictedMembers]
+        .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
+      members: restrictedMembers,
+      accessPolicy: {
+        state: 'restricted', reason: 'grant_revoked', termEndsAt: new Date(certificateEnd - 60_000).toISOString(),
+        graceEndsAt: null, allowNewMembers: false,
+      },
+      license: {
+        certificate: restrictedCertificate, entitlementsVersion: 1783338369,
+        fingerprint: createHash('sha256').update(restrictedCertificate).digest('hex'), seatLimit: 1,
+      },
+    };
+    try {
+      Date.now = () => certificateEnd;
+      assert.equal(await runManagedTeamSyncCycle(options), 'pending');
+      assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_ACCESS_POLICY_CERTIFICATE_MISMATCH');
+      assert.equal(fixture.mutationCount, mutationsAfterApply);
+      assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
+
+      Date.now = () => certificateEnd - 1_000;
+      assert.equal(await runManagedTeamSyncCycle({
+        ...options,
+        activateCertificate: async () => ({
+          licensed: true, hostingMode: 'cloud', edition: 'team', seatLimit: 1,
+        }) as Awaited<ReturnType<typeof import('../app/lib/license').activateLicenseCert>>,
+      }), 'applied');
+      assert.equal(acknowledgements.at(-1)?.error, undefined);
+      assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'suspended');
+      assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 1);
+      await fixture.reopen();
+      offline = true;
+      Date.now = () => certificateEnd + 1_000;
+      await assert.rejects(runManagedTeamSyncCycle(options), /CONTROL_PLANE_OFFLINE/);
+      assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'suspended');
+      assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 1);
+    } finally {
+      Date.now = originalNow;
+    }
+  } finally {
+    await fixture.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
 }
 
 async function main() {
@@ -412,7 +569,7 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().then(crashBoundaryScenario).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
