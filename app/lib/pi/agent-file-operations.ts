@@ -76,6 +76,7 @@ import {
 } from '@/app/lib/excalidraw-collaboration/agent-operations';
 import { loadExcalidrawScene } from '@/app/lib/excalidraw-collaboration/repository';
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from '@/app/lib/file-version-center/contracts/v1';
+import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
 import {
   parseOptionalProposalToolEditV1, parseProposalToolReadRequestV1,
   type ProposalToolEditV1, type ProposalToolCreationResultV1,
@@ -186,8 +187,9 @@ export type AgentPathOperationResult = {
   directories: number;
   truncated: boolean;
   verified: boolean | null;
-  linkStatus: 'incomplete' | null;
+  linkStatus: 'complete' | 'partial' | 'incomplete' | null;
   linkWarnings: string[];
+  operationIds?: string[];
   entries: AgentPathOperationEntry[];
 };
 
@@ -954,7 +956,7 @@ async function recordAgentPathOperationAudit(result: AgentPathOperationResult): 
     entityType: 'workspace_path',
     entityId: pathOperationEntityId(result),
     action: `agent_path.${result.operation}`,
-    status: 'success',
+    status: result.linkStatus === 'partial' ? 'failure' : 'success',
     summary: `Agent path ${result.operation} changed ${result.destinationPath ?? result.sourcePath}.`,
     metadata: {
       operation: result.operation,
@@ -969,6 +971,8 @@ async function recordAgentPathOperationAudit(result: AgentPathOperationResult): 
       workspace: auditWorkspaceMetadata(executionContext),
       type: result.type,
       overwritten: result.overwritten,
+      linkStatus: result.linkStatus,
+      operationIds: result.operationIds ?? [],
       bytes: result.bytes,
       files: result.files,
       directories: result.directories,
@@ -2760,6 +2764,104 @@ async function assertRuntimeTempPathOperationQuota(
   });
 }
 
+/** Route supported in-workspace agent paths through the same durable operation as the UI. */
+async function executeAgentWorkspacePathOperation(input: {
+  operation: 'copy_path' | 'move_path';
+  entries: PreparedPathOperationEntry[];
+  destinationPath: string;
+  destinationFullPath: string;
+}): Promise<AgentPathOperationResult | null> {
+  const workspace = getAgentWorkspaceContext();
+  const context = getAgentExecutionContext();
+  if (!workspace || !context || input.entries.some((entry) => !entry.destinationResolvedPath
+    || !isPathWithin(entry.sourceResolvedPath, workspace.rootPath)
+    || !isPathWithin(entry.destinationResolvedPath, workspace.rootPath))) return null;
+
+  // The copy service currently copies the source basename into the destination
+  // directory. An explicit copy-and-rename needs its own journalled path step.
+  if (input.operation === 'copy_path' && input.entries.some((entry) =>
+    path.basename(entry.sourceResolvedPath) !== path.basename(entry.destinationResolvedPath!))) return null;
+
+  for (const entry of input.entries) entry.changed = false;
+  const fileOptions = { workspace, mutationActorUserId: context.userId };
+  const identity = collaborationAgentIdentity(context);
+  const operationIds: string[] = [];
+  const linkWarnings: string[] = [];
+  let allComplete = true;
+  let completed = 0;
+  const groups = input.operation === 'copy_path'
+    ? [input.entries]
+    : input.entries.map((entry) => [entry]);
+  for (const group of groups) {
+    const selections = group.map((entry) => ({
+      sourcePath: workspaceRelativeAgentPath(workspace, entry.sourceResolvedPath),
+      destinationPath: workspaceRelativeAgentPath(workspace, entry.destinationResolvedPath!),
+    }));
+    try {
+      const operation = await executeWorkspaceFileOperationService({
+        kind: input.operation === 'copy_path' ? 'copy' : 'move',
+        source: { workspace, fileOptions },
+        destination: { workspace, fileOptions },
+        selections,
+        actorUserId: context.userId,
+        actorId: identity.actorId,
+        actorDisplayName: identity.actorDisplayName,
+        actorType: 'agent',
+        actorSessionId: context.sessionId,
+      });
+      const execution = operation.execution;
+      operationIds.push(execution.operationId);
+      if (execution.status === 'failed') {
+        throw new Error(`Workspace path operation ${execution.operationId} failed: ${execution.errorCode ?? 'UNKNOWN'}.`);
+      }
+      for (const entry of group) {
+        const destination = entry.destinationResolvedPath!;
+        const destinationStats = await fs.stat(destination).catch((error: unknown) => {
+          if (isEnoent(error)) return null;
+          throw error;
+        });
+        const sourceRemoved = input.operation === 'move_path'
+          ? !(await pathExists(entry.sourceResolvedPath))
+          : null;
+        const destinationTypeMatches = destinationStats !== null && getPathType(destinationStats) === entry.type;
+        const pathVerified = Boolean(destinationStats && destinationTypeMatches && sourceRemoved !== false);
+        entry.changed = Boolean(destinationStats);
+        entry.verification = {
+          destinationExists: Boolean(destinationStats), destinationTypeMatches,
+          sourceRemoved, contentVerified: execution.status === 'complete' && pathVerified,
+        };
+        if (!pathVerified) allComplete = false;
+      }
+      completed += group.length;
+      if (execution.status !== 'complete') {
+        allComplete = false;
+        linkWarnings.push(`Workspace operation ${execution.operationId} needs recovery (${execution.errorCode ?? 'UNKNOWN'}).`);
+        break;
+      }
+    } catch (error) {
+      if (completed === 0) throw error;
+      allComplete = false;
+      linkWarnings.push(`Stopped after ${completed} path(s): ${error instanceof Error ? error.message : String(error)}`);
+      break;
+    }
+  }
+
+  if (completed !== input.entries.length) {
+    allComplete = false;
+    linkWarnings.push(`${input.entries.length - completed} path(s) remain pending; retry after inspecting the operation IDs.`);
+  }
+  if (operationIds.length > 0) {
+    linkWarnings.push(`Operation IDs: ${operationIds.join(', ')}`);
+  }
+  const result = pathOperationSummary(input.operation, input.entries, input.destinationPath, input.destinationFullPath);
+  result.verified = allComplete && input.entries.every((entry) => entry.verification?.contentVerified === true);
+  result.linkStatus = allComplete ? 'complete' : 'partial';
+  result.linkWarnings = allComplete ? [] : linkWarnings;
+  result.operationIds = operationIds;
+  await recordAgentPathOperationAudit(result);
+  return result;
+}
+
 export async function copyAgentPath(params: {
   sourcePath: string;
   destinationPath: string;
@@ -2841,6 +2943,13 @@ export async function copyAgentPaths(params: {
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'copy_path');
       await assertRuntimeTempPathOperationQuota(entries, 'copy');
+      if (!params.overwrite) {
+        const workspaceResult = await executeAgentWorkspacePathOperation({
+          operation: 'copy_path', entries,
+          destinationPath: params.destinationPath, destinationFullPath,
+        });
+        if (workspaceResult) return workspaceResult;
+      }
       const copyWorkspace = getAgentWorkspaceContext();
       if (copyWorkspace) {
         const overwrittenPaths: string[] = [];
@@ -2978,6 +3087,13 @@ export async function moveAgentPaths(params: {
     async () => {
       await assertAgentPathMutationStatesUnchanged(mutationStates, 'move_path');
       await assertRuntimeTempPathOperationQuota(entries, 'move');
+      if (!params.overwrite) {
+        const workspaceResult = await executeAgentWorkspacePathOperation({
+          operation: 'move_path', entries,
+          destinationPath: params.destinationPath, destinationFullPath,
+        });
+        if (workspaceResult) return workspaceResult;
+      }
       const moveWorkspace = getAgentWorkspaceContext();
       if (moveWorkspace) {
         const overwrittenPaths = entries

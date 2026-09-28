@@ -77,6 +77,17 @@ function hash(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+/** Recreate the v1 plan identity from the exact public preview body. */
+export function computeWorkspaceFileOperationPlanId(
+  preview: Omit<WorkspaceFileOperationPreview, 'planId' | 'readiness'>
+    & Partial<Pick<WorkspaceFileOperationPreview, 'planId' | 'readiness'>>,
+): string {
+  const { planId: _planId, readiness: _readiness, issues, previewContents, ...basePlan } = preview;
+  void _planId;
+  void _readiness;
+  return hash(JSON.stringify({ ...basePlan, issues, previewContents }));
+}
+
 function isMarkdown(pathValue: string): boolean {
   return /\.(?:md|markdown)$/iu.test(pathValue);
 }
@@ -368,11 +379,12 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
     collisions,
     recoveryReady: false,
   };
-  const planId = hash(JSON.stringify({ ...basePlan, issues, previewContents }));
+  previewContents.sort((a, b) => a.workspaceId.localeCompare(b.workspaceId) || a.path.localeCompare(b.path));
+  const planId = computeWorkspaceFileOperationPlanId({ ...basePlan, issues, previewContents });
   return freezePlan({
     ...basePlan, planId,
     readiness: issues.length ? 'blocked' as const : 'ready' as const,
     issues,
-    previewContents: previewContents.sort((a, b) => a.workspaceId.localeCompare(b.workspaceId) || a.path.localeCompare(b.path)),
+    previewContents,
   });
 }

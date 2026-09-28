@@ -8,6 +8,8 @@ async function main() {
   let previewCalls = 0;
   let renameCalls = 0;
   let copyCalls = 0;
+  let safeCalls = 0;
+  let safeNeedsRecovery = false;
   let linkWriteFails = false;
   let previewError: Error | null = null;
   const currentPlanId = 'a'.repeat(64);
@@ -71,6 +73,24 @@ async function main() {
   } });
   mock.module('@/app/lib/files/collaboration-policy', { exports: {
     initializeCopiedFileCollaborationPaths: async () => {},
+  } });
+  mock.module('@/app/lib/files/workspace-file-operation-service', { exports: {
+    executeWorkspaceFileOperationService: async (input: { kind: 'rename' | 'copy'; expectedPlanId?: string }) => {
+      safeCalls += 1;
+      if (input.expectedPlanId && input.expectedPlanId !== currentPlanId) throw new WorkspacePreviewStaleError('changed');
+      if (currentReadiness !== 'ready') throw new WorkspacePreviewBlockedError('blocked');
+      const status = safeNeedsRecovery ? 'needs_recovery' : 'complete';
+      return {
+        execution: { operationId: 'safe-operation', planId: currentPlanId, status,
+          completedSteps: status === 'complete' ? ['path:all', 'link:one'] : ['path:all'],
+          pendingSteps: status === 'complete' ? [] : ['link:one'], errorCode: safeNeedsRecovery ? 'LINK_WRITE_STALE' : null },
+        plan: { linkEdits: [{ previousTargetLiteral: './chart.png', nextTargetLiteral: './new.png' }],
+          previewContents: [{ path: 'Notes/start.md' }] },
+        rename: input.kind === 'rename' ? { mutation: { type: 'rename', oldPath: 'Notes/chart.png',
+          newPath: 'Notes/new.png', workspaceId: 'ws', operationId: 'rename-safe' } } : null,
+        copied: input.kind === 'copy' ? ['Archive/chart.png'] : [], alreadyKnown: false,
+      };
+    },
   } });
   mock.module('@/app/lib/markdown/workspace-link-index', { exports: {
     buildWorkspaceLinkIndex: async () => ({
@@ -162,12 +182,12 @@ async function main() {
       newPath: 'Notes/new.png', planId: 'b'.repeat(64) }));
     assert.equal(staleRename.status, 409);
     assert.equal((await staleRename.json()).code, 'PREVIEW_STALE');
-    assert.equal(renameCalls, 0, 'stale rename must not mutate');
+    assert.equal(renameCalls, 0, 'stale rename must not use the legacy mutation');
     const staleCopy = await copyRoute.POST(request('copy', { sources: ['Notes/chart.png'],
       destDir: 'Archive', planId: 'b'.repeat(64) }));
     assert.equal(staleCopy.status, 409);
     assert.equal((await staleCopy.json()).code, 'PREVIEW_STALE');
-    assert.equal(copyCalls, 0, 'stale copy must not mutate');
+    assert.equal(copyCalls, 0, 'stale copy must not use the legacy mutation');
     currentReadiness = 'blocked';
     const blockedRename = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
       newPath: 'Notes/new.png', planId: currentPlanId }));
@@ -179,20 +199,30 @@ async function main() {
     const rename = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
       newPath: 'Notes/new.png', planId: currentPlanId }));
     const renameBody = await rename.json();
-    assert.equal(renameBody.linkStatus, 'partial', 'PNG target incoming Markdown link must not be declared complete');
-    assert.match(renameBody.linkUpdates.warnings.join(' '), /incoming Wiki links only/u);
-    assert.equal(renameCalls, 1);
+    assert.equal(renameBody.linkStatus, 'complete', 'the planned Markdown target must be written');
+    assert.equal(renameBody.linkUpdates.updatedLinks, 1);
+    assert.equal(renameBody.operation.operationId, 'safe-operation');
+    assert.equal(renameCalls, 0);
+    safeNeedsRecovery = true;
+    const partial = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
+      newPath: 'Notes/new.png', planId: currentPlanId }));
+    const partialBody = await partial.json();
+    assert.equal(partialBody.linkStatus, 'partial');
+    assert.equal(partialBody.operation.pendingSteps.length, 1);
+    assert.match(partialBody.linkUpdates.warnings.join(' '), /need recovery/u);
+    safeNeedsRecovery = false;
     linkWriteFails = true;
     const failedLinkWrite = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
-      newPath: 'Notes/new.png' }));
+      newPath: 'Notes/new.png', overwrite: true }));
     const failedLinkWriteBody = await failedLinkWrite.json();
     assert.equal(failedLinkWrite.status, 200, 'committed path change must retain a result');
     assert.equal(failedLinkWriteBody.linkStatus, 'partial');
     assert.match(failedLinkWriteBody.linkUpdates.warnings.join(' '), /disk write failed/u);
-    assert.equal(renameCalls, 2);
+    assert.equal(renameCalls, 1);
     const copy = await copyRoute.POST(request('copy', { sources: ['Notes/chart.png'], destDir: 'Archive' }));
-    assert.equal((await copy.json()).linkStatus, 'incomplete');
-    assert.equal(copyCalls, 1);
+    assert.equal((await copy.json()).linkStatus, 'complete');
+    assert.equal(copyCalls, 0);
+    assert.ok(safeCalls >= 6);
     console.log('workspace-file-operation-route-test: ok');
   } finally {
     mock.reset();

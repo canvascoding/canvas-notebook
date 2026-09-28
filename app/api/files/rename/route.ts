@@ -21,6 +21,7 @@ import {
 import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
 import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { assessWorkspaceRenameLinks } from '@/app/lib/markdown/workspace-file-operation-status';
+import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -76,6 +77,55 @@ export async function POST(request: NextRequest) {
       });
       const { previewContents: _previewContents, ...publicPlan } = plan;
       return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: publicPlan });
+    }
+
+    if (!overwrite && updateLinks) {
+      const operation = await executeWorkspaceFileOperationService({
+        kind: 'rename',
+        source: { workspace: workspaceResult.workspace, fileOptions },
+        destination: { workspace: workspaceResult.workspace, fileOptions },
+        selections: [{ sourcePath: oldPath, destinationPath: newPath }],
+        expectedPlanId: planId,
+        actorUserId: workspaceResult.session.user.id,
+        actorId: workspaceResult.session.user.id,
+        actorDisplayName: workspaceResult.session.user.name ?? 'Workspace user',
+        actorType: 'user',
+      });
+      const { execution, plan } = operation;
+      if (execution.status === 'failed') {
+        return jsonError('The file operation could not be applied. Refresh its preview.', 409, {
+          code: 'WORKSPACE_OPERATION_FAILED', operationId: execution.operationId,
+          errorCode: execution.errorCode,
+        });
+      }
+      const linkStatus = execution.status === 'complete' ? 'complete' : 'partial';
+      const linkUpdates = {
+        updatedFiles: execution.status === 'complete' ? plan?.previewContents.map((entry) => entry.path) ?? [] : [],
+        updatedLinks: execution.status === 'complete' ? plan?.linkEdits.length ?? 0 : 0,
+        warnings: execution.status === 'complete' ? [] : [
+          'Some planned Markdown links still need recovery. Use the operation ID to retry safely.',
+        ],
+      };
+      const mutation = operation.rename?.mutation ?? {
+        type: 'rename' as const, operationId: execution.operationId,
+        workspaceId: workspaceResult.workspace.workspaceId, oldPath, newPath,
+      };
+      invalidateWorkspaceFileViews({ fileOptions, fullTree: true,
+        mutations: linkUpdates.updatedFiles.map((path) => ({ path, type: 'change' as const })) });
+      if (!operation.alreadyKnown) {
+        await recordAuditEvent({
+          organizationId: workspaceResult.workspace.organizationId,
+          workspaceId: workspaceResult.workspace.workspaceId,
+          userId: workspaceResult.session.user.id, source: 'files', eventType: 'file',
+          entityType: 'workspace_path', entityId: newPath, action: 'file.rename',
+          status: execution.status === 'complete' ? 'success' : 'failure',
+          summary: `Path rename ${execution.status}: ${oldPath} to ${newPath}.`,
+          metadata: { oldPath, newPath, operationId: execution.operationId,
+            planId: execution.planId, linkStatus, completedSteps: execution.completedSteps,
+            pendingSteps: execution.pendingSteps, errorCode: execution.errorCode },
+        });
+      }
+      return jsonSuccess({ linkUpdates, linkStatus, mutation, operation: execution });
     }
 
     return await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
@@ -195,6 +245,10 @@ export async function POST(request: NextRequest) {
     if (error instanceof WorkspacePreviewStaleError) return jsonError(message, 409, { code: 'PREVIEW_STALE' });
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(message, 422, { code: 'PREVIEW_UNREADABLE' });
     if (error instanceof WorkspacePreviewBlockedError) return jsonError(message, 409, { code: 'PREVIEW_BLOCKED' });
+    const operationError = error as { status?: number; code?: string };
+    if (operationError.status && [403, 409, 422, 503].includes(operationError.status)) {
+      return jsonError(message, operationError.status, { code: operationError.code ?? 'WORKSPACE_OPERATION_FAILED' });
+    }
     
     // Check if this is a conflict error
     const conflictError = error as RenameConflictError;
