@@ -41,7 +41,7 @@ export async function readDictationAvailability(settings?: DictationSettings): P
       available,
       provider: 'local',
       model: selected.model,
-      reason: available ? null : 'faster-whisper is not installed on the server.',
+      reason: available ? null : 'Install the optional local runtime in Settings → Dictation.',
     };
   }
   const available = Boolean(await providerKey(selected.provider));

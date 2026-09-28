@@ -1469,19 +1469,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 
 The following entries require a documented responsible/legal decision before a commercial release:
 
-- **docker-python:anyio 4.15.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:av 18.1.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
-- **docker-python:ctranslate2 4.8.2:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
-- **docker-python:faster-whisper 1.2.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:filelock 4.0.5:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:fsspec 2026.9.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:h11 0.16.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:hf-xet 1.6.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
-- **docker-python:httpcore 1.0.9:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:httpx 0.28.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:huggingface-hub 1.33.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:tokenizers 0.23.2:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
-- **docker-python:tqdm 4.70.1:** Dictation dependency added after the 2026-07-17 approval; exact wheel and declared MPL-2.0 AND MIT terms review pending.
+- **docker-runtime:optional-dictation-boundary 2026-09-28:** The dictation wheels have moved to an opt-in DATA installation, but the changed final amd64/arm64 image composition and installation boundary still need a version-specific owner review before commercial distribution.
 
 ## License texts and copyright notices
 

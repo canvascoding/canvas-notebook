@@ -11,7 +11,9 @@ import { Switch } from '@/components/ui/switch';
 type Provider = 'local' | 'openai' | 'groq';
 type Settings = { enabled: boolean; provider: Provider; model: string; language: string };
 type Status = { available: boolean; reason: string | null };
-type ResponseData = { success: boolean; data?: { settings: Settings; status: Status }; error?: string };
+type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed'; message?: string };
+type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; localInstall: LocalInstall }; error?: string };
+type InstallResponse = { success: boolean; data?: { localInstall: LocalInstall }; error?: string };
 
 const models: Record<Provider, readonly string[]> = {
   local: ['tiny', 'base', 'small', 'medium', 'large-v3'],
@@ -23,8 +25,10 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
   const t = useTranslations('dictation');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const [localInstall, setLocalInstall] = useState<LocalInstall | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [installing, setInstalling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -34,12 +38,44 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
       .then(async (response) => {
         const body = await response.json() as ResponseData;
         if (!response.ok || !body.data) throw new Error(body.error || t('loadError'));
-        if (active) { setSettings(body.data.settings); setStatus(body.data.status); }
+        if (active) { setSettings(body.data.settings); setStatus(body.data.status); setLocalInstall(body.data.localInstall); }
       })
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : t('loadError')); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [t]);
+
+  useEffect(() => {
+    if (localInstall?.state !== 'installing') return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const response = await fetch('/api/admin/dictation', { cache: 'no-store' });
+        const body = await response.json() as ResponseData;
+        if (!response.ok || !body.data) throw new Error(body.error || t('loadError'));
+        if (active) { setLocalInstall(body.data.localInstall); setStatus(body.data.status); }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : t('loadError'));
+      }
+    };
+    const interval = window.setInterval(() => void refresh(), 2_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [localInstall?.state, t]);
+
+  async function installLocalRuntime() {
+    setInstalling(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/admin/dictation', { method: 'POST' });
+      const body = await response.json() as InstallResponse;
+      if (!response.ok || !body.data) throw new Error(body.error || t('installError'));
+      setLocalInstall(body.data.localInstall);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('installError'));
+    } finally {
+      setInstalling(false);
+    }
+  }
 
   async function save() {
     if (!settings) return;
@@ -56,6 +92,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
       if (!response.ok || !body.data) throw new Error(body.error || t('saveError'));
       setSettings(body.data.settings);
       setStatus(body.data.status);
+      setLocalInstall(body.data.localInstall);
       setSaved(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('saveError'));
@@ -89,8 +126,17 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
           <div className="space-y-2"><Label htmlFor="dictation-model">{t('model')}</Label><select id="dictation-model" value={settings.model} onChange={(event) => { setSettings({ ...settings, model: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">{models[settings.provider].map((model) => <option key={model} value={model}>{model}</option>)}</select></div>
           <div className="space-y-2"><Label htmlFor="dictation-language">{t('language')}</Label><select id="dictation-language" value={settings.language} onChange={(event) => { setSettings({ ...settings, language: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="auto">{t('automatic')}</option><option value="de">Deutsch</option><option value="en">English</option></select></div>
         </div>
-        {settings.provider === 'local' ? <p className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">{t('localNote')}</p> : <p className="text-sm text-muted-foreground">{t('cloudNote')}</p>}
-        {status && settings.enabled && <p role="status" className={status.available ? 'text-sm text-emerald-700 dark:text-emerald-400' : 'text-sm text-amber-700 dark:text-amber-400'}>{status.available ? t('available') : `${t('unavailable')} ${status.reason ?? ''}`}</p>}
+        {settings.provider === 'local' ? <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+          <p>{t('localNote')}</p>
+          <p>{t('localInstallDisclosure')} <a className="underline" href="https://ffmpeg.org/legal.html" target="_blank" rel="noopener noreferrer">{t('localLicenseLink')}</a></p>
+          {localInstall?.state === 'installed' && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('localInstalled')}</p>}
+          {localInstall?.state === 'installing' && <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />{t('localInstalling')}</p>}
+          {localInstall?.state === 'failed' && <p role="alert" className="text-destructive">{localInstall.message || t('installError')}</p>}
+          {(localInstall?.state === 'missing' || localInstall?.state === 'failed') && <Button type="button" variant="outline" onClick={() => void installLocalRuntime()} disabled={installing}>
+            {installing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('installLocal')}
+          </Button>}
+        </div> : <p className="text-sm text-muted-foreground">{t('cloudNote')}</p>}
+        {status && settings.enabled && <p role="status" className={status.available ? 'text-sm text-emerald-700 dark:text-emerald-400' : 'text-sm text-amber-700 dark:text-amber-400'}>{status.available ? t('available') : settings.provider === 'local' ? t('localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <div className="flex items-center gap-3"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}</Button>{saved && <span role="status" className="text-sm text-muted-foreground">{t('saved')}</span>}</div>
       </>}
