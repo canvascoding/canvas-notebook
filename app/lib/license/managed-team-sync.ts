@@ -371,11 +371,13 @@ async function applyManagedMembership(
       }
       if (existing.status === member.status && existing.role === member.role
         && !emailChanged
-        && (phase === 'revoke' || member.status !== 'active'
+        && (phase === 'revoke'
+          ? (!existing.localUserId || (Boolean(existing.userBanned) && existing.permissionStatus === 'disabled'))
+          : member.status !== 'active'
           || (existing.authRole === authRoleForMember(member.role)
             && existing.permissionRole === member.role
             && existing.permissionStatus === 'active'))) continue;
-      if (phase === 'revoke' && existing.status !== 'active') continue;
+      if (phase === 'revoke' && !['active', 'suspended', 'removed'].includes(existing.status)) continue;
       const pendingActivation = member.status === 'active'
         && ['approval_required', 'billing_pending'].includes(existing.status)
         && existing.localUserId !== null;
@@ -477,19 +479,21 @@ async function applyManagedMembership(
           suspended_at = CASE WHEN $1 = 'suspended' THEN $3 ELSE suspended_at END,
           removed_at = CASE WHEN $1 = 'removed' THEN $3 ELSE removed_at END,
           updated_at = $3
-        WHERE id = $4 AND organization_id = $5 AND user_id = $6 AND status = 'active'
+        WHERE id = $4 AND organization_id = $5 AND user_id = $6
+          AND status IN ('active', 'suspended', 'removed')
       `, [member.status, member.role, now, existing.localIdentityKey, local.organizationId, existing.localUserId]),
       'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
-      await database.run(`
+      requireChanged(await database.run(`
         UPDATE organization_user_permissions SET status = 'disabled', updated_at = $1
         WHERE organization_id = $2 AND user_id = $3
-      `, [now, local.organizationId, existing.localUserId]);
-      await database.run(`
+      `, [now, local.organizationId, existing.localUserId]), 'MANAGED_TEAM_PERMISSION_ROW_MISSING');
+      requireChanged(await database.run(`
         UPDATE "user" SET banned = 1, ban_reason = $1, ban_expires = NULL, updated_at = $2
         WHERE id = $3
       `, [policy && policy.state !== 'active' && member.status === 'suspended'
         ? TEAM_LICENSE_FALLBACK_BAN_REASON
-        : `${TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX}managed_${member.status}`, now, existing.localUserId]);
+        : `${TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX}managed_${member.status}`, now, existing.localUserId]),
+      'MANAGED_TEAM_REVOKED_IDENTITY_MISSING');
       await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
     }
     await database.run('COMMIT');
@@ -575,7 +579,10 @@ export async function runManagedTeamSyncCycle(options: {
             && current && ['approval_required', 'billing_pending'].includes(current.status)))
           || (member.status === 'active' && (current?.authRole !== authRoleForMember(member.role)
             || current.permissionRole !== member.role || current.permissionStatus !== 'active'
-            || Boolean(current.userBanned)));
+            || Boolean(current.userBanned)))
+          || (member.status !== 'active' && current?.localUserId
+            && ['suspended', 'removed'].includes(current.status)
+            && (!Boolean(current.userBanned) || current.permissionStatus !== 'disabled'));
       })) throw new Error('MANAGED_TEAM_MEMBERSHIP_APPLY_FAILED');
       await recordManagedTeamAccessPolicy({
         instanceId,

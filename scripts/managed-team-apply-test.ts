@@ -199,7 +199,7 @@ async function crashBoundaryScenario() {
     assert.equal(acknowledgements.at(-1)?.error, undefined);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
     assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 0);
-    const mutationsAfterApply = fixture.mutationCount;
+    let mutationsAfterApply = fixture.mutationCount;
     await fixture.reopen();
     loseAck = false;
     assert.equal(await runManagedTeamSyncCycle(options), 'applied');
@@ -207,6 +207,27 @@ async function crashBoundaryScenario() {
     assert.equal(fixture.mutationCount, mutationsAfterApply);
     assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 0);
     assert.equal(await readFile(certificatePath, 'utf8'), fingerprint);
+
+    await fixture.pg.query(`UPDATE "user" SET banned = 0, ban_reason = NULL WHERE id = 'user-revoked'`);
+    await fixture.pg.query(`UPDATE organization_user_permissions SET status = 'active' WHERE user_id = 'user-revoked'`);
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('drifted-session', 'user-revoked')`);
+    await fixture.reopen();
+    const failedRevokeDatabase = {
+      ...database,
+      async run(sql: string, params?: unknown[]) {
+        if (/UPDATE "user" SET banned = 1/u.test(sql)) return { changes: 0 };
+        return database.run(sql, params);
+      },
+    };
+    assert.equal(await runManagedTeamSyncCycle({ ...options, database: failedRevokeDatabase }), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_REVOKED_IDENTITY_MISSING');
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-revoked'`)).rows[0].banned, 0);
+    assert.equal(await runManagedTeamSyncCycle(options), 'applied');
+    assert.equal(acknowledgements.at(-1)?.error, undefined);
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-revoked'`)).rows[0].banned, 1);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM organization_user_permissions WHERE user_id = 'user-revoked'`)).rows[0].status, 'disabled');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 0);
+    mutationsAfterApply = fixture.mutationCount;
 
     const originalNow = Date.now;
     const certificateEnd = Math.floor(originalNow() / 1000) * 1000 + 60_000;
