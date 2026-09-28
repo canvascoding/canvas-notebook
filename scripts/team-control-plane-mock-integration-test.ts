@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import Module from 'node:module';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 const dataRoot = mkdtempSync(path.join(tmpdir(), 'canvas-team-control-plane-mock-'));
 const instanceId = 'instance-control-plane-mock';
@@ -457,6 +459,17 @@ async function closeServer(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const testDatabase = await createPiTestDatabase();
+  const moduleLoader = Module as unknown as {
+    _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleLoader._load;
+  moduleLoader._load = function load(request, parent, isMain) {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) {
+      return testDatabase;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
   const baseUrl = await listen();
   process.env.CANVAS_LICENSE_CONTROL_PLANE_URL = baseUrl;
   try {
@@ -689,6 +702,8 @@ async function main(): Promise<void> {
     assert.equal(process.env.STRIPE_WEBHOOK_SECRET, undefined);
   } finally {
     await closeServer();
+    moduleLoader._load = originalLoad;
+    await testDatabase.close();
     restoreEnvironment();
     rmSync(dataRoot, { recursive: true, force: true });
   }
