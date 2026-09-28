@@ -29,6 +29,8 @@ async function main(): Promise<void> {
   process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT = 'production';
   process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
   process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
+  process.env.CANVAS_TEAM_LICENSE_LIFECYCLE_INITIAL_DELAY_SECONDS = '1';
+  process.env.CANVAS_TEAM_LICENSE_LIFECYCLE_INTERVAL_SECONDS = '10';
   const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
   const publicKey = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
   const fingerprint = crypto.createHash('sha256')
@@ -75,11 +77,11 @@ async function main(): Promise<void> {
     const { openDb, closeDatabaseConnections } = await import('../app/lib/db');
     const { seedTeamSeatOrganization } = await import('./team-seat-test-db');
     const { adoptActiveTeamMembership } = await import('../app/lib/organization/team-membership');
-    const { getLicenseStatus } = await import('../app/lib/license');
     const { recordManagedTeamAccessPolicy, readManagedTeamAccessPolicy } = await import('../app/lib/license/managed-team-access-policy');
-    const { reconcileTeamLicenseLifecycle } = await import('../app/lib/license/team-license-lifecycle');
+    const { initializeTeamLicenseLifecycleRuntime } = await import('../app/lib/license/team-license-lifecycle');
     const { GET } = await import('../app/api/license/status/route');
     const database = await openDb();
+    let lifecycle: ReturnType<typeof initializeTeamLicenseLifecycleRuntime> | null = null;
     try {
       const now = Date.now();
       await seedTeamSeatOrganization(database, organizationId, now);
@@ -121,20 +123,36 @@ async function main(): Promise<void> {
       assert.equal(expired.licenseState, 'grace_required');
       assert.equal(expired.code, 'LICENSE_CERT_EXPIRED');
       assert.equal((await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!))?.state, 'grace');
-      const expiredStatus = await getLicenseStatus();
-      const fallback = await reconcileTeamLicenseLifecycle(expiredStatus, { database });
-      assert.equal(fallback.mode, 'solo');
-      assert.equal(fallback.disabledUsers, 1);
-      const members = await database.all(`
+      async function members() {
+        return database.all(`
         SELECT membership.user_id, membership.status, "user".banned
         FROM team_memberships membership JOIN "user" ON "user".id = membership.user_id
         WHERE membership.organization_id = $1 ORDER BY membership.role DESC
-      `, [organizationId]) as Array<{ user_id: string; status: string; banned: number | boolean | null }>;
-      assert.equal(members.find((member) => member.user_id === `owner-${organizationId}`)?.status, 'active');
-      assert.equal(Number(members.find((member) => member.user_id === `owner-${organizationId}`)?.banned ?? 0), 0);
-      assert.equal(members.find((member) => member.user_id === memberId)?.status, 'suspended');
-      assert.equal(Number(members.find((member) => member.user_id === memberId)?.banned), 1);
+      `, [organizationId]) as Promise<Array<{ user_id: string; status: string; banned: number | boolean | null }>>;
+      }
+      assert.equal((await members()).find((member) => member.user_id === memberId)?.status, 'active');
+      lifecycle = initializeTeamLicenseLifecycleRuntime();
+      assert.equal(lifecycle.started, true);
+      const deadline = Date.now() + 10_000;
+      let observed = await members();
+      while (observed.find((member) => member.user_id === memberId)?.status !== 'suspended'
+        && Date.now() < deadline) {
+        await delay(100);
+        observed = await members();
+      }
+      assert.equal(observed.find((member) => member.user_id === `owner-${organizationId}`)?.status, 'active');
+      assert.equal(Number(observed.find((member) => member.user_id === `owner-${organizationId}`)?.banned ?? 0), 0);
+      assert.equal(observed.find((member) => member.user_id === memberId)?.status, 'suspended');
+      assert.equal(Number(observed.find((member) => member.user_id === memberId)?.banned), 1);
+      const audit = await database.get(`
+        SELECT action FROM audit_events
+        WHERE organization_id = $1 AND action = 'team.solo_fallback_applied'
+        ORDER BY created_at DESC LIMIT 1
+      `, [organizationId]) as { action?: string } | undefined;
+      assert.equal(audit?.action, 'team.solo_fallback_applied');
     } finally {
+      lifecycle?.stop();
+      await delay(200);
       await database.close();
       await closeDatabaseConnections();
     }
@@ -142,7 +160,7 @@ async function main(): Promise<void> {
     await pool.end();
     await rm(dataDir, { recursive: true, force: true });
   }
-  console.info('Managed grace policy remains bounded by certificate expiry; offline expiry exposes status and owner-only fallback.');
+  console.info('Managed offline certificate expiry automatically scheduled owner-only fallback after grace.');
 }
 
 main().catch((error) => {
