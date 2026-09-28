@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import { requireManagedTeamInvitationPolicy } from '@/app/lib/license/managed-team-invitation-policy';
 import { areExternalUsersEnabled } from '@/app/lib/organization/features';
 import {
   createTeamMembershipInvitation,
@@ -82,6 +83,9 @@ export async function POST(request: NextRequest) {
   if (!guard.ok) return guard.response;
   const licenseResponse = await requireTeamRuntimeRoute();
   if (licenseResponse) return licenseResponse;
+
+  const invitationPolicyResponse = await requireManagedTeamInvitationPolicy();
+  if (invitationPolicyResponse) return invitationPolicyResponse;
 
   const limited = rateLimit(request, {
     limit: 20,

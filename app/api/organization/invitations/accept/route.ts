@@ -4,6 +4,7 @@ import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import { requireManagedTeamInvitationPolicy } from '@/app/lib/license/managed-team-invitation-policy';
 import { SeatLimitGuardError } from '@/app/lib/license/seat-limit';
 import {
   prepareAcceptedInvitationSeat,
@@ -51,6 +52,8 @@ export async function POST(request: NextRequest) {
     }
     const targetLimit = await publicResourceRateLimit({ limit: 40, windowMs: 60_000, keyPrefix: 'membership-invitation-accept' }, body.token);
     if (!targetLimit.ok) return targetLimit.response;
+    const invitationPolicyResponse = await requireManagedTeamInvitationPolicy();
+    if (invitationPolicyResponse) return invitationPolicyResponse;
     if (getDeploymentMode() === 'managed-team') {
       const accepted = await acceptTeamMembershipInvitation({ token: body.token, requestId: body.requestId });
       return NextResponse.json({
