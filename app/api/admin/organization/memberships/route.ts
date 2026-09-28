@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { openDb } from '@/app/lib/db';
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { runManagedTeamSyncCycle } from '@/app/lib/license/managed-team-sync';
+import { readManagedTeamAccessPolicy } from '@/app/lib/license/managed-team-access-policy';
+import { getLicenseInstanceId } from '@/app/lib/license/instance';
 import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
@@ -115,6 +117,15 @@ export async function POST(request: NextRequest) {
     }
 
     if (managed) {
+      const policy = await readManagedTeamAccessPolicy(getLicenseInstanceId());
+      if (!policy?.allowNewMembers) {
+        const message = policy?.state === 'grace'
+          ? 'The Team license has expired. New invitations are paused during the grace period until a new grant is issued in Control Plane.'
+          : policy?.state === 'restricted'
+            ? 'The Team license has ended or been revoked. A new grant in Control Plane is required before inviting members.'
+            : 'The Team license policy has not synchronized yet. Retry after the instance has connected to Control Plane.';
+        return NextResponse.json({ success: false, code: 'MANAGED_TEAM_INVITATIONS_PAUSED', error: message }, { status: 409 });
+      }
       const database = await openDb();
       try {
         const existing = await getTeamMembershipByCandidateEmail(database, state.organizationId, email);

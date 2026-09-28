@@ -7,11 +7,12 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { PENDING_TEAM_MEMBERSHIP_BAN_REASON } from '@/app/lib/auth';
 import { getDeploymentMode } from '@/app/lib/organization/config';
 import { ensureOrganizationPermissionRow, organizationPermissionDefaults } from '@/app/lib/organization/permission-provisioning';
-import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
+import { isTeamMembershipReactivationBanReason, TEAM_LICENSE_FALLBACK_BAN_REASON, TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { getLicenseInstanceId } from './instance';
-import { decodeLicenseJwt } from './jwt';
+import { decodeLicenseJwt, verifyLicenseJwtDetailed } from './jwt';
 import { loadStoredLicenseCert } from './storage';
+import { recordManagedTeamAccessPolicy } from './managed-team-access-policy';
 
 const SYNC_PATH = '/v1/managed/team/sync';
 const ADOPTION_PATH = '/v1/managed/team/adoption-report';
@@ -29,7 +30,13 @@ type ManagedMember = {
 };
 
 type ManagedSync = {
-  status: 'adoption_required' | 'ready';
+  status: 'adoption_required' | 'ready' | 'policy_ready';
+  accessPolicy?: {
+    state: 'active' | 'grace' | 'restricted';
+    reason: 'grant_expired' | 'grant_revoked' | null;
+    graceEndsAt: string | null;
+    allowNewMembers: boolean;
+  };
   instanceId: string;
   organizationId: string;
   membershipRevision: number;
@@ -81,7 +88,7 @@ function memberHash(members: ManagedMember[]): string {
 
 function parseSync(value: Record<string, unknown>, instanceId: string): ManagedSync {
   if (
-    (value.status !== 'ready' && value.status !== 'adoption_required')
+    !['ready', 'policy_ready', 'adoption_required'].includes(String(value.status))
     || value.instanceId !== instanceId
     || typeof value.organizationId !== 'string'
     || !Number.isSafeInteger(value.membershipRevision)
@@ -102,7 +109,7 @@ function parseSync(value: Record<string, unknown>, instanceId: string): ManagedS
     throw new Error('MANAGED_TEAM_SYNC_MEMBERS_INVALID');
   }
   const license = value.license as ManagedSync['license'];
-  if (value.status === 'ready' && (
+  if (value.status !== 'adoption_required' && (
     typeof value.memberHash !== 'string'
     || value.memberHash !== memberHash(members)
     || !license
@@ -114,6 +121,22 @@ function parseSync(value: Record<string, unknown>, instanceId: string): ManagedS
   )) {
     throw new Error('MANAGED_TEAM_SYNC_CONTRACT_INVALID');
   }
+  const policy = value.accessPolicy as ManagedSync['accessPolicy'];
+  if (value.status === 'policy_ready' && (!policy
+    || !['grace', 'restricted'].includes(policy.state)
+    || !['grant_expired', 'grant_revoked'].includes(String(policy.reason))
+    || policy.allowNewMembers !== false
+    || (policy.reason === 'grant_revoked' && policy.state !== 'restricted')
+    || (policy.state === 'grace' && (policy.reason !== 'grant_expired'
+      || typeof policy.graceEndsAt !== 'string'
+      || !Number.isFinite(Date.parse(policy.graceEndsAt))
+      || Date.parse(policy.graceEndsAt) <= Date.now()))
+    || (policy.graceEndsAt !== null && (typeof policy.graceEndsAt !== 'string'
+      || !Number.isFinite(Date.parse(policy.graceEndsAt))))
+  )) throw new Error('MANAGED_TEAM_ACCESS_POLICY_INVALID');
+  if (value.status === 'ready' && policy && (policy.state !== 'active'
+    || policy.reason !== null || policy.graceEndsAt !== null
+    || policy.allowNewMembers !== true)) throw new Error('MANAGED_TEAM_ACCESS_POLICY_INVALID');
   return value as ManagedSync;
 }
 
@@ -242,6 +265,7 @@ async function applyManagedMembership(
   local: { organizationId: string; members: LocalMember[] },
   managed: ManagedMember[],
   phase: 'revoke' | 'active',
+  policy?: ManagedSync['accessPolicy'],
 ): Promise<void> {
   const byIdentityKey = new Map(local.members.map((member) => [member.localIdentityKey, member]));
   const now = Date.now();
@@ -251,6 +275,7 @@ async function applyManagedMembership(
       if ((member.status === 'active') !== (phase === 'active')) continue;
       const existing = byIdentityKey.get(member.localIdentityKey!);
       if (!existing || (existing.status === member.status && existing.role === member.role)) continue;
+      if (phase === 'revoke' && existing.status !== 'active') continue;
       const pendingActivation = member.status === 'active'
         && ['approval_required', 'billing_pending'].includes(existing.status)
         && existing.localUserId !== null;
@@ -273,7 +298,7 @@ async function applyManagedMembership(
           }>;
           if (users.length !== 1 || users[0].email.toLowerCase() !== member.email.toLowerCase()
             || !users[0].banned
-            || !users[0].ban_reason?.startsWith(TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX)) {
+            || !isTeamMembershipReactivationBanReason(users[0].ban_reason)) {
             throw new Error('MANAGED_TEAM_REACTIVATION_IDENTITY_INVALID');
           }
           await ensureOrganizationPermissionRow(database, {
@@ -373,7 +398,9 @@ async function applyManagedMembership(
       await database.run(`
         UPDATE "user" SET banned = 1, ban_reason = $1, ban_expires = NULL, updated_at = $2
         WHERE id = $3
-      `, [`${TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX}managed_${member.status}`, now, existing.localUserId]);
+      `, [policy && policy.state !== 'active' && member.status === 'suspended'
+        ? TEAM_LICENSE_FALLBACK_BAN_REASON
+        : `${TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX}managed_${member.status}`, now, existing.localUserId]);
       await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
     }
     await database.run('COMMIT');
@@ -389,6 +416,7 @@ export async function runManagedTeamSyncCycle(options: {
   database?: Pick<SqlConnection, 'all' | 'get' | 'run' | 'close'>;
   fetchImpl?: typeof fetch;
   activateCertificate?: typeof activateLicenseCert;
+  verifyCertificate?: (certificate: string, instanceId: string) => Promise<boolean>;
   loadLegacyCertificate?: typeof loadStoredLicenseCert;
 } = {}): Promise<'unconfigured' | 'adoption_required' | 'applied' | 'pending'> {
   if (!instanceToken() || getDeploymentMode() !== 'managed-team'
@@ -417,7 +445,24 @@ export async function runManagedTeamSyncCycle(options: {
         || decoded.seatLimit !== license.seatLimit) {
         throw new Error('MANAGED_TEAM_CERTIFICATE_CLAIMS_MISMATCH');
       }
-      await applyManagedMembership(database, local, sync.members, 'revoke');
+      const policy = sync.accessPolicy;
+      if (sync.status === 'policy_ready') {
+        const expiresAt = Number(decoded.exp) * 1000;
+        if (!policy || decoded.licenseClass !== 'manual' || decoded.nonBillable !== true
+          || typeof decoded.grantId !== 'string' || !decoded.grantId
+          || !Number.isSafeInteger(decoded.exp) || expiresAt <= Date.now()
+          || (policy.state === 'grace' && expiresAt > Date.parse(policy.graceEndsAt!))
+          || (policy.state === 'restricted' && (license.seatLimit !== 1
+            || sync.members.filter((member) => member.status === 'active').length !== 1
+            || sync.members.some((member) => member.status === 'active' && member.role !== 'owner')))) {
+          throw new Error('MANAGED_TEAM_ACCESS_POLICY_CERTIFICATE_MISMATCH');
+        }
+      }
+      const verified = await (options.verifyCertificate
+        ? options.verifyCertificate(license.certificate, instanceId)
+        : verifyLicenseJwtDetailed(license.certificate, instanceId).then((result) => result.ok));
+      if (!verified) throw new Error('MANAGED_TEAM_CERTIFICATE_INVALID');
+      await applyManagedMembership(database, local, sync.members, 'revoke', policy);
       const afterRevocation = await localMembers(database);
       const currentActive = afterRevocation.members.filter((member) => member.status === 'active').length;
       if (license.seatLimit < currentActive) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
@@ -426,13 +471,20 @@ export async function runManagedTeamSyncCycle(options: {
         || status.edition !== 'team' || status.seatLimit !== license.seatLimit) {
         throw new Error('MANAGED_TEAM_CERTIFICATE_APPLY_FAILED');
       }
-      await applyManagedMembership(database, afterRevocation, sync.members, 'active');
+      await applyManagedMembership(database, afterRevocation, sync.members, 'active', policy);
       const applied = await localMembers(database);
       appliedMemberCount = assertManagedMappings(applied.members, sync.members);
       if (sync.members.some((member) => {
         const current = applied.members.find((localMember) => localMember.localIdentityKey === member.localIdentityKey);
-        return current?.role !== member.role || current.status !== member.status;
+        return current?.role !== member.role || (current.status !== member.status
+          && !(sync.status === 'policy_ready' && member.status === 'suspended'
+            && current && ['approval_required', 'billing_pending'].includes(current.status)));
       })) throw new Error('MANAGED_TEAM_MEMBERSHIP_APPLY_FAILED');
+      await recordManagedTeamAccessPolicy({
+        instanceId,
+        entitlementsVersion: license.entitlementsVersion,
+        policy: policy ?? { state: 'active', reason: null, graceEndsAt: null, allowNewMembers: true },
+      });
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'MANAGED_TEAM_APPLY_FAILED';
     }

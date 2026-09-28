@@ -16,15 +16,19 @@ process.env.BETTER_AUTH_BASE_URL = 'http://localhost:3001';
 const organizationId = 'local-organization';
 const centralOrganizationId = 'central-organization';
 
-function certificate(seatLimit: number): string {
+function certificate(seatLimit: number, entitlementsVersion = 1783338368, recovery = false, expiresAt?: number): string {
   return [
     Buffer.from(JSON.stringify({ alg: 'RS256' })).toString('base64url'),
     Buffer.from(JSON.stringify({
       sub: process.env.CANVAS_INSTANCE_ID,
       instanceId: process.env.CANVAS_INSTANCE_ID,
       organizationId: centralOrganizationId,
-      entitlementsVersion: 1783338368,
+      entitlementsVersion,
       seatLimit,
+      ...(recovery ? {
+        licenseClass: 'manual', nonBillable: true, grantId: 'manual-grant',
+        exp: Math.floor((expiresAt ?? Date.now() + 15 * 60_000) / 1000),
+      } : {}),
     })).toString('base64url'),
     'signature-placeholder',
   ].join('.');
@@ -85,8 +89,10 @@ async function setupDatabase(dataDir: string) {
 }
 
 async function main() {
-  const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
   const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-recovery-'));
+  process.env.DATA = dataDir;
+  const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
+  const { readManagedTeamAccessPolicy } = await import('../app/lib/license/managed-team-access-policy');
   const fixture = await setupDatabase(dataDir);
   const { database } = fixture;
   try {
@@ -94,17 +100,19 @@ async function main() {
       INSERT INTO team_memberships (id, organization_id, user_id, candidate_email, role, status)
       VALUES ('member-owner', $1, 'user-owner', 'owner@example.test', 'owner', 'active'),
         ('member-revoked', $1, 'user-revoked', 'revoked@example.test', 'member', 'active'),
-        ('member-new', $1, NULL, 'new@example.test', 'member', 'approval_required')
+        ('member-new', $1, NULL, 'new@example.test', 'member', 'approval_required'),
+        ('member-grace-new', $1, NULL, 'grace-new@example.test', 'member', 'approval_required')
     `, [organizationId]);
     await fixture.pg.query(`
       INSERT INTO "user" (id, email, banned, ban_reason)
       VALUES ('user-owner', 'owner@example.test', 0, NULL),
         ('user-revoked', 'revoked@example.test', 0, NULL),
-        ('user-new', 'new@example.test', 1, 'canvas_team_membership_pending')
+        ('user-new', 'new@example.test', 1, 'canvas_team_membership_pending'),
+        ('user-grace-new', 'grace-new@example.test', 1, 'canvas_team_membership_pending')
     `);
     await fixture.pg.query(`
       INSERT INTO managed_team_pending_identities (local_identity_key, organization_id, pending_user_id)
-      VALUES ('member-new', $1, 'user-new')
+      VALUES ('member-new', $1, 'user-new'), ('member-grace-new', $1, 'user-grace-new')
     `, [organizationId]);
     await fixture.pg.query(`
       INSERT INTO organization_user_permissions (organization_id, user_id, role, status)
@@ -117,22 +125,24 @@ async function main() {
       { externalUserId: 'central-revoked', email: 'revoked@example.test', role: 'member', status: 'removed', localIdentityKey: 'member-revoked', localUserId: 'user-revoked' },
     ];
     const cert = certificate(2);
+    let offeredSeatLimit = 2;
+    let syncPayload: Record<string, unknown> = {
+      status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
+      organizationId: centralOrganizationId, membershipRevision: 2,
+      memberHash: createHash('sha256').update(JSON.stringify(members)).digest('hex'),
+      members,
+      license: {
+        certificate: cert, entitlementsVersion: 1783338368,
+        fingerprint: createHash('sha256').update(cert).digest('hex'), seatLimit: 2,
+      },
+    };
     const acknowledgements: Array<Record<string, unknown>> = [];
     let transport: 'offline' | 'ack_lost' | 'online' = 'offline';
     const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
       if (transport === 'offline') throw new Error('CONTROL_PLANE_OFFLINE');
       if (path.endsWith('/sync')) {
-        return new Response(JSON.stringify({
-          status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
-          organizationId: centralOrganizationId, membershipRevision: 2,
-          memberHash: createHash('sha256').update(JSON.stringify(members)).digest('hex'),
-          members,
-          license: {
-            certificate: cert, entitlementsVersion: 1783338368,
-            fingerprint: createHash('sha256').update(cert).digest('hex'), seatLimit: 2,
-          },
-        }), { status: 200 });
+        return new Response(JSON.stringify(syncPayload), { status: 200 });
       }
       if (path.endsWith('/sync/ack')) {
         acknowledgements.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
@@ -147,13 +157,15 @@ async function main() {
       fetchImpl,
       activateCertificate: async () => {
         activationCount++;
-        return { licensed: true, hostingMode: 'cloud', edition: 'team', seatLimit: 2 } as
+        return { licensed: true, hostingMode: 'cloud', edition: 'team', seatLimit: offeredSeatLimit } as
           Awaited<ReturnType<typeof import('../app/lib/license').activateLicenseCert>>;
       },
+      verifyCertificate: async () => true,
     };
     await assert.rejects(runManagedTeamSyncCycle(syncOptions), /CONTROL_PLANE_OFFLINE/);
     assert.equal(activationCount, 0);
     assert.equal(fixture.mutationCount, 0);
+    assert.equal(await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!), null);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-revoked'`)).rows[0].status, 'active');
     assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 1);
 
@@ -186,7 +198,90 @@ async function main() {
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
     assert.equal(fixture.mutationCount, mutationsAfterApply);
     assert.deepEqual(acknowledgements[3], acknowledgements[2]);
-    console.info('managed team offline, apply, lost ACK, restart, and idempotent replay passed');
+    assert.equal((await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!))?.allowNewMembers, true);
+
+    const graceEndsAt = Date.now() + 7 * 24 * 60 * 60_000;
+    const graceMembers = [
+      ...members,
+      { externalUserId: 'central-grace-new', email: 'grace-new@example.test', role: 'member',
+        status: 'suspended', localIdentityKey: 'member-grace-new', localUserId: 'user-grace-new' },
+    ];
+    const policyOffer = (
+      revision: number,
+      desiredMembers: typeof graceMembers,
+      seatLimit: number,
+      state: 'grace' | 'restricted',
+      reason: 'grant_expired' | 'grant_revoked',
+      expiry: number,
+    ) => {
+      const version = 1783338368 + revision;
+      const offeredCertificate = certificate(seatLimit, version, true, expiry);
+      offeredSeatLimit = seatLimit;
+      syncPayload = {
+        status: 'policy_ready', instanceId: process.env.CANVAS_INSTANCE_ID,
+        organizationId: centralOrganizationId, membershipRevision: revision,
+        memberHash: createHash('sha256').update(JSON.stringify([...desiredMembers]
+          .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
+        members: desiredMembers,
+        accessPolicy: { state, reason, graceEndsAt: reason === 'grant_expired'
+          ? new Date(graceEndsAt).toISOString() : null, allowNewMembers: false },
+        license: { certificate: offeredCertificate, entitlementsVersion: version,
+          fingerprint: createHash('sha256').update(offeredCertificate).digest('hex'), seatLimit },
+      };
+    };
+    policyOffer(3, graceMembers, 2, 'grace', 'grant_expired', graceEndsAt - 60_000);
+    const validGraceOffer = syncPayload;
+    syncPayload = { ...validGraceOffer, accessPolicy: undefined };
+    await assert.rejects(runManagedTeamSyncCycle(syncOptions), /MANAGED_TEAM_ACCESS_POLICY_INVALID/);
+    syncPayload = validGraceOffer;
+    const mutationsBeforeGrace = fixture.mutationCount;
+    assert.equal(await runManagedTeamSyncCycle({ ...syncOptions, verifyCertificate: async () => false }), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_CERTIFICATE_INVALID');
+    assert.equal(fixture.mutationCount, mutationsBeforeGrace);
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    assert.equal(acknowledgements.at(-1)?.appliedMemberCount, 2);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-grace-new'`)).rows[0].status, 'approval_required');
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-grace-new'`)).rows[0].banned, 1);
+    assert.deepEqual(await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!), {
+      state: 'grace', reason: 'grant_expired', graceEndsAt: new Date(graceEndsAt).toISOString(), allowNewMembers: false,
+    });
+
+    const restrictedMembers = graceMembers.map((member) => member.externalUserId === 'central-new'
+      ? { ...member, status: 'suspended' } : member);
+    policyOffer(4, restrictedMembers, 1, 'restricted', 'grant_revoked', Date.now() + 15 * 60_000);
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('owner-session', 'user-owner'), ('new-session', 'user-new')`);
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    assert.equal(acknowledgements.at(-1)?.appliedMemberCount, 1);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'suspended');
+    assert.equal((await fixture.pg.query<{ ban_reason: string }>(`SELECT ban_reason FROM "user" WHERE id = 'user-new'`)).rows[0].ban_reason, 'canvas_team_license_fallback');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-new'`)).rows.length, 0);
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-owner'`)).rows.length, 1);
+    assert.equal((await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!))?.state, 'restricted');
+    const mutationsAfterRestriction = fixture.mutationCount;
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    assert.equal(fixture.mutationCount, mutationsAfterRestriction);
+
+    const restoredMembers = graceMembers.map((member) => member.status === 'suspended'
+      ? { ...member, status: 'active' } : member);
+    const restoredCertificate = certificate(3, 1783338373);
+    offeredSeatLimit = 3;
+    syncPayload = {
+      status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
+      organizationId: centralOrganizationId, membershipRevision: 5,
+      memberHash: createHash('sha256').update(JSON.stringify([...restoredMembers]
+        .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
+      members: restoredMembers,
+      accessPolicy: { state: 'active', reason: null, graceEndsAt: null, allowNewMembers: true },
+      license: { certificate: restoredCertificate, entitlementsVersion: 1783338373,
+        fingerprint: createHash('sha256').update(restoredCertificate).digest('hex'), seatLimit: 3 },
+    };
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    assert.equal(acknowledgements.at(-1)?.appliedMemberCount, 3);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
+    assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 0);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-grace-new'`)).rows[0].status, 'active');
+    assert.equal((await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!))?.allowNewMembers, true);
+    console.info('managed team offline recovery, grace, restriction, replay, and restoration passed');
   } finally {
     await fixture.close();
     await rm(dataDir, { recursive: true, force: true });
