@@ -495,11 +495,13 @@ export async function runManagedTeamSyncCycle(options: {
         entitlementsVersion: license.entitlementsVersion,
         policy: policy ?? { state: 'active', reason: null, graceEndsAt: null, allowNewMembers: true },
       });
-      if (sync.status === 'ready' && policy?.state === 'active' && policy.termEndsAt
+      if (((sync.status === 'ready' && policy?.state === 'active')
+        || (sync.status === 'policy_ready' && (policy?.state === 'grace' || policy?.state === 'restricted')))
         && decoded.licenseClass === 'manual' && decoded.licenseEnvironment === 'production'
         && decoded.provider === 'manual' && decoded.nonBillable === true
         && typeof decoded.grantId === 'string' && decoded.grantId
-        && Date.parse(policy.termEndsAt) >= Number(decoded.exp) * 1000) {
+        && (policy?.state === 'grace' || policy?.state === 'restricted' || !policy?.termEndsAt
+          || Date.parse(policy.termEndsAt) >= Number(decoded.exp) * 1000)) {
         warningGrantId = decoded.grantId;
       }
     } catch (caught) {
@@ -521,13 +523,15 @@ export async function runManagedTeamSyncCycle(options: {
       ...(humanActivityAt ? { lastHumanActivityAt: humanActivityAt } : {}),
       ...(error ? { error } : {}),
     }, options.fetchImpl);
-    if (!error && warningGrantId && sync.accessPolicy?.termEndsAt) {
+    if (!error && warningGrantId && sync.accessPolicy) {
       await (options.recordTermWarning ?? recordTeamLicenseTermWarning)({
         database,
         instanceId,
         organizationId: local.organizationId,
         grantId: warningGrantId,
-        termEndsAt: sync.accessPolicy.termEndsAt,
+        termEndsAt: sync.accessPolicy.termEndsAt ?? null,
+        graceEndsAt: sync.accessPolicy.state === 'grace' ? sync.accessPolicy.graceEndsAt : null,
+        restricted: sync.accessPolicy.state === 'restricted',
         seatLimit: license.seatLimit,
       }).catch((caught) => {
         console.warn('[license/managed-sync] term warning deferred', {

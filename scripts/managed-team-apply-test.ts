@@ -296,24 +296,31 @@ async function main() {
       license: { certificate: restoredCertificate, entitlementsVersion: 1783338373,
         fingerprint: createHash('sha256').update(restoredCertificate).digest('hex'), seatLimit: 3 },
     };
+    const warningsBeforeInvalidCertificate = (await fixture.pg.query(`
+      SELECT id FROM audit_events WHERE event_type = 'license_term_warning'
+    `)).rows.length;
     assert.equal(await runManagedTeamSyncCycle({ ...syncOptions, verifyCertificate: async () => false }), 'pending');
-    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 0);
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length,
+      warningsBeforeInvalidCertificate);
     assert.equal(await runManagedTeamSyncCycle({
       ...syncOptions,
       recordTermWarning: async () => { throw new Error('FAKE_NOTIFICATION_STORE_OFFLINE'); },
     }), 'applied');
     assert.equal(acknowledgements.at(-1)?.error, undefined);
-    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 0);
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length,
+      warningsBeforeInvalidCertificate);
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
     assert.equal(acknowledgements.at(-1)?.appliedMemberCount, 3);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
     assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 0);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-grace-new'`)).rows[0].status, 'active');
     assert.equal((await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!))?.allowNewMembers, true);
-    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 1);
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length,
+      warningsBeforeInvalidCertificate + 3);
     assert.equal((await fixture.pg.query(`SELECT id FROM team_license_email_outbox WHERE event_kind = 'owner_term_14d'`)).rows.length, 1);
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
-    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 1);
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length,
+      warningsBeforeInvalidCertificate + 3);
     const perpetualCertificate = certificate(3, 1783338374, true, Date.now() + 15 * 60_000);
     syncPayload = {
       ...syncPayload,
@@ -323,7 +330,8 @@ async function main() {
         fingerprint: createHash('sha256').update(perpetualCertificate).digest('hex'), seatLimit: 3 },
     };
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
-    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 1);
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length,
+      warningsBeforeInvalidCertificate + 3);
     console.info('managed team offline recovery, grace, restriction, replay, and restoration passed');
   } finally {
     await fixture.close();

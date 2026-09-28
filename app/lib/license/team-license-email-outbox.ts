@@ -10,7 +10,8 @@ import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-clie
 
 type EmailDatabase = Pick<SqlConnection, 'get' | 'run' | 'close'>;
 export type TeamLicenseEmailKind = 'owner_restricted' | 'owner_restored' | 'owner_mixed' | 'member_paused' | 'member_restored'
-  | 'owner_term_14d' | 'owner_term_3d' | 'owner_term_1d';
+  | 'owner_term_14d' | 'owner_term_3d' | 'owner_term_1d'
+  | 'member_term_14d' | 'member_term_3d' | 'member_term_1d' | 'member_grace';
 
 type EmailJob = {
   id: string;
@@ -51,8 +52,9 @@ export async function enqueueTeamLicenseEmail(
     SET status = 'superseded', lease_until = NULL, updated_at = $3
     WHERE organization_id = $1 AND user_id = $2
       AND status IN ('pending', 'failed')
-      AND ($4 = 0 OR event_kind LIKE 'owner_term_%')
-  `, [input.organizationId, input.userId, input.now, Number(input.kind.startsWith('owner_term_'))]);
+      AND ($4 = 0 OR event_kind LIKE 'owner_term_%' OR event_kind LIKE 'member_term_%' OR event_kind = 'member_grace')
+  `, [input.organizationId, input.userId, input.now,
+    Number(input.kind.startsWith('owner_term_') || input.kind.startsWith('member_term_') || input.kind === 'member_grace')]);
   await database.run(`
     INSERT INTO team_license_email_outbox
       (id, audit_event_id, organization_id, user_id, event_kind, reason, seat_limit,
@@ -71,11 +73,29 @@ export async function enqueueTeamLicenseEmail(
   ]);
 }
 
+export async function supersedeObsoleteTeamLicenseWarnings(
+  database: Pick<SqlConnection, 'run'>,
+  input: { organizationId: string; grantId: string; termEndsAt: string | null; grace: boolean; restricted: boolean; now: number },
+): Promise<void> {
+  await database.run(`
+    UPDATE team_license_email_outbox outbox
+    SET status = 'superseded', lease_until = NULL, updated_at = $5
+    WHERE outbox.organization_id = $1 AND outbox.status IN ('pending', 'failed')
+      AND (outbox.event_kind LIKE 'owner_term_%' OR outbox.event_kind LIKE 'member_term_%'
+        OR outbox.event_kind = 'member_grace')
+      AND EXISTS (SELECT 1 FROM audit_events event WHERE event.id = outbox.audit_event_id
+        AND ($6 = true OR (event.metadata_json::jsonb ->> 'grantId') IS DISTINCT FROM $2
+          OR (event.metadata_json::jsonb ->> 'termEndsAt') IS DISTINCT FROM $3
+          OR (event.action = 'team.member_grace') IS DISTINCT FROM $4))
+  `, [input.organizationId, input.grantId, input.termEndsAt, input.grace, input.now, input.restricted]);
+}
+
 function messageFor(job: EmailJob, to: string, locale: string): EmailMessage {
   const german = locale.toLowerCase().startsWith('de');
   const seats = Number(job.seat_limit);
-  if (job.event_kind.startsWith('owner_term_')) {
-    const stage = Number(job.event_kind.match(/^owner_term_(14|3|1)d$/u)?.[1]);
+  if (job.event_kind.startsWith('owner_term_') || job.event_kind.startsWith('member_term_')) {
+    const stage = Number(job.event_kind.match(/^(?:owner|member)_term_(14|3|1)d$/u)?.[1]);
+    const member = job.event_kind.startsWith('member_');
     const date = new Date(job.reason);
     const term = Number.isFinite(date.getTime())
       ? new Intl.DateTimeFormat(german ? 'de-DE' : 'en-US', {
@@ -88,8 +108,27 @@ function messageFor(job: EmailJob, to: string, locale: string): EmailMessage {
         ? `Canvas Notebook: Team-Grant endet in ${stage} ${stage === 1 ? 'Tag' : 'Tagen'}`
         : `Canvas Notebook: Team grant ends within ${stage} ${stage === 1 ? 'day' : 'days'}`,
       body: german
-        ? `Dein kostenfreier Team-Grant für bis zu ${seats} Plätze endet am ${term}. Bitte verlängere den Grant im Control Plane, damit der Team-Zugang bestehen bleibt.`
-        : `Your free Team grant for up to ${seats} seats ends on ${term}. Renew the grant in Control Plane to keep Team access available.`,
+        ? member
+          ? `Die Team-Lizenz für Canvas Notebook endet am ${term}. Dein Zugang kann danach eingeschränkt werden. Deine Daten bleiben erhalten. Bitte wende dich an den Organisations-Owner.`
+          : `Dein kostenfreier Team-Grant für bis zu ${seats} Plätze endet am ${term}. Bitte verlängere den Grant im Control Plane, damit der Team-Zugang bestehen bleibt.`
+        : member
+          ? `The Canvas Notebook team license ends on ${term}. Your access may be restricted afterward. Your data will be retained. Please contact the organization owner.`
+          : `Your free Team grant for up to ${seats} seats ends on ${term}. Renew the grant in Control Plane to keep Team access available.`,
+      idempotencyKey: job.id,
+    };
+  }
+  if (job.event_kind === 'member_grace') {
+    const date = new Date(job.reason);
+    const deadline = Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(german ? 'de-DE' : 'en-US', {
+        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Berlin',
+      }).format(date) : job.reason;
+    return {
+      to,
+      subject: german ? 'Canvas Notebook: Team-Zugang endet bald' : 'Canvas Notebook: Team access ends soon',
+      body: german
+        ? `Die Team-Lizenz ist abgelaufen. Dein Zugang bleibt während der Schonfrist bis ${deadline} verfügbar und kann danach pausiert werden. Deine Daten bleiben erhalten. Bitte wende dich an den Organisations-Owner.`
+        : `The team license has expired. Your access remains available during the grace period until ${deadline} and may then be paused. Your data will be retained. Please contact the organization owner.`,
       idempotencyKey: job.id,
     };
   }
