@@ -80,6 +80,51 @@ async function main() {
     unregister();
 
     setup();
+    useEditorStore.getState().markSaved();
+    const beforeOpen = deferred<void>();
+    const finishPreparation = registerDocumentTransitionGuard('a', 'a.txt', {
+      hasPendingChanges: () => true,
+      prepare: () => beforeOpen.promise,
+    });
+    globalThis.fetch = (async () => Response.json({ success: true, data: { path: 'b.txt', content: 'B' } })) as typeof fetch;
+    const nextFile = useFileStore.getState().revealAndLoadFile('b.txt', { revealInTree: false });
+    assert.equal(useFileStore.getState().isLoadingFile, true, 'the new file intent is loading before previous-file preparation finishes');
+    assert.equal(useFileStore.getState().loadingFilePath, 'b.txt');
+    beforeOpen.resolve();
+    assert.equal((await nextFile).status, 'opened');
+    assert.equal(useFileStore.getState().isLoadingFile, false);
+    assert.equal(useFileStore.getState().currentFile?.path, 'b.txt');
+    finishPreparation();
+
+    setup();
+    useEditorStore.getState().markSaved();
+    const rejectPreparation = registerDocumentTransitionGuard('a', 'a.txt', {
+      hasPendingChanges: () => true,
+      prepare: async () => { throw new Error('save failed'); },
+    });
+    assert.equal((await useFileStore.getState().revealAndLoadFile('b.txt', { revealInTree: false })).status, 'failed');
+    assert.equal(useFileStore.getState().isLoadingFile, false, 'failed preparation settles the foreground skeleton');
+    assert.equal(useFileStore.getState().currentFile?.path, 'a.txt');
+    rejectPreparation();
+
+    setup();
+    useEditorStore.getState().markSaved();
+    const stalePreparation = deferred<void>();
+    const unregisterStalePreparation = registerDocumentTransitionGuard('a', 'a.txt', {
+      hasPendingChanges: () => true,
+      prepare: () => stalePreparation.promise,
+    });
+    let isCurrent = true;
+    const supersededOpen = useFileStore.getState().revealAndLoadFile('b.txt', { revealInTree: false, isCurrent: () => isCurrent });
+    assert.equal(useFileStore.getState().isLoadingFile, true);
+    isCurrent = false;
+    stalePreparation.resolve();
+    assert.equal((await supersededOpen).status, 'superseded');
+    assert.equal(useFileStore.getState().isLoadingFile, false, 'a revoked open cannot leave the foreground skeleton active');
+    assert.equal(useFileStore.getState().currentFile?.path, 'a.txt');
+    unregisterStalePreparation();
+
+    setup();
     const joiningFile = { path: 'joining.md', content: '', collaboration: {
       crdtCapable: true, sceneCapable: false,
     } } as CurrentFile;

@@ -8,6 +8,7 @@ import type { CurrentFile, FileNode, OpenWorkspaceFileResult } from '../app/lib/
 import { registerDocumentTransitionGuard } from '../app/lib/files/document-transition';
 import { readNotebookDocumentTabs, writeNotebookDocumentTabs } from '../app/lib/notebook/document-tabs';
 import { getNotebookQueryClient } from '../app/lib/queries/client';
+import { WORKSPACE_CHANGED_EVENT } from '../app/store/workspace-store';
 import messages from '../messages/en.json';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
@@ -176,9 +177,13 @@ async function main() {
     let lateRead!: (response: Response) => void;
     holdRead = path => path === 'renamed/b.md' ? new Promise(resolve => { lateRead = resolve; }) : null;
     await select(1); assert(lateRead, 'the location resolved and the file body is still pending');
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'a pending read keeps the document skeleton visible');
+    assert.equal(document.querySelector('[data-editor-path="renamed/a.md"]'), null, 'a new document never shows the previous editor behind its skeleton');
     const bButton = document.querySelector<HTMLButtonElement>('[data-testid="notebook-document-1"]')!;
     await act(async () => bButton.parentElement!.querySelectorAll<HTMLButtonElement>('button')[1].click());
     assert.equal(tabs().openPaths.includes('renamed/b.md'), false);
+    assert.equal(useFileStore.getState().isLoadingFile, false, 'closing a pending tab immediately settles its file load');
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null);
     await act(async () => lateRead(Response.json({ success: true, data: file('renamed/b.md', 'doc-b') })));
     assert.equal(tabs().openPaths.includes('renamed/b.md'), false, 'the later file read cannot reopen a closed tab');
     assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-a');
@@ -192,7 +197,10 @@ async function main() {
     const before = searches.length;
     await select(1);
     assert(searches.length > before && pending.length);
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'identity lookup displays the same document skeleton before the read starts');
+    assert.equal(document.querySelector('[data-editor-path="renamed/a.md"]'), null, 'identity lookup hides the previous document');
     await select(0);
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null, 'a newer selection settles the old lookup skeleton');
     await act(async () => { for (const resolve of pending.splice(0)) resolve(locationResponse('doc-b')); });
     assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-a', 'a newer selection revokes a delayed open');
     holdLocation = null;
@@ -287,6 +295,7 @@ async function main() {
     holdLocation = id => id === 'doc-old' ? new Promise<Response>(resolve => delayedLocation.push(resolve)) : null;
     await mountScenario('delayed-old-identity', '/en/notebook?path=folder%2Fa.md&workspaceId=workspace');
     assert(delayedLocation.length > 0, 'the old identity lookup must actually be in flight');
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'route entry shows the document skeleton throughout location lookup');
     assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old');
     assert.equal(errors.length, 0);
     let selectedReplacement!: OpenWorkspaceFileResult;
@@ -302,6 +311,33 @@ async function main() {
     assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-replacement');
     assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-replacement');
 
+    await act(async () => scenarioRoot.render(null));
+    resetScenario();
+    const oldWorkspaceLookup: Array<(response: Response) => void> = [];
+    holdLocation = id => id === 'doc-old' ? new Promise<Response>(resolve => oldWorkspaceLookup.push(resolve)) : null;
+    writeNotebookDocumentTabs(window.localStorage, 'other', { activePath: 'other.md', openPaths: ['other.md'] });
+    files.set('other.md', { path: 'other.md', content: 'Other workspace document' });
+    await mountScenario('workspace-switch', '/en/notebook?workspaceId=workspace');
+    assert(oldWorkspaceLookup.length, 'the old workspace lookup is pending before the switch');
+    let finishOtherRead!: (response: Response) => void;
+    holdRead = path => path === 'other.md' ? new Promise(resolve => { finishOtherRead = resolve; }) : null;
+    await act(async () => {
+      window.history.replaceState(null, '', '/en/notebook?workspaceId=other');
+      useFileStore.getState().resetWorkspaceView('other');
+      useWorkspaceStore.setState({ activeWorkspaceId: 'other' });
+      window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: { activeWorkspaceId: 'other' } }));
+    });
+    await settle();
+    assert(finishOtherRead, 'the new workspace document starts reading');
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'workspace switch shows the new document skeleton until its read finishes');
+    assert.match(document.querySelector('[data-testid="file-loading-skeleton"]')?.textContent ?? '', /other\.md/);
+    await act(async () => { for (const resolve of oldWorkspaceLookup.splice(0)) resolve(new Response('', { status: 404 })); });
+    assert.equal(useFileStore.getState().currentFile, null, 'the old workspace lookup cannot restore its document after the switch');
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'the new workspace skeleton survives an old lookup response');
+    await act(async () => finishOtherRead(Response.json({ success: true, data: { path: 'other.md', content: 'Other workspace document' } })));
+    await settle();
+    assert.equal(useFileStore.getState().currentFile?.path, 'other.md');
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null, 'the new workspace skeleton settles when its document is ready');
     await cleanupScenario();
     assert.equal(watcher.owners, 0, 'scenario teardown releases every watcher subscription');
     console.log('Unavailable route/restore identities report failure without opening replacements; explicit selection rebinds safely and supersedes delayed 404 feedback.');
