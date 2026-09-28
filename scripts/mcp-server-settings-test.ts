@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     });
     assert.equal(preferences.enabled, true);
     assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS);
-    assert.equal(preferences.toolsVersion, 4);
+    assert.equal(preferences.toolsVersion, 5);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
 
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     assert.deepEqual(await getDirectMcpServerPreferences(), {
       enabled: true,
       tools: ['auth_probe'],
-      toolsVersion: 4,
+      toolsVersion: 5,
     });
 
     await writeFile(settingsPath, JSON.stringify({

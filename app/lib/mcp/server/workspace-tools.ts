@@ -25,7 +25,7 @@ import {
   sha256Buffer,
   WorkspaceFileRevisionError,
 } from '@/app/lib/files/revision-guard';
-import { applyExactTextEdits, ExactTextPatchError } from '@/app/lib/files/exact-text-patch';
+import { applyExactTextEdits, ExactTextPatchError, type ExactTextEdit } from '@/app/lib/files/exact-text-patch';
 import { validateTextFileContent } from '@/app/lib/files/text-content-validation';
 import {
   assertFileCollaborationWriteAllowed,
@@ -36,9 +36,11 @@ import { publishWorkspaceFileMutation } from '@/app/lib/filesystem/file-watcher'
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import {
   executePreparedCollaborationTextEdit,
+  prepareCollaborationContentEditInDocument,
   prepareCollaborationTextEdit,
   readCurrentCollaborationTextSnapshot,
 } from '@/app/lib/collaboration/agent-file-edits';
+import { Y } from '@/app/lib/collaboration/server-runtime';
 import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
@@ -75,6 +77,12 @@ import {
   type DirectMcpResourceScope,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
+import {
+  buildDirectMcpDocumentUrl,
+  buildDirectMcpReviewUrl,
+  createDirectMcpEditIdentity,
+  parseDirectMcpEditIdempotencyKey,
+} from '@/app/lib/mcp/server/document-edit-contract';
 import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import {
@@ -84,6 +92,9 @@ import {
   loadDirectMcpWorkspaceListingForUser,
 } from '@/app/lib/mcp/server/workspace-access-policy';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { createOrdinaryAgentProposal, type OrdinaryAgentProposalResult } from '@/app/lib/file-version-center/ordinary-agent-proposal';
+import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
+import { proposalReviewWritesEnabled } from '@/app/lib/file-version-center/proposal-review-capability';
 
 export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'list_workspaces',
@@ -405,7 +416,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Edit workspace document',
-      description: 'Applies one exact, conflict-protected text replacement to an existing visible workspace file. Read the file first and pass its current SHA-256 hash.',
+      description: 'Applies one exact, conflict-protected text replacement to an existing visible workspace file, or creates a review proposal when this document requires agent review. Read the file first, pass its current SHA-256 hash, and always inspect status, review_required, requires_user_action, and review_url before reporting success to the user.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -416,6 +427,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           expected_sha256: { type: 'string', description: 'Required SHA-256 returned by read_knowledge_source.' },
           expected_occurrences: { type: 'integer', minimum: 1, maximum: MAX_EDIT_OCCURRENCES, description: 'Expected number of old_text matches. Defaults to 1.' },
           replace_all: { type: 'boolean', description: 'Replace every matching occurrence. Cannot be combined with expected_occurrences.' },
+          idempotency_key: { type: 'string', minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$', description: 'Stable caller-generated retry key. Reuse only for the exact same edit request.' },
         },
         required: ['workspace_id', 'path', 'old_text', 'new_text', 'expected_sha256'],
         additionalProperties: false,
@@ -426,13 +438,28 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           workspace_id: { type: 'string' },
           path: { type: 'string' },
           changed: { type: 'boolean' },
+          status: { type: 'string', enum: ['no_change', 'applied', 'review_created', 'review_reused'] },
           review_required: { type: 'boolean' },
+          authoritative_updated: { type: 'boolean' },
+          requires_user_action: { type: 'boolean' },
           before_sha256: { type: 'string' },
           after_sha256: { type: 'string' },
+          current_sha256: { type: 'string' },
+          proposed_sha256: { type: ['string', 'null'] },
+          operation_id: { type: ['string', 'null'] },
+          proposal_id: { type: ['string', 'null'] },
+          proposal_lifecycle: { type: ['string', 'null'] },
+          review_url: { type: ['string', 'null'] },
+          document_url: { type: 'string' },
+          idempotency_key: { type: 'string' },
+          message: { type: 'string' },
           size: { type: 'integer' },
           modified_at: { type: ['string', 'null'] },
         },
-        required: ['workspace_id', 'path', 'changed', 'review_required', 'before_sha256', 'after_sha256', 'size', 'modified_at'],
+        required: ['workspace_id', 'path', 'changed', 'status', 'review_required', 'authoritative_updated',
+          'requires_user_action', 'before_sha256', 'after_sha256', 'current_sha256', 'proposed_sha256',
+          'operation_id', 'proposal_id', 'proposal_lifecycle', 'review_url', 'document_url', 'idempotency_key',
+          'message', 'size', 'modified_at'],
         additionalProperties: false,
       },
       annotations: {
@@ -1387,11 +1414,23 @@ async function executeEditKnowledgeSource(
       ? undefined
       : optionalInteger(parsed, 'expected_occurrences', 1, 1, MAX_EDIT_OCCURRENCES))
     : optionalInteger(parsed, 'expected_occurrences', 1, 1, MAX_EDIT_OCCURRENCES);
+  let suppliedIdempotencyKey: string | null;
+  try {
+    suppliedIdempotencyKey = parseDirectMcpEditIdempotencyKey(parsed.idempotency_key);
+  } catch (error) {
+    invalidParams(error instanceof Error ? error.message : 'Invalid idempotency_key.');
+  }
   const authorization = await authenticateForTool(authInfo, 'knowledge:write');
   if ('result' in authorization) return authorization.result;
 
   try {
     const workspace = await writableWorkspace(authorization.principal, workspaceId);
+    const editIdentity = createDirectMcpEditIdentity({
+      clientId: authorization.principal.clientId,
+      userId: authorization.principal.userId,
+      idempotencyKey: suppliedIdempotencyKey,
+    });
+    const documentUrl = buildDirectMcpDocumentUrl({ workspaceId: workspace.workspaceId });
     const stats = await getFileStats(filePath, { workspace });
     if (!stats.isFile) return errorResult('The requested path is a folder, not a file.');
     if (stats.size > MAX_READ_FILE_BYTES) {
@@ -1410,16 +1449,129 @@ async function executeEditKnowledgeSource(
     if (Buffer.byteLength(current.content, 'utf8') > MAX_READ_FILE_BYTES) {
       return errorResult(`The requested file is larger than the ${MAX_READ_FILE_BYTES / 1024} KB MCP edit limit.`);
     }
-    if (current.sha256 !== expectedSha256) {
-      return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
-    }
-
-    const edits = [{
+    const edits: ExactTextEdit[] = [{
       oldText,
       newText,
       expectedOccurrences,
       replaceAll,
     }];
+    const mutation = {
+      operation: 'edit_knowledge_source',
+      workspaceId: workspace.workspaceId,
+      path: filePath,
+      expectedSha256,
+      oldText,
+      newText,
+      expectedOccurrences: expectedOccurrences ?? null,
+      replaceAll: replaceAll === true,
+    };
+    const createReviewProposal = current.source === 'live_yjs' && current.documentId
+      ? (options: { lookupOnly?: boolean; forceReview?: boolean }) => createOrdinaryAgentProposal({
+        workspace,
+        documentId: current.documentId!,
+        path: filePath,
+        identity: {
+          initiatedByUserId: authorization.principal.userId,
+          actorId: editIdentity.actorId,
+        },
+        idempotencyKey: editIdentity.proposalIdempotencyKey,
+        retryRequested: editIdentity.retryRequested,
+        mutation,
+        lookupOnly: options.lookupOnly,
+        forceReview: options.forceReview,
+        buildTargets: ({ state, source }) => {
+          if (source.representation !== state.representation) {
+            throw new ProposalGraphContractError(
+              'PROPOSAL_STALE_LIFECYCLE',
+              'The proposal representation changed.',
+            );
+          }
+          const doc = new Y.Doc({ gc: false });
+          try {
+            Y.applyUpdate(doc, source.update);
+            const prepared = prepareCollaborationContentEditInDocument({
+              documentId: current.documentId!,
+              workspace,
+              path: filePath,
+              state,
+              doc,
+              expectedSha256,
+              groupId: 'direct_mcp_edit',
+              plan: (content) => ({
+                proposedContent: applyExactTextEdits(content, edits, filePath),
+                edits,
+                richMode: 'exact_text',
+              }),
+            });
+            const preparedValidation = validateTextFileContent(filePath, prepared.proposedContent);
+            if (!preparedValidation.ok) {
+              throw new ProposalGraphContractError(
+                'PROPOSAL_INVALID_REQUEST',
+                'The requested edit would leave the file in an invalid state.',
+              );
+            }
+            return prepared.targets;
+          } finally {
+            doc.destroy();
+          }
+        },
+      })
+      : null;
+    const reviewResult = async (proposal: OrdinaryAgentProposalResult): Promise<CallToolResult> => {
+      const requiresUserAction = proposal.node.lifecycle === 'open';
+      const reviewUrl = buildDirectMcpReviewUrl({
+        workspaceId: workspace.workspaceId,
+        lineageId: proposal.proposal.scope.lineageId,
+        operationId: proposal.node.operationId,
+      });
+      const message = requiresUserAction
+        ? `The edit to ${filePath} was saved as a proposal and was not applied. The user must review it at ${reviewUrl}`
+        : `The existing proposal for ${filePath} is ${proposal.node.lifecycle}. Its review record is available at ${reviewUrl}`;
+      const currentStats = await getFileStats(filePath, { workspace });
+      const structuredContent = {
+        workspace_id: workspace.workspaceId,
+        path: filePath,
+        changed: false,
+        status: proposal.reused ? 'review_reused' : 'review_created',
+        review_required: requiresUserAction,
+        authoritative_updated: false,
+        requires_user_action: requiresUserAction,
+        before_sha256: proposal.authoringPreview.beforeSha256,
+        after_sha256: current.sha256,
+        current_sha256: current.sha256,
+        proposed_sha256: proposal.authoringPreview.proposedSha256,
+        operation_id: proposal.node.operationId,
+        proposal_id: proposal.node.proposalId,
+        proposal_lifecycle: proposal.node.lifecycle,
+        review_url: reviewUrl,
+        document_url: documentUrl,
+        idempotency_key: editIdentity.publicIdempotencyKey,
+        message,
+        size: Buffer.byteLength(current.content, 'utf8'),
+        modified_at: toIsoDate(currentStats.modified),
+      };
+      await auditWorkspaceToolCall({
+        principal: authorization.principal,
+        tool: 'edit_knowledge_source',
+        workspace,
+        resultCount: 1,
+        path: filePath,
+        beforeSha256: proposal.authoringPreview.beforeSha256,
+        afterSha256: current.sha256,
+        changed: false,
+        reviewRequired: requiresUserAction,
+      });
+      return result(structuredContent, message);
+    };
+
+    if (createReviewProposal && editIdentity.retryRequested) {
+      const existingProposal = await createReviewProposal({ lookupOnly: true });
+      if (existingProposal) return reviewResult(existingProposal);
+    }
+    if (current.sha256 !== expectedSha256) {
+      return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
+    }
+
     const proposedContent = applyExactTextEdits(current.content, edits, filePath);
     if (Buffer.byteLength(proposedContent, 'utf8') > MAX_READ_FILE_BYTES) {
       return errorResult(`The updated file would exceed the ${MAX_READ_FILE_BYTES / 1024} KB MCP edit limit.`);
@@ -1429,13 +1581,26 @@ async function executeEditKnowledgeSource(
       return errorResult('The requested edit would leave the file in an invalid state.');
     }
     if (proposedContent === current.content) {
+      const message = `No change was needed for ${filePath}.`;
       const structuredContent = {
         workspace_id: workspace.workspaceId,
         path: filePath,
         changed: false,
+        status: 'no_change',
         review_required: false,
+        authoritative_updated: false,
+        requires_user_action: false,
         before_sha256: current.sha256,
         after_sha256: current.sha256,
+        current_sha256: current.sha256,
+        proposed_sha256: current.sha256,
+        operation_id: null,
+        proposal_id: null,
+        proposal_lifecycle: null,
+        review_url: null,
+        document_url: documentUrl,
+        idempotency_key: editIdentity.publicIdempotencyKey,
+        message,
         size: Buffer.byteLength(current.content, 'utf8'),
         modified_at: toIsoDate(stats.modified),
       };
@@ -1450,10 +1615,13 @@ async function executeEditKnowledgeSource(
         changed: false,
         reviewRequired: false,
       });
-      return result(structuredContent, `No change was needed for ${filePath}.`);
+      return result(structuredContent, message);
     }
 
     if (current.source === 'live_yjs' && current.documentId) {
+      const policyProposal = await createReviewProposal!({});
+      if (policyProposal) return reviewResult(policyProposal);
+
       const prepared = await prepareCollaborationTextEdit({
         documentId: current.documentId,
         workspace,
@@ -1466,16 +1634,36 @@ async function executeEditKnowledgeSource(
       if (!preparedValidation.ok) {
         return errorResult('The requested edit would leave the file in an invalid state.');
       }
-      const operation = await executePreparedCollaborationTextEdit({
-        prepared,
-        workspace,
-        identity: {
-          initiatedByUserId: authorization.principal.userId,
-          actorId: `direct-mcp:${authorization.principal.clientId}`,
-          actorDisplayName: 'External MCP client',
-          actorSessionId: authorization.principal.sessionId,
-        },
-      });
+      if (prepared.requestedMode === 'review') {
+        const structuralProposal = await createReviewProposal!({ forceReview: true });
+        if (structuralProposal) return reviewResult(structuralProposal);
+      }
+      let operation;
+      try {
+        operation = await executePreparedCollaborationTextEdit({
+          prepared,
+          workspace,
+          identity: {
+            initiatedByUserId: authorization.principal.userId,
+            actorId: editIdentity.actorId,
+            actorDisplayName: 'External MCP client',
+            actorSessionId: authorization.principal.sessionId,
+          },
+          idempotencyKey: editIdentity.operationIdempotencyKey,
+          fileEditRequest: {
+            fingerprint: sha256Buffer(Buffer.from(JSON.stringify(mutation), 'utf8')),
+            beforeSha256: prepared.sha256,
+            proposedSha256: prepared.proposedSha256,
+          },
+          disallowLegacyReview: proposalReviewWritesEnabled({ workspaceId: workspace.workspaceId }),
+        });
+      } catch (error) {
+        if (error instanceof ProposalGraphContractError && error.code === 'PROPOSAL_UPGRADE_REQUIRED') {
+          const reroutedProposal = await createReviewProposal!({ forceReview: true });
+          if (reroutedProposal) return reviewResult(reroutedProposal);
+        }
+        throw error;
+      }
       const after = await readCurrentCollaborationTextSnapshot({
         documentId: prepared.documentId,
         workspace,
@@ -1485,13 +1673,30 @@ async function executeEditKnowledgeSource(
         || operation.operationStatus === 'semantic_conflict';
       const changed = after.sha256 !== prepared.sha256;
       const afterStats = await getFileStats(filePath, { workspace });
+      const message = reviewRequired
+        ? `The edit to ${filePath} requires review and was not applied. Open the document workspace at ${documentUrl}`
+        : changed
+          ? `Updated ${filePath}.`
+          : `No change was applied to ${filePath}.`;
       const structuredContent = {
         workspace_id: workspace.workspaceId,
         path: filePath,
         changed,
+        status: reviewRequired ? 'review_created' : changed ? 'applied' : 'no_change',
         review_required: reviewRequired,
+        authoritative_updated: changed,
+        requires_user_action: reviewRequired,
         before_sha256: prepared.sha256,
         after_sha256: after.sha256,
+        current_sha256: after.sha256,
+        proposed_sha256: prepared.proposedSha256,
+        operation_id: operation.operationId,
+        proposal_id: null,
+        proposal_lifecycle: null,
+        review_url: reviewRequired ? documentUrl : null,
+        document_url: documentUrl,
+        idempotency_key: editIdentity.publicIdempotencyKey,
+        message,
         size: Buffer.byteLength(after.content, 'utf8'),
         modified_at: toIsoDate(afterStats.modified),
       };
@@ -1506,14 +1711,7 @@ async function executeEditKnowledgeSource(
         changed,
         reviewRequired,
       });
-      return result(
-        structuredContent,
-        reviewRequired
-          ? `A collaboration review was created for ${filePath}.`
-          : changed
-            ? `Updated ${filePath}.`
-            : `No change was applied to ${filePath}.`,
-      );
+      return result(structuredContent, message);
     }
 
     const beforeRevision = await getWorkspaceFileRevision(filePath, { workspace });
@@ -1526,7 +1724,7 @@ async function executeEditKnowledgeSource(
       contentHash: beforeRevision.sha256,
       sizeBytes: beforeRevision.stats.size,
       actorUserId: authorization.principal.userId,
-      actorType: 'user',
+      actorType: 'agent',
       sourceSessionId: authorization.principal.sessionId,
     });
     await assertFileCollaborationWriteAllowed({
@@ -1534,7 +1732,7 @@ async function executeEditKnowledgeSource(
       path: filePath,
       actorUserId: authorization.principal.userId,
       actorSessionId: authorization.principal.sessionId,
-      actorType: 'user',
+      actorType: 'agent',
       baseRevisionId: baseRevision.id,
     });
     await writeFile(filePath, proposedContent, { workspace }, async () => {
@@ -1555,20 +1753,33 @@ async function executeEditKnowledgeSource(
       contentHash: afterSha256,
       sizeBytes: afterBuffer.length,
       actorUserId: authorization.principal.userId,
-      actorType: 'user',
+      actorType: 'agent',
       sourceSessionId: authorization.principal.sessionId,
       baseRevisionId: baseRevision.id,
     });
     await syncPublicSharesAfterWrite([validatePath(filePath, { workspace })], workspace);
     publishWorkspaceFileMutation({ workspace, type: 'change', relativePath: filePath });
     const afterStats = await getFileStats(filePath, { workspace });
+    const message = `Updated ${filePath}.`;
     const structuredContent = {
       workspace_id: workspace.workspaceId,
       path: filePath,
       changed: true,
+      status: 'applied',
       review_required: false,
+      authoritative_updated: true,
+      requires_user_action: false,
       before_sha256: beforeRevision.sha256,
       after_sha256: afterRevision.contentHash,
+      current_sha256: afterRevision.contentHash,
+      proposed_sha256: afterRevision.contentHash,
+      operation_id: null,
+      proposal_id: null,
+      proposal_lifecycle: null,
+      review_url: null,
+      document_url: documentUrl,
+      idempotency_key: editIdentity.publicIdempotencyKey,
+      message,
       size: afterBuffer.length,
       modified_at: toIsoDate(afterStats.modified),
     };
@@ -1583,7 +1794,7 @@ async function executeEditKnowledgeSource(
       changed: true,
       reviewRequired: false,
     });
-    return result(structuredContent, `Updated ${filePath}.`);
+    return result(structuredContent, message);
   } catch (error) {
     return editErrorResult(error);
   }

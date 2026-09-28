@@ -82,10 +82,10 @@ import {
   type ProposalToolReadRequestV1, type ProposalToolReadResultV1,
 } from '@/app/lib/file-version-center/contracts/proposal-tools-v1';
 import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
-import { createRuntimeProposalAgentService, hasPotentialProposalAgentRetryKey, assertProposalToolsEnabled,
+import { createRuntimeProposalAgentService, assertProposalToolsEnabled,
   assertProposalCreationEnabled } from '@/app/lib/file-version-center/proposal-agent-runtime';
 import { proposalReviewWritesEnabled } from '@/app/lib/file-version-center/proposal-review-capability';
-import { readAgentReviewPolicySnapshot } from '@/app/lib/file-version-center/agent-review-policy-adapter';
+import { createOrdinaryAgentProposal } from '@/app/lib/file-version-center/ordinary-agent-proposal';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
@@ -1973,26 +1973,22 @@ async function createOrdinaryGraphFileChange(input: GraphFileMutation & {
   forceReview?: boolean;
   lookupOnly?: boolean;
 }): Promise<AgentFileChangeResult | null> {
-  const graphEnabled = proposalReviewWritesEnabled({ workspaceId: input.collaboration.workspace.workspaceId });
-  if (!graphEnabled && !input.idempotencyKey) return null;
   const { collaboration } = input;
   const idempotencyKey = input.idempotencyKey
     ? `ordinary-tool:${sha256Text(JSON.stringify({ sessionId: collaboration.executionContext.sessionId, key: input.idempotencyKey }))}`
     : `ordinary-tool:${randomUUID()}`;
-  if (!graphEnabled && !await hasPotentialProposalAgentRetryKey({ documentId: collaboration.documentId,
-    initiatedByUserId: collaboration.executionContext.userId, idempotencyKey })) return null;
-  const runtime = await createRuntimeProposalAgentService({ workspace: collaboration.workspace,
-    documentId: collaboration.documentId, path: collaboration.relativePath,
-    identity: collaborationAgentIdentity(collaboration.executionContext) });
-  const policy = graphEnabled ? await readAgentReviewPolicySnapshot({ documentId: collaboration.documentId,
-    workspace: collaboration.workspace, initiatedByUserId: collaboration.executionContext.userId }) : null;
-  const allowCreate = graphEnabled && !input.lookupOnly && Boolean(input.forceReview || !policy
-    || policy.policy.effectiveMode !== 'safe_direct' || policy.policy.locked);
-  const result = await runtime.service.createIndependent({ scope: runtime.scope,
-    actorId: collaborationAgentIdentity(collaboration.executionContext).actorId,
+  const result = await createOrdinaryAgentProposal({
+    workspace: collaboration.workspace,
+    documentId: collaboration.documentId,
+    path: collaboration.relativePath,
+    identity: collaborationAgentIdentity(collaboration.executionContext),
     idempotencyKey,
-    mutation: input.mutation, allowCreate,
-    buildTargets: (source) => buildGraphFileTargets(input, collaboration, runtime.state, source) });
+    retryRequested: Boolean(input.idempotencyKey),
+    mutation: input.mutation,
+    forceReview: input.forceReview,
+    lookupOnly: input.lookupOnly,
+    buildTargets: ({ state, source }) => buildGraphFileTargets(input, collaboration, state, source),
+  });
   return result ? graphFileChangeResult(input, result) : null;
 }
 

@@ -205,6 +205,52 @@ async function facadeHarness() {
       },
     },
   };
+  mocks['@/app/lib/file-version-center/ordinary-agent-proposal'] = {
+    createOrdinaryAgentProposal: async (input: {
+      workspace: { workspaceId: string };
+      documentId: string;
+      path: string;
+      identity: { actorId: string; initiatedByUserId: string; actorSessionId: string };
+      idempotencyKey: string;
+      retryRequested: boolean;
+      mutation: unknown;
+      forceReview?: boolean;
+      lookupOnly?: boolean;
+      buildTargets(value: { state: typeof state; source: { update: Uint8Array; representation: 'plain_text';
+        content: string; structure: null } }): AgentTextTarget[] | Promise<AgentTextTarget[]>;
+    }) => {
+      if (!controls.enabled && !input.retryRequested) return null;
+      if (!controls.enabled && !ordinaryReceipts.has(input.idempotencyKey)) return null;
+      const runtimeProvider = mocks['@/app/lib/file-version-center/proposal-agent-runtime'] as {
+        createRuntimeProposalAgentService(value: typeof input): Promise<{
+          scope: ProposalDocumentScopeV1;
+          state: typeof state;
+          service: {
+            createIndependent(value: {
+              scope: ProposalDocumentScopeV1;
+              actorId: string;
+              idempotencyKey: string;
+              mutation: unknown;
+              allowCreate: boolean;
+              buildTargets(source: { update: Uint8Array; representation: 'plain_text'; content: string;
+                structure: null }): AgentTextTarget[] | Promise<AgentTextTarget[]>;
+            }): Promise<Created | null>;
+          };
+        }>;
+      };
+      const runtime = await runtimeProvider.createRuntimeProposalAgentService(input);
+      const allowCreate = controls.enabled && !input.lookupOnly
+        && Boolean(input.forceReview || controls.reviewMode !== 'safe_direct');
+      return runtime.service.createIndependent({
+        scope: runtime.scope,
+        actorId: input.identity.actorId,
+        idempotencyKey: input.idempotencyKey,
+        mutation: input.mutation,
+        allowCreate,
+        buildTargets: (source) => input.buildTargets({ state: runtime.state, source }),
+      });
+    },
+  };
   const edits = await compile<typeof import('../app/lib/collaboration/agent-file-edits')>('app/lib/collaboration/agent-file-edits.ts', {});
   mocks['@/app/lib/collaboration/agent-file-edits'] = { ...edits,
     prepareCollaborationTextEdit: async () => ({ ...state, content: currentContent, sha256: hash(currentContent),
