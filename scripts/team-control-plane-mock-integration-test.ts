@@ -148,7 +148,7 @@ async function requestBody(request: IncomingMessage): Promise<Record<string, unk
 function seatQuote(desiredQuantity: number) {
   return {
     protocolVersion: 'canvas-team-seat-protocol-v1',
-    quoteId: 'quote-control-plane-mock',
+    quoteId: '77777777-7777-4777-8777-777777777777',
     subject: {
       type: 'license',
       licenseId: 'license-control-plane-mock',
@@ -177,8 +177,8 @@ function seatAuthorization(
 ) {
   return {
     protocolVersion: 'canvas-team-seat-protocol-v1',
-    authorizationId: 'authorization-control-plane-mock',
-    quoteId: 'quote-control-plane-mock',
+    authorizationId: '88888888-8888-4888-8888-888888888888',
+    quoteId: '77777777-7777-4777-8777-777777777777',
     quoteHash: 'quote-hash-control-plane-mock',
     quantityBefore: desiredQuantity - 1,
     quantityAfter: desiredQuantity,
@@ -338,7 +338,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname === '/v1/license/community/v1/seats/quotes/quote-control-plane-mock') {
+  if (url.pathname === '/v1/license/community/v1/seats/quotes/77777777-7777-4777-8777-777777777777') {
     json(response, {
       quote: seatQuote(2),
       authorization: seatAuthorization(2, 'approved'),

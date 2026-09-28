@@ -94,7 +94,7 @@ const contractSourcePath = path.join(
   'app/lib/license/team-seat-contract.ts',
 );
 const EXPECTED_FIXTURE_VERSION = '1.0.0';
-const EXPECTED_CONTROL_PLANE_FIXTURE_SHA256 = 'bb54a08a0ac80bd6987b4808b9ba2a9022ea50c0f3ad928dac8460654f86edc7';
+const EXPECTED_CONTROL_PLANE_FIXTURE_SHA256 = '6e135fd01e024e27fe709f5f7d2c64d690e41023a5e954be577c49e29f0b3c8e';
 
 function expectContractError(
   action: () => unknown,
@@ -300,8 +300,8 @@ async function main() {
     externalReference: 'member-operation-fixture',
   });
   const executeRequest = createTeamSeatExecuteRequest({
-    authorizationId: 'authorization-fixture',
-    operationKey: 'operation-key-fixture',
+    authorizationId: '44444444-4444-4444-8444-444444444444',
+    operationKey: '66666666-6666-4666-8666-666666666666',
     operationType: 'member_create',
   });
   for (const request of [
