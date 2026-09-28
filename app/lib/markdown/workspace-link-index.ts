@@ -1,9 +1,11 @@
+import { createHash } from 'node:crypto';
+import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
 import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
 import {
   readFile,
-  writeFile,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { remapDescendantPath } from '@/app/lib/files/path-utils';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
@@ -99,7 +101,7 @@ export async function applyWorkspaceLinkRename(
   index: WorkspaceLinkIndex,
   oldPath: string,
   newPath: string,
-  options?: WorkspaceFileOperationOptions,
+  context: { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions; actorUserId: string },
 ): Promise<WorkspaceLinkRenameResult> {
   const affectedEdges = index.edges.filter((edge) => (
     edge.kind === 'wiki'
@@ -126,7 +128,8 @@ export async function applyWorkspaceLinkRename(
         ? remapDescendantPath(originalSourcePath, oldPath, newPath)
         : originalSourcePath;
       try {
-        const currentContent = (await readFile(sourcePath, options)).toString('utf8');
+        const currentBytes = await readFile(sourcePath, context.fileOptions);
+        const currentContent = currentBytes.toString('utf8');
         const rewritten = rewriteWorkspaceWikiLinksForRename(
           currentContent,
           edges,
@@ -134,7 +137,16 @@ export async function applyWorkspaceLinkRename(
           newPath,
         );
         if (rewritten.updatedLinks === 0 || rewritten.content === currentContent) return;
-        await writeFile(sourcePath, rewritten.content, options);
+        await writeWorkspaceFileContent({
+          workspace: context.workspace,
+          fileOptions: context.fileOptions,
+          actorUserId: context.actorUserId,
+          path: sourcePath,
+          content: rewritten.content,
+          expectedSha256: createHash('sha256').update(currentBytes).digest('hex'),
+          requireExpectedRevision: true,
+          ensureCollaborationDocument: false,
+        });
         result.updatedFiles.push(sourcePath);
         result.updatedLinks += rewritten.updatedLinks;
       } catch (error) {

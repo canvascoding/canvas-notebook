@@ -416,7 +416,7 @@ interface FileStoreState {
   ) => void;
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[], workspaceId?: string | null) => Promise<DeleteWorkspacePathsResult>;
-  renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null) => Promise<WorkspaceRenameResult | void>;
+  renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null, planId?: string) => Promise<WorkspaceRenameResult | void>;
   applyPathRename: (mutation: WorkspacePathRenameMutation) => boolean;
   applyPathsDeleted: (paths: string[], workspaceId: string | null, local?: boolean) => void;
   adoptCurrentCollaborationLocation: (scope: CurrentCollaborationLocationScope, path: string) => boolean;
@@ -1535,7 +1535,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     return result;
   },
 
-  renamePath: async (oldPath: string, newPath: string, overwrite = false, refreshTree = true, requestedWorkspaceId?: string | null) => {
+  renamePath: async (oldPath: string, newPath: string, overwrite = false, refreshTree = true, requestedWorkspaceId?: string | null, planId?: string) => {
     const workspaceId = requestedWorkspaceId === undefined ? useWorkspaceStore.getState().activeWorkspaceId : requestedWorkspaceId;
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('The workspace changed. Please retry.');
     const treeGeneration = get().treeGeneration;
@@ -1543,7 +1543,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       await get().prepareCurrentFileForTransition();
     }
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
-    const result = await renameWorkspacePath(oldPath, newPath, overwrite, workspaceId);
+    const result = await renameWorkspacePath(oldPath, newPath, overwrite, workspaceId, planId);
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
     get().applyPathRename(result.mutation ?? {
       type: 'rename', workspaceId: workspaceId!, oldPath, newPath, operationId: crypto.randomUUID(),

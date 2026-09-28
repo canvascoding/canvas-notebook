@@ -32,6 +32,21 @@ export class WorkspacePreviewUnavailableError extends Error {
   }
 }
 
+export class WorkspacePreviewBlockedError extends Error {
+  constructor() {
+    super('The preview contains unresolved file or link changes. Review it before retrying.');
+    this.name = 'WorkspacePreviewBlockedError';
+  }
+}
+
+export function assertFreshWorkspaceFileOperationPlan(
+  plan: WorkspaceFileOperationPreview,
+  expectedPlanId: string,
+): void {
+  if (plan.planId !== expectedPlanId) throw new WorkspacePreviewStaleError();
+  if (plan.readiness !== 'ready') throw new WorkspacePreviewBlockedError();
+}
+
 async function workspaceRootVersion(options: WorkspaceFileOperationOptions): Promise<string> {
   try {
     const rootPath = await resolveExistingWorkspacePath('.', options);

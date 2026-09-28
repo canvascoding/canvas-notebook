@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { buildWorkspaceFileOperationPreview } from '../app/lib/markdown/workspace-file-operation-preview';
+import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError } from '../app/lib/markdown/workspace-file-operation-preview';
 import { assessWorkspaceRenameLinks } from '../app/lib/markdown/workspace-file-operation-status';
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -39,6 +39,8 @@ async function main() {
     assert.equal(rename.linkEdits.length, 1);
     assert.equal(rename.linkEdits[0].nextTargetLiteral, './new-chart.png');
     assert.equal(rename.previewContents[0].content, '[Image](./new-chart.png)');
+    assert.doesNotThrow(() => assertFreshWorkspaceFileOperationPlan(rename, rename.planId));
+    assert.throws(() => assertFreshWorkspaceFileOperationPlan(rename, 'old-plan'), WorkspacePreviewStaleError);
     assert.equal((await readFile(path.join(workspaceRoot, 'Notes', 'start.md'), 'utf8')), '[Image](./chart.png)', 'dry run cannot write');
 
     const move = await buildWorkspaceFileOperationPreview({
@@ -59,6 +61,11 @@ async function main() {
     });
     assert.equal(collisionCopy.pathMappings.find((mapping) => mapping.sourcePath === 'Notes')?.destinationPath,
       'Archive/Notes (1)');
+    const blockedCopy = await buildWorkspaceFileOperationPreview({
+      ...request, kind: 'copy', selections: [{ sourcePath: 'Notes', destinationPath: 'Archive/Notes' }],
+    });
+    assert.equal(blockedCopy.readiness, 'blocked');
+    assert.throws(() => assertFreshWorkspaceFileOperationPlan(blockedCopy, blockedCopy.planId), WorkspacePreviewBlockedError);
 
     const index = buildWorkspaceLinkIndexFromDocuments(
       [{ path: 'Notes/start.md', content: '[Image](./chart.png)' }], new Date(0),

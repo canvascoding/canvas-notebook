@@ -4,7 +4,7 @@ import { auth } from '@/app/lib/auth';
 import { batchCopyBetweenWorkspaces, getFileStats, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { compactWorkspaceSelection, getWorkspacePathName, resolveMoveDestination } from '@/app/lib/files/operation-flows';
-import { buildWorkspaceFileOperationPreview, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { initializeCopiedFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
 import {
   applyRateLimit,
@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
       sourceWorkspaceId?: string | null;
       targetWorkspaceId?: string | null;
       dryRun?: boolean;
+      planId?: string;
     }>(request);
     const {
       sources,
@@ -51,6 +52,7 @@ export async function POST(request: NextRequest) {
       sourceWorkspaceId,
       targetWorkspaceId,
       dryRun = false,
+      planId,
     } = body;
 
     if (!sources || !Array.isArray(sources) || sources.length === 0) {
@@ -93,6 +95,9 @@ export async function POST(request: NextRequest) {
     if (protectedPaths.length > 0) {
       return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
+    if (planId !== undefined && (!/^[0-9a-f]{64}$/u.test(planId) || overwrite)) {
+      return jsonError('This preview cannot be applied with the requested options.', 422, { code: 'PREVIEW_UNSUPPORTED_APPLY' });
+    }
 
     if (dryRun) {
       if (overwrite) {
@@ -129,6 +134,21 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await withWorkspaceCopyMutationLocks(sourceFileOptions, targetFileOptions, async () => {
+      if (planId) {
+        const currentPlan = await buildWorkspaceFileOperationPreview({
+          kind: 'copy',
+          sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+          destinationWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+          sourceOptions: sourceFileOptions,
+          destinationOptions: targetFileOptions,
+          renameOnCollision,
+          selections: copySources.map((sourcePath) => ({
+            sourcePath,
+            destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)),
+          })),
+        });
+        assertFreshWorkspaceFileOperationPlan(currentPlan, planId);
+      }
       const copied = await batchCopyBetweenWorkspaces(copySources, destDir, overwrite, renameOnCollision, {
         source: sourceFileOptions, target: targetFileOptions,
       });
@@ -185,6 +205,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof WorkspacePreviewStaleError) return jsonError(error.message, 409, { code: 'PREVIEW_STALE' });
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(error.message, 422, { code: 'PREVIEW_UNREADABLE' });
+    if (error instanceof WorkspacePreviewBlockedError) return jsonError(error.message, 409, { code: 'PREVIEW_BLOCKED' });
     return jsonServerError('[API] File copy error:', error, 'Failed to copy files');
   }
 }

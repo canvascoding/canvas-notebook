@@ -3,6 +3,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { renameWorkspacePath } from '@/app/lib/files/rename-service';
+import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -18,7 +19,7 @@ import {
   type WorkspaceLinkRenameResult,
 } from '@/app/lib/markdown/workspace-link-index';
 import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
-import { buildWorkspaceFileOperationPreview, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { assessWorkspaceRenameLinks } from '@/app/lib/markdown/workspace-file-operation-status';
 
 interface RenameRequestBody {
@@ -27,6 +28,7 @@ interface RenameRequestBody {
   overwrite?: boolean;
   updateLinks?: boolean;
   dryRun?: boolean;
+  planId?: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -43,7 +45,7 @@ export async function POST(request: NextRequest) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const body = await readJsonBody<RenameRequestBody>(request);
-    const { oldPath, newPath, overwrite = false, updateLinks = true, dryRun = false } = body;
+    const { oldPath, newPath, overwrite = false, updateLinks = true, dryRun = false, planId } = body;
 
     if (!oldPath || !newPath) {
       return jsonError('oldPath and newPath are required', 400);
@@ -53,6 +55,9 @@ export async function POST(request: NextRequest) {
     }
     if (isProtectedAppOutputFolder(newPath)) {
       return jsonError(`Protected app output folder cannot be overwritten: ${newPath}`, 403);
+    }
+    if (planId !== undefined && (!/^[0-9a-f]{64}$/u.test(planId) || overwrite || !updateLinks)) {
+      return jsonError('This preview cannot be applied with the requested options.', 422, { code: 'PREVIEW_UNSUPPORTED_APPLY' });
     }
 
     if (dryRun) {
@@ -73,6 +78,18 @@ export async function POST(request: NextRequest) {
       return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: publicPlan });
     }
 
+    return await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+      if (planId) {
+        const currentPlan = await buildWorkspaceFileOperationPreview({
+          kind: 'rename',
+          sourceWorkspaceId: workspaceResult.workspace.workspaceId,
+          destinationWorkspaceId: workspaceResult.workspace.workspaceId,
+          sourceOptions: fileOptions,
+          destinationOptions: fileOptions,
+          selections: [{ sourcePath: oldPath, destinationPath: newPath }],
+        });
+        assertFreshWorkspaceFileOperationPlan(currentPlan, planId);
+      }
     // Resolve missing sources through the conflict path before reading metadata.
     // This keeps stale/repeated move requests recoverable for bulk operations
     // instead of leaking a raw ENOENT as a 500 response.
@@ -113,7 +130,7 @@ export async function POST(request: NextRequest) {
           preparedLinkIndex,
           oldPath,
           newPath,
-          fileOptions,
+          { workspace: workspaceResult.workspace, fileOptions, actorUserId: workspaceResult.session.user.id },
         );
       } catch (error) {
         return {
@@ -172,10 +189,12 @@ export async function POST(request: NextRequest) {
     });
 
     return jsonSuccess({ linkUpdates, linkStatus: linkAssessment.status, mutation: renameResult.mutation });
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to rename path';
     if (error instanceof WorkspacePreviewStaleError) return jsonError(message, 409, { code: 'PREVIEW_STALE' });
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(message, 422, { code: 'PREVIEW_UNREADABLE' });
+    if (error instanceof WorkspacePreviewBlockedError) return jsonError(message, 409, { code: 'PREVIEW_BLOCKED' });
     
     // Check if this is a conflict error
     const conflictError = error as RenameConflictError;

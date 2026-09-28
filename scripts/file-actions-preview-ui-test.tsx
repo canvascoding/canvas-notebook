@@ -73,6 +73,8 @@ async function compileUi(controls: {
   copyPreview: () => Promise<WorkspaceFileOperationDryRun>;
   errors: string[];
   mutations: string[];
+  renameApplyCalls: unknown[][];
+  copyApplyCalls: Array<Record<string, unknown>>;
 }) {
   const filename = path.resolve('app/components/file-browser/FileActionsDropdown.tsx');
   const load = createRequire(filename);
@@ -88,7 +90,11 @@ async function compileUi(controls: {
   const workspace = { id: workspaceId, permissions: { canWrite: true } };
   const workspaceState = { activeWorkspaceId: workspaceId, activeWorkspace: workspace };
   const fileState = {
-    renamePath: async () => { controls.mutations.push('rename'); },
+    renamePath: async (...args: unknown[]) => {
+      controls.renameApplyCalls.push(args);
+      controls.mutations.push('rename');
+      return { linkStatus: 'complete' };
+    },
     downloadFile: async () => undefined,
     fileTree: [],
     multiSelectPaths: new Set<string>(),
@@ -151,7 +157,11 @@ async function compileUi(controls: {
         controls.copyCalls.push(params);
         return controls.copyPreview();
       },
-      copyWorkspacePaths: async () => { controls.mutations.push('copy'); },
+      copyWorkspacePaths: async (params: Record<string, unknown>) => {
+        controls.copyApplyCalls.push(params);
+        controls.mutations.push('copy');
+        return { copied: [], failed: [], skipped: [], linkStatus: 'complete' };
+      },
       workspaceHeaders: () => ({}),
     },
     '@/app/lib/files/path-utils': {
@@ -205,10 +215,12 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
   const copyCalls: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
   const mutations: string[] = [];
+  const renameApplyCalls: unknown[][] = [];
+  const copyApplyCalls: Array<Record<string, unknown>> = [];
   let resolveRename: () => Promise<WorkspaceFileOperationDryRun> = async () => preview('rename', 'blocked');
   let resolveCopy: () => Promise<WorkspaceFileOperationDryRun> = async () => preview('copy', 'ready');
   const ui = await compileUi({
-    renameCalls, copyCalls, errors, mutations,
+    renameCalls, copyCalls, errors, mutations, renameApplyCalls, copyApplyCalls,
     renamePreview: () => resolveRename(),
     copyPreview: () => resolveCopy(),
   });
@@ -239,7 +251,7 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.match(status()?.textContent ?? '', /Docs\/report\.txt → Docs\/renamed\.txt/u);
     assert.match(status()?.textContent ?? '', /Docs\/index\.md: report\.txt → renamed\.txt/u);
     assert.match(status()?.textContent ?? '', /Docs\/large\.md: Not all Markdown files or links could be checked/u);
-    assert.match(status()?.textContent ?? '', /read-only preview.*does not yet validate this plan/u);
+    assert.match(status()?.textContent ?? '', /checked again under a workspace lock/u);
 
     await act(async () => fireEvent.change(document.querySelector('#newName')!, { target: { value: 'again.txt' } }));
     assert.equal(status(), null, 'editing the name clears the old plan and warning');
@@ -261,7 +273,7 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.match(status()?.textContent ?? '', /Docs\/index\.md: report\.txt → \.\.\/Archive\/report\.txt/u);
     assert.match(status()?.textContent ?? '', /Not fully checked: 1 Markdown file\(s\), 1 link\(s\)/u);
     assert.match(status()?.textContent ?? '', /Docs\/large\.md: Not all Markdown files or links could be checked/u);
-    assert.match(status()?.textContent ?? '', /read-only preview.*does not yet validate this plan/u);
+    assert.match(status()?.textContent ?? '', /checked again under a workspace lock/u);
 
     await act(async () => dialogButton('Choose Archive')?.click());
     assert.equal(status(), null, 'changing the destination clears the old copy plan and warning');
@@ -270,6 +282,18 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.equal(copyCalls.at(-1)?.destDir, 'Archive');
     assert.deepEqual(errors, ['Copy preview unavailable']);
     assert.deepEqual(mutations, [], 'preview does not apply the copy');
+
+    resolveCopy = async () => preview('copy', 'ready');
+    await act(async () => dialogButton(translate('fileOperationPreview'))?.click());
+    await act(async () => dialogButton(translate('copyToWorkspaceConfirm'))?.click());
+    assert.equal(copyApplyCalls[0]?.planId, 'copy-preview');
+    resolveRename = async () => preview('rename', 'ready');
+    await act(async () => menuButton(translate('rename'))?.click());
+    await act(async () => fireEvent.change(document.querySelector('#newName')!, { target: { value: 'renamed.txt' } }));
+    await act(async () => dialogButton(translate('fileOperationPreview'))?.click());
+    await act(async () => dialogButton(translate('rename'))?.click());
+    assert.equal(renameApplyCalls[0]?.at(-1), 'rename-preview');
+    assert.deepEqual(mutations, ['copy', 'rename']);
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

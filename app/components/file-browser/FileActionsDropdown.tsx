@@ -124,6 +124,12 @@ export function FileActionsDropdown({
   const t = useTranslations('notebook');
   const linkWarningDescription = (status: 'partial' | 'incomplete') => t(status === 'partial'
     ? 'fileOperationLinksPartial' : 'fileOperationLinksUnverified');
+  const fileOperationErrorMessage = (error: unknown, fallbackKey: 'renameFailed' | 'copyToWorkspaceFailed') => {
+    const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
+    if (code === 'PREVIEW_STALE') return t('fileOperationPreviewStale');
+    if (code === 'PREVIEW_BLOCKED') return t('fileOperationPreviewBlockedApply');
+    return error instanceof Error ? error.message : t(fallbackKey);
+  };
   const locale = useLocale();
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState('.');
@@ -311,7 +317,8 @@ export function FileActionsDropdown({
     setIsRenaming(true);
     setRenameError('');
     try {
-      const result = await renamePath(node.path, newPath);
+      const result = await renamePath(node.path, newPath, false, true, activeWorkspace?.id ?? null,
+        renamePreview?.plan.planId);
       if (result && result.linkStatus && result.linkStatus !== 'complete') {
         toast.warning(t('fileOperationLinksIncomplete'), {
           description: linkWarningDescription(result.linkStatus),
@@ -320,7 +327,7 @@ export function FileActionsDropdown({
       setRenameOpen(false);
       onAfterRename?.(node.path, newPath, node);
     } catch (renameOperationError) {
-      setRenameError(renameOperationError instanceof Error ? renameOperationError.message : t('renameFailed'));
+      setRenameError(fileOperationErrorMessage(renameOperationError, 'renameFailed'));
     } finally {
       setIsRenaming(false);
     }
@@ -470,6 +477,7 @@ export function FileActionsDropdown({
         renameOnCollision: true,
         sourceWorkspaceId: activeWorkspace.id,
         targetWorkspaceId: copyTargetWorkspaceId,
+        planId: copyPreview?.plan.planId,
       }, t('copyToWorkspaceFailed'));
 
       if (copyTargetWorkspaceId === activeWorkspace.id) {
@@ -504,7 +512,7 @@ export function FileActionsDropdown({
       }
       setCopyToWorkspaceOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('copyToWorkspaceFailed'));
+      toast.error(fileOperationErrorMessage(error, 'copyToWorkspaceFailed'));
     } finally {
       setIsCopyingToWorkspace(false);
     }

@@ -516,12 +516,13 @@ export async function renameWorkspacePath(
   newPath: string,
   overwrite = false,
   workspaceId?: string | null,
+  planId?: string,
 ): Promise<WorkspaceRenameResult> {
   const response = await fetch('/api/files/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
     credentials: 'include',
-    body: JSON.stringify({ oldPath, newPath, overwrite }),
+    body: JSON.stringify({ oldPath, newPath, overwrite, planId }),
   });
 
   if (!response.ok) {
@@ -552,6 +553,7 @@ export async function copyWorkspacePaths(params: {
   renameOnCollision?: boolean;
   sourceWorkspaceId?: string | null;
   targetWorkspaceId?: string | null;
+  planId?: string;
 }, fallbackMessage = 'Failed to copy files'): Promise<CopyWorkspacePathsResult> {
   const response = await fetch('/api/files/copy', {
     method: 'POST',
@@ -561,7 +563,7 @@ export async function copyWorkspacePaths(params: {
   });
 
   if (!response.ok) {
-    throw new Error(await readApiError(response, fallbackMessage));
+    throw await readWorkspaceFileApiError(response, fallbackMessage);
   }
 
   return readApiJson<CopyWorkspacePathsResult>(response, fallbackMessage);

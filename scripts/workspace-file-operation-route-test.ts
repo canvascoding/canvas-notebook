@@ -10,6 +10,9 @@ async function main() {
   let copyCalls = 0;
   let linkWriteFails = false;
   let previewError: Error | null = null;
+  const currentPlanId = 'a'.repeat(64);
+  let currentReadiness: 'ready' | 'blocked' = 'ready';
+  let lockDepth = 0;
   const workspace = {
     workspaceId: 'ws', workspaceType: 'personal', organizationId: 'org',
   };
@@ -42,14 +45,25 @@ async function main() {
   mock.module('@/app/lib/filesystem/workspace-files', { exports: {
     checkRenameConflict: async () => null,
     getFileStats: async () => ({ isDirectory: true }),
-    withWorkspaceCopyMutationLocks: async (_source: unknown, _target: unknown, operation: () => Promise<unknown>) => operation(),
+    withWorkspaceCopyMutationLocks: async (_source: unknown, _target: unknown, operation: () => Promise<unknown>) => {
+      lockDepth += 1;
+      try { return await operation(); } finally { lockDepth -= 1; }
+    },
     batchCopyBetweenWorkspaces: async () => {
+      assert.equal(lockDepth, 1, 'copy must remain inside the validation lock');
       copyCalls += 1;
       return { copied: ['Archive/chart.png'], failed: [], skipped: [], collaborationInitializedPaths: [] };
     },
   } });
+  mock.module('@/app/lib/files/workspace-mutation-lock', { exports: {
+    withWorkspaceMutationLock: async (_workspaceId: string, operation: () => Promise<unknown>) => {
+      lockDepth += 1;
+      try { return await operation(); } finally { lockDepth -= 1; }
+    },
+  } });
   mock.module('@/app/lib/files/rename-service', { exports: {
     renameWorkspacePath: async () => {
+      assert.equal(lockDepth, 1, 'rename must remain inside the validation lock');
       renameCalls += 1;
       return { warnings: [], mutation: { type: 'rename', oldPath: 'Notes/chart.png',
         newPath: 'Notes/new.png', workspaceId: 'ws', operationId: 'rename-1' } };
@@ -71,13 +85,20 @@ async function main() {
   } });
   class WorkspacePreviewStaleError extends Error {}
   class WorkspacePreviewUnavailableError extends Error {}
+  class WorkspacePreviewBlockedError extends Error {}
   mock.module('@/app/lib/markdown/workspace-file-operation-preview', { exports: {
     WorkspacePreviewStaleError,
     WorkspacePreviewUnavailableError,
+    WorkspacePreviewBlockedError,
+    assertFreshWorkspaceFileOperationPlan: (plan: { planId: string; readiness: string }, expected: string) => {
+      assert.equal(lockDepth, 1, 'plan must be revalidated while locked');
+      if (plan.planId !== expected) throw new WorkspacePreviewStaleError('changed');
+      if (plan.readiness !== 'ready') throw new WorkspacePreviewBlockedError('blocked');
+    },
     buildWorkspaceFileOperationPreview: async () => {
       previewCalls += 1;
       if (previewError) throw previewError;
-      return { planId: 'preview-1', readiness: 'ready', pathMappings: [{
+      return { planId: currentPlanId, readiness: currentReadiness, pathMappings: [{
         sourcePath: 'Notes/chart.png', destinationPath: 'Notes/new.png',
       }], linkEdits: [{ previousTargetLiteral: './chart.png', nextTargetLiteral: './new.png' }],
       coverage: { complete: true, omittedSources: [], unresolvedLinks: [] }, issues: [],
@@ -100,7 +121,7 @@ async function main() {
     const renamePreview = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
       newPath: 'Notes/new.png', dryRun: true }));
     const renamePreviewBody = await renamePreview.json();
-    assert.equal(renamePreviewBody.plan.planId, 'preview-1');
+    assert.equal(renamePreviewBody.plan.planId, currentPlanId);
     assert.equal(renamePreviewBody.requiresRevalidation, true);
     assert.equal(renamePreviewBody.plan.previewContents, undefined, 'full file contents must stay off response');
     assert.equal(renameCalls, 0, 'rename dry run must not mutate');
@@ -130,15 +151,33 @@ async function main() {
     canWrite = true;
     const copyPreview = await copyRoute.POST(request('copy', { sources: ['Notes/chart.png'],
       destDir: 'Archive', dryRun: true, renameOnCollision: true }));
-    assert.equal((await copyPreview.json()).plan.planId, 'preview-1');
+    assert.equal((await copyPreview.json()).plan.planId, currentPlanId);
     assert.equal(copyCalls, 0, 'copy dry run must not mutate');
     const overwritePreview = await copyRoute.POST(request('copy', { sources: ['Notes/chart.png'],
       destDir: 'Archive', dryRun: true, overwrite: true }));
     assert.equal(overwritePreview.status, 422);
     assert.equal((await overwritePreview.json()).code, 'PREVIEW_UNSUPPORTED_COLLISION_POLICY');
 
+    const staleRename = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
+      newPath: 'Notes/new.png', planId: 'b'.repeat(64) }));
+    assert.equal(staleRename.status, 409);
+    assert.equal((await staleRename.json()).code, 'PREVIEW_STALE');
+    assert.equal(renameCalls, 0, 'stale rename must not mutate');
+    const staleCopy = await copyRoute.POST(request('copy', { sources: ['Notes/chart.png'],
+      destDir: 'Archive', planId: 'b'.repeat(64) }));
+    assert.equal(staleCopy.status, 409);
+    assert.equal((await staleCopy.json()).code, 'PREVIEW_STALE');
+    assert.equal(copyCalls, 0, 'stale copy must not mutate');
+    currentReadiness = 'blocked';
+    const blockedRename = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
+      newPath: 'Notes/new.png', planId: currentPlanId }));
+    assert.equal(blockedRename.status, 409);
+    assert.equal((await blockedRename.json()).code, 'PREVIEW_BLOCKED');
+    assert.equal(renameCalls, 0, 'blocked rename must not mutate');
+    currentReadiness = 'ready';
+
     const rename = await renameRoute.POST(request('rename', { oldPath: 'Notes/chart.png',
-      newPath: 'Notes/new.png' }));
+      newPath: 'Notes/new.png', planId: currentPlanId }));
     const renameBody = await rename.json();
     assert.equal(renameBody.linkStatus, 'partial', 'PNG target incoming Markdown link must not be declared complete');
     assert.match(renameBody.linkUpdates.warnings.join(' '), /incoming Wiki links only/u);
