@@ -72,14 +72,26 @@ export async function buildWorkspaceLinkIndex(
 
   const index = buildWorkspaceLinkIndexFromDocuments(
     sources.filter((source): source is NonNullable<typeof source> => source !== null),
+    new Date(),
+    entries.filter((entry) => entry.type === 'file').map((entry) => entry.path),
+    omittedDocuments,
   );
+  const sortedOmissions = omittedDocuments
+    .filter((entry, entryIndex, all) => (
+      all.findIndex((candidate) => candidate.path === entry.path) === entryIndex
+    ))
+    .sort((left, right) => left.path.localeCompare(right.path));
   return {
     ...index,
-    omittedDocuments: omittedDocuments
-      .filter((entry, entryIndex, all) => (
-        all.findIndex((candidate) => candidate.path === entry.path) === entryIndex
-      ))
-      .sort((left, right) => left.path.localeCompare(right.path)),
+    coverage: {
+      ...index.coverage,
+      complete: index.coverage.complete && sortedOmissions.length === 0,
+      omittedSources: sortedOmissions.map(({ path, reason }) => ({
+        path,
+        reason: reason === 'too-large' ? 'source-too-large' as const : 'source-unreadable' as const,
+      })),
+    },
+    omittedDocuments: sortedOmissions,
   };
 }
 

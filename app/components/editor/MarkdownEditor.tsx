@@ -5376,7 +5376,8 @@ export function RichMarkdownEditor({
       event.stopImmediatePropagation();
       void openWorkspaceMarkdownTarget({
         sourcePath: filePath,
-        target: workspaceTarget,
+        syntax: 'markdown',
+        target: href,
         workspaceId: activeWorkspaceId,
       }).then((result) => {
         if (!['opened', 'superseded'].includes(result.status)) {

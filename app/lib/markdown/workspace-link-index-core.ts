@@ -1,21 +1,25 @@
 import {
   createObsidianSyntaxMask,
   parseObsidianBlockIds,
-  parseObsidianWikiLinks,
 } from './obsidian-flavored-markdown';
 import { parseObsidianFrontmatter } from './obsidian-metadata';
 import {
-  getCanvasNotebookMarkdownLinkTarget,
   resolveObsidianWikiLink,
   stripMarkdownExtension,
   type ObsidianLinkCandidate,
 } from './obsidian-link-resolver';
-
-const NON_MARKDOWN_LINK_EXTENSIONS = new Set([
-  'avif', 'bmp', 'csv', 'doc', 'docx', 'gif', 'html', 'jpeg', 'jpg', 'json',
-  'm4a', 'mov', 'mp3', 'mp4', 'odp', 'ods', 'odt', 'pdf', 'png', 'ppt', 'pptx',
-  'svg', 'tif', 'tiff', 'tsv', 'wav', 'webm', 'webp', 'xls', 'xlsx', 'xml', 'zip',
-]);
+import {
+  parseWorkspaceLocalLinks,
+  resolveExactWorkspaceLink,
+  type ParsedWorkspaceLocalLink,
+  type WorkspaceLinkUnevaluated,
+} from './workspace-local-link-parser';
+import type {
+  WorkspaceLinkCoverageV1,
+  WorkspaceLinkResolveStatusV1,
+  WorkspaceLinkSyntaxV1,
+  WorkspaceLinkTargetRangeV1,
+} from './workspace-link-contract-v1';
 
 export type WorkspaceLinkHeading = {
   depth: number;
@@ -47,10 +51,13 @@ export type WorkspaceLinkEdge = {
   heading: string | null;
   id: string;
   kind: 'wiki' | 'markdown';
+  syntax: WorkspaceLinkSyntaxV1;
+  targetLiteral: string;
+  targetRange: WorkspaceLinkTargetRangeV1;
   raw: string;
   sourcePath: string;
   start: number;
-  status: 'resolved' | 'missing' | 'ambiguous';
+  status: WorkspaceLinkResolveStatusV1;
   targetPath: string | null;
   targetText: string;
 };
@@ -61,23 +68,13 @@ export type WorkspaceLinkIndex = {
   documents: WorkspaceLinkDocument[];
   edges: WorkspaceLinkEdge[];
   generatedAt: string;
+  targetPaths: string[];
+  unevaluatedLinks: WorkspaceLinkUnevaluated[];
+  coverage: WorkspaceLinkCoverageV1;
   omittedDocuments: Array<{
     path: string;
     reason: 'too-large' | 'unreadable';
   }>;
-};
-
-type ParsedLink = {
-  alias: string | null;
-  blockId: string | null;
-  embed: boolean;
-  end: number;
-  heading: string | null;
-  kind: 'wiki' | 'markdown';
-  raw: string;
-  start: number;
-  targetText: string;
-  workspaceRootRelative: boolean;
 };
 
 function normalizePath(value: string): string {
@@ -95,14 +92,6 @@ function normalizePath(value: string): string {
 
 function basenameWithoutExtension(value: string): string {
   return stripMarkdownExtension(normalizePath(value).split('/').pop() || value);
-}
-
-function getExplicitExtension(value: string): string | null {
-  const fileName = value.replace(/\\/g, '/').split('/').pop() || '';
-  const dotIndex = fileName.lastIndexOf('.');
-  return dotIndex > 0 && dotIndex < fileName.length - 1
-    ? fileName.slice(dotIndex + 1).toLowerCase()
-    : null;
 }
 
 function cleanHeadingText(value: string): string {
@@ -146,85 +135,51 @@ export function extractWorkspaceMarkdownHeadings(markdown: string): WorkspaceLin
   return headings;
 }
 
-function safeDecodeURIComponent(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
+function resolveWorkspaceWikiFileLink(
+  link: ParsedWorkspaceLocalLink,
+  sourcePath: string,
+  paths: ReadonlySet<string>,
+  markdownCandidates: ObsidianLinkCandidate[],
+): { candidates: string[]; path: string | null; status: WorkspaceLinkResolveStatusV1 } {
+  const rawTarget = link.targetLiteral;
+  const fileName = link.targetPathText.split('/').pop() ?? '';
+  const dot = fileName.lastIndexOf('.');
+  const explicitExtension = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : null;
+  const nonMarkdownTarget = explicitExtension && !['md', 'markdown'].includes(explicitExtension);
+  const wikiResolution = nonMarkdownTarget
+    ? null
+    : resolveObsidianWikiLink(rawTarget, markdownCandidates, sourcePath);
+  if (wikiResolution?.status === 'resolved' || wikiResolution?.status === 'ambiguous') {
+    return wikiResolution;
   }
-}
-
-function parseMarkdownLinks(markdown: string): ParsedLink[] {
-  const mask = createObsidianSyntaxMask(markdown);
-  const pattern = /(!)?\[([^\]\r\n]*)\]\((<[^>\r\n]+>|[^)\s]+)(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*\)/g;
-  const links: ParsedLink[] = [];
-
-  for (const match of mask.matchAll(pattern)) {
-    const fullStart = match.index ?? 0;
-    const raw = markdown.slice(fullStart, fullStart + match[0].length);
-    const targetOffset = match[0].indexOf(match[3]);
-    const rawUrl = markdown.slice(fullStart + targetOffset, fullStart + targetOffset + match[3].length);
-    const rawTarget = rawUrl.replace(/^<|>$/g, '');
-    if (!rawTarget) continue;
-    const notebookTarget = getCanvasNotebookMarkdownLinkTarget(rawTarget);
-    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(rawTarget) && !notebookTarget) continue;
-    const url = notebookTarget ?? rawTarget;
-
-    const hashIndex = url.indexOf('#');
-    const path = safeDecodeURIComponent(hashIndex >= 0 ? url.slice(0, hashIndex) : url);
-    const fragment = safeDecodeURIComponent(hashIndex >= 0 ? url.slice(hashIndex + 1) : '');
-    const extension = getExplicitExtension(path);
-    if (extension && NON_MARKDOWN_LINK_EXTENSIONS.has(extension)) {
-      continue;
-    }
-
-    links.push({
-      alias: match[2]?.trim() || null,
-      blockId: fragment.startsWith('^') ? fragment.slice(1) || null : null,
-      embed: Boolean(match[1]),
-      end: fullStart + match[0].length,
-      heading: fragment && !fragment.startsWith('^') ? fragment : null,
-      kind: 'markdown',
-      raw,
-      start: fullStart,
-      targetText: `${path}${fragment ? `#${fragment}` : ''}`,
-      workspaceRootRelative: Boolean(notebookTarget),
-    });
-  }
-  return links;
-}
-
-function parseDocumentLinks(markdown: string): ParsedLink[] {
-  const wikiLinks: ParsedLink[] = parseObsidianWikiLinks(markdown)
-    .filter((link) => {
-      const extension = getExplicitExtension(link.path);
-      return !extension || !NON_MARKDOWN_LINK_EXTENSIONS.has(extension);
-    })
-    .map((link) => ({
-      alias: link.alias,
-      blockId: link.blockId,
-      embed: link.embed,
-      end: link.end,
-      heading: link.heading,
-      kind: 'wiki' as const,
-      raw: markdown.slice(link.start, link.end),
-      start: link.start,
-      targetText: link.target,
-      workspaceRootRelative: false,
-    }));
-  return [...wikiLinks, ...parseMarkdownLinks(markdown)].sort((left, right) => left.start - right.start);
+  const target = link.targetPathText;
+  if (!target) return wikiResolution ?? { candidates: [], path: null, status: 'missing' };
+  const exact = resolveExactWorkspaceLink(target.startsWith('/') ? target : `/${target}`, sourcePath, paths);
+  if (exact.status === 'resolved') return exact;
+  const relative = resolveExactWorkspaceLink(target, sourcePath, paths);
+  if (relative.status === 'resolved') return relative;
+  const base = target.split('/').pop()?.toLocaleLowerCase();
+  const candidates = target.includes('/') || !base ? [] : Array.from(paths)
+    .filter((path) => path.split('/').pop()?.toLocaleLowerCase() === base)
+    .sort((a, b) => a.localeCompare(b));
+  return { candidates, path: candidates.length === 1 ? candidates[0] : null,
+    status: candidates.length === 1 ? 'resolved' : candidates.length > 1 ? 'ambiguous' : 'missing' };
 }
 
 export function buildWorkspaceLinkIndexFromDocuments(
   sources: WorkspaceLinkDocumentSource[],
   now: Date = new Date(),
+  targetPaths: Iterable<string> = sources.map((source) => source.path),
+  omittedSources: WorkspaceLinkIndex['omittedDocuments'] = [],
 ): WorkspaceLinkIndex {
+  const pathSet = new Set(Array.from(targetPaths, normalizePath));
+  for (const source of sources) pathSet.add(normalizePath(source.path));
   const parsedDocuments = sources.map((source) => {
     const frontmatter = parseObsidianFrontmatter(source.content);
     const headings = extractWorkspaceMarkdownHeadings(source.content);
     return {
       content: source.content,
-      links: parseDocumentLinks(source.content),
+      parsedLinks: parseWorkspaceLocalLinks(source.content, source.path),
       document: {
         aliases: frontmatter?.aliases ?? [],
         blockIds: parseObsidianBlockIds(source.content).map((block) => block.id),
@@ -244,47 +199,52 @@ export function buildWorkspaceLinkIndexFromDocuments(
     type: 'file',
   }));
   const edges: WorkspaceLinkEdge[] = [];
-
-  const resolveTargetText = (link: ParsedLink, sourcePath: string) => {
-    if (link.kind !== 'markdown') return link.targetText;
-    const hashIndex = link.targetText.indexOf('#');
-    const targetPath = hashIndex >= 0 ? link.targetText.slice(0, hashIndex) : link.targetText;
-    const fragment = hashIndex >= 0 ? link.targetText.slice(hashIndex) : '';
-    if (!targetPath) return link.targetText;
-    if (link.workspaceRootRelative) return link.targetText;
-    const parentPath = normalizePath(sourcePath).split('/').slice(0, -1).join('/');
-    const resolvedPath = targetPath.startsWith('/')
-      ? normalizePath(targetPath)
-      : normalizePath(`${parentPath}/${targetPath}`);
-    return `${resolvedPath}${fragment}`;
-  };
+  const unevaluatedLinks = parsedDocuments.flatMap((parsed) => parsed.parsedLinks.unevaluated);
 
   for (const parsed of parsedDocuments) {
-    for (const link of parsed.links) {
-      const resolutionTarget = resolveTargetText(link, parsed.document.path);
-      const resolution = resolveObsidianWikiLink(resolutionTarget, candidates, parsed.document.path);
-      if (!resolution) continue;
+    let byteCursor = 0;
+    let byteOffset = 0;
+    const utf8Offset = (offset: number): number => {
+      byteOffset += Buffer.byteLength(parsed.content.slice(byteCursor, offset), 'utf8');
+      byteCursor = offset;
+      return byteOffset;
+    };
+    for (const link of parsed.parsedLinks.links) {
+      const resolution = link.kind === 'markdown'
+        ? resolveExactWorkspaceLink(link.targetPathText, parsed.document.path, pathSet)
+        : resolveWorkspaceWikiFileLink(link, parsed.document.path, pathSet, candidates);
+      let fragment = link.fragment ?? '';
+      try { fragment = decodeURIComponent(fragment); } catch { /* Keep original spelling. */ }
+      const targetRange = {
+        startUtf16: link.targetStart,
+        endUtf16: link.targetEnd,
+        startUtf8Byte: utf8Offset(link.targetStart),
+        endUtf8Byte: utf8Offset(link.targetEnd),
+      };
       edges.push({
         alias: link.alias,
-        blockId: link.blockId,
+        blockId: fragment.startsWith('^') ? fragment.slice(1) || null : null,
         candidates: resolution.candidates,
         embed: link.embed,
         end: link.end,
-        heading: link.heading,
+        heading: fragment && !fragment.startsWith('^') ? fragment : null,
         id: `${parsed.document.path}:${link.start}`,
         kind: link.kind,
         raw: link.raw,
         sourcePath: parsed.document.path,
         start: link.start,
         status: resolution.status,
+        syntax: link.syntax,
         targetPath: resolution.path,
-        targetText: link.targetText,
+        targetLiteral: link.targetLiteral,
+        targetRange,
+        targetText: link.targetPathText + (link.fragment !== null ? `#${link.fragment}` : ''),
       });
     }
   }
 
   const backlinks: Record<string, WorkspaceLinkEdge[]> = {};
-  for (const document of parsedDocuments.map(({ document }) => document)) backlinks[document.path] = [];
+  for (const path of pathSet) backlinks[path] = [];
   for (const edge of edges) {
     if (edge.targetPath) backlinks[edge.targetPath]?.push(edge);
   }
@@ -295,7 +255,25 @@ export function buildWorkspaceLinkIndexFromDocuments(
     documents: parsedDocuments.map(({ document }) => document),
     edges,
     generatedAt: now.toISOString(),
-    omittedDocuments: [],
+    targetPaths: Array.from(pathSet).sort((a, b) => a.localeCompare(b)),
+    unevaluatedLinks,
+    coverage: {
+      complete: omittedSources.length === 0 && unevaluatedLinks.length === 0
+        && edges.every((edge) => edge.status === 'resolved'),
+      omittedSources: omittedSources.map(({ path, reason }) => ({
+        path,
+        reason: reason === 'too-large' ? 'source-too-large' as const : 'source-unreadable' as const,
+      })),
+      unresolvedLinks: [
+        ...edges.filter((edge) => edge.status !== 'resolved').map((edge) => ({
+          sourcePath: edge.sourcePath, targetLiteral: edge.targetLiteral,
+          status: edge.status as Exclude<WorkspaceLinkResolveStatusV1, 'resolved'>,
+        })),
+        ...unevaluatedLinks.map((link) => ({ sourcePath: link.sourcePath,
+          targetLiteral: link.raw, status: 'not-evaluated' as const })),
+      ],
+    },
+    omittedDocuments: omittedSources,
   };
 }
 

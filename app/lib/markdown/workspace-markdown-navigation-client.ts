@@ -6,6 +6,7 @@ import type { ObsidianLinkResolution } from './obsidian-link-resolver';
 import { requestWorkspaceMarkdownLocation } from './workspace-markdown-navigation';
 import {
   loadWorkspaceLinkIndex,
+  resolveWorkspaceMarkdownHrefFromIndex,
   resolveWorkspaceLinkFromIndex,
 } from './workspace-link-index-client';
 
@@ -79,6 +80,7 @@ export async function openWorkspaceMarkdownPath(input: {
 
 export async function openWorkspaceMarkdownTarget(input: {
   sourcePath?: string | null;
+  syntax?: 'markdown' | 'wiki';
   target: string;
   workspaceId: string | null;
 }): Promise<WorkspaceMarkdownOpenResult> {
@@ -88,7 +90,9 @@ export async function openWorkspaceMarkdownTarget(input: {
 
   try {
     const index = await loadWorkspaceLinkIndex(input.workspaceId);
-    const resolution = resolveWorkspaceLinkFromIndex(input.target, index, input.sourcePath);
+    const resolution = input.syntax === 'markdown' && input.sourcePath
+      ? resolveWorkspaceMarkdownHrefFromIndex(input.target, index, input.sourcePath)
+      : resolveWorkspaceLinkFromIndex(input.target, index, input.sourcePath);
     if (!resolution) {
       return { status: 'missing', error: `Document not found: ${input.target}`, resolution };
     }

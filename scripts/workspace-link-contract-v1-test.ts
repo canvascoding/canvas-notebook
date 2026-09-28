@@ -69,30 +69,56 @@ for (const syntax of ['inline-link', 'inline-image', 'reference-link', 'referenc
     `missing ${syntax} fixture`);
 }
 
-let baselineCases = 0;
+let liveCases = 0;
 for (const fixture of WORKSPACE_LINK_CASES_V1) {
-  if (fixture.phase !== 'baseline') continue;
-  baselineCases += 1;
+  liveCases += 1;
+  const oversized = fixture.catalog.find((item) => item.path === fixture.sourcePath
+    && (item.sizeBytes ?? 0) > 4 * 1024 * 1024);
   const index = buildWorkspaceLinkIndexFromDocuments([
-    { path: fixture.sourcePath, content: fixture.markdown },
+    ...(!oversized ? [{ path: fixture.sourcePath, content: fixture.markdown }] : []),
     ...fixture.catalog
       .filter((item) => item.path !== fixture.sourcePath && item.path.endsWith('.md'))
       .map((item) => ({ path: item.path, content: item.content ?? '# Target' })),
-  ]);
+  ], new Date('2026-09-28T00:00:00.000Z'), fixture.catalog.map((item) => item.path),
+  oversized ? [{ path: fixture.sourcePath, reason: 'too-large' }] : []);
   const edges = index.edges.filter((edge) => edge.sourcePath === fixture.sourcePath);
 
+  if (oversized) {
+    assert.equal(edges.length, 0, fixture.id);
+    assert.equal(index.coverage.complete, false, fixture.id);
+    assert.deepEqual(index.coverage.omittedSources,
+      [{ path: fixture.sourcePath, reason: 'source-too-large' }], fixture.id);
+    continue;
+  }
   if (fixture.expected.parse !== 'parsed') {
     assert.equal(edges.length, 0, `${fixture.id}: ignored source must create no edge`);
+    if (fixture.expected.parse === 'not-evaluated') {
+      assert.equal(index.unevaluatedLinks.length, 1, fixture.id);
+      assert.equal(index.coverage.complete, false, fixture.id);
+    }
     continue;
   }
 
   assert.equal(edges.length, 1, `${fixture.id}: expected one parsed edge`);
   const edge = edges[0];
-  assert.equal(edge.kind, fixture.expected.syntax === 'wiki-link' ? 'wiki' : 'markdown', fixture.id);
+  assert.equal(edge.kind, fixture.expected.syntax?.startsWith('wiki-') ? 'wiki' : 'markdown', fixture.id);
+  assert.equal(edge.syntax, fixture.expected.syntax, fixture.id);
+  assert.equal(edge.targetLiteral, fixture.expected.targetLiteral, fixture.id);
+  assert.equal(fixture.markdown.slice(edge.targetRange.startUtf16, edge.targetRange.endUtf16),
+    fixture.expected.targetLiteral, fixture.id);
+  assert.equal(edge.targetRange.startUtf8Byte,
+    Buffer.byteLength(fixture.markdown.slice(0, edge.targetRange.startUtf16), 'utf8'), fixture.id);
+  assert.equal(edge.targetRange.endUtf8Byte,
+    Buffer.byteLength(fixture.markdown.slice(0, edge.targetRange.endUtf16), 'utf8'), fixture.id);
   assert.equal(edge.status, fixture.expected.resolve, fixture.id);
   assert.equal(edge.targetPath, fixture.expected.targetPath, fixture.id);
   assert(edge.raw.includes(fixture.expected.targetLiteral!), `${fixture.id}: raw source span must contain target`);
   assert.equal(fixture.markdown.slice(edge.start, edge.end), edge.raw, fixture.id);
+  if (fixture.expected.targetPath && !fixture.expected.targetPath.endsWith('.md')) {
+    assert(index.targetPaths.includes(fixture.expected.targetPath), fixture.id);
+    assert.equal(index.documents.some((document) => document.path === fixture.expected.targetPath), false,
+      `${fixture.id}: binary target must not be read as Markdown`);
+  }
 
   if (fixture.expected.syntax === 'wiki-link' && fixture.expected.rewrite === 'rewrite') {
     const rewritten = rewriteWorkspaceWikiLinksForRename(
@@ -131,4 +157,4 @@ assert.deepEqual(new Set(WORKSPACE_OPERATION_CASES_V1.map((fixture) => fixture.k
   new Set(['rename', 'move', 'copy', 'overwrite']));
 assert(WORKSPACE_OPERATION_CASES_V1.some((fixture) => fixture.sourceWorkspaceId !== fixture.destinationWorkspaceId));
 
-console.log(`workspace-link-contract-v1-test: ok (${baselineCases} live parser/resolver cases, ${WORKSPACE_LINK_CASES_V1.length} syntax cases, ${WORKSPACE_OPERATION_CASES_V1.length} operation cases)`);
+console.log(`workspace-link-contract-v1-test: ok (${liveCases} live parser/resolver cases, ${WORKSPACE_OPERATION_CASES_V1.length} operation cases)`);
