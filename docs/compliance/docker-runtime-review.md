@@ -88,8 +88,40 @@ Lizenzdateien und kein Bytecode als Beleg; `tokenizers@0.23.2` hat weiterhin
 null Wheel-eigene Belege und wird nur durch die versionierte externe
 Apache-2.0-Evidenz akzeptiert; `tqdm@4.70.1` hat einen Wheel-eigenen Beleg
 und die separate gebundene `LICENCE`-Kopie. Das Image wurde weder gestartet
-noch fuer den vorhandenen lokalen Vier-Dienste-Teststack eingesetzt. Ein
-finales amd64-Image-Inventar und die Owner-Freigabe stehen noch aus.
+noch fuer den vorhandenen lokalen Vier-Dienste-Teststack eingesetzt. Die
+Owner-Freigabe steht weiterhin aus.
+
+### Zwei aktuelle lokale Plattform-Images
+
+Fuer den Lizenz-Branch `bcf0385a8` wurden am 28. September beide
+Plattform-Images isoliert gebaut und ohne Starten eines App-Containers aus
+den Images geprueft. Die folgenden Werte sind lokale Image-IDs und
+Inventar-Dateihashes, keine veroeffentlichten Multi-Arch-Manifest-Digests:
+
+| Plattform | lokale Image-ID | SHA-256 des Schema-4-Inventars | Debian-Binaries / Sources | Python / globales npm |
+| --- | --- | --- | ---: | ---: |
+| linux/amd64 | `sha256:014f6295918966ebe1801ea76d7a238fc9130055ed34370ec74b331340a6de02` | `46a3e729e020786beacf7798d8cf2968d52d15b6201586e595eb2ba838bdafe1` | 513 / 341 | 61 / 153 |
+| linux/arm64 | `sha256:e356cf4d58efe41fd371cfae28f20aafbdb1b8f40623f2a2a0a1dc71b81318e8` | `63b6b70196519cc053f892b74e9513d7ec87115d2778edebae7ba10d6dfceebe` | 509 / 339 | 61 / 153 |
+
+Auf beiden Images bestand
+`scripts/runtime-component-inventory-test.mjs` mit dem aktuellen
+Python-Lock und der Native-Policy. Das gemeinsame
+`scripts/runtime-multiarch-compliance-test.mjs` bestand mit beiden
+Inventaren und Sharp-Linkage-Dateien. Dockerfile-, Policy- und
+Python-Lock-Hashes sind zwischen den Inventaren gleich; auch alle 61
+Python-Namen/Versionen stimmen ueberein, davon 58 per pip installierte
+Pakete. Die extrahierten Notices und das statische Komponentenmanifest
+stimmen auf beiden Plattformen bytegenau mit dem Branch ueberein; das
+mitgelieferte libvips-Quellarchiv besteht auf beiden den erwarteten
+SHA-256-Test `3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e`.
+
+Diese technische Plattformpruefung ist keine kommerzielle Freigabe und
+keine produktive Bereitstellung. Der statische Release-Gate blockiert
+weiterhin 14 Eintraege: die neue Gesamtfreigabe und die Einzelpruefung
+aller 13 neu hinzugefuegten Python-Pakete, einschliesslich der kombinierten
+MPL-/MIT-Pflichten von `tqdm`. Ein spaeter veroeffentlichtes Image muss
+mit seinen tatsaechlichen Manifest-Digests und denselben Gates erneut
+geprueft werden.
 
 ## Abschlussupdate fuer Schema 4
 
