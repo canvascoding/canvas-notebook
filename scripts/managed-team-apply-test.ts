@@ -51,7 +51,7 @@ async function setupDatabase(dataDir: string) {
       pending_user_id text NOT NULL
     );
     CREATE TABLE "user" (
-      id text PRIMARY KEY, email text NOT NULL, banned integer NOT NULL,
+      id text PRIMARY KEY, email text NOT NULL, role text NOT NULL, banned integer NOT NULL,
       ban_reason text, ban_expires bigint, updated_at bigint
     );
     CREATE TABLE "session" (id text PRIMARY KEY, user_id text NOT NULL);
@@ -109,6 +109,7 @@ async function main() {
   const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
   const { readManagedTeamAccessPolicy } = await import('../app/lib/license/managed-team-access-policy');
   const { recordHumanActivity } = await import('../app/lib/instance/human-activity');
+  const { isAdminUser } = await import('../app/lib/admin-auth');
   const fixture = await setupDatabase(dataDir);
   const { database } = fixture;
   try {
@@ -120,11 +121,11 @@ async function main() {
         ('member-grace-new', $1, NULL, 'grace-new@example.test', 'member', 'approval_required')
     `, [organizationId]);
     await fixture.pg.query(`
-      INSERT INTO "user" (id, email, banned, ban_reason)
-      VALUES ('user-owner', 'owner@example.test', 0, NULL),
-        ('user-revoked', 'revoked@example.test', 0, NULL),
-        ('user-new', 'new@example.test', 1, 'canvas_team_membership_pending'),
-        ('user-grace-new', 'grace-new@example.test', 1, 'canvas_team_membership_pending')
+      INSERT INTO "user" (id, email, role, banned, ban_reason)
+      VALUES ('user-owner', 'owner@example.test', 'admin', 0, NULL),
+        ('user-revoked', 'revoked@example.test', 'user', 0, NULL),
+        ('user-new', 'new@example.test', 'user', 1, 'canvas_team_membership_pending'),
+        ('user-grace-new', 'grace-new@example.test', 'user', 1, 'canvas_team_membership_pending')
     `);
     await fixture.pg.query(`
       INSERT INTO managed_team_pending_identities (local_identity_key, organization_id, pending_user_id)
@@ -332,6 +333,78 @@ async function main() {
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
     assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length,
       warningsBeforeInvalidCertificate + 3);
+    const offerRole = (revision: number, role: 'admin' | 'member') => {
+      const nextMembers = restoredMembers.map((member) => member.externalUserId === 'central-new'
+        ? { ...member, role } : member);
+      const version = 1783338374 + revision - 6;
+      const nextCertificate = certificate(3, version, true, Date.now() + 15 * 60_000);
+      syncPayload = {
+        ...syncPayload,
+        membershipRevision: revision,
+        memberHash: createHash('sha256').update(JSON.stringify([...nextMembers]
+          .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
+        members: nextMembers,
+        license: { certificate: nextCertificate, entitlementsVersion: version,
+          fingerprint: createHash('sha256').update(nextCertificate).digest('hex'), seatLimit: 3 },
+      };
+    };
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('pre-promotion-session', 'user-new')`);
+    offerRole(7, 'admin');
+    const failingRoleDatabase = {
+      ...database,
+      async run(sql: string, params?: unknown[]) {
+        if (/UPDATE "user" SET role = \$1, updated_at = \$2/u.test(sql)) return { changes: 0 };
+        return database.run(sql, params);
+      },
+    };
+    assert.equal(await runManagedTeamSyncCycle({ ...syncOptions, database: failingRoleDatabase }), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_ACTIVE_IDENTITY_CHANGED');
+    assert.equal((await fixture.pg.query<{ role: string }>(`SELECT role FROM team_memberships WHERE id = 'member-new'`)).rows[0].role, 'member');
+    assert.equal((await fixture.pg.query<{ role: string }>(`SELECT role FROM organization_user_permissions WHERE user_id = 'user-new'`)).rows[0].role, 'member');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-new'`)).rows.length, 1);
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    let identity = (await fixture.pg.query<{ email: string; role: string }>(`SELECT email, role FROM "user" WHERE id = 'user-new'`)).rows[0];
+    assert.equal(isAdminUser(identity), true);
+    assert.equal((await fixture.pg.query<{ role: string; can_manage_backups: number }>(`
+      SELECT role, can_manage_backups FROM organization_user_permissions WHERE user_id = 'user-new'
+    `)).rows[0].can_manage_backups, 1);
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-new'`)).rows.length, 0);
+    const previousBootstrapEmail = process.env.BOOTSTRAP_ADMIN_EMAIL;
+    process.env.BOOTSTRAP_ADMIN_EMAIL = 'new@example.test';
+    for (const status of ['suspended', 'removed'] as const) {
+      const blockedMembers = (syncPayload.members as typeof restoredMembers).map((member) => member.externalUserId === 'central-new'
+        ? { ...member, status } : member);
+      syncPayload = {
+        ...syncPayload,
+        members: blockedMembers,
+        memberHash: createHash('sha256').update(JSON.stringify([...blockedMembers]
+          .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
+      };
+      assert.equal(await runManagedTeamSyncCycle(syncOptions), 'pending');
+      assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_BOOTSTRAP_ADMIN_ACCESS_DENIED');
+      assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
+      assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 0);
+    }
+    offerRole(8, 'member');
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_BOOTSTRAP_ADMIN_ACCESS_DENIED');
+    assert.equal((await fixture.pg.query<{ role: string }>(`SELECT role FROM "user" WHERE id = 'user-new'`)).rows[0].role, 'admin');
+    if (previousBootstrapEmail === undefined) delete process.env.BOOTSTRAP_ADMIN_EMAIL;
+    else process.env.BOOTSTRAP_ADMIN_EMAIL = previousBootstrapEmail;
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('pre-demotion-session', 'user-new')`);
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    identity = (await fixture.pg.query<{ email: string; role: string }>(`SELECT email, role FROM "user" WHERE id = 'user-new'`)).rows[0];
+    assert.equal(isAdminUser(identity), false);
+    assert.deepEqual((await fixture.pg.query<{ role: string; can_manage_backups: number }>(`
+      SELECT role, can_manage_backups FROM organization_user_permissions WHERE user_id = 'user-new'
+    `)).rows[0], { role: 'member', can_manage_backups: 0 });
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-new'`)).rows.length, 0);
+    await fixture.pg.query(`UPDATE "user" SET role = 'admin' WHERE id = 'user-new'`);
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('drifted-admin-session', 'user-new')`);
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    identity = (await fixture.pg.query<{ email: string; role: string }>(`SELECT email, role FROM "user" WHERE id = 'user-new'`)).rows[0];
+    assert.equal(isAdminUser(identity), false);
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-new'`)).rows.length, 0);
     console.info('managed team offline recovery, grace, restriction, replay, and restoration passed');
   } finally {
     await fixture.close();

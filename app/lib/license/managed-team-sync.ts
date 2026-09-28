@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { requestTeamControlPlane, redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { PENDING_TEAM_MEMBERSHIP_BAN_REASON } from '@/app/lib/auth';
+import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 import { getDeploymentMode } from '@/app/lib/organization/config';
 import { lastHumanActivityAt } from '@/app/lib/instance/human-activity';
 import { ensureOrganizationPermissionRow, organizationPermissionDefaults } from '@/app/lib/organization/permission-provisioning';
@@ -59,6 +60,10 @@ type LocalMember = {
   email: string;
   role: string;
   status: string;
+  authRole: string | null;
+  userBanned: boolean | number | null;
+  permissionRole: string | null;
+  permissionStatus: string | null;
 };
 
 type ManagedRuntime = {
@@ -159,11 +164,18 @@ async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
   const organizationId = organizations[0].organization_id;
   const rows = await database.all(`
     SELECT membership.id, COALESCE(membership.user_id, pending.pending_user_id) AS user_id,
-      membership.candidate_email, membership.role, membership.status
+      membership.candidate_email, membership.role, membership.status,
+      auth_user.role AS auth_role, auth_user.banned AS user_banned,
+      permission.role AS permission_role, permission.status AS permission_status
     FROM team_memberships membership
     LEFT JOIN managed_team_pending_identities pending
       ON pending.local_identity_key = membership.id
       AND pending.organization_id = membership.organization_id
+    LEFT JOIN "user" auth_user
+      ON auth_user.id = COALESCE(membership.user_id, pending.pending_user_id)
+    LEFT JOIN organization_user_permissions permission
+      ON permission.organization_id = membership.organization_id
+      AND permission.user_id = COALESCE(membership.user_id, pending.pending_user_id)
     WHERE membership.organization_id = $1
     ORDER BY membership.id
   `, [organizationId]) as Array<{
@@ -172,6 +184,10 @@ async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
     candidate_email: string;
     role: string;
     status: string;
+    auth_role: string | null;
+    user_banned: boolean | number | null;
+    permission_role: string | null;
+    permission_status: string | null;
   }>;
   return {
     organizationId,
@@ -181,6 +197,10 @@ async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
       email: row.candidate_email.toLowerCase(),
       role: row.role,
       status: row.status,
+      authRole: row.auth_role,
+      userBanned: row.user_banned,
+      permissionRole: row.permission_role,
+      permissionStatus: row.permission_status,
     })),
   };
 }
@@ -246,6 +266,10 @@ function assertManagedMappings(local: LocalMember[], managed: ManagedMember[]): 
     throw new Error('MANAGED_TEAM_DUPLICATE_EXTERNAL_USER');
   }
   for (const member of managed) {
+    if (isBootstrapAdminEmail(member.email)
+      && (member.status !== 'active' || (member.role !== 'owner' && member.role !== 'admin'))) {
+      throw new Error('MANAGED_TEAM_BOOTSTRAP_ADMIN_ACCESS_DENIED');
+    }
     if (!member.localIdentityKey) throw new Error('LOCAL_IDENTITY_MAPPING_REQUIRED');
     const existing = byIdentityKey.get(member.localIdentityKey);
     if (!existing || existing.email !== member.email.toLowerCase()
@@ -268,6 +292,39 @@ function requireChanged(result: unknown, code: string): void {
     || Number(result.changes) !== 1) throw new Error(code);
 }
 
+function authRoleForMember(role: ManagedMember['role']): 'admin' | 'user' {
+  return role === 'owner' || role === 'admin' ? 'admin' : 'user';
+}
+
+async function syncOrganizationPermissionRole(
+  database: Pick<SqlConnection, 'run'>,
+  organizationId: string,
+  userId: string,
+  role: ManagedMember['role'],
+  now: number,
+): Promise<void> {
+  const defaults = organizationPermissionDefaults(role);
+  requireChanged(await database.run(`
+    UPDATE organization_user_permissions SET
+      role = $1, can_write_team_workspace = $2, can_create_public_links = $3,
+      can_create_team_automations = $4, can_share_plugins_and_skills = $5,
+      can_export = $6, can_delete_team_files = $7, can_delete_studio_assets = $8,
+      can_manage_backups = $9, can_manage_organization_memory = $10,
+      can_migrate_database = $11, can_enable_knowledge = $12,
+      can_recover_workspaces = $13, updated_at = $14
+    WHERE organization_id = $15 AND user_id = $16 AND status = 'active'
+  `, [
+    role,
+    Number(defaults.canWriteTeamWorkspace), Number(defaults.canCreatePublicLinks),
+    Number(defaults.canCreateTeamAutomations), Number(defaults.canSharePluginsAndSkills),
+    Number(defaults.canExport), Number(defaults.canDeleteTeamFiles),
+    Number(defaults.canDeleteStudioAssets), Number(defaults.canManageBackups),
+    Number(defaults.canManageOrganizationMemory), Number(defaults.canMigrateDatabase),
+    Number(defaults.canEnableKnowledge), Number(defaults.canRecoverWorkspaces), now,
+    organizationId, userId,
+  ]), 'MANAGED_TEAM_PERMISSION_ROW_MISSING');
+}
+
 async function applyManagedMembership(
   database: Pick<SqlConnection, 'all' | 'get' | 'run'>,
   local: { organizationId: string; members: LocalMember[] },
@@ -282,7 +339,11 @@ async function applyManagedMembership(
     for (const member of managed) {
       if ((member.status === 'active') !== (phase === 'active')) continue;
       const existing = byIdentityKey.get(member.localIdentityKey!);
-      if (!existing || (existing.status === member.status && existing.role === member.role)) continue;
+      if (!existing || (existing.status === member.status && existing.role === member.role
+        && (phase === 'revoke' || member.status !== 'active'
+          || (existing.authRole === authRoleForMember(member.role)
+            && existing.permissionRole === member.role
+            && existing.permissionStatus === 'active')))) continue;
       if (phase === 'revoke' && existing.status !== 'active') continue;
       const pendingActivation = member.status === 'active'
         && ['approval_required', 'billing_pending'].includes(existing.status)
@@ -316,6 +377,7 @@ async function applyManagedMembership(
             activateExisting: true,
             now,
           });
+          await syncOrganizationPermissionRole(database, local.organizationId, existing.localUserId!, member.role, now);
           requireChanged(await database.run(`
             UPDATE team_memberships SET role = $1, status = 'active', activated_at = $2,
               suspended_at = NULL, removed_at = NULL, updated_at = $2
@@ -323,9 +385,9 @@ async function applyManagedMembership(
           `, [member.role, now, existing.localIdentityKey, local.organizationId, existing.localUserId]),
           'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
           requireChanged(await database.run(`
-            UPDATE "user" SET banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $1
-            WHERE id = $2 AND banned = 1 AND ban_reason = $3
-          `, [now, existing.localUserId, users[0].ban_reason]),
+            UPDATE "user" SET role = $1, banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $2
+            WHERE id = $3 AND banned = 1 AND ban_reason = $4
+          `, [authRoleForMember(member.role), now, existing.localUserId, users[0].ban_reason]),
           'MANAGED_TEAM_REACTIVATION_IDENTITY_CHANGED');
           await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
           continue;
@@ -349,6 +411,7 @@ async function applyManagedMembership(
             activateExisting: true,
             now,
           });
+          await syncOrganizationPermissionRole(database, local.organizationId, existing.localUserId!, member.role, now);
           requireChanged(await database.run(`
             UPDATE team_memberships SET user_id = $1, role = $2, status = 'active',
               accepted_at = COALESCE(accepted_at, $3), activated_at = $3, updated_at = $3
@@ -357,37 +420,24 @@ async function applyManagedMembership(
           `, [existing.localUserId, member.role, now, existing.localIdentityKey, local.organizationId]),
           'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
           requireChanged(await database.run(`
-            UPDATE "user" SET banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $1
-            WHERE id = $2 AND banned = 1 AND ban_reason = $3
-          `, [now, existing.localUserId, PENDING_TEAM_MEMBERSHIP_BAN_REASON]),
+            UPDATE "user" SET role = $1, banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $2
+            WHERE id = $3 AND banned = 1 AND ban_reason = $4
+          `, [authRoleForMember(member.role), now, existing.localUserId, PENDING_TEAM_MEMBERSHIP_BAN_REASON]),
           'MANAGED_TEAM_PENDING_IDENTITY_CHANGED');
           continue;
         }
-        const defaults = organizationPermissionDefaults(member.role);
+        if (existing.userBanned) throw new Error('MANAGED_TEAM_ACTIVE_IDENTITY_BANNED');
         requireChanged(await database.run(`
           UPDATE team_memberships SET role = $1, updated_at = $2
           WHERE id = $3 AND organization_id = $4 AND user_id = $5 AND status = 'active'
         `, [member.role, now, existing.localIdentityKey, local.organizationId, existing.localUserId]),
         'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+        await syncOrganizationPermissionRole(database, local.organizationId, existing.localUserId!, member.role, now);
         requireChanged(await database.run(`
-          UPDATE organization_user_permissions SET
-            role = $1, can_write_team_workspace = $2, can_create_public_links = $3,
-            can_create_team_automations = $4, can_share_plugins_and_skills = $5,
-            can_export = $6, can_delete_team_files = $7, can_delete_studio_assets = $8,
-            can_manage_backups = $9, can_manage_organization_memory = $10,
-            can_migrate_database = $11, can_enable_knowledge = $12,
-            can_recover_workspaces = $13, updated_at = $14
-          WHERE organization_id = $15 AND user_id = $16 AND status = 'active'
-        `, [
-          member.role,
-          Number(defaults.canWriteTeamWorkspace), Number(defaults.canCreatePublicLinks),
-          Number(defaults.canCreateTeamAutomations), Number(defaults.canSharePluginsAndSkills),
-          Number(defaults.canExport), Number(defaults.canDeleteTeamFiles),
-          Number(defaults.canDeleteStudioAssets), Number(defaults.canManageBackups),
-          Number(defaults.canManageOrganizationMemory), Number(defaults.canMigrateDatabase),
-          Number(defaults.canEnableKnowledge), Number(defaults.canRecoverWorkspaces), now,
-          local.organizationId, existing.localUserId,
-        ]), 'MANAGED_TEAM_PERMISSION_ROW_MISSING');
+          UPDATE "user" SET role = $1, updated_at = $2
+          WHERE id = $3 AND lower(email) = $4
+        `, [authRoleForMember(member.role), now, existing.localUserId, member.email.toLowerCase()]),
+        'MANAGED_TEAM_ACTIVE_IDENTITY_CHANGED');
         await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
         continue;
       }
@@ -488,7 +538,10 @@ export async function runManagedTeamSyncCycle(options: {
         const current = applied.members.find((localMember) => localMember.localIdentityKey === member.localIdentityKey);
         return current?.role !== member.role || (current.status !== member.status
           && !(sync.status === 'policy_ready' && member.status === 'suspended'
-            && current && ['approval_required', 'billing_pending'].includes(current.status)));
+            && current && ['approval_required', 'billing_pending'].includes(current.status)))
+          || (member.status === 'active' && (current?.authRole !== authRoleForMember(member.role)
+            || current.permissionRole !== member.role || current.permissionStatus !== 'active'
+            || Boolean(current.userBanned)));
       })) throw new Error('MANAGED_TEAM_MEMBERSHIP_APPLY_FAILED');
       await recordManagedTeamAccessPolicy({
         instanceId,
