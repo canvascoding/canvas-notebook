@@ -73,10 +73,22 @@
     {
       "id": "SA-04",
       "title": "Bradley list, steer, stop and follow-up controls",
-      "status": "pending",
+      "status": "completed",
       "hermes": ["tools/delegate_tool.py:695-710", "tools/delegate_tool_registry.py:124-155"],
       "canvas": ["app/lib/pi/delegate-task-tool.ts:1242-1326", "app/lib/pi/delegation-dispatcher.ts:189-230"],
-      "gate": "Exactly one owned running worker receives a correction or stop; missed steering and terminal follow-up are explicit."
+      "gate": "Exactly one owned running worker receives a correction or stop; missed steering and terminal follow-up are explicit.",
+      "evidence": [
+        "npm run test:pi:delegate-task",
+        "npm run test:pi:delegation-steering",
+        "npm run test:pi:delegation-dispatcher",
+        "npm run test:pi:delegation-progress",
+        "npm run test:pi:delegation-store",
+        "npm run test:pi:delegation-api",
+        "npx tsc --noEmit --pretty false",
+        "npx eslint on changed application and test TypeScript files",
+        "Playwright: tests/chat-delegation-session-resume.spec.ts",
+        "npm run build"
+      ]
     },
     {
       "id": "SA-05",

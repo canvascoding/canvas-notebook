@@ -1451,6 +1451,28 @@ export const piDelegationProgress = pgTable("pi_delegations_progress", {
   kindCheck: check("pi_delegations_progress_kind_check", sql`${table.kind} IN ('queued', 'running', 'tool_start', 'tool_end', 'compacting', 'resumed', 'completed', 'failed', 'cancelled')`),
 }));
 
+// A steering instruction belongs to one execution lease. Its receipt is only
+// delivered after the worker has observed and persisted the injected message.
+export const piDelegationSteering = pgTable("pi_delegations_steering", {
+  id: text("id").primaryKey(),
+  delegationId: text("delegation_id").notNull().references(() => piDelegations.id, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sourceSessionId: text("source_session_id").notNull(),
+  runOwnerId: text("run_owner_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("accepted"),
+  claimedAt: pgTimestamp("claimed_at"),
+  deliveredAt: pgTimestamp("delivered_at"),
+  missedAt: pgTimestamp("missed_at"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  idempotencyIdx: uniqueIndex("idx_pi_delegations_steering_idempotency").on(table.delegationId, table.idempotencyKey),
+  pendingIdx: index("idx_pi_delegations_steering_pending").on(table.delegationId, table.runOwnerId, table.status, table.createdAt),
+  statusCheck: check("pi_delegations_steering_status_check", sql`${table.status} IN ('accepted', 'claimed', 'delivered', 'missed')`),
+}));
+
 export const agents = pgTable("agents", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   agentId: text("agent_id").notNull().unique(),

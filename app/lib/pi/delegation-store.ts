@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, isNotNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piDelegations } from '@/app/lib/db/schema';
@@ -175,12 +175,12 @@ export async function heartbeatOwnedPiDelegations(input: {
   runOwnerId: string;
   runningIds: string[];
   deliveringIds: string[];
-}): Promise<{ runningIds: string[]; deliveringIds: string[] }> {
+}): Promise<{ runningIds: string[]; cancelRequestedIds: string[]; deliveringIds: string[] }> {
   const running = input.runningIds.length > 0
     ? await db.update(piDelegations)
       .set({ runHeartbeatAt: databaseNowMs })
       .where(and(inArray(piDelegations.id, input.runningIds), eq(piDelegations.status, 'running'), eq(piDelegations.runOwnerId, input.runOwnerId), freshRunLease))
-      .returning({ id: piDelegations.id })
+      .returning({ id: piDelegations.id, cancelRequestedAt: piDelegations.cancelRequestedAt })
     : [];
   const delivering = input.deliveringIds.length > 0
     ? await db.update(piDelegations)
@@ -188,7 +188,11 @@ export async function heartbeatOwnedPiDelegations(input: {
       .where(and(inArray(piDelegations.id, input.deliveringIds), eq(piDelegations.deliveryStatus, 'delivering'), eq(piDelegations.deliveryOwnerId, input.runOwnerId), freshDeliveryLease))
       .returning({ id: piDelegations.id })
     : [];
-  return { runningIds: running.map(row => row.id), deliveringIds: delivering.map(row => row.id) };
+  return {
+    runningIds: running.map(row => row.id),
+    cancelRequestedIds: running.filter(row => row.cancelRequestedAt !== null).map(row => row.id),
+    deliveringIds: delivering.map(row => row.id),
+  };
 }
 
 export async function updateRunningPiDelegationWorkerSession(
@@ -223,7 +227,7 @@ export async function completeRunningPiDelegation(input: {
       updatedAt: now,
     })
     .where(and(
-      eq(piDelegations.id, input.id), eq(piDelegations.status, 'running'),
+      eq(piDelegations.id, input.id), eq(piDelegations.status, 'running'), isNull(piDelegations.cancelRequestedAt),
       ...(input.runOwnerId ? [eq(piDelegations.runOwnerId, input.runOwnerId)] : []),
       ...(input.staleRecovery ? [isNotNull(piDelegations.runOwnerId), staleRunLease] : []),
       ...(!input.staleRecovery && input.runOwnerId ? [freshRunLease] : []),
@@ -355,10 +359,31 @@ export async function claimPiDelegationDelivery(id: string, deliveryOwnerId?: st
   return claimed ?? null;
 }
 
+/** A requested stop survives the owner's crash and is never replayed. */
+export async function cancelInterruptedPiDelegations(): Promise<PiDelegationRecord[]> {
+  const now = new Date();
+  return db.update(piDelegations)
+    .set({
+      status: 'cancelled',
+      resultStatus: 'error',
+      errorText: 'Delegated task was cancelled after its worker stopped responding.',
+      completedAt: now,
+      deliveryStatus: 'skipped',
+      updatedAt: now,
+    })
+    .where(and(
+      eq(piDelegations.status, 'running'),
+      isNotNull(piDelegations.runOwnerId),
+      isNotNull(piDelegations.cancelRequestedAt),
+      staleRunLease,
+    ))
+    .returning();
+}
+
 /** A crashed worker may already have caused external side effects. Never replay it. */
 export async function failInterruptedPiDelegations(): Promise<PiDelegationRecord[]> {
   const interrupted = await db.query.piDelegations.findMany({
-    where: and(eq(piDelegations.status, 'running'), isNotNull(piDelegations.runOwnerId), staleRunLease),
+    where: and(eq(piDelegations.status, 'running'), isNotNull(piDelegations.runOwnerId), isNull(piDelegations.cancelRequestedAt), staleRunLease),
     columns: { id: true },
   });
   if (interrupted.length === 0) return [];
@@ -376,6 +401,7 @@ export async function failInterruptedPiDelegations(): Promise<PiDelegationRecord
       inArray(piDelegations.id, interrupted.map((record) => record.id)),
       eq(piDelegations.status, 'running'),
       isNotNull(piDelegations.runOwnerId),
+      isNull(piDelegations.cancelRequestedAt),
       staleRunLease,
     ))
     .returning();

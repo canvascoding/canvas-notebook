@@ -20,6 +20,7 @@ import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { requireDelegationSource } from '@/app/lib/pi/delegation-policy';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSessionWithRuntimeSnapshot, savePiSession } from '@/app/lib/pi/session-store';
+import { attachManagedSteeringBridge, extractMessageText, type RuntimeInstance } from '@/app/lib/pi/delegation-managed-steering';
 import { withExclusivePiSessionExecution } from '@/app/lib/pi/session-exclusive-execution';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { DELEGATABLE_PI_TOOLSETS, PI_TOOLSETS, resolveDelegatedWorkerToolNames } from '@/app/lib/pi/toolsets';
@@ -52,6 +53,10 @@ import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordina
 import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
 
 type DelegateTaskArgs = {
+  action?: 'spawn' | 'list' | 'steer' | 'stop';
+  delegation_id?: string;
+  receipt_id?: string;
+  message?: string;
   target_agent_id?: string;
   goal?: string;
   context?: string;
@@ -77,6 +82,7 @@ export type DelegateTaskRequest = {
   waitForResult: boolean;
   timeoutSeconds: number;
   workerSessionId?: string;
+  runOwnerId?: string;
   onCompletion?: (result: DelegateTaskResult) => void | Promise<void>;
 };
 
@@ -93,16 +99,6 @@ export type DelegateTaskResult = {
   timeout_seconds: number;
   reply?: string;
   error?: string;
-};
-
-type RuntimeInstance = {
-  agentId: string;
-  agent: { state: { messages: AgentMessage[] } };
-  getStatus: () => { phase: string; canAbort: boolean };
-  subscribe: (subscriber: (event: { type: string; status?: { phase: string; canAbort: boolean }; error?: string }) => void) => () => void;
-  abort: () => Promise<unknown>;
-  reloadTools: () => Promise<void>;
-  startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
 const MAX_REPLY_CHARS = 8000;
@@ -263,29 +259,6 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
-function extractMessageText(message: AgentMessage): string {
-  if (!('content' in message)) {
-    return '';
-  }
-  const content = message.content;
-  if (typeof content === 'string') {
-    return content;
-  }
-  if (!Array.isArray(content)) {
-    return '';
-  }
-  return content
-    .map((part) => {
-      if (part && typeof part === 'object' && 'type' in part && part.type === 'text' && typeof (part as { text?: unknown }).text === 'string') {
-        return (part as { text: string }).text;
-      }
-      return '';
-    })
-    .filter(Boolean)
-    .join('\n')
-    .trim();
-}
-
 function latestAssistantReplyFromMessages(messages: AgentMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -430,6 +403,8 @@ export async function runEphemeralWorker(params: {
   // message_end can precede execution of every tool in an assistant batch.
   // Only turn_end proves the batch has all of its result messages.
   const observedMessages: AgentMessage[] = [params.promptMessage];
+  const steeringMessageIds = new Map<AgentMessage, string>();
+  const injectedSteeringIds = new Set<string>();
   let turnOrdinal = 1;
   // The prompt is stored when the child session is created. Only advance this
   // checkpoint after savePiSession has committed the complete new suffix.
@@ -520,6 +495,29 @@ export async function runEphemeralWorker(params: {
     const config = {
       model,
       reasoning: thinkingLevel === 'off' ? undefined : thinkingLevel,
+      getSteeringMessages: async () => {
+        if (!params.request.delegationId || !params.request.runOwnerId || params.signal.aborted) return [];
+        try {
+          const { claimNextPiDelegationSteering } = await import('@/app/lib/pi/delegation-steering');
+          const command = await claimNextPiDelegationSteering({
+            delegationId: params.request.delegationId,
+            userId: params.request.userId,
+            runOwnerId: params.request.runOwnerId,
+          });
+          if (!command) return [];
+          const message: Extract<AgentMessage, { role: 'user' }> = {
+            role: 'user',
+            content: `Correction for this delegated task:\n${command.message}`,
+            timestamp: Date.now(),
+          };
+          steeringMessageIds.set(message, command.id);
+          return [message];
+        } catch {
+          // The SDK requires steering polling to return normally. The durable
+          // command stays available for a later turn or becomes missed at exit.
+          return [];
+        }
+      },
       transformContext: async (messages: AgentMessage[], signal?: AbortSignal) => {
         throwIfDelegationAborted(params.signal);
         const contextMessages = await finalizeToolOutputBlocks(messages, model, params.executionContext);
@@ -672,6 +670,23 @@ export async function runEphemeralWorker(params: {
       async (event) => {
         if (event.type === 'message_end' && !observedMessages.includes(event.message)) {
           observedMessages.push(event.message);
+        }
+        if (event.type === 'message_end' && steeringMessageIds.has(event.message)) {
+          await checkpointMessages(observedMessages);
+          injectedSteeringIds.add(steeringMessageIds.get(event.message)!);
+          steeringMessageIds.delete(event.message);
+        }
+        if (event.type === 'message_start' && event.message.role === 'assistant' && injectedSteeringIds.size > 0) {
+          const { confirmPiDelegationSteeringDelivered } = await import('@/app/lib/pi/delegation-steering');
+          for (const id of injectedSteeringIds) {
+            await confirmPiDelegationSteeringDelivered({
+              id,
+              delegationId: params.request.delegationId!,
+              userId: params.request.userId,
+              runOwnerId: params.request.runOwnerId!,
+            });
+          }
+          injectedSteeringIds.clear();
         }
         if (event.type === 'tool_execution_start') {
           await appendProgress('tool_start', toolEventKey('tool_start', event.toolCallId), event.toolName);
@@ -1338,12 +1353,14 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
       baselineMessageCount,
       promptMessage,
       completionPromise: waitHandle?.promise ?? null,
+      releaseSteering: attachManagedSteeringBridge(runtime, request, sessionId),
     };
   });
 
   if (request.onCompletion && started.completionPromise) {
     const notifyCompletion = request.onCompletion;
-    void started.completionPromise.then((completion) => {
+    void started.completionPromise.then(async (completion) => {
+      try { await started.releaseSteering(); } catch { /* Completion must still be reported. */ }
       const result: DelegateTaskResult = completion.status === 'ok'
         ? {
           delegation_id: request.delegationId,
@@ -1461,12 +1478,18 @@ export function createDelegateTaskTool(deps: {
     name: 'delegate_task',
     label: 'Delegating task',
     description:
-      'Dispatch a focused task to a background subagent and return immediately with a persistent task handle. ' +
-      'The result is delivered automatically in a later turn. By default this creates an ephemeral worker with no parent history or recursive delegation. ' +
-      'Optionally set target_agent_id to use an existing managed agent.',
+      'Spawn a background subagent, list your tasks, steer one active task, or stop one task. ' +
+      'Spawn returns a persistent task handle and later delivers the result. ' +
+      'A managed agent can reuse an authorized session_id for a new follow-up task.',
     parameters: Type.Object({
+      action: Type.Optional(Type.Union([
+        Type.Literal('spawn'), Type.Literal('list'), Type.Literal('steer'), Type.Literal('stop'),
+      ], { description: 'Default: spawn. Use steer only for a running task; use a new spawn for a completed task.' })),
+      delegation_id: Type.Optional(Type.String({ description: 'Exact task ID for steer, stop, or reading a receipt.' })),
+      receipt_id: Type.Optional(Type.String({ description: 'With action=list and delegation_id, read a steering receipt returned by steer.' })),
+      message: Type.Optional(Type.String({ description: 'Correction for the active task when action is steer.' })),
       target_agent_id: Type.Optional(Type.String({ description: 'Optional managed target agent ID. Omit to spawn an ephemeral worker.' })),
-      goal: Type.String({ description: 'The concrete task the worker should complete.' }),
+      goal: Type.Optional(Type.String({ description: 'The concrete task to spawn. Required only for spawn.' })),
       context: Type.Optional(Type.String({ description: 'Relevant context to pass to the worker. The parent chat history is not included automatically.' })),
       role: Type.Optional(Type.String({ description: 'Short worker role hint, e.g. researcher, coder, reviewer, planner. Ephemeral workers only.' })),
       toolsets: Type.Optional(Type.Array(Type.String(), { description: `Ephemeral worker toolsets. Defaults to ${DEFAULT_EPHEMERAL_TOOLSETS.join(', ')}.` })),
@@ -1474,7 +1497,7 @@ export function createDelegateTaskTool(deps: {
       wait_for_result: Type.Optional(Type.Boolean({ description: 'Deprecated compatibility field. Top-level delegation always runs in the background.' })),
       timeout_seconds: Type.Optional(Type.Number({ description: 'Deprecated compatibility field. Background delegation does not block this tool call.' })),
     }),
-    execute: async (_toolCallId, params, signal) => {
+    execute: async (toolCallId, params, signal) => {
       try {
         if (!deps.userId) {
           throw new Error('User ID is required for delegate_task.');
@@ -1487,6 +1510,69 @@ export function createDelegateTaskTool(deps: {
         const sourceAgentId = normalizeManagedAgentId(deps.sourceAgentId);
         if (sourceAgentId !== DEFAULT_AGENT_ID) {
           throw new Error('Only Bradley, the main agent, can use delegate_task.');
+        }
+
+        const action = args.action ?? 'spawn';
+        if (action === 'list') {
+          if (args.receipt_id?.trim()) {
+            const delegationId = args.delegation_id?.trim();
+            if (!delegationId) throw new Error('delegation_id is required when reading a steering receipt.');
+            const { readAuthorizedPiDelegationSteeringReceipt } = await import('@/app/lib/pi/delegation-steering');
+            const receipt = await readAuthorizedPiDelegationSteeringReceipt({
+              id: args.receipt_id.trim(), delegationId, userId: deps.userId, sourceSessionId,
+            });
+            if (!receipt) throw new Error('Steering receipt was not found.');
+            const result = { action, delegation_id: delegationId, receipt_id: receipt.id,
+              status: receipt.status === 'claimed' ? 'accepted' : receipt.status };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
+          }
+          const { authorizePiDelegationInspection, authorizePiDelegationParentRead } = await import('@/app/lib/pi/delegation-progress');
+          const { listOwnedPiDelegations } = await import('@/app/lib/pi/delegation-store');
+          const parent = await authorizePiDelegationParentRead({ userId: deps.userId, sourceSessionId });
+          if (parent.sourceAgentId !== sourceAgentId) throw new Error('Parent agent changed.');
+          const records = await listOwnedPiDelegations({ userId: deps.userId, sourceSessionId, limit: 50 });
+          const tasks = [] as Array<{ delegation_id: string; status: string; worker_type: string; target_agent_id: string | null; session_id: string }>;
+          for (const record of records) {
+            try {
+              await authorizePiDelegationInspection({ delegationId: record.id, userId: deps.userId, sourceSessionId });
+              tasks.push({
+                delegation_id: record.id,
+                status: record.status,
+                worker_type: record.workerType,
+                target_agent_id: record.targetAgentId,
+                session_id: record.workerSessionId,
+              });
+            } catch {
+              // An agent or workspace that became inaccessible must not leak through list.
+            }
+          }
+          return { content: [{ type: 'text', text: JSON.stringify({ tasks }) }], details: { action, tasks } };
+        }
+
+        if (action === 'steer' || action === 'stop') {
+          const delegationId = args.delegation_id?.trim();
+          if (!delegationId) throw new Error('delegation_id is required.');
+          const { authorizePiDelegationInspection } = await import('@/app/lib/pi/delegation-progress');
+          const { delegation } = await authorizePiDelegationInspection({
+            delegationId, userId: deps.userId, sourceSessionId,
+          });
+          if (delegation.sourceAgentId !== sourceAgentId) throw new Error('Parent agent changed.');
+          if (action === 'stop') {
+            const { cancelDelegatedTask } = await import('@/app/lib/pi/delegation-dispatcher');
+            const stopped = await cancelDelegatedTask(delegationId, deps.userId);
+            if (!stopped) throw new Error('Task is no longer available.');
+            const result = { action, delegation_id: delegationId, status: stopped.status === 'running' ? 'stop_requested' : stopped.status };
+            return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
+          }
+          const message = args.message?.trim();
+          if (!message) throw new Error('message is required for steer.');
+          const { acceptPiDelegationSteering } = await import('@/app/lib/pi/delegation-steering');
+          const receipt = await acceptPiDelegationSteering({
+            delegationId, userId: deps.userId, sourceSessionId,
+            idempotencyKey: toolCallId, message,
+          });
+          const result = { action, delegation_id: delegationId, receipt_id: receipt.id, status: receipt.status };
+          return { content: [{ type: 'text', text: JSON.stringify(result) }], details: result };
         }
 
         const targetAgentId = args.target_agent_id?.trim()

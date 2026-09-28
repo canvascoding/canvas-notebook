@@ -71,7 +71,7 @@ async function main() {
   let dispatcher: import('../app/lib/pi/delegation-dispatcher').PiDelegationDispatcher | null = null;
   try {
     const { db } = testDatabase;
-    const { piDelegations, piMessages, piSessions, user } = await import('../app/lib/db/schema');
+    const { piDelegations, piDelegationSteering, piMessages, piSessions, user } = await import('../app/lib/db/schema');
     const { createDelegationCompletionMessage, isDelegationCompletionMessage } = await import(
       '../app/lib/pi/delegation-completion-message'
     );
@@ -80,6 +80,7 @@ async function main() {
       claimQueuedPiDelegation,
       createPiDelegation,
       getPiDelegation,
+      requestPiDelegationCancellation,
     } = await import('../app/lib/pi/delegation-store');
 
     const now = new Date();
@@ -161,6 +162,17 @@ async function main() {
     assert.equal(dispatcher.getActiveCount(), 2);
     assert.equal(originalParentControllers.some((controller) => started[0]?.abortSignal === controller.signal), false);
     assert.equal(originalParentControllers.some((controller) => started[1]?.abortSignal === controller.signal), false);
+    const firstOwned = await getPiDelegation(started[0]!.delegationId!);
+    const secondOwned = await getPiDelegation(started[1]!.delegationId!);
+    await db.insert(piDelegationSteering).values([
+      { record: firstOwned!, status: 'accepted' },
+      { record: secondOwned!, status: 'claimed' },
+    ].map(({ record, status }, index) => ({
+      id: `terminal-steer-${index}`, delegationId: record.id, userId: 'dispatcher-user',
+      sourceSessionId: 'source-session', runOwnerId: record.runOwnerId!,
+      idempotencyKey: `terminal-key-${index}`, message: 'Check another file.',
+      status, createdAt: now, updatedAt: now,
+    })));
 
     await started[0]?.onCompletion?.(completionResult(started[0], 'First task complete.'));
     await waitFor(() => started.length === 3, 'The queued task did not start after a slot became available.');
@@ -190,6 +202,23 @@ async function main() {
     assert.equal(secondRecord?.deliveryStatus, 'skipped');
     assert.equal(thirdRecord?.status, 'completed');
     assert.deepEqual(new Set(delivered), new Set([firstRecord?.id, thirdRecord?.id]));
+    const terminalSteering = await db.select().from(piDelegationSteering);
+    assert.deepEqual(terminalSteering.map((receipt) => receipt.status), ['missed', 'missed']);
+
+    // Model a stop request written by a different server process. The owner
+    // dispatcher must observe it through its durable heartbeat, then abort.
+    const remoteStop = await enqueue('Task stopped from another process');
+    await waitFor(() => started.length === 4, 'Remote-stop task did not start.');
+    const remoteStopId = remoteStop.delegation_id!;
+    await requestPiDelegationCancellation(remoteStopId, 'dispatcher-user');
+    await (dispatcher as unknown as { heartbeatOwned: () => Promise<void> }).heartbeatOwned();
+    await waitFor(
+      () => started[3]?.abortSignal?.aborted === true,
+      'A remote stop request did not abort the owner worker.',
+    );
+    await waitFor(() => dispatcher!.getActiveCount() === 0, 'Remote-stop worker did not settle.');
+    assert.equal((await getPiDelegation(remoteStopId))?.status, 'cancelled');
+    assert.equal(delivered.includes(remoteStopId), false);
 
     dispatcher.stop();
     const recoveredWorkerSessionId = 'recovered-worker-session';

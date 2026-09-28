@@ -29,15 +29,17 @@ async function main() {
   try {
     testDatabase = await createPiTestDatabase();
     const { db } = testDatabase;
-    const { piDelegations, piMessages, piSessions, user } = await import('../app/lib/db/schema');
+    const { piDelegations, piDelegationSteering, piMessages, piSessions, user } = await import('../app/lib/db/schema');
     const {
       claimQueuedPiDelegation,
+      cancelRunningPiDelegation,
       completeRunningPiDelegation,
       createPiDelegation,
       failInterruptedPiDelegations,
       getPiDelegation,
       heartbeatOwnedPiDelegations,
       listStaleRunningPiDelegations,
+      requestPiDelegationCancellation,
       updateRunningPiDelegationWorkerSession,
     } = await import('../app/lib/pi/delegation-store');
     const { PiDelegationDispatcher } = await import('../app/lib/pi/delegation-dispatcher');
@@ -74,6 +76,21 @@ async function main() {
       id: 'healthy', resultStatus: 'ok', resultText: 'Wrong owner', runOwnerId: 'owner-b',
     }), null);
 
+    // A stop requested by another process is visible to the run owner. A
+    // completion that read the old row must still lose the database race.
+    await create('remote-stop');
+    await claimQueuedPiDelegation('remote-stop', 'owner-a');
+    await requestPiDelegationCancellation('remote-stop', 'lease-user');
+    const stopHeartbeat = await heartbeatOwnedPiDelegations({
+      runOwnerId: 'owner-a', runningIds: ['remote-stop'], deliveringIds: [],
+    });
+    assert.deepEqual(stopHeartbeat.cancelRequestedIds, ['remote-stop']);
+    assert.equal(await completeRunningPiDelegation({
+      id: 'remote-stop', resultStatus: 'ok', resultText: 'Too late', runOwnerId: 'owner-a',
+    }), null);
+    assert.equal((await getPiDelegation('remote-stop'))?.status, 'running');
+    assert.equal((await cancelRunningPiDelegation('remote-stop', 'Stopped.', 'owner-a'))?.status, 'cancelled');
+
     // A crashed owner loses its lease. The task becomes terminal without a
     // second claim or replay, and its late callback cannot overwrite failure.
     await db.update(piDelegations).set({ runHeartbeatAt: new Date(1) })
@@ -101,7 +118,7 @@ async function main() {
 
     // Recovery may use a persisted final assistant response as proof of a
     // completed run. An intermediate assistant message is insufficient.
-    for (const id of ['persisted-final', 'persisted-partial']) {
+    for (const id of ['persisted-final', 'persisted-partial', 'crash-stop']) {
       await create(id);
       await claimQueuedPiDelegation(id, 'owner-a');
       await db.update(piDelegations).set({ runHeartbeatAt: new Date(1) })
@@ -121,11 +138,21 @@ async function main() {
           piSessionDbId: session.id, role: 'assistant', sequence: 2, timestamp: 2,
           content: JSON.stringify({
             role: 'assistant', content: [{ type: 'text', text: `${id} response` }],
-            stopReason: id === 'persisted-final' ? 'stop' : 'toolUse', timestamp: 2,
+            stopReason: id === 'persisted-partial' ? 'toolUse' : 'stop', timestamp: 2,
           }),
         },
       ]);
     }
+    await requestPiDelegationCancellation('crash-stop', 'lease-user');
+    await db.insert(piDelegationSteering).values(
+      ['persisted-final', 'persisted-partial', 'crash-stop'].map((id) => ({
+        id: `steer-${id}`, delegationId: id, userId: 'lease-user',
+        sourceSessionId: 'lease-parent', runOwnerId: 'owner-a',
+        idempotencyKey: `key-${id}`, message: 'Check another file.',
+        status: id === 'persisted-partial' ? 'claimed' : 'accepted',
+        createdAt: now, updatedAt: now,
+      })),
+    );
     let replayCount = 0;
     const delivered: string[] = [];
     recoveryDispatcher = new PiDelegationDispatcher({
@@ -141,12 +168,19 @@ async function main() {
     await recoveryDispatcher.initialize();
     const final = await getPiDelegation('persisted-final');
     const partial = await getPiDelegation('persisted-partial');
+    const crashStop = await getPiDelegation('crash-stop');
     assert.equal(final?.status, 'completed');
     assert.equal(final?.resultText, 'persisted-final response');
     assert.equal(final?.attemptCount, 1);
     assert.equal(partial?.status, 'failed');
     assert.equal(partial?.resultText, null);
     assert.equal(partial?.attemptCount, 1);
+    assert.equal(crashStop?.status, 'cancelled');
+    assert.equal(crashStop?.deliveryStatus, 'skipped');
+    assert.equal(crashStop?.resultText, null);
+    assert.equal(delivered.includes('crash-stop'), false);
+    const steering = await db.select().from(piDelegationSteering);
+    assert.deepEqual(steering.map((receipt) => receipt.status), ['missed', 'missed', 'missed']);
     assert.equal(replayCount, 0);
     assert.equal(new Set(delivered).size, delivered.length, 'each recovered terminal result is delivered once');
 

@@ -1,6 +1,6 @@
 # Subagenten: längere Läufe, fortsetzbare Sessions und Live-Einsicht
 
-Stand: 2026-09-28. Status: Umsetzung läuft; SA-01 bis SA-03 sind abgeschlossen.
+Stand: 2026-09-28. Status: Umsetzung läuft; SA-01 bis SA-04 sind abgeschlossen.
 
 Referenzstände: Canvas Notebook `4b8d4d485`; lokal geklontes Hermes-Repository
 `~/Documents/hermes-agent` auf Commit

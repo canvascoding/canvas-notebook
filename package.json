@@ -117,6 +117,7 @@
     "test:pi:delegation-store": "tsx --conditions react-server scripts/pi-delegation-store-test.ts",
     "test:pi:delegation-dispatcher": "tsx --conditions react-server scripts/pi-delegation-dispatcher-test.ts",
     "test:pi:delegation-progress": "tsx --conditions react-server scripts/pi-delegation-progress-test.ts && tsx --conditions react-server scripts/pi-delegation-lease-test.ts",
+    "test:pi:delegation-steering": "tsx --conditions react-server scripts/pi-delegation-steering-test.ts && tsx --conditions react-server scripts/pi-delegation-steering-integration-test.ts && tsx --conditions react-server scripts/pi-delegation-managed-steering-integration-test.ts && tsx --conditions react-server scripts/pi-delegation-control-tool-test.ts",
     "test:pi:delegation-api": "tsx --conditions react-server scripts/pi-delegation-api-test.ts",
     "test:pi:delegation-ui": "tsx scripts/pi-delegation-ui-test.ts",
     "test:pi:continuation": "tsx scripts/pi-run-continuation-guard-test.ts",

@@ -6,8 +6,10 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { DelegateTaskRequest, DelegateTaskResult } from '@/app/lib/pi/delegate-task-tool';
 import { createDelegationCompletionMessage } from '@/app/lib/pi/delegation-completion-message';
 import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
+import { markUndeliveredPiDelegationSteeringMissed } from '@/app/lib/pi/delegation-steering';
 import {
   cancelRunningPiDelegation,
+  cancelInterruptedPiDelegations,
   claimPiDelegationDelivery,
   claimQueuedPiDelegation,
   completeRunningPiDelegation,
@@ -306,14 +308,24 @@ export class PiDelegationDispatcher {
     if (runningIds.length === 0 && deliveringIds.length === 0) return;
     const refreshed = await heartbeatOwnedPiDelegations({ runOwnerId: this.ownerId, runningIds, deliveringIds });
     const ownedRunning = new Set(refreshed.runningIds);
+    const cancelRequested = new Set(refreshed.cancelRequestedIds);
     for (const id of runningIds) {
-      if (!ownedRunning.has(id)) this.active.get(id)?.abort(new Error('Delegation run lease was lost.'));
+      if (!ownedRunning.has(id)) {
+        this.active.get(id)?.abort(new Error('Delegation run lease was lost.'));
+      } else if (cancelRequested.has(id)) {
+        this.active.get(id)?.abort(new Error('Delegated task was cancelled by the user.'));
+      }
     }
   }
 
   private async recoverExpiredLeases(): Promise<void> {
     if (this.recoveryPromise) return this.recoveryPromise;
     this.recoveryPromise = (async () => {
+      const cancelled = await cancelInterruptedPiDelegations();
+      for (const record of cancelled) {
+        await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'cancelled', eventKey: 'cancelled' });
+        await markUndeliveredPiDelegationSteeringMissed({ delegationId: record.id, userId: record.userId });
+      }
       for (const record of await listStaleRunningPiDelegations()) {
         const persistedResult = await recoverPersistedWorkerResult(record);
         if (!persistedResult) continue;
@@ -325,18 +337,22 @@ export class PiDelegationDispatcher {
           runOwnerId: record.runOwnerId ?? undefined,
           staleRecovery: true,
         });
-        if (completed) await persistLifecycleProgress({
-          delegationId: completed.id, userId: completed.userId,
-          kind: completed.status === 'completed' ? 'completed' : 'failed', eventKey: 'terminal',
-        });
+        if (completed) {
+          await persistLifecycleProgress({
+            delegationId: completed.id, userId: completed.userId,
+            kind: completed.status === 'completed' ? 'completed' : 'failed', eventKey: 'terminal',
+          });
+          await markUndeliveredPiDelegationSteeringMissed({ delegationId: completed.id, userId: completed.userId });
+        }
       }
       const interrupted = await failInterruptedPiDelegations();
       for (const record of interrupted) {
         await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'failed', eventKey: 'interrupted-after-restart' });
+        await markUndeliveredPiDelegationSteeringMissed({ delegationId: record.id, userId: record.userId });
       }
       const uncertainDeliveries = await recoverInterruptedPiDelegationDeliveries();
-      if (interrupted.length > 0 || uncertainDeliveries > 0) {
-        console.warn(`[delegation-dispatcher] Recovered ${interrupted.length} expired worker lease(s), ${uncertainDeliveries} uncertain completion delivery receipt(s).`);
+      if (cancelled.length > 0 || interrupted.length > 0 || uncertainDeliveries > 0) {
+        console.warn(`[delegation-dispatcher] Recovered ${cancelled.length} cancelled worker(s), ${interrupted.length} expired worker lease(s), ${uncertainDeliveries} uncertain completion delivery receipt(s).`);
       }
       if (interrupted.length > 0) await this.deliverPending();
     })();
@@ -433,6 +449,7 @@ export class PiDelegationDispatcher {
         userId: record.userId,
         sourceAgentId: record.sourceAgentId,
         sourceSessionId: record.sourceSessionId,
+        runOwnerId: this.ownerId,
         abortSignal: controller.signal,
         targetAgentId: record.targetAgentId ?? undefined,
         goal: record.goal,
@@ -484,7 +501,10 @@ export class PiDelegationDispatcher {
         result.error || (signal.reason instanceof Error ? signal.reason.message : 'Delegated task was cancelled.'),
         this.ownerId,
       );
-      if (cancelled) await persistLifecycleProgress({ delegationId: id, userId: cancelled.userId, kind: 'cancelled', eventKey: 'cancelled' });
+      if (cancelled) {
+        await persistLifecycleProgress({ delegationId: id, userId: cancelled.userId, kind: 'cancelled', eventKey: 'cancelled' });
+        await markUndeliveredPiDelegationSteeringMissed({ delegationId: id, userId: cancelled.userId });
+      }
       return;
     }
 
@@ -495,6 +515,25 @@ export class PiDelegationDispatcher {
       errorText: result.error,
       runOwnerId: this.ownerId,
     });
+    if (!completed) {
+      // A stop can commit after the preflight read but before the completion
+      // update. The store refuses completion once cancellation was requested.
+      const latest = await getPiDelegation(id);
+      if (latest?.status === 'running' && latest.runOwnerId === this.ownerId && latest.cancelRequestedAt) {
+        const cancelled = await cancelRunningPiDelegation(
+          id,
+          result.error || 'Delegated task was cancelled by the user.',
+          this.ownerId,
+        );
+        if (cancelled) {
+          await persistLifecycleProgress({
+            delegationId: id, userId: cancelled.userId, kind: 'cancelled', eventKey: 'cancelled',
+          });
+          await markUndeliveredPiDelegationSteeringMissed({ delegationId: id, userId: cancelled.userId });
+        }
+      }
+      return;
+    }
     if (completed) {
       await persistLifecycleProgress({
         delegationId: id,
@@ -502,6 +541,7 @@ export class PiDelegationDispatcher {
         kind: completed.status === 'completed' ? 'completed' : 'failed',
         eventKey: 'terminal',
       });
+      await markUndeliveredPiDelegationSteeringMissed({ delegationId: id, userId: completed.userId });
       await this.deliver(completed.id);
     }
   }
