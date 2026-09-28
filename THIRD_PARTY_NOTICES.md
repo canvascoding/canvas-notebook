@@ -5,7 +5,7 @@ versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.27.1
 - Lockfile SHA-256: `debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5`
-- Distributed components: 1451
+- Distributed components: 1452
 - Release gate: **blocked**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -33,6 +33,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | docker-global-npm:imurmurhash | 0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2 | native | MIT | allowed |
 | docker-global-npm:spdx-exceptions | 2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799 | native | CC-BY-3.0 | allowed |
 | docker-global-npm:spdx-license-ids | 3.0.23 / a2a975daf48bbc2afdc8e7c304405b44c656fd53 | native | CC0-1.0 | allowed |
+| docker-python:ctranslate2 | 4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9 | native | MIT | review_required |
 | docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
 | docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
 | docker-python:markitdown | 0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551 | native | MIT | allowed |
@@ -1471,11 +1472,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 
 The following entries require a documented responsible/legal decision before a commercial release:
 
-- **first-commercial-release-approval 2026.9.27.1:** The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must review the new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release.
+- **first-commercial-release-approval 2026.9.27.1:** The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must resolve the exact PyAV wheel's bundled x264/x265 and FFmpeg license-mode discrepancy, review the other new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release.
+- **docker-python:ctranslate2 4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9:** The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. The amd64 and arm64 wheel RECORDs each list libctranslate2, libgomp and a Python extension. The bundled native payload and its obligations remain unapproved.
 - **docker-python:tqdm 4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac:** The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image.
 - **docker-python:anyio 4.15.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:av 18.1.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
-- **docker-python:ctranslate2 4.8.2:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
+- **docker-python:av 18.1.0:** Exact amd64 and arm64 wheels bundle libx264 and libx265, directly linked by libavcodec. The wheel only includes PyAV BSD-3-Clause text; avcodec_license reports LGPLv3+ with x264/x265 enabled but no --enable-gpl. Resolve provenance, encoder rights, FFmpeg license mode and required notices or rebuild without these libraries before release.
 - **docker-python:faster-whisper 1.2.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
 - **docker-python:filelock 4.0.5:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
 - **docker-python:fsspec 2026.9.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
@@ -9783,6 +9784,40 @@ Copyright notices:
 The MIT License (MIT)
 
 Copyright (c) 2019 Kevin Jahns <kevin.jahns@protonmail.com>.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### License text 54aa79d9fe3c
+
+Applies to docker-python:ctranslate2@4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9.
+
+Copyright notices:
+
+- Copyright (c) 2018-     SYSTRAN.
+- Copyright (c) 2019-     The OpenNMT Authors.
+
+```text
+MIT License
+
+Copyright (c) 2018-     SYSTRAN.
+Copyright (c) 2019-     The OpenNMT Authors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

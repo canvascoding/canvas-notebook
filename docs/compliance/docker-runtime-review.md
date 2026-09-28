@@ -147,6 +147,33 @@ bei `ctranslate2` und `tokenizers` sind Gegenstand der offenen
 Einzelpruefung; der gebundene externe Apache-Text fuer `tokenizers`
 ist oben dokumentiert.
 
+Der exakte CTranslate2-Tag `v4.8.2` verweist auf Commit
+`d44d2d069eb88c7b7804da864c10c201501cb4a9`. Sein
+[MIT-Lizenztext](https://github.com/OpenNMT/CTranslate2/blob/v4.8.2/LICENSE)
+hat SHA-256 `54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb`
+und ist nun als separate Notice gebunden. Beide Linux-Wheels enthalten
+selbst keine Lizenzdatei. Die drei nativen Dateien pro Architektur,
+einschliesslich `libgomp`, bleiben weiterhin in der offenen Einzelpruefung.
+
+Zusaetzlicher Befund zu den exakt gelockten PyAV-18.1.0-Wheels:
+`libavcodec` bindet in beiden Images die im Wheel enthaltenen
+`libx264` und `libx265` direkt. Das Wheel liefert nur PyAVs
+BSD-3-Clause-Lizenztext; fuer die beiden Encoder liegt im Wheel kein
+eigener Lizenztext oder Nachweis einer kommerziellen Lizenz. Ein
+schreibgeschuetzter Offline-Aufruf von `avcodec_license()` in beiden
+Images meldet `LGPL version 3 or later`, waehrend die Build-Konfiguration
+`--enable-libx264 --enable-libx265 --enable-version3`, aber kein
+`--enable-gpl` enthaelt. Das weicht von der
+[FFmpeg-Dokumentation zu x264/x265](https://www.ffmpeg.org/general.html#x264)
+und den [FFmpeg-Lizenzhinweisen](https://ffmpeg.org/legal.html) ab.
+Vor einer Freigabe muss der Owner Herkunft und Nutzungsrechte der exakten
+x264-/x265-Binaerdateien und den FFmpeg-Lizenzmodus klaeren oder ein
+Image mit einer entsprechend anders gebauten, erneut inventarisierten
+Wheel-Variante pruefen. Dies ist ein technischer Befund, keine rechtliche
+Bewertung oder Freigabe. Die genannten Image-IDs gehoeren zum vorherigen
+Produkt-Head `bcf0385a8`; nach Aenderungen an Notice oder Policy sind
+deren eingebettete Compliance-Artefakte nicht mehr aktuell.
+
 Diese technische Plattformpruefung ist keine kommerzielle Freigabe und
 keine produktive Bereitstellung. Der statische Release-Gate blockiert
 weiterhin 14 Eintraege: die neue Gesamtfreigabe und die Einzelpruefung

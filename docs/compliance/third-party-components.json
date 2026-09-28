@@ -4,15 +4,15 @@
   "packageVersion": "2026.9.27.1",
   "lockfileSha256": "debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5",
   "summary": {
-    "totalComponents": 1969,
+    "totalComponents": 1970,
     "npmComponents": 1943,
-    "nonNpmComponents": 26,
-    "runtimeComponents": 1451,
+    "nonNpmComponents": 27,
+    "runtimeComponents": 1452,
     "developmentOnlyComponents": 518,
     "allowed": 1932,
-    "reviewRequired": 37,
+    "reviewRequired": 38,
     "blocked": 0,
-    "distributedReviewRequired": 1,
+    "distributedReviewRequired": 2,
     "developmentOnlyReviewRequired": 36
   },
   "releaseGate": {
@@ -24,7 +24,12 @@
       {
         "name": "first-commercial-release-approval",
         "versionOrCommit": "2026.9.27.1",
-        "reason": "The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must review the new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release."
+        "reason": "The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must resolve the exact PyAV wheel's bundled x264/x265 and FFmpeg license-mode discrepancy, review the other new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release."
+      },
+      {
+        "name": "docker-python:ctranslate2",
+        "versionOrCommit": "4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9",
+        "reason": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. The amd64 and arm64 wheel RECORDs each list libctranslate2, libgomp and a Python extension. The bundled native payload and its obligations remain unapproved."
       },
       {
         "name": "docker-python:tqdm",
@@ -39,12 +44,7 @@
       {
         "name": "docker-python:av",
         "versionOrCommit": "18.1.0",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
-      },
-      {
-        "name": "docker-python:ctranslate2",
-        "versionOrCommit": "4.8.2",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
+        "reason": "Exact amd64 and arm64 wheels bundle libx264 and libx265, directly linked by libavcodec. The wheel only includes PyAV BSD-3-Clause text; avcodec_license reports LGPLv3+ with x264/x265 enabled but no --enable-gpl. Resolve provenance, encoder rights, FFmpeg license mode and required notices or rebuild without these libraries before release."
       },
       {
         "name": "docker-python:faster-whisper",
@@ -10555,6 +10555,27 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "The npm tarball and global npm bundle omit the legal code but npm gitHead and the dereferenced v3.0.23 tag identify this exact CC0 dataset release. Canvas supplies the official CC0-1.0 legal code."
+    },
+    {
+      "name": "docker-python:ctranslate2",
+      "versionOrCommit": "4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9",
+      "sourceUrl": "https://github.com/OpenNMT/CTranslate2/tree/d44d2d069eb88c7b7804da864c10c201501cb4a9",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/ctranslate2-4.8.2.dist-info",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "MIT (Python setup.py; wheel metadata declares MIT but omits license file)",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/ctranslate2-4.8.2-MIT.txt",
+      "licenseTextSha256": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
+      "copyrightNotices": [
+        "Copyright (c) 2018-     SYSTRAN.",
+        "Copyright (c) 2019-     The OpenNMT Authors."
+      ],
+      "modified": false,
+      "policyDecision": "review_required",
+      "reviewNotes": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. The amd64 and arm64 wheel RECORDs each list libctranslate2, libgomp and a Python extension. The bundled native payload and its obligations remain unapproved."
     },
     {
       "name": "docker-python:flatbuffers",

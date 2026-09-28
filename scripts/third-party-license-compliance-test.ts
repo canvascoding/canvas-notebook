@@ -113,8 +113,8 @@ assert.equal(inventory.releaseGate.blockers.length, 14);
 assert.equal(inventory.releaseGate.blockers[0]?.name, 'first-commercial-release-approval');
 assert.equal(
   inventory.summary.distributedReviewRequired,
-  1,
-  'the new native runtime must keep its pending dual-license review visible',
+  2,
+  'the new native runtime must keep its pending native and dual-license reviews visible',
 );
 assert.equal(
   inventory.summary.developmentOnlyReviewRequired,
@@ -614,6 +614,11 @@ for (const name of [
 }
 
 const tqdmReview = inventory.components.find((component) => component.name === 'docker-python:tqdm');
+const ctranslate2Review = inventory.components.find((component) => component.name === 'docker-python:ctranslate2');
+assert(ctranslate2Review);
+assert.equal(ctranslate2Review.policyDecision, 'review_required');
+assert.equal(ctranslate2Review.verifiedLicense, 'MIT');
+assert.equal(ctranslate2Review.licenseTextSha256, '54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb');
 assert(tqdmReview);
 assert.equal(tqdmReview.policyDecision, 'review_required');
 assert.equal(tqdmReview.verifiedLicense, 'MPL-2.0 AND MIT');
