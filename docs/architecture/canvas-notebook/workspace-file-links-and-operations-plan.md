@@ -1,0 +1,74 @@
+# Verweise und sichere Dateioperationen im Workspace
+
+Stand: 2026-09-28  
+Status: Umsetzungsplan; die untenstehenden Punkte sind erst nach Nachweis abzuhaken.
+
+## Ziel und Abgrenzung
+
+Rename, Move und Copy von Dateien und Ordnern sollen lokale Verweise in Markdown-Dokumenten erhalten. Nutzer und Agenten sollen vor einer mehrteiligen Änderung sehen können, welche Pfade und Inhalte sich ändern. Eine teilweise fehlgeschlagene Operation darf weder eine unbemerkte Beschädigung noch einen unbemerkten Verlust einer neueren Bearbeitung auslösen. Die vorhandenen Versionen, der Papierkorb und der Full-Backup-Dienst sind dabei zu nutzen; ihre Schutzbereiche und Größenlimits werden sichtbar gemacht.
+
+Dieses Vorhaben erweitert den bestehenden [File Version & Review Center](./file-version-review-center/plan.md). Es führt keinen zweiten globalen Review-Dialog ein. Die bestehenden Verträge für Workspace-Rechte, kollaborative Dokumente, Public Shares und Office-Dateien bleiben bindend.
+
+## Ausgangslage im Code (2026-09-28)
+
+- `app/lib/markdown/workspace-link-index-core.ts` erkennt Wiki-Links und einfache Inline-Markdown-Links. Die Regex deckt Referenzlinks und Ziele mit balancierten Klammern nicht vollständig ab. Bilder und bekannte Nicht-Markdown-Endungen werden aus dem Index ausgeschlossen. Standardlinks werden anschließend mit dem Obsidian-Wiki-Resolver aufgelöst; dadurch können Namens-/Alias-Treffer eine eigentlich fehlende relative Datei scheinbar auflösen.
+- Die Markdown-Anzeige nutzt `react-markdown`/Remark; `mdast-util-from-markdown` ist bereits direkte Dependency. Die neue Erkennung soll an der tatsächlichen Markdown-Syntax ausgerichtet sein und nicht eine zweite, abweichende Regex-Grammatik etablieren.
+- `app/lib/markdown/workspace-link-index.ts` überspringt Markdown über 4 MiB sowie unlesbare Dateien. `applyWorkspaceLinkRename` aktualisiert ausschließlich aufgelöste eingehende Wiki-Links. Es liest und schreibt nach dem zuvor erzeugten Index und sammelt Fehler als Warnungen.
+- `app/api/files/rename/route.ts` erzeugt den Index vor `renameWorkspacePath`, verschiebt anschließend und aktualisiert danach Links. Die Mutation und die Linkschreibvorgänge bilden noch keine gemeinsame, versionierte Operation. `app/api/files/copy/route.ts` kopiert ohne Linkplan.
+- `app/lib/pi/agent-file-operations.ts` hat eigene Pfade für `copy_path`, `move_path` und `delete_path`; `move_path` kopiert und löscht, ohne den Linkindex einzubeziehen. `app/api/files/delete/route.ts` nutzt dagegen `workspace-trash.ts`.
+- Versionen/Restore und das globale Review Center sind bereits vorhanden; `app/lib/file-version-center/policy-v1.ts` begrenzt rohe historische Versionen auf 1 MiB. Der allgemeine Linkindex hat ein 4-MiB-Limit. Full Backup und Workspace-Papierkorb sind separate Schutzmechanismen; ihre tatsächliche Einrichtung und Wiederherstellbarkeit müssen beim Test nachgewiesen werden.
+- `app/lib/files/rename-service.ts` besitzt Sperre, Kompensation und temporäre Backups für die Pfadmutation sowie Behandlung für Kollaboration, Metadaten und Public Shares. Diese Absicherung umfasst noch keine vollständige Menge der anschließend geänderten Markdown-Dateien.
+
+## Verbindlicher Linkvertrag v1
+
+### Erkennung und Auflösung
+
+1. Ein gemeinsamer Parser liefert für jeden unterstützten Verweis Syntaxart, Quellpfad, exakte Byte-/Zeichenposition des **Ziels**, Zieltext, Fragment, Format und den aktuellen Auflösungsstatus. Er liest Inline-Links und Bilder (`[Text](ziel)`, `![Alt](ziel)`), Referenzverwendungen/-definitionen (`[Text][id]`, `![Alt][id]`, `[id]: ziel`) und Wiki-Links/Embeds (`[[ziel]]`, `![[ziel]]`). Angle-Brackets, optionale Titel, Escapes, Prozentkodierung, Leerzeichen und balancierte Klammern sind anhand von Testfällen zu spezifizieren. Der Parser überschreibt niemals Beschriftung, Titel oder umgebendes Markdown.
+2. Externe URLs, `mailto:`, `data:`, reine Anker, Code-Spans und Code-Fences werden nicht als lokale Dateioperation behandelt. HTML-`href`/`src`, dynamische URLs und projektspezifische Schemes werden entweder explizit unterstützt oder in der Vorschau als *nicht ausgewertet* ausgewiesen. Unbekannte Syntax erhält keinen stillschweigenden Erfolgseintrag.
+3. Standard-Markdown-Ziele werden exakt relativ zum Quelldokument aufgelöst; ein dokumentierter Workspace-Root-Pfad wird relativ zum Workspace aufgelöst. Es gibt **keinen** Fallback auf gleichnamige Dateien oder Aliase. Wiki-Links dürfen den bestehenden Obsidian-Resolver mit Pfad, Titel und Alias verwenden, aber nur ein eindeutiger Treffer wird automatisch geändert. Auflösung bleibt innerhalb des Workspace und beachtet Pfadnormalisierung und Berechtigungen.
+4. Der Index umfasst alle adressierbaren lokalen Dateien als *Ziele*, auch Bilder und Anhänge. Nur Markdown-Dateien werden als *Quellinhalt* gelesen. Für fehlende, mehrdeutige, unlesbare oder wegen Größe ausgelassene Quellen/Ziele meldet die Vorschau getrennte Zähler und Pfade. Ein unvollständiger Index darf nicht als vollständige Reparatur bestätigt werden.
+5. Fragmente (`#heading`, `#^block`) bleiben erhalten. Eine Änderung des Pfads darf Fragment und Kodierungsstil nicht beschädigen. Neue Zieladressen werden in der ursprünglichen Syntax gültig escaped/kodiert. Referenzdefinitionen werden genau einmal am Ziel geändert, auch wenn mehrere Verwendungen dieselbe Definition nutzen.
+
+### Semantik der Dateioperationen
+
+| Operation | Verpflichtendes Ergebnis |
+| --- | --- |
+| Datei umbenennen oder Ziel verschieben | Eindeutig auf das Ziel zeigende Verweise aus allen lesbaren Markdown-Quellen zeigen auf den neuen Pfad. |
+| Markdown-Quelle verschieben | Ihre relativen lokalen Verweise zeigen weiterhin auf dieselben Dateien, auch wenn diese selbst nicht verschoben werden. |
+| Ordner verschieben | Alle Quell- und Zielpfade werden über eine gemeinsame Abbildung berechnet. Links innerhalb des Ordners bleiben semantisch intern; Verweise nach draußen oder von draußen werden angepasst. |
+| Dateien/Ordner kopieren | Bestehende Quellen bleiben unverändert. In der Kopie zeigen interne Links auf kopierte Ziele; externe Links behalten ihr ursprüngliches Ziel. Bei Namenskollisionen gilt der tatsächlich gewählte Zielpfad. |
+| Workspace-übergreifend kopieren | Nur innerhalb der kopierten Gruppe eindeutig erreichbare Ziele werden umgebogen. Verweise auf nicht kopierte Dateien des Quell-Workspace werden als ungelöst/extern ausgewiesen und nie still auf gleichnamige Ziele im Ziel-Workspace gemappt. |
+| Überschreiben/Löschen | Der vorherige Inhalt bleibt über Papierkorb, Version oder dokumentierten Sicherungsmechanismus wiederherstellbar; fehlende Absicherung blockiert eine als „sicher“ bezeichnete Operation. |
+
+Die Pfadabbildung basiert auf Dateiidentität bzw. der vor der Operation eindeutig ermittelten Datei, nicht auf einem bloßen String-Ersatz. Symlinks, geschützte Pfade und Pfade außerhalb des Workspace folgen den bestehenden Zugriffsschranken. Nicht unterstützte Sonderfälle werden vor Ausführung ausgewiesen und dürfen keine automatische Änderung auslösen.
+
+## Ausführungs- und Fehlervertrag
+
+Ein gemeinsamer serverseitiger Dienst nimmt Operation, Quellen, Ziel-Workspace, Zielpfad und Actor entgegen. Er liefert einen unveränderlichen Plan: geplante Pfadmutationen, konkrete Markdown-Edits, ungelöste/ausgelassene Verweise, Kollisionen, erwartete Dateiversionen/Hashes und eine Plan-ID. Dateibrowser, Mobile und Agent verwenden denselben Dienst; Berechtigungen werden beim Planen **und** vor dem Anwenden geprüft.
+
+Beim Anwenden werden alle beteiligten Workspace-Sperren in stabiler Reihenfolge genommen. Der Dienst vergleicht Quell- und Zielzustand sowie jede zu schreibende Markdown-Version erneut mit dem Plan. Bei Abweichung verwirft er den Plan mit einem konkreten Konflikt und verlangt eine neue Vorschau. Er überschreibt keine inzwischen entstandene Änderung. Für aktive Yjs-Dokumente gelten die vorhandenen Kollaborations- und Review-Gates; ein rohes Filesystem-Write darf den Live-Stand nicht umgehen.
+
+Pfadmutation und Link-Edits werden als eine nachvollziehbare Operation mit Status `planned`, `applying`, `complete`, `needs_recovery` oder `failed` geführt. Vor einem destruktiven Schritt werden die betroffenen Ausgangsinhalte dauerhaft oder in einer wiederherstellbaren Staging-Ablage gesichert. Nach jedem Schritt ist ein idempotenter Wiederanlauf möglich; bei Teilfehlern zeigt die Antwort genau, was geändert wurde, welche Edits offen sind und wie Rollback/Repair möglich ist. Eine In-Memory-Sperre allein ist kein Nachweis für Crash-Sicherheit. Audit-Events und Cache-Invalidierung folgen dem tatsächlichen Ergebnis, nicht nur dem gewünschten Ergebnis. Schreibfehler und ausgelassene Links erscheinen im UI und im Agent-Ergebnis.
+
+Große Binärdateien werden beim einfachen Move nicht für die Linkanalyse eingelesen; ihre Pfade stehen dennoch im Zielkatalog. Für große Markdown-Quellen muss es einen begrenzten Streaming-/Chunk-Pfad oder einen klaren Blockierungsstatus geben. Das 4-MiB-Limit darf nicht dazu führen, dass eine Operation „alle Links aktualisiert“ meldet. Für Inhalte über dem 1-MiB-Limit der Versionshistorie ist vor destruktiven Änderungen eine separate, nachweisbar wiederherstellbare Sicherung nötig; sonst wird die Operation mit nachvollziehbarem Grund angehalten.
+
+## Review Center und Wiederherstellung
+
+Agenten erzeugen für Rename/Move/Copy/Overwrite/Delete einen prüfbaren Vorschlag, wenn die geltende Review-Policy es verlangt oder die Operation Risiken/Unklarheiten enthält. Der bestehende globale Dialog zeigt Pfadliste, Markdown-Diffs, ausgelassene/ungelöste Links, Kollisionen, Größen- und Recovery-Hinweise sowie Annehmen/Ablehnen. Die Annahme gilt nur für die angezeigte Plan-ID und die geprüften Versionen; eine veraltete Vorschau wird neu berechnet. Eine Freigabe für ein einzelnes Markdown-Dokument darf nicht implizit einen Ordner-Move autorisieren. Auch bei direkter Ausführung erhält der Nutzer eine klare Ergebnis- und Fehleranzeige.
+
+Papierkorb und Version Center werden aus UI und Agentenpfad konsistent benutzt. Eine einfache Wiederherstellung umfasst Pfad, zugehörige Link-Edits und vorherige Zielinhalte; sie ist als neue, auditierte Operation erkennbar. Full Backups ergänzen dies für Katastrophenfälle, ersetzen aber nicht das schnelle Undo einer Dateioperation. Retention, Speicherverbrauch und Verhalten bei vollem Speicher müssen im Betrieb sichtbar sein.
+
+## Sequenzielle Umsetzung und Abnahme
+
+Jedes To-do wird erst nach erfüllten Kriterien und Tests abgehakt. Änderungen an Funktionen/Klassen erhalten vorher GitNexus-Impact-Analyse; vor jedem Commit wird `detect_changes()` gegen `main` ausgeführt. Für integrierte UI-Flows ist die im Repository geforderte UI-/E2E-Prüfung ein Gate; Playwright bzw. Browser-Automation wird nur nach ausdrücklicher Nutzerfreigabe verwendet. Vor einem Containerbau ist `npm run build` Pflicht. Ein Container wird nur auf ausdrücklichen Wunsch gebaut; parallel laufende Testcontainer sind ausgeschlossen.
+
+- [ ] **FL-01 – Linkvertrag und Testmatrix.** Die obige Syntax- und Operationssemantik wird als versionierter TypeScript-Vertrag und feste Fixtures abgebildet. Akzeptanz: Tabelle für Inline-/Referenz-/Wiki-Links, Bilder, Klammern, Leerzeichen, Escapes, Fragmente, Codesegmente, fehlende/mehrdeutige Ziele, Workspace-Grenzen und Größenlimits; jede Zeile hat erwarteten Parse-, Resolve- und Rewrite-Status. Tests: reine Parser-/Resolver-Tests mit positiven und negativen Fällen.
+- [ ] **FL-02 – Gemeinsamer Parser/Resolver.** `workspace-link-index-core.ts`, Navigation und Link-Preview nutzen dieselben Regeln; der Index führt Bild-/Anhang-Ziele und Referenzdefinitionen, ohne Binärinhalte zu lesen. Akzeptanz: Standardlinks lösen nur exakt auf, Wiki-Aliase nur eindeutig; unveränderte Quellen bleiben bytegleich; übersprungene Dateien sind im Ergebnis sichtbar. Tests: `scripts/workspace-link-index-test.ts` erweitern, Regressionen für zuvor falsch aufgelöste relative Links, balancierte Klammern und Referenzlinks.
+- [ ] **FL-03 – Schreibfreie Änderungsplanung.** Für Rename/Move/Copy erstellt ein gemeinsamer Planer die alte/neue Pfadabbildung und genaue Inhaltsedits. Akzeptanz: eingehende und ausgehende Links bei Datei-/Ordner-Move sowie interne/externe Copy-Links werden korrekt unterschieden; Plan enthält Unvollständigkeit und Versionsvoraussetzungen. Tests: tabellarische Szenarien mit Ordnern, Bildern, Cross-Workspace-Copy, Namenskollision und ausgelassenen Dokumenten.
+- [ ] **FL-04 – Niedriges Risiko zuerst: Warnungen und Dry Run.** Die vorhandene Rename-Antwort macht Linkwarnungen sichtbar; Vorschau/Dry Run zeigt die geplanten Änderungen, bevor geschrieben wird. Akzeptanz: UI und Agent melden `partial` bzw. `incomplete` statt pauschalem Erfolg, wenn Links nicht geprüft oder angepasst werden konnten. Tests: Route-/Client-Tests und, nach Freigabe für Browser-Automation, UI-Prüfung.
+- [ ] **FL-05 – Gemeinsamer Executor und Race-Schutz.** Browser-, Mobile- und Agent-Operationen verwenden dieselbe Ausführung; Planversionen werden unter Sperren erneut validiert; aktive kollaborative Dokumente werden über ihren autoritativen Pfad geändert. Akzeptanz: parallele Bearbeitung wird nie überschrieben; partielle Schreibfehler sind recoverable und prüfbar; Wiederanlauf ist idempotent. Tests: API-Integration, erzwungener Fehler nach jeder Phase, konkurrierende Edits und Neustart zwischen Pfadmutation und Link-Edits.
+- [ ] **FL-06 – Schutz gegen Datenverlust.** Agent-Delete nutzt den Workspace-Papierkorb; Overwrite/Move/Copy erstellen nötige Sicherungen; für große Dateien ist Restore ohne Version-Center-Blob möglich. Akzeptanz: gelöschte und überschriebene Inhalte lassen sich mit identischem Hash wiederherstellen; fehlender Speicher/Sicherung stoppt vor dem destruktiven Schritt. Tests: Trash-/Restore-Integration, >1-MiB-Markdown, große Binärdatei und Restore nach Teilfehler.
+- [ ] **FL-07 – Review Center für Dateioperationen.** Plan, Diff, Kollisions- und Recovery-Status erscheinen im bestehenden Dialog. Akzeptanz: Agent-Vorschlag kann angenommen/abgelehnt werden, stale Annahme ist blockiert, Berechtigungen gelten beim Apply erneut und der Audit-Eintrag referenziert die Operation. Tests: Policy-/API-Tests und freigegebene UI-/E2E-Prüfung.
+- [ ] **FL-08 – Betriebs- und Abschlussprüfung.** Retention und tatsächliche Full-Backup-/Restore-Fähigkeit sind dokumentiert; Metriken erfassen unvollständige Linkpläne, Konflikte und Recovery-Fälle. Akzeptanz: kein stiller Linkverlust in der Szenariomatrix, `npm run lint`, `npm run build` und relevante Integrations- und UI-Tests erfolgreich; jedes verbleibende Syntax-/Größenlimit ist sichtbar dokumentiert.
+
+FL-01 bis FL-04 bilden den ersten lieferbaren Abschnitt. FL-05 bis FL-08 setzen auf dessen Vertrags- und Vorschau-Ergebnisse auf; ein To-do beginnt erst, wenn das vorherige abgeschlossen und verifiziert ist.
