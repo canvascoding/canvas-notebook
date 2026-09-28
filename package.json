@@ -121,7 +121,7 @@
     "test:pi:queue": "tsx scripts/pi-runtime-queue-test.ts",
     "test:pi:oauth-scope": "tsx scripts/pi-oauth-user-scope-test.ts",
     "test:agent:memory": "tsx scripts/agent-memory-store-test.ts",
-    "test:memory:contract": "tsx scripts/memory-contract-test.ts",
+    "test:memory:contract": "tsx scripts/memory-contract-test.ts && tsx scripts/memory-context-budget-test.ts",
     "test:memory:legacy": "tsx --conditions react-server scripts/memory-legacy-migration-test.ts",
     "test:memory:service": "tsx --conditions react-server scripts/memory-service-test.ts",
     "test:memory:markdown-renderer": "tsx scripts/memory-markdown-renderer-test.tsx",

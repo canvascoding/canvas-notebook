@@ -8,9 +8,9 @@ import {
   updateMemory,
   type MemoryAction,
   type OnboardingMemoryInput,
-  type MemoryReadResult,
   type MemoryTarget,
 } from '@/app/lib/memory/service';
+import { formatMemoryToolRead, formatMemoryToolWrite } from '@/app/lib/memory/tool-response';
 import {
   assertUserOrganizationPermission,
   readOrganizationPermissionForUser,
@@ -222,17 +222,6 @@ function requireToolUserId(userId: string | undefined, toolLabel: string): strin
   return userId;
 }
 
-function formatMemoryResult(result: MemoryReadResult): string {
-  const label = `${result.target[0].toUpperCase()}${result.target.slice(1)} memory`;
-  if (result.entries.length === 0) {
-    return `${label} has no stored entries.`;
-  }
-  return [
-    `${label} entries:`,
-    ...result.entries.map((entry) => `- [${entry.id}] ${entry.content} (${entry.status})`),
-  ].join('\n');
-}
-
 function parsePublicShareStatus(value: unknown): PublicShareStatus | 'all' {
   if (value === 'active' || value === 'revoked' || value === 'missing' || value === 'stale' || value === 'expired') {
     return value;
@@ -402,6 +391,7 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
         Type.Literal('organization'),
       ], { description: 'Memory scope. Workspace and organization entries are created as pending suggestions.' }),
       id: Type.Optional(Type.String({ description: 'Required for update and delete.' })),
+      offset: Type.Optional(Type.Integer({ minimum: 0, description: 'For read: start at this entry index to page through a large memory scope.' })),
       content: Type.Optional(Type.String({ description: `Required for add and update. Write it in ${accountLanguage}. ${MEMORY_MARKDOWN_CONTENT_GUIDANCE}` })),
       reason: Type.Optional(Type.String({ description: 'Optional short reason for why this memory matters.' })),
     }),
@@ -411,6 +401,7 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
           action?: MemoryAction;
           target?: MemoryTarget;
           id?: string;
+          offset?: number;
           content?: string;
           reason?: string;
         };
@@ -429,8 +420,12 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
         };
 
         if (input.action === 'read') {
+          if (input.offset !== undefined && (!Number.isSafeInteger(input.offset) || input.offset < 0)) {
+            throw new Error('offset must be a non-negative integer.');
+          }
           const result = await readMemory(scope);
-          return { content: [{ type: 'text', text: formatMemoryResult(result) }], details: result };
+          const view = formatMemoryToolRead(result, input.offset);
+          return { content: [{ type: 'text', text: view.text }], details: { target, entries: view.entries, omittedCount: view.omittedCount, nextOffset: view.nextOffset } };
         }
 
         if (input.action === 'add') {
@@ -445,7 +440,10 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
           const reviewHint = target === 'workspace' || target === 'organization'
             ? ' This shared memory is a pending suggestion until a manager publishes it.'
             : '';
-          return { content: [{ type: 'text', text: `${prefix}${reviewHint}\nManage it: /settings?${managerQuery.toString()}\n${formatMemoryResult(result)}` }], details: result };
+          return {
+            content: [{ type: 'text', text: `${prefix}${reviewHint}\nManage it: /settings?${managerQuery.toString()}\n${formatMemoryToolWrite(result)}` }],
+            details: { target, changed: result.changed, entry: result.entry, activeEntryCount: result.entries.length },
+          };
         }
 
         if (input.action === 'update') {
@@ -456,7 +454,10 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
             throw new Error('content is required for update.');
           }
           const result = await updateMemory({ ...scope, id: input.id, content: input.content });
-          return { content: [{ type: 'text', text: `Memory entry updated.\n${formatMemoryResult(result)}` }], details: result };
+          return {
+            content: [{ type: 'text', text: `Memory entry updated.\n${formatMemoryToolWrite(result)}` }],
+            details: { target, changed: result.changed, entry: result.entry, activeEntryCount: result.entries.length },
+          };
         }
 
         if (input.action === 'delete') {
@@ -464,7 +465,10 @@ function createMemoryTool(userId?: string, agentId?: string | null, accountLocal
             throw new Error('id is required for delete.');
           }
           const result = await deleteMemory({ ...scope, id: input.id });
-          return { content: [{ type: 'text', text: `Memory entry deleted.\n${formatMemoryResult(result)}` }], details: result };
+          return {
+            content: [{ type: 'text', text: `Memory entry deleted.\n${formatMemoryToolWrite(result)}` }],
+            details: { target, changed: result.changed, archivedEntry: result.archivedEntry, activeEntryCount: result.entries.length },
+          };
         }
 
         throw new Error('action must be read, add, update, or delete.');
