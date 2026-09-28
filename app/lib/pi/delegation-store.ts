@@ -269,7 +269,7 @@ export async function requestPiDelegationCancellation(
         errorText: 'Delegated task was cancelled before it started.',
         cancelRequestedAt: now,
         completedAt: now,
-        deliveryStatus: 'skipped',
+        deliveryStatus: 'pending',
         updatedAt: now,
       })
       .where(and(
@@ -300,7 +300,7 @@ export async function cancelRunningPiDelegation(id: string, errorText: string, r
       resultStatus: 'error',
       errorText,
       completedAt: now,
-      deliveryStatus: 'skipped',
+      deliveryStatus: 'pending',
       updatedAt: now,
     })
     .where(and(eq(piDelegations.id, id), eq(piDelegations.status, 'running'), ...(runOwnerId ? [eq(piDelegations.runOwnerId, runOwnerId), freshRunLease] : [])))
@@ -330,7 +330,7 @@ export async function updatePiDelegationDelivery(input: {
 export async function listDeliverablePiDelegations(limit: number): Promise<PiDelegationRecord[]> {
   return db.query.piDelegations.findMany({
     where: and(
-      inArray(piDelegations.status, ['completed', 'failed']),
+      inArray(piDelegations.status, ['completed', 'failed', 'cancelled']),
       inArray(piDelegations.deliveryStatus, ['pending', 'failed']),
     ),
     orderBy: [asc(piDelegations.completedAt), asc(piDelegations.id)],
@@ -349,7 +349,7 @@ export async function claimPiDelegationDelivery(id: string, deliveryOwnerId?: st
     })
     .where(and(
       eq(piDelegations.id, id),
-      inArray(piDelegations.status, ['completed', 'failed']),
+      inArray(piDelegations.status, ['completed', 'failed', 'cancelled']),
       or(
         eq(piDelegations.deliveryStatus, 'pending'),
         eq(piDelegations.deliveryStatus, 'failed'),
@@ -368,7 +368,7 @@ export async function cancelInterruptedPiDelegations(): Promise<PiDelegationReco
       resultStatus: 'error',
       errorText: 'Delegated task was cancelled after its worker stopped responding.',
       completedAt: now,
-      deliveryStatus: 'skipped',
+      deliveryStatus: 'pending',
       updatedAt: now,
     })
     .where(and(

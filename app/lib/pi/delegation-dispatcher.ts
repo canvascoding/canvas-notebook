@@ -280,6 +280,7 @@ export class PiDelegationDispatcher {
     const record = await requestPiDelegationCancellation(id, userId);
     if (record?.status === 'cancelled') {
       await persistLifecycleProgress({ delegationId: id, userId, kind: 'cancelled', eventKey: 'cancelled' });
+      await this.deliver(id);
     }
     if (record?.status === 'running') {
       this.active.get(id)?.abort(new Error('Delegated task was cancelled by the user.'));
@@ -327,6 +328,7 @@ export class PiDelegationDispatcher {
         await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'cancelled', eventKey: 'cancelled' });
         await markUndeliveredPiDelegationSteeringMissed({ delegationId: record.id, userId: record.userId });
       }
+      for (const record of cancelled) await this.deliver(record.id);
       for (const record of await listStaleRunningPiDelegations()) {
         const persistedResult = await recoverPersistedWorkerResult(record);
         if (!persistedResult) continue;
@@ -505,6 +507,7 @@ export class PiDelegationDispatcher {
       if (cancelled) {
         await persistLifecycleProgress({ delegationId: id, userId: cancelled.userId, kind: 'cancelled', eventKey: 'cancelled' });
         await markUndeliveredPiDelegationSteeringMissed({ delegationId: id, userId: cancelled.userId });
+        await this.deliver(id);
       }
       return;
     }
@@ -531,6 +534,7 @@ export class PiDelegationDispatcher {
             delegationId: id, userId: cancelled.userId, kind: 'cancelled', eventKey: 'cancelled',
           });
           await markUndeliveredPiDelegationSteeringMissed({ delegationId: id, userId: cancelled.userId });
+          await this.deliver(id);
         }
       }
       return;

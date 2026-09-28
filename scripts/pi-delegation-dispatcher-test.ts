@@ -132,9 +132,13 @@ async function main() {
         const message = createDelegationCompletionMessage(record, 1234);
         assert.equal(isDelegationCompletionMessage(message), true);
         assert.equal(message.delegationCompletion.delegationId, record.id);
+        assert.equal(message.delegationCompletion.status, record.status);
         assert.equal(message.clientMessageId, `delegation-completion:${record.id}`);
         assert.equal(message.clientMessageId, createDelegationCompletionMessage(record, 9876).clientMessageId);
         assert.match(typeof message.content === 'string' ? message.content : '', /delegation_completion/);
+        if (record.status === 'cancelled') {
+          assert.match(typeof message.content === 'string' ? message.content : '', /"status": "cancelled"/);
+        }
       },
     });
 
@@ -195,7 +199,7 @@ async function main() {
 
     await started[2]?.onCompletion?.(completionResult(started[2], 'Third task complete.'));
     await waitFor(() => dispatcher!.getActiveCount() === 0, 'Delegation workers did not settle.');
-    await waitFor(() => delivered.length === 2, 'Successful delegation results were not delivered.');
+    await waitFor(() => delivered.length === 3, 'Completed and cancelled delegation results were not delivered.');
 
     const firstRecord = await getPiDelegation(started[0]!.delegationId!);
     const secondRecord = await getPiDelegation(secondId);
@@ -203,9 +207,9 @@ async function main() {
     assert.equal(firstRecord?.status, 'completed');
     assert.equal(firstRecord?.deliveryStatus, 'delivered');
     assert.equal(secondRecord?.status, 'cancelled');
-    assert.equal(secondRecord?.deliveryStatus, 'skipped');
+    assert.equal(secondRecord?.deliveryStatus, 'delivered');
     assert.equal(thirdRecord?.status, 'completed');
-    assert.deepEqual(new Set(delivered), new Set([firstRecord?.id, thirdRecord?.id]));
+    assert.deepEqual(new Set(delivered), new Set([firstRecord?.id, secondRecord?.id, thirdRecord?.id]));
     const terminalSteering = await db.select().from(piDelegationSteering);
     assert.deepEqual(terminalSteering.map((receipt) => receipt.status), ['missed', 'missed']);
 
@@ -222,7 +226,7 @@ async function main() {
     );
     await waitFor(() => dispatcher!.getActiveCount() === 0, 'Remote-stop worker did not settle.');
     assert.equal((await getPiDelegation(remoteStopId))?.status, 'cancelled');
-    assert.equal(delivered.includes(remoteStopId), false);
+    await waitFor(() => delivered.includes(remoteStopId), 'Remote stop did not deliver its final status.');
 
     dispatcher.stop();
     const recoveredWorkerSessionId = 'recovered-worker-session';

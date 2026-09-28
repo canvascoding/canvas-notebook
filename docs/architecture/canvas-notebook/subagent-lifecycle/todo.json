@@ -43,6 +43,7 @@
       "gate": "Second task reuses one authorized session with its own active toolsets; cross-parent and concurrent reuse fail.",
       "evidence": [
         "npm run test:pi:delegation-store",
+        "npx tsx --conditions react-server scripts/pi-managed-live-reuse-integration-test.ts",
         "npm run test:pi:delegation-dispatcher",
         "npx tsc --noEmit --pretty false",
         "npx eslint on changed TypeScript files",
@@ -59,6 +60,7 @@
       "gate": "Both worker types expose bounded current progress and confirmed transcript after reload without cross-session access.",
       "evidence": [
         "npm run test:pi:delegate-task",
+        "npx tsx --conditions react-server scripts/pi-delegation-managed-progress-test.ts",
         "npm run test:pi:delegation-store",
         "npm run test:pi:delegation-dispatcher",
         "npm run test:pi:delegation-progress",
@@ -104,6 +106,7 @@
         "npx tsc --noEmit --pretty false",
         "npx eslint on changed application and test TypeScript files",
         "Playwright: tests/chat-delegation-live-inspection.spec.ts and tests/chat-delegation-session-resume.spec.ts",
+        "Playwright: tests/chat-inline-delegation.spec.ts",
         "npm run build"
       ]
     },
@@ -118,7 +121,7 @@
         "npm run test:pi:subagent-lifecycle",
         "npm run lint",
         "npm run build",
-        "Playwright: tests/chat-delegation-live-inspection.spec.ts and tests/chat-delegation-session-resume.spec.ts",
+        "Playwright: tests/chat-delegation-live-inspection.spec.ts, tests/chat-delegation-session-resume.spec.ts and tests/chat-inline-delegation.spec.ts",
         "GitNexus impact before existing symbol edits; detect_changes before commit",
         "docs/architecture/canvas-notebook/subagent-lifecycle/rollout.md"
       ]

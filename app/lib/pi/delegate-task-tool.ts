@@ -51,6 +51,7 @@ import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/po
 import { loadPiEffectiveCompactionPolicy, resolvePiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordinator';
 import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
+import { attachManagedProgressBridge } from '@/app/lib/pi/delegation-managed-progress';
 import { observePiDelegation } from '@/app/lib/pi/delegation-observability';
 
 type DelegateTaskArgs = {
@@ -1354,12 +1355,14 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
         ? waitForRuntimeIdle(runtime, request.timeoutSeconds)
       : null;
     const releaseAbortBinding = bindManagedRuntimeAbort(runtime, request.abortSignal);
+    const releaseProgress = attachManagedProgressBridge(runtime, request);
     try {
       throwIfDelegationAborted(request.abortSignal);
       runtime.startPrompt(promptMessage);
     } catch (error) {
       waitHandle?.cancel();
       releaseAbortBinding();
+      await releaseProgress();
       throw error;
     }
     return {
@@ -1367,6 +1370,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
       baselineMessageCount,
       promptMessage,
       completionPromise: waitHandle?.promise ?? null,
+      releaseProgress,
       releaseSteering: attachManagedSteeringBridge(runtime, request, sessionId),
     };
   });
@@ -1374,6 +1378,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
   if (request.onCompletion && started.completionPromise) {
     const notifyCompletion = request.onCompletion;
     void started.completionPromise.then(async (completion) => {
+      await started.releaseProgress();
       try { await started.releaseSteering(); } catch { /* Completion must still be reported. */ }
       const result: DelegateTaskResult = completion.status === 'ok'
         ? {
@@ -1421,6 +1426,8 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
   }
 
   const completion = await started.completionPromise;
+  await started.releaseProgress();
+  try { await started.releaseSteering(); } catch { /* The result still belongs to this run. */ }
   if (completion.status === 'ok') {
     return {
       delegation_id: request.delegationId,

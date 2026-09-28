@@ -176,9 +176,9 @@ async function main() {
     assert.equal(partial?.resultText, null);
     assert.equal(partial?.attemptCount, 1);
     assert.equal(crashStop?.status, 'cancelled');
-    assert.equal(crashStop?.deliveryStatus, 'skipped');
+    assert.equal(crashStop?.deliveryStatus, 'delivered');
     assert.equal(crashStop?.resultText, null);
-    assert.equal(delivered.includes('crash-stop'), false);
+    assert.equal(delivered.includes('crash-stop'), true);
     const steering = await db.select().from(piDelegationSteering);
     assert.deepEqual(steering.map((receipt) => receipt.status), ['missed', 'missed', 'missed']);
     assert.equal(replayCount, 0);

@@ -235,7 +235,8 @@ async function main() {
       'delegation-user-1',
     );
     assert.equal(cancelledQueued?.status, 'cancelled');
-    assert.equal(cancelledQueued?.deliveryStatus, 'skipped');
+    assert.equal(cancelledQueued?.deliveryStatus, 'pending');
+    assert.equal((await claimPiDelegationDelivery(queuedCancellation.id))?.status, 'cancelled');
 
     const runningCancellation = await createPiDelegation({
       id: 'delegation-cancel-running',
