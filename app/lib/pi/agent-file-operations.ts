@@ -186,6 +186,8 @@ export type AgentPathOperationResult = {
   directories: number;
   truncated: boolean;
   verified: boolean | null;
+  linkStatus: 'incomplete' | null;
+  linkWarnings: string[];
   entries: AgentPathOperationEntry[];
 };
 
@@ -2617,6 +2619,10 @@ function pathOperationSummary(
     directories: entries.reduce((total, entry) => total + entry.directories, 0),
     truncated: entries.some((entry) => entry.truncated),
     verified: null,
+    linkStatus: operation === 'delete_path' ? null : 'incomplete',
+    linkWarnings: operation === 'delete_path' ? [] : [
+      'Local Markdown links were not checked or rewritten by this path operation.',
+    ],
     entries: publicEntries,
   };
 }

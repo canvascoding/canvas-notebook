@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
-import { batchCopyBetweenWorkspaces, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
+import { batchCopyBetweenWorkspaces, getFileStats, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
+import { compactWorkspaceSelection, getWorkspacePathName, resolveMoveDestination } from '@/app/lib/files/operation-flows';
+import { buildWorkspaceFileOperationPreview, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { initializeCopiedFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
 import {
   applyRateLimit,
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
       renameOnCollision?: boolean;
       sourceWorkspaceId?: string | null;
       targetWorkspaceId?: string | null;
+      dryRun?: boolean;
     }>(request);
     const {
       sources,
@@ -48,6 +50,7 @@ export async function POST(request: NextRequest) {
       renameOnCollision = false,
       sourceWorkspaceId,
       targetWorkspaceId,
+      dryRun = false,
     } = body;
 
     if (!sources || !Array.isArray(sources) || sources.length === 0) {
@@ -91,6 +94,40 @@ export async function POST(request: NextRequest) {
       return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
 
+    if (dryRun) {
+      if (overwrite) {
+        return jsonError('Dry run cannot safely preview overwrite with the current copy executor.', 422, {
+          code: 'PREVIEW_UNSUPPORTED_COLLISION_POLICY',
+        });
+      }
+      try {
+        const destinationStats = await getFileStats(destDir, targetFileOptions);
+        if (!destinationStats.isDirectory) return jsonError('Destination must be a directory', 409, { code: 'DESTINATION_NOT_DIRECTORY' });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return jsonError('Destination directory was not found', 404, { code: 'DESTINATION_NOT_FOUND' });
+        }
+        if (['EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+          return jsonError('Destination directory could not be read', 422, { code: 'PREVIEW_UNREADABLE' });
+        }
+        throw error;
+      }
+      const plan = await buildWorkspaceFileOperationPreview({
+        kind: 'copy',
+        sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+        destinationWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+        sourceOptions: sourceFileOptions,
+        destinationOptions: targetFileOptions,
+        renameOnCollision,
+        selections: copySources.map((sourcePath) => ({
+          sourcePath,
+          destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)),
+        })),
+      });
+      const { previewContents: _previewContents, ...publicPlan } = plan;
+      return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: publicPlan });
+    }
+
     const result = await withWorkspaceCopyMutationLocks(sourceFileOptions, targetFileOptions, async () => {
       const copied = await batchCopyBetweenWorkspaces(copySources, destDir, overwrite, renameOnCollision, {
         source: sourceFileOptions, target: targetFileOptions,
@@ -131,6 +168,8 @@ export async function POST(request: NextRequest) {
         targetWorkspaceType: targetWorkspaceResult.workspace.workspaceType,
         overwrite,
         renameOnCollision,
+        linkStatus: 'incomplete',
+        linkWarnings: ['Copied Markdown links were not checked or rewritten.'],
       },
     });
 
@@ -140,8 +179,12 @@ export async function POST(request: NextRequest) {
       skipped: result.skipped,
       sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
       targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+      linkStatus: 'incomplete',
+      linkWarnings: ['Copied Markdown links were not checked or rewritten.'],
     });
   } catch (error) {
+    if (error instanceof WorkspacePreviewStaleError) return jsonError(error.message, 409, { code: 'PREVIEW_STALE' });
+    if (error instanceof WorkspacePreviewUnavailableError) return jsonError(error.message, 422, { code: 'PREVIEW_UNREADABLE' });
     return jsonServerError('[API] File copy error:', error, 'Failed to copy files');
   }
 }

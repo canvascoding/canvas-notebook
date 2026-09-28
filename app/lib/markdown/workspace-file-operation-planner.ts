@@ -15,8 +15,7 @@ import {
   buildWorkspaceLinkIndexFromDocuments,
   type WorkspaceLinkEdge,
 } from './workspace-link-index-core';
-
-const MAX_INDEXED_MARKDOWN_BYTES = 4 * 1024 * 1024;
+import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 
 export type WorkspacePlannerEntry = {
   /** A snapshot identity, such as a file ID; it must not be derived from the path. */

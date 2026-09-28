@@ -53,6 +53,7 @@ import {
   readApiError,
   readWorkspaceFile,
   renameWorkspacePath,
+  type WorkspaceRenameResult,
   triggerWorkspaceDownload,
   uploadWorkspaceFiles,
   WorkspaceBatchUploadError,
@@ -380,7 +381,7 @@ interface FileStoreState {
   clipboardMode: 'copy' | null;
   copyPaths: (paths?: Iterable<string>) => void;
   pastePaths: (destDir: string) => Promise<CopyWorkspacePathsResult | null>;
-  duplicatePath: (path: string) => Promise<void>;
+  duplicatePath: (path: string) => Promise<CopyWorkspacePathsResult>;
 
   // Actions
   ensureTreeWorkspace: (workspaceId: string | null) => number;
@@ -415,7 +416,7 @@ interface FileStoreState {
   ) => void;
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[], workspaceId?: string | null) => Promise<DeleteWorkspacePathsResult>;
-  renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null) => Promise<void>;
+  renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null) => Promise<WorkspaceRenameResult | void>;
   applyPathRename: (mutation: WorkspacePathRenameMutation) => boolean;
   applyPathsDeleted: (paths: string[], workspaceId: string | null, local?: boolean) => void;
   adoptCurrentCollaborationLocation: (scope: CurrentCollaborationLocationScope, path: string) => boolean;
@@ -643,7 +644,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
     try {
-      await copyWorkspacePaths({
+      const result = await copyWorkspacePaths({
         sources: [path],
         destDir: parentDir,
         overwrite: false,
@@ -653,6 +654,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
         await get().refreshDirectory(parentDir, true, workspaceId);
       }
+      return result;
     } catch (error) {
       throw error;
     }
@@ -1556,6 +1558,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         await get().loadSubdirectory(dir, true, false, workspaceId);
       }
     }
+    return result;
   },
 
   adoptCurrentCollaborationLocation: (scope, path) => {

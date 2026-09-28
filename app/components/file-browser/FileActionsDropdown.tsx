@@ -1,7 +1,7 @@
 'use client';
 
 import type { ComponentProps, ReactNode } from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ClipboardCopy,
   ClipboardPaste,
@@ -45,7 +45,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
-import { copyWorkspacePaths, workspaceHeaders } from '@/app/lib/files/client';
+import { copyWorkspacePaths, previewWorkspaceCopy, previewWorkspaceRename, workspaceHeaders, type WorkspaceFileOperationDryRun } from '@/app/lib/files/client';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
@@ -117,6 +117,9 @@ export function FileActionsDropdown({
   const [newName, setNewName] = useState('');
   const [renameError, setRenameError] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isPreviewingRename, setIsPreviewingRename] = useState(false);
+  const [renamePreview, setRenamePreview] = useState<WorkspaceFileOperationDryRun | null>(null);
+  const renamePreviewRequestId = useRef(0);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [marpExportOpen, setMarpExportOpen] = useState(false);
   const [marpDetection, setMarpDetection] = useState<{ path: string; isMarp: boolean } | null>(null);
@@ -125,6 +128,9 @@ export function FileActionsDropdown({
   const [copyTargetWorkspaceId, setCopyTargetWorkspaceId] = useState<string | null>(null);
   const [copyTargetDir, setCopyTargetDir] = useState('.');
   const [isCopyingToWorkspace, setIsCopyingToWorkspace] = useState(false);
+  const [isPreviewingCopy, setIsPreviewingCopy] = useState(false);
+  const [copyPreview, setCopyPreview] = useState<WorkspaceFileOperationDryRun | null>(null);
+  const copyPreviewRequestId = useRef(0);
   const [fileInfoOpen, setFileInfoOpen] = useState(false);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
 
@@ -265,6 +271,8 @@ export function FileActionsDropdown({
     if (node) setNewName(node.name);
     setRenameError('');
     setIsRenaming(false);
+    renamePreviewRequestId.current += 1;
+    setRenamePreview(null);
     setRenameOpen(true);
     closeMenu();
   };
@@ -285,13 +293,42 @@ export function FileActionsDropdown({
     setIsRenaming(true);
     setRenameError('');
     try {
-      await renamePath(node.path, newPath);
+      const result = await renamePath(node.path, newPath);
+      if (result && result.linkStatus && result.linkStatus !== 'complete') {
+        toast.warning(t('fileOperationLinksIncomplete'), {
+          description: result.linkUpdates?.warnings.slice(0, 2).join(' '),
+        });
+      }
       setRenameOpen(false);
       onAfterRename?.(node.path, newPath, node);
     } catch (renameOperationError) {
       setRenameError(renameOperationError instanceof Error ? renameOperationError.message : t('renameFailed'));
     } finally {
       setIsRenaming(false);
+    }
+  };
+
+  const handlePreviewRename = async () => {
+    if (!node || !newName.trim() || newName.trim() === node.name) return;
+    setIsPreviewingRename(true);
+    setRenameError('');
+    setRenamePreview(null);
+    const requestId = ++renamePreviewRequestId.current;
+    const workspaceId = activeWorkspace?.id ?? null;
+    try {
+      const preview = await previewWorkspaceRename(
+        node.path,
+        joinWorkspacePath(getParentDirectory(node.path), newName.trim()),
+        workspaceId,
+      );
+      if (requestId === renamePreviewRequestId.current
+        && useWorkspaceStore.getState().activeWorkspaceId === workspaceId) setRenamePreview(preview);
+    } catch (error) {
+      if (requestId === renamePreviewRequestId.current) {
+        setRenameError(error instanceof Error ? error.message : t('renameFailed'));
+      }
+    } finally {
+      if (requestId === renamePreviewRequestId.current) setIsPreviewingRename(false);
     }
   };
 
@@ -397,6 +434,8 @@ export function FileActionsDropdown({
 
     setCopyTargetWorkspaceId(activeWorkspace?.id ?? null);
     setCopyTargetDir('.');
+    copyPreviewRequestId.current += 1;
+    setCopyPreview(null);
     setCopyToWorkspaceOpen(true);
     closeMenu();
   };
@@ -436,15 +475,45 @@ export function FileActionsDropdown({
         toast.warning(t('copyToWorkspacePartialSuccess', {
           copied: summary.copiedCount,
           failed: summary.unresolvedCount,
-        }));
+        }), { description: result.linkStatus && result.linkStatus !== 'complete'
+          ? t('fileOperationLinksIncomplete') : undefined });
       } else {
-        toast.success(t('copyToWorkspaceSuccess', { count: summary.copiedCount }));
+        if (result.linkStatus && result.linkStatus !== 'complete') {
+          toast.warning(t('fileOperationLinksIncomplete'), { description: result.linkWarnings?.join(' ') });
+        } else {
+          toast.success(t('copyToWorkspaceSuccess', { count: summary.copiedCount }));
+        }
       }
       setCopyToWorkspaceOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('copyToWorkspaceFailed'));
     } finally {
       setIsCopyingToWorkspace(false);
+    }
+  };
+
+  const handlePreviewCopyToWorkspace = async () => {
+    if (selectedCopyPaths.length === 0 || !activeWorkspace?.id || !copyTargetWorkspaceId) return;
+    setIsPreviewingCopy(true);
+    setCopyPreview(null);
+    const requestId = ++copyPreviewRequestId.current;
+    const sourceWorkspaceId = activeWorkspace.id;
+    try {
+      const preview = await previewWorkspaceCopy({
+        sources: selectedCopyPaths,
+        destDir: copyTargetDir,
+        renameOnCollision: true,
+        sourceWorkspaceId,
+        targetWorkspaceId: copyTargetWorkspaceId,
+      });
+      if (requestId === copyPreviewRequestId.current
+        && useWorkspaceStore.getState().activeWorkspaceId === sourceWorkspaceId) setCopyPreview(preview);
+    } catch (error) {
+      if (requestId === copyPreviewRequestId.current) {
+        toast.error(error instanceof Error ? error.message : t('copyToWorkspaceFailed'));
+      }
+    } finally {
+      if (requestId === copyPreviewRequestId.current) setIsPreviewingCopy(false);
     }
   };
 
@@ -469,9 +538,14 @@ export function FileActionsDropdown({
         toast.warning(t('pastePartialSuccess', {
           copied: summary.copiedCount,
           failed: summary.unresolvedCount,
-        }));
+        }), { description: result.linkStatus && result.linkStatus !== 'complete'
+          ? t('fileOperationLinksIncomplete') : undefined });
       } else {
-        toast.success(t('pasteSuccess', { count: summary.copiedCount }));
+        if (result.linkStatus && result.linkStatus !== 'complete') {
+          toast.warning(t('fileOperationLinksIncomplete'), { description: result.linkWarnings?.join(' ') });
+        } else {
+          toast.success(t('pasteSuccess', { count: summary.copiedCount }));
+        }
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('pasteFailed'));
@@ -481,7 +555,10 @@ export function FileActionsDropdown({
   const handleDuplicate = async () => {
     if (!node) return;
     try {
-      await duplicatePath(node.path);
+      const result = await duplicatePath(node.path);
+      if (result.linkStatus && result.linkStatus !== 'complete') {
+        toast.warning(t('fileOperationLinksIncomplete'), { description: result.linkWarnings?.join(' ') });
+      }
       closeMenu();
     } catch (duplicateError) {
       toast.error(duplicateError instanceof Error ? duplicateError.message : t('duplicateFailed'));
@@ -529,7 +606,12 @@ export function FileActionsDropdown({
     setIsMoving(true);
     setMoveError('');
     try {
-      await renamePath(node.path, destination);
+      const result = await renamePath(node.path, destination);
+      if (result && result.linkStatus && result.linkStatus !== 'complete') {
+        toast.warning(t('fileOperationLinksIncomplete'), {
+          description: result.linkUpdates?.warnings.slice(0, 2).join(' '),
+        });
+      }
       onAfterMove?.(node.path, destination, node);
       setMoveOpen(false);
     } catch (moveOperationError) {
@@ -697,6 +779,9 @@ export function FileActionsDropdown({
               value={newName}
               onChange={(e) => {
                 setNewName(e.target.value);
+                renamePreviewRequestId.current += 1;
+                setIsPreviewingRename(false);
+                setRenamePreview(null);
                 if (renameError) setRenameError('');
               }}
               className="mt-1"
@@ -707,9 +792,41 @@ export function FileActionsDropdown({
               disabled={isRenaming}
             />
             {renameError && <p className="mt-1.5 text-xs text-destructive" role="alert">{renameError}</p>}
+            {renamePreview && (
+              <div className="mt-3 rounded-md border p-3 text-xs" role="status">
+                <p>{t('fileOperationPreviewReadiness', { readiness: t(renamePreview.plan.readiness === 'ready'
+                  ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}</p>
+                <p>{t('fileOperationPreviewSummary', {
+                  paths: renamePreview.plan.pathMappings.length,
+                  links: renamePreview.plan.linkEdits.length,
+                })}</p>
+                <p>{t('fileOperationPreviewCoverage', {
+                  omitted: renamePreview.plan.coverage.omittedSources.length,
+                  unresolved: renamePreview.plan.coverage.unresolvedLinks.length,
+                })}</p>
+                {renamePreview.plan.pathMappings.slice(0, 5).map((mapping) => (
+                  <p key={mapping.sourcePath}>{mapping.sourcePath} → {mapping.destinationPath}</p>
+                ))}
+                {renamePreview.plan.pathMappings.length > 5 && <p>+{renamePreview.plan.pathMappings.length - 5}</p>}
+                {renamePreview.plan.linkEdits.slice(0, 5).map((edit, index) => (
+                  <p key={`${edit.sourcePathBefore}-${edit.targetRange.startUtf16}-${index}`}>
+                    {edit.sourcePathBefore}: {edit.previousTargetLiteral} → {edit.nextTargetLiteral}
+                  </p>
+                ))}
+                {renamePreview.plan.linkEdits.length > 5 && <p>+{renamePreview.plan.linkEdits.length - 5}</p>}
+                {renamePreview.plan.issues.slice(0, 3).map((issue, index) => (
+                  <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">{issue.path}: {issue.detail}</p>
+                ))}
+                <p className="mt-1 text-muted-foreground">{t('fileOperationPreviewRevalidate')}</p>
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={isRenaming}>{t('cancel')}</Button>
+            <Button variant="outline" onClick={() => void handlePreviewRename()} disabled={isRenaming || isPreviewingRename || !newName.trim()}>
+              {isPreviewingRename && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('fileOperationPreview')}
+            </Button>
             <Button variant="secondary" onClick={() => void handleConfirmRename()} disabled={isRenaming}>
               {isRenaming && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('rename')}
@@ -791,12 +908,44 @@ export function FileActionsDropdown({
           <WorkspaceDestinationPicker
             selectedWorkspaceId={copyTargetWorkspaceId}
             selectedDir={copyTargetDir}
-            onWorkspaceChange={setCopyTargetWorkspaceId}
-            onDirChange={setCopyTargetDir}
+            onWorkspaceChange={(workspaceId) => { copyPreviewRequestId.current += 1; setIsPreviewingCopy(false); setCopyTargetWorkspaceId(workspaceId); setCopyPreview(null); }}
+            onDirChange={(dir) => { copyPreviewRequestId.current += 1; setIsPreviewingCopy(false); setCopyTargetDir(dir); setCopyPreview(null); }}
           />
+          {copyPreview && (
+            <div className="max-h-48 overflow-auto rounded-md border p-3 text-xs" role="status">
+              <p>{t('fileOperationPreviewReadiness', { readiness: t(copyPreview.plan.readiness === 'ready'
+                ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}</p>
+              <p>{t('fileOperationPreviewSummary', {
+                paths: copyPreview.plan.pathMappings.length, links: copyPreview.plan.linkEdits.length,
+              })}</p>
+              <p>{t('fileOperationPreviewCoverage', {
+                omitted: copyPreview.plan.coverage.omittedSources.length,
+                unresolved: copyPreview.plan.coverage.unresolvedLinks.length,
+              })}</p>
+              {copyPreview.plan.pathMappings.slice(0, 5).map((mapping) => (
+                <p key={mapping.sourcePath}>{mapping.sourcePath} → {mapping.destinationPath}</p>
+              ))}
+              {copyPreview.plan.pathMappings.length > 5 && <p>+{copyPreview.plan.pathMappings.length - 5}</p>}
+              {copyPreview.plan.linkEdits.slice(0, 5).map((edit, index) => (
+                <p key={`${edit.sourcePathBefore}-${edit.targetRange.startUtf16}-${index}`}>
+                  {edit.sourcePathBefore}: {edit.previousTargetLiteral} → {edit.nextTargetLiteral}
+                </p>
+              ))}
+              {copyPreview.plan.linkEdits.length > 5 && <p>+{copyPreview.plan.linkEdits.length - 5}</p>}
+              {copyPreview.plan.issues.slice(0, 3).map((issue, index) => (
+                <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">{issue.path}: {issue.detail}</p>
+              ))}
+              <p className="mt-1 text-muted-foreground">{t('fileOperationPreviewRevalidate')}</p>
+            </div>
+          )}
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => setCopyToWorkspaceOpen(false)}>
               {t('cancel')}
+            </Button>
+            <Button variant="outline" onClick={() => void handlePreviewCopyToWorkspace()}
+              disabled={isCopyingToWorkspace || isPreviewingCopy || !copyTargetWorkspaceId || selectedCopyPaths.length === 0}>
+              {isPreviewingCopy && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('fileOperationPreview')}
             </Button>
             <Button
               variant="secondary"

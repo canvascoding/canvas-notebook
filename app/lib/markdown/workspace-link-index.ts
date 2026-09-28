@@ -6,6 +6,7 @@ import {
 } from '@/app/lib/filesystem/workspace-files';
 import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { remapDescendantPath } from '@/app/lib/files/path-utils';
+import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 
 import {
   buildWorkspaceLinkIndexFromDocuments,
@@ -14,7 +15,6 @@ import {
 } from './workspace-link-index-core';
 
 const LINK_INDEX_READ_CONCURRENCY = 10;
-const MAX_INDEXED_MARKDOWN_BYTES = 4 * 1024 * 1024;
 
 export type WorkspaceLinkRenameResult = {
   updatedFiles: string[];

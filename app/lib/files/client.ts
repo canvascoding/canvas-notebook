@@ -1,5 +1,6 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import type { WorkspacePathRenameMutation } from './file-events';
+import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { WorkspaceUploadCommit } from './upload-result';
 import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
@@ -80,6 +81,8 @@ export interface CopyWorkspacePathsResult {
   copied: string[];
   failed: Array<{ path: string; error: string }>;
   skipped: string[];
+  linkStatus?: 'complete' | 'partial' | 'incomplete';
+  linkWarnings?: string[];
   sourceWorkspaceId?: string;
   targetWorkspaceId?: string;
 }
@@ -462,11 +465,50 @@ export async function restoreWorkspaceTrashEntry(
 
 export interface WorkspaceRenameResult {
   mutation?: WorkspacePathRenameMutation;
+  linkStatus?: 'complete' | 'partial' | 'incomplete';
   linkUpdates?: {
     updatedFiles: string[];
     updatedLinks: number;
     warnings: string[];
   };
+}
+
+export type WorkspaceFileOperationDryRun = {
+  dryRun: true;
+  requiresRevalidation: true;
+  plan: Omit<WorkspaceFileOperationPreview, 'previewContents'>;
+};
+
+export async function previewWorkspaceRename(
+  oldPath: string,
+  newPath: string,
+  workspaceId?: string | null,
+): Promise<WorkspaceFileOperationDryRun> {
+  const response = await fetch('/api/files/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    credentials: 'include',
+    body: JSON.stringify({ oldPath, newPath, dryRun: true }),
+  });
+  if (!response.ok) throw new Error(await readApiError(response, 'Failed to preview path change'));
+  return readApiJson<WorkspaceFileOperationDryRun>(response, 'Failed to read path preview');
+}
+
+export async function previewWorkspaceCopy(params: {
+  sources: string[];
+  destDir: string;
+  renameOnCollision?: boolean;
+  sourceWorkspaceId?: string | null;
+  targetWorkspaceId?: string | null;
+}): Promise<WorkspaceFileOperationDryRun> {
+  const response = await fetch('/api/files/copy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(params.sourceWorkspaceId) },
+    credentials: 'include',
+    body: JSON.stringify({ ...params, dryRun: true }),
+  });
+  if (!response.ok) throw new Error(await readApiError(response, 'Failed to preview copy'));
+  return readApiJson<WorkspaceFileOperationDryRun>(response, 'Failed to read copy preview');
 }
 
 export async function renameWorkspacePath(

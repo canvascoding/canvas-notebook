@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { checkRenameConflict, getFileStats, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
+import { checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { renameWorkspacePath } from '@/app/lib/files/rename-service';
 import {
@@ -18,12 +18,15 @@ import {
   type WorkspaceLinkRenameResult,
 } from '@/app/lib/markdown/workspace-link-index';
 import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
+import { buildWorkspaceFileOperationPreview, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { assessWorkspaceRenameLinks } from '@/app/lib/markdown/workspace-file-operation-status';
 
 interface RenameRequestBody {
   oldPath: string;
   newPath: string;
   overwrite?: boolean;
   updateLinks?: boolean;
+  dryRun?: boolean;
 }
 
 export async function POST(request: NextRequest) {
@@ -40,7 +43,7 @@ export async function POST(request: NextRequest) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const body = await readJsonBody<RenameRequestBody>(request);
-    const { oldPath, newPath, overwrite = false, updateLinks = true } = body;
+    const { oldPath, newPath, overwrite = false, updateLinks = true, dryRun = false } = body;
 
     if (!oldPath || !newPath) {
       return jsonError('oldPath and newPath are required', 400);
@@ -50,6 +53,24 @@ export async function POST(request: NextRequest) {
     }
     if (isProtectedAppOutputFolder(newPath)) {
       return jsonError(`Protected app output folder cannot be overwritten: ${newPath}`, 403);
+    }
+
+    if (dryRun) {
+      if (overwrite) {
+        return jsonError('Dry run cannot safely preview overwrite with the current rename executor.', 422, {
+          code: 'PREVIEW_UNSUPPORTED_COLLISION_POLICY',
+        });
+      }
+      const plan = await buildWorkspaceFileOperationPreview({
+        kind: 'rename',
+        sourceWorkspaceId: workspaceResult.workspace.workspaceId,
+        destinationWorkspaceId: workspaceResult.workspace.workspaceId,
+        sourceOptions: fileOptions,
+        destinationOptions: fileOptions,
+        selections: [{ sourcePath: oldPath, destinationPath: newPath }],
+      });
+      const { previewContents: _previewContents, ...publicPlan } = plan;
+      return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: publicPlan });
     }
 
     // Resolve missing sources through the conflict path before reading metadata.
@@ -68,10 +89,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const sourceStats = await getFileStats(oldPath, fileOptions);
-    const shouldUpdateLinks = updateLinks && (
-      sourceStats.isDirectory || /\.(?:md|markdown)$/i.test(oldPath)
-    );
+    const shouldUpdateLinks = updateLinks;
     let preparedLinkIndex: WorkspaceLinkIndex | null = null;
     let linkIndexWarning: string | null = null;
     const prepareLinkIndex = async () => {
@@ -90,14 +108,20 @@ export async function POST(request: NextRequest) {
           warnings: linkIndexWarning ? [`Link index: ${linkIndexWarning}`] : [],
         };
       }
-      const result = await applyWorkspaceLinkRename(
-        preparedLinkIndex,
-        oldPath,
-        newPath,
-        fileOptions,
-      );
-      if (linkIndexWarning) result.warnings.unshift(`Link index: ${linkIndexWarning}`);
-      return result;
+      try {
+        return await applyWorkspaceLinkRename(
+          preparedLinkIndex,
+          oldPath,
+          newPath,
+          fileOptions,
+        );
+      } catch (error) {
+        return {
+          updatedFiles: [],
+          updatedLinks: 0,
+          warnings: [`Link update failed after the path changed: ${error instanceof Error ? error.message : String(error)}`],
+        };
+      }
     };
 
     await prepareLinkIndex();
@@ -110,6 +134,15 @@ export async function POST(request: NextRequest) {
     });
     const linkUpdates = await updateRenamedLinks();
     linkUpdates.warnings.unshift(...renameResult.warnings);
+    const linkAssessment = assessWorkspaceRenameLinks({
+      index: preparedLinkIndex,
+      oldPath,
+      newPath,
+      updateLinks,
+      result: linkUpdates,
+      indexError: linkIndexWarning,
+    });
+    linkUpdates.warnings = linkAssessment.warnings;
     invalidateWorkspaceFileViews({
       fileOptions,
       fullTree: true,
@@ -133,13 +166,16 @@ export async function POST(request: NextRequest) {
         newPath,
         overwrite,
         linkUpdates,
+        linkStatus: linkAssessment.status,
         workspaceType: workspaceResult.workspace.workspaceType,
       },
     });
 
-    return jsonSuccess({ linkUpdates, mutation: renameResult.mutation });
+    return jsonSuccess({ linkUpdates, linkStatus: linkAssessment.status, mutation: renameResult.mutation });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to rename path';
+    if (error instanceof WorkspacePreviewStaleError) return jsonError(message, 409, { code: 'PREVIEW_STALE' });
+    if (error instanceof WorkspacePreviewUnavailableError) return jsonError(message, 422, { code: 'PREVIEW_UNREADABLE' });
     
     // Check if this is a conflict error
     const conflictError = error as RenameConflictError;
