@@ -199,15 +199,23 @@ async function main() {
 
   const layout = document.querySelector('[data-testid="file-version-center-responsive-layout"]');
   assert.ok(layout?.className.includes('grid-cols-1') && layout.className.includes('md:grid-cols'),
-    'the center exposes mobile stacking and a tablet/desktop master-detail grid');
+    'the center exposes a mobile single-pane shell and a tablet/desktop master-detail grid');
+  assert.equal(layout?.getAttribute('data-mobile-pane'), 'comparison',
+    'an explicitly selected deep-link entry opens directly in the mobile comparison pane');
+  const timelinePane = document.querySelector('[data-testid="file-version-center-mobile-timeline-pane"]');
+  const comparisonPane = document.querySelector('[data-testid="file-version-center-mobile-comparison-pane"]');
+  assert.ok(timelinePane?.className.includes('hidden') && timelinePane.className.includes('md:flex'),
+    'the timeline is hidden only on mobile while an explicit comparison is open');
+  assert.ok(comparisonPane?.className.includes('flex') && comparisonPane.className.includes('md:flex'),
+    'the selected comparison owns the mobile viewport and remains visible on desktop');
   const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
   const labelledBy = dialog?.getAttribute('aria-labelledby');
   const describedBy = dialog?.getAttribute('aria-describedby');
   assert.ok(labelledBy && document.getElementById(labelledBy), 'the dialog has a screen-reader title');
   assert.ok(describedBy && document.getElementById(describedBy), 'the dialog has a document description');
   assert.ok(document.querySelector('nav[aria-label]'), 'the timeline landmark has an accessible name');
-  assert.ok(document.querySelector('nav[aria-label]')?.className.includes('min-h-[18rem]'),
-    'the stacked mobile timeline keeps enough intrinsic height for its scroll viewport');
+  assert.ok(document.querySelector('nav[aria-label]')?.className.includes('min-h-0'),
+    'the mobile timeline fills its pane instead of reserving stacked comparison height');
   assert.equal(document.querySelector('nav[aria-label]')?.className.includes('border-b'), false,
     'the mobile timeline shell has no fixed horizontal divider');
   assert.ok(document.querySelector('nav[aria-label]')?.className.includes('md:border-r'),

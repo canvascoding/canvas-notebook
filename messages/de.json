@@ -8374,6 +8374,7 @@
   },
   "fileVersionCenter": {
     "title": "Versionen & Änderungen",
+    "mobileBackToTimeline": "Zur Übersicht",
     "loading": "Dokumentverlauf wird geladen…",
     "loadFailed": "Der Dokumentverlauf konnte nicht geladen werden.",
     "loadMoreFailed": "Weitere Versionen konnten nicht geladen werden.",
@@ -8423,8 +8424,6 @@
     "comparisonViews": "Vergleichsansichten",
     "currentDiffLabel": "Diff des aktuellen Dokuments",
     "candidateDiffLabel": "Diff der ausgewählten Version",
-    "currentSourceLabel": "Quelltext des aktuellen Dokuments",
-    "candidateSourceLabel": "Quelltext der ausgewählten Version",
     "noDifferences": "Keine Unterschiede gefunden.",
     "comparisonTruncated": "Dieser Vergleich hat eine Sicherheitsgrenze erreicht. Es wird nur der zugelassene Teil angezeigt.",
     "loadMoreHunks": "Weitere Änderungen laden",
@@ -8639,7 +8638,6 @@
     "tabs": {
       "changes": "Änderungen",
       "preview": "Vorschau",
-      "source": "Quelltext",
       "details": "Details"
     },
     "details": {

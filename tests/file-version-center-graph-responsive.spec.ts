@@ -57,7 +57,7 @@ async function openGraph(page: Page, input: {
   const graph = center.getByTestId('graph-review-comparison');
   await expect(graph).toBeVisible({ timeout: 30_000 });
   return { center, graph, layout: center.getByTestId('file-version-center-responsive-layout'),
-    timeline: center.getByRole('navigation') };
+    timeline: center.getByRole('navigation', { includeHidden: true }) };
 }
 
 async function expectNoOuterHorizontalOverflow(page: Page) {
@@ -109,12 +109,18 @@ async function expectGraphFooterControlsFit(graph: Locator) {
   }
 }
 
-async function expectMobileGraphReadingArea(layout: Locator, graph: Locator) {
+async function expectMobileGraphReadingArea(layout: Locator, graph: Locator, minimumHeight = 192) {
+  const timelinePane = layout.getByTestId('file-version-center-mobile-timeline-pane');
+  const comparisonPane = layout.getByTestId('file-version-center-mobile-comparison-pane');
   const body = graph.getByTestId('graph-review-body');
+  const footer = graph.getByTestId('graph-review-footer');
+  await expect(layout).toHaveAttribute('data-mobile-pane', 'comparison');
+  await expect(timelinePane).toBeHidden();
+  await expect(comparisonPane).toBeVisible();
   await expect(body).toBeVisible();
-  // Browser-native scrolling must expose real comparison content, not merely
-  // give an off-screen or ancestor-clipped box a large computed height.
-  await body.scrollIntoViewIfNeeded();
+  await expect(footer).toBeVisible();
+  // The comparison owns the mobile viewport. Its content scrolls inside the
+  // body while the header and action footer remain available.
   const readingArea = await body.evaluate((element) => {
     const bodyRect = element.getBoundingClientRect();
     const outer = element.closest<HTMLElement>('[data-testid="file-version-center-responsive-layout"]');
@@ -129,14 +135,19 @@ async function expectMobileGraphReadingArea(layout: Locator, graph: Locator) {
         bottom = Math.min(bottom, rect.bottom);
       }
     }
+    element.scrollTop = 0;
+    const available = element.scrollHeight - element.clientHeight;
+    element.scrollTop = Math.min(120, available);
     return { height: bodyRect.height, visible: Math.max(0, bottom - top),
+      available, moved: element.scrollTop,
       outerAvailable: outer.scrollHeight - outer.clientHeight, outerScrollTop: outer.scrollTop };
   });
-  expect(readingArea.height, 'mobile comparison body has at least 12rem of reading space').toBeGreaterThanOrEqual(192);
-  expect(readingArea.visible, 'at least 12rem is actually visible after outer scrolling').toBeGreaterThanOrEqual(192);
-  expect(readingArea.outerAvailable, 'mobile review uses a scrollable outer layout').toBeGreaterThan(20);
-  expect(readingArea.outerScrollTop, 'the outer layout moves to reveal the comparison').toBeGreaterThan(0);
-  expect(await layout.evaluate((element) => element.scrollTop)).toBe(readingArea.outerScrollTop);
+  expect(readingArea.height, 'mobile comparison body keeps the required reading space').toBeGreaterThanOrEqual(minimumHeight);
+  expect(readingArea.visible, 'the required comparison area is actually visible').toBeGreaterThanOrEqual(minimumHeight);
+  expect(readingArea.available, 'the comparison body owns its long-content scroll').toBeGreaterThan(20);
+  expect(readingArea.moved, 'the comparison body scrolls independently').toBeGreaterThan(20);
+  expect(readingArea.outerAvailable, 'the mobile shell does not stack both panes vertically').toBeLessThanOrEqual(2);
+  expect(readingArea.outerScrollTop, 'the mobile shell stays fixed while the detail body scrolls').toBe(0);
 }
 
 test.describe('FVRC-1006 graph review responsive and accessible layout', () => {
@@ -227,12 +238,16 @@ test.describe('FVRC-1006 graph review responsive and accessible layout', () => {
         await expectNoOuterHorizontalOverflow(desktopPage);
         const nav = await english.timeline.boundingBox();
         const graph = await english.graph.boundingBox();
-        expect(nav && graph).toBeTruthy();
-        if (width >= 768) expect(nav!.x + nav!.width).toBeLessThanOrEqual(graph!.x + 2);
-        else expect(nav!.y + nav!.height).toBeLessThanOrEqual(graph!.y + 2);
+        expect(graph).toBeTruthy();
+        if (width >= 768) {
+          expect(nav).toBeTruthy();
+          expect(nav!.x + nav!.width).toBeLessThanOrEqual(graph!.x + 2);
+        } else {
+          expect(nav).toBeNull();
+          await expectMobileGraphReadingArea(english.layout, english.graph);
+        }
         if (width === 768 || width === 320) await expectGraphFooterControlsFit(english.graph);
         if (width === 320) {
-          await english.graph.getByTestId('graph-review-body').scrollIntoViewIfNeeded();
           await testInfo.attach('graph-review-320px-reading-area-light-en.png', {
             body: await english.center.screenshot(), contentType: 'image/png',
           });
@@ -260,8 +275,9 @@ test.describe('FVRC-1006 graph review responsive and accessible layout', () => {
       await expectNoOuterHorizontalOverflow(zoomPage);
       const zoomNav = await zoomGraph.timeline.boundingBox();
       const zoomComparison = await zoomGraph.graph.boundingBox();
-      expect(zoomNav && zoomComparison).toBeTruthy();
-      expect(zoomNav!.y + zoomNav!.height).toBeLessThanOrEqual(zoomComparison!.y + 2);
+      expect(zoomNav).toBeNull();
+      expect(zoomComparison).toBeTruthy();
+      await expectMobileGraphReadingArea(zoomGraph.layout, zoomGraph.graph, 96);
       await testInfo.attach('graph-review-200-percent-equivalent-en.png', {
         body: await zoomGraph.center.screenshot(), contentType: 'image/png',
       });
@@ -281,17 +297,26 @@ test.describe('FVRC-1006 graph review responsive and accessible layout', () => {
       expect(await mobilePage.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
       await expect(german.graph.getByText('Bereit zur Übernahme')).toBeVisible();
       await expect(german.graph.getByRole('heading', { name: 'Vorschlagszweige prüfen' })).toBeVisible();
+      await expect(german.center.getByTestId('file-version-center-mobile-comparison-pane')
+        .locator('h2[tabindex="-1"]')).toBeFocused();
       await expectNoOuterHorizontalOverflow(mobilePage);
       await expectGraphFooterControlsFit(german.graph);
       const mobileNav = await german.timeline.boundingBox();
       const mobileGraph = await german.graph.boundingBox();
-      expect(mobileNav && mobileGraph).toBeTruthy();
-      expect(mobileNav!.y + mobileNav!.height).toBeLessThanOrEqual(mobileGraph!.y + 2);
-      // Keep the 390×844 presentation assertion above, then use a genuinely
-      // constrained viewport to exercise the stacked layout's scroll path.
+      expect(mobileNav).toBeNull();
+      expect(mobileGraph).toBeTruthy();
+      await expectMobileGraphReadingArea(german.layout, german.graph);
+      // Keep the 390×844 presentation assertion above, then use a constrained
+      // viewport to prove that list and detail remain separately navigable.
       await mobilePage.setViewportSize({ width: 390, height: 520 });
       await expectNoOuterHorizontalOverflow(mobilePage);
       await expectGraphFooterControlsFit(german.graph);
+      await german.center.getByRole('button', { name: 'Zur Übersicht' }).tap();
+      await expect(german.layout).toHaveAttribute('data-mobile-pane', 'timeline');
+      await expect(german.center.getByTestId('file-version-center-mobile-timeline-pane')).toBeVisible();
+      await expect(german.center.getByTestId('file-version-center-mobile-comparison-pane')).toBeHidden();
+      const selectedMobileEntry = german.timeline.locator(`button[data-operation-id="${operationId}"]`);
+      await expect(selectedMobileEntry).toBeFocused();
       const history = german.center.getByTestId('file-version-history-section');
       await expect(history).toHaveCSS('border-top-style', 'solid');
       // The timeline owns its own Radix viewport at every width. Prove that
@@ -314,13 +339,13 @@ test.describe('FVRC-1006 graph review responsive and accessible layout', () => {
       expect(timelineMovement.before - timelineMovement.after).toBeGreaterThan(20);
       expect(Math.abs(timelineMovement.before - timelineMovement.after - timelineMovement.moved)).toBeLessThan(3);
       expect(Math.abs(timelineMovement.paneBefore - timelineMovement.paneAfter)).toBeLessThan(2);
-      await expectMobileGraphReadingArea(german.layout, german.graph);
+      await selectedMobileEntry.tap();
+      await expectMobileGraphReadingArea(german.layout, german.graph, 144);
       await mobilePage.setViewportSize({ width: 390, height: 844 });
       await german.graph.getByRole('button', { name: 'Alle Änderungen prüfen' }).tap();
       await expect(german.graph).toContainText('2 Vorschläge ausgewählt');
       await expect(german.graph.getByRole('button', { name: 'Diese Änderung' })).toBeFocused();
       await expectNoOuterHorizontalOverflow(mobilePage);
-      await german.graph.getByTestId('graph-review-body').scrollIntoViewIfNeeded();
       await testInfo.attach('graph-review-390px-reading-area-dark-de.png', {
         body: await german.center.screenshot(), contentType: 'image/png',
       });
@@ -412,11 +437,8 @@ test.describe('FVRC-1006 graph review responsive and accessible layout', () => {
       await testInfo.attach('graph-review-deep-reading-area-320px.png', {
         body: await review.center.screenshot(), contentType: 'image/png',
       });
-      // The short stacked viewport need not show every action at once. The
-      // outer review layout must let a person scroll to the final footer row.
-      await page.mouse.move(160, 680);
-      await page.mouse.wheel(0, 1200);
-      await expect.poll(() => review.layout.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+      // The fixed detail pane keeps the action footer visible while long
+      // comparison content scrolls independently above it.
       const continueEditing = review.graph.getByRole('button', { name: 'Continue editing' });
       const continueBounds = await continueEditing.boundingBox();
       const centerBounds = await review.center.boundingBox();
@@ -435,7 +457,7 @@ test.describe('FVRC-1006 graph review responsive and accessible layout', () => {
       await expect(accept).toBeEnabled();
       await accept.click();
       await expect(review.graph.getByTestId('graph-review-confirmation')).toBeVisible();
-      await expectMobileGraphReadingArea(review.layout, review.graph);
+      await expectMobileGraphReadingArea(review.layout, review.graph, 144);
       await testInfo.attach('graph-review-deep-confirm-reading-area-320px.png', {
         body: await review.center.screenshot(), contentType: 'image/png',
       });

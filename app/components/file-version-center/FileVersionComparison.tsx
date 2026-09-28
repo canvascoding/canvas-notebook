@@ -3,7 +3,6 @@
 import {
   AlertTriangle,
   Braces,
-  Code2,
   Columns2,
   FileDiff,
   FileQuestion,
@@ -160,14 +159,34 @@ function DiffSide({
   );
 }
 
-function SourceSide({ heading, content, candidate = false }: { heading: string; content: string; candidate?: boolean }) {
+function UnifiedDiff({ hunks }: { hunks: FileVersionDiffHunkV1[] }) {
   return (
-    <div className="min-w-max">
-      <div className={cn(
-        'sticky top-0 z-10 border-b bg-background/95 px-3 py-2 text-xs font-semibold backdrop-blur-sm',
-        candidate && 'text-violet-700 dark:text-violet-300',
-      )}>{heading}</div>
-      <pre className="m-0 whitespace-pre p-4 font-mono text-xs leading-5">{content || ' '}</pre>
+    <div className="overflow-hidden rounded-lg border" data-testid="file-version-mobile-unified-diff">
+      {hunks.map((hunk) => (
+        <section key={hunk.id} className="border-b last:border-b-0"
+          aria-label={`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines}`}>
+          <div className="sticky top-0 z-10 border-y bg-muted/90 px-3 py-1.5 font-mono text-[11px] text-muted-foreground backdrop-blur-sm">
+            @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines}
+          </div>
+          <pre className="m-0 min-w-0 overflow-x-auto overscroll-x-contain text-xs leading-5">
+            {hunk.lines.map((line, index) => (
+              <span key={`${hunk.id}:mobile:${index}`} className={cn(
+                'grid grid-cols-[2.5rem_1rem_minmax(max-content,1fr)] border-t border-border/35',
+                line.kind === 'addition' && 'bg-emerald-500/[0.08] text-emerald-800 dark:text-emerald-200',
+                line.kind === 'deletion' && 'bg-destructive/[0.07] text-destructive',
+              )}>
+                <span aria-hidden="true" className="border-r bg-muted/20 px-1.5 text-right tabular-nums text-muted-foreground">
+                  {line.newLineNumber ?? line.oldLineNumber ?? ''}
+                </span>
+                <span aria-hidden="true" className="text-center">
+                  {line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '−' : ' '}
+                </span>
+                <span className="whitespace-pre px-2">{line.text || ' '}</span>
+              </span>
+            ))}
+          </pre>
+        </section>
+      ))}
     </div>
   );
 }
@@ -438,21 +457,25 @@ function LoadedComparison({
       ) : (
         <Tabs defaultValue="changes" className="min-h-0 flex-1 gap-0 overflow-hidden">
           <div className="border-b px-3 py-2 sm:px-4">
-            <TabsList aria-label={t('comparisonViews')} className="h-9 w-full justify-start overflow-x-auto">
+            <TabsList aria-label={t('comparisonViews')} className="grid h-9 w-full grid-cols-3 sm:max-w-xl">
               <TabsTrigger value="changes"><FileDiff aria-hidden="true" />{t('tabs.changes')}</TabsTrigger>
               <TabsTrigger value="preview"><Columns2 aria-hidden="true" />{t('tabs.preview')}</TabsTrigger>
-              <TabsTrigger value="source"><Code2 aria-hidden="true" />{t('tabs.source')}</TabsTrigger>
               <TabsTrigger value="details"><Info aria-hidden="true" />{t('tabs.details')}</TabsTrigger>
             </TabsList>
           </div>
           <TabsContent value="changes" className="min-h-0 overflow-auto p-3 sm:p-4">
             {payload.response.hunks.length > 0 ? (
-              <SynchronizedPanes
-                left={<DiffSide hunks={payload.response.hunks} side="current" heading={t('currentVersion')} />}
-                right={<DiffSide hunks={payload.response.hunks} side="candidate" heading={selectedTitle} />}
-                leftLabel={t('currentDiffLabel')}
-                rightLabel={t('candidateDiffLabel')}
-              />
+              <>
+                <div className="md:hidden"><UnifiedDiff hunks={payload.response.hunks} /></div>
+                <div className="hidden md:block">
+                  <SynchronizedPanes
+                    left={<DiffSide hunks={payload.response.hunks} side="current" heading={t('currentVersion')} />}
+                    right={<DiffSide hunks={payload.response.hunks} side="candidate" heading={selectedTitle} />}
+                    leftLabel={t('currentDiffLabel')}
+                    rightLabel={t('candidateDiffLabel')}
+                  />
+                </div>
+              </>
             ) : (
               <p className="rounded-lg border border-dashed p-5 text-center text-sm text-muted-foreground">{t('noDifferences')}</p>
             )}
@@ -492,14 +515,6 @@ function LoadedComparison({
                 <pre className="whitespace-pre-wrap break-words rounded-lg border bg-muted/20 p-4 text-sm">{payload.preview.candidate}</pre>
               )}
             </div>
-          </TabsContent>
-          <TabsContent value="source" className="min-h-0 overflow-auto p-3 sm:p-4">
-            <SynchronizedPanes
-              left={<SourceSide heading={t('currentVersion')} content={payload.preview.current} />}
-              right={<SourceSide heading={selectedTitle} content={payload.preview.candidate ?? ''} candidate />}
-              leftLabel={t('currentSourceLabel')}
-              rightLabel={t('candidateSourceLabel')}
-            />
           </TabsContent>
           <TabsContent value="details" className="min-h-0 overflow-auto p-4 sm:p-5">
             <ComparisonDetails payload={payload} entry={entry} />
@@ -576,7 +591,7 @@ export function FileVersionComparison({
     : 'empty';
 
   return (
-    <main className="flex min-h-[24rem] min-w-0 flex-col bg-background md:min-h-0">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
       {localSyncPending ? <div role="status" data-testid="graph-review-local-sync-pending"
         className="flex items-start gap-2 border-b border-amber-500/35 bg-amber-500/[0.06] px-4 py-3 text-xs text-amber-900 dark:text-amber-100">
         <ShieldAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />

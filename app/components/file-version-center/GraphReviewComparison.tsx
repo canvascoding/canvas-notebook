@@ -106,9 +106,9 @@ function GraphHunks({ hunks }: { hunks: ProposalReviewCompareResponseV1['hunks']
       <div className="bg-muted/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
         @@ -{hunk.oldStart},{hunk.oldLines} +{hunk.newStart},{hunk.newLines}
       </div>
-      <pre className="overflow-x-auto text-xs leading-5">{hunk.lines.map((line, index) => <span
+      <pre className="min-w-0 overflow-x-auto overscroll-x-contain text-xs leading-5">{hunk.lines.map((line, index) => <span
         key={`${hunk.id}:${index}`}
-        className={`grid grid-cols-[3rem_1rem_minmax(max-content,1fr)] border-t border-border/40 ${line.kind === 'addition'
+        className={`grid grid-cols-[2.5rem_1rem_minmax(max-content,1fr)] border-t border-border/40 sm:grid-cols-[3rem_1rem_minmax(max-content,1fr)] ${line.kind === 'addition'
           ? 'bg-emerald-500/[0.08] text-emerald-800 dark:text-emerald-200'
           : line.kind === 'deletion' ? 'bg-destructive/[0.07] text-destructive' : ''}`}
       >
@@ -814,13 +814,13 @@ export function GraphReviewComparison({
   const pendingAllowed = pending?.action === 'accept' || pending?.action === 'completeSatisfied'
     ? contentActionAllowed : metadataActionAllowed;
 
-  return <div className="flex min-w-0 flex-none flex-col overflow-visible md:min-h-0 md:flex-1 md:overflow-hidden"
+  return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
     data-testid="graph-review-comparison">
     {reviewPending ? <div role={loadError ? 'alert' : 'status'} className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2.5 text-sm">
       <span>{showError ?? t('graph.refreshing')}</span>
       {!loading && <Button type="button" variant="outline" size="sm" onClick={refresh}><RefreshCw className="size-4" aria-hidden="true" />{t('retry')}</Button>}
     </div> : null}
-    <div className="flex min-h-48 flex-none flex-col overflow-visible md:min-h-0 md:flex-1 md:overflow-y-auto"
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain"
       data-testid="graph-review-body">
       <div className="border-b px-4 py-3 sm:px-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -911,7 +911,7 @@ export function GraphReviewComparison({
         <GraphDiagnosis diagnosis={session.diagnosis} session={session} checkedAt={actionIdentity ? statusCheckedAt : null} />
       </div>
     </div>
-    <div data-testid="graph-review-footer" className="min-w-0 shrink-0 space-y-3 border-t bg-muted/15 px-4 py-3 sm:px-5 [&_button]:h-auto [&_button]:min-h-8 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:break-words [&_button]:whitespace-normal [&_button]:px-3 [&_button]:py-2 [&_button]:text-center [&_button]:leading-tight">
+    <div data-testid="graph-review-footer" className="min-w-0 shrink-0 space-y-3 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:px-5 sm:pb-3 [&_button]:h-auto [&_button]:min-h-8 [&_button]:min-w-0 [&_button]:max-w-full [&_button]:break-words [&_button]:whitespace-normal [&_button]:px-3 [&_button]:py-2 [&_button]:text-center [&_button]:leading-tight">
       {available && displayCompare && (displayCompare.page.hasMore || compareError) ? <div
         className="flex min-w-0 flex-wrap items-center justify-between gap-2" data-testid="graph-review-incomplete">
         <div className="min-w-0 flex-1 text-xs">
@@ -973,9 +973,10 @@ export function GraphReviewComparison({
           </Button>
         </div>
       </div> : null}
-      <div className="flex min-w-0 flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div data-testid="graph-review-actions"
+        className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between [&>button]:w-full sm:[&>button]:w-auto">
         <Button ref={continueButtonRef} type="button" variant="ghost" size="sm" disabled={actionBusy} onClick={onContinue}>{t('actions.continue')}</Button>
-        <div className="flex min-w-0 flex-wrap justify-end gap-2">
+        <div className="contents sm:flex sm:min-w-0 sm:flex-wrap sm:justify-end sm:gap-2 sm:[&_button]:w-auto [&_button]:w-full">
           {!historicalProposal && preparedActions.reject ? <Button type="button" variant="outline" size="sm" disabled={!metadataActionAllowed}
             onClick={(event) => { pendingReturnFocusRef.current = event.currentTarget;
               confirmationFocusRequestedRef.current = true;

@@ -126,7 +126,7 @@ export function FileVersionActions({
   const busyLabel = busy ? t(`actions.busy.${busy}`) : null;
 
   return (
-    <div className="shrink-0 border-t bg-muted/15 px-4 py-3 sm:px-5">
+    <div className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur-sm sm:px-5 sm:pb-3">
       {error ? (
         <Alert variant="destructive" className="mb-3 rounded-lg" data-testid="file-version-action-error">
           <AlertTitle>{t(actionErrorKey(error))}</AlertTitle>

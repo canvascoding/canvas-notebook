@@ -124,7 +124,7 @@ function TimelineRow({
         data-proposal-relation={proposal?.relation}
         onClick={onSelect}
         className={cn(
-          'group w-full rounded-lg border px-3 py-3 text-left transition-colors',
+          'group w-full rounded-lg border p-2.5 text-left transition-colors sm:p-3',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
           isAgent && !historicalLifecycle && 'border-violet-500/25 bg-violet-500/[0.045] hover:bg-violet-500/[0.085]',
           historicalLifecycle && 'border-border bg-muted/25 hover:bg-muted/40',
@@ -148,12 +148,12 @@ function TimelineRow({
             <Icon className="size-4" aria-hidden="true" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex min-w-0 flex-col items-start gap-1.5 min-[380px]:flex-row min-[380px]:justify-between min-[380px]:gap-2">
               <span className="truncate text-sm font-medium">{title}</span>
               <Badge
                 variant="outline"
                 className={cn(
-                  'shrink-0 bg-background/70 font-medium',
+                  'max-w-full shrink-0 whitespace-normal bg-background/70 text-left text-[11px] leading-4 font-medium min-[380px]:max-w-[10rem] min-[380px]:text-right',
                   isAgent && !conflict && !failed && !historicalLifecycle && 'border-violet-500/30 text-violet-700 dark:text-violet-200',
                   historicalLifecycle && 'border-border text-foreground',
                   isCurrent && 'border-emerald-500/30 text-emerald-700 dark:text-emerald-200',
@@ -165,15 +165,16 @@ function TimelineRow({
                 {status}
               </Badge>
             </span>
-            <span className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-              {entry.kind !== 'current' && entry.actor.type === 'agent'
-                ? <Bot className="size-3" aria-hidden="true" />
-                : entry.kind !== 'current' && entry.actor.type === 'user'
-                  ? <UserRound className="size-3" aria-hidden="true" />
-                  : <Clock3 className="size-3" aria-hidden="true" />}
-              <span className="truncate">{actor}</span>
-              <span aria-hidden="true">·</span>
-              <time dateTime={entryTimestamp(entry)}>{timestamp}</time>
+            <span className="mt-1.5 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 text-xs text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-1.5">
+                {entry.kind !== 'current' && entry.actor.type === 'agent'
+                  ? <Bot className="size-3 shrink-0" aria-hidden="true" />
+                  : entry.kind !== 'current' && entry.actor.type === 'user'
+                    ? <UserRound className="size-3 shrink-0" aria-hidden="true" />
+                    : <Clock3 className="size-3 shrink-0" aria-hidden="true" />}
+                <span className="truncate">{actor}</span>
+              </span>
+              <time className="shrink-0 tabular-nums" dateTime={entryTimestamp(entry)}>{timestamp}</time>
             </span>
             {diff ? <span className="mt-1 block text-xs font-medium text-muted-foreground">{diff}</span> : null}
             {evaluation?.reasonCode && !historicalLifecycle ? <span className="mt-1 block text-xs text-amber-800 dark:text-amber-200">
@@ -276,7 +277,7 @@ export function FileVersionTimeline({
   );
 
   return (
-    <nav aria-label={t('timelineLabel')} className="flex min-h-[18rem] flex-col bg-muted/[0.12] md:min-h-0 md:border-r">
+    <nav aria-label={t('timelineLabel')} className="flex size-full min-h-0 flex-1 flex-col bg-muted/[0.12] md:border-r">
       {readOnly ? (
         <div role="status" className="m-4 mb-0 flex gap-2 rounded-lg border bg-background/80 px-3 py-2.5 text-xs text-muted-foreground">
           <LockKeyhole className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -294,8 +295,8 @@ export function FileVersionTimeline({
           <span>{t('selectionInvalidated')}</span>
         </div>
       ) : null}
-      <ScrollArea className="min-h-[18rem] flex-1 md:min-h-0 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!w-full">
-        <div className="w-full space-y-6 p-4 pb-6">
+      <ScrollArea className="min-h-0 flex-1 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!w-full">
+        <div className="w-full space-y-5 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:space-y-6 sm:pb-6">
           {section('version-center-reviews', t('reviewsHeading'), groups.reviews, t('noReviews'), undefined, reviewContent)}
           {section('version-center-current', t('currentHeading'), groups.current ? [groups.current] : [], t('currentUnavailable'))}
           {section(

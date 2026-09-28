@@ -193,7 +193,9 @@ async function main() {
   ));
   await settle();
 
-  assert.equal(document.querySelectorAll('[role="tab"]').length, 4, 'all comparison views are keyboard-reachable tabs');
+  assert.equal(document.querySelectorAll('[role="tab"]').length, 3, 'the focused comparison views are keyboard-reachable tabs');
+  assert.equal([...document.querySelectorAll('[role="tab"]')].some((element) => element.textContent === 'Source'), false,
+    'the redundant full-source view is not exposed');
   assert.match(document.body.textContent ?? '', /Old milestone[\s\S]*New milestone/u);
   const panes = [...document.querySelectorAll<HTMLElement>('[data-synchronized-scroll="true"] [role="region"]')];
   assert.equal(panes.length, 2);
@@ -228,10 +230,9 @@ async function main() {
     tab('Preview').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
   });
   await settle();
-  assert.equal(document.activeElement, tab('Source'), 'arrow-key navigation moves focus to the next comparison view');
-  assert.match(document.body.textContent ?? '', /CURRENT-SOURCE-TAIL/u);
-  assert.match(document.body.textContent ?? '', /COMPLETE-CANDIDATE-TAIL-/u, 'source view exposes both complete sides');
-  await selectTab('Details');
+  assert.equal(document.activeElement, tab('Details'), 'arrow-key navigation skips the removed source view');
+  assert.doesNotMatch(document.body.textContent ?? '', /CURRENT-SOURCE-TAIL/u,
+    'the current full source is not rendered as a selectable comparison view');
   assert.match(document.body.textContent ?? '', /revision-seven/u);
   assert.match(document.body.textContent ?? '', new RegExp('a{64}', 'u'));
 

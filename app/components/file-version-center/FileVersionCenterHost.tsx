@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { FileClock, FileQuestion, RefreshCw } from 'lucide-react';
+import { ArrowLeft, FileClock, FileQuestion, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
@@ -46,11 +46,18 @@ import { readOpenCollaborationReviewReadiness, subscribeOpenCollaborationReviewR
 import { useEditorStore } from '@/app/store/editor-store';
 import { useFileStore } from '@/app/store/file-store';
 import { useRouter } from '@/i18n/navigation';
+import { cn } from '@/lib/utils';
 import { invalidateReviewQueries } from '@/app/lib/queries/review-queries';
 import { FileVersionLoadingSkeleton } from './FileVersionLoadingSkeleton';
 import { FileVersionComparison } from './FileVersionComparison';
 import { FileVersionTimeline } from './FileVersionTimeline';
 import type { GraphReviewCardStatus } from './GraphReviewComparison';
+
+type MobileReviewPane = 'timeline' | 'comparison';
+
+function mobileReviewPaneKey(request: FileVersionCenterRequestV1 | null): string | null {
+  return request ? JSON.stringify([request.target, request.selectedEntry ?? null]) : null;
+}
 
 function subscribeFileVersionAuth(listener: () => void): () => void {
   // Initial session hydration is not a revocation, but it still changes the
@@ -106,6 +113,14 @@ export function FileVersionCenterHost() {
   const requestGenerationRef = useRef(0);
   const paginationAbortRef = useRef<AbortController | null>(null);
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  const mobileSelectionFocusRef = useRef<HTMLElement | null>(null);
+  const mobileDetailHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const mobileTimelinePaneRef = useRef<HTMLDivElement | null>(null);
+  const mobilePaneKey = mobileReviewPaneKey(request);
+  const [mobilePaneOverride, setMobilePaneOverride] = useState<{ key: string; pane: MobileReviewPane } | null>(null);
+  const mobilePane = mobilePaneOverride?.key === mobilePaneKey
+    ? mobilePaneOverride.pane
+    : request?.selectedEntry ? 'comparison' : 'timeline';
   const purgeResolvedReview = useCallback((identity: string) => {
     setResolvedTimeline((current) => current?.identity === identity ? null : current);
     setReviewCard(null);
@@ -391,8 +406,32 @@ export function FileVersionCenterHost() {
   }, [request, resolvedTimeline, selection, timeline, visibleReviewCard]);
 
   const selectEntry = useCallback((entry: FileVersionTimelineEntryV1) => {
-    selectVersionCenterEntry(entry.kind === 'current' ? null : { kind: entry.kind, id: entry.id });
-  }, []);
+    if (document.activeElement instanceof HTMLElement) mobileSelectionFocusRef.current = document.activeElement;
+    const selectedEntry: FileVersionCenterRequestV1['selectedEntry'] = entry.kind === 'current'
+      ? undefined : { kind: entry.kind, id: entry.id };
+    const nextRequest = request ? { ...request, selectedEntry } : null;
+    const nextKey = mobileReviewPaneKey(nextRequest);
+    if (nextKey) setMobilePaneOverride({ key: nextKey, pane: entry.kind === 'current' ? 'timeline' : 'comparison' });
+    selectVersionCenterEntry(selectedEntry ?? null);
+  }, [request]);
+
+  const showMobileTimeline = useCallback(() => {
+    if (mobilePaneKey) setMobilePaneOverride({ key: mobilePaneKey, pane: 'timeline' });
+  }, [mobilePaneKey]);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function' || !window.matchMedia('(max-width: 767px)').matches) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (mobilePane === 'comparison') mobileDetailHeadingRef.current?.focus();
+      else {
+        const returnFocus = mobileSelectionFocusRef.current?.isConnected
+          ? mobileSelectionFocusRef.current
+          : mobileTimelinePaneRef.current?.querySelector<HTMLElement>('button[aria-pressed="true"]');
+        returnFocus?.focus();
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [mobilePane, selection?.key]);
 
   const loadMore = useCallback(async () => {
     const activeRequest = request;
@@ -431,6 +470,11 @@ export function FileVersionCenterHost() {
   const targetLabel = resolvedPath ?? (request?.target.kind === 'path'
     ? request.target.pathHint
     : t('resolvingDocument'));
+  const mobileDetailTitle = selection?.entry?.kind === 'agent_operation'
+    ? t('agentProposal')
+    : selection?.entry?.kind === 'revision'
+      ? t('revisionNumber', { number: selection.entry.revisionNumber })
+      : t('currentVersion');
 
   const invalidateTimeline = useCallback(async (action?: FileVersionMutation) => {
     if (!request || openedDocumentAuthScope() !== authScope) return;
@@ -518,9 +562,9 @@ export function FileVersionCenterHost() {
             returnFocus.focus();
           }}
         >
-          <DialogHeader className="border-b px-5 py-4 pr-14 sm:px-6">
+          <DialogHeader className="border-b px-4 py-3 pr-12 sm:px-6 sm:py-4 sm:pr-14">
             <div className="flex min-w-0 items-center gap-3">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/45 text-muted-foreground">
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-muted/45 text-muted-foreground sm:size-9">
                 <FileClock className="size-4" aria-hidden="true" />
               </span>
               <div className="min-w-0">
@@ -567,32 +611,54 @@ export function FileVersionCenterHost() {
             ) : timeline && selection ? (
               <div
                 data-testid="file-version-center-responsive-layout"
-                className="grid size-full min-h-0 flex-1 grid-cols-1 overflow-y-auto md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] md:overflow-hidden"
+                data-mobile-pane={mobilePane}
+                className="grid size-full min-h-0 flex-1 grid-cols-1 overflow-hidden md:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)]"
               >
-                <FileVersionTimeline
-                  timeline={timeline}
-                  selection={selection}
-                  evaluatedReview={visibleReviewCard}
-                  reviewSummary={visibleReviewSummary?.items ?? null}
-                  reviewGroupRoots={reviewGroupRoots}
-                  reviewSummaryError={visibleReviewSummaryError}
-                  onRetryReviewSummary={() => setReviewSummaryReload((value) => value + 1)}
-                  onSelect={selectEntry}
-                  onLoadMore={() => { void loadMore(); }}
-                  loadingMore={loadingMore}
-                  loadMoreError={loadMoreError}
-                />
-                <FileVersionComparison
-                  request={request}
-                  timeline={timeline}
-                  selection={selection}
-                  onTimelineInvalidate={invalidateTimeline}
-                  onContinue={continueEditing}
-                  onGraphReviewStatus={onGraphReviewStatus}
-                  localSyncPending={localCollaborationPending}
-                  isRevalidating={loading || externalRefresh}
-                  isStale={Boolean(error) || invalidatedTarget === targetIdentity || unsavedReviewDocument}
-                />
+                <div
+                  ref={mobileTimelinePaneRef}
+                  data-testid="file-version-center-mobile-timeline-pane"
+                  className={cn('min-h-0 min-w-0 flex-col', mobilePane === 'timeline' ? 'flex' : 'hidden', 'md:flex')}
+                >
+                  <FileVersionTimeline
+                    timeline={timeline}
+                    selection={selection}
+                    evaluatedReview={visibleReviewCard}
+                    reviewSummary={visibleReviewSummary?.items ?? null}
+                    reviewGroupRoots={reviewGroupRoots}
+                    reviewSummaryError={visibleReviewSummaryError}
+                    onRetryReviewSummary={() => setReviewSummaryReload((value) => value + 1)}
+                    onSelect={selectEntry}
+                    onLoadMore={() => { void loadMore(); }}
+                    loadingMore={loadingMore}
+                    loadMoreError={loadMoreError}
+                  />
+                </div>
+                <div
+                  data-testid="file-version-center-mobile-comparison-pane"
+                  className={cn('min-h-0 min-w-0 flex-col bg-background', mobilePane === 'comparison' ? 'flex' : 'hidden', 'md:flex')}
+                >
+                  <div className="flex shrink-0 items-center gap-2 border-b bg-background/95 px-3 py-2.5 backdrop-blur-sm md:hidden">
+                    <Button type="button" variant="ghost" size="sm" className="shrink-0" onClick={showMobileTimeline}>
+                      <ArrowLeft className="size-4" aria-hidden="true" />
+                      {t('mobileBackToTimeline')}
+                    </Button>
+                    <h2 ref={mobileDetailHeadingRef} tabIndex={-1}
+                      className="min-w-0 flex-1 truncate text-right text-sm font-semibold outline-none">
+                      {mobileDetailTitle}
+                    </h2>
+                  </div>
+                  <FileVersionComparison
+                    request={request}
+                    timeline={timeline}
+                    selection={selection}
+                    onTimelineInvalidate={invalidateTimeline}
+                    onContinue={continueEditing}
+                    onGraphReviewStatus={onGraphReviewStatus}
+                    localSyncPending={localCollaborationPending}
+                    isRevalidating={loading || externalRefresh}
+                    isStale={Boolean(error) || invalidatedTarget === targetIdentity || unsavedReviewDocument}
+                  />
+                </div>
               </div>
             ) : null}
           </div>
