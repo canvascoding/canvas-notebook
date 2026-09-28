@@ -147,6 +147,22 @@ bei `ctranslate2` und `tokenizers` sind Gegenstand der offenen
 Einzelpruefung; der gebundene externe Apache-Text fuer `tokenizers`
 ist oben dokumentiert.
 
+Fuer `hf-xet@1.6.0` erfasst
+[`hf-xet-native-evidence.json`](hf-xet-native-evidence.json) die native
+Erweiterung aus genau diesen beiden historischen lokalen Images. Das
+[`capture-hf-xet-native-evidence.py`](../../scripts/capture-hf-xet-native-evidence.py)
+prueft den SHA-256-Hash und die Groesse gegen den jeweiligen Wheel-`RECORD`-
+Eintrag, die ELF-Architektur und die dynamisch benoetigten Bibliotheken.
+Die Erweiterung hat SHA-256
+`9f493e4d60ce7d973f77d6e638efc9fa59329967de8b17d2fb83baf3ed8d73b9`
+auf amd64 und
+`bcc6a3cbf4e36c16df2c40c5b124852be2acb293fc4130e11224029a04adc383`
+auf arm64; beide `RECORD`-Pruefungen bestehen. Dies belegt den Inhalt und
+die dynamische Linkage dieser historischen Images. Herkunft und Rechte
+statisch eingebetteter Rust-/Drittkomponenten sowie die kommerzielle
+Freigabe bleiben offen. Ein neuer Release-Image-Build muss separat gegen
+seine eigene Image-ID geprueft werden.
+
 Der exakte CTranslate2-Tag `v4.8.2` verweist auf Commit
 `d44d2d069eb88c7b7804da864c10c201501cb4a9`. Sein
 [MIT-Lizenztext](https://github.com/OpenNMT/CTranslate2/blob/v4.8.2/LICENSE)
