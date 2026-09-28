@@ -7392,6 +7392,74 @@
         "record_only": "Results remain only in the automation history."
       }
     },
+    "continuity": {
+      "title": "Continuity & sources",
+      "modeLabel": "Use previous results",
+      "mode": {
+        "off": "Off",
+        "last_relevant": "Last relevant result"
+      },
+      "description": {
+        "off": "Each run starts without a previous result from this automation.",
+        "last_relevant": "Add a short excerpt from this automation's last relevant successful run when there is room in the context."
+      },
+      "sourcesTitle": "Other automations",
+      "sourcesDescription": "Optionally include the last relevant result from up to three active automations in the same workspace. Only readable sources are used at run time.",
+      "noSources": "No other active automation is available in this workspace.",
+      "sourceUnavailable": "A configured source ({id}) is no longer available here. Remove it to update this automation.",
+      "removeSource": "Remove",
+      "sourceCount": "{count} of 3 selected",
+      "misfireHint": "Scheduled runs more than 90 seconds late are skipped after an outage. The next occurrence remains scheduled.",
+      "state": {
+        "title": "Automation knowledge",
+        "summary": "Saved state",
+        "description": "Keys and revisions are shown here. A value is loaded only when you select Show value.",
+        "refresh": "Refresh state",
+        "loading": "Loading state…",
+        "empty": "No saved state yet.",
+        "revision": "Revision {revision}",
+        "reveal": "Show value",
+        "reset": "Reset key",
+        "resetReadOnly": "Reset requires workspace write access.",
+        "resetSuccess": "Key reset.",
+        "loadError": "Automation state could not be loaded.",
+        "readError": "The value could not be loaded.",
+        "resetError": "The key could not be reset. Refresh to see its current revision."
+      },
+      "run": {
+        "title": "Context used for this run",
+        "description": "Shows which earlier results were available and what fit into the run context.",
+        "previous": "Previous result",
+        "sources": "Other automations",
+        "contextSize": "Additional context",
+        "tokens": "About {count} tokens",
+        "truncated": "Excerpt shortened to fit",
+        "omitted": "Omitted",
+        "removedSource": "Unavailable source"
+      },
+      "reasons": {
+        "included": "Included",
+        "included_truncated": "Included in shortened form",
+        "already_in_session": "Already present in the selected chat",
+        "disabled": "Disabled",
+        "no_relevant_run": "No relevant earlier result",
+        "budget_exhausted": "Not enough context space",
+        "final_budget_exceeded": "Omitted to fit the model context",
+        "context_unavailable": "Context could not be loaded",
+        "scope_changed": "Workspace scope changed",
+        "target_scope_changed": "Workspace scope changed",
+        "source_missing": "Source no longer exists",
+        "source_scope_changed": "Source changed workspace scope",
+        "source_unavailable": "Source is unavailable",
+        "source_access_denied": "Source is no longer readable",
+        "source_unconfigured": "Source was removed from this automation",
+        "source_run_missing": "Earlier source run is unavailable",
+        "source_run_scope_changed": "Earlier source run changed scope",
+        "source_scope_reset": "Earlier results were reset",
+        "source_not_relevant": "Earlier source run was not relevant",
+        "other": "Not included"
+      }
+    },
     "trigger": {
       "label": "Trigger",
       "schedule": "On a schedule",

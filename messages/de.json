@@ -7391,6 +7391,74 @@
         "record_only": "Ergebnisse bleiben ausschließlich in der Automationshistorie."
       }
     },
+    "continuity": {
+      "title": "Kontinuität & Quellen",
+      "modeLabel": "Frühere Ergebnisse verwenden",
+      "mode": {
+        "off": "Aus",
+        "last_relevant": "Letztes relevantes Ergebnis"
+      },
+      "description": {
+        "off": "Jeder Lauf startet ohne ein früheres Ergebnis dieser Automation.",
+        "last_relevant": "Ein kurzer Auszug aus dem letzten relevanten erfolgreichen Lauf wird bei ausreichendem Kontextplatz hinzugefügt."
+      },
+      "sourcesTitle": "Andere Automationen",
+      "sourcesDescription": "Optional das letzte relevante Ergebnis von bis zu drei aktiven Automationen desselben Workspaces einbeziehen. Zur Laufzeit werden nur lesbare Quellen verwendet.",
+      "noSources": "In diesem Workspace ist keine weitere aktive Automation verfügbar.",
+      "sourceUnavailable": "Eine konfigurierte Quelle ({id}) ist hier nicht mehr verfügbar. Entferne sie, um diese Automation zu aktualisieren.",
+      "removeSource": "Entfernen",
+      "sourceCount": "{count} von 3 ausgewählt",
+      "misfireHint": "Geplante Läufe mit mehr als 90 Sekunden Verspätung werden nach einem Ausfall übersprungen. Der nächste Termin bleibt bestehen.",
+      "state": {
+        "title": "Wissen der Automation",
+        "summary": "Gespeicherter Zustand",
+        "description": "Hier siehst du Schlüssel und Revisionen. Ein Wert wird erst nach Klick auf Wert anzeigen geladen.",
+        "refresh": "Zustand aktualisieren",
+        "loading": "Lade Zustand…",
+        "empty": "Noch kein Zustand gespeichert.",
+        "revision": "Revision {revision}",
+        "reveal": "Wert anzeigen",
+        "reset": "Schlüssel zurücksetzen",
+        "resetReadOnly": "Zum Zurücksetzen ist Schreibzugriff auf den Workspace erforderlich.",
+        "resetSuccess": "Schlüssel zurückgesetzt.",
+        "loadError": "Der Zustand der Automation konnte nicht geladen werden.",
+        "readError": "Der Wert konnte nicht geladen werden.",
+        "resetError": "Der Schlüssel konnte nicht zurückgesetzt werden. Aktualisiere die Revision."
+      },
+      "run": {
+        "title": "Kontext dieses Laufs",
+        "description": "Zeigt, welche früheren Ergebnisse verfügbar waren und was in den Laufkontext passte.",
+        "previous": "Früheres Ergebnis",
+        "sources": "Andere Automationen",
+        "contextSize": "Zusätzlicher Kontext",
+        "tokens": "Etwa {count} Token",
+        "truncated": "Auszug passend gekürzt",
+        "omitted": "Weggelassen",
+        "removedSource": "Nicht verfügbare Quelle"
+      },
+      "reasons": {
+        "included": "Einbezogen",
+        "included_truncated": "Gekürzt einbezogen",
+        "already_in_session": "Bereits im gewählten Chat vorhanden",
+        "disabled": "Deaktiviert",
+        "no_relevant_run": "Kein relevantes früheres Ergebnis",
+        "budget_exhausted": "Nicht genug Kontextplatz",
+        "final_budget_exceeded": "Wegen des Modellkontexts weggelassen",
+        "context_unavailable": "Kontext konnte nicht geladen werden",
+        "scope_changed": "Workspace-Geltungsbereich geändert",
+        "target_scope_changed": "Workspace-Geltungsbereich geändert",
+        "source_missing": "Quelle existiert nicht mehr",
+        "source_scope_changed": "Quelle hat ihren Workspace-Geltungsbereich geändert",
+        "source_unavailable": "Quelle ist nicht verfügbar",
+        "source_access_denied": "Quelle ist nicht mehr lesbar",
+        "source_unconfigured": "Quelle wurde aus dieser Automation entfernt",
+        "source_run_missing": "Früherer Quelllauf ist nicht verfügbar",
+        "source_run_scope_changed": "Früherer Quelllauf hat den Geltungsbereich geändert",
+        "source_scope_reset": "Frühere Ergebnisse wurden zurückgesetzt",
+        "source_not_relevant": "Früherer Quelllauf war nicht relevant",
+        "other": "Nicht einbezogen"
+      }
+    },
     "trigger": {
       "label": "Auslöser",
       "schedule": "Nach Zeitplan",

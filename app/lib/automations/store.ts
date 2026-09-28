@@ -281,9 +281,11 @@ function readAutomationContinuityReference(metadataJson: string | null): Automat
 function normalizeAutomationSourceJobIds(value: unknown): string[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value) || value.length > 3 || value.some((id) => typeof id !== 'string' || !id.trim() || id !== id.trim() || id.length > 200)) {
-    throw new Error('Automation source jobs must be a list of at most three job IDs.');
+    throw new AutomationMutationError('Automation source jobs must be a list of at most three job IDs.', 400, 'INVALID_AUTOMATION_SOURCES');
   }
-  if (new Set(value).size !== value.length) throw new Error('Automation source jobs must be unique.');
+  if (new Set(value).size !== value.length) {
+    throw new AutomationMutationError('Automation source jobs must be unique.', 400, 'INVALID_AUTOMATION_SOURCES');
+  }
   return value as string[];
 }
 
@@ -357,14 +359,14 @@ async function assertAutomationSourceConfiguration(input: {
   };
   for (const id of input.sourceJobIds) {
     if (id === input.target.id || await reachesTarget(id)) {
-      throw new Error('Automation source jobs cannot contain a cycle or self-reference.');
+      throw new AutomationMutationError('Automation source jobs cannot contain a cycle or self-reference.', 400, 'AUTOMATION_SOURCE_CYCLE');
     }
     const [source] = await input.tx.select().from(automationJobs).where(eq(automationJobs.id, id)).limit(1);
     if (!source || source.deletedAt || source.status !== 'active' || source.integrityStatus !== 'valid'
       || !sameAutomationSourceScope(input.target, source)
       || !(await canReadAutomationSource(input.actorUserId, source))
       || !(await canReadAutomationSource(executorId, source))) {
-      throw new Error('Automation source job is unavailable or not accessible in this workspace.');
+      throw new AutomationMutationError('Automation source job is unavailable or not accessible in this workspace.', 404, 'AUTOMATION_SOURCE_UNAVAILABLE');
     }
   }
 }

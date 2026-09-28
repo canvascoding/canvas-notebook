@@ -38,6 +38,9 @@ async function main(): Promise<void> {
     const { getAutomationJob, getAutomationPreviousRelevantResult, getAutomationSourceResults, markAutomationRunStarted,
       markAutomationRunRetryScheduled, moveAutomationJobToWorkspace, updateAutomationJob } =
       await import('../app/lib/automations/store');
+    const { AutomationMutationError } = await import('../app/lib/automations/mutation-errors');
+    const sourceError = (status: number, message: RegExp) => (error: unknown) =>
+      error instanceof AutomationMutationError && error.status === status && message.test(error.message);
     const { composeAutomationSourceResults, getAutomationTotalContextTokenBudget } =
       await import('../app/lib/automations/context-composer');
     const now = new Date();
@@ -64,13 +67,15 @@ async function main(): Promise<void> {
     await db.insert(automationJobs).values([job('target'), job('source'), job('cross', 'b')]);
     await db.insert(automationJobs).values({ ...job('delegated-target'), responsibleUserId: 'executor' });
     await assert.rejects(updateAutomationJob('delegated-target', { sourceJobIds: ['source'] },
-      { actorUserId: 'owner' }), /unavailable or not accessible/);
+      { actorUserId: 'owner' }), sourceError(404, /unavailable or not accessible/));
     await assert.rejects(updateAutomationJob('target', { sourceJobIds: ['cross'] }, { actorUserId: 'owner' }),
-      /unavailable or not accessible/);
+      sourceError(404, /unavailable or not accessible/));
     assert.deepEqual((await updateAutomationJob('target', { sourceJobIds: ['source'] }, { actorUserId: 'owner' }))?.sourceJobIds, ['source']);
-    await assert.rejects(updateAutomationJob('source', { sourceJobIds: ['target'] }, { actorUserId: 'owner' }), /cycle/);
-    await assert.rejects(updateAutomationJob('target', { sourceJobIds: ['target'] }, { actorUserId: 'owner' }), /cycle/);
-    await assert.rejects(updateAutomationJob('target', { sourceJobIds: ['source', 'source'] }, { actorUserId: 'owner' }), /unique/);
+    await assert.rejects(updateAutomationJob('source', { sourceJobIds: ['target'] }, { actorUserId: 'owner' }), sourceError(400, /cycle/));
+    await assert.rejects(updateAutomationJob('target', { sourceJobIds: ['target'] }, { actorUserId: 'owner' }), sourceError(400, /cycle/));
+    await assert.rejects(updateAutomationJob('target', { sourceJobIds: ['source', 'source'] }, { actorUserId: 'owner' }), sourceError(400, /unique/));
+    await assert.rejects(updateAutomationJob('target', { sourceJobIds: ['one', 'two', 'three', 'four'] },
+      { actorUserId: 'owner' }), sourceError(400, /at most three/));
     await db.insert(automationJobs).values([job('parallel-a'), job('parallel-b')]);
     const parallel = await Promise.allSettled([
       updateAutomationJob('parallel-a', { sourceJobIds: ['parallel-b'] }, { actorUserId: 'owner' }),
