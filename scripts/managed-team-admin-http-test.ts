@@ -90,8 +90,9 @@ async function main() {
       `, [ownerId, memberId, now]);
       await pool.query(`
         INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
-        VALUES ($1, $2, 'credential', $2, $3, $4, $4)
-      `, [crypto.randomUUID(), memberId, passwordHash, now]);
+        VALUES ($1, $2, 'credential', $2, $3, $4, $4),
+          ($5, $6, 'credential', $6, $3, $4, $4)
+      `, [crypto.randomUUID(), memberId, passwordHash, now, crypto.randomUUID(), ownerId]);
       await pool.query(`
         INSERT INTO canvas_organization_settings
           (organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at)
@@ -149,6 +150,96 @@ async function main() {
       });
       const before = await GET(adminRequest(oldCookie));
       assert.equal(before.status, 200, `Admin route denied the initial admin: ${before.status}`);
+
+      const ownerLogin = await auth.handler(new Request('http://localhost:3001/api/auth/sign-in/email', {
+        method: 'POST', headers: { 'content-type': 'application/json', origin: 'http://localhost:3001' },
+        body: JSON.stringify({ email: 'owner@example.test', password }),
+      }));
+      assert.equal(ownerLogin.status, 200);
+      const ownerCookie = ownerLogin.headers.get('set-cookie')?.split(';')[0];
+      assert(ownerCookie);
+      const { GET: reviewGet, PATCH: reviewPatch } = await import('../app/api/license/team/email-review/route');
+      const { processTeamLicenseEmailOutbox } = await import('../app/lib/license/team-license-email-outbox');
+      const reviewRequest = (cookie?: string, body?: Record<string, string>, origin = 'http://localhost:3001') =>
+        new NextRequest('http://localhost:3001/api/license/team/email-review', {
+          method: body ? 'PATCH' : 'GET',
+          headers: { ...(cookie ? { cookie } : {}), ...(body ? { origin, 'content-type': 'application/json' } : {}) },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        });
+      const reviewJob = `license-email-review-${crypto.randomUUID()}`;
+      await pool.query(`
+        INSERT INTO team_license_email_outbox
+          (id, audit_event_id, organization_id, user_id, event_kind, reason, seat_limit,
+            status, attempts, next_attempt_at, error, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, 'owner_grace', 'unknown', 2,
+          'manual_review', 1, $5, 'Delivery result unknown.', $5, $5)
+      `, [reviewJob, reviewJob, organizationId, ownerId, now]);
+      assert.equal((await reviewGet(reviewRequest())).status, 401);
+      assert.equal((await reviewGet(reviewRequest(oldCookie))).status, 403);
+      const ownerReviews = await reviewGet(reviewRequest(ownerCookie));
+      assert.equal(ownerReviews.status, 200);
+      const reviews = (await ownerReviews.json() as { data: Array<{ id: string; recipient: string }> }).data;
+      assert.equal(reviews[0]?.id, reviewJob);
+      assert.equal(reviews[0]?.recipient, 'o***@example.test');
+      assert.equal((await reviewPatch(reviewRequest(ownerCookie,
+        { jobId: reviewJob, decision: 'confirmed_delivered' }, 'https://untrusted.example'))).status, 403);
+      assert.equal((await reviewPatch(reviewRequest(oldCookie,
+        { jobId: reviewJob, decision: 'confirmed_delivered' }))).status, 403);
+      assert.equal((await reviewPatch(reviewRequest(ownerCookie,
+        { jobId: reviewJob, decision: 'confirmed_delivered' }))).status, 200);
+      assert.equal((await reviewPatch(reviewRequest(ownerCookie,
+        { jobId: reviewJob, decision: 'confirmed_not_delivered' }))).status, 409);
+      const { openDb } = await import('../app/lib/db');
+      const reviewDatabase = await openDb();
+      try {
+        let sends = 0;
+        await processTeamLicenseEmailOutbox({ database: reviewDatabase,
+          deliver: async () => { sends += 1; return { messageId: 'should-not-send' }; } });
+        assert.equal(sends, 0);
+      } finally {
+        await reviewDatabase.close();
+      }
+      const resolved = await pool.query<{ status: string }>(
+        'SELECT status FROM team_license_email_outbox WHERE id = $1', [reviewJob],
+      );
+      assert.equal(resolved.rows[0]?.status, 'delivered');
+      const reviewAudit = await pool.query<{ action: string }>(
+        'SELECT action FROM audit_events WHERE entity_type = $1 AND entity_id = $2',
+        ['team_license_email', reviewJob],
+      );
+      assert.equal(reviewAudit.rows[0]?.action, 'team.license_email.confirmed_delivered');
+      const retryJob = `license-email-retry-${crypto.randomUUID()}`;
+      const skipJob = `license-email-skip-${crypto.randomUUID()}`;
+      for (const jobId of [retryJob, skipJob]) {
+        await pool.query(`
+          INSERT INTO team_license_email_outbox
+            (id, audit_event_id, organization_id, user_id, event_kind, reason, seat_limit,
+              status, attempts, next_attempt_at, error, created_at, updated_at)
+          VALUES ($1, $1, $2, $3, 'owner_grace', 'unknown', 2,
+            'manual_review', 1, $4, 'Delivery result unknown.', $4, $4)
+        `, [jobId, organizationId, ownerId, now]);
+      }
+      assert.equal((await reviewPatch(reviewRequest(ownerCookie,
+        { jobId: retryJob, decision: 'confirmed_not_delivered' }))).status, 200);
+      assert.equal((await reviewPatch(reviewRequest(ownerCookie,
+        { jobId: skipJob, decision: 'do_not_send' }))).status, 200);
+      const retryDatabase = await openDb();
+      try {
+        let sends = 0;
+        await processTeamLicenseEmailOutbox({ database: retryDatabase,
+          deliver: async () => { sends += 1; return { messageId: 'confirmed-retry' }; } });
+        await processTeamLicenseEmailOutbox({ database: retryDatabase,
+          deliver: async () => { sends += 1; return { messageId: 'duplicate' }; } });
+        assert.equal(sends, 1);
+      } finally {
+        await retryDatabase.close();
+      }
+      const finalReviews = await pool.query<{ id: string; status: string }>(
+        'SELECT id, status FROM team_license_email_outbox WHERE id = ANY($1) ORDER BY id',
+        [[retryJob, skipJob]],
+      );
+      assert.equal(finalReviews.rows.find((row) => row.id === retryJob)?.status, 'delivered');
+      assert.equal(finalReviews.rows.find((row) => row.id === skipJob)?.status, 'skipped');
 
       const members = [
         { externalUserId: 'central-owner', email: 'owner@example.test', role: 'owner', status: 'active', localIdentityKey: 'member-owner', localUserId: ownerId },

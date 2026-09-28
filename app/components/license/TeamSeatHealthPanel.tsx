@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
+import { TeamLicenseEmailReview } from './TeamLicenseEmailReview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -603,6 +604,7 @@ export function TeamSeatHealthPanel({
                 <dd className="font-mono tabular-nums">{health.emailDelivery?.manualReview ?? 0}</dd>
               </div>
             </dl>
+            <TeamLicenseEmailReview count={health.emailDelivery?.manualReview ?? 0} onReload={onReload} />
           </div>
 
           <div className="space-y-3 p-4">
