@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import * as XLSX from 'xlsx';
-import { Loader2, AlertCircle } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import jspreadsheet from 'jspreadsheet-ce';
 import { workspaceDownloadUrl, workspaceHeaders } from '@/app/lib/files/client';
 
@@ -375,13 +376,10 @@ export const SpreadsheetEditor = forwardRef<SpreadsheetEditorRef, SpreadsheetEdi
     }
 
     return (
-      <div className="spreadsheet-editor-shell flex h-full w-full flex-col bg-background">
+      <div className="spreadsheet-editor-shell relative flex h-full w-full flex-col bg-background">
         {isLoading && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
-            <div className="flex flex-col items-center gap-2">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="text-xs text-muted-foreground">Loading spreadsheet...</span>
-            </div>
+          <div className="absolute inset-0 z-50 bg-background">
+            <DocumentLoadingSkeleton path={path} label="Loading spreadsheet" />
           </div>
         )}
         <div 

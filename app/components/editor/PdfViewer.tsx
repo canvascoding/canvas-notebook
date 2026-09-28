@@ -6,6 +6,7 @@ import { AlertCircle, ChevronLeft, ChevronRight, ExternalLink, Loader2, RotateCw
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import styles from './PdfViewer.module.css';
@@ -572,6 +573,8 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
     ? t('pdfLoading')
     : t('pdfLoadingProgress', { progress });
 
+  if (isLoading) return <DocumentLoadingSkeleton path={path} label={loadingLabel} />;
+
   return (
     <div className="flex h-full w-full flex-col bg-background">
       <div className="flex min-h-12 shrink-0 flex-wrap items-center justify-between gap-2 border-b bg-background px-2 py-2 sm:flex-nowrap sm:px-3">
@@ -661,14 +664,7 @@ export function PdfViewer({ path, sourceUrl }: PdfViewerProps) {
         onScroll={scheduleActivePageUpdate}
         className="min-h-0 flex-1 overflow-auto bg-muted/30 py-4"
       >
-        {isLoading ? (
-          <div className="flex h-full min-h-72 items-center justify-center p-4">
-            <div className="flex flex-col items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-7 w-7 animate-spin text-primary" />
-              <span className="text-sm">{loadingLabel}</span>
-            </div>
-          </div>
-        ) : error ? (
+        {error ? (
           <div className="flex h-full min-h-72 items-center justify-center p-4">
             <div className="flex items-center gap-2 text-sm text-destructive">
               <AlertCircle className="h-4 w-4" />

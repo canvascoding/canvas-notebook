@@ -53,6 +53,7 @@ import {
   type CollaborationDocument,
 } from '@/app/lib/collaboration/client';
 import { getCodeEditorLifecycleKey } from '@/app/lib/collaboration/code-editor-lifecycle';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import type { CollaborationSessionResponse } from '@/app/lib/collaboration/types';
 import {
   resolveAgentTextTargetRanges,
@@ -548,6 +549,12 @@ export function CodeEditor({
 
   if (shouldCollaborate && !collaboration?.ready) {
     const sessionFailed = !collaborationIssuesManagedExternally && !collaboration && sessionResolution.error;
+    if (!sessionFailed) {
+      return <div className="relative h-full min-h-0">
+        <DocumentLoadingSkeleton path={languagePath} label={t('collaboration.connecting')} />
+        {collaborationPanel}
+      </div>;
+    }
     return (
       <div className="relative flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
         <p className="text-sm text-muted-foreground" role={sessionFailed ? 'alert' : 'status'}>

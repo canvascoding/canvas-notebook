@@ -3,26 +3,31 @@
 import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
 import { useTranslations } from 'next-intl';
-import { Skeleton } from '@/components/ui/skeleton';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import { workspaceDownloadUrl, workspaceHeaders } from '@/app/lib/files/client';
 
 // Dynamic import for DocxEditor to avoid SSR issues
 const DocxEditorComponent = dynamic(
   () => import('./DocxEditor').then((mod) => mod.DocxEditorWrapper),
-  { ssr: false }
+  { ssr: false, loading: () => <OfficeModuleLoadingSkeleton /> }
 );
 
 // Dynamic import for SpreadsheetEditor
 const SpreadsheetEditorComponent = dynamic(
   () => import('./SpreadsheetEditor').then((mod) => mod.SpreadsheetEditor),
-  { ssr: false }
+  { ssr: false, loading: () => <OfficeModuleLoadingSkeleton /> }
 );
 
 // Dynamic import for PptxViewer
 const PptxViewerComponent = dynamic(
   () => import('./PptxViewer').then((mod) => mod.PptxViewer),
-  { ssr: false }
+  { ssr: false, loading: () => <OfficeModuleLoadingSkeleton /> }
 );
+
+function OfficeModuleLoadingSkeleton() {
+  const t = useTranslations('notebook');
+  return <DocumentLoadingSkeleton label={t('loadingPreview')} />;
+}
 
 interface OfficeEditorProps {
   path: string;
@@ -37,44 +42,7 @@ interface OfficeEditorProps {
 
 function OfficeDocumentLoadingSkeleton({ path, extension }: { path: string; extension: string }) {
   const t = useTranslations('notebook');
-  const fileName = path.split('/').filter(Boolean).pop() || t('loadingPreview');
-
-  return (
-    <div data-testid="office-document-loading-skeleton" className="flex h-full w-full flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="min-w-0">
-          <div className="truncate text-xs font-medium text-foreground">{fileName}</div>
-          <div className="text-[11px] text-muted-foreground">
-            {t('openingExtension', { extension: extension.toUpperCase() })}
-          </div>
-        </div>
-        <Skeleton className="h-6 w-24" />
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-5">
-        <div className="mx-auto h-full max-w-4xl space-y-5">
-          <div className="space-y-3">
-            <Skeleton className="h-8 w-2/5" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-          <div className="grid gap-4 md:grid-cols-[1fr_180px]">
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-[94%]" />
-              <Skeleton className="h-4 w-[88%]" />
-              <Skeleton className="h-4 w-[96%]" />
-              <Skeleton className="h-4 w-[72%]" />
-            </div>
-            <Skeleton className="hidden h-32 md:block" />
-          </div>
-          <div className="space-y-2">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-[92%]" />
-            <Skeleton className="h-4 w-[84%]" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <DocumentLoadingSkeleton path={path} label={t('openingExtension', { extension: extension.toUpperCase() })} />;
 }
 
 export interface OfficeEditorRef {
