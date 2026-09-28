@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import packageJson from '../package.json';
 
 const dataRoot = mkdtempSync(path.join(tmpdir(), 'canvas-community-team-preflight-'));
 const previousEnvironment = {
@@ -297,7 +298,7 @@ async function main() {
     });
 
     assert.deepEqual(await getCommunityTeamUpgradeRuntimeSnapshot(), {
-      notebookVersion: '2026.8.1.2',
+      notebookVersion: packageJson.version,
       databaseEngine: 'postgres',
       teamReady: false,
     });
@@ -390,7 +391,7 @@ async function main() {
     assert.ok(captured[0]?.headers.get('X-Canvas-Operation-Id'));
     assert.equal(
       captured[0]?.headers.get('X-Canvas-Notebook-Version'),
-      '2026.8.1.2',
+      packageJson.version,
     );
     assert.deepEqual(captured[0]?.body, {
       protocolVersion: 'canvas-team-seat-protocol-v1',
@@ -401,6 +402,9 @@ async function main() {
     assert.equal(JSON.stringify(captured[0]?.body).includes(instanceToken), false);
     assert.equal(JSON.stringify(result).includes(instanceToken), false);
 
+    const organizationDatabase = {
+      async all() { return [{ organization_id: 'community-preflight-organization' }]; },
+    };
     const preparedSeat = await prepareCommunityTeamSeatChange(
       createTeamSeatPrepareRequest({
         desiredQuantity: 3,
@@ -410,6 +414,7 @@ async function main() {
       {
         fetchImpl: mockFetch,
         now: new Date('2026-08-01T12:00:00.000Z'),
+        organizationDatabase,
       },
     );
     assert.equal(preparedSeat.quote.quantityBefore, 2);
@@ -456,6 +461,7 @@ async function main() {
       {
         fetchImpl: mockFetch,
         now: new Date('2026-08-01T12:06:00.000Z'),
+        organizationDatabase,
       },
     );
     assert.equal(executedSeat.operation.status, 'applied');
@@ -503,6 +509,7 @@ async function main() {
         fetchImpl: mockFetch,
         now: new Date('2026-08-01T12:07:00.000Z'),
         operationId: 'e45d6480-12a2-4bd5-a6d3-ec190014cfae',
+        organizationDatabase,
       },
     );
     assert.equal(snapshot.snapshot.snapshotHash, snapshotRequest.snapshotHash);
