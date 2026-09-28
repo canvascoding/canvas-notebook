@@ -14,6 +14,7 @@ import { getLicenseInstanceId } from './instance';
 import { decodeLicenseJwt, verifyLicenseJwtDetailed } from './jwt';
 import { loadStoredLicenseCert } from './storage';
 import { recordManagedTeamAccessPolicy } from './managed-team-access-policy';
+import { recordTeamLicenseTermWarning } from './team-license-term-warning';
 
 const SYNC_PATH = '/v1/managed/team/sync';
 const ADOPTION_PATH = '/v1/managed/team/adoption-report';
@@ -35,6 +36,7 @@ type ManagedSync = {
   accessPolicy?: {
     state: 'active' | 'grace' | 'restricted';
     reason: 'grant_expired' | 'grant_revoked' | null;
+    termEndsAt?: string | null;
     graceEndsAt: string | null;
     allowNewMembers: boolean;
   };
@@ -123,6 +125,11 @@ function parseSync(value: Record<string, unknown>, instanceId: string): ManagedS
     throw new Error('MANAGED_TEAM_SYNC_CONTRACT_INVALID');
   }
   const policy = value.accessPolicy as ManagedSync['accessPolicy'];
+  if (policy?.termEndsAt !== undefined && policy.termEndsAt !== null
+    && (typeof policy.termEndsAt !== 'string'
+      || !Number.isFinite(Date.parse(policy.termEndsAt)))) {
+    throw new Error('MANAGED_TEAM_ACCESS_POLICY_INVALID');
+  }
   if (value.status === 'policy_ready' && (!policy
     || !['grace', 'restricted'].includes(policy.state)
     || !['grant_expired', 'grant_revoked'].includes(String(policy.reason))
@@ -418,6 +425,7 @@ export async function runManagedTeamSyncCycle(options: {
   fetchImpl?: typeof fetch;
   activateCertificate?: typeof activateLicenseCert;
   verifyCertificate?: (certificate: string, instanceId: string) => Promise<boolean>;
+  recordTermWarning?: typeof recordTeamLicenseTermWarning;
   loadLegacyCertificate?: typeof loadStoredLicenseCert;
 } = {}): Promise<'unconfigured' | 'adoption_required' | 'applied' | 'pending'> {
   if (!instanceToken() || getDeploymentMode() !== 'managed-team'
@@ -435,6 +443,7 @@ export async function runManagedTeamSyncCycle(options: {
     const license = sync.license!;
     let error: string | undefined;
     let appliedMemberCount = 0;
+    let warningGrantId: string | null = null;
     try {
       appliedMemberCount = assertManagedMappings(local.members, sync.members);
       if (license.seatLimit < appliedMemberCount) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
@@ -486,6 +495,13 @@ export async function runManagedTeamSyncCycle(options: {
         entitlementsVersion: license.entitlementsVersion,
         policy: policy ?? { state: 'active', reason: null, graceEndsAt: null, allowNewMembers: true },
       });
+      if (sync.status === 'ready' && policy?.state === 'active' && policy.termEndsAt
+        && decoded.licenseClass === 'manual' && decoded.licenseEnvironment === 'production'
+        && decoded.provider === 'manual' && decoded.nonBillable === true
+        && typeof decoded.grantId === 'string' && decoded.grantId
+        && Date.parse(policy.termEndsAt) >= Number(decoded.exp) * 1000) {
+        warningGrantId = decoded.grantId;
+      }
     } catch (caught) {
       error = caught instanceof Error ? caught.message : 'MANAGED_TEAM_APPLY_FAILED';
     }
@@ -505,6 +521,20 @@ export async function runManagedTeamSyncCycle(options: {
       ...(humanActivityAt ? { lastHumanActivityAt: humanActivityAt } : {}),
       ...(error ? { error } : {}),
     }, options.fetchImpl);
+    if (!error && warningGrantId && sync.accessPolicy?.termEndsAt) {
+      await (options.recordTermWarning ?? recordTeamLicenseTermWarning)({
+        database,
+        instanceId,
+        organizationId: local.organizationId,
+        grantId: warningGrantId,
+        termEndsAt: sync.accessPolicy.termEndsAt,
+        seatLimit: license.seatLimit,
+      }).catch((caught) => {
+        console.warn('[license/managed-sync] term warning deferred', {
+          error: redactTeamControlPlaneLogText(caught instanceof Error ? caught.message : String(caught)),
+        });
+      });
+    }
     return error ? 'pending' : 'applied';
   } finally {
     if (!options.database) await database.close();

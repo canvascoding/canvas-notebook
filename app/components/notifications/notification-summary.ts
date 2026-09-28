@@ -4,7 +4,7 @@ import type { FileChangeReviewNotificationReason, FileChangeReviewNotificationTa
 
 export type NotificationItem = {
   id: string;
-  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required' | 'license.team_access_changed';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required' | 'license.team_access_changed' | 'license.team_grant_expiring';
   title: string;
   detail: string | null;
   occurredAt: string;

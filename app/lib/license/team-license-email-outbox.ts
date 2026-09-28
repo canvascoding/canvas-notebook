@@ -9,7 +9,8 @@ import { sendSystemSmtpEmail } from '@/app/lib/email/system-smtp-service';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 
 type EmailDatabase = Pick<SqlConnection, 'get' | 'run' | 'close'>;
-export type TeamLicenseEmailKind = 'owner_restricted' | 'owner_restored' | 'owner_mixed' | 'member_paused' | 'member_restored';
+export type TeamLicenseEmailKind = 'owner_restricted' | 'owner_restored' | 'owner_mixed' | 'member_paused' | 'member_restored'
+  | 'owner_term_14d' | 'owner_term_3d' | 'owner_term_1d';
 
 type EmailJob = {
   id: string;
@@ -42,7 +43,7 @@ export async function readTeamLicenseEmailOutboxDiagnostics(
 }
 
 export async function enqueueTeamLicenseEmail(
-  database: EmailDatabase,
+  database: Pick<SqlConnection, 'run'>,
   input: { auditEventId: string; organizationId: string; userId: string; kind: TeamLicenseEmailKind; reason: string; seatLimit: number; now: number },
 ): Promise<void> {
   await database.run(`
@@ -50,7 +51,8 @@ export async function enqueueTeamLicenseEmail(
     SET status = 'superseded', lease_until = NULL, updated_at = $3
     WHERE organization_id = $1 AND user_id = $2
       AND status IN ('pending', 'failed')
-  `, [input.organizationId, input.userId, input.now]);
+      AND ($4 = 0 OR event_kind LIKE 'owner_term_%')
+  `, [input.organizationId, input.userId, input.now, Number(input.kind.startsWith('owner_term_'))]);
   await database.run(`
     INSERT INTO team_license_email_outbox
       (id, audit_event_id, organization_id, user_id, event_kind, reason, seat_limit,
@@ -72,6 +74,25 @@ export async function enqueueTeamLicenseEmail(
 function messageFor(job: EmailJob, to: string, locale: string): EmailMessage {
   const german = locale.toLowerCase().startsWith('de');
   const seats = Number(job.seat_limit);
+  if (job.event_kind.startsWith('owner_term_')) {
+    const stage = Number(job.event_kind.match(/^owner_term_(14|3|1)d$/u)?.[1]);
+    const date = new Date(job.reason);
+    const term = Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(german ? 'de-DE' : 'en-US', {
+        dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Berlin',
+      }).format(date)
+      : job.reason;
+    return {
+      to,
+      subject: german
+        ? `Canvas Notebook: Team-Grant endet in ${stage} ${stage === 1 ? 'Tag' : 'Tagen'}`
+        : `Canvas Notebook: Team grant ends within ${stage} ${stage === 1 ? 'day' : 'days'}`,
+      body: german
+        ? `Dein kostenfreier Team-Grant für bis zu ${seats} Plätze endet am ${term}. Bitte verlängere den Grant im Control Plane, damit der Team-Zugang bestehen bleibt.`
+        : `Your free Team grant for up to ${seats} seats ends on ${term}. Renew the grant in Control Plane to keep Team access available.`,
+      idempotencyKey: job.id,
+    };
+  }
   const member = job.event_kind.startsWith('member_');
   const restored = job.event_kind === 'member_restored' || job.event_kind === 'owner_restored';
   const subject = german

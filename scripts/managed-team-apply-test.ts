@@ -27,6 +27,7 @@ function certificate(seatLimit: number, entitlementsVersion = 1783338368, recove
       seatLimit,
       ...(recovery ? {
         licenseClass: 'manual', nonBillable: true, grantId: 'manual-grant',
+        licenseEnvironment: 'production', provider: 'manual',
         exp: Math.floor((expiresAt ?? Date.now() + 15 * 60_000) / 1000),
       } : {}),
     })).toString('base64url'),
@@ -38,7 +39,7 @@ async function setupDatabase(dataDir: string) {
   let pg = new PGlite(dataDir);
   let mutationCount = 0;
   await pg.exec(`
-    CREATE TABLE canvas_organization_settings (organization_id text PRIMARY KEY);
+    CREATE TABLE canvas_organization_settings (organization_id text PRIMARY KEY, owner_user_id text);
     CREATE TABLE team_memberships (
       id text PRIMARY KEY, organization_id text NOT NULL, user_id text,
       candidate_email text NOT NULL, role text NOT NULL, status text NOT NULL,
@@ -65,8 +66,22 @@ async function setupDatabase(dataDir: string) {
       can_recover_workspaces integer, created_at bigint, updated_at bigint,
       PRIMARY KEY (organization_id, user_id)
     );
+    CREATE TABLE audit_events (
+      id text PRIMARY KEY, organization_id text NOT NULL, user_id text NOT NULL,
+      source text NOT NULL, event_type text NOT NULL, entity_type text NOT NULL,
+      entity_id text NOT NULL, action text NOT NULL, status text NOT NULL,
+      summary text NOT NULL, metadata_json text, created_at bigint NOT NULL
+    );
+    CREATE TABLE team_license_email_outbox (
+      id text PRIMARY KEY, audit_event_id text NOT NULL, organization_id text NOT NULL,
+      user_id text NOT NULL, event_kind text NOT NULL, reason text NOT NULL,
+      seat_limit bigint NOT NULL, status text NOT NULL, attempts bigint NOT NULL,
+      next_attempt_at bigint NOT NULL, lease_until bigint, message_id text,
+      error text, created_at bigint NOT NULL, delivered_at bigint, updated_at bigint NOT NULL,
+      UNIQUE (audit_event_id, user_id)
+    );
   `);
-  await pg.query('INSERT INTO canvas_organization_settings (organization_id) VALUES ($1)', [organizationId]);
+  await pg.query('INSERT INTO canvas_organization_settings (organization_id, owner_user_id) VALUES ($1, $2)', [organizationId, 'user-owner']);
   return {
     get pg() { return pg; },
     async reopen() {
@@ -226,7 +241,7 @@ async function main() {
         memberHash: createHash('sha256').update(JSON.stringify([...desiredMembers]
           .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
         members: desiredMembers,
-        accessPolicy: { state, reason, graceEndsAt: reason === 'grant_expired'
+        accessPolicy: { state, reason, termEndsAt: new Date(graceEndsAt - 7 * 24 * 60 * 60_000).toISOString(), graceEndsAt: reason === 'grant_expired'
           ? new Date(graceEndsAt).toISOString() : null, allowNewMembers: false },
         license: { certificate: offeredCertificate, entitlementsVersion: version,
           fingerprint: createHash('sha256').update(offeredCertificate).digest('hex'), seatLimit },
@@ -268,7 +283,8 @@ async function main() {
 
     const restoredMembers = graceMembers.map((member) => member.status === 'suspended'
       ? { ...member, status: 'active' } : member);
-    const restoredCertificate = certificate(3, 1783338373);
+    const restoredCertificate = certificate(3, 1783338373, true, Date.now() + 15 * 60_000);
+    const restoredTerm = new Date(Date.now() + 13 * 24 * 60 * 60_000).toISOString();
     offeredSeatLimit = 3;
     syncPayload = {
       status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
@@ -276,16 +292,38 @@ async function main() {
       memberHash: createHash('sha256').update(JSON.stringify([...restoredMembers]
         .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId)))).digest('hex'),
       members: restoredMembers,
-      accessPolicy: { state: 'active', reason: null, graceEndsAt: null, allowNewMembers: true },
+      accessPolicy: { state: 'active', reason: null, termEndsAt: restoredTerm, graceEndsAt: null, allowNewMembers: true },
       license: { certificate: restoredCertificate, entitlementsVersion: 1783338373,
         fingerprint: createHash('sha256').update(restoredCertificate).digest('hex'), seatLimit: 3 },
     };
+    assert.equal(await runManagedTeamSyncCycle({ ...syncOptions, verifyCertificate: async () => false }), 'pending');
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 0);
+    assert.equal(await runManagedTeamSyncCycle({
+      ...syncOptions,
+      recordTermWarning: async () => { throw new Error('FAKE_NOTIFICATION_STORE_OFFLINE'); },
+    }), 'applied');
+    assert.equal(acknowledgements.at(-1)?.error, undefined);
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 0);
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
     assert.equal(acknowledgements.at(-1)?.appliedMemberCount, 3);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
     assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 0);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-grace-new'`)).rows[0].status, 'active');
     assert.equal((await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!))?.allowNewMembers, true);
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 1);
+    assert.equal((await fixture.pg.query(`SELECT id FROM team_license_email_outbox WHERE event_kind = 'owner_term_14d'`)).rows.length, 1);
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 1);
+    const perpetualCertificate = certificate(3, 1783338374, true, Date.now() + 15 * 60_000);
+    syncPayload = {
+      ...syncPayload,
+      membershipRevision: 6,
+      accessPolicy: { state: 'active', reason: null, termEndsAt: null, graceEndsAt: null, allowNewMembers: true },
+      license: { certificate: perpetualCertificate, entitlementsVersion: 1783338374,
+        fingerprint: createHash('sha256').update(perpetualCertificate).digest('hex'), seatLimit: 3 },
+    };
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    assert.equal((await fixture.pg.query(`SELECT id FROM audit_events WHERE event_type = 'license_term_warning'`)).rows.length, 1);
     console.info('managed team offline recovery, grace, restriction, replay, and restoration passed');
   } finally {
     await fixture.close();

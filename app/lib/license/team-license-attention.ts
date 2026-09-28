@@ -5,7 +5,7 @@ import { getUserPreferences } from '@/app/lib/user-preferences';
 
 export type TeamLicenseAttentionItem = {
   id: string;
-  type: 'license.team_access_changed';
+  type: 'license.team_access_changed' | 'license.team_grant_expiring';
   title: string;
   detail: string;
   previewUrl: null;
@@ -35,6 +35,10 @@ type AttentionOptions = {
 function hasMembershipTransition(row: LifecycleAuditRow): boolean {
   try {
     const metadata = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
+    if (/^team\.grant_expiring_(14|3|1)d$/u.test(row.action)) {
+      return typeof metadata.termEndsAt === 'string'
+        && Number.isFinite(Date.parse(metadata.termEndsAt));
+    }
     const field = row.action === 'team.access_restored' ? 'restoredMemberships' : 'suspendedMemberships';
     return Number(metadata[field]) > 0;
   } catch {
@@ -63,23 +67,32 @@ export async function listTeamLicenseAttention(
         AND read_state.workspace_id = 'organization:' || event.organization_id
         AND read_state.item_key = 'license:' || event.id
       WHERE event.user_id = $1 AND event.source = 'license'
-        AND event.event_type = 'license_lifecycle' AND event.status = 'success'
-        AND event.action IN ('team.solo_fallback_applied', 'team.seat_limit_enforced', 'team.access_restored')
+        AND event.event_type IN ('license_lifecycle', 'license_term_warning') AND event.status = 'success'
+        AND event.action IN ('team.solo_fallback_applied', 'team.seat_limit_enforced', 'team.access_restored',
+          'team.grant_expiring_14d', 'team.grant_expiring_3d', 'team.grant_expiring_1d')
       ORDER BY event.created_at DESC, event.id DESC
       LIMIT 50
     `, [input.userId]) as LifecycleAuditRow[];
     return rows.filter(hasMembershipTransition).map((row) => {
+      const warningDays = Number(row.action.match(/^team\.grant_expiring_(14|3|1)d$/u)?.[1]);
+      const warning = Number.isFinite(warningDays);
       const restored = row.action === 'team.access_restored';
       const expired = !restored && row.action === 'team.solo_fallback_applied';
       return {
         id: `license:${row.id}`,
-        type: 'license.team_access_changed' as const,
-        title: restored
+        type: warning ? 'license.team_grant_expiring' as const : 'license.team_access_changed' as const,
+        title: warning
+          ? german ? `Team-Grant endet in ${warningDays} ${warningDays === 1 ? 'Tag' : 'Tagen'}`
+            : `Team grant ends within ${warningDays} ${warningDays === 1 ? 'day' : 'days'}`
+          : restored
           ? german ? 'Team-Zugang wiederhergestellt' : 'Team access restored'
           : expired
             ? german ? 'Team-Zugang durch Lizenz-Fallback pausiert' : 'Team access paused by license fallback'
             : german ? 'Team-Zugang durch Seat-Limit reduziert' : 'Team access reduced by seat limit',
-        detail: restored
+        detail: warning
+          ? german ? 'Verlängere den kostenfreien Grant im Control Plane, damit der Team-Zugang bestehen bleibt.'
+            : 'Renew the free grant in Control Plane to keep Team access available.'
+          : restored
           ? german ? 'Betroffene Teammitglieder können sich wieder anmelden.' : 'Affected team members can sign in again.'
           : german ? 'Betroffene Teammitglieder können sich derzeit nicht anmelden. Prüfe die Team-Lizenz.'
             : 'Affected team members cannot sign in right now. Review the team license.',
