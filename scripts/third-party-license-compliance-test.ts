@@ -108,12 +108,12 @@ assert.equal(
 assert.equal(inventory.releaseGate.approvalStatus, 'approved');
 assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
 assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
-assert.equal(inventory.releaseGate.status, 'approved');
-assert.deepEqual(inventory.releaseGate.blockers, []);
+assert.equal(inventory.releaseGate.status, 'blocked');
+assert.equal(inventory.releaseGate.blockers.length, 13);
 assert.equal(
   inventory.summary.distributedReviewRequired,
   0,
-  'a production-ready release must not contain unreviewed distributed components',
+  'the static component inventory must not contain unreviewed distributed components',
 );
 assert.equal(
   inventory.summary.developmentOnlyReviewRequired,
@@ -270,8 +270,44 @@ const pythonEntries = pythonRequirementBody
     assert(match, `invalid Python requirement block: ${block}`);
     return [match[1], match[2], block] as const;
   });
-assert.equal(pythonEntries.length, 45, 'the Docker Python lock must retain the reviewed package set');
+const dictationPythonVersions = new Map([
+  ['anyio', '4.15.1'],
+  ['av', '18.1.0'],
+  ['ctranslate2', '4.8.2'],
+  ['faster-whisper', '1.2.1'],
+  ['filelock', '4.0.5'],
+  ['fsspec', '2026.9.0'],
+  ['h11', '0.16.0'],
+  ['hf-xet', '1.6.0'],
+  ['httpcore', '1.0.9'],
+  ['httpx', '0.28.1'],
+  ['huggingface-hub', '1.33.0'],
+  ['tokenizers', '0.23.2'],
+  ['tqdm', '4.70.1'],
+]);
+assert.deepEqual(
+  inventory.releaseGate.blockers
+    .map(({ name, versionOrCommit }) => [name, versionOrCommit])
+    .sort(([left], [right]) => left.localeCompare(right)),
+  [...dictationPythonVersions.entries()]
+    .map(([name, version]) => [`docker-python:${name}`, version])
+    .sort(([left], [right]) => left.localeCompare(right)),
+  'the commercial release gate must retain every pending dictation package review',
+);
+assert.equal(
+  pythonEntries.length,
+  45 + dictationPythonVersions.size,
+  'the Docker Python lock must retain the original package set and the pinned dictation dependencies',
+);
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
+assert.deepEqual(
+  pythonEntries
+    .filter(([name]) => dictationPythonVersions.has(name.toLowerCase()))
+    .map(([name, version]) => [name.toLowerCase(), version])
+    .sort(([left], [right]) => left.localeCompare(right)),
+  [...dictationPythonVersions.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  'the dictation dependencies must retain their pinned package names and versions',
+);
 for (const [name, version, hashes] of pythonEntries) {
   assert(version, `${name} must use an exact Python version`);
   assert.match(hashes, /--hash=sha256:[a-f0-9]{64}/u, `${name} must retain wheel hashes`);
