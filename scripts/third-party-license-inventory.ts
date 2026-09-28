@@ -51,6 +51,11 @@ type LicensePolicy = {
     reviewedAt: string | null;
     notes: string;
   };
+  pendingDistributionReviews?: Array<{
+    name: string;
+    versionOrCommit: string;
+    reason: string;
+  }>;
   licenseDecisions: Record<string, ThirdPartyPolicyDecision>;
   blockedLicensePatterns: string[];
   packageUsageOverrides: Array<{
@@ -608,6 +613,12 @@ export function generateThirdPartyComplianceArtifacts(): GeneratedComplianceArti
       reason: component.reviewNotes
         || `Policy decision is ${component.policyDecision} for ${component.verifiedLicense}.`,
     }));
+  for (const review of policy.pendingDistributionReviews ?? []) {
+    if (!review.name || !review.versionOrCommit || !review.reason) {
+      throw new Error('Pending distribution reviews require a name, version, and reason.');
+    }
+    releaseBlockers.push(review);
+  }
   if (policy.releaseApproval.status !== 'approved') {
     releaseBlockers.unshift({
       name: 'first-commercial-release-approval',

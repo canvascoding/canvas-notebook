@@ -52,6 +52,17 @@ Die technische Umsetzung ist vorhanden und reproduzierbar. Der am 17. Juli
 | pauschal `blocked` | 0 |
 | Blocker im statischen kommerziellen Release-Gate | 0 |
 
+Stand 2026-09-28: Die spaeter hinzugefuegte lokale Diktierfunktion erweitert
+den Docker-Python-Lock um 13 Pakete auf 58. Der normale Build prueft deren
+exakte Namen und Versionen sowie die Hash-Bindung der Lock-Eintraege. Fuer die
+neuen Pakete stehen noch Wheel-/Native-Lizenzpruefung auf beiden Zielplattformen
+und eine verantwortliche Freigabe aus. Das statische kommerzielle Release-Gate
+zeigt deshalb 14 Blocker: die 13 Paketentscheidungen und die neue Gesamtfreigabe.
+und `npm run test:licenses:release` muss bis zum Abschluss dieser Pruefung
+fehlschlagen. Der technische Intake steht in
+`dictation-python-dependency-intake-2026-09-28.md`; die Freigabe vom
+2026-07-17 gilt nur fuer ihren damaligen Bestand.
+
 Die erste verantwortliche Gesamtfreigabe ist dokumentiert. Zehn npm-Pakete
 und drei Pakete des global installierten npm wurden fuer ihre exakten
 Versionen unter transparentem Attributionsrestrisiko freigegeben. Canonical

@@ -109,10 +109,8 @@ assert.equal(inventory.releaseGate.approvalStatus, 'pending');
 assert.equal(inventory.releaseGate.approvalReviewedBy, null);
 assert.equal(inventory.releaseGate.approvalReviewedAt, null);
 assert.equal(inventory.releaseGate.status, 'blocked');
-assert.deepEqual(
-  inventory.releaseGate.blockers.map((blocker) => blocker.name),
-  ['first-commercial-release-approval', 'docker-python:tqdm'],
-);
+assert.equal(inventory.releaseGate.blockers.length, 14);
+assert.equal(inventory.releaseGate.blockers[0]?.name, 'first-commercial-release-approval');
 assert.equal(
   inventory.summary.distributedReviewRequired,
   1,
@@ -273,8 +271,36 @@ const pythonEntries = pythonRequirementBody
     assert(match, `invalid Python requirement block: ${block}`);
     return [match[1], match[2], block] as const;
   });
-assert.equal(pythonEntries.length, 58, 'the Docker Python lock must retain the exact hash-locked package set');
+const dictationPythonVersions = new Map([
+  ['anyio', '4.15.1'],
+  ['av', '18.1.0'],
+  ['ctranslate2', '4.8.2'],
+  ['faster-whisper', '1.2.1'],
+  ['filelock', '4.0.5'],
+  ['fsspec', '2026.9.0'],
+  ['h11', '0.16.0'],
+  ['hf-xet', '1.6.0'],
+  ['httpcore', '1.0.9'],
+  ['httpx', '0.28.1'],
+  ['huggingface-hub', '1.33.0'],
+  ['tokenizers', '0.23.2'],
+  ['tqdm', '4.70.1'],
+]);
+assert.equal(pythonEntries.length, 45 + dictationPythonVersions.size);
+assert.deepEqual(
+  inventory.releaseGate.blockers.slice(1).map(({ name }) => name).sort(),
+  [...dictationPythonVersions.keys()].map((name) => `docker-python:${name}`).sort(),
+  'all thirteen dictation dependencies must remain release-blocked until owner review',
+);
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
+assert.deepEqual(
+  pythonEntries
+    .filter(([name]) => dictationPythonVersions.has(name.toLowerCase()))
+    .map(([name, version]) => [name.toLowerCase(), version])
+    .sort(([left], [right]) => left.localeCompare(right)),
+  [...dictationPythonVersions.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  'the dictation dependencies must retain their pinned package names and versions',
+);
 for (const [name, version, hashes] of pythonEntries) {
   assert(version, `${name} must use an exact Python version`);
   assert.match(hashes, /--hash=sha256:[a-f0-9]{64}/u, `${name} must retain wheel hashes`);
