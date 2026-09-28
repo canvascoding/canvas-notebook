@@ -156,6 +156,7 @@
     "loginButton": "Login",
     "loggingIn": "Logging in...",
     "loginFailed": "Login failed",
+    "teamLicenseAccessPaused": "Your team access is paused because your organization's license is no longer active. Please contact your administrator.",
     "unexpectedError": "An unexpected error occurred",
     "loginSuccessful": "Login successful",
     "sessionCheckingTitle": "Checking your sign-in",

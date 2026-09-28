@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { db } from '@/app/lib/db';
+import { user } from '@/app/lib/db/schema';
+import { TEAM_LICENSE_FALLBACK_BAN_REASON } from '@/app/lib/organization/membership-ban-reasons';
+import { translateLicenseFallbackSignInResponse } from '@/app/lib/auth/license-fallback-login';
+import { eq } from 'drizzle-orm';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
@@ -421,12 +426,22 @@ export async function POST(request: NextRequest) {
 
     const pendingDefaultWorkspaceGrant = await prepareDirectMcpDefaultWorkspaceGrant(request);
 
-    const response = await runDirectMcpOAuthStage(
+    const licenseSignInRequest = pathname === '/api/auth/sign-in/email'
+      ? authRequest.clone()
+      : null;
+    const authResponse = await runDirectMcpOAuthStage(
       isRegistration
         ? 'OAUTH_REGISTRATION_PROVIDER_THROWN'
         : 'OAUTH_REQUEST_PROVIDER_THROWN',
       () => auth.handler(authRequest),
     );
+    const response = licenseSignInRequest
+      ? await translateLicenseFallbackSignInResponse(licenseSignInRequest, authResponse, async (email) => {
+        const matches = await db.select({ banned: user.banned, banReason: user.banReason })
+          .from(user).where(eq(user.email, email)).limit(1);
+        return matches[0]?.banned === true && matches[0].banReason === TEAM_LICENSE_FALLBACK_BAN_REASON;
+      })
+      : authResponse;
     if (pathname === '/api/auth/oauth2/token') {
       await recordDirectMcpOAuthResponseFailure(response);
     }

@@ -156,6 +156,7 @@
     "loginButton": "Anmelden",
     "loggingIn": "Wird angemeldet...",
     "loginFailed": "Anmeldung fehlgeschlagen",
+    "teamLicenseAccessPaused": "Dein Team-Zugang ist pausiert, weil die Lizenz deiner Organisation nicht mehr aktiv ist. Bitte wende dich an deine Administratorin oder deinen Administrator.",
     "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
     "loginSuccessful": "Anmeldung erfolgreich",
     "sessionCheckingTitle": "Anmeldung wird geprüft",

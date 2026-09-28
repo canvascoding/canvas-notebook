@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { authClient } from '@/app/lib/auth-client';
+import { TEAM_LICENSE_ACCESS_PAUSED } from '@/app/lib/auth/license-fallback-login';
 import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { toast } from 'sonner';
@@ -65,6 +66,7 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [resuming, setResuming] = useState(false);
+  const [licenseAccessPaused, setLicenseAccessPaused] = useState(false);
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const passwordToggleLabel = showPassword ? t('hidePassword') : t('showPassword');
   const isOAuthContinuation = searchParams.has('sig')
@@ -93,6 +95,7 @@ function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setLicenseAccessPaused(false);
 
     try {
       const { data, error } = await authClient.signIn.email({
@@ -101,7 +104,10 @@ function LoginForm() {
       });
 
       if (error) {
-        toast.error(error.message || t('loginFailed'));
+        setLicenseAccessPaused(error.code === TEAM_LICENSE_ACCESS_PAUSED);
+        toast.error(error.code === TEAM_LICENSE_ACCESS_PAUSED
+          ? t('teamLicenseAccessPaused')
+          : error.message || t('loginFailed'));
       } else {
         toast.success(t('loginSuccessful'));
         window.dispatchEvent(new CustomEvent('ws-auth-success'));
@@ -212,6 +218,11 @@ function LoginForm() {
             {loading ? t('loggingIn') : t('loginButton')}
           </Button>
         </form>
+        {licenseAccessPaused && (
+          <p role="alert" className="mt-4 border border-border bg-muted p-4 text-sm text-foreground">
+            {t('teamLicenseAccessPaused')}
+          </p>
+        )}
       </div>
     </div>
   );
