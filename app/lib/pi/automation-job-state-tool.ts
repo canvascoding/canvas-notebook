@@ -12,7 +12,7 @@ import {
 } from '@/app/lib/automations/job-state-store';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
-const MAX_LIST_LIMIT = 100;
+const MAX_LIST_LIMIT = 25;
 const ALLOWED_FIELDS = new Set(['action', 'key', 'value', 'expectedRevision', 'mutationId', 'afterKey', 'limit']);
 
 type JobStateToolInput = {
@@ -44,7 +44,7 @@ export function createAutomationJobStateTool(binding: { jobId: string; runId: st
       })),
       mutationId: Type.Optional(Type.String({ description: 'Unique ID for this write. Reuse exactly the same ID when retrying the same write.' })),
       afterKey: Type.Optional(Type.String({ description: 'For list, continue after this key.' })),
-      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_LIST_LIMIT, description: 'List page size, at most 100.' })),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_LIST_LIMIT, description: 'List page size, at most 25.' })),
     }, { additionalProperties: false }),
     execute: async (_toolCallId, rawParams) => {
       const params = rawParams as JobStateToolInput;
@@ -67,7 +67,7 @@ export function createAutomationJobStateTool(binding: { jobId: string; runId: st
           const entries = (await listAutomationJobState(binding.jobId, access))
             .sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
           const start = params.afterKey === undefined ? 0 : entries.findIndex((entry) => entry.key > params.afterKey!);
-          const page = start < 0 ? [] : entries.slice(start, start + (params.limit ?? 50));
+          const page = start < 0 ? [] : entries.slice(start, start + (params.limit ?? MAX_LIST_LIMIT));
           return toolText({ entries: page, nextAfterKey: start >= 0 && start + page.length < entries.length
             ? page.at(-1)?.key ?? null : null });
         }

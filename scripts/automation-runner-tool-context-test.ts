@@ -21,6 +21,8 @@ const toolCalls: Array<{
   userId: string | undefined;
   agentId: string | null | undefined;
   sessionId: string | null | undefined;
+  automationExecution: boolean | undefined;
+  automationJobState: { jobId: string; runId: string } | undefined;
 }> = [];
 let agentLoopToolNames: string[] = [];
 let agentLoopMode: 'success' | 'heartbeat-ok' | 'no-action' | 'empty-error' = 'success';
@@ -475,8 +477,10 @@ moduleInternals._load = (request, parent, isMain) => {
 
   if (request === '@/app/lib/pi/tool-registry' || request.endsWith('/pi/tool-registry')) {
     return {
-      getPiTools: async (userId?: string, agentId?: string | null, sessionId?: string | null) => {
-        toolCalls.push({ userId, agentId, sessionId });
+      getPiTools: async (userId?: string, agentId?: string | null, sessionId?: string | null,
+        options?: { automationExecution?: boolean; automationJobState?: { jobId: string; runId: string } }) => {
+        toolCalls.push({ userId, agentId, sessionId, automationExecution: options?.automationExecution,
+          automationJobState: options?.automationJobState });
         return [
           {
             name: 'studio_generate_image',
@@ -573,7 +577,8 @@ async function main() {
   await executeAutomationRun(run.id);
   await new Promise<void>((resolve) => setImmediate(resolve));
 
-  assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
+  assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}`,
+    automationExecution: true, automationJobState: { jobId: job.id, runId: run.id } }]);
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image', 'email_send_draft', 'mcp', 'bash']);
   assert.notEqual(agentLoopStreamFns[0], testStreamFn, 'automation must wrap the provider stream with its explicit output cap');
   assert.equal(agentLoopThinkingLevels[0], undefined);

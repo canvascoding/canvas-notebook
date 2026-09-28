@@ -127,6 +127,8 @@ async function main(): Promise<void> {
     await db.update(automationRuns).set({ status: 'running' }).where(eq(automationRuns.id, 'run'));
     hasWorkspaceRights = false;
     await assert.rejects(getAutomationJobState('job', 'cursor', runAccess), { code: 'ACCESS_DENIED' });
+    assert.equal((await invoke({ action: 'get', key: 'cursor' })).error, 'ACCESS_DENIED',
+      'revoked workspace permission blocks an existing tool');
     hasWorkspaceRights = true;
 
     // Fill the tombstone count in one batch, then verify an additional key is blocked.
