@@ -1087,7 +1087,18 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_email_inbox_cases_workspace_status ON email_inbox_cases (workspace_id, status, updated_at)');
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
+  await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS continuity_mode text NOT NULL DEFAULT 'off'");
   await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS event_config_json text');
+  await pool.query(`
+    DO $automation_continuity_constraints$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'automation_jobs_continuity_mode_check') THEN
+        ALTER TABLE automation_jobs ADD CONSTRAINT automation_jobs_continuity_mode_check
+          CHECK (continuity_mode IN ('off', 'last_relevant'));
+      END IF;
+    END
+    $automation_continuity_constraints$;
+  `);
   // Keep existing PostgreSQL installations compatible with the shared Drizzle
   // schema. Fresh databases receive these columns from createTableSql above.
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS integrity_status text NOT NULL DEFAULT 'valid'");

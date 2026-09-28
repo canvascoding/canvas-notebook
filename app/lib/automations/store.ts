@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
+import { automationJobs, automationJobState, automationJobStateMutations, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
 import {
   DEFAULT_MANAGED_AGENT_ID,
   readLegacyHeartbeatInstructions,
@@ -39,6 +39,7 @@ import {
   type AutomationRunRecord,
   type AutomationRunStatus,
   type AutomationResultPolicy,
+  type AutomationContinuityMode,
   type AutomationScope,
   type AutomationWorkspaceType,
   type CreateCustomWebhookAutomationJobInput,
@@ -56,10 +57,12 @@ export const SCHEDULED_RUN_MISFIRE_GRACE_MS = 90_000;
 const DEFAULT_DELIVERY_MODE: AutomationDeliveryMode = 'web';
 const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_session';
 const DEFAULT_AUTOMATION_RESULT_POLICY: AutomationResultPolicy = 'deliver_all';
+const DEFAULT_AUTOMATION_CONTINUITY_MODE: AutomationContinuityMode = 'off';
 const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'last_active', 'silent']);
 const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_session', 'channel_active', 'fixed_session']);
 const AUTOMATION_JOB_TRIGGER_KINDS = new Set<AutomationJobTriggerKind>(['schedule', 'event', 'webhook', 'manual']);
 const AUTOMATION_RESULT_POLICIES = new Set<AutomationResultPolicy>(['deliver_all', 'deliver_relevant_only', 'record_only']);
+const AUTOMATION_CONTINUITY_MODES = new Set<AutomationContinuityMode>(['off', 'last_relevant']);
 const AUTOMATION_RUN_RESULT_PREVIEW_LENGTH = 1000;
 const AUTOMATION_RUN_LOG_MAX_JSON_LENGTH = 250_000;
 
@@ -388,6 +391,15 @@ function normalizeAutomationResultPolicy(value: unknown): AutomationResultPolicy
   return normalized as AutomationResultPolicy;
 }
 
+function normalizeAutomationContinuityMode(value: unknown): AutomationContinuityMode {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return DEFAULT_AUTOMATION_CONTINUITY_MODE;
+  if (!AUTOMATION_CONTINUITY_MODES.has(normalized as AutomationContinuityMode)) {
+    throw new Error('Automation continuity mode is invalid.');
+  }
+  return normalized as AutomationContinuityMode;
+}
+
 function normalizeWorkspaceContextPaths(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -554,6 +566,7 @@ function mapJobRow(
     jobType: (row.jobType as AutomationJobType) || 'default',
     triggerKind: normalizeAutomationJobTriggerKind(row.triggerKind, row.scheduleKind === 'webhook' ? 'webhook' : 'schedule'),
     resultPolicy: normalizeAutomationResultPolicy(row.resultPolicy),
+    continuityMode: normalizeAutomationContinuityMode(row.continuityMode),
     eventConfig: parseOptionalJsonObject(row.eventConfigJson),
     channelId: row.channelId ?? null,
     composioTriggerId: row.composioTriggerId ?? null,
@@ -985,6 +998,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
       triggerKind,
       resultPolicy,
+      continuityMode: normalizeAutomationContinuityMode(input.continuityMode),
       eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
       createdAt: now,
       updatedAt: now,
@@ -1067,6 +1081,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
       triggerKind: 'webhook',
       resultPolicy: 'deliver_all',
+      continuityMode: normalizeAutomationContinuityMode(input.continuityMode),
       createdAt: now,
       updatedAt: now,
       jobType: 'webhook',
@@ -1153,6 +1168,7 @@ export async function createCustomWebhookAutomationJob(
     deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
     triggerKind: 'webhook',
     resultPolicy: 'deliver_all',
+    continuityMode: normalizeAutomationContinuityMode(input.continuityMode),
     createdAt: now,
     updatedAt: now,
     jobType: 'webhook',
@@ -1308,6 +1324,9 @@ export async function updateAutomationJob(
         resultPolicy: input.resultPolicy === undefined
           ? normalizeAutomationResultPolicy(existing.resultPolicy)
           : normalizeAutomationResultPolicy(input.resultPolicy),
+        continuityMode: input.continuityMode === undefined
+          ? normalizeAutomationContinuityMode(existing.continuityMode)
+          : normalizeAutomationContinuityMode(input.continuityMode),
         triggerKind,
         eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
         status,
@@ -1418,6 +1437,10 @@ export async function moveAutomationJobToWorkspace(
         .where(eq(automationJobs.id, jobId))
         .returning();
       if (!next) throw new Error('Automation job not found.');
+      // State belongs to the old workspace scope. Remove it in the same
+      // transaction so moving A -> B -> A cannot resurrect old keys.
+      await tx.delete(automationJobStateMutations).where(eq(automationJobStateMutations.jobId, jobId));
+      await tx.delete(automationJobState).where(eq(automationJobState.jobId, jobId));
       return next;
     });
 
