@@ -76,5 +76,50 @@ implemented or verified here.
 
 Do not remove the 13 policy blockers or extend the earlier release approval on
 the basis of this review. Before release, resolve the PyAV/FFmpeg codec payload,
-complete the remaining native and notice/source checks, inspect the final
-amd64/arm64 image inventories, and record a new version-specific approval.
+complete the remaining native and notice/source checks, and record a new
+version-specific approval. The final-image inspection is recorded below.
+
+## Final-image inspection, 2026-09-28
+
+After a successful host `npm run build`, separate local Docker builds completed
+for `linux/amd64` and `linux/arm64`. Their local image IDs are
+`sha256:5bf925f0ebbbc33e16568bfa83aa716f5690a593d84727f5f3af005724c73f3d`
+and `sha256:ab712dde5e98c7c9b1860c709c62d1e3f5e82709c8af931286f8d2d7a0cad55b`,
+respectively. Each build passed `runtime-component-inventory-test.mjs` and
+`sharp-runtime-linkage-test.mjs`. The extracted final inventories and Sharp
+linkage results passed `runtime-multiarch-compliance-test.mjs`: 513/509 Debian
+packages, 61 Python distributions (58 pip), and 153 global npm packages per
+architecture. Both images contain the same Dockerfile, distribution-policy,
+and Python-lock hashes in their inventory evidence.
+
+The final images reproduce the wheel finding. The amd64/arm64 images contain
+32/31 files under `av.libs`; their `libavcodec` ELF dependency lists include
+the bundled `libx264` and `libx265` on both architectures. PyAV's installed
+metadata says `BSD-3-Clause` and supplies its own license text, but does not
+provide the FFmpeg/codec license texts or source-offer evidence for those
+libraries. The four extracted codec-library files are byte-identical to those
+in the corresponding pinned wheels. The images also contain `ctranslate2`
+with an MIT declaration but no packaged license file, `tokenizers` with an
+Apache Software License classifier but no packaged license file, and `tqdm`
+with an `MPL-2.0 AND MIT` declaration and the partial wheel notice described
+above. This is technical
+inventory evidence, not an approval of the combined distribution.
+
+The runtime collector now excludes compiled `.pyc`/`.pyo` files under
+`.dist-info/licenses` and records license classifiers. This prevents PyAV's
+compiled `AUTHORS.py` from becoming a false license-file hash and preserves
+the sole packaged license declaration for `tokenizers` in both inventories.
+The inventory test accepts that declaration as evidence of metadata presence;
+it does not treat it as a release decision.
+
+Hermes Agent is not a license precedent for this image. Its transcription
+tool [installs the `stt-whisper` dependency on demand](https://github.com/NousResearch/hermes-agent/blob/614b9b3f3c1ea8e24e6c7370bd85f9639f779bf0/tools/transcription_local.py),
+and its [project configuration](https://github.com/NousResearch/hermes-agent/blob/main/pyproject.toml)
+describes voice dependencies as lazy-installed. Whether that project satisfies
+its own redistribution obligations cannot be inferred from its use of
+`faster-whisper`. Canvas instead includes the PyAV wheel in both distributed
+container images, so this image's obligations need their own review.
+
+The normal `npm run test:licenses` check still passes and reports 1967
+components with 13 release blockers. `npm run test:licenses:release` still
+fails on those blockers as intended. No blocker or prior approval was changed.

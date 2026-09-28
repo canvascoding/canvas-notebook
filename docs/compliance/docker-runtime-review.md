@@ -1,5 +1,16 @@
 # Docker Runtime License Review
 
+## Current dictation-image status, 2026-09-28
+
+The July Schema-4 approval below covers the earlier 45-package Python lock,
+not the current 58-package lock. The [dictation dependency intake](dictation-python-dependency-intake-2026-09-28.md)
+records the exact new wheels and inspections of both final platform images.
+Both builds and their multi-architecture inventory comparison pass, but the
+images contain PyAV/FFmpeg libraries linked to bundled GPL `libx264` and
+`libx265`; further native-license and notice/source checks are also open.
+The current release gate remains blocked by 13 items. No commercial-release
+approval for this image composition is recorded here.
+
 Stand: 2026-07-17
 
 ## Abschlussupdate fuer Schema 4

@@ -119,6 +119,9 @@ for (const component of inventory.pythonPackages) {
   assert(
     component.licenseExpression
       || component.license
+      || component.licenseClassifiers?.some((classifier) => (
+        /^License :: OSI Approved :: /u.test(classifier)
+      ))
       || component.licenseFiles.length > 0
       || (
         component.managedBy === 'deb'
@@ -128,6 +131,13 @@ for (const component of inventory.pythonPackages) {
     `${component.name}@${component.version} needs license metadata or a packaged license file`,
   );
 }
+
+const tokenizersComponent = inventory.pythonPackages.find((component) => (
+  normalizePythonName(component.name) === 'tokenizers'
+));
+assert(tokenizersComponent, 'the locked tokenizers distribution must be inventoried');
+assert.equal(tokenizersComponent.version, '0.23.2');
+assert(tokenizersComponent.licenseClassifiers.includes('License :: OSI Approved :: Apache Software License'));
 
 const packagingComponent = inventory.pythonPackages.find((component) => (
   normalizePythonName(component.name) === 'packaging'
