@@ -78,7 +78,8 @@ jobs:
       packages: write
     needs: [source, safety-tests]
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.publish.outputs.digest }}
+      hub_digest: ${{ steps.publish.outputs.hub_digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -131,13 +132,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
-        id: build
+      - name: Build amd64 image locally
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./Dockerfile
-          push: true
+          load: true
           platforms: linux/amd64
           tags: |
             ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-amd64
@@ -154,7 +154,6 @@ jobs:
           IMAGE: ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-amd64
         run: |
           set -euo pipefail
-          docker pull "$IMAGE"
           command -v readelf >/dev/null
           container_id="$(docker create "$IMAGE")"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
@@ -176,6 +175,23 @@ jobs:
           cmp requirements/dictation-python.txt runtime-compliance/amd64/dictation-python.txt
           echo "3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e  runtime-compliance/amd64/vips-8.18.6.tar.xz" | sha256sum -c -
 
+      - name: Push verified amd64 image
+        id: publish
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          HUB_IMAGE: canvascoding/canvas-notebook
+          IMAGE_TAG: build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-amd64
+        run: |
+          set -euo pipefail
+          docker push "${GHCR_IMAGE}:${IMAGE_TAG}"
+          docker push "${HUB_IMAGE}:${IMAGE_TAG}"
+          digest="$(docker buildx imagetools inspect "${GHCR_IMAGE}:${IMAGE_TAG}" --format '{{.Manifest.Digest}}')"
+          hub_digest="$(docker buildx imagetools inspect "${HUB_IMAGE}:${IMAGE_TAG}" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$hub_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "hub_digest=${hub_digest}" >> "$GITHUB_OUTPUT"
+
       - name: Upload amd64 native compliance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -191,7 +207,8 @@ jobs:
       packages: write
     needs: [source, safety-tests]
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.publish.outputs.digest }}
+      hub_digest: ${{ steps.publish.outputs.hub_digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
@@ -244,13 +261,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push
-        id: build
+      - name: Build arm64 image locally
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./Dockerfile
-          push: true
+          load: true
           platforms: linux/arm64
           tags: |
             ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-arm64
@@ -267,7 +283,6 @@ jobs:
           IMAGE: ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-arm64
         run: |
           set -euo pipefail
-          docker pull "$IMAGE"
           command -v readelf >/dev/null
           container_id="$(docker create "$IMAGE")"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
@@ -288,6 +303,23 @@ jobs:
           cmp docs/compliance/third-party-components.json runtime-compliance/arm64/third-party-components.json
           cmp requirements/dictation-python.txt runtime-compliance/arm64/dictation-python.txt
           echo "3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e  runtime-compliance/arm64/vips-8.18.6.tar.xz" | sha256sum -c -
+
+      - name: Push verified arm64 image
+        id: publish
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          HUB_IMAGE: canvascoding/canvas-notebook
+          IMAGE_TAG: build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-arm64
+        run: |
+          set -euo pipefail
+          docker push "${GHCR_IMAGE}:${IMAGE_TAG}"
+          docker push "${HUB_IMAGE}:${IMAGE_TAG}"
+          digest="$(docker buildx imagetools inspect "${GHCR_IMAGE}:${IMAGE_TAG}" --format '{{.Manifest.Digest}}')"
+          hub_digest="$(docker buildx imagetools inspect "${HUB_IMAGE}:${IMAGE_TAG}" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$hub_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "hub_digest=${hub_digest}" >> "$GITHUB_OUTPUT"
 
       - name: Upload arm64 native compliance evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -431,10 +463,14 @@ jobs:
           MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
           AMD64_DIGEST: ${{ needs.build-amd64.outputs.digest }}
           ARM64_DIGEST: ${{ needs.build-arm64.outputs.digest }}
+          AMD64_HUB_DIGEST: ${{ needs.build-amd64.outputs.hub_digest }}
+          ARM64_HUB_DIGEST: ${{ needs.build-arm64.outputs.hub_digest }}
         run: |
           set -euo pipefail
           [[ "$AMD64_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
           [[ "$ARM64_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$AMD64_HUB_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$ARM64_HUB_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
 
           ghcr_tags=(-t "${GHCR_IMAGE}:latest")
           hub_tags=(-t "${HUB_IMAGE}:latest")
@@ -448,8 +484,8 @@ jobs:
             "${GHCR_IMAGE}@${ARM64_DIGEST}"
           docker buildx imagetools create \
             "${hub_tags[@]}" \
-            "${HUB_IMAGE}@${AMD64_DIGEST}" \
-            "${HUB_IMAGE}@${ARM64_DIGEST}"
+            "${HUB_IMAGE}@${AMD64_HUB_DIGEST}" \
+            "${HUB_IMAGE}@${ARM64_HUB_DIGEST}"
 
           echo "Created multi-arch manifests from immutable architecture digests."
 
