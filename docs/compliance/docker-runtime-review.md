@@ -174,6 +174,20 @@ Bewertung oder Freigabe. Die genannten Image-IDs gehoeren zum vorherigen
 Produkt-Head `bcf0385a8`; nach Aenderungen an Notice oder Policy sind
 deren eingebettete Compliance-Artefakte nicht mehr aktuell.
 
+Auch das separat installierte Debian-`ffmpeg` meldet in beiden exakten
+Images bei `ffmpeg -buildconf` die Flags `--enable-gpl`,
+`--enable-libx264` und `--enable-libx265`. Ein PyAV-Source-Build gegen
+dieses System-FFmpeg behebt den Befund deshalb nicht. Das CLI wird in
+`app/lib/files/media-preview.ts` fuer Medienvorschauen genutzt; PyAV
+kommt ueber Faster-Whisper fuer das Diktat hinzu. Wenn der Release-Owner
+eine Variante ohne diese Encoder waehlt, muss er ein entsprechend
+konfiguriertes, versions- und quellgebundenes FFmpeg fuer CLI und
+PyAV-Wheels auf amd64 und arm64 bereitstellen. Danach sind Hash-Lock,
+Lizenzmodus, dynamische Bibliotheksbindungen, Notices und Source-Archive
+im finalen Image erneut zu pruefen. Die Medienvorschau und die Diktat-
+Eingaben WebM, Ogg, M4A, MP3 und WAV muessen dabei weiter funktionieren.
+Andere GPL-Komponenten im Image sind davon unabhaengig zu pruefen.
+
 Diese technische Plattformpruefung ist keine kommerzielle Freigabe und
 keine produktive Bereitstellung. Der statische Release-Gate blockiert
 weiterhin 14 Eintraege: die neue Gesamtfreigabe und die Einzelpruefung
