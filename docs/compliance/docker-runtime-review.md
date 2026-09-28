@@ -115,6 +115,38 @@ stimmen auf beiden Plattformen bytegenau mit dem Branch ueberein; das
 mitgelieferte libvips-Quellarchiv besteht auf beiden den erwarteten
 SHA-256-Test `3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e`.
 
+Die folgenden Zahlen stammen aus den `RECORD`-Dateien der exakt in
+beiden Images installierten 13 neuen Wheels. Die erste Zahl gilt fuer
+amd64, die zweite fuer arm64. „Native Dateien“ zaehlt `.so`-Eintraege
+einschliesslich gebuendelter Bibliotheken; die Lizenzangabe stammt nur
+aus Wheel-Metadaten und ist noch keine Entscheidung ueber diese Dateien.
+
+| Wheel | Lizenzangabe | Wheel-eigene Lizenzdateien | Native Dateien |
+| --- | --- | ---: | ---: |
+| `anyio@4.15.1` | MIT | 1 / 1 | 0 / 0 |
+| `av@18.1.0` | BSD-3-Clause | 3 / 3 | 81 / 80 |
+| `ctranslate2@4.8.2` | MIT | 0 / 0 | 3 / 3 |
+| `faster-whisper@1.2.1` | MIT | 1 / 1 | 0 / 0 |
+| `filelock@4.0.5` | MIT | 1 / 1 | 0 / 0 |
+| `fsspec@2026.9.0` | BSD-3-Clause | 1 / 1 | 0 / 0 |
+| `h11@0.16.0` | MIT | 1 / 1 | 0 / 0 |
+| `hf-xet@1.6.0` | Apache-2.0 | 1 / 1 | 1 / 1 |
+| `httpcore@1.0.9` | BSD-3-Clause | 1 / 1 | 0 / 0 |
+| `httpx@0.28.1` | BSD-3-Clause | 1 / 1 | 0 / 0 |
+| `huggingface-hub@1.33.0` | Apache-2.0 | 1 / 1 | 0 / 0 |
+| `tokenizers@0.23.2` | keine Wheel-Angabe | 0 / 0 | 1 / 1 |
+| `tqdm@4.70.1` | MPL-2.0 AND MIT | 1 / 1 | 0 / 0 |
+
+PyAVs `RECORD` fuehrt unter anderem eigene `av.libs`-Kopien von
+`libavcodec`, `libavformat`, `libx264` und `libx265`; `libvpl`
+steht nur im amd64-Wheel. `ctranslate2` liefert neben seiner
+Python-Erweiterung eine eigene `libctranslate2` und `libgomp`.
+`hf-xet` und `tokenizers` enthalten jeweils eine native
+Python-Erweiterung. Diese genaue Payload und die fehlenden Wheel-Texte
+bei `ctranslate2` und `tokenizers` sind Gegenstand der offenen
+Einzelpruefung; der gebundene externe Apache-Text fuer `tokenizers`
+ist oben dokumentiert.
+
 Diese technische Plattformpruefung ist keine kommerzielle Freigabe und
 keine produktive Bereitstellung. Der statische Release-Gate blockiert
 weiterhin 14 Eintraege: die neue Gesamtfreigabe und die Einzelpruefung
