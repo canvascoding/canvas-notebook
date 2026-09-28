@@ -297,6 +297,10 @@ for distribution in importlib.metadata.distributions():
         "metadataPath": os.fspath(getattr(distribution, "_path", distribution.locate_file(""))),
         "licenseExpression": metadata.get("License-Expression"),
         "license": metadata.get("License"),
+        "licenseClassifiers": [
+            classifier for classifier in metadata.get_all("Classifier", [])
+            if classifier.startswith("License ::")
+        ],
         "homepage": metadata.get("Home-page") or metadata.get("Project-URL"),
         "installer": distribution.read_text("INSTALLER"),
         "recordPath": os.fspath(distribution.locate_file(
@@ -341,6 +345,7 @@ try {
         debianPackage: null,
         licenseExpression: null,
         license: null,
+        licenseClassifiers: [],
         homepage: null,
         licenseFiles: [],
       };

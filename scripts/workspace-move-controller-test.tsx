@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom';
 import { NextIntlClientProvider } from 'next-intl';
 import { act, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import { toast } from 'sonner';
 
 import {
   useWorkspaceMove,
@@ -28,6 +29,7 @@ const messages = {
     movePartialFailure: 'moved {count}: {error}',
     protectedFolderMove: 'protected folder',
     sourceNotFoundError: 'source missing',
+    fileOperationLinksIncomplete: 'link warning',
   },
 };
 
@@ -214,6 +216,14 @@ async function main() {
   });
   await act(async () => { assert.equal(await currentController().startMove(['one.txt', 'two.txt'], 'dest'), 'failed'); });
   assert.deepEqual([...useFileStore.getState().multiSelectPaths], ['two.txt'], 'partial moves leave only unresolved items selected');
+
+  useFileStore.setState({ renamePath: async () => ({
+    linkStatus: 'partial', linkUpdates: { updatedFiles: [], updatedLinks: 0, warnings: ['Markdown link was not rewritten'] },
+  }) });
+  await act(async () => { assert.equal(await currentController().startMove(['notes/chart.png'], 'archive'), 'completed'); });
+  const lastToast = toast.getHistory().at(-1);
+  assert.equal(lastToast && 'title' in lastToast ? String(lastToast.title) : null,
+    'link warning', 'queued moves must surface incomplete links');
 
   await act(async () => {
     root.unmount();

@@ -141,6 +141,9 @@ for (const component of inventory.pythonPackages) {
   assert(
     component.licenseExpression
       || component.license
+      || component.licenseClassifiers?.some((classifier) => (
+        /^License :: OSI Approved :: /u.test(classifier)
+      ))
       || component.licenseFiles.length > 0
       || (normalizePythonName(component.name) === 'tokenizers' && component.version === '0.23.2')
       || (
@@ -149,6 +152,16 @@ for (const component of inventory.pythonPackages) {
         && inventory.dpkgPackages.some((candidate) => candidate.name === component.debianPackage)
       ),
     `${component.name}@${component.version} needs license metadata or a packaged license file`,
+  );
+}
+
+for (const optionalName of [
+  'anyio', 'av', 'ctranslate2', 'faster-whisper', 'filelock', 'fsspec', 'h11',
+  'hf-xet', 'httpcore', 'httpx', 'huggingface-hub', 'tokenizers', 'tqdm',
+]) {
+  assert(
+    !inventory.pythonPackages.some((component) => normalizePythonName(component.name) === optionalName),
+    `${optionalName} must not be installed in the distributed Docker image`,
   );
 }
 

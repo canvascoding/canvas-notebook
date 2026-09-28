@@ -78,6 +78,7 @@ const runtimePythonRequirements = fs.readFileSync(
   nativeDistributionPolicy.pythonRequirements,
   'utf8',
 );
+const optionalDictationRequirements = fs.readFileSync('requirements/dictation-python.txt', 'utf8');
 
 assert.equal(
   packageJson.dependencies?.['@jspreadsheet/react'],
@@ -105,16 +106,17 @@ assert.equal(
     .filter(([packagePath, value]) => packagePath.startsWith('node_modules/') && value.version)
     .length,
 );
-assert.equal(inventory.releaseGate.approvalStatus, 'pending');
-assert.equal(inventory.releaseGate.approvalReviewedBy, null);
-assert.equal(inventory.releaseGate.approvalReviewedAt, null);
+assert.equal(inventory.releaseGate.approvalStatus, 'approved');
+assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
+assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
 assert.equal(inventory.releaseGate.status, 'blocked');
-assert.equal(inventory.releaseGate.blockers.length, 14);
-assert.equal(inventory.releaseGate.blockers[0]?.name, 'first-commercial-release-approval');
+assert.deepEqual(inventory.releaseGate.blockers.map(({ name }) => name), [
+  'docker-runtime:optional-dictation-boundary',
+]);
 assert.equal(
   inventory.summary.distributedReviewRequired,
-  2,
-  'the new native runtime must keep its pending native and dual-license reviews visible',
+  0,
+  'the static component inventory must not contain unreviewed distributed components',
 );
 assert.equal(
   inventory.summary.developmentOnlyReviewRequired,
@@ -159,6 +161,7 @@ for (const requiredDockerFragment of [
   'npm --prefix node_modules/sharp run build',
   "find node_modules -type d -path '*/@img/sharp-*'",
   '--require-hashes -r /app/requirements/runtime-python.txt',
+  'COPY --from=builder /app/requirements/dictation-python.txt /app/requirements/dictation-python.txt',
   'capture-runtime-component-inventory.mjs',
   'runtime-component-inventory-test.mjs',
   'sharp-runtime-linkage-test.mjs',
@@ -201,10 +204,8 @@ for (const requiredWorkflowFragment of [
   'runtime-multiarch-compliance-test.mjs',
   'sharp-linkage-linux-amd64.json',
   'sharp-linkage-linux-arm64.json',
-  'capture-hf-xet-native-evidence.py',
-  'hf-xet-native-evidence-test.mjs',
-  'hf-xet-native-evidence-linux-amd64.json',
-  'hf-xet-native-evidence-linux-arm64.json',
+  'runtime-compliance/amd64/dictation-python.txt',
+  'runtime-compliance/arm64/dictation-python.txt',
   'vips-8.18.6.tar.xz',
   'Package native compliance evidence',
   'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
@@ -243,16 +244,6 @@ assert(
     > nativeBuildWorkflow.indexOf('Verify multi-architecture native compliance'),
   'the release bundle must be uploaded only after multi-architecture native compliance succeeds',
 );
-assert(
-  nativeBuildWorkflow.indexOf('Package native compliance evidence')
-    > nativeBuildWorkflow.lastIndexOf('node scripts/hf-xet-native-evidence-test.mjs'),
-  'the native compliance package must follow the cross-architecture hf-xet evidence gate',
-);
-assert.equal(
-  nativeBuildWorkflow.split('node scripts/hf-xet-native-evidence-test.mjs').length - 1,
-  3,
-  'each architecture and the combined release evidence must be checked',
-);
 assert.equal(
   (dockerfile.match(/find node_modules -type d -path '\*\/@img\/sharp-\*'/gu) || []).length,
   2,
@@ -274,17 +265,20 @@ for (const artifact of nativeDistributionPolicy.postgresql.sourceArtifacts) {
   assert.match(artifact.sha256, /^[a-f0-9]{64}$/u);
 }
 
-const pythonRequirementBody = runtimePythonRequirements
-  .split(/\r?\n/u)
-  .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
-  .join('\n');
-const pythonEntries = pythonRequirementBody
-  .split(/(?=^[a-z0-9][a-z0-9._-]*==)/gimu)
-  .map((block) => {
-    const match = block.match(/^([a-z0-9][a-z0-9._-]*)==([^\s\\]+)/iu);
-    assert(match, `invalid Python requirement block: ${block}`);
-    return [match[1], match[2], block] as const;
-  });
+function parsePythonEntries(requirements: string) {
+  return requirements
+    .split(/\r?\n/u)
+    .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
+    .join('\n')
+    .split(/(?=^[a-z0-9][a-z0-9._-]*==)/gimu)
+    .map((block) => {
+      const match = block.match(/^([a-z0-9][a-z0-9._-]*)==([^\s\\]+)/iu);
+      assert(match, `invalid Python requirement block: ${block}`);
+      return [match[1], match[2], block] as const;
+    });
+}
+const pythonEntries = parsePythonEntries(runtimePythonRequirements);
+const dictationEntries = parsePythonEntries(optionalDictationRequirements);
 const dictationPythonVersions = new Map([
   ['anyio', '4.15.1'],
   ['av', '18.1.0'],
@@ -300,26 +294,31 @@ const dictationPythonVersions = new Map([
   ['tokenizers', '0.23.2'],
   ['tqdm', '4.70.1'],
 ]);
-assert.equal(pythonEntries.length, 45 + dictationPythonVersions.size);
-assert.deepEqual(
-  inventory.releaseGate.blockers.slice(1).map(({ name }) => name).sort(),
-  [...dictationPythonVersions.keys()].map((name) => `docker-python:${name}`).sort(),
-  'all thirteen dictation dependencies must remain release-blocked until owner review',
+assert.equal(
+  pythonEntries.length,
+  45,
+  'the bundled Python lock must retain only the reviewed base package set',
 );
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
 assert.deepEqual(
-  pythonEntries
-    .filter(([name]) => dictationPythonVersions.has(name.toLowerCase()))
+  pythonEntries.filter(([name]) => dictationPythonVersions.has(name.toLowerCase())),
+  [],
+  'optional dictation wheels must not be installed in the Docker base image',
+);
+assert.equal(dictationEntries.length, dictationPythonVersions.size);
+assert.deepEqual(
+  dictationEntries
     .map(([name, version]) => [name.toLowerCase(), version])
     .sort(([left], [right]) => left.localeCompare(right)),
   [...dictationPythonVersions.entries()].sort(([left], [right]) => left.localeCompare(right)),
-  'the dictation dependencies must retain their pinned package names and versions',
+  'the optional dictation lock must retain its pinned package names and versions',
 );
-for (const [name, version, hashes] of pythonEntries) {
+for (const [name, version, hashes] of [...pythonEntries, ...dictationEntries]) {
   assert(version, `${name} must use an exact Python version`);
   assert.match(hashes, /--hash=sha256:[a-f0-9]{64}/u, `${name} must retain wheel hashes`);
   assert.doesNotMatch(hashes, /--hash=sha256:(?![a-f0-9]{64})/u);
 }
+assert.doesNotMatch(dockerfile, /pip3 install[^\n]*dictation-python\.txt/u);
 
 for (const [packagePath, lockPackage] of Object.entries(lockfile.packages)) {
   if (
@@ -615,7 +614,6 @@ for (const name of [
   'docker-python:flatbuffers',
   'docker-python:magika',
   'docker-python:markitdown',
-  'docker-python:tokenizers',
   'docker-global-npm:@sigstore/verify',
   'docker-global-npm:imurmurhash',
   'docker-global-npm:spdx-license-ids',
@@ -626,17 +624,6 @@ for (const name of [
   assert.equal(component.distributedIn.join(','), 'docker-image');
   assert(component.licenseTextSha256);
 }
-
-const tqdmReview = inventory.components.find((component) => component.name === 'docker-python:tqdm');
-const ctranslate2Review = inventory.components.find((component) => component.name === 'docker-python:ctranslate2');
-assert(ctranslate2Review);
-assert.equal(ctranslate2Review.policyDecision, 'review_required');
-assert.equal(ctranslate2Review.verifiedLicense, 'MIT');
-assert.equal(ctranslate2Review.licenseTextSha256, '54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb');
-assert(tqdmReview);
-assert.equal(tqdmReview.policyDecision, 'review_required');
-assert.equal(tqdmReview.verifiedLicense, 'MPL-2.0 AND MIT');
-assert.equal(tqdmReview.licenseTextSha256, 'fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de');
 
 const canvasLibvips = inventory.components.find((component) => (
   component.name === 'canvas-built-libvips'

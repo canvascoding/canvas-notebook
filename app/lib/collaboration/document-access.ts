@@ -16,6 +16,11 @@ const globalBridge = globalThis as typeof globalThis & {
   __canvasCollaborationDocumentReader?: CollaborationDocumentReader;
 };
 
+/** True only when reads can observe the current room instead of a persisted fallback. */
+export function isLiveCollaborationDocumentReaderAvailable(): boolean {
+  return typeof globalBridge.__canvasCollaborationDocumentReader === 'function';
+}
+
 export function installCollaborationDocumentReader(handler: CollaborationDocumentReader): () => void {
   globalBridge.__canvasCollaborationDocumentReader = handler;
   return () => {

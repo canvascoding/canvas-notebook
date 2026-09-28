@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ChevronsDownUp, CheckSquare, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, PenTool, RefreshCw, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronsDownUp, CheckSquare, ClipboardCheck, FilePlus, FolderPlus, FolderTree, LayoutGrid, List, MoreHorizontal, PenTool, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import {
@@ -21,6 +21,8 @@ import { cn } from '@/lib/utils';
 import { useFileStore } from '@/app/store/file-store';
 import type { BrowserMode } from '@/app/lib/files/types';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { openWorkspaceOperationReviewList } from '@/app/store/workspace-operation-review-store';
 
 export interface FileToolbarHandlers {
   onToggleMultiSelect: () => void;
@@ -49,8 +51,13 @@ const VIEW_MODES: { mode: BrowserMode; Icon: typeof LayoutGrid; labelKey: string
 
 export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRefreshing = false, handlers }: FileToolbarProps) {
   const t = useTranslations('notebook');
+  const reviewT = useTranslations('workspaceOperationReview');
   const browserMode = useFileStore((state) => state.browserMode);
   const setBrowserMode = useFileStore((state) => state.setBrowserMode);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const openPendingReviews = () => {
+    if (activeWorkspaceId) openWorkspaceOperationReviewList(activeWorkspaceId);
+  };
 
   const isMobileSheet = variant === 'mobile-sheet';
   const isFullscreen = variant === 'fullscreen';
@@ -209,6 +216,11 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" sideOffset={8} className="w-56">
+          <DropdownMenuItem onSelect={openPendingReviews} disabled={!activeWorkspaceId}>
+            <ClipboardCheck className="mr-2 h-4 w-4" />
+            {reviewT('toolbarLabel')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           {!isDeleteDisabled && (
             <>
               <DropdownMenuItem variant="destructive" onSelect={handlers.onDelete}>
@@ -280,6 +292,12 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
           </Button>
           {renderDeleteButton({ showLabel: true })}
 
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs"
+            onClick={openPendingReviews} disabled={!activeWorkspaceId} aria-label={reviewT('toolbarLabel')}>
+            <ClipboardCheck className="h-4 w-4" />
+            <span className="hidden sm:inline">{reviewT('toolbarLabel')}</span>
+          </Button>
+
           <div className="hidden h-5 w-px bg-border sm:block" />
 
           <div className="flex items-center rounded-md border border-border p-0.5">
@@ -347,6 +365,16 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
             <TooltipContent>{t('upload')}</TooltipContent>
           </Tooltip>
           {renderDeleteButton({ tooltipLabel: t('delete') })}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={openPendingReviews}
+                disabled={!activeWorkspaceId} aria-label={reviewT('toolbarLabel')}>
+                <ClipboardCheck className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{reviewT('toolbarLabel')}</TooltipContent>
+          </Tooltip>
 
           <div className="hidden h-5 w-px bg-border sm:block" />
 

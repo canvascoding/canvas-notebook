@@ -4,92 +4,27 @@
   "packageVersion": "2026.9.27.1",
   "lockfileSha256": "debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5",
   "summary": {
-    "totalComponents": 1970,
+    "totalComponents": 1967,
     "npmComponents": 1943,
-    "nonNpmComponents": 27,
-    "runtimeComponents": 1452,
+    "nonNpmComponents": 24,
+    "runtimeComponents": 1449,
     "developmentOnlyComponents": 518,
-    "allowed": 1932,
-    "reviewRequired": 38,
+    "allowed": 1931,
+    "reviewRequired": 36,
     "blocked": 0,
-    "distributedReviewRequired": 2,
+    "distributedReviewRequired": 0,
     "developmentOnlyReviewRequired": 36
   },
   "releaseGate": {
     "status": "blocked",
-    "approvalStatus": "pending",
-    "approvalReviewedBy": null,
-    "approvalReviewedAt": null,
+    "approvalStatus": "approved",
+    "approvalReviewedBy": "Frank Alexander Weber",
+    "approvalReviewedAt": "2026-07-17",
     "blockers": [
       {
-        "name": "first-commercial-release-approval",
-        "versionOrCommit": "2026.9.27.1",
-        "reason": "The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. Before a new image release the owner must resolve the exact PyAV wheel x264/x265 and FFmpeg license-mode discrepancy, establish provenance and obligations for the CTranslate2 wheel bundled libgomp, review the other new native payloads and the combined MPL-2.0 AND MIT terms of tqdm."
-      },
-      {
-        "name": "docker-python:ctranslate2",
-        "versionOrCommit": "4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9",
-        "reason": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. Both wheel RECORDs list libctranslate2, libgomp and a Python extension; the extension dynamically loads the bundled libraries. Bundled libgomp SHA-256 is a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a on amd64 and 43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537 on arm64, distinct from installed Debian libgomp. GCC 12.2.0 libgomp source uses GPLv3-or-later with GCC Runtime Library Exception 3.1, but that does not establish the exact wheel binary provenance. Obtain wheel build recipe, compiler and dependency versions, statically embedded component inventory, corresponding source and applicable texts for both exact wheels before an owner decision."
-      },
-      {
-        "name": "docker-python:tqdm",
-        "versionOrCommit": "4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
-        "reason": "The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image."
-      },
-      {
-        "name": "docker-python:anyio",
-        "versionOrCommit": "4.15.1",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:av",
-        "versionOrCommit": "18.1.0",
-        "reason": "Exact amd64 and arm64 wheels bundle libx264 and libx265, directly linked by libavcodec. The wheel only includes PyAV BSD-3-Clause text; avcodec_license reports LGPLv3+ with x264/x265 enabled but no --enable-gpl. Resolve provenance, encoder rights, FFmpeg license mode and required notices or rebuild without these libraries before release."
-      },
-      {
-        "name": "docker-python:faster-whisper",
-        "versionOrCommit": "1.2.1",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:filelock",
-        "versionOrCommit": "4.0.5",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:fsspec",
-        "versionOrCommit": "2026.9.0",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:h11",
-        "versionOrCommit": "0.16.0",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:hf-xet",
-        "versionOrCommit": "1.6.0",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
-      },
-      {
-        "name": "docker-python:httpcore",
-        "versionOrCommit": "1.0.9",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:httpx",
-        "versionOrCommit": "0.28.1",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:huggingface-hub",
-        "versionOrCommit": "1.33.0",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending."
-      },
-      {
-        "name": "docker-python:tokenizers",
-        "versionOrCommit": "0.23.2",
-        "reason": "Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending."
+        "name": "docker-runtime:optional-dictation-boundary",
+        "versionOrCommit": "2026-09-28",
+        "reason": "The dictation wheels have moved to an opt-in DATA installation, but the changed final amd64/arm64 image composition and installation boundary still need a version-specific owner review before commercial distribution."
       }
     ]
   },
@@ -10557,27 +10492,6 @@
       "reviewNotes": "The npm tarball and global npm bundle omit the legal code but npm gitHead and the dereferenced v3.0.23 tag identify this exact CC0 dataset release. Canvas supplies the official CC0-1.0 legal code."
     },
     {
-      "name": "docker-python:ctranslate2",
-      "versionOrCommit": "4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9",
-      "sourceUrl": "https://github.com/OpenNMT/CTranslate2/tree/d44d2d069eb88c7b7804da864c10c201501cb4a9",
-      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/ctranslate2-4.8.2.dist-info",
-      "usage": "native",
-      "distributedIn": [
-        "docker-image"
-      ],
-      "declaredLicense": "MIT (Python setup.py; wheel metadata declares MIT but omits license file)",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/license-texts/ctranslate2-4.8.2-MIT.txt",
-      "licenseTextSha256": "54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb",
-      "copyrightNotices": [
-        "Copyright (c) 2018-     SYSTRAN.",
-        "Copyright (c) 2019-     The OpenNMT Authors."
-      ],
-      "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. Both wheel RECORDs list libctranslate2, libgomp and a Python extension; the extension dynamically loads the bundled libraries. Bundled libgomp SHA-256 is a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a on amd64 and 43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537 on arm64, distinct from installed Debian libgomp. GCC 12.2.0 libgomp source uses GPLv3-or-later with GCC Runtime Library Exception 3.1, but that does not establish the exact wheel binary provenance. Obtain wheel build recipe, compiler and dependency versions, statically embedded component inventory, corresponding source and applicable texts for both exact wheels before an owner decision."
-    },
-    {
       "name": "docker-python:flatbuffers",
       "versionOrCommit": "25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953",
       "sourceUrl": "https://github.com/google/flatbuffers/tree/7e163021e59cca4f8e1e35a7c828b5c6b7915953",
@@ -10636,42 +10550,6 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "The wheel and exact PyPI sdist SHA-256 e5bdbaffd971b29598c7c39ef0e9afce2f08c0751fbfa4e4257678ebaf8cfc7e omit LICENSE. The signed v0.1.6 tag resolves to this commit and contains the exact MIT text and Microsoft copyright without NOTICE."
-    },
-    {
-      "name": "docker-python:tokenizers",
-      "versionOrCommit": "0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3",
-      "sourceUrl": "https://github.com/huggingface/tokenizers/tree/88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3",
-      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/tokenizers-0.23.2.dist-info",
-      "usage": "native",
-      "distributedIn": [
-        "docker-image"
-      ],
-      "declaredLicense": "Apache-2.0 (Cargo.toml and PyPI classifier; Python wheel metadata omits it)",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/license-texts/tokenizers-0.23.2-APACHE-2.0.txt",
-      "licenseTextSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
-      "copyrightNotices": [],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "PyPI 0.23.2 sdist SHA-256 7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac contains tokenizers/LICENSE; its SHA-256 c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4 matches the LICENSE at v0.23.2 commit 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3. Tagged Cargo.toml declares version 0.23.2 and Apache-2.0. The Python wheel omits the license metadata and text; the exact source text is bundled separately. The overall new image remains release-pending."
-    },
-    {
-      "name": "docker-python:tqdm",
-      "versionOrCommit": "4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
-      "sourceUrl": "https://github.com/tqdm/tqdm/tree/9cf5a12b1f955468a17f0ba3c59092b23e4258ac",
-      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/tqdm-4.70.1.dist-info",
-      "usage": "native",
-      "distributedIn": [
-        "docker-image"
-      ],
-      "declaredLicense": "MPL-2.0 AND MIT",
-      "verifiedLicense": "MPL-2.0 AND MIT",
-      "licenseTextRef": "docs/compliance/license-texts/tqdm-4.70.1-LICENCE.txt",
-      "licenseTextSha256": "fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de",
-      "copyrightNotices": [],
-      "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image."
     },
     {
       "name": "electron-runtime",

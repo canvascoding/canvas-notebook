@@ -237,9 +237,35 @@ async function sendAdoptionReport(
   members: LocalMember[],
   fetchImpl?: typeof fetch,
   loadCertificate: typeof loadStoredLicenseCert = loadStoredLicenseCert,
+  verifyCertificate: typeof verifyLicenseJwtDetailed = verifyLicenseJwtDetailed,
 ): Promise<void> {
-  const legacyCertificate = process.env.CANVAS_LICENSE_CERT?.trim()
-    || await loadCertificate(instanceId);
+  const candidates = [process.env.CANVAS_LICENSE_CERT?.trim(), await loadCertificate(instanceId)]
+    .filter((certificate): certificate is string => Boolean(certificate));
+  let legacyCertificate: string | null = null;
+  let highestRevision: [number, number, number] | null = null;
+  for (const certificate of new Set(candidates)) {
+    const decoded = decodeLicenseJwt(certificate);
+    if (!decoded || !Number.isSafeInteger(decoded.exp) || !decoded.exp) continue;
+    const current = await verifyCertificate(certificate, instanceId);
+    const verified = current.ok || current.code !== 'LICENSE_CERT_EXPIRED'
+      ? current
+      : await verifyCertificate(certificate, instanceId, { nowMs: decoded.exp * 1000 - 1000 });
+    if (!verified.ok || !Number.isSafeInteger(verified.payload.entitlementsVersion)
+      || !Number.isSafeInteger(verified.payload.quotas?.users)
+      || (verified.payload.quotas?.users ?? 0) < 1
+      || (verified.payload.iat ?? 0) * 1000 > Date.now() + 5 * 60 * 1000) continue;
+    const revision: [number, number, number] = [
+      verified.payload.entitlementsVersion!, verified.payload.iat ?? 0, Number(decoded.exp),
+    ];
+    if (!highestRevision || revision[0] > highestRevision[0]
+      || (revision[0] === highestRevision[0] && revision[1] > highestRevision[1])
+      || (revision[0] === highestRevision[0] && revision[1] === highestRevision[1]
+        && revision[2] > highestRevision[2])) {
+      highestRevision = revision;
+      legacyCertificate = certificate;
+    }
+  }
+  if (candidates.length > 0 && !legacyCertificate) throw new Error('MANAGED_TEAM_LEGACY_CERTIFICATE_INVALID');
   await managedRequest(ADOPTION_PATH, 'POST', {
     instanceId,
     ...(legacyCertificate ? { legacyCertificate } : {}),
@@ -516,6 +542,7 @@ export async function runManagedTeamSyncCycle(options: {
   verifyCertificate?: (certificate: string, instanceId: string) => Promise<boolean>;
   recordTermWarning?: typeof recordTeamLicenseTermWarning;
   loadLegacyCertificate?: typeof loadStoredLicenseCert;
+  verifyLegacyCertificate?: typeof verifyLicenseJwtDetailed;
 } = {}): Promise<'unconfigured' | 'adoption_required' | 'applied' | 'pending'> {
   if (!instanceToken() || getDeploymentMode() !== 'managed-team'
     || process.env.NEXT_PHASE === 'phase-production-build') return 'unconfigured';
@@ -526,7 +553,8 @@ export async function runManagedTeamSyncCycle(options: {
     const payload = await managedRequest(SYNC_PATH, 'GET', undefined, options.fetchImpl);
     const sync = parseSync(payload, instanceId);
     if (sync.status === 'adoption_required') {
-      await sendAdoptionReport(instanceId, local.members, options.fetchImpl, options.loadLegacyCertificate);
+      await sendAdoptionReport(instanceId, local.members, options.fetchImpl,
+        options.loadLegacyCertificate, options.verifyLegacyCertificate);
       return 'adoption_required';
     }
     const license = sync.license!;

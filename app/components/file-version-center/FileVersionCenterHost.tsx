@@ -51,7 +51,10 @@ import { invalidateReviewQueries } from '@/app/lib/queries/review-queries';
 import { FileVersionLoadingSkeleton } from './FileVersionLoadingSkeleton';
 import { FileVersionComparison } from './FileVersionComparison';
 import { FileVersionTimeline } from './FileVersionTimeline';
+import { WorkspaceOperationReviewPanel } from './WorkspaceOperationReviewPanel';
 import type { GraphReviewCardStatus } from './GraphReviewComparison';
+import { closeWorkspaceOperationReview, useWorkspaceOperationReviewStore } from '@/app/store/workspace-operation-review-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 type MobileReviewPane = 'timeline' | 'comparison';
 
@@ -71,7 +74,10 @@ export function FileVersionCenterHost() {
   const t = useTranslations('fileVersionCenter');
   const router = useRouter();
   const request = useFileVersionCenterStore((state) => state.request);
+  const workspaceReviewRequest = useWorkspaceOperationReviewStore((state) => state.request);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const authScope = useSyncExternalStore(subscribeFileVersionAuth, openedDocumentAuthScope, () => null);
+  const workspaceReviewAuthScopeRef = useRef(authScope);
   const targetIdentity = request ? JSON.stringify([authScope, request.target]) : null;
   const [resolvedTimeline, setResolvedTimeline] = useState<{ identity: string;
     requestTarget: FileVersionCenterRequestV1['target']; value: FileVersionTimelineResponseV1 } | null>(null);
@@ -465,7 +471,28 @@ export function FileVersionCenterHost() {
     }
   }, [authScope, loadingMore, request, setResolvedTimeline, t, timeline]);
 
-  const close = useCallback(() => closeVersionCenter(), []);
+  const close = useCallback(() => {
+    if (request) closeVersionCenter();
+    else closeWorkspaceOperationReview();
+  }, [request]);
+
+  useEffect(() => {
+    if (request && workspaceReviewRequest) closeWorkspaceOperationReview();
+  }, [request, workspaceReviewRequest]);
+
+  useEffect(() => {
+    if (workspaceReviewRequest && workspaceReviewRequest.workspaceId !== activeWorkspaceId) {
+      closeWorkspaceOperationReview();
+    }
+  }, [activeWorkspaceId, workspaceReviewRequest]);
+
+  useEffect(() => {
+    const previousScope = workspaceReviewAuthScopeRef.current;
+    workspaceReviewAuthScopeRef.current = authScope;
+    if (workspaceReviewRequest && previousScope && previousScope !== authScope) {
+      closeWorkspaceOperationReview();
+    }
+  }, [authScope, workspaceReviewRequest]);
   const resolvedPath = timeline?.document.path;
   const targetLabel = resolvedPath ?? (request?.target.kind === 'path'
     ? request.target.pathHint
@@ -547,7 +574,7 @@ export function FileVersionCenterHost() {
   }, [router, timeline]);
 
   return (
-    <Dialog open={Boolean(request)} onOpenChange={(open) => { if (!open) close(); }}>
+    <Dialog open={Boolean(request || workspaceReviewRequest)} onOpenChange={(open) => { if (!open) close(); }}>
       {request ? (
         <DialogContent
           layout="viewport"
@@ -663,6 +690,11 @@ export function FileVersionCenterHost() {
             ) : null}
           </div>
         </DialogContent>
+      ) : workspaceReviewRequest ? (
+        <WorkspaceOperationReviewPanel
+          key={JSON.stringify([authScope, activeWorkspaceId, workspaceReviewRequest])}
+          request={workspaceReviewRequest}
+        />
       ) : null}
     </Dialog>
   );

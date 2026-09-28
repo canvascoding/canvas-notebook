@@ -34,6 +34,11 @@ type DirectConnectionHandler = <T>(
 
 const globalBridge = globalThis as typeof globalThis & { __canvasCollaborationDirectConnection?: DirectConnectionHandler };
 
+/** Read-only availability check for work that must not mutate paths before a live Yjs writer can connect. */
+export function isCollaborationDirectConnectionAvailable(): boolean {
+  return typeof globalBridge.__canvasCollaborationDirectConnection === 'function';
+}
+
 export function installCollaborationDirectConnection(handler: DirectConnectionHandler): () => void {
   globalBridge.__canvasCollaborationDirectConnection = handler;
   return () => {

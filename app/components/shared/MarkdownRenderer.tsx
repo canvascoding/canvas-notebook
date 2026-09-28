@@ -186,7 +186,7 @@ export function MarkdownRenderer({
       const workspaceTarget = href ? getWorkspaceMarkdownNavigationTarget(href, sourcePath) : null;
       if (workspaceTarget) {
         return (
-          <ObsidianWikiLink target={workspaceTarget} sourcePath={sourcePath}>
+          <ObsidianWikiLink target={workspaceTarget} sourcePath={sourcePath} markdownHref={href}>
             {children}
           </ObsidianWikiLink>
         );

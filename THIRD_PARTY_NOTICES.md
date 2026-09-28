@@ -5,7 +5,7 @@ versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.27.1
 - Lockfile SHA-256: `debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5`
-- Distributed components: 1452
+- Distributed components: 1449
 - Release gate: **blocked**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -33,12 +33,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | docker-global-npm:imurmurhash | 0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2 | native | MIT | allowed |
 | docker-global-npm:spdx-exceptions | 2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799 | native | CC-BY-3.0 | allowed |
 | docker-global-npm:spdx-license-ids | 3.0.23 / a2a975daf48bbc2afdc8e7c304405b44c656fd53 | native | CC0-1.0 | allowed |
-| docker-python:ctranslate2 | 4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9 | native | MIT | review_required |
 | docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
 | docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
 | docker-python:markitdown | 0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551 | native | MIT | allowed |
-| docker-python:tokenizers | 0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3 | native | Apache-2.0 | allowed |
-| docker-python:tqdm | 4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac | native | MPL-2.0 AND MIT | review_required |
 | electron-runtime | 42.6.1 | native | MIT | allowed |
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | allowed |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
@@ -1472,20 +1469,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 
 The following entries require a documented responsible/legal decision before a commercial release:
 
-- **first-commercial-release-approval 2026.9.27.1:** The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. Before a new image release the owner must resolve the exact PyAV wheel x264/x265 and FFmpeg license-mode discrepancy, establish provenance and obligations for the CTranslate2 wheel bundled libgomp, review the other new native payloads and the combined MPL-2.0 AND MIT terms of tqdm.
-- **docker-python:ctranslate2 4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9:** The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. Both wheel RECORDs list libctranslate2, libgomp and a Python extension; the extension dynamically loads the bundled libraries. Bundled libgomp SHA-256 is a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a on amd64 and 43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537 on arm64, distinct from installed Debian libgomp. GCC 12.2.0 libgomp source uses GPLv3-or-later with GCC Runtime Library Exception 3.1, but that does not establish the exact wheel binary provenance. Obtain wheel build recipe, compiler and dependency versions, statically embedded component inventory, corresponding source and applicable texts for both exact wheels before an owner decision.
-- **docker-python:tqdm 4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac:** The exact 4.70.1 sdist SHA-256 cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4 and v4.70.1 commit 9cf5a12b1f955468a17f0ba3c59092b23e4258ac contain the byte-identical LICENCE (SHA-256 fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de). The combined MPL/MIT obligations need an explicit owner decision for the new image.
-- **docker-python:anyio 4.15.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:av 18.1.0:** Exact amd64 and arm64 wheels bundle libx264 and libx265, directly linked by libavcodec. The wheel only includes PyAV BSD-3-Clause text; avcodec_license reports LGPLv3+ with x264/x265 enabled but no --enable-gpl. Resolve provenance, encoder rights, FFmpeg license mode and required notices or rebuild without these libraries before release.
-- **docker-python:faster-whisper 1.2.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:filelock 4.0.5:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:fsspec 2026.9.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:h11 0.16.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:hf-xet 1.6.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
-- **docker-python:httpcore 1.0.9:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:httpx 0.28.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:huggingface-hub 1.33.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
-- **docker-python:tokenizers 0.23.2:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
+- **docker-runtime:optional-dictation-boundary 2026-09-28:** The dictation wheels have moved to an opt-in DATA installation, but the changed final amd64/arm64 image composition and installation boundary still need a version-specific owner review before commercial distribution.
 
 ## License texts and copyright notices
 
@@ -9784,40 +9768,6 @@ Copyright notices:
 The MIT License (MIT)
 
 Copyright (c) 2019 Kevin Jahns <kevin.jahns@protonmail.com>.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### License text 54aa79d9fe3c
-
-Applies to docker-python:ctranslate2@4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9.
-
-Copyright notices:
-
-- Copyright (c) 2018-     SYSTRAN.
-- Copyright (c) 2019-     The OpenNMT Authors.
-
-```text
-MIT License
-
-Copyright (c) 2018-     SYSTRAN.
-Copyright (c) 2019-     The OpenNMT Authors.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24036,7 +23986,7 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTH
 
 ### License text c71d239df917
 
-Applies to docker-python:tokenizers@0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3, @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, standardwebhooks@1.1.1, text-decoder@1.2.7.
+Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, standardwebhooks@1.1.1, text-decoder@1.2.7.
 
 Copyright notices:
 
@@ -30006,62 +29956,6 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
-### License text fcff87c3a47c
-
-Applies to docker-python:tqdm@4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac.
-
-```text
-`tqdm` is a product of collaborative work.
-Unless otherwise stated, all authors (see commit logs) retain copyright
-for their respective work, and release the work under the MIT licence
-(text below).
-
-Exceptions or notable authors are listed below
-in reverse chronological order:
-
-* files: *
-  MPL-2.0 2015-2026 (c) Casper da Costa-Luis
-  [casperdcl](https://github.com/casperdcl).
-* files: tqdm/_tqdm.py
-  MIT 2016 (c) [PR #96] on behalf of Google Inc.
-* files: tqdm/_tqdm.py README.rst .gitignore
-  MIT 2013 (c) Noam Yorav-Raphael, original author.
-
-[PR #96]: https://github.com/tqdm/tqdm/pull/96
-
-
-Mozilla Public Licence (MPL) v. 2.0 - Exhibit A
------------------------------------------------
-
-This Source Code Form is subject to the terms of the
-Mozilla Public License, v. 2.0.
-If a copy of the MPL was not distributed with this project,
-You can obtain one at https://mozilla.org/MPL/2.0/.
-
-
-MIT License (MIT)
------------------
-
-Copyright (c) 2013 noamraph
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software is furnished to do so,
-subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text fd1f049b3bb5

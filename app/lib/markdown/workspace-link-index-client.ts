@@ -12,6 +12,7 @@ import {
   type ObsidianLinkResolution,
   type ObsidianWikiCompletionContext,
 } from './obsidian-link-resolver';
+import { parseWorkspaceMarkdownHref, resolveExactWorkspaceLink } from './workspace-local-link-parser';
 import type { WorkspaceLinkDocument, WorkspaceLinkIndex } from './workspace-link-index-core';
 import {
   workspaceDocumentTitleFromPath,
@@ -254,6 +255,66 @@ export function resolveWorkspaceLinkFromIndex(
     })),
     sourcePath,
   );
+}
+
+/** Standard Markdown hrefs never fall through to Wiki basename or alias matching. */
+export function resolveWorkspaceMarkdownHrefFromIndex(
+  href: string,
+  index: WorkspaceLinkIndex,
+  sourcePath: string,
+): ObsidianLinkResolution | null {
+  const anchorOnly = href.trim().startsWith('#');
+  const parsedHref = anchorOnly
+    ? { path: `/${sourcePath}`, fragment: href.trim().slice(1) }
+    : parseWorkspaceMarkdownHref(href);
+  if (!parsedHref) return null;
+  const exact = resolveExactWorkspaceLink(parsedHref.path, sourcePath,
+    new Set(index.targetPaths ?? index.documents.map((document) => document.path)));
+  let fragment = parsedHref.fragment ?? '';
+  try { fragment = decodeURIComponent(fragment); } catch { /* Preserve malformed escapes. */ }
+  const path = exact.path && index.documents.some((document) => document.path === exact.path)
+    ? exact.path : null;
+  return {
+    blockId: fragment.startsWith('^') ? fragment.slice(1) || null : null,
+    candidates: path ? [path] : [],
+    heading: fragment && !fragment.startsWith('^') ? fragment : null,
+    path,
+    status: path ? 'resolved' : 'missing',
+    target: {
+      alias: null,
+      blockId: fragment.startsWith('^') ? fragment.slice(1) || null : null,
+      heading: fragment && !fragment.startsWith('^') ? fragment : null,
+      path: anchorOnly ? '' : parsedHref.path,
+      raw: href,
+      target: href,
+    },
+  };
+}
+
+export function resolveWorkspaceMarkdownDocumentReferenceFromIndex(
+  href: string,
+  index: WorkspaceLinkIndex,
+  sourcePath: string,
+): WorkspaceDocumentReferenceLookup {
+  const resolution = resolveWorkspaceMarkdownHrefFromIndex(href, index, sourcePath);
+  const document = resolution?.path
+    ? index.documents.find((candidate) => candidate.path === resolution.path) ?? null : null;
+  const reference = document && resolution ? {
+    blockId: resolution.blockId,
+    heading: resolution.heading,
+    path: document.path,
+    title: document.title || workspaceDocumentTitleFromPath(document.path),
+  } : null;
+  return { document, reference, resolution };
+}
+
+export async function loadWorkspaceMarkdownDocumentReference(
+  workspaceId: string,
+  href: string,
+  sourcePath: string,
+): Promise<WorkspaceDocumentReferenceLookup> {
+  const index = await loadWorkspaceLinkIndex(workspaceId);
+  return resolveWorkspaceMarkdownDocumentReferenceFromIndex(href, index, sourcePath);
 }
 
 export function resolveWorkspaceDocumentReferenceFromIndex(

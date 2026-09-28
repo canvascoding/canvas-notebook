@@ -195,10 +195,11 @@ async function acquireBackupLock(job: FullBackupJob): Promise<() => Promise<void
 function shouldSkipDataPath(relativePath: string): boolean {
   const normalized = relativePath.split(path.sep).join('/');
   const parts = normalized.split('/').filter(Boolean);
-  if (parts.includes('node_modules') || parts.includes('.next') || parts.includes('.git')) return true;
-  if (parts.includes('cache') || parts.includes('temp') || parts.includes('logs')) return true;
-  if (parts[0] === 'system' && parts[1] === 'backups') return true;
-  if (parts[0] === '.migration' || parts[0] === '.restore-backups') return true;
+  // Only known technical roots may be omitted. Names inside a workspace are user data.
+  if (['node_modules', '.next', '.git', 'cache', 'temp', 'logs',
+    '.migration', '.restore-backups'].includes(parts[0])) return true;
+  if (parts[0] === 'system' && ['backups', 'cache', 'temp', 'logs',
+    'node_modules', '.next', '.git'].includes(parts[1])) return true;
   return false;
 }
 
