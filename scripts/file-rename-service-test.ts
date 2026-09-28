@@ -65,6 +65,7 @@ function fakeOperations(
       events.push(`queue-shares:${input.oldPath}->${input.newPath}:${input.overwrite}`);
     },
     createBackupPath: () => '.canvas-rename-backups/test-backup',
+    captureDestinationBackup: async () => null,
     ...overrides,
   };
 }

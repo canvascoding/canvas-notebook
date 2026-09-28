@@ -1,0 +1,1 @@
+export const MAX_INDEXED_MARKDOWN_BYTES = 4 * 1024 * 1024;

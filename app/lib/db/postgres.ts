@@ -10,6 +10,8 @@ import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migrati
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-migration';
 import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from './mobile-notebook-operation-migration';
+import { WORKSPACE_OPERATION_JOURNAL_STATEMENTS } from './workspace-operation-journal-migration';
+import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from './workspace-operation-review-migration';
 import { runFileVersionCenterStorageMigration } from './file-version-center-migration';
 import { runProposalGraphStorageMigration } from './proposal-graph-migration';
 import { COLLABORATION_ROOM_OWNER_UP_SQL, COLLABORATION_ROOM_RELEASE_UP_SQL } from './collaboration-room-owner-migration';
@@ -1534,6 +1536,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await ensurePostgresFileCollaborationSchema(pool);
   await runFileVersionCenterStorageMigration(pool);
   await runProposalGraphStorageMigration(pool);
+  for (const statement of WORKSPACE_OPERATION_JOURNAL_STATEMENTS) await pool.query(statement);
+  for (const statement of WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pool.query(statement);
 
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);

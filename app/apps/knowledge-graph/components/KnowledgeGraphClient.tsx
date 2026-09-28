@@ -57,6 +57,9 @@ const EMPTY_INDEX: WorkspaceLinkIndex = {
   documents: [],
   edges: [],
   generatedAt: new Date(0).toISOString(),
+  targetPaths: [],
+  unevaluatedLinks: [],
+  coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
   omittedDocuments: [],
 };
 const EMPTY_SELECTION: readonly string[] = [];

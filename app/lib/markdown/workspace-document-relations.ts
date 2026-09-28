@@ -21,7 +21,7 @@ export type WorkspaceBrokenDocumentRelation = {
   candidates: string[];
   linkAliases: string[];
   occurrences: number;
-  status: 'ambiguous' | 'missing';
+  status: 'ambiguous' | 'missing' | 'outside-workspace' | 'external' | 'anchor-only' | 'not-evaluated' | 'omitted';
   targetText: string;
 };
 
