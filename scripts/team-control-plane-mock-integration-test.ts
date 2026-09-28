@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { CommunityTeamOrganizationError } from '../app/lib/license/community-team-organization';
 import { createPiTestDatabase } from './helpers/pi-test-database';
 
 const dataRoot = mkdtempSync(path.join(tmpdir(), 'canvas-team-control-plane-mock-'));
@@ -460,6 +461,17 @@ async function closeServer(): Promise<void> {
 
 async function main(): Promise<void> {
   const testDatabase = await createPiTestDatabase();
+  const postgres = testDatabase.getPostgresRuntimeQueryable();
+  const now = Date.parse('2026-08-01T00:00:00.000Z');
+  await postgres.query(`
+    INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+    VALUES ('community-owner', 'Community Owner', 'community-owner@example.test', 1, 'admin', $1, $1)
+  `, [now]);
+  await postgres.query(`
+    INSERT INTO canvas_organization_settings (
+      organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+    ) VALUES ('community-organization', 'community-owner', 'team', 1, $1, $1)
+  `, [now]);
   const moduleLoader = Module as unknown as {
     _load: (request: string, parent: unknown, isMain: boolean) => unknown;
   };
@@ -700,6 +712,37 @@ async function main(): Promise<void> {
     );
     assert.equal(process.env.STRIPE_SECRET_KEY, undefined);
     assert.equal(process.env.STRIPE_WEBHOOK_SECRET, undefined);
+
+    await postgres.query(`
+      INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES ('second-community-owner', 'Second Community Owner', 'second-community-owner@example.test', 1, 'admin', $1, $1)
+    `, [now]);
+    await postgres.query(`
+      INSERT INTO canvas_organization_settings (
+        organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+      ) VALUES ('second-community-organization', 'second-community-owner', 'team', 1, $1, $1)
+    `, [now]);
+    const requestCount = requests.length;
+    await assert.rejects(
+      () => prepareCommunityTeamSeatChange(createTeamSeatPrepareRequest({
+        desiredQuantity: 2,
+        triggerType: 'member_create',
+      })),
+      CommunityTeamOrganizationError,
+    );
+    await assert.rejects(
+      () => executeCommunityTeamSeatChange(createTeamSeatExecuteRequest({
+        authorizationId: prepared.authorization.authorizationId,
+        operationKey: 'blocked-multiple-organizations',
+        operationType: 'member_create',
+      })),
+      CommunityTeamOrganizationError,
+    );
+    await assert.rejects(
+      () => submitCommunityTeamMembershipSnapshot(snapshotRequest),
+      CommunityTeamOrganizationError,
+    );
+    assert.equal(requests.length, requestCount);
   } finally {
     await closeServer();
     moduleLoader._load = originalLoad;

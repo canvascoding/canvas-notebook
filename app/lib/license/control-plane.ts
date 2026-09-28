@@ -3,6 +3,8 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import packageJson from '@/package.json';
+import type { SqlConnection } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 import {
   classifyTeamControlPlaneStatus,
   redactTeamControlPlaneLogText,
@@ -75,7 +77,30 @@ import {
   LicenseCertificateStorageError,
 } from './storage';
 import { signalTeamMembershipSnapshotSync } from './team-membership-sync-signal';
+import { assertSingleCommunityTeamOrganization } from './community-team-organization';
 import type { LicenseStatus } from './types';
+
+type CommunitySeatRequestOptions = {
+  fetchImpl?: typeof fetch;
+  now?: Date;
+  operationId?: string;
+  organizationDatabase?: Pick<SqlConnection, 'all'>;
+};
+
+async function requireSingleCommunityTeamOrganization(
+  database?: Pick<SqlConnection, 'all'>,
+): Promise<void> {
+  if (database) {
+    await assertSingleCommunityTeamOrganization(database);
+    return;
+  }
+  const opened = await openDb();
+  try {
+    await assertSingleCommunityTeamOrganization(opened);
+  } finally {
+    await opened.close();
+  }
+}
 
 export class LicenseControlPlaneError extends Error {
   constructor(
@@ -1115,9 +1140,10 @@ export async function getCommunityTeamUpgradePreflight(
 
 export async function prepareCommunityTeamSeatChange(
   request: TeamSeatPrepareRequest,
-  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
+  options?: CommunitySeatRequestOptions,
 ): Promise<TeamSeatPrepareResponse> {
   requireTeamSeatClientRollout();
+  await requireSingleCommunityTeamOrganization(options?.organizationDatabase);
   const { instanceId, token } = await requireCommunitySeatToken(
     'seat:prepare',
     options?.now,
@@ -1190,9 +1216,10 @@ export async function getCommunityTeamSeatQuoteStatus(
 
 export async function executeCommunityTeamSeatChange(
   request: TeamSeatExecuteRequest,
-  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
+  options?: CommunitySeatRequestOptions,
 ): Promise<TeamSeatExecuteResponse> {
   requireTeamSeatClientRollout();
+  await requireSingleCommunityTeamOrganization(options?.organizationDatabase);
   const { instanceId, token } = await requireCommunitySeatToken(
     'seat:execute',
     options?.now,
@@ -1228,9 +1255,10 @@ export async function executeCommunityTeamSeatChange(
 
 export async function submitCommunityTeamMembershipSnapshot(
   request: TeamSeatSnapshotRequest,
-  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
+  options?: CommunitySeatRequestOptions,
 ): Promise<TeamSeatSnapshotResponse> {
   requireTeamSeatClientRollout();
+  await requireSingleCommunityTeamOrganization(options?.organizationDatabase);
   const { instanceId, token } = await requireCommunitySeatToken(
     'seat:snapshot',
     options?.now,

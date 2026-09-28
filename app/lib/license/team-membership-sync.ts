@@ -36,6 +36,10 @@ import {
   getActiveTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
 import { getLicenseStatus } from './index';
+import {
+  assertSingleCommunityTeamOrganization,
+  CommunityTeamOrganizationError,
+} from './community-team-organization';
 import type { LicenseStatus } from './types';
 
 const LOG_PREFIX = '[license/team-membership-sync]';
@@ -272,6 +276,10 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
   try {
     const organizations = await organizationIds(database);
     result.organizations = organizations.length;
+    const organizationId = await assertSingleCommunityTeamOrganization(database);
+    if (organizations.length !== 1 || organizations[0] !== organizationId) {
+      throw new CommunityTeamOrganizationError();
+    }
     for (const organizationId of organizations) {
       const ensured = await ensureSnapshotOperation(database, {
         organizationId,

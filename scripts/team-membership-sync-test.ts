@@ -6,6 +6,10 @@ import type { SqlConnection } from '../app/lib/db';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import { LicenseControlPlaneError } from '../app/lib/license/control-plane';
 import {
+  assertSingleCommunityTeamOrganization,
+  CommunityTeamOrganizationError,
+} from '../app/lib/license/community-team-organization';
+import {
   enqueueTeamSeatOutboxOperation,
   getLatestTeamMembershipSnapshotOperation,
   getTeamMembershipSyncState,
@@ -475,7 +479,62 @@ async function historicalFailedOutboxScenario(): Promise<void> {
   }
 }
 
-void main().then(historicalFailedOutboxScenario).catch((error) => {
+async function multipleOrganizationsScenario(): Promise<void> {
+  const postgres = new PGlite();
+  const database = connectionFor(postgres);
+  const now = Date.parse('2030-03-01T00:00:00.000Z');
+  try {
+    await runPostgresMigrations(postgres as unknown as PgQueryable);
+    await insertUser(postgres, 'first-owner', 'first-owner@example.test', 'admin');
+    await insertUser(postgres, 'second-owner', 'second-owner@example.test', 'admin');
+    for (const [organizationId, ownerUserId] of [
+      ['first-organization', 'first-owner'],
+      ['second-organization', 'second-owner'],
+    ]) {
+      await database.run(`
+        INSERT INTO canvas_organization_settings (
+          organization_id, owner_user_id, deployment_mode, team_features_enabled,
+          created_at, updated_at
+        ) VALUES ($1, $2, 'team', 1, $3, $3)
+      `, [organizationId, ownerUserId, now]);
+      await database.run(`
+        INSERT INTO team_memberships (
+          id, organization_id, user_id, candidate_email, role, status,
+          accepted_at, activated_at, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, 'owner', 'active', $5, $5, $5, $5)
+      `, [`${organizationId}-membership`, organizationId, ownerUserId, `${ownerUserId}@example.test`, now]);
+    }
+    await assert.rejects(
+      () => assertSingleCommunityTeamOrganization(database),
+      CommunityTeamOrganizationError,
+    );
+    let sent = 0;
+    await assert.rejects(
+      () => runTeamMembershipSnapshotSyncCycle({
+        database,
+        licenseStatus: teamLicenseStatus(2),
+        sendSnapshot: async () => {
+          sent += 1;
+          throw new Error('A multi-organization snapshot must not be sent.');
+        },
+        now,
+        forceReport: true,
+      }),
+      CommunityTeamOrganizationError,
+    );
+    assert.equal(sent, 0);
+    const outbox = await database.get(`
+      SELECT COUNT(*) AS count FROM team_seat_outbox
+      WHERE operation_kind = 'membership_snapshot'
+    `) as { count: number | string };
+    assert.equal(Number(outbox.count), 0);
+    console.log('multiple Community organizations are blocked before snapshot creation: ok');
+  } finally {
+    await postgres.close();
+  }
+}
+
+void main().then(historicalFailedOutboxScenario).then(multipleOrganizationsScenario).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
