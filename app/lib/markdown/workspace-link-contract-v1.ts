@@ -110,7 +110,10 @@ export type WorkspaceFilePathMappingV1 = {
 };
 
 export type WorkspaceFileLinkEditV1 = {
+  /** Workspace of the original bytes/hash used as the version precondition. */
   sourceWorkspaceId: string;
+  /** Workspace that receives the rewritten bytes (differs for cross-workspace copy). */
+  destinationWorkspaceId: string;
   sourcePathBefore: string;
   sourcePathAfter: string;
   expectedContentHash: string;
