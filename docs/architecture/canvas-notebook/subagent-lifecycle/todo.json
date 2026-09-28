@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "feature": "subagent-lifecycle-and-compaction",
+  "updatedAt": "2026-09-28",
+  "status": "planned",
+  "plan": "docs/architecture/canvas-notebook/subagent-lifecycle/plan.md",
+  "hermesReference": {
+    "repository": "https://github.com/NousResearch/hermes-agent",
+    "commit": "614b9b3f3c1ea8e24e6c7370bd85f9639f779bf0",
+    "license": "MIT"
+  },
+  "executionPolicy": {
+    "order": "strict",
+    "nextRequiresPreviousGate": true,
+    "commit": "one focused commit per completed package",
+    "impact": "GitNexus upstream impact before every symbol edit; report HIGH/CRITICAL before editing",
+    "changeReview": "GitNexus detect_changes against main before every commit",
+    "ui": "Playwright or Chrome DevTools only after explicit user authorization",
+    "container": "Only when explicitly requested; npm run build first; never parallel test containers"
+  },
+  "packages": [
+    {
+      "id": "SA-01",
+      "title": "Ephemeral worker compaction through the existing Canvas engine",
+      "status": "pending",
+      "hermes": ["agent/turn_context_compaction.py:129-140", "agent/turn_preflight.py:244-317"],
+      "canvas": ["app/lib/pi/delegate-task-tool.ts:414-535", "app/lib/pi/live-runtime.ts:845-888"],
+      "gate": "Ephemeral worker completes after two compaction cycles; summary watermarks follow persisted complete child messages; failed/aborted compaction leaves raw history intact."
+    },
+    {
+      "id": "SA-02",
+      "title": "Safe reuse of managed worker sessions",
+      "status": "pending",
+      "hermes": ["tools/delegate_tool_registry.py:213-235"],
+      "canvas": ["app/lib/pi/delegate-task-tool.ts:881-991", "app/lib/pi/delegation-policy.ts:80-110"],
+      "gate": "Second task reuses one authorized session with its own active toolsets; cross-parent and concurrent reuse fail."
+    },
+    {
+      "id": "SA-03",
+      "title": "Durable checkpoints and authorized live inspection",
+      "status": "pending",
+      "hermes": ["tools/delegate_tool_progress.py:316-375", "tui_gateway/methods_subagents.py:105-128"],
+      "canvas": ["app/lib/pi/delegation-dispatcher.ts:285-365", "app/lib/pi/delegate-task-tool.ts:428-443"],
+      "gate": "Both worker types expose bounded current progress and confirmed transcript after reload without cross-session access."
+    },
+    {
+      "id": "SA-04",
+      "title": "Bradley list, steer, stop and follow-up controls",
+      "status": "pending",
+      "hermes": ["tools/delegate_tool.py:695-710", "tools/delegate_tool_registry.py:124-155"],
+      "canvas": ["app/lib/pi/delegate-task-tool.ts:1242-1326", "app/lib/pi/delegation-dispatcher.ts:189-230"],
+      "gate": "Exactly one owned running worker receives a correction or stop; missed steering and terminal follow-up are explicit."
+    },
+    {
+      "id": "SA-05",
+      "title": "Inline chat cards and worker detail view",
+      "status": "pending",
+      "hermes": ["apps/desktop/src/components/assistant-ui/tool/delegate.tsx:57-163", "apps/desktop/src/app/chat/composer/status-stack/subagent-section.tsx:21-99"],
+      "canvas": ["app/components/canvas-agent-chat/ChatDelegationPanel.tsx:250-420", "app/components/canvas-agent-chat/ChatToolRunMessages.tsx"],
+      "gate": "Correct card identity, status and controls for concurrent and sequential tasks after reload; approved UI test passes."
+    },
+    {
+      "id": "SA-06",
+      "title": "Integration verification and guarded rollout",
+      "status": "pending",
+      "hermes": ["tools/delegate_tool_child_run.py:985-1017"],
+      "canvas": ["app/lib/pi/delegation-dispatcher.ts:370-410", "app/lib/pi/session-compaction-coordinator.ts"],
+      "gate": "All earlier gates, relevant regressions, lint, build and authorized UI verification pass without duplicate delivery or privilege expansion."
+    }
+  ]
+}
