@@ -182,12 +182,10 @@ async function sendAdoptionReport(
   instanceId: string,
   members: LocalMember[],
   fetchImpl?: typeof fetch,
+  loadCertificate: typeof loadStoredLicenseCert = loadStoredLicenseCert,
 ): Promise<void> {
   const legacyCertificate = process.env.CANVAS_LICENSE_CERT?.trim()
-    || await loadStoredLicenseCert(instanceId);
-  if (!legacyCertificate && members.length > 0) {
-    throw new Error('MANAGED_TEAM_LEGACY_CERTIFICATE_MISSING');
-  }
+    || await loadCertificate(instanceId);
   await managedRequest(ADOPTION_PATH, 'POST', {
     instanceId,
     ...(legacyCertificate ? { legacyCertificate } : {}),
@@ -391,6 +389,7 @@ export async function runManagedTeamSyncCycle(options: {
   database?: Pick<SqlConnection, 'all' | 'get' | 'run' | 'close'>;
   fetchImpl?: typeof fetch;
   activateCertificate?: typeof activateLicenseCert;
+  loadLegacyCertificate?: typeof loadStoredLicenseCert;
 } = {}): Promise<'unconfigured' | 'adoption_required' | 'applied' | 'pending'> {
   if (!instanceToken() || getDeploymentMode() !== 'managed-team'
     || process.env.NEXT_PHASE === 'phase-production-build') return 'unconfigured';
@@ -401,7 +400,7 @@ export async function runManagedTeamSyncCycle(options: {
     const payload = await managedRequest(SYNC_PATH, 'GET', undefined, options.fetchImpl);
     const sync = parseSync(payload, instanceId);
     if (sync.status === 'adoption_required') {
-      await sendAdoptionReport(instanceId, local.members, options.fetchImpl);
+      await sendAdoptionReport(instanceId, local.members, options.fetchImpl, options.loadLegacyCertificate);
       return 'adoption_required';
     }
     const license = sync.license!;

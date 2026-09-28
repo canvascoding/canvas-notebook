@@ -69,6 +69,14 @@ async function main() {
     members: [{ localIdentityKey: 'membership-owner', localUserId: 'local-owner', email: 'owner@example.test', role: 'owner', status: 'active' }],
   });
   requests.length = 0;
+  delete process.env.CANVAS_LICENSE_CERT;
+  assert.equal(await runManagedTeamSyncCycle({ database, fetchImpl, loadLegacyCertificate: async () => null }), 'adoption_required');
+  assert.deepEqual(requests[1].body, {
+    instanceId: process.env.CANVAS_INSTANCE_ID,
+    members: [{ localIdentityKey: 'membership-owner', localUserId: 'local-owner', email: 'owner@example.test', role: 'owner', status: 'active' }],
+  });
+  process.env.CANVAS_LICENSE_CERT = 'legacy-signed-certificate';
+  requests.length = 0;
   const managedMembers = [{
     externalUserId: 'central-owner', email: 'owner@example.test', role: 'owner', status: 'active',
     localIdentityKey: null,
