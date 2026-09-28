@@ -91,6 +91,15 @@ export async function PATCH(request: NextRequest) {
       updates.emailAllowRemoteImages = payload.emailAllowRemoteImages;
     }
 
+    if (payload && typeof payload === 'object' && 'teamLicenseNotificationsEnabled' in payload) {
+      if (typeof payload.teamLicenseNotificationsEnabled !== 'boolean') {
+        return jsonWithRequestId(requestId, {
+          success: false, error: 'Unsupported team license notification setting.', requestId,
+        }, { status: 400 });
+      }
+      updates.teamLicenseNotificationsEnabled = payload.teamLicenseNotificationsEnabled;
+    }
+
     if (payload && typeof payload === 'object' && 'emailRemoteImageAllowedSenders' in payload) {
       if (!Array.isArray(payload.emailRemoteImageAllowedSenders)) {
         console.warn('[user-preferences] PATCH bad request: unsupported email remote image sender setting', { requestId, ...logUser });

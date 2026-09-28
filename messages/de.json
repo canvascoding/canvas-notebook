@@ -3131,7 +3131,8 @@
       "automation": "Automation benötigt Aufmerksamkeit",
       "file_change": "Dateiänderung",
       "memory": "Memory-Freigabe erforderlich",
-      "mcp": "MCP-Verbindung benötigt Aufmerksamkeit"
+      "mcp": "MCP-Verbindung benötigt Aufmerksamkeit",
+      "license": "Team-Lizenzereignis"
     },
     "fileChanges": {
       "openFailed": "Die Dateiänderung konnte nicht geöffnet werden.",

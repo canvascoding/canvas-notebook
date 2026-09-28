@@ -100,6 +100,7 @@ export type UserPreferences = {
   inboxExcludedWorkspaceIds?: string[];
   lastActiveAgentId?: string;
   locale?: UserLocale;
+  teamLicenseNotificationsEnabled?: boolean;
   onboarding?: UserOnboardingState;
 };
 
@@ -176,6 +177,7 @@ function normalizePreferences(value: unknown): UserPreferences {
     inboxExcludedWorkspaceIds?: unknown;
     lastActiveAgentId?: unknown;
     locale?: unknown;
+    teamLicenseNotificationsEnabled?: unknown;
     onboarding?: unknown;
   };
   const locale = normalizeUserLocale(record.locale);
@@ -189,6 +191,8 @@ function normalizePreferences(value: unknown): UserPreferences {
     ...(inboxExcludedWorkspaceIds.length > 0 ? { inboxExcludedWorkspaceIds } : {}),
     ...(lastActiveAgentId ? { lastActiveAgentId } : {}),
     ...(locale ? { locale } : {}),
+    ...(typeof record.teamLicenseNotificationsEnabled === 'boolean'
+      ? { teamLicenseNotificationsEnabled: record.teamLicenseNotificationsEnabled } : {}),
     ...(onboarding ? { onboarding } : {}),
   };
 }
@@ -287,6 +291,13 @@ async function updateUserPreferencesUnlocked(
       }
       nextPreferences.locale = locale;
     }
+  }
+
+  if ('teamLicenseNotificationsEnabled' in updates) {
+    if (typeof updates.teamLicenseNotificationsEnabled !== 'boolean') {
+      throw new Error('Unsupported team license notification setting.');
+    }
+    nextPreferences.teamLicenseNotificationsEnabled = updates.teamLicenseNotificationsEnabled;
   }
 
   if ('emailAllowRemoteImages' in updates) {

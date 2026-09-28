@@ -1,0 +1,122 @@
+import 'server-only';
+
+import { openDb, type SqlConnection } from '@/app/lib/db';
+import { getUserPreferences } from '@/app/lib/user-preferences';
+
+export type TeamLicenseAttentionItem = {
+  id: string;
+  type: 'license.team_access_changed';
+  title: string;
+  detail: string;
+  previewUrl: null;
+  occurredAt: string;
+  unread: boolean;
+  priority: 'high';
+  workspaceId: string;
+  workspaceName: string;
+  target: { kind: 'license' };
+};
+
+type LifecycleAuditRow = {
+  id: string;
+  organization_id: string;
+  action: string;
+  metadata_json: string | null;
+  created_at: number | string;
+  read_at: number | string | null;
+};
+
+type AttentionOptions = {
+  database?: Pick<SqlConnection, 'all' | 'run' | 'close'>;
+  enabled?: boolean;
+  locale?: string;
+};
+
+function hasMembershipTransition(row: LifecycleAuditRow): boolean {
+  try {
+    const metadata = JSON.parse(row.metadata_json || '{}') as Record<string, unknown>;
+    const field = row.action === 'team.access_restored' ? 'restoredMemberships' : 'suspendedMemberships';
+    return Number(metadata[field]) > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function listTeamLicenseAttention(
+  input: { userId: string } & AttentionOptions,
+): Promise<TeamLicenseAttentionItem[]> {
+  const preferences = input.enabled === undefined ? await getUserPreferences(input.userId) : null;
+  if ((input.enabled ?? preferences?.teamLicenseNotificationsEnabled ?? true) === false) return [];
+  const locale = input.locale ?? preferences?.locale ?? 'en';
+  const german = locale.toLowerCase().startsWith('de');
+  const database = input.database ?? await openDb();
+  try {
+    const rows = await database.all(`
+      SELECT event.id, event.organization_id, event.action, event.metadata_json,
+        event.created_at, read_state.read_at
+      FROM audit_events event
+      INNER JOIN canvas_organization_settings organization
+        ON organization.organization_id = event.organization_id
+        AND organization.owner_user_id = $1
+      LEFT JOIN mobile_inbox_read_states read_state
+        ON read_state.user_id = $1
+        AND read_state.workspace_id = 'organization:' || event.organization_id
+        AND read_state.item_key = 'license:' || event.id
+      WHERE event.user_id = $1 AND event.source = 'license'
+        AND event.event_type = 'license_lifecycle' AND event.status = 'success'
+        AND event.action IN ('team.solo_fallback_applied', 'team.seat_limit_enforced', 'team.access_restored')
+      ORDER BY event.created_at DESC, event.id DESC
+      LIMIT 50
+    `, [input.userId]) as LifecycleAuditRow[];
+    return rows.filter(hasMembershipTransition).map((row) => {
+      const restored = row.action === 'team.access_restored';
+      const expired = !restored && row.action === 'team.solo_fallback_applied';
+      return {
+        id: `license:${row.id}`,
+        type: 'license.team_access_changed' as const,
+        title: restored
+          ? german ? 'Team-Zugang wiederhergestellt' : 'Team access restored'
+          : expired
+            ? german ? 'Team-Zugang durch Lizenz-Fallback pausiert' : 'Team access paused by license fallback'
+            : german ? 'Team-Zugang durch Seat-Limit reduziert' : 'Team access reduced by seat limit',
+        detail: restored
+          ? german ? 'Betroffene Teammitglieder können sich wieder anmelden.' : 'Affected team members can sign in again.'
+          : german ? 'Betroffene Teammitglieder können sich derzeit nicht anmelden. Prüfe die Team-Lizenz.'
+            : 'Affected team members cannot sign in right now. Review the team license.',
+        previewUrl: null,
+        occurredAt: new Date(Number(row.created_at)).toISOString(),
+        unread: row.read_at === null,
+        priority: 'high' as const,
+        workspaceId: `organization:${row.organization_id}`,
+        workspaceName: german ? 'Organisation' : 'Organization',
+        target: { kind: 'license' as const },
+      };
+    });
+  } finally {
+    if (!input.database) await database.close();
+  }
+}
+
+export async function markTeamLicenseAttentionRead(
+  input: { userId: string; itemId?: string } & AttentionOptions,
+): Promise<{ updated: number; found: boolean }> {
+  const items = await listTeamLicenseAttention(input);
+  const selected = input.itemId ? items.filter((item) => item.id === input.itemId) : items.filter((item) => item.unread);
+  if (selected.length === 0) return { updated: 0, found: !input.itemId };
+  const database = input.database ?? await openDb();
+  try {
+    const now = Date.now();
+    for (const item of selected) {
+      await database.run(`
+        INSERT INTO mobile_inbox_read_states
+          (user_id, workspace_id, item_key, read_at, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, $4, $4)
+        ON CONFLICT (user_id, workspace_id, item_key)
+        DO UPDATE SET read_at = EXCLUDED.read_at, updated_at = EXCLUDED.updated_at
+      `, [input.userId, item.workspaceId, item.id, now]);
+    }
+    return { updated: selected.length, found: true };
+  } finally {
+    if (!input.database) await database.close();
+  }
+}

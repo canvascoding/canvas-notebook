@@ -3132,7 +3132,8 @@
       "automation": "Automation needs attention",
       "file_change": "File change",
       "memory": "Memory approval required",
-      "mcp": "MCP connection needs attention"
+      "mcp": "MCP connection needs attention",
+      "license": "Team license event"
     },
     "fileChanges": {
       "openFailed": "The file change could not be opened.",

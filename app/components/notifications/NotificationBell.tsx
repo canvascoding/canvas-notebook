@@ -15,6 +15,7 @@ import {
   ListTodo,
   Loader2,
   Mail,
+  KeyRound,
   MessageSquare,
   PlugZap,
   Workflow,
@@ -64,6 +65,7 @@ function notificationIcon(item: NotificationItem) {
   if (item.target.kind === 'studio') return ImageIcon;
   if (item.target.kind === 'memory') return BrainCircuit;
   if (item.target.kind === 'mcp') return PlugZap;
+  if (item.target.kind === 'license') return KeyRound;
   if (item.target.kind === 'file_change') return FileClock;
   return Workflow;
 }
