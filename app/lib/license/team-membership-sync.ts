@@ -258,7 +258,7 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
     deferred: 0,
     failed: 0,
   };
-  if (licenseStatus.edition !== 'team') return result;
+  if (licenseStatus.edition !== 'team' || licenseStatus.hostingMode !== 'community') return result;
 
   const database = options.database ?? await openDb();
   const closeDatabase = options.database === undefined;

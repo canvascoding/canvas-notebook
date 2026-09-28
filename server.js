@@ -540,6 +540,17 @@ function scheduleBackgroundMaintenance() {
       .catch((err) => {
         console.warn('[Startup] Community license refresh could not be initialized:', err.message);
       });
+    import('./app/lib/license/managed-team-sync.ts')
+      .then((managedModule) => {
+        resolveImportedServerModule(
+          managedModule,
+          ['initializeManagedTeamSyncRuntime'],
+          'Managed team sync',
+        ).initializeManagedTeamSyncRuntime();
+      })
+      .catch((err) => {
+        console.warn('[Startup] Managed team sync could not be initialized:', err.message);
+      });
     import('./app/lib/license/team-license-lifecycle.ts')
       .then((lifecycleModule) => {
         resolveImportedServerModule(
