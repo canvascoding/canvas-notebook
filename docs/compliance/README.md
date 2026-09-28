@@ -1,11 +1,13 @@
 # Third-Party Compliance Runbook
 
-Stand: 2026-07-17
+Stand: 2026-09-28
 
 Der Stand vom 17. Juli 2026 dokumentiert das damalige 45-Paket-Python-Image.
-Der Diktat-Kandidat vom 28. September 2026 enthaelt 58 per pip installierte
-Pakete; sein technischer Hash- und Lizenzmetadatenabgleich sowie die noch
-ausstehende Image-/Release-Freigabe stehen in
+Ein spaeterer Diktat-Kandidat vom 28. September 2026 enthielt 58 per pip
+installierte Pakete. Die 13 zusaetzlichen Diktatpakete liegen im aktuellen
+Quellstand nur noch als Lock fuer eine optionale Installation unter DATA vor;
+das Basis-Image installiert sie nicht. Die historischen nativen Befunde und
+die noch ausstehende Pruefung dieser Installationsgrenze stehen in
 [`docker-runtime-review.md`](docker-runtime-review.md).
 
 ## Zweck und rechtliche Einordnung
@@ -39,29 +41,34 @@ dieser Komponente nicht wieder nehmen.
 
 ## Aktueller Freigabestatus
 
-Die technische Umsetzung ist vorhanden und reproduzierbar. Der am 17. Juli
-2026 neu erzeugte Bestand umfasst:
+Die technische Umsetzung ist vorhanden und reproduzierbar. Das aktuelle
+statische Komponentenmanifest umfasst:
 
 | Kennzahl | Stand |
 | --- | ---: |
-| Komponenten gesamt | 2.054 |
-| ausgelieferter Runtime-/Asset-Bestand | 1.492 |
-| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 562 |
-| automatisch beziehungsweise dokumentiert `allowed` | 2.004 |
-| `review_required` im Gesamtbestand | 50, alle nicht ausgeliefert |
+| Komponenten gesamt | 1.967 |
+| ausgelieferter Runtime-/Asset-Bestand | 1.449 |
+| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 518 |
+| automatisch beziehungsweise dokumentiert `allowed` | 1.931 |
+| `review_required` im Gesamtbestand | 36, alle nicht ausgeliefert |
 | pauschal `blocked` | 0 |
-| Blocker im statischen kommerziellen Release-Gate | 0 |
+| Blocker im statischen kommerziellen Release-Gate | 1 |
 
-Stand 2026-09-28: Die spaeter hinzugefuegte lokale Diktierfunktion erweitert
-den Docker-Python-Lock um 13 Pakete auf 58. Der normale Build prueft deren
-exakte Namen und Versionen sowie die Hash-Bindung der Lock-Eintraege. Fuer die
-neuen Pakete stehen noch Wheel-/Native-Lizenzpruefung auf beiden Zielplattformen
-und eine verantwortliche Freigabe aus. Das statische kommerzielle Release-Gate
-zeigt deshalb 14 Blocker: die 13 Paketentscheidungen und die neue Gesamtfreigabe.
-und `npm run test:licenses:release` muss bis zum Abschluss dieser Pruefung
-fehlschlagen. Der technische Intake steht in
-`dictation-python-dependency-intake-2026-09-28.md`; die Freigabe vom
-2026-07-17 gilt nur fuer ihren damaligen Bestand.
+Der normale Build prueft die exakten Namen, Versionen und Hashes des
+45-Paket-Basis-Locks. Der Runtime-Inventartest im Docker-Build prueft die
+Abwesenheit der optionalen Diktatpakete im Basis-Image. Die 13 Pakete bleiben
+fuer eine optionale Installation versionsgebunden dokumentiert. Das aktuelle
+kommerzielle Release-Gate hat einen offenen Blocker
+`docker-runtime:optional-dictation-boundary`: Die neue
+Image-Zusammensetzung und Installationsgrenze benoetigen eine versionsbezogene
+Owner-Freigabe. `npm run test:licenses:release` muss bis dahin fehlschlagen.
+Die 14 Blocker des frueheren 58-Paket-Image-Kandidaten sind historische
+Pruefbefunde und keine Aussage ueber den aktuellen Basis-Image-Inhalt.
+Der Release-Workflow startet beide Architektur-Builds erst nach dem strikten
+Lizenz- und Sicherheitstest. Er baut jedes Image lokal, prueft dessen natives
+Inventar und pusht erst danach architekturspezifische Build-Tags. Das
+Multi-Arch-Manifest folgt nur auf den erfolgreichen Vergleich beider
+Evidenzsaetze. Ein Image des aktuellen Quellstands wurde noch nicht gebaut.
 
 Die erste verantwortliche Gesamtfreigabe ist dokumentiert. Zehn npm-Pakete
 und drei Pakete des global installierten npm wurden fuer ihre exakten
@@ -92,11 +99,13 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
   entfernt. Die 28 unvollstaendig belegten Positionen bleiben transparent im
   Gesamtinventar `review_required`, sind aber keine Canvas-Binaerlieferung und
   daher keine Release-Blocker.
-- Canvas baut libvips 8.18.3 unveraendert aus dem exakt gehashten
-  Upstream-Archiv als austauschbare Shared Library, baut sharp 0.35.2 und
-  0.35.3 dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
+- Canvas baut libvips 8.18.6 unveraendert aus dem exakt gehashten
+  Upstream-Archiv als austauschbare Shared Library, baut sharp 0.35.4
+  dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
 
-`npm run test:licenses:release` ist damit statisch gruen. `npm run
+Fuer den freigegebenen Kandidaten vom 17. Juli war
+`npm run test:licenses:release` statisch gruen. Im aktuellen Quellstand bleibt
+es wegen der optionalen Diktat-Installationsgrenze rot. `npm run
 verify:release` prueft ausserdem vor Lint und Produktions-Build mit einem
 skriptfreien `npm ci --dry-run`, dass `package.json` und Lockfile auch in einer
 frischen CI-Umgebung vollstaendig synchron sind.
@@ -242,11 +251,11 @@ als rechtlich geklaert umetikettiert.
 
 Canvas loest dies auf der Auslieferungsebene: Kein vorgebautes
 `@img/sharp-*`-Archiv landet im Docker-Image. Stattdessen wird das
-unveraenderte libvips-Archiv 8.18.3 mit SHA-256-Pruefung als Shared Library
+unveraenderte libvips-Archiv 8.18.6 mit SHA-256-Pruefung als Shared Library
 gebaut und als vollstaendiger Quellcode zusammen mit LGPL-2.1-or-later und
-Austauschanleitung ausgeliefert. Beide Sharp-Versionen werden lokal dagegen
-gebaut. Der Release-Workflow prueft per `ldd`, dass `/usr/local/lib` verwendet
-wird, und fuehrt mit beiden Addons eine echte SVG-zu-PNG-Konvertierung aus.
+Austauschanleitung ausgeliefert. Sharp 0.35.4 wird lokal dagegen gebaut.
+Der Release-Workflow prueft per `ldd`, dass `/usr/local/lib` verwendet wird,
+und fuehrt mit dem Addon eine echte SVG-zu-PNG-Konvertierung aus.
 Damit bleiben die unklaren Upstream-Binaries sichtbar, werden aber nicht zur
 Grundlage der Canvas-Lieferung gemacht. Details stehen in
 `sharp-native-binary-review.md` und `sharp-libvips-relinking.md`.

@@ -176,13 +176,15 @@ statisch eingebetteter Rust-/Drittkomponenten sowie die kommerzielle
 Freigabe bleiben offen. Ein neuer Release-Image-Build muss separat gegen
 seine eigene Image-ID geprueft werden.
 
-Der Release-Workflow erfasst die Erweiterung deshalb nach jedem amd64- und
-arm64-Image-Build erneut auf dem jeweiligen Runner. Er prueft die beiden
-Architekturbelege gegen die gelockten Wheel-Hashes, vereinigt sie im
-Multi-Arch-Gate und nimmt sie in das native Compliance-Artefakt auf. Ein
-abweichender Hash oder eine fehlende Erweiterung stoppt den Release-Pfad.
-Dieser Workflow laeuft fuer Tags, Zeitplan oder manuellen Start; er ist
-noch kein aktueller Image-Nachweis fuer diesen Draft-PR.
+Der fruehere Diktat-Image-Kandidat hatte eine architekturspezifische Pruefung
+dieser Erweiterung im Release-Workflow. Im aktuellen Basis-Image fehlen die
+optionalen Diktat-Wheels absichtlich; der Release-Workflow fordert daher
+keine `hf-xet`-Erweiterung mehr an und archiviert fuer dieses Basis-Image
+keinen solchen Nachweis. Das getrennte Capture-Skript bleibt fuer eine
+spaetere Pruefung der optionalen Installation verfuegbar. Der aktuelle
+Release-Pfad prueft stattdessen die Abwesenheit aller 13 optionalen Pakete im
+Runtime-Inventar. Ein neuer amd64-/arm64-Image-Build fuer diesen Draft-PR
+steht noch aus.
 
 Der exakte CTranslate2-Tag `v4.8.2` verweist auf Commit
 `d44d2d069eb88c7b7804da864c10c201501cb4a9`. Sein

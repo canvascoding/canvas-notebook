@@ -17,7 +17,6 @@ const nativePolicy = JSON.parse(fs.readFileSync(
   nativePolicyPath,
   'utf8',
 ));
-const thirdPartyManifest = JSON.parse(fs.readFileSync('docs/compliance/third-party-components.json', 'utf8'));
 
 function normalizePythonName(value) {
   return String(value).toLowerCase().replace(/[_.]+/gu, '-');
@@ -100,27 +99,6 @@ for (const component of inventory.dpkgSourcePackages) {
   }
 }
 
-const tokenizersEvidence = thirdPartyManifest.components.find((component) => component.name === 'docker-python:tokenizers');
-const tokenizersLicensePath = 'docs/compliance/license-texts/tokenizers-0.23.2-APACHE-2.0.txt';
-assert(tokenizersEvidence, 'the tokenizers wheel without license metadata needs exact source evidence');
-assert.equal(tokenizersEvidence.versionOrCommit, '0.23.2 / 88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3');
-assert.equal(tokenizersEvidence.sourceUrl, 'https://github.com/huggingface/tokenizers/tree/88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3');
-assert.equal(tokenizersEvidence.verifiedLicense, 'Apache-2.0');
-assert.equal(tokenizersEvidence.licenseTextRef, tokenizersLicensePath);
-assert.equal(tokenizersEvidence.licenseTextSha256, 'c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4');
-assert.equal(sha256File(tokenizersLicensePath), tokenizersEvidence.licenseTextSha256);
-assert(inventory.pythonPackages.some((component) => normalizePythonName(component.name) === 'tokenizers' && component.version === '0.23.2'));
-const tqdmEvidence = thirdPartyManifest.components.find((component) => component.name === 'docker-python:tqdm');
-const tqdmLicensePath = 'docs/compliance/license-texts/tqdm-4.70.1-LICENCE.txt';
-assert(tqdmEvidence, 'the tqdm dual-license review must remain visible');
-assert.equal(tqdmEvidence.versionOrCommit, '4.70.1 / 9cf5a12b1f955468a17f0ba3c59092b23e4258ac');
-assert.equal(tqdmEvidence.policyDecision, 'review_required');
-assert.equal(tqdmEvidence.verifiedLicense, 'MPL-2.0 AND MIT');
-assert.equal(tqdmEvidence.licenseTextRef, tqdmLicensePath);
-assert.equal(tqdmEvidence.licenseTextSha256, 'fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de');
-assert.equal(sha256File(tqdmLicensePath), tqdmEvidence.licenseTextSha256);
-assert(inventory.pythonPackages.some((component) => normalizePythonName(component.name) === 'tqdm' && component.version === '4.70.1'));
-
 for (const component of inventory.pythonPackages) {
   assert(component.name);
   assert(component.version);
@@ -145,7 +123,6 @@ for (const component of inventory.pythonPackages) {
         /^License :: OSI Approved :: /u.test(classifier)
       ))
       || component.licenseFiles.length > 0
-      || (normalizePythonName(component.name) === 'tokenizers' && component.version === '0.23.2')
       || (
         component.managedBy === 'deb'
         && component.debianPackage
@@ -182,6 +159,7 @@ const lockedPythonPackages = new Map(
     .map((match) => [normalizePythonName(match[1]), match[2]]),
 );
 assert(lockedPythonPackages.size > 0, 'the runtime Python lock must contain exact versions');
+assert.equal(lockedPythonPackages.size, 45, 'the distributed Docker image must retain the reviewed 45-package base lock');
 assert.match(requirements, /--hash=sha256:[a-f0-9]{64}/u);
 const pipManagedPackages = inventory.pythonPackages.filter((component) => component.managedBy === 'pip');
 assert.equal(pipManagedPackages.length, lockedPythonPackages.size);
