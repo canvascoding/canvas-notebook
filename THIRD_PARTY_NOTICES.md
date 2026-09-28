@@ -6,7 +6,7 @@ versioned overrides, and the bundled non-npm component inventory.
 - Canvas Notebook version: 2026.9.27.1
 - Lockfile SHA-256: `debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5`
 - Distributed components: 1449
-- Release gate: **approved**
+- Release gate: **blocked**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
 Third-party trademarks and branding are not granted by the software licenses below.
@@ -1464,6 +1464,24 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | zustand | 4.5.7 | runtime | MIT | allowed |
 | zustand | 5.0.14 | runtime | MIT | allowed |
 | zwitch | 2.0.4 | runtime | MIT | allowed |
+
+## Commercial release blockers
+
+The following entries require a documented responsible/legal decision before a commercial release:
+
+- **docker-python:anyio 4.15.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:av 18.1.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
+- **docker-python:ctranslate2 4.8.2:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
+- **docker-python:faster-whisper 1.2.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:filelock 4.0.5:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:fsspec 2026.9.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:h11 0.16.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:hf-xet 1.6.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
+- **docker-python:httpcore 1.0.9:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:httpx 0.28.1:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:huggingface-hub 1.33.0:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and runtime license review pending.
+- **docker-python:tokenizers 0.23.2:** Dictation dependency added after the 2026-07-17 approval; exact Linux wheel and bundled native library review pending.
+- **docker-python:tqdm 4.70.1:** Dictation dependency added after the 2026-07-17 approval; exact wheel and declared MPL-2.0 AND MIT terms review pending.
 
 ## License texts and copyright notices
 
