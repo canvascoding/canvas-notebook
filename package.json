@@ -120,6 +120,7 @@
     "test:pi:delegation-steering": "tsx --conditions react-server scripts/pi-delegation-steering-test.ts && tsx --conditions react-server scripts/pi-delegation-steering-integration-test.ts && tsx --conditions react-server scripts/pi-delegation-managed-steering-integration-test.ts && tsx --conditions react-server scripts/pi-delegation-control-tool-test.ts",
     "test:pi:delegation-api": "tsx --conditions react-server scripts/pi-delegation-api-test.ts",
     "test:pi:delegation-ui": "tsx scripts/pi-delegation-ui-test.ts",
+    "test:pi:subagent-lifecycle": "npm run test:pi:delegate-task && npm run test:pi:delegation-store && npm run test:pi:delegation-dispatcher && tsx --conditions react-server scripts/pi-message-delivery-receipt-test.ts && npm run test:pi:delegation-progress && npm run test:pi:delegation-steering && npm run test:pi:delegation-api && npm run test:pi:delegation-ui && tsx scripts/chat-inline-delegation-test.tsx && tsx scripts/pi-delegation-detail-ui-test.ts && tsx --conditions react-server scripts/pi-delegation-observability-test.ts && npm run test:pi:live-compaction",
     "test:pi:continuation": "tsx scripts/pi-run-continuation-guard-test.ts",
     "test:pi:queue": "tsx scripts/pi-runtime-queue-test.ts",
     "test:pi:oauth-scope": "tsx scripts/pi-oauth-user-scope-test.ts",

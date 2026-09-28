@@ -76,8 +76,10 @@ async function main() {
       '../app/lib/pi/delegation-completion-message'
     );
     const { PiDelegationDispatcher } = await import('../app/lib/pi/delegation-dispatcher');
+    const { MessageDeliveryError } = await import('../app/lib/pi/message-delivery-receipt');
     const {
       claimQueuedPiDelegation,
+      completeRunningPiDelegation,
       createPiDelegation,
       getPiDelegation,
       requestPiDelegationCancellation,
@@ -130,6 +132,8 @@ async function main() {
         const message = createDelegationCompletionMessage(record, 1234);
         assert.equal(isDelegationCompletionMessage(message), true);
         assert.equal(message.delegationCompletion.delegationId, record.id);
+        assert.equal(message.clientMessageId, `delegation-completion:${record.id}`);
+        assert.equal(message.clientMessageId, createDelegationCompletionMessage(record, 9876).clientMessageId);
         assert.match(typeof message.content === 'string' ? message.content : '', /delegation_completion/);
       },
     });
@@ -296,6 +300,31 @@ async function main() {
     assert.equal(recoveredRecord?.deliveryStatus, 'delivered');
 
     dispatcher.stop();
+    const uncertain = await createPiDelegation({
+      id: 'delegation-uncertain-delivery', userId: 'dispatcher-user',
+      sourceSessionId: 'source-session', sourceAgentId: 'canvas-agent',
+      workerSessionId: 'uncertain-worker-session', workerType: 'ephemeral',
+      goal: 'Inspect an uncertain completion', toolsets: ['file'],
+    });
+    assert.ok(await claimQueuedPiDelegation(uncertain.id, 'uncertain-run-owner'));
+    assert.ok(await completeRunningPiDelegation({
+      id: uncertain.id, resultStatus: 'ok', resultText: 'Done.', runOwnerId: 'uncertain-run-owner',
+    }));
+    let uncertainSends = 0;
+    dispatcher = new PiDelegationDispatcher({
+      recoverInterrupted: false,
+      deliverCompletionFn: async () => {
+        uncertainSends += 1;
+        throw new MessageDeliveryError('MESSAGE_DELIVERY_UNCERTAIN', 'Possible previous dispatch.');
+      },
+    });
+    const deliverUncertain = (dispatcher as unknown as { deliver: (id: string) => Promise<void> }).deliver.bind(dispatcher);
+    await deliverUncertain(uncertain.id);
+    await deliverUncertain(uncertain.id);
+    assert.equal(uncertainSends, 1, 'An uncertain completion must not be retried automatically.');
+    assert.equal((await getPiDelegation(uncertain.id))?.deliveryStatus, 'skipped');
+    assert.match((await getPiDelegation(uncertain.id))?.deliveryErrorText ?? '', /Inspect the parent chat/u);
+
     await db.insert(user).values({
       id: 'dispatcher-foreign-user', name: 'Foreign User', email: 'dispatcher-foreign@example.test',
       emailVerified: true, createdAt: now, updatedAt: now,
@@ -353,7 +382,6 @@ async function main() {
       targetAgentId: 'research-agent', goal: 'Previous managed task', toolsets: ['web'],
     });
     await claimQueuedPiDelegation('managed-prior-task');
-    const { completeRunningPiDelegation } = await import('../app/lib/pi/delegation-store');
     const { getDelegatedWorkerToolsets } = await import('../app/lib/pi/delegation-policy');
     await completeRunningPiDelegation({ id: 'managed-prior-task', resultStatus: 'ok', resultText: 'Done.' });
     assert.deepEqual(await getDelegatedWorkerToolsets({ userId: 'dispatcher-user', sessionId: 'managed-worker-reused' }), []);

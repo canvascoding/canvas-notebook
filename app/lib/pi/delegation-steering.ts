@@ -7,6 +7,7 @@ import { db } from '@/app/lib/db';
 import { piDelegations, piDelegationSteering } from '@/app/lib/db/schema';
 import { authorizePiDelegationInspection } from '@/app/lib/pi/delegation-progress';
 import { PI_DELEGATION_LEASE_TIMEOUT_MS } from '@/app/lib/pi/delegation-store';
+import { observePiDelegation } from '@/app/lib/pi/delegation-observability';
 
 export type PiDelegationSteeringStatus = 'accepted' | 'claimed' | 'delivered' | 'missed';
 export type PiDelegationSteeringReceipt = {
@@ -170,7 +171,8 @@ export async function confirmPiDelegationSteeringDelivered(input: {
   userId: string;
   runOwnerId: string;
 }): Promise<PiDelegationSteeringReceipt | null> {
-  return db.transaction(async (tx) => {
+  let newlyDelivered = false;
+  const result = await db.transaction(async (tx) => {
     const [task] = await tx.select({ id: piDelegations.id }).from(piDelegations)
       .where(and(
         eq(piDelegations.id, input.delegationId),
@@ -192,7 +194,10 @@ export async function confirmPiDelegationSteeringDelivered(input: {
         eq(piDelegationSteering.status, 'claimed'),
       ))
       .returning();
-    if (confirmed) return receipt(confirmed);
+    if (confirmed) {
+      newlyDelivered = true;
+      return receipt(confirmed);
+    }
 
     const [previous] = await tx.select().from(piDelegationSteering)
       .where(and(
@@ -205,6 +210,8 @@ export async function confirmPiDelegationSteeringDelivered(input: {
       .limit(1);
     return previous ? receipt(previous) : null;
   });
+  if (newlyDelivered) observePiDelegation({ event: 'steer_delivery', outcome: 'delivered' });
+  return result;
 }
 
 /** Call after a terminal task transition; unfinished corrections are explicit misses. */
@@ -212,7 +219,7 @@ export async function markUndeliveredPiDelegationSteeringMissed(input: {
   delegationId: string;
   userId: string;
 }): Promise<number> {
-  return db.transaction(async (tx) => {
+  const count = await db.transaction(async (tx) => {
     const [task] = await tx.select({ id: piDelegations.id, status: piDelegations.status })
       .from(piDelegations)
       .where(and(eq(piDelegations.id, input.delegationId), eq(piDelegations.userId, input.userId)))
@@ -228,6 +235,8 @@ export async function markUndeliveredPiDelegationSteeringMissed(input: {
       .returning({ id: piDelegationSteering.id });
     return changed.length;
   });
+  if (count > 0) observePiDelegation({ event: 'steer_delivery', outcome: 'missed', count });
+  return count;
 }
 
 export async function readAuthorizedPiDelegationSteeringReceipt(input: {

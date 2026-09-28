@@ -5,6 +5,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 import type { DelegateTaskRequest, DelegateTaskResult } from '@/app/lib/pi/delegate-task-tool';
 import { createDelegationCompletionMessage } from '@/app/lib/pi/delegation-completion-message';
+import { MessageDeliveryError } from '@/app/lib/pi/message-delivery-receipt';
 import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
 import { markUndeliveredPiDelegationSteeringMissed } from '@/app/lib/pi/delegation-steering';
 import {
@@ -555,14 +556,21 @@ export class PiDelegationDispatcher {
       await this.deliverCompletionFn(claimed);
       await updatePiDelegationDelivery({ id, status: 'delivered', deliveryOwnerId: this.ownerId });
     } catch (error) {
-      const message = errorMessage(error);
+      const uncertain = error instanceof MessageDeliveryError && error.code === 'MESSAGE_DELIVERY_UNCERTAIN';
+      const message = uncertain
+        ? 'Completion delivery is uncertain. Inspect the parent chat and task result before sending again.'
+        : errorMessage(error);
       await updatePiDelegationDelivery({
         id,
-        status: 'failed',
+        status: uncertain ? 'skipped' : 'failed',
         deliveryErrorText: message,
         deliveryOwnerId: this.ownerId,
       });
-      console.error(`[delegation-dispatcher] Failed to deliver task ${id}:`, error);
+      if (uncertain) {
+        console.warn('[delegation-dispatcher] Completion delivery is uncertain; manual review is required.');
+      } else {
+        console.error(`[delegation-dispatcher] Failed to deliver task ${id}:`, error);
+      }
     } finally {
       this.delivering.delete(id);
     }

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "feature": "subagent-lifecycle-and-compaction",
   "updatedAt": "2026-09-28",
-  "status": "in_progress",
+  "status": "completed",
   "plan": "docs/architecture/canvas-notebook/subagent-lifecycle/plan.md",
   "hermesReference": {
     "repository": "https://github.com/NousResearch/hermes-agent",
@@ -110,10 +110,18 @@
     {
       "id": "SA-06",
       "title": "Integration verification and guarded rollout",
-      "status": "pending",
+      "status": "completed",
       "hermes": ["tools/delegate_tool_child_run.py:985-1017"],
       "canvas": ["app/lib/pi/delegation-dispatcher.ts:370-410", "app/lib/pi/session-compaction-coordinator.ts"],
-      "gate": "All earlier gates, relevant regressions, lint, build and authorized UI verification pass without duplicate delivery or privilege expansion."
+      "gate": "All earlier gates, relevant regressions, lint, build and authorized UI verification pass without duplicate delivery or privilege expansion.",
+      "evidence": [
+        "npm run test:pi:subagent-lifecycle",
+        "npm run lint",
+        "npm run build",
+        "Playwright: tests/chat-delegation-live-inspection.spec.ts and tests/chat-delegation-session-resume.spec.ts",
+        "GitNexus impact before existing symbol edits; detect_changes before commit",
+        "docs/architecture/canvas-notebook/subagent-lifecycle/rollout.md"
+      ]
     }
   ]
 }

@@ -51,6 +51,7 @@ import { sessionCompactionWarrantsAnotherPass } from '@/app/lib/pi/compaction/po
 import { loadPiEffectiveCompactionPolicy, resolvePiEffectiveCompactionPolicy } from '@/app/lib/pi/compaction/runtime-policy';
 import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordinator';
 import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
+import { observePiDelegation } from '@/app/lib/pi/delegation-observability';
 
 type DelegateTaskArgs = {
   action?: 'spawn' | 'list' | 'steer' | 'stop';
@@ -567,6 +568,7 @@ export async function runEphemeralWorker(params: {
             effectiveSystemPrompt, toolTokens,
           ])).digest('hex');
           await appendProgress('compacting', `compacting:${generation}:${attempt}`, 'Compacting child context');
+          observePiDelegation({ event: 'worker_compaction_attempt', outcome: 'started' });
           const result = await runPiSessionCompaction({
             sessionId: params.sessionId,
             userId: params.request.userId,
@@ -602,6 +604,12 @@ export async function runEphemeralWorker(params: {
               policy: effectivePolicy.contextBudgetPolicy,
               onSummaryProgress: reportProgress,
             }),
+          }).then((value) => {
+            observePiDelegation({ event: 'worker_compaction_result', outcome: value.state });
+            return value;
+          }, (error: unknown) => {
+            observePiDelegation({ event: 'worker_compaction_result', outcome: 'failed' });
+            throw error;
           });
           throwIfDelegationAborted(params.signal);
           lastCompactionReason = result.reasonCode ?? result.state;
@@ -632,6 +640,7 @@ export async function runEphemeralWorker(params: {
           previousLoad = nextLoad;
           additionalContextTokens += Math.max(1, getPiFinalPayloadPressure(prepared.budgetSnapshot));
         }
+        observePiDelegation({ event: 'worker_context_overflow', outcome: 'compaction_exhausted' });
         throw new Error(
           `Delegated worker payload exceeds the selected model context or transfer budget after automatic compaction (${lastCompactionReason}).`,
         );
@@ -640,6 +649,7 @@ export async function runEphemeralWorker(params: {
         await finalizeToolOutputBlocks(messages, model, params.executionContext);
         const prepared = await preparePayload(messages);
         if (prepared.budgetSnapshot.contextBudgetExceeded || prepared.budgetSnapshot.payloadBudgetExceeded) {
+          observePiDelegation({ event: 'worker_context_overflow', outcome: 'payload_guard' });
           throw new Error('Delegated worker payload exceeds the selected model context or transfer budget.');
         }
         throwIfDelegationAborted(params.signal);
@@ -1209,7 +1219,11 @@ export async function requireManagedDelegatedSessionReuse(
   sessionId: string,
   sourceScope?: DelegationSourceScope,
 ): Promise<AgentExecutionContext> {
-  if (!request.targetAgentId) throw new Error('target_agent_id is required to resume a managed session.');
+  const reject = (outcome: 'authorization' | 'binding' | 'workspace', message: string): never => {
+    if (request.sessionId) observePiDelegation({ event: 'resume_rejection', outcome });
+    throw new Error(message);
+  };
+  if (!request.targetAgentId) return reject('authorization', 'target_agent_id is required to resume a managed session.');
   await requireDelegationSource({
     userId: request.userId,
     sourceSessionId: request.sourceSessionId,
@@ -1226,15 +1240,15 @@ export async function requireManagedDelegatedSessionReuse(
     },
     limit: 3,
   });
-  if (sessions.length !== 1) throw new Error('Target managed session was not found or is ambiguous.');
+  if (sessions.length !== 1) return reject('binding', 'Target managed session was not found or is ambiguous.');
   const worker = sessions[0];
-  if (worker.agentId !== request.targetAgentId) throw new Error('Target session belongs to a different agent.');
+  if (worker.agentId !== request.targetAgentId) return reject('binding', 'Target session belongs to a different agent.');
   if (
     worker.sessionKind !== 'delegation_worker'
     || worker.delegationDepth !== 1
     || worker.parentSessionId !== request.sourceSessionId
   ) {
-    throw new Error('Target session does not belong to this Bradley chat.');
+    return reject('binding', 'Target session does not belong to this Bradley chat.');
   }
   const targetContext = await resolveAgentExecutionContextForSession({
     sessionId,
@@ -1246,7 +1260,7 @@ export async function requireManagedDelegatedSessionReuse(
     || targetContext.workspaceType !== scope.executionContext.workspaceType
     || targetContext.organizationId !== scope.executionContext.organizationId
   ) {
-    throw new Error('Target session belongs to a different workspace.');
+    return reject('workspace', 'Target session belongs to a different workspace.');
   }
   return targetContext;
 }
