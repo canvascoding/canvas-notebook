@@ -359,6 +359,15 @@ async function emailChangeScenario() {
     assert.equal((await fixture.pg.query<{ email: string }>(`
       SELECT email FROM "user" WHERE id = 'user-conflict'
     `)).rows[0].email, 'conflict@example.test');
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('remove-session', 'user-other')`);
+    desiredMembers = desiredMembers.map((member) => member.externalUserId === 'central-other'
+      ? { ...member, status: 'removed' } : member);
+    assert.equal(await runManagedTeamSyncCycle(options), 'applied');
+    assert.equal(acknowledgements.at(-1)?.error, undefined);
+    assert.equal((await fixture.pg.query<{ status: string }>(`
+      SELECT status FROM team_memberships WHERE id = 'member-other'
+    `)).rows[0].status, 'removed');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-other'`)).rows.length, 0);
     console.info('managed team stable-ID email changes and conflicts passed');
   } finally {
     await fixture.close();

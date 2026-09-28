@@ -347,7 +347,7 @@ async function applyManagedMembership(
       if (!existing) continue;
       const desiredEmail = member.email.toLowerCase();
       const emailChanged = existing.email !== desiredEmail || existing.authEmail !== desiredEmail;
-      if (emailChanged && existing.localUserId && member.localUserId === existing.localUserId
+      if (phase === 'active' && emailChanged && existing.localUserId && member.localUserId === existing.localUserId
         && !['approval_required', 'billing_pending'].includes(existing.status)) {
         const conflictingUsers = await database.all(`
           SELECT id FROM "user" WHERE lower(email) = $1 AND id <> $2
@@ -567,8 +567,9 @@ export async function runManagedTeamSyncCycle(options: {
       appliedMemberCount = assertManagedMappings(applied.members, sync.members);
       if (sync.members.some((member) => {
         const current = applied.members.find((localMember) => localMember.localIdentityKey === member.localIdentityKey);
-        return current?.role !== member.role || current.email !== member.email.toLowerCase()
-          || (current.localUserId && current.authEmail !== member.email.toLowerCase())
+        return current?.role !== member.role
+          || (member.status === 'active' && (current.email !== member.email.toLowerCase()
+            || (current.localUserId && current.authEmail !== member.email.toLowerCase())))
           || (current.status !== member.status
           && !(sync.status === 'policy_ready' && member.status === 'suspended'
             && current && ['approval_required', 'billing_pending'].includes(current.status)))
