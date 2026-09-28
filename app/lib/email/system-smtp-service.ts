@@ -12,6 +12,7 @@ export type SystemSmtpEmailInput = {
   body: string;
   isHtml?: boolean;
   headers?: EmailCustomHeaders;
+  messageId?: string;
 };
 
 async function requireSystemSmtpConfiguration() {
@@ -48,6 +49,7 @@ export async function sendSystemSmtpEmail(input: SystemSmtpEmailInput): Promise<
       bcc: input.bcc,
       replyTo: configuration.replyTo || undefined,
       subject: input.subject,
+      messageId: input.messageId,
       headers: normalizeEmailCustomHeaders(input.headers),
       ...(input.isHtml ? { html: input.body } : { text: input.body }),
       disableFileAccess: true,

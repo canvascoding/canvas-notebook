@@ -370,7 +370,7 @@
     "test:team-seat-health": "tsx --conditions react-server scripts/team-seat-health-test.ts",
     "test:team-seat-security": "tsx --conditions react-server scripts/team-seat-security-test.ts",
     "test:team-seat:login-error": "tsx scripts/team-license-login-error-test.ts",
-    "test:team-seat:notifications": "tsx --conditions react-server scripts/team-license-attention-test.ts && tsx --conditions react-server scripts/team-license-notification-preference-test.ts",
+    "test:team-seat:notifications": "tsx --conditions react-server scripts/team-license-attention-test.ts && tsx --conditions react-server scripts/team-license-notification-preference-test.ts && tsx --conditions react-server scripts/team-license-email-outbox-test.ts",
     "test:instance:human-activity": "tsx --conditions react-server scripts/human-activity-test.ts",
     "test:invitation-public-routes": "tsx --test scripts/invitation-public-route-test.ts",
     "test:team-membership-sync": "tsx --conditions react-server scripts/team-membership-sync-test.ts",

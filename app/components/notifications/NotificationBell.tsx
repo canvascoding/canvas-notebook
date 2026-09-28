@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
@@ -83,6 +84,8 @@ export function NotificationBell() {
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [memoryDecisions, setMemoryDecisions] = useState<Record<string, 'approve' | 'reject' | null>>({});
+  const [licenseEmailEnabled, setLicenseEmailEnabled] = useState<boolean | null>(null);
+  const [savingLicenseEmail, setSavingLicenseEmail] = useState(false);
 
   const unreadCount = summary?.unreadCount ?? 0;
   const badgeLabel = useMemo(() => formatBadgeCount(unreadCount), [unreadCount]);
@@ -127,8 +130,35 @@ export function NotificationBell() {
     setOpen(nextOpen);
     if (nextOpen) {
       void refresh();
+      void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' })
+        .then(async (response) => {
+          const payload = await response.json() as { success?: boolean; data?: { teamLicenseEmailNotificationsEnabled?: boolean } };
+          if (!response.ok || !payload.success) throw new Error('Preferences unavailable');
+          setLicenseEmailEnabled(payload.data?.teamLicenseEmailNotificationsEnabled !== false);
+        })
+        .catch(() => setLicenseEmailEnabled(null));
     }
   }, [refresh]);
+
+  const saveLicenseEmailPreference = useCallback(async (enabled: boolean) => {
+    setSavingLicenseEmail(true);
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'PATCH', credentials: 'include', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamLicenseEmailNotificationsEnabled: enabled }),
+      });
+      const payload = await response.json() as { success?: boolean };
+      if (!response.ok || !payload.success) throw new Error('Preference update failed');
+      setLicenseEmailEnabled(enabled);
+    } catch {
+      toast.error(locale.toLowerCase().startsWith('de')
+        ? 'Die E-Mail-Einstellung konnte nicht gespeichert werden.'
+        : 'The email setting could not be saved.');
+    } finally {
+      setSavingLicenseEmail(false);
+    }
+  }, [locale]);
 
   const mutateInbox = useCallback(async (payload: NotificationMutation) => {
     await updateNotification(payload);
@@ -407,6 +437,18 @@ export function NotificationBell() {
               ) : null}
             </div>
           )}
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-3">
+          <label htmlFor="notification-license-email" className="text-xs text-muted-foreground">
+            {locale.toLowerCase().startsWith('de') ? 'E-Mail bei Team-Zugangsänderungen' : 'Email for team access changes'}
+          </label>
+          <Switch
+            id="notification-license-email"
+            checked={licenseEmailEnabled ?? true}
+            onCheckedChange={(enabled) => void saveLicenseEmailPreference(enabled)}
+            disabled={licenseEmailEnabled === null || savingLicenseEmail}
+            aria-label={locale.toLowerCase().startsWith('de') ? 'Lizenz-E-Mails' : 'License emails'}
+          />
         </div>
       </PopoverContent>
     </Popover>

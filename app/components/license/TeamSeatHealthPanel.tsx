@@ -106,6 +106,8 @@ function copyFor(locale: string) {
         safety: 'Diese Recovery-Aktionen kaufen keine Seats und bestätigen keine Kosten.',
         notificationSetting: 'Lizenzereignisse im Notification Center anzeigen',
         notificationSettingDetail: 'Benachrichtigt dich als Owner über tatsächlich angewendete Zugangssperren und Wiederherstellungen. E-Mails werden dadurch nicht versendet.',
+        emailNotificationSetting: 'E-Mail bei Team-Zugangsänderungen',
+        emailNotificationSettingDetail: 'Sendet dem Owner und betroffenen Mitgliedern eine E-Mail nach einer tatsächlichen Sperre oder Wiederherstellung. Der System-E-Mail-Versand muss eingerichtet sein.',
         notificationSettingUnavailable: 'Die Benachrichtigungseinstellung konnte nicht geladen oder gespeichert werden.',
         queuedSync: 'Membership-Abgleich wurde eingeplant.',
         queuedRefresh: 'Lizenz-Refresh wurde eingeplant.',
@@ -186,6 +188,8 @@ function copyFor(locale: string) {
         safety: 'These recovery actions never purchase Seats or confirm costs.',
         notificationSetting: 'Show license events in the notification center',
         notificationSettingDetail: 'Notifies you as owner when team access is actually paused or restored. This does not send email.',
+        emailNotificationSetting: 'Email for team access changes',
+        emailNotificationSettingDetail: 'Emails the owner and affected members after access is actually paused or restored. System email delivery must be configured.',
         notificationSettingUnavailable: 'The notification setting could not be loaded or saved.',
         queuedSync: 'Membership sync was scheduled.',
         queuedRefresh: 'License refresh was scheduled.',
@@ -254,6 +258,7 @@ export function TeamSeatHealthPanel({
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [licenseNotificationsEnabled, setLicenseNotificationsEnabled] = useState<boolean | null>(null);
+  const [licenseEmailNotificationsEnabled, setLicenseEmailNotificationsEnabled] = useState<boolean | null>(null);
   const [savingNotificationSetting, setSavingNotificationSetting] = useState(false);
   const [notificationSettingError, setNotificationSettingError] = useState(false);
 
@@ -261,9 +266,12 @@ export function TeamSeatHealthPanel({
     let cancelled = false;
     void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' })
       .then(async (response) => {
-        const payload = await response.json() as { success?: boolean; data?: { teamLicenseNotificationsEnabled?: boolean } };
+        const payload = await response.json() as { success?: boolean; data?: { teamLicenseNotificationsEnabled?: boolean; teamLicenseEmailNotificationsEnabled?: boolean } };
         if (!response.ok || !payload.success) throw new Error('Preference unavailable');
-        if (!cancelled) setLicenseNotificationsEnabled(payload.data?.teamLicenseNotificationsEnabled !== false);
+        if (!cancelled) {
+          setLicenseNotificationsEnabled(payload.data?.teamLicenseNotificationsEnabled !== false);
+          setLicenseEmailNotificationsEnabled(payload.data?.teamLicenseEmailNotificationsEnabled !== false);
+        }
       })
       .catch(() => { if (!cancelled) setNotificationSettingError(true); });
     return () => { cancelled = true; };
@@ -282,6 +290,25 @@ export function TeamSeatHealthPanel({
       if (!response.ok || !payload.success) throw new Error('Preference update failed');
       setLicenseNotificationsEnabled(enabled);
       window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+    } catch {
+      setNotificationSettingError(true);
+    } finally {
+      setSavingNotificationSetting(false);
+    }
+  }
+
+  async function saveEmailNotificationSetting(enabled: boolean) {
+    setSavingNotificationSetting(true);
+    setNotificationSettingError(false);
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'PATCH', credentials: 'include', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamLicenseEmailNotificationsEnabled: enabled }),
+      });
+      const payload = await response.json() as { success?: boolean };
+      if (!response.ok || !payload.success) throw new Error('Preference update failed');
+      setLicenseEmailNotificationsEnabled(enabled);
     } catch {
       setNotificationSettingError(true);
     } finally {
@@ -441,6 +468,19 @@ export function TeamSeatHealthPanel({
             onCheckedChange={(enabled) => void saveNotificationSetting(enabled)}
             disabled={licenseNotificationsEnabled === null || savingNotificationSetting}
             aria-label={copy.notificationSetting}
+          />
+        </section>
+        <section className="flex items-start justify-between gap-4 border border-border p-4">
+          <div>
+            <label htmlFor="team-license-email-notifications" className="text-sm font-medium">{copy.emailNotificationSetting}</label>
+            <p className="mt-1 text-xs text-muted-foreground">{copy.emailNotificationSettingDetail}</p>
+          </div>
+          <Switch
+            id="team-license-email-notifications"
+            checked={licenseEmailNotificationsEnabled ?? true}
+            onCheckedChange={(enabled) => void saveEmailNotificationSetting(enabled)}
+            disabled={licenseEmailNotificationsEnabled === null || savingNotificationSetting}
+            aria-label={copy.emailNotificationSetting}
           />
         </section>
         <section

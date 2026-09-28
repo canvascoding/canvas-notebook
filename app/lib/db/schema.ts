@@ -2692,6 +2692,28 @@ export const auditEvents = pgTable("audit_events", {
   sourceActionCreatedIdx: index("idx_audit_events_source_action_created").on(table.source, table.action, table.createdAt),
 }));
 
+export const teamLicenseEmailOutbox = pgTable("team_license_email_outbox", {
+  id: text("id").primaryKey(),
+  auditEventId: text("audit_event_id").notNull(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  eventKind: text("event_kind").notNull(),
+  reason: text("reason").notNull(),
+  seatLimit: bigint("seat_limit", { mode: "number" }).notNull(),
+  status: text("status").notNull().default('pending'),
+  attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+  nextAttemptAt: pgTimestamp("next_attempt_at").notNull(),
+  leaseUntil: pgTimestamp("lease_until"),
+  messageId: text("message_id"),
+  error: text("error"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  deliveredAt: pgTimestamp("delivered_at"),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  dueIdx: index("idx_team_license_email_outbox_due").on(table.status, table.nextAttemptAt),
+  auditRecipientIdx: uniqueIndex("idx_team_license_email_outbox_audit_recipient").on(table.auditEventId, table.userId),
+}));
+
 // Short-lived, metadata-only diagnostics for the public Canvas MCP server.
 // This is intentionally separate from audit_events: it is automatically
 // pruned and must never contain request bodies, OAuth material, or user data.

@@ -19,6 +19,14 @@ async function main() {
       teamLicenseNotificationsEnabled: true,
     })).teamLicenseNotificationsEnabled, true);
     assert.equal((await getUserPreferences(ownerId)).teamLicenseNotificationsEnabled, true);
+    assert.equal((await getUserPreferences(ownerId)).teamLicenseEmailNotificationsEnabled, undefined);
+    assert.equal((await updateUserPreferences(ownerId, {
+      teamLicenseEmailNotificationsEnabled: false,
+    })).teamLicenseEmailNotificationsEnabled, false);
+    assert.equal((await getUserPreferences(ownerId)).teamLicenseNotificationsEnabled, true);
+    assert.equal((await updateUserPreferences(ownerId, {
+      teamLicenseEmailNotificationsEnabled: true,
+    })).teamLicenseEmailNotificationsEnabled, true);
   } finally {
     if (previousData === undefined) delete process.env.DATA;
     else process.env.DATA = previousData;

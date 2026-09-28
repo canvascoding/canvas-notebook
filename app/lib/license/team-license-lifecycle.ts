@@ -19,6 +19,7 @@ import {
   type EffectiveSeatPolicy,
 } from './seat-limit';
 import type { LicenseStatus } from './types';
+import { enqueueTeamLicenseEmail, processTeamLicenseEmailOutbox, type TeamLicenseEmailKind } from './team-license-email-outbox';
 
 const LOG_PREFIX = '[license/team-lifecycle]';
 const SOLO_FALLBACK_TRANSITION_REASON = 'team_license_solo_fallback';
@@ -168,7 +169,8 @@ async function appendLifecycleAudit(
     result: Omit<TeamLicenseLifecycleResult, 'changed'>;
     now: number;
   },
-): Promise<void> {
+): Promise<string> {
+  const auditId = `audit-${randomUUID()}`;
   await database.run(`
     INSERT INTO audit_events (
       id,
@@ -185,7 +187,7 @@ async function appendLifecycleAudit(
       created_at
     ) VALUES ($1, $2, $3, 'license', 'license_lifecycle', 'organization', $4, $5, 'success', $6, $7, $8)
   `, [
-    `audit-${randomUUID()}`,
+    auditId,
     input.organizationId,
     input.ownerUserId,
     input.organizationId,
@@ -210,6 +212,7 @@ async function appendLifecycleAudit(
     }),
     input.now,
   ]);
+  return auditId;
 }
 
 async function disableUserForLicenseFallback(
@@ -409,6 +412,7 @@ async function reconcileWithinTransaction(
     ? SOLO_FALLBACK_TRANSITION_REASON
     : SEAT_REDUCTION_TRANSITION_REASON;
   const usersToDisable = new Set<string>();
+  const emailChanges = new Map<string, TeamLicenseEmailKind>();
   let suspendedMemberships = 0;
   let disabledUsers = 0;
   let revokedSessions = 0;
@@ -485,6 +489,7 @@ async function reconcileWithinTransaction(
       now,
     });
     if (disabled.disabled) disabledUsers += 1;
+    if (disabled.disabled) emailChanges.set(userId, 'member_paused');
     revokedSessions += disabled.revokedSessions;
   }
 
@@ -575,6 +580,7 @@ async function reconcileWithinTransaction(
       }
       restoredUsers += 1;
       restoredMemberships += 1;
+      emailChanges.set(membership.user_id, 'member_restored');
       await appendLifecycleTransition(database, {
         membershipId: membership.id,
         organizationId: organization.organization_id,
@@ -639,7 +645,7 @@ async function reconcileWithinTransaction(
     || restoredUsers > 0
     || revokedSessions > 0;
   if (changed) {
-    await appendLifecycleAudit(database, {
+    const auditId = await appendLifecycleAudit(database, {
       action: restoredMemberships > 0
         ? 'team.access_restored'
         : policy.mode === 'solo'
@@ -652,6 +658,31 @@ async function reconcileWithinTransaction(
       result: resultWithoutChanged,
       now,
     });
+    if (emailChanges.size > 0) {
+      const ownerKind: TeamLicenseEmailKind = restoredUsers > 0 && disabledUsers > 0
+        ? 'owner_mixed'
+        : restoredUsers > 0 ? 'owner_restored' : 'owner_restricted';
+      await enqueueTeamLicenseEmail(database, {
+        auditEventId: auditId,
+        organizationId: organization.organization_id,
+        userId: organization.owner_user_id,
+        kind: ownerKind,
+        reason: policy.reason,
+        seatLimit: policy.seatLimit,
+        now,
+      });
+      for (const [userId, kind] of emailChanges) {
+        await enqueueTeamLicenseEmail(database, {
+          auditEventId: auditId,
+          organizationId: organization.organization_id,
+          userId,
+          kind,
+          reason: policy.reason,
+          seatLimit: policy.seatLimit,
+          now,
+        });
+      }
+    }
   }
   return { ...resultWithoutChanged, changed };
 }
@@ -672,6 +703,13 @@ export async function reconcileTeamLicenseLifecycle(
       (options.now ?? new Date()).getTime(),
     );
     await database.run('COMMIT');
+    if (ownsDatabase) {
+      void processTeamLicenseEmailOutbox().catch((error) => {
+        console.warn(`${LOG_PREFIX} license email retry failed`, {
+          error: redactTeamControlPlaneLogText(error instanceof Error ? error.message : String(error)),
+        });
+      });
+    }
     if (result.changed) {
       console.info(`${LOG_PREFIX} reconciled Team access`, {
         mode: result.mode,
@@ -726,6 +764,11 @@ async function runTeamLicenseLifecycleCycle(): Promise<{
   const { getLicenseStatus } = await import('./index');
   const status = await getLicenseStatus();
   const result = await reconcileTeamLicenseLifecycle(status);
+  await processTeamLicenseEmailOutbox().catch((error) => {
+    console.warn(`${LOG_PREFIX} license email retry failed`, {
+      error: redactTeamControlPlaneLogText(error instanceof Error ? error.message : String(error)),
+    });
+  });
   return { status, result };
 }
 
