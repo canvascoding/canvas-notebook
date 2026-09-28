@@ -1,7 +1,8 @@
 # Verweise und sichere Dateioperationen im Workspace
 
-Stand: 2026-09-28  
-Status: Umsetzungsplan; die untenstehenden Punkte sind erst nach Nachweis abzuhaken.
+Stand: 2026-09-28
+
+Status: Umsetzung und Abnahme der Punkte FL-01 bis FL-08 abgeschlossen; verbleibende Grenzen sind unten dokumentiert.
 
 ## Ziel und Abgrenzung
 
