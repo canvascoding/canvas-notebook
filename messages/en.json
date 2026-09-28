@@ -3374,7 +3374,7 @@
   "invitationAcceptance": {
     "eyebrow": "Private Team invitation",
     "title": "Your workspace is waiting",
-    "description": "Review the invitation first. Accepting it creates a pending membership; your account stays locked until the billing owner approves the exact Seat cost.",
+    "description": "Review the invitation first. Accepting it creates a pending membership; your account stays locked until the required approval and signed Seat limit are confirmed.",
     "loading": "Checking this invitation securely...",
     "email": "Invited email",
     "role": "Team role",
@@ -3388,6 +3388,9 @@
     "retry": "Retry billing and activation",
     "password": "Choose your password",
     "passwordHint": "The account becomes sign-in capable only after billing and the signed Seat limit are confirmed.",
+    "managedPasswordHint": "Your account remains locked until the administrator maps your identity and the signed Team limit is applied. This step does not charge you.",
+    "managedPendingTitle": "Waiting for administrator approval",
+    "managedPendingDescription": "Your password is set and your account remains locked. You can return to this invitation after the administrator confirms your Team access.",
     "billingPendingHint": "Billing still needs action. Your account remains locked; retry after the billing owner has resolved the provider state.",
     "waitingHint": "The exact Seat quote is waiting for an organization owner or billing role in the Control Plane. You can safely close this page and return with the same link.",
     "expiredHint": "The previous price is no longer valid. Load a current server-calculated quote; the billing owner must confirm it again.",
@@ -4234,6 +4237,11 @@
         "recoveryDescription": "Activation for {email} is already staged and can be resumed safely.",
         "retrySetup": "Resume activation"
       },
+      "managedPending": {
+        "description": "The account remains blocked until its identity is mapped in Control Plane and the signed license is synchronized.",
+        "password": "Initial password",
+        "submit": "Prepare blocked identity"
+      },
       "reactivationDialog": {
         "title": "Reactivate Team member",
         "description": "A current Seat quote is required before {email} can sign in again.",
@@ -4377,6 +4385,7 @@
         "created": "{email} was created.",
         "activationStarted": "Activation for {email} was staged. The Seat limit will be confirmed before account creation.",
         "quotePrepared": "The Team Seat quote for {email} is ready.",
+        "managedPending": "{email} is waiting for Control Plane mapping. Access remains blocked until approval.",
         "quoteChecked": "The approval status was refreshed.",
         "quoteRefreshed": "A new Team Seat quote was loaded and must be confirmed again.",
         "activationProcessed": "The membership activation state was updated.",

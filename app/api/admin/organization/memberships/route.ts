@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { openDb } from '@/app/lib/db';
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
+import { runManagedTeamSyncCycle } from '@/app/lib/license/managed-team-sync';
 import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 import {
   assertOrganizationSeatProjectionNotOverLimit,
   SeatLimitGuardError,
@@ -17,7 +20,7 @@ import {
   beginDirectMembershipActivation,
   MembershipOrchestratorError,
 } from '@/app/lib/organization/membership-orchestrator';
-import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { createTeamMembershipCandidate, getTeamMembershipByCandidateEmail, TeamMembershipError } from '@/app/lib/organization/team-membership';
 import {
   isOrganizationAdminLike,
   isOrganizationBillingApprover,
@@ -90,9 +93,10 @@ export async function POST(request: NextRequest) {
         error: 'An active organization owner or administrator is required.',
       }, { status: 403 });
     }
-    await assertOrganizationSeatProjectionNotOverLimit({
-      organizationId: state.organizationId,
-    });
+    const managed = getDeploymentMode() === 'managed-team';
+    if (!managed) {
+      await assertOrganizationSeatProjectionNotOverLimit({ organizationId: state.organizationId });
+    }
 
     const body = await request.json().catch(() => ({})) as {
       name?: unknown;
@@ -108,6 +112,33 @@ export async function POST(request: NextRequest) {
         code: 'INVALID_MEMBERSHIP_CANDIDATE',
         error: 'Name, email, and a supported organization role are required.',
       }, { status: 400 });
+    }
+
+    if (managed) {
+      const database = await openDb();
+      try {
+        const existing = await getTeamMembershipByCandidateEmail(database, state.organizationId, email);
+        if (existing && (existing.status !== 'approval_required' || existing.role !== role)) {
+          return NextResponse.json({ success: false, code: 'MANAGED_TEAM_CANDIDATE_CONFLICT', error: 'This email already has a different Team membership.' }, { status: 409 });
+        }
+        const candidate = existing ?? await createTeamMembershipCandidate(database, {
+          organizationId: state.organizationId,
+          email,
+          displayName: name,
+          role,
+          status: 'approval_required',
+          invitedByUserId: admin.session.user.id,
+          source: 'local_admin',
+          reason: 'managed_team_identity_pending',
+        });
+        void runManagedTeamSyncCycle().catch(() => undefined);
+        return NextResponse.json({
+          success: true,
+          data: { status: 'pending_control_plane', localIdentityKey: candidate.id, replayed: Boolean(existing) },
+        }, { status: existing ? 200 : 202 });
+      } finally {
+        await database.close();
+      }
     }
 
     const activation = await beginDirectMembershipActivation({

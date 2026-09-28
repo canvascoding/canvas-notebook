@@ -21,6 +21,8 @@ import {
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { bindManagedPendingIdentity, ManagedPendingIdentityError } from '@/app/lib/organization/managed-pending-identity';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -35,6 +37,7 @@ function errorResponse(error: unknown) {
     || error instanceof MembershipSeatActivationError
     || error instanceof SeatLimitGuardError
     || error instanceof TeamMembershipError
+    || error instanceof ManagedPendingIdentityError
   ) {
     return NextResponse.json({
       success: false,
@@ -95,6 +98,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const body = await request.json().catch(() => ({})) as { password?: unknown };
     const password = typeof body.password === 'string' ? body.password : '';
     const { membershipId } = await context.params;
+    if (getDeploymentMode() === 'managed-team') {
+      const pending = await bindManagedPendingIdentity({
+        organizationId: state.organizationId,
+        membershipId,
+        password,
+      });
+      return NextResponse.json({ success: true, data: pending }, { status: 202 });
+    }
     const result = await executeDirectMembershipActivation({
       organizationId: state.organizationId,
       membershipId,

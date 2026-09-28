@@ -4,8 +4,9 @@ import { createHash } from 'node:crypto';
 
 import { requestTeamControlPlane, redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { PENDING_TEAM_MEMBERSHIP_BAN_REASON } from '@/app/lib/auth';
 import { getDeploymentMode } from '@/app/lib/organization/config';
-import { organizationPermissionDefaults } from '@/app/lib/organization/permission-provisioning';
+import { ensureOrganizationPermissionRow, organizationPermissionDefaults } from '@/app/lib/organization/permission-provisioning';
 import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { getLicenseInstanceId } from './instance';
@@ -126,10 +127,14 @@ async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
   if (organizations.length !== 1) throw new Error('MANAGED_TEAM_LOCAL_ORGANIZATION_SCOPE_INVALID');
   const organizationId = organizations[0].organization_id;
   const rows = await database.all(`
-    SELECT id, user_id, candidate_email, role, status
-    FROM team_memberships
-    WHERE organization_id = $1
-    ORDER BY id
+    SELECT membership.id, COALESCE(membership.user_id, pending.pending_user_id) AS user_id,
+      membership.candidate_email, membership.role, membership.status
+    FROM team_memberships membership
+    LEFT JOIN managed_team_pending_identities pending
+      ON pending.local_identity_key = membership.id
+      AND pending.organization_id = membership.organization_id
+    WHERE membership.organization_id = $1
+    ORDER BY membership.id
   `, [organizationId]) as Array<{
     id: string;
     user_id: string | null;
@@ -180,10 +185,12 @@ async function sendAdoptionReport(
 ): Promise<void> {
   const legacyCertificate = process.env.CANVAS_LICENSE_CERT?.trim()
     || await loadStoredLicenseCert(instanceId);
-  if (!legacyCertificate) throw new Error('MANAGED_TEAM_LEGACY_CERTIFICATE_MISSING');
+  if (!legacyCertificate && members.length > 0) {
+    throw new Error('MANAGED_TEAM_LEGACY_CERTIFICATE_MISSING');
+  }
   await managedRequest(ADOPTION_PATH, 'POST', {
     instanceId,
-    legacyCertificate,
+    ...(legacyCertificate ? { legacyCertificate } : {}),
     members: members.map(({ localIdentityKey, localUserId, email, role, status }) => ({
       localIdentityKey, localUserId, email, role, status,
     })),
@@ -220,8 +227,8 @@ function assertManagedMappings(local: LocalMember[], managed: ManagedMember[]): 
       throw new Error('MANAGED_TEAM_PENDING_LOCAL_IDENTITY');
     }
   }
-  const expectedActive = new Set(active.map((member) => member.localIdentityKey));
-  if (local.some((member) => member.status === 'active' && !expectedActive.has(member.localIdentityKey))) {
+  const mapped = new Set(managed.map((member) => member.localIdentityKey));
+  if (local.some((member) => member.status === 'active' && !mapped.has(member.localIdentityKey))) {
     throw new Error('MANAGED_TEAM_UNMAPPED_ACTIVE_USER');
   }
   return active.length;
@@ -233,7 +240,7 @@ function requireChanged(result: unknown, code: string): void {
 }
 
 async function applyManagedMembership(
-  database: Pick<SqlConnection, 'all' | 'run'>,
+  database: Pick<SqlConnection, 'all' | 'get' | 'run'>,
   local: { organizationId: string; members: LocalMember[] },
   managed: ManagedMember[],
   phase: 'revoke' | 'active',
@@ -246,7 +253,13 @@ async function applyManagedMembership(
       if ((member.status === 'active') !== (phase === 'active')) continue;
       const existing = byIdentityKey.get(member.localIdentityKey!);
       if (!existing || (existing.status === member.status && existing.role === member.role)) continue;
-      if (existing.status !== 'active' && member.status === 'active') {
+      const pendingActivation = member.status === 'active'
+        && ['approval_required', 'billing_pending'].includes(existing.status)
+        && existing.localUserId !== null;
+      const reactivation = member.status === 'active'
+        && ['suspended', 'removed'].includes(existing.status)
+        && existing.localUserId !== null;
+      if (existing.status !== 'active' && member.status === 'active' && !pendingActivation && !reactivation) {
         throw new Error('MANAGED_TEAM_REACTIVATION_REQUIRES_LOCAL_IDENTITY_FLOW');
       }
       if ((existing.role === 'owner' || member.role === 'owner')
@@ -254,6 +267,71 @@ async function applyManagedMembership(
         throw new Error('MANAGED_TEAM_OWNER_CHANGE_REQUIRES_REVIEW');
       }
       if (member.status === 'active') {
+        if (reactivation) {
+          const users = await database.all(`
+            SELECT email, banned, ban_reason FROM "user" WHERE id = $1
+          `, [existing.localUserId]) as Array<{
+            email: string; banned: boolean | number; ban_reason: string | null;
+          }>;
+          if (users.length !== 1 || users[0].email.toLowerCase() !== member.email.toLowerCase()
+            || !users[0].banned
+            || !users[0].ban_reason?.startsWith(TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX)) {
+            throw new Error('MANAGED_TEAM_REACTIVATION_IDENTITY_INVALID');
+          }
+          await ensureOrganizationPermissionRow(database, {
+            organizationId: local.organizationId,
+            userId: existing.localUserId!,
+            role: member.role,
+            activateExisting: true,
+            now,
+          });
+          requireChanged(await database.run(`
+            UPDATE team_memberships SET role = $1, status = 'active', activated_at = $2,
+              suspended_at = NULL, removed_at = NULL, updated_at = $2
+            WHERE id = $3 AND organization_id = $4 AND user_id = $5 AND status IN ('suspended', 'removed')
+          `, [member.role, now, existing.localIdentityKey, local.organizationId, existing.localUserId]),
+          'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+          requireChanged(await database.run(`
+            UPDATE "user" SET banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $1
+            WHERE id = $2 AND banned = 1 AND ban_reason = $3
+          `, [now, existing.localUserId, users[0].ban_reason]),
+          'MANAGED_TEAM_REACTIVATION_IDENTITY_CHANGED');
+          await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
+          continue;
+        }
+        if (pendingActivation) {
+          const pendingUser = await database.all(`
+            SELECT id, email, banned, ban_reason FROM "user" WHERE id = $1
+          `, [existing.localUserId]) as Array<{
+            id: string; email: string; banned: boolean | number; ban_reason: string | null;
+          }>;
+          if (pendingUser.length !== 1
+            || pendingUser[0].email.toLowerCase() !== member.email.toLowerCase()
+            || !pendingUser[0].banned
+            || pendingUser[0].ban_reason !== PENDING_TEAM_MEMBERSHIP_BAN_REASON) {
+            throw new Error('MANAGED_TEAM_PENDING_IDENTITY_INVALID');
+          }
+          await ensureOrganizationPermissionRow(database, {
+            organizationId: local.organizationId,
+            userId: existing.localUserId!,
+            role: member.role,
+            activateExisting: true,
+            now,
+          });
+          requireChanged(await database.run(`
+            UPDATE team_memberships SET user_id = $1, role = $2, status = 'active',
+              accepted_at = COALESCE(accepted_at, $3), activated_at = $3, updated_at = $3
+            WHERE id = $4 AND organization_id = $5
+              AND user_id IS NULL AND status IN ('approval_required', 'billing_pending')
+          `, [existing.localUserId, member.role, now, existing.localIdentityKey, local.organizationId]),
+          'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+          requireChanged(await database.run(`
+            UPDATE "user" SET banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $1
+            WHERE id = $2 AND banned = 1 AND ban_reason = $3
+          `, [now, existing.localUserId, PENDING_TEAM_MEMBERSHIP_BAN_REASON]),
+          'MANAGED_TEAM_PENDING_IDENTITY_CHANGED');
+          continue;
+        }
         const defaults = organizationPermissionDefaults(member.role);
         requireChanged(await database.run(`
           UPDATE team_memberships SET role = $1, updated_at = $2
@@ -310,8 +388,9 @@ async function applyManagedMembership(
 }
 
 export async function runManagedTeamSyncCycle(options: {
-  database?: Pick<SqlConnection, 'all' | 'run' | 'close'>;
+  database?: Pick<SqlConnection, 'all' | 'get' | 'run' | 'close'>;
   fetchImpl?: typeof fetch;
+  activateCertificate?: typeof activateLicenseCert;
 } = {}): Promise<'unconfigured' | 'adoption_required' | 'applied' | 'pending'> {
   if (!instanceToken() || getDeploymentMode() !== 'managed-team'
     || process.env.NEXT_PHASE === 'phase-production-build') return 'unconfigured';
@@ -343,7 +422,7 @@ export async function runManagedTeamSyncCycle(options: {
       const afterRevocation = await localMembers(database);
       const currentActive = afterRevocation.members.filter((member) => member.status === 'active').length;
       if (license.seatLimit < currentActive) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
-      const status = await activateLicenseCert(license.certificate);
+      const status = await (options.activateCertificate ?? activateLicenseCert)(license.certificate);
       if (!status.licensed || status.hostingMode !== 'cloud'
         || status.edition !== 'team' || status.seatLimit !== license.seatLimit) {
         throw new Error('MANAGED_TEAM_CERTIFICATE_APPLY_FAILED');

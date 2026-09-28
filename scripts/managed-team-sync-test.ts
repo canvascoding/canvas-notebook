@@ -53,6 +53,7 @@ async function main() {
       }
       throw new Error(`Unexpected SQL: ${sql}`);
     },
+    async get() { throw new Error('Pending path must not read local identity in this test.'); },
     async run() { throw new Error('Adoption must not mutate local membership.'); },
     async close() {},
   };

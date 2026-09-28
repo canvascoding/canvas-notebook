@@ -1172,6 +1172,14 @@ export const aiRuntimeDefaults = pgTable("ai_runtime_defaults", {
   updatedAt: pgTimestamp("updated_at").notNull(),
 });
 
+export const managedTeamPendingIdentities = pgTable("managed_team_pending_identities", {
+  localIdentityKey: text("local_identity_key").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  pendingUserId: text("pending_user_id").notNull().unique(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+});
+
 /**
  * Organization-owned compaction preferences. These intentionally live beside
  * the organization-scoped model catalog rather than in the instance-wide

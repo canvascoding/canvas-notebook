@@ -17,6 +17,8 @@ import {
   TeamInvitationError,
 } from '@/app/lib/organization/team-invitations';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { bindManagedPendingIdentity, ManagedPendingIdentityError } from '@/app/lib/organization/managed-pending-identity';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { publicRateLimit, publicResourceRateLimit } from '@/app/lib/security/public-rate-limit';
 import { readBoundedJson } from '@/app/lib/api/bounded-json';
@@ -29,6 +31,7 @@ function errorResponse(error: unknown) {
     || error instanceof MembershipSeatActivationError
     || error instanceof SeatLimitGuardError
     || error instanceof TeamMembershipError
+    || error instanceof ManagedPendingIdentityError
   ) {
     return NextResponse.json({
       success: false,
@@ -97,6 +100,21 @@ export async function POST(request: NextRequest) {
       token: body.token,
       requestId: body.requestId,
     });
+    if (getDeploymentMode() === 'managed-team') {
+      const pending = await bindManagedPendingIdentity({
+        organizationId: accepted.invitation.organizationId,
+        membershipId: accepted.membership.id,
+        password: body.password,
+      });
+      return NextResponse.json({
+        success: true,
+        data: {
+          invitationId: accepted.invitation.id,
+          email: accepted.membership.candidateEmail,
+          ...pending,
+        },
+      }, { status: 202 });
+    }
     const result = await executeDirectMembershipActivation({
       organizationId: accepted.invitation.organizationId,
       membershipId: accepted.membership.id,
