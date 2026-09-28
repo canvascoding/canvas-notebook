@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 
@@ -27,8 +30,9 @@ function certificate(seatLimit: number): string {
   ].join('.');
 }
 
-async function setupDatabase() {
-  const pg = new PGlite();
+async function setupDatabase(dataDir: string) {
+  let pg = new PGlite(dataDir);
+  let mutationCount = 0;
   await pg.exec(`
     CREATE TABLE canvas_organization_settings (organization_id text PRIMARY KEY);
     CREATE TABLE team_memberships (
@@ -60,12 +64,19 @@ async function setupDatabase() {
   `);
   await pg.query('INSERT INTO canvas_organization_settings (organization_id) VALUES ($1)', [organizationId]);
   return {
-    pg,
+    get pg() { return pg; },
+    async reopen() {
+      await pg.close();
+      pg = new PGlite(dataDir);
+    },
+    async close() { await pg.close(); },
+    get mutationCount() { return mutationCount; },
     database: {
       async all(sql: string, params?: unknown[]) { return (await pg.query(sql, params)).rows; },
       async get(sql: string, params?: unknown[]) { return (await pg.query(sql, params)).rows[0]; },
       async run(sql: string, params?: unknown[]) {
         const result = await pg.query(sql, params);
+        if (/^\s*(UPDATE|DELETE)\s/i.test(sql)) mutationCount += result.affectedRows ?? 0;
         return { changes: result.affectedRows ?? 0 };
       },
       async close() {},
@@ -75,29 +86,31 @@ async function setupDatabase() {
 
 async function main() {
   const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
-  const { pg, database } = await setupDatabase();
+  const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-recovery-'));
+  const fixture = await setupDatabase(dataDir);
+  const { database } = fixture;
   try {
-    await pg.query(`
+    await fixture.pg.query(`
       INSERT INTO team_memberships (id, organization_id, user_id, candidate_email, role, status)
       VALUES ('member-owner', $1, 'user-owner', 'owner@example.test', 'owner', 'active'),
         ('member-revoked', $1, 'user-revoked', 'revoked@example.test', 'member', 'active'),
         ('member-new', $1, NULL, 'new@example.test', 'member', 'approval_required')
     `, [organizationId]);
-    await pg.query(`
+    await fixture.pg.query(`
       INSERT INTO "user" (id, email, banned, ban_reason)
       VALUES ('user-owner', 'owner@example.test', 0, NULL),
         ('user-revoked', 'revoked@example.test', 0, NULL),
         ('user-new', 'new@example.test', 1, 'canvas_team_membership_pending')
     `);
-    await pg.query(`
+    await fixture.pg.query(`
       INSERT INTO managed_team_pending_identities (local_identity_key, organization_id, pending_user_id)
       VALUES ('member-new', $1, 'user-new')
     `, [organizationId]);
-    await pg.query(`
+    await fixture.pg.query(`
       INSERT INTO organization_user_permissions (organization_id, user_id, role, status)
       VALUES ($1, 'user-owner', 'owner', 'active'), ($1, 'user-revoked', 'member', 'active')
     `, [organizationId]);
-    await pg.query(`INSERT INTO "session" (id, user_id) VALUES ('revoked-session', 'user-revoked')`);
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('revoked-session', 'user-revoked')`);
     const members = [
       { externalUserId: 'central-new', email: 'new@example.test', role: 'member', status: 'active', localIdentityKey: 'member-new', localUserId: 'user-new' },
       { externalUserId: 'central-owner', email: 'owner@example.test', role: 'owner', status: 'active', localIdentityKey: 'member-owner', localUserId: 'user-owner' },
@@ -105,8 +118,10 @@ async function main() {
     ];
     const cert = certificate(2);
     const acknowledgements: Array<Record<string, unknown>> = [];
+    let transport: 'offline' | 'ack_lost' | 'online' = 'offline';
     const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
       const path = new URL(String(input)).pathname;
+      if (transport === 'offline') throw new Error('CONTROL_PLANE_OFFLINE');
       if (path.endsWith('/sync')) {
         return new Response(JSON.stringify({
           status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
@@ -121,33 +136,60 @@ async function main() {
       }
       if (path.endsWith('/sync/ack')) {
         acknowledgements.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        if (transport === 'ack_lost') throw new Error('ACK_RESPONSE_LOST');
         return new Response(JSON.stringify({ status: 'acknowledged' }), { status: 200 });
       }
       throw new Error(`Unexpected endpoint ${path}`);
     }) as typeof fetch;
-    const result = await runManagedTeamSyncCycle({
+    let activationCount = 0;
+    const syncOptions = {
       database,
       fetchImpl,
-      activateCertificate: async () => ({
-        licensed: true, hostingMode: 'cloud', edition: 'team', seatLimit: 2,
-      }) as Awaited<ReturnType<typeof import('../app/lib/license').activateLicenseCert>>,
-    });
+      activateCertificate: async () => {
+        activationCount++;
+        return { licensed: true, hostingMode: 'cloud', edition: 'team', seatLimit: 2 } as
+          Awaited<ReturnType<typeof import('../app/lib/license').activateLicenseCert>>;
+      },
+    };
+    await assert.rejects(runManagedTeamSyncCycle(syncOptions), /CONTROL_PLANE_OFFLINE/);
+    assert.equal(activationCount, 0);
+    assert.equal(fixture.mutationCount, 0);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-revoked'`)).rows[0].status, 'active');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 1);
+
+    transport = 'ack_lost';
+    await assert.rejects(runManagedTeamSyncCycle(syncOptions), /ACK_RESPONSE_LOST/);
+    assert.equal(activationCount, 1);
+    assert.equal(acknowledgements.length, 2);
+    assert(acknowledgements.every((ack) => ack.error === undefined && ack.appliedMemberCount === 2));
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-revoked'`)).rows[0].status, 'removed');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 0);
+    assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
+    const mutationsAfterApply = fixture.mutationCount;
+
+    await fixture.reopen();
+    transport = 'online';
+    const result = await runManagedTeamSyncCycle(syncOptions);
     assert.equal(result, 'applied');
-    assert.equal(acknowledgements.length, 1);
-    assert.equal(acknowledgements[0].error, undefined);
-    assert.equal(acknowledgements[0].appliedMemberCount, 2);
-    const revoked = await pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-revoked'`);
+    assert.equal(acknowledgements.length, 3);
+    assert.deepEqual(acknowledgements[2], acknowledgements[0]);
+    assert.equal(fixture.mutationCount, mutationsAfterApply);
+    const revoked = await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-revoked'`);
     assert.equal(revoked.rows[0].status, 'removed');
-    const sessions = await pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`);
+    const sessions = await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`);
     assert.equal(sessions.rows.length, 0);
-    const activated = await pg.query<{ status: string; user_id: string }>(`SELECT status, user_id FROM team_memberships WHERE id = 'member-new'`);
+    const activated = await fixture.pg.query<{ status: string; user_id: string }>(`SELECT status, user_id FROM team_memberships WHERE id = 'member-new'`);
     assert.deepEqual(activated.rows[0].status, 'active');
     assert.equal(activated.rows[0].user_id, 'user-new');
-    const pendingUser = await pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`);
+    const pendingUser = await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`);
     assert.equal(pendingUser.rows[0].banned, 0);
-    console.info('managed team apply, revoke, and ACK passed');
+    assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
+    assert.equal(fixture.mutationCount, mutationsAfterApply);
+    assert.deepEqual(acknowledgements[3], acknowledgements[2]);
+    console.info('managed team offline, apply, lost ACK, restart, and idempotent replay passed');
   } finally {
-    await pg.close();
+    await fixture.close();
+    await rm(dataDir, { recursive: true, force: true });
   }
 }
 
