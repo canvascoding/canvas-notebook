@@ -8,6 +8,9 @@ import { hashPassword } from 'better-auth/crypto';
 import { NextRequest } from 'next/server';
 import { Pool } from 'pg';
 
+import germanMessages from '../messages/de.json';
+import englishMessages from '../messages/en.json';
+
 function localDatabaseUrl(): URL {
   const configured = process.env.CANVAS_MANAGED_HTTP_TEST_DATABASE_URL;
   if (!configured) throw new Error('CANVAS_MANAGED_HTTP_TEST_DATABASE_URL is required.');
@@ -50,7 +53,7 @@ async function main() {
     process.env.CANVAS_DEPLOYMENT_MODE = 'managed-team';
     process.env.CANVAS_TEAM_FEATURES_ENABLED = 'true';
     process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT = 'production';
-    process.env.CANVAS_LICENSE_CONTROL_PLANE_URL = 'https://control.example.test';
+    process.env.CANVAS_LICENSE_CONTROL_PLANE_URL = 'http://127.0.0.1:1';
     process.env.CANVAS_INSTANCE_TOKEN = 'isolated-test-token';
     process.env.CANVAS_INSTANCE_ID = crypto.randomUUID();
     process.env.BETTER_AUTH_BASE_URL = 'http://localhost:3001';
@@ -107,6 +110,7 @@ async function main() {
           ($1, $3, 'admin', 'active', $4, $4)
       `, [organizationId, ownerId, memberId, now]);
 
+      const certificateExpiresAt = Math.floor(now / 1_000) + 3_600;
       const certificate = signLicense(keys.privateKey, {
         sub: process.env.CANVAS_INSTANCE_ID,
         instanceId: process.env.CANVAS_INSTANCE_ID,
@@ -119,7 +123,7 @@ async function main() {
         deploymentMode: 'managed-team', databaseProvider: 'postgres', vectorProvider: 'pgvector',
         postgresRequired: true, capabilities: { multiUser: true, teamWorkspace: true },
         features: { multiUser: true, teamWorkspace: true }, quotas: { users: 2 },
-        iat: Math.floor(now / 1_000) - 60, exp: Math.floor(now / 1_000) + 3_600,
+        iat: Math.floor(now / 1_000) - 60, exp: certificateExpiresAt,
       }, fingerprint.slice(0, 16));
       const claims = JSON.parse(Buffer.from(certificate.split('.')[1], 'base64url').toString()) as {
         organizationId: string; entitlementsVersion: number;
@@ -188,7 +192,61 @@ async function main() {
       assert(memberCookie, 'Better Auth did not issue a new member session cookie.');
       const memberResponse = await GET(adminRequest(memberCookie));
       assert.equal(memberResponse.status, 403);
-      console.info('Managed Team admin HTTP demotion, session revocation, and member re-login passed');
+
+      const originalNow = Date.now;
+      try {
+        Date.now = () => certificateExpiresAt * 1_000 + 1_000;
+        await assert.rejects(runManagedTeamSyncCycle({
+          fetchImpl: (async () => { throw new Error('CONTROL_PLANE_OFFLINE'); }) as typeof fetch,
+        }), /CONTROL_PLANE_OFFLINE/);
+        const { getLicenseStatus } = await import('../app/lib/license');
+        const expiredStatus = await getLicenseStatus();
+        assert.equal(expiredStatus.licensed, false);
+        assert.equal(expiredStatus.licenseState, 'grace_required');
+        const { openDb } = await import('../app/lib/db');
+        const { reconcileTeamLicenseLifecycle } = await import('../app/lib/license/team-license-lifecycle');
+        const database = await openDb();
+        try {
+          const fallback = await reconcileTeamLicenseLifecycle(expiredStatus, {
+            database, now: new Date(Date.now()),
+          });
+          assert.equal(fallback.mode, 'solo');
+          assert.equal(fallback.disabledUsers, 1);
+        } finally {
+          await database.close();
+        }
+        const restricted = await pool.query<{ banned: boolean | number; ban_reason: string | null }>(
+          'SELECT banned, ban_reason FROM "user" WHERE id = $1', [memberId],
+        );
+        assert.equal(Boolean(restricted.rows[0]?.banned), true);
+        assert.equal(restricted.rows[0]?.ban_reason, 'canvas_team_license_fallback');
+
+        const { POST: authPost } = await import('../app/api/auth/[...all]/route');
+        const login = (candidatePassword: string, email = 'member@example.test') => authPost(new NextRequest(
+          'http://localhost:3001/api/auth/sign-in/email', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', origin: 'http://localhost:3001' },
+            body: JSON.stringify({ email, password: candidatePassword }),
+          },
+        ));
+        const wrongPassword = await login(`${password}-wrong`);
+        assert.equal(wrongPassword.status, 401);
+        assert.equal((await wrongPassword.json() as { code?: string }).code, 'INVALID_EMAIL_OR_PASSWORD');
+        const unknownEmail = await login(password, 'unknown@example.test');
+        assert.equal(unknownEmail.status, 401);
+        assert.equal((await unknownEmail.json() as { code?: string }).code, 'INVALID_EMAIL_OR_PASSWORD');
+        const validPassword = await login(password);
+        assert.equal(validPassword.status, 403);
+        assert.equal(validPassword.headers.get('cache-control'), 'no-store');
+        assert.equal((await validPassword.json() as { code?: string }).code, 'TEAM_LICENSE_ACCESS_PAUSED');
+        const blockedSessions = await pool.query('SELECT id FROM "session" WHERE user_id = $1', [memberId]);
+        assert.equal(blockedSessions.rows.length, 0);
+        assert.match(englishMessages.login.teamLicenseAccessPaused, /license/u);
+        assert.match(germanMessages.login.teamLicenseAccessPaused, /Lizenz/u);
+      } finally {
+        Date.now = originalNow;
+      }
+      console.info('Managed Team admin demotion and credential-validated expired-license login explanation passed');
     } finally {
       await pool.end();
     }
