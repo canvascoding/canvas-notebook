@@ -507,6 +507,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       // read-only workspace tools and human-review email operations survive.
       const tools = await getPiTools(automationUserId, job.agentId, piSessionId, {
         automationExecution: true,
+        automationJobState: { jobId: job.id, runId: run.id },
         workspaceEmailAutomation: emailInboxEventContext
           ? {
               ...emailInboxEventContext,

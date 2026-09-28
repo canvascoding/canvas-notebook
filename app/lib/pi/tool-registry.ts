@@ -31,6 +31,7 @@ import {
   type WorkspaceEmailAutomationToolContext,
 } from '@/app/lib/pi/workspace-email-automation-tools';
 import { createEmailAgentTools } from '@/app/lib/pi/workspace-email-tools';
+import { createAutomationJobStateTool } from '@/app/lib/pi/automation-job-state-tool';
 import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { piTools } from '@/app/lib/pi/core-tools';
 import {
@@ -362,6 +363,7 @@ export async function getPiTools(
     browserMode?: BrowserToolMode;
     workspaceEmailAutomation?: WorkspaceEmailAutomationToolContext;
     automationExecution?: boolean;
+    automationJobState?: { jobId: string; runId: string };
   } = {},
 ): Promise<AgentTool[]> {
   let resolvedExecutionContext: AgentExecutionContext | undefined;
@@ -471,8 +473,9 @@ export async function getPiTools(
     allTools = filterAutomationExecutionTools(allTools);
   }
 
+  let workerToolsets: string[] | null = null;
   if (userId && sessionId) {
-    const workerToolsets = await getDelegatedWorkerToolsets({ userId, sessionId });
+    workerToolsets = await getDelegatedWorkerToolsets({ userId, sessionId });
     if (workerToolsets !== null) {
       const allowedToolNames = resolveDelegatedWorkerToolNames(
         workerToolsets,
@@ -486,6 +489,15 @@ export async function getPiTools(
         return allowedToolNames.has(tool.name) ? [tool] : [];
       });
     }
+  }
+
+  // The runner supplies both identities. Normal chats, inbox events and
+  // delegated workers never receive this state capability. The store still
+  // checks the live run, job scope and workspace permissions on every call.
+  if (options.automationExecution && options.automationJobState?.jobId?.trim()
+    && options.automationJobState.runId?.trim() && !options.workspaceEmailAutomation
+    && resolvedExecutionContext?.canWrite && workerToolsets === null) {
+    allTools.push(createAutomationJobStateTool(options.automationJobState));
   }
 
   if (resolvedExecutionContext) {

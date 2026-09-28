@@ -36,6 +36,7 @@ async function main(): Promise<void> {
       await import('../app/lib/db/schema');
     const { getAutomationJobState, listAutomationJobState, mutateAutomationJobState } =
       await import('../app/lib/automations/job-state-store');
+    const { createAutomationJobStateTool } = await import('../app/lib/pi/automation-job-state-tool');
     const { getAutomationJob, moveAutomationJobToWorkspace, updateAutomationJob } =
       await import('../app/lib/automations/store');
     const now = new Date();
@@ -94,6 +95,36 @@ async function main(): Promise<void> {
       triggerType: 'manual', attemptNumber: 1, createdAt: now });
     const runAccess = { kind: 'run' as const, runId: 'run' };
     assert.equal((await getAutomationJobState('job', 'cursor', runAccess))?.value !== undefined, true);
+    const tool = createAutomationJobStateTool({ jobId: 'job', runId: 'run' });
+    const readToolResult = (result: Awaited<ReturnType<typeof tool.execute>>) =>
+      JSON.parse(result.content.find((part) => part.type === 'text')?.text ?? '{}') as Record<string, unknown>;
+    const invoke = async (input: Record<string, unknown>) => readToolResult(await tool.execute('state-tool-call', input));
+    assert.deepEqual((await invoke({ action: 'list' })).entries, [{ key: 'cursor', revision: 4,
+      updatedAt: (await getAutomationJobState('job', 'cursor', runAccess))!.updatedAt }]);
+    assert.equal((await invoke({ action: 'get', key: 'cursor' })).entry !== null, true);
+    const written = await invoke({ action: 'set', key: 'tool-key', value: 'tool-value', expectedRevision: null,
+      mutationId: 'tool-set-1' });
+    assert.equal((written.result as { entry: { value: string } }).entry.value, 'tool-value');
+    assert.deepEqual(await invoke({ action: 'set', key: 'tool-key', value: 'tool-value', expectedRevision: null,
+      mutationId: 'tool-set-1' }), written, 'tool retry reuses the receipt');
+    assert.equal((await invoke({ action: 'set', key: 'tool-key', value: 'overwrite', expectedRevision: null,
+      mutationId: 'tool-set-2' })).error, 'REVISION_CONFLICT');
+    assert.equal((await invoke({ action: 'get', key: 'tool-key', jobId: 'other-job' })).error, 'INVALID_INPUT',
+      'model cannot select a different job');
+    assert.equal(readToolResult(await createAutomationJobStateTool({ jobId: 'other-job', runId: 'run' })
+      .execute('foreign-job', { action: 'list' })).error, 'ACCESS_DENIED');
+    assert.equal((await invoke({ action: 'delete', key: 'tool-key', expectedRevision: 1,
+      mutationId: 'tool-delete-1' })).result !== undefined, true);
+    await invoke({ action: 'set', key: 'A', value: 'upper', expectedRevision: null, mutationId: 'tool-upper-1' });
+    await invoke({ action: 'set', key: 'a', value: 'lower', expectedRevision: null, mutationId: 'tool-lower-1' });
+    const firstPage = await invoke({ action: 'list', limit: 1 });
+    assert.equal((firstPage.entries as Array<{ key: string }>)[0].key, 'A');
+    const secondPage = await invoke({ action: 'list', limit: 1, afterKey: firstPage.nextAfterKey });
+    assert.equal((secondPage.entries as Array<{ key: string }>)[0].key, 'a', 'cursor uses the same ordering as list');
+    await db.update(automationRuns).set({ status: 'success' }).where(eq(automationRuns.id, 'run'));
+    assert.equal((await invoke({ action: 'get', key: 'cursor' })).error, 'ACCESS_DENIED',
+      'completed run loses state access');
+    await db.update(automationRuns).set({ status: 'running' }).where(eq(automationRuns.id, 'run'));
     hasWorkspaceRights = false;
     await assert.rejects(getAutomationJobState('job', 'cursor', runAccess), { code: 'ACCESS_DENIED' });
     hasWorkspaceRights = true;
