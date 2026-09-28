@@ -260,6 +260,112 @@ async function crashBoundaryScenario() {
   }
 }
 
+async function emailChangeScenario() {
+  const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-email-'));
+  process.env.DATA = dataDir;
+  const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
+  const fixture = await setupDatabase(dataDir);
+  try {
+    await fixture.pg.query(`
+      INSERT INTO team_memberships (id, organization_id, user_id, candidate_email, role, status)
+      VALUES ('member-owner', $1, 'user-owner', 'owner@example.test', 'owner', 'active'),
+        ('member-other', $1, 'user-other', 'other@example.test', 'member', 'active')
+    `, [organizationId]);
+    await fixture.pg.query(`
+      INSERT INTO "user" (id, email, role, banned)
+      VALUES ('user-owner', 'owner@example.test', 'admin', 0),
+        ('user-other', 'other@example.test', 'user', 0),
+        ('user-conflict', 'conflict@example.test', 'user', 0)
+    `);
+    await fixture.pg.query(`
+      INSERT INTO organization_user_permissions (organization_id, user_id, role, status)
+      VALUES ($1, 'user-owner', 'owner', 'active'), ($1, 'user-other', 'member', 'active')
+    `, [organizationId]);
+    const members = [
+      { externalUserId: 'central-owner', email: 'owner@example.test', role: 'owner', status: 'active', localIdentityKey: 'member-owner', localUserId: 'user-owner' },
+      { externalUserId: 'central-other', email: 'other@example.test', role: 'member', status: 'active', localIdentityKey: 'member-other', localUserId: 'user-other' },
+    ];
+    const cert = certificate(2);
+    const fingerprint = createHash('sha256').update(cert).digest('hex');
+    const acknowledgements: Array<Record<string, unknown>> = [];
+    let desiredMembers = members;
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith('/sync')) return new Response(JSON.stringify({
+        status: 'ready', instanceId: process.env.CANVAS_INSTANCE_ID,
+        organizationId: centralOrganizationId, membershipRevision: 10,
+        memberHash: createHash('sha256').update(JSON.stringify([...desiredMembers]
+          .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId))
+          .map((member) => ({ ...member, email: member.email.toLowerCase() })))).digest('hex'),
+        members: desiredMembers,
+        license: { certificate: cert, entitlementsVersion: 1783338368, fingerprint, seatLimit: 2 },
+      }), { status: 200 });
+      if (path.endsWith('/sync/ack')) {
+        acknowledgements.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return new Response(JSON.stringify({ status: 'acknowledged' }), { status: 200 });
+      }
+      throw new Error(`Unexpected endpoint ${path}`);
+    }) as typeof fetch;
+    const options = {
+      database: fixture.database, fetchImpl, verifyCertificate: async () => true,
+      activateCertificate: async () => ({ licensed: true, hostingMode: 'cloud', edition: 'team', seatLimit: 2 }) as
+        Awaited<ReturnType<typeof import('../app/lib/license').activateLicenseCert>>,
+    };
+    assert.equal(await runManagedTeamSyncCycle(options), 'applied');
+    await fixture.pg.query(`INSERT INTO "session" (id, user_id) VALUES ('old-email-session', 'user-other')`);
+    desiredMembers = members.map((member) => member.externalUserId === 'central-other'
+      ? { ...member, email: 'renamed@example.test' } : member);
+    assert.equal(await runManagedTeamSyncCycle(options), 'applied');
+    assert.equal(acknowledgements.at(-1)?.error, undefined);
+    assert.deepEqual((await fixture.pg.query<{ user_id: string; candidate_email: string }>(`
+      SELECT user_id, candidate_email FROM team_memberships WHERE id = 'member-other'
+    `)).rows[0], { user_id: 'user-other', candidate_email: 'renamed@example.test' });
+    assert.equal((await fixture.pg.query<{ email: string }>(`
+      SELECT email FROM "user" WHERE id = 'user-other'
+    `)).rows[0].email, 'renamed@example.test');
+    assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-other'`)).rows.length, 0);
+    const mutationsAfterChange = fixture.mutationCount;
+    assert.equal(await runManagedTeamSyncCycle(options), 'applied');
+    assert.equal(fixture.mutationCount, mutationsAfterChange);
+
+    desiredMembers = members.map((member) => member.externalUserId === 'central-other'
+      ? { ...member, email: 'next@example.test' } : member);
+    const failingEmailDatabase = {
+      ...fixture.database,
+      async run(sql: string, params?: unknown[]) {
+        if (/UPDATE "user" SET email = \$1/u.test(sql)) return { changes: 0 };
+        return fixture.database.run(sql, params);
+      },
+    };
+    assert.equal(await runManagedTeamSyncCycle({ ...options, database: failingEmailDatabase }), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_ACTIVE_IDENTITY_CHANGED');
+    assert.equal((await fixture.pg.query<{ candidate_email: string }>(`
+      SELECT candidate_email FROM team_memberships WHERE id = 'member-other'
+    `)).rows[0].candidate_email, 'renamed@example.test');
+    assert.equal((await fixture.pg.query<{ email: string }>(`
+      SELECT email FROM "user" WHERE id = 'user-other'
+    `)).rows[0].email, 'renamed@example.test');
+
+    desiredMembers = members.map((member) => member.externalUserId === 'central-other'
+      ? { ...member, email: 'conflict@example.test' } : member);
+    assert.equal(await runManagedTeamSyncCycle(options), 'pending');
+    assert.equal(acknowledgements.at(-1)?.error, 'MANAGED_TEAM_EMAIL_CONFLICT');
+    assert.equal((await fixture.pg.query<{ candidate_email: string }>(`
+      SELECT candidate_email FROM team_memberships WHERE id = 'member-other'
+    `)).rows[0].candidate_email, 'renamed@example.test');
+    assert.equal((await fixture.pg.query<{ email: string }>(`
+      SELECT email FROM "user" WHERE id = 'user-other'
+    `)).rows[0].email, 'renamed@example.test');
+    assert.equal((await fixture.pg.query<{ email: string }>(`
+      SELECT email FROM "user" WHERE id = 'user-conflict'
+    `)).rows[0].email, 'conflict@example.test');
+    console.info('managed team stable-ID email changes and conflicts passed');
+  } finally {
+    await fixture.close();
+    await rm(dataDir, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-recovery-'));
   process.env.DATA = dataDir;
@@ -569,7 +675,7 @@ async function main() {
   }
 }
 
-main().then(crashBoundaryScenario).catch((error) => {
+main().then(crashBoundaryScenario).then(emailChangeScenario).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

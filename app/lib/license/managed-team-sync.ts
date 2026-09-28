@@ -58,6 +58,7 @@ type LocalMember = {
   localIdentityKey: string;
   localUserId: string | null;
   email: string;
+  authEmail: string | null;
   role: string;
   status: string;
   authRole: string | null;
@@ -165,7 +166,7 @@ async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
   const rows = await database.all(`
     SELECT membership.id, COALESCE(membership.user_id, pending.pending_user_id) AS user_id,
       membership.candidate_email, membership.role, membership.status,
-      auth_user.role AS auth_role, auth_user.banned AS user_banned,
+      auth_user.email AS auth_email, auth_user.role AS auth_role, auth_user.banned AS user_banned,
       permission.role AS permission_role, permission.status AS permission_status
     FROM team_memberships membership
     LEFT JOIN managed_team_pending_identities pending
@@ -184,6 +185,7 @@ async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
     candidate_email: string;
     role: string;
     status: string;
+    auth_email: string | null;
     auth_role: string | null;
     user_banned: boolean | number | null;
     permission_role: string | null;
@@ -195,6 +197,7 @@ async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
       localIdentityKey: row.id,
       localUserId: row.user_id,
       email: row.candidate_email.toLowerCase(),
+      authEmail: row.auth_email?.toLowerCase() ?? null,
       role: row.role,
       status: row.status,
       authRole: row.auth_role,
@@ -272,8 +275,10 @@ function assertManagedMappings(local: LocalMember[], managed: ManagedMember[]): 
     }
     if (!member.localIdentityKey) throw new Error('LOCAL_IDENTITY_MAPPING_REQUIRED');
     const existing = byIdentityKey.get(member.localIdentityKey);
-    if (!existing || existing.email !== member.email.toLowerCase()
-      || (member.localUserId && existing.localUserId !== member.localUserId)) {
+    if (!existing || (member.localUserId && existing.localUserId !== member.localUserId)
+      || (existing.email !== member.email.toLowerCase()
+        && (!member.localUserId || existing.localUserId !== member.localUserId
+          || ['approval_required', 'billing_pending'].includes(existing.status)))) {
       throw new Error('MANAGED_TEAM_IDENTITY_MISMATCH');
     }
     if (member.status === 'active' && !existing.localUserId) {
@@ -339,11 +344,37 @@ async function applyManagedMembership(
     for (const member of managed) {
       if ((member.status === 'active') !== (phase === 'active')) continue;
       const existing = byIdentityKey.get(member.localIdentityKey!);
-      if (!existing || (existing.status === member.status && existing.role === member.role
+      if (!existing) continue;
+      const desiredEmail = member.email.toLowerCase();
+      const emailChanged = existing.email !== desiredEmail || existing.authEmail !== desiredEmail;
+      if (emailChanged && existing.localUserId && member.localUserId === existing.localUserId
+        && !['approval_required', 'billing_pending'].includes(existing.status)) {
+        const conflictingUsers = await database.all(`
+          SELECT id FROM "user" WHERE lower(email) = $1 AND id <> $2
+        `, [desiredEmail, existing.localUserId]);
+        if (conflictingUsers.length) throw new Error('MANAGED_TEAM_EMAIL_CONFLICT');
+        if (existing.email !== desiredEmail) {
+          requireChanged(await database.run(`
+            UPDATE team_memberships SET candidate_email = $1, updated_at = $2
+            WHERE id = $3 AND organization_id = $4 AND user_id = $5 AND lower(candidate_email) = $6
+          `, [member.email, now, existing.localIdentityKey, local.organizationId,
+            existing.localUserId, existing.email]), 'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+        }
+        if (existing.authEmail !== desiredEmail) {
+          requireChanged(await database.run(`
+            UPDATE "user" SET email = $1, updated_at = $2
+            WHERE id = $3 AND lower(email) = $4
+          `, [member.email, now, existing.localUserId, existing.authEmail]),
+          'MANAGED_TEAM_ACTIVE_IDENTITY_CHANGED');
+        }
+        await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
+      }
+      if (existing.status === member.status && existing.role === member.role
+        && !emailChanged
         && (phase === 'revoke' || member.status !== 'active'
           || (existing.authRole === authRoleForMember(member.role)
             && existing.permissionRole === member.role
-            && existing.permissionStatus === 'active')))) continue;
+            && existing.permissionStatus === 'active'))) continue;
       if (phase === 'revoke' && existing.status !== 'active') continue;
       const pendingActivation = member.status === 'active'
         && ['approval_required', 'billing_pending'].includes(existing.status)
@@ -436,7 +467,7 @@ async function applyManagedMembership(
         requireChanged(await database.run(`
           UPDATE "user" SET role = $1, updated_at = $2
           WHERE id = $3 AND lower(email) = $4
-        `, [authRoleForMember(member.role), now, existing.localUserId, member.email.toLowerCase()]),
+        `, [authRoleForMember(member.role), now, existing.localUserId, desiredEmail]),
         'MANAGED_TEAM_ACTIVE_IDENTITY_CHANGED');
         await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
         continue;
@@ -536,7 +567,9 @@ export async function runManagedTeamSyncCycle(options: {
       appliedMemberCount = assertManagedMappings(applied.members, sync.members);
       if (sync.members.some((member) => {
         const current = applied.members.find((localMember) => localMember.localIdentityKey === member.localIdentityKey);
-        return current?.role !== member.role || (current.status !== member.status
+        return current?.role !== member.role || current.email !== member.email.toLowerCase()
+          || (current.localUserId && current.authEmail !== member.email.toLowerCase())
+          || (current.status !== member.status
           && !(sync.status === 'policy_ready' && member.status === 'suspended'
             && current && ['approval_required', 'billing_pending'].includes(current.status)))
           || (member.status === 'active' && (current?.authRole !== authRoleForMember(member.role)
