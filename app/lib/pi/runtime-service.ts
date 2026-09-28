@@ -547,12 +547,17 @@ export async function sendFollowUpMessage(
       throw new RuntimeServiceError('Follow-up message required.', 400);
     }
 
-    if (prepared.status.canAbort) {
-      return prepared.runtimeInstance.queueFollowUp(promptMessage, prepared.context);
-    }
-
-    prepared.runtimeInstance.startPrompt(promptMessage, prepared.context);
-    return prepared.runtimeInstance.getStatus();
+    return withMessageDeliveryReceipt({
+      sessionId, userId, runtime: prepared.runtimeInstance,
+      message, context,
+      dispatch: () => {
+        if (prepared.runtimeInstance.getStatus().canAbort) {
+          return prepared.runtimeInstance.queueFollowUp(promptMessage, prepared.context);
+        }
+        prepared.runtimeInstance.startPrompt(promptMessage, prepared.context);
+        return prepared.runtimeInstance.getStatus();
+      },
+    });
   });
 }
 

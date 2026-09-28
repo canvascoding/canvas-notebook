@@ -9,6 +9,7 @@ import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { InvalidMessagePaginationError, parseMessagePagination, readPiSessionMessages, readLegacySessionMessages } from '@/app/lib/chat/session-message-read';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
+import { authorizePiDelegationInspection } from '@/app/lib/pi/delegation-progress';
 
 function normalizeSessionAgentId(value: string | null): string {
   try {
@@ -74,6 +75,25 @@ export async function GET(request: NextRequest) {
 
     if (dbPiSessions.length > 0) {
       const piSession = dbPiSessions[0];
+      if (piSession.sessionKind === 'delegation_worker') {
+        const sourceSessionId = normalizeOptionalString(searchParams.get('sourceSessionId'));
+        const delegationId = normalizeOptionalString(searchParams.get('delegationId'));
+        if (!sourceSessionId || !delegationId) {
+          return NextResponse.json({ success: false, error: 'Parent session and delegation are required.' }, { status: 403 });
+        }
+        try {
+          const { delegation, workerSession } = await authorizePiDelegationInspection({
+            delegationId,
+            userId: session.user.id,
+            sourceSessionId,
+          });
+          if (!workerSession || workerSession.id !== piSession.id || delegation.workerSessionId !== sessionId) {
+            return NextResponse.json({ success: false, error: 'Worker session is outside this delegation.' }, { status: 403 });
+          }
+        } catch {
+          return NextResponse.json({ success: false, error: 'Worker session is not accessible.' }, { status: 403 });
+        }
+      }
       if (scopedWorkspace) {
         const sessionWorkspaceId = piSession.workspaceId;
         const isLegacyPersonalSession = !sessionWorkspaceId && scopedWorkspace.workspaceType === 'personal';

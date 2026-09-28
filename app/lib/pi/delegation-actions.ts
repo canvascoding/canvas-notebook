@@ -26,6 +26,7 @@ export async function prepareUserDelegation(input: {
   userId: string;
   sourceSessionId: string;
   targetAgentId: string;
+  sessionId?: unknown;
   goal: unknown;
   context?: unknown;
   toolsets?: unknown;
@@ -53,6 +54,7 @@ export async function prepareUserDelegation(input: {
     sourceAgentId: source.sourceAgentId,
     sourceSessionId: input.sourceSessionId.trim(),
     targetAgentId,
+    sessionId: typeof input.sessionId === 'string' ? input.sessionId.trim() || undefined : undefined,
     goal,
     context: typeof input.context === 'string' ? input.context.trim().slice(0, 12_000) || undefined : undefined,
     toolsets: normalizeToolsets(input.toolsets),

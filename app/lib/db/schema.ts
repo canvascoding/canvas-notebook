@@ -1408,8 +1408,13 @@ export const piDelegations = pgTable("pi_delegations", {
   resultText: text("result_text"),
   errorText: text("error_text"),
   deliveryStatus: text("delivery_status").notNull().default("pending"),
+  deliveryOwnerId: text("delivery_owner_id"),
+  deliveryHeartbeatAt: pgTimestamp("delivery_heartbeat_at"),
   deliveryErrorText: text("delivery_error_text"),
   attemptCount: bigint("attempt_count", { mode: "number" }).notNull().default(0),
+  runOwnerId: text("run_owner_id"),
+  runHeartbeatAt: pgTimestamp("run_heartbeat_at"),
+  progressRevision: bigint("progress_revision", { mode: "number" }).notNull().default(0),
   cancelRequestedAt: pgTimestamp("cancel_requested_at"),
   startedAt: pgTimestamp("started_at"),
   completedAt: pgTimestamp("completed_at"),
@@ -1422,9 +1427,50 @@ export const piDelegations = pgTable("pi_delegations", {
   statusCreatedIdx: index("idx_pi_delegations_status_created").on(table.status, table.createdAt),
   deliveryIdx: index("idx_pi_delegations_delivery").on(table.deliveryStatus, table.completedAt),
   workerSessionIdx: index("idx_pi_delegations_worker_session").on(table.userId, table.workerSessionId),
+  activeManagedWorkerIdx: uniqueIndex("idx_pi_delegations_active_managed_worker")
+    .on(table.userId, table.workerSessionId)
+    .where(sql`${table.workerType} = 'managed' AND ${table.status} IN ('queued', 'running')`),
   workerTypeCheck: check("pi_delegations_worker_type_check", sql`${table.workerType} IN ('ephemeral', 'managed')`),
   statusCheck: check("pi_delegations_status_check", sql`${table.status} IN ('queued', 'running', 'completed', 'failed', 'cancelled')`),
   deliveryStatusCheck: check("pi_delegations_delivery_status_check", sql`${table.deliveryStatus} IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')`),
+}));
+
+// The parent row serializes revision allocation. A key makes retries of the
+// same confirmed worker boundary idempotent across process restarts.
+export const piDelegationProgress = pgTable("pi_delegations_progress", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  delegationId: text("delegation_id").notNull().references(() => piDelegations.id, { onDelete: 'cascade' }),
+  revision: bigint("revision", { mode: "number" }).notNull(),
+  eventKey: text("event_key"),
+  kind: text("kind").notNull(),
+  preview: text("preview"),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  revisionIdx: uniqueIndex("idx_pi_delegations_progress_revision").on(table.delegationId, table.revision),
+  eventKeyIdx: uniqueIndex("idx_pi_delegations_progress_key").on(table.delegationId, table.eventKey),
+  kindCheck: check("pi_delegations_progress_kind_check", sql`${table.kind} IN ('queued', 'running', 'tool_start', 'tool_end', 'compacting', 'resumed', 'completed', 'failed', 'cancelled')`),
+}));
+
+// A steering instruction belongs to one execution lease. Its receipt is only
+// delivered after the worker has observed and persisted the injected message.
+export const piDelegationSteering = pgTable("pi_delegations_steering", {
+  id: text("id").primaryKey(),
+  delegationId: text("delegation_id").notNull().references(() => piDelegations.id, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sourceSessionId: text("source_session_id").notNull(),
+  runOwnerId: text("run_owner_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("accepted"),
+  claimedAt: pgTimestamp("claimed_at"),
+  deliveredAt: pgTimestamp("delivered_at"),
+  missedAt: pgTimestamp("missed_at"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  idempotencyIdx: uniqueIndex("idx_pi_delegations_steering_idempotency").on(table.delegationId, table.idempotencyKey),
+  pendingIdx: index("idx_pi_delegations_steering_pending").on(table.delegationId, table.runOwnerId, table.status, table.createdAt),
+  statusCheck: check("pi_delegations_steering_status_check", sql`${table.status} IN ('accepted', 'claimed', 'delivered', 'missed')`),
 }));
 
 export const agents = pgTable("agents", {
