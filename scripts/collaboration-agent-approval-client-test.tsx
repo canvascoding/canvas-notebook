@@ -49,7 +49,7 @@ test('only a conflict-free durable terminal acceptance is classified as successf
   }
 });
 
-async function compileUi(opened: unknown[]) {
+async function compileUi() {
   const filename = path.resolve('app/components/editor/CollaborationAgentOperations.tsx');
   const load = createRequire(filename);
   const source = ts.transpileModule(await fs.readFile(filename, 'utf8'), {
@@ -58,13 +58,9 @@ async function compileUi(opened: unknown[]) {
   }).outputText;
   const exports = {} as typeof Ui;
   const mocks: Record<string, unknown> = {
-    'next-intl': { useTranslations: () => (key: string) => key },
     '@/app/lib/collaboration/agent-operations-client': client,
     '@/app/lib/file-version-center/contracts/v1': { FILE_VERSION_CENTER_CONTRACT_VERSION: 1 },
     '@/app/lib/files/client': { workspaceHeaders: () => ({ 'x-workspace-id': 'workspace' }) },
-    '@/app/store/file-version-center-store': { openVersionCenter: (request: unknown) => { opened.push(request); } },
-    '@/components/ui/button': { Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => <button {...props}>{children}</button> },
-    '@/lib/utils': { cn: (...values: unknown[]) => values.filter(Boolean).join(' ') },
   };
   new Function('require', 'module', 'exports', source)(
     (name: string) => Object.hasOwn(mocks, name) ? mocks[name] : load(name),
@@ -73,7 +69,7 @@ async function compileUi(opened: unknown[]) {
   return exports;
 }
 
-test('the editor entry leaves multiple reviews unselected in the global center and never posts an approval itself', async () => {
+test('the editor observer reports multiple reviews without rendering a redundant action or posting approval', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'https://canvas.test' });
   const prior = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
   Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
@@ -88,23 +84,35 @@ test('the editor entry leaves multiple reviews unselected in the global center a
     fetches.push({ url: String(input), method: init?.method ?? 'GET' });
     return Response.json({ operations: [operation(), { ...operation(version('b')), operationId: 'older-review' }] });
   };
-  const opened: unknown[] = [];
-  const ui = await compileUi(opened);
+  const ui = await compileUi();
   const root = createRoot(document.getElementById('root')!);
   const flush = async () => { for (let i = 0; i < 5; i++) await act(async () => { await new Promise<void>((resolve) => setImmediate(resolve)); }); };
+  const observed: client.CollaborationAgentOperation[][] = [];
   try {
-    await act(async () => root.render(<ui.CollaborationAgentOperations documentId="document" workspaceId="workspace" />));
+    await act(async () => root.render(
+      <ui.CollaborationAgentOperations
+        documentId="document"
+        workspaceId="workspace"
+        onOperationsChange={(operations) => observed.push(operations)}
+      />,
+    ));
     await flush();
-    const button = document.querySelector<HTMLButtonElement>('button');
-    assert.ok(button);
-    await act(async () => button.click());
-    assert.deepEqual(opened, [{
+    assert.equal(document.querySelector('button'), null, 'the observer does not duplicate the versions control');
+    assert.equal(observed.at(-1)?.length, 2);
+    const summary = ui.summarizeEditorAgentOperations(observed.at(-1) ?? []);
+    assert.deepEqual(ui.buildEditorAgentVersionCenterRequest({
+      documentId: 'document', workspaceId: 'workspace', summary,
+    }), {
       contractVersion: 1,
       target: { kind: 'document', workspaceId: 'workspace', documentId: 'document' },
       initialView: 'reviews',
       source: 'editor',
-    }]);
-    assert.equal('selectedEntry' in (opened[0] as Record<string, unknown>), false,
+    });
+    assert.equal(summary.reviewCount, 2);
+    assert.equal(summary.latestReviewOperationId, 'operation/one');
+    assert.equal('selectedEntry' in ui.buildEditorAgentVersionCenterRequest({
+      documentId: 'document', workspaceId: 'workspace', summary,
+    }), false,
       'multiple reviews require the user to select an exact proposal in the global center');
     assert.deepEqual(fetches.map((entry) => entry.method), ['GET']);
     assert.equal(fetches.some((entry) => entry.method === 'POST'), false,

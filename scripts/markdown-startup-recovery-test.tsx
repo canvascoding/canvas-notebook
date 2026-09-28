@@ -102,7 +102,7 @@ async function main() {
   };
   const { createRichMarkdownYDoc, convertRichMarkdownYDoc } = await import('../app/lib/collaboration/markdown-state');
   const legacy = createRichMarkdownYDoc('Local draft'); const seed = convertRichMarkdownYDoc(legacy, 'tiptap_blocks'); legacy.destroy();
-  const { MarkdownEditor } = await import('../app/components/editor/MarkdownEditor');
+  const { MarkdownEditor } = await import('../app/components/editor/MarkdownEditorClient');
   const root = createRoot(document.getElementById('root')!);
   const until = async (predicate: () => boolean) => {
     for (let i = 0; !predicate() && i < 50; i++) await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
@@ -137,7 +137,10 @@ async function main() {
       </NextIntlClientProvider></StrictMode>);
     });
     await until(() => current?.session?.documentId === session.documentId);
-    noEditor(); return get().doc;
+    noEditor();
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'collaboration startup keeps the shared document skeleton until hydration');
+    assert.equal(text().includes('File fallback'), false, 'the file snapshot is not shown before the live document is ready');
+    return get().doc;
   };
   const hydration = () => { const item = hydrations.findLast((item) => item.doc === get().doc); assert(item); return item; };
   const originalCreateUrl = URL.createObjectURL;
@@ -176,6 +179,7 @@ async function main() {
     await act(async () => hydration().finish());
     await until(() => !!get().provider);
     assert(get().ready); assert.equal(get().clientState.remoteSynced, false);
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null, 'the skeleton leaves when the rich editor is usable');
     assert(document.querySelector('.tiptap[contenteditable="true"]')?.textContent?.includes('Local draft'));
     assert.equal(document.querySelector('[data-testid="markdown-save-state"]'), null);
     const provider = providers.at(-1)!;

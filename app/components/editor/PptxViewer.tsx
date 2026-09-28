@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import Chart from 'chart.js/auto';
 import JSZip from 'jszip';
 import { PPTXViewer } from 'pptxviewjs';
@@ -159,13 +160,10 @@ export function PptxViewer({ path, sourceUrl }: PptxViewerProps) {
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-background">
+    <div className="relative flex h-full w-full flex-col bg-background">
       {isLoading && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
-          <div className="flex flex-col items-center gap-2">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <span className="text-xs text-muted-foreground">Loading presentation...</span>
-          </div>
+        <div className="absolute inset-0 z-50 bg-background">
+          <DocumentLoadingSkeleton path={path} label="Loading presentation" />
         </div>
       )}
 

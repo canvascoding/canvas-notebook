@@ -61,7 +61,7 @@ async function main() {
     await writePreferences(dataDir, {
       enabled: true,
       tools: ['auth_probe', 'read_knowledge_source', 'edit_knowledge_source', 'read_knowledge_asset'],
-      toolsVersion: 4,
+      toolsVersion: 5,
     });
     loadAppEnv(process.cwd());
     assert.equal(process.env.CANVAS_MCP_DIRECT_ENABLED, 'true');

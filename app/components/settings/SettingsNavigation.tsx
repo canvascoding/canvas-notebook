@@ -12,6 +12,7 @@ import {
   HardDrive,
   Scale,
   Mail,
+  Mic,
   Menu,
   KeyRound,
   PanelLeftClose,
@@ -62,6 +63,7 @@ export type SettingsTab =
   | 'user-management'
   | 'data-migration'
   | 'ai-providers'
+  | 'dictation'
   | 'system-email'
   | 'usage'
   | 'skills'
@@ -173,6 +175,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.aiProviders',
     group: 'system',
     icon: Cpu,
+  },
+  {
+    value: 'dictation',
+    labelKey: 'tabs.dictation',
+    descriptionKey: 'navigation.descriptions.dictation',
+    group: 'system',
+    icon: Mic,
   },
   {
     value: 'system-email',

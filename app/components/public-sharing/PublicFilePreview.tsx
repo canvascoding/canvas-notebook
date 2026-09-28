@@ -3,11 +3,12 @@
 import dynamic from 'next/dynamic';
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { AlertCircle, Code2, Download, Eye, FileText, Loader2, RefreshCw, Share2 } from 'lucide-react';
+import { AlertCircle, Code2, Download, Eye, FileText, RefreshCw, Share2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { CodeEditor } from '@/app/components/editor/CodeEditorClient';
+import { DocumentLoadingSkeleton } from '@/app/components/editor/DocumentLoadingSkeleton';
 import { ImageViewer } from '@/app/components/editor/ImageViewer';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import { MediaViewer } from '@/app/components/editor/MediaViewer';
@@ -20,11 +21,7 @@ import type { PublicShareSecurityMode } from '@/app/lib/public-sharing/public-sh
 
 const OfficeEditor = dynamic(() => import('@/app/components/editor/OfficeEditor').then((mod) => mod.OfficeEditor), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center bg-background">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  ),
+  loading: () => <DocumentLoadingSkeleton label="Loading document" />,
 });
 
 interface PublicFilePreviewProps {
@@ -218,7 +215,7 @@ export function PublicFilePreview({
           </Button>
         </div>
       </header>
-      <section className="min-h-0 flex-1 overflow-hidden">
+      <section key={`${previewKind}:${fileName}:${assetUrl}`} className="min-h-0 flex-1 overflow-hidden">
         {body}
       </section>
       <PublicSharePromotion />

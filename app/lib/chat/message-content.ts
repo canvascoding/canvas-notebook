@@ -4,6 +4,7 @@ import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { stripInternalProjectionNotices } from '@/app/lib/chat/display-text';
 import type { Attachment, ChatMessage, PersistedToolCallPart } from '@/app/lib/chat/types';
 import { isCompactBreakMessage, isComposioAuthRequiredMessage, isRuntimeContinuationMessage } from '@/app/lib/pi/custom-messages';
+import { stripThinkingMarkup } from '@/app/lib/pi/thinking-filter';
 import { toMediaUrl, toPreviewUrl, toUploadMediaUrl, toUploadPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -153,12 +154,7 @@ export function getChatMessageRole(role: AgentMessage['role']): ChatMessage['rol
 }
 
 function stripThinkingTags(text: string): string {
-  return text
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
-    .replace(/<\/?thinking>/gi, '')
-    .replace(/<\/?reasoning>/gi, '')
-    .trim();
+  return stripThinkingMarkup(text);
 }
 
 export function extractPiMessageText(piMessage?: AgentMessage | null, options?: { hideAttachmentMetadata?: boolean }): string {

@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import ts from 'typescript';
 
+import type { CollaborationAgentOperation } from '../app/lib/collaboration/agent-operations-client';
 import type * as Ui from '../app/components/editor/FileVersionHistoryButton';
 
 type ResolveCall = {
@@ -43,6 +44,25 @@ function timeline(lineageId: string, capabilities: Partial<Timeline['capabilitie
   };
 }
 
+function reviewOperation(
+  operationId: string,
+  operationStatus: 'needs_review' | 'partially_applied' | 'semantic_conflict' = 'needs_review',
+): CollaborationAgentOperation {
+  return {
+    operationId,
+    operationStatus,
+    status: operationStatus,
+    durability: 'needs_review',
+    actorId: 'agent',
+    actionsAllowed: true,
+    proposalVersion: `v1.${operationId.at(-1)?.repeat(64) ?? 'a'.repeat(64)}`,
+    appliedTargetIds: [],
+    conflicts: [],
+    targetAnchors: [],
+    reviewTargets: [],
+  };
+}
+
 async function compileUi(input: {
   calls: ResolveCall[];
   opened: unknown[];
@@ -60,7 +80,11 @@ async function compileUi(input: {
   }).outputText;
   const exports = {} as typeof Ui;
   const mocks: Record<string, unknown> = {
-    'next-intl': { useTranslations: () => (key: string) => key },
+    'next-intl': {
+      useTranslations: () => (key: string, values?: { count?: number }) => values?.count === undefined
+        ? key
+        : `${key}:${values.count}`,
+    },
     '@/app/lib/file-version-center/client': {
       resolveFileVersionCenterWhenReady: (request: Record<string, unknown>, signal?: AbortSignal) => {
         const call = { request, signal };
@@ -81,6 +105,32 @@ async function compileUi(input: {
     '@/app/store/file-version-center-store': {
       openVersionCenter: (request: unknown) => { input.opened.push(request); },
     },
+    './CollaborationAgentOperations': {
+      summarizeEditorAgentOperations: (operations: CollaborationAgentOperation[]) => {
+        const reviews = operations.filter((entry) => ['needs_review', 'partially_applied', 'semantic_conflict']
+          .includes(entry.operationStatus) && (entry.proposalLifecycle === undefined || entry.proposalLifecycle === 'open'));
+        return {
+          reviewCount: reviews.length,
+          conflictCount: reviews.filter((entry) => ['partially_applied', 'semantic_conflict']
+            .includes(entry.operationStatus)).length,
+          activeCount: 0,
+          latestReviewOperationId: reviews[0]?.operationId ?? null,
+        };
+      },
+      buildEditorAgentVersionCenterRequest: ({ documentId, workspaceId, summary }: {
+        documentId: string;
+        workspaceId: string;
+        summary: { reviewCount: number; latestReviewOperationId: string | null };
+      }) => ({
+        contractVersion: 1,
+        target: { kind: 'document', workspaceId, documentId },
+        ...(summary.reviewCount === 1 && summary.latestReviewOperationId
+          ? { selectedEntry: { kind: 'agent_operation', id: summary.latestReviewOperationId } }
+          : {}),
+        initialView: summary.reviewCount > 0 ? 'reviews' : 'history',
+        source: 'editor',
+      }),
+    },
     '@/components/ui/button': {
       Button: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
         <button {...props}>{children}</button>
@@ -91,6 +141,7 @@ async function compileUi(input: {
       TooltipTrigger: ({ children }: React.PropsWithChildren<{ asChild?: boolean }>) => <>{children}</>,
       TooltipContent: ({ children }: React.PropsWithChildren<{ side?: string }>) => <span>{children}</span>,
     },
+    '@/lib/utils': { cn: (...values: unknown[]) => values.filter(Boolean).join(' ') },
   };
   new Function('require', 'module', 'exports', source)(
     (name: string) => Object.hasOwn(mocks, name) ? mocks[name] : load(name),
@@ -167,6 +218,53 @@ test('the responsive editor control fails closed and opens only its latest autho
       source: 'editor',
     });
 
+    const singleReview = reviewOperation('review-a');
+    await act(async () => root.render(
+      <ui.FileVersionHistoryButton
+        workspaceId="workspace-one"
+        path="new.md"
+        documentId="document-one"
+        agentOperations={[singleReview]}
+      />,
+    ));
+    await flush();
+    const reviewButton = document.querySelector<HTMLButtonElement>('button');
+    assert.equal(reviewButton?.disabled, false);
+    assert.equal(reviewButton?.dataset.agentReviewState, 'review');
+    assert.equal(reviewButton?.getAttribute('aria-label'), 'agentOperationsReviewLabel:1');
+    assert.equal(reviewButton?.textContent?.includes('1'), true);
+    await act(async () => reviewButton?.click());
+    assert.deepEqual(opened.at(-1), {
+      contractVersion: 1,
+      target: { kind: 'document', workspaceId: 'workspace-one', documentId: 'document-one' },
+      selectedEntry: { kind: 'agent_operation', id: 'review-a' },
+      initialView: 'reviews',
+      source: 'editor',
+    });
+
+    const conflictReview = reviewOperation('review-b', 'semantic_conflict');
+    await act(async () => root.render(
+      <ui.FileVersionHistoryButton
+        workspaceId="workspace-one"
+        path="new.md"
+        documentId="document-one"
+        agentOperations={[singleReview, conflictReview]}
+      />,
+    ));
+    const conflictButton = document.querySelector<HTMLButtonElement>('button');
+    assert.equal(conflictButton?.dataset.agentReviewState, 'conflict');
+    assert.equal(conflictButton?.getAttribute('aria-label'), 'agentOperationsConflictLabel:1');
+    assert.equal(conflictButton?.textContent?.includes('2'), true);
+    await act(async () => conflictButton?.click());
+    assert.deepEqual(opened.at(-1), {
+      contractVersion: 1,
+      target: { kind: 'document', workspaceId: 'workspace-one', documentId: 'document-one' },
+      initialView: 'reviews',
+      source: 'editor',
+    });
+    assert.equal('selectedEntry' in (opened.at(-1) as Record<string, unknown>), false,
+      'multiple reviews open the picker instead of choosing a proposal implicitly');
+
     resolveTimeline = async () => timeline('lineage-viewer', { restore: false });
     await act(async () => root.render(
       <ui.FileVersionHistoryButton workspaceId="workspace-one" path="viewer.txt" />,
@@ -196,6 +294,28 @@ test('the responsive editor control fails closed and opens only its latest autho
     assert.equal(errorButton?.dataset.fileVersionCapability, 'error');
 
     const callsBeforeUnsupported = calls.length;
+    await act(async () => root.render(
+      <ui.FileVersionHistoryButton
+        workspaceId="workspace-one"
+        path="source.ts"
+        documentId="document-source"
+        agentOperations={[singleReview]}
+      />,
+    ));
+    const reviewOnlyButton = document.querySelector<HTMLButtonElement>('button');
+    assert.equal(reviewOnlyButton?.disabled, false);
+    assert.equal(reviewOnlyButton?.dataset.agentReviewState, 'review');
+    assert.equal(calls.length, callsBeforeUnsupported,
+      'a review-only entry does not probe unsupported version history');
+    await act(async () => reviewOnlyButton?.click());
+    assert.deepEqual(opened.at(-1), {
+      contractVersion: 1,
+      target: { kind: 'document', workspaceId: 'workspace-one', documentId: 'document-source' },
+      selectedEntry: { kind: 'agent_operation', id: 'review-a' },
+      initialView: 'reviews',
+      source: 'editor',
+    });
+
     await act(async () => root.render(
       <ui.FileVersionHistoryButton workspaceId="workspace-one" path="source.ts" />,
     ));

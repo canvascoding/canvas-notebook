@@ -14,6 +14,7 @@ import {
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
+import { DictationSettingsPanel } from '@/app/components/settings/DictationSettingsPanel';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { ProfileAppearanceEditor } from '@/app/components/user-profile/ProfileAppearanceEditor';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
@@ -512,7 +513,10 @@ export default function OnboardingWizard({
                   </div>
 
                   {providerVerifiedInSession && (
-                    <MemoryReviewerSetup onContinue={() => advanceTo('workspace')} />
+                    <>
+                      <DictationSettingsPanel onboarding />
+                      <MemoryReviewerSetup onContinue={() => advanceTo('workspace')} />
+                    </>
                   )}
                 </div>
               )}
