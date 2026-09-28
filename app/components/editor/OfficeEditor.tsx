@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
 import dynamic from 'next/dynamic';
 import { useTranslations } from 'next-intl';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -89,6 +89,14 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
     const dirtyRef = useRef(false);
     const changeVersionRef = useRef(0);
     const [hasLocalChanges, setHasLocalChanges] = useState(false);
+    const onChangeRef = useRef(onChange);
+    useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+    const handleSpreadsheetChange = useCallback(() => {
+      dirtyRef.current = true;
+      setHasLocalChanges(true);
+      changeVersionRef.current += 1;
+      onChangeRef.current?.();
+    }, []);
     const [snapshot, setSnapshot] = useState(() => ({ path: currentPath, sourceUrl: currentSourceUrl, revision: contentRevision }));
     if (preserveSnapshot && snapshot.revision !== contentRevision && !hasLocalChanges) {
       setSnapshot({ path: currentPath, sourceUrl: currentSourceUrl, revision: contentRevision });
@@ -265,7 +273,7 @@ export const OfficeEditor = forwardRef<OfficeEditorRef, OfficeEditorProps>(
           <SpreadsheetEditorComponent
             ref={spreadsheetEditorRef}
             path={path}
-            onChange={() => { dirtyRef.current = true; setHasLocalChanges(true); changeVersionRef.current += 1; onChange?.(); }}
+            onChange={handleSpreadsheetChange}
             readOnly={readOnly}
             sourceUrl={sourceUrl}
           />
