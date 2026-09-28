@@ -18,6 +18,7 @@ import { inlineLegacyAutomationPaths } from './legacy-paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
 import { AutomationMutationError } from './mutation-errors';
+import { NO_ACTION_TOKEN } from './result-policy';
 import {
   assertCanAccessAutomationJob,
   assertEmailAutomationAgentCompatible,
@@ -65,6 +66,8 @@ const AUTOMATION_RESULT_POLICIES = new Set<AutomationResultPolicy>(['deliver_all
 const AUTOMATION_CONTINUITY_MODES = new Set<AutomationContinuityMode>(['off', 'last_relevant']);
 const AUTOMATION_RUN_RESULT_PREVIEW_LENGTH = 1000;
 const AUTOMATION_RUN_LOG_MAX_JSON_LENGTH = 250_000;
+const LEGACY_HEARTBEAT_NO_UPDATES_TEXT = 'Heartbeat completed without relevant updates.';
+const LEGACY_HEARTBEAT_ACKNOWLEDGEMENT = 'HEARTBEAT_OK';
 
 type AutomationRunCreateOptions = {
   metadataJson?: Record<string, unknown>;
@@ -74,6 +77,13 @@ type AutomationRunCreateOptions = {
 export type AutomationStoreTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type AutomationJobRow = typeof automationJobs.$inferSelect;
 type AutomationRunRow = typeof automationRuns.$inferSelect;
+export type AutomationContinuityReference = {
+  version: 1;
+  mode: AutomationContinuityMode;
+  sourceRunId: string | null;
+  selectedAt: string;
+  reason: string | null;
+};
 export type AutomationRunTransitionExpectation = {
   status: AutomationRunStatus;
   attemptNumber: number;
@@ -241,6 +251,52 @@ function mergeAutomationRunMetadata(current: AutomationRunRow, metadataJson: Rec
     ...(current.metadataJson ? JSON.parse(current.metadataJson) as Record<string, unknown> : {}),
     ...metadataJson,
   });
+}
+
+function readAutomationContinuityReference(metadataJson: string | null): AutomationContinuityReference | null {
+  if (!metadataJson) return null;
+  const value = (JSON.parse(metadataJson) as Record<string, unknown>).automationContinuity;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1 || (record.mode !== 'off' && record.mode !== 'last_relevant')) return null;
+  if (record.sourceRunId !== null && typeof record.sourceRunId !== 'string') return null;
+  if (typeof record.selectedAt !== 'string') return null;
+  return {
+    version: 1,
+    mode: record.mode,
+    sourceRunId: record.sourceRunId,
+    selectedAt: record.selectedAt,
+    reason: typeof record.reason === 'string' ? record.reason : null,
+  };
+}
+
+function sameAutomationRunWorkspace(
+  source: Pick<AutomationRunRow, 'jobScope' | 'scope' | 'organizationId' | 'workspaceId' | 'workspaceType'>,
+  target: Pick<AutomationRunRow, 'jobScope' | 'scope' | 'organizationId' | 'workspaceId' | 'workspaceType'>,
+): boolean {
+  return source.jobScope === target.jobScope
+    && source.scope === target.scope
+    && source.organizationId === target.organizationId
+    && source.workspaceId === target.workspaceId
+    && source.workspaceType === target.workspaceType;
+}
+
+function isRelevantAutomationResult(row: Pick<AutomationRunRow, 'status' | 'finishedAt' | 'resultText' | 'metadataJson'>): boolean {
+  const text = row.resultText?.trim();
+  if (row.status !== 'success' || !row.finishedAt || !text
+    || text === NO_ACTION_TOKEN || text === LEGACY_HEARTBEAT_ACKNOWLEDGEMENT
+    || text === LEGACY_HEARTBEAT_NO_UPDATES_TEXT) return false;
+  const metadata = row.metadataJson ? JSON.parse(row.metadataJson) as Record<string, unknown> : null;
+  const automation = metadata?.automation;
+  const outcome = automation && typeof automation === 'object' && !Array.isArray(automation)
+    ? (automation as Record<string, unknown>).outcome
+    : null;
+  const heartbeat = metadata?.heartbeat;
+  const legacyHeartbeat = heartbeat && typeof heartbeat === 'object' && !Array.isArray(heartbeat)
+    ? heartbeat as Record<string, unknown>
+    : null;
+  if (legacyHeartbeat?.outcome === 'no_updates' || legacyHeartbeat?.deliverySuppressed === true) return false;
+  return outcome === null || outcome === undefined || outcome === 'message';
 }
 
 function stripLeadingPathDecorators(value: string): string {
@@ -1991,6 +2047,48 @@ export async function markAutomationRunStarted(
     if (!run) return null;
     const job = await getAutomationJobRowAsync(tx, run.jobId);
     if (!job || !isAutomationJobExecutable(job)) return null;
+    let continuity = readAutomationContinuityReference(run.metadataJson);
+    if (!continuity) {
+      const mode = normalizeAutomationContinuityMode(job.continuityMode);
+      let sourceRunId: string | null = null;
+      let reason: string | null = mode === 'off' ? 'disabled' : 'no_relevant_run';
+      if (mode === 'last_relevant' && run.jobScope === resolveStoredJobScope(job)) {
+        const [source] = await tx
+          .select({ id: automationRuns.id })
+          .from(automationRuns)
+          .where(and(
+            eq(automationRuns.jobId, run.jobId),
+            ne(automationRuns.id, run.id),
+            eq(automationRuns.status, 'success'),
+            eq(automationRuns.jobScope, run.jobScope),
+            eq(automationRuns.scope, run.scope),
+            sql`${automationRuns.organizationId} IS NOT DISTINCT FROM ${run.organizationId}`,
+            sql`${automationRuns.workspaceId} IS NOT DISTINCT FROM ${run.workspaceId}`,
+            eq(automationRuns.workspaceType, run.workspaceType),
+            sql`${automationRuns.finishedAt} IS NOT NULL`,
+            sql`NULLIF(BTRIM(${automationRuns.resultText}), '') IS NOT NULL`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${NO_ACTION_TOKEN}`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${LEGACY_HEARTBEAT_ACKNOWLEDGEMENT}`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${LEGACY_HEARTBEAT_NO_UPDATES_TEXT}`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{automation,outcome}', 'message') = 'message'`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{heartbeat,outcome}', '') <> 'no_updates'`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{heartbeat,deliverySuppressed}', 'false') <> 'true'`,
+          ))
+          .orderBy(desc(automationRuns.finishedAt), desc(automationRuns.id))
+          .limit(1);
+        sourceRunId = source?.id ?? null;
+        reason = sourceRunId ? null : 'no_relevant_run';
+      } else if (mode === 'last_relevant') {
+        reason = 'scope_changed';
+      }
+      continuity = {
+        version: 1,
+        mode,
+        sourceRunId,
+        selectedAt: new Date().toISOString(),
+        reason,
+      };
+    }
     const [started] = await tx
       .update(automationRuns)
       .set({
@@ -2006,6 +2104,7 @@ export async function markAutomationRunStarted(
         piSessionId: values.piSessionId,
         resultText: null,
         eventsLog: JSON.stringify(values.eventsLog),
+        metadataJson: mergeAutomationRunMetadata(run, { automationContinuity: continuity }),
       })
       .where(
         and(
@@ -2025,6 +2124,78 @@ export async function markAutomationRunStarted(
   }
 
   return updated ? mapRunRow(updated, null) : null;
+}
+
+export type AutomationPreviousRelevantResult = {
+  sourceRunId: string | null;
+  finishedAt: string | null;
+  piSessionId: string | null;
+  resultText: string | null;
+  reason: string | null;
+};
+
+export async function getAutomationPreviousRelevantResult(input: {
+  runId: string;
+  jobId: string;
+  workspaceId: string;
+  workspaceType: string;
+  organizationId: string | null;
+}): Promise<AutomationPreviousRelevantResult> {
+  const empty = (reason: string, sourceRunId: string | null = null): AutomationPreviousRelevantResult => ({
+    sourceRunId,
+    finishedAt: null,
+    piSessionId: null,
+    resultText: null,
+    reason,
+  });
+  const [run, job] = await Promise.all([
+    db.query.automationRuns.findFirst({ where: eq(automationRuns.id, input.runId) }),
+    db.query.automationJobs.findFirst({ where: eq(automationJobs.id, input.jobId) }),
+  ]);
+  if (!run || !job || run.jobId !== job.id) return empty('run_or_job_missing');
+  const pinned = readAutomationContinuityReference(run.metadataJson);
+  if (!pinned) return empty('reference_missing');
+  if (job.continuityMode !== 'last_relevant' || pinned.mode !== 'last_relevant') return empty('disabled');
+  if (run.jobScope !== resolveStoredJobScope(job)
+    || run.scope !== normalizeAutomationScope(job.scope)
+    || run.organizationId !== input.organizationId
+    || run.workspaceId !== input.workspaceId
+    || run.workspaceType !== input.workspaceType
+    || job.organizationId !== input.organizationId
+    || job.workspaceId !== input.workspaceId
+    || job.workspaceType !== input.workspaceType) {
+    return empty('scope_changed', pinned.sourceRunId);
+  }
+  if (!pinned.sourceRunId) return empty(pinned.reason || 'no_relevant_run');
+  const source = await db.query.automationRuns.findFirst({ where: eq(automationRuns.id, pinned.sourceRunId) });
+  if (!source || source.jobId !== job.id) return empty('source_missing', pinned.sourceRunId);
+  if (!sameAutomationRunWorkspace(source, run)) return empty('source_scope_changed', pinned.sourceRunId);
+  if (!isRelevantAutomationResult(source)) return empty('source_not_relevant', pinned.sourceRunId);
+  return {
+    sourceRunId: source.id,
+    finishedAt: source.finishedAt?.toISOString() ?? null,
+    piSessionId: source.piSessionId,
+    resultText: source.resultText,
+    reason: null,
+  };
+}
+
+export async function recordAutomationRunContextProvenance(input: {
+  runId: string;
+  expectedAttemptNumber: number;
+  provenance: Record<string, unknown>;
+}): Promise<void> {
+  await runAutomationTransaction(async (tx) => {
+    const run = await getAutomationRunRowAsync(tx, input.runId);
+    if (!run || run.status !== 'running' || run.attemptNumber !== input.expectedAttemptNumber) return;
+    await tx.update(automationRuns)
+      .set({ metadataJson: mergeAutomationRunMetadata(run, { automationContext: input.provenance }) })
+      .where(and(
+        eq(automationRuns.id, input.runId),
+        eq(automationRuns.status, 'running'),
+        eq(automationRuns.attemptNumber, input.expectedAttemptNumber),
+      ));
+  });
 }
 
 export async function revalidateAutomationRunClaim(

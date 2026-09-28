@@ -6,6 +6,7 @@ type BuildAutomationPromptInput = Pick<
   'name' | 'prompt' | 'preferredSkill'
 > & {
   resultPolicy?: AutomationResultPolicy;
+  previousResultContext?: string;
   /** @deprecated Accepted for older callers; file instructions belong in prompt. */
   workspaceContextPaths?: string[];
   /** @deprecated Run output is stored in the database. */
@@ -122,6 +123,9 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
     sections.push('### Result Delivery Policy\n\nComplete the configured task and provide a concise final result. The result is recorded but is not delivered externally.');
   }
 
+  if (input.previousResultContext) {
+    sections.push(input.previousResultContext);
+  }
   sections.push(`### Task\n${input.prompt}`);
   sections.push('**Workspace file operations:** Use workspace-relative file operations. Read paths mentioned in the task when relevant instead of assuming their contents.');
 

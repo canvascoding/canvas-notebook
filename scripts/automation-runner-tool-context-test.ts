@@ -30,10 +30,12 @@ let beforeExclusivePreflight: (() => Promise<void>) | null = null;
 let workspaceResolutionCalls = 0;
 let failWorkspaceResolutionAtCall: number | null = null;
 let abortDuringSessionCreate = false;
+let forceEnrichedContextOverflow = false;
 let activeExecutionAbortController: AbortController | null = null;
 const agentLoopStreamFns: unknown[] = [];
 const agentLoopThinkingLevels: unknown[] = [];
 const agentLoopSystemPrompts: string[] = [];
+const agentLoopPrompts: string[] = [];
 const agentLoopNextTurnSystemPrompts: string[] = [];
 const runtimeResolutionCalls: Array<{
   kind: 'executable' | 'pinned';
@@ -105,6 +107,26 @@ moduleInternals._load = (request, parent, isMain) => {
     return {};
   }
 
+  if (request === '@/app/lib/pi/multimodal-preparation' && parent?.filename.endsWith('/automations/runner.ts')) {
+    const preparation = originalLoad(request, parent, isMain) as {
+      preparePiFinalPayload: (...args: unknown[]) => Promise<{
+        budgetSnapshot: { contextBudgetExceeded: boolean };
+      }>;
+    };
+    return {
+      ...preparation,
+      preparePiFinalPayload: async (...args: unknown[]) => {
+        const result = await preparation.preparePiFinalPayload(...args);
+        const messages = (args[0] as { messages?: Array<{ content?: unknown }> }).messages ?? [];
+        if (forceEnrichedContextOverflow && messages.some((message) =>
+          typeof message.content === 'string' && message.content.includes('Previous Relevant Automation Result'))) {
+          return { ...result, budgetSnapshot: { ...result.budgetSnapshot, contextBudgetExceeded: true } };
+        }
+        return result;
+      },
+    };
+  }
+
   if (request === '@/app/lib/mobile/push-devices' || request.endsWith('/mobile/push-devices')) {
     return {
       sendAgentResponseReadyPush: async (input: { userId: string; workspaceId: string; sessionId: string }) => {
@@ -146,7 +168,7 @@ moduleInternals._load = (request, parent, isMain) => {
   }
 
   if (request === '@earendil-works/pi-agent-core') {
-    return {
+    const stub = {
       agentLoop: async function* agentLoopStub(
         messages: unknown[],
         context: { systemPrompt?: string; tools?: Array<{ name: string }> },
@@ -278,6 +300,30 @@ moduleInternals._load = (request, parent, isMain) => {
         };
       },
     };
+    return {
+      ...stub,
+      runAgentLoop: async (
+        messages: unknown[],
+        context: { systemPrompt?: string; tools?: Array<{ name: string }> },
+        config: Parameters<typeof stub.agentLoop>[2],
+        onEvent: (event: unknown) => Promise<void>,
+        signal: AbortSignal | undefined,
+        streamFn: unknown,
+      ) => {
+        agentLoopPrompts.push(String((messages[0] as { content?: unknown } | undefined)?.content ?? ''));
+        let finalMessages: unknown[] = [];
+        for await (const event of stub.agentLoop(messages, context, config, signal, streamFn)) {
+          if (event.type === 'agent_end') {
+            finalMessages = event.messages;
+            for (const message of event.messages as Array<{ role?: string }>) {
+              if (message.role === 'assistant') await onEvent({ type: 'message_end', message });
+            }
+          }
+          await onEvent(event);
+        }
+        return finalMessages;
+      },
+    };
   }
 
   if (request === './policy' && parent?.filename?.endsWith('/app/lib/automations/runner.ts')) {
@@ -361,6 +407,7 @@ moduleInternals._load = (request, parent, isMain) => {
         runtimeResolutionCalls.push({ kind: 'pinned', context });
         return testExecutableRuntime;
       },
+      resolveCompactionSummaryRuntime: async () => null,
     };
   }
 
@@ -1011,6 +1058,54 @@ async function main() {
     jobName: scheduledFailureJob.name,
     status: 'failed',
   }]);
+
+  const continuityJob = await createAutomationJob(
+    {
+      name: 'Continuity Automation',
+      prompt: 'Report a concise current result.',
+      preferredSkill: 'auto',
+      agentId,
+      deliveryMode: 'silent',
+      deliverySessionMode: 'new_session',
+      resultPolicy: 'deliver_relevant_only',
+      continuityMode: 'last_relevant',
+      schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    },
+    userId,
+  );
+  const continuityFirst = await scheduleAutomationJobRun(continuityJob.id, 'manual', now);
+  assert.ok(continuityFirst);
+  await executeAutomationRun(continuityFirst.id);
+  assert.equal((await getAutomationRun(continuityFirst.id))?.status, 'success');
+  assert.doesNotMatch(agentLoopPrompts.at(-1) || '', /Previous Relevant Automation Result/);
+  const continuityNoop = await scheduleAutomationJobRun(continuityJob.id, 'manual', new Date(now.getTime() + 1));
+  assert.ok(continuityNoop);
+  agentLoopMode = 'no-action';
+  await executeAutomationRun(continuityNoop.id);
+  agentLoopMode = 'success';
+  assert.equal((await getAutomationRun(continuityNoop.id))?.metadataJson?.automation instanceof Object, true);
+  const continuityThird = await scheduleAutomationJobRun(continuityJob.id, 'manual', new Date(now.getTime() + 2));
+  assert.ok(continuityThird);
+  await executeAutomationRun(continuityThird.id);
+  const continuityPrompt = agentLoopPrompts.at(-1) || '';
+  assert.match(continuityPrompt, /Previous Relevant Automation Result/);
+  assert.ok(continuityPrompt.includes(`Source run: ${continuityFirst.id}`));
+  assert.ok(continuityPrompt.includes('Automation finished.'));
+  assert.ok(continuityPrompt.includes('### Task\nReport a concise current result.'));
+  const continuityCompleted = await getAutomationRun(continuityThird.id);
+  assert.equal(continuityCompleted?.metadataJson?.automationContext instanceof Object, true);
+
+  const continuityFullWindow = await scheduleAutomationJobRun(continuityJob.id, 'manual', new Date(now.getTime() + 3));
+  assert.ok(continuityFullWindow);
+  forceEnrichedContextOverflow = true;
+  await executeAutomationRun(continuityFullWindow.id);
+  forceEnrichedContextOverflow = false;
+  const fullWindowRun = await getAutomationRun(continuityFullWindow.id);
+  assert.equal(fullWindowRun?.status, 'success', 'optional context overflow must not fail the run');
+  assert.doesNotMatch(agentLoopPrompts.at(-1) || '', /Previous Relevant Automation Result/);
+  assert.match(agentLoopPrompts.at(-1) || '', /### Task\nReport a concise current result\./);
+  assert.equal((fullWindowRun?.metadataJson?.automationContext as { reason?: string })?.reason,
+    'final_budget_exceeded');
 
   const organization = await db.query.canvasOrganizationSettings.findFirst();
   assert.ok(organization);
