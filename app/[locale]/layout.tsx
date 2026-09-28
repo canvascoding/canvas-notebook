@@ -18,6 +18,7 @@ import { FileVersionCenterHost } from '@/app/components/file-version-center/File
 import { EmailReviewHost } from '@/app/components/email-review/EmailReviewHost';
 import { MemoryReviewHost } from '@/app/components/memory-review/MemoryReviewHost';
 import { NotebookQueryProvider } from '@/app/components/NotebookQueryProvider';
+import { HumanActivityRecorder } from '@/app/components/HumanActivityRecorder';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
 import {routing} from '@/i18n/routing';
@@ -96,6 +97,7 @@ export default async function LocaleLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <NextIntlClientProvider messages={messages}>
+          <HumanActivityRecorder />
           <NotebookQueryProvider>
           <AppThemeProvider>
             <WorkspaceAppearanceProvider>
