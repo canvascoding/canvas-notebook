@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 
 export type FileVersionCenterQueryResult<Row> = {
   rows: Row[];
@@ -19,6 +19,16 @@ export type FileVersionCenterDatabase = {
     action: (transaction: FileVersionCenterTransaction) => Promise<T>,
   ) => Promise<T>;
 };
+
+/** Read-only adapter. Only the caller may commit, write or release the owned transaction. */
+export function createFileVersionCenterTransactionReader(sql: FileVersionCenterTransaction): SqlConnection {
+  return {
+    get: async (statement, params) => (await sql.query(statement, params)).rows[0],
+    all: async (statement, params) => (await sql.query(statement, params)).rows,
+    run: () => { throw new Error('A scoped proposal reader cannot write.'); },
+    close: () => { throw new Error('A scoped proposal reader cannot release its owner connection.'); },
+  };
+}
 
 /** Shared PostgreSQL transaction mechanics; domain services keep policy and authorization. */
 export function createRuntimeFileVersionCenterDatabase(): FileVersionCenterDatabase {

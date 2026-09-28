@@ -1,0 +1,353 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import {
+  CollaborationAdmissionError,
+  type CollaborationAdmissionDocument,
+} from '../app/lib/collaboration/room-admission-contract';
+import type { CollaborationAdmissionTarget } from '../app/lib/collaboration/room-admission';
+import {
+  admissionDrainTicketForTarget,
+  captureCollaborationAdmissionDrainTicket,
+  captureCollaborationAdmissionOwnerFence,
+  acknowledgeCollaborationAdmissionDrain,
+  lockCollaborationAdmissionDrain,
+  matchesCollaborationAdmissionDrainFence,
+  sameCollaborationAdmissionDrainTicket,
+  type CollaborationAdmissionDrainTicket,
+} from '../app/lib/collaboration/room-admission-drain';
+import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from '../app/lib/collaboration/room-owner';
+import { COLLABORATION_ADMISSION_STATEMENTS } from '../app/lib/db/collaboration-admission-migration';
+
+const REQUEST_ID = '2d607a15-c32c-41aa-b19f-425cde6ae803';
+const OTHER_REQUEST_ID = '3e718b26-d43d-42bb-92a0-536d7fbf9014';
+const REQUEST_DIGEST = 'a'.repeat(64);
+const OTHER_REQUEST_DIGEST = 'b'.repeat(64);
+
+function ownerScope(overrides: Partial<CollaborationRoomOwnerScope> = {}): CollaborationRoomOwnerScope {
+  return {
+    documentId: 'doc-a',
+    workspaceId: 'workspace-a',
+    organizationId: 'org-a',
+    path: 'folder/a.txt',
+    representation: 'plain_text',
+    lifecycleGeneration: 2,
+    schemaVersion: 3,
+    ...overrides,
+  };
+}
+
+function ownerFence(overrides: Partial<CollaborationRoomOwnerFence> = {}): CollaborationRoomOwnerFence {
+  return {
+    scope: ownerScope(),
+    epoch: 5,
+    token: 'owner-token',
+    backendPid: 4567,
+    backendStart: '1727370000.12345',
+    ...overrides,
+  };
+}
+
+function target(input: {
+  document?: Partial<CollaborationAdmissionDocument>;
+  ownerEpoch?: number;
+  ownerToken?: string | null;
+  ownerBackendPid?: number | null;
+  ownerBackendStart?: string | null;
+} = {}): CollaborationAdmissionTarget {
+  return {
+    document: {
+      ...ownerScope(),
+      status: 'active',
+      ...input.document,
+    },
+    ownerEpoch: input.ownerEpoch ?? 5,
+    ownerToken: input.ownerToken === undefined ? 'owner-token' : input.ownerToken,
+    ownerBackendPid: input.ownerBackendPid === undefined ? 4567 : input.ownerBackendPid,
+    ownerBackendStart: input.ownerBackendStart === undefined ? '1727370000.12345' : input.ownerBackendStart,
+    documentSequence: 12,
+  };
+}
+
+function assertAdmissionError(action: () => unknown, code: CollaborationAdmissionError['code']) {
+  assert.throws(action, (error: unknown) => {
+    assert.ok(error instanceof CollaborationAdmissionError);
+    assert.equal(error.code, code);
+    return true;
+  });
+}
+
+function ticketFor(requestId = REQUEST_ID, requestDigest = REQUEST_DIGEST, value = target()) {
+  return admissionDrainTicketForTarget(requestId, requestDigest, value);
+}
+
+test('active target creates a valid deterministic release ticket with a canonical owner fence', () => {
+  const value = target();
+  const ticket = admissionDrainTicketForTarget(REQUEST_ID, REQUEST_DIGEST, value);
+  const captured = captureCollaborationAdmissionDrainTicket(ticket);
+
+  assert.equal(captured.requestId, REQUEST_ID);
+  assert.equal(captured.requestDigest, REQUEST_DIGEST);
+  assert.match(captured.releaseId, /^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}$/u);
+  assert.deepEqual(captured.fence.scope, ownerScope());
+  assert.equal(captured.fence.epoch, value.ownerEpoch);
+  assert.equal(captured.fence.token, value.ownerToken);
+  assert.equal(captured.fence.backendPid, value.ownerBackendPid);
+  assert.equal(captured.fence.backendStart, value.ownerBackendStart);
+  assert.equal(Object.isFrozen(captured), true);
+  assert.equal(Object.isFrozen(captured.fence), true);
+  assert.equal(Object.isFrozen(captured.fence.scope), true);
+  assert.equal('status' in captured.fence.scope, false, 'target status is not copied into the owner fence scope');
+});
+
+test('release IDs are stable and distinct across request ID, request digest, and document ID', () => {
+  const base = ticketFor();
+  assert.equal(ticketFor().releaseId, base.releaseId);
+  const byRequest = ticketFor(OTHER_REQUEST_ID, REQUEST_DIGEST);
+  const byDigest = ticketFor(REQUEST_ID, OTHER_REQUEST_DIGEST);
+  const byDocument = ticketFor(REQUEST_ID, REQUEST_DIGEST, target({ document: { documentId: 'doc-b' } }));
+
+  assert.notEqual(byRequest.releaseId, base.releaseId);
+  assert.notEqual(byDigest.releaseId, base.releaseId);
+  assert.notEqual(byDocument.releaseId, base.releaseId);
+  assert.equal(new Set([base.releaseId, byRequest.releaseId, byDigest.releaseId, byDocument.releaseId]).size, 4);
+});
+
+test('ticket capture copies nested fence fields and strips target-only aliases', () => {
+  const mutableScope = { ...ownerScope(), status: 'active' as const };
+  const mutableFence = {
+    scope: mutableScope,
+    epoch: 5,
+    token: 'owner-token',
+    backendPid: 4567,
+    backendStart: '1727370000.12345',
+  };
+  const input = {
+    requestId: REQUEST_ID,
+    requestDigest: REQUEST_DIGEST,
+    releaseId: ticketFor().releaseId,
+    fence: mutableFence,
+  };
+  const captured = captureCollaborationAdmissionDrainTicket(input);
+
+  mutableScope.path = 'changed.txt';
+  mutableFence.token = 'replaced-token';
+  input.requestDigest = OTHER_REQUEST_DIGEST;
+  input.releaseId = '00000000-0000-8000-a000-000000000000';
+
+  assert.equal(captured.requestDigest, REQUEST_DIGEST);
+  assert.equal(captured.releaseId, ticketFor().releaseId);
+  assert.equal(captured.fence.scope.path, 'folder/a.txt');
+  assert.equal(captured.fence.token, 'owner-token');
+  assert.equal('status' in captured.fence.scope, false);
+  assert.equal(Object.isFrozen(captured.fence.scope), true);
+});
+
+test('fence matching detects changes to epoch, token, backend identity, scope, and generation', () => {
+  const ticket = ticketFor();
+  const baseline = ticket.fence;
+  assert.equal(matchesCollaborationAdmissionDrainFence(ticket, baseline), true);
+
+  const changedFences: CollaborationRoomOwnerFence[] = [
+    { ...baseline, epoch: baseline.epoch + 1 },
+    { ...baseline, token: 'new-token' },
+    { ...baseline, backendPid: baseline.backendPid + 1 },
+    { ...baseline, backendStart: '1727370001.00000' },
+    { ...baseline, scope: { ...baseline.scope, documentId: 'doc-b' } },
+    { ...baseline, scope: { ...baseline.scope, workspaceId: 'workspace-b' } },
+    { ...baseline, scope: { ...baseline.scope, path: 'folder/renamed.txt' } },
+    { ...baseline, scope: { ...baseline.scope, organizationId: 'org-b' } },
+    { ...baseline, scope: { ...baseline.scope, lifecycleGeneration: baseline.scope.lifecycleGeneration + 1 } },
+    { ...baseline, scope: { ...baseline.scope, schemaVersion: baseline.scope.schemaVersion + 1 } },
+  ];
+  for (const fence of changedFences) assert.equal(matchesCollaborationAdmissionDrainFence(ticket, fence), false);
+});
+
+test('vacant owners and archived targets cannot start a drain', () => {
+  assertAdmissionError(() => ticketFor(REQUEST_ID, REQUEST_DIGEST, target({
+    ownerToken: null, ownerBackendPid: null, ownerBackendStart: null,
+  })), 'ADMISSION_STATE_CHANGED');
+  assertAdmissionError(() => ticketFor(REQUEST_ID, REQUEST_DIGEST, target({ document: { status: 'archived' } })),
+    'ADMISSION_STATE_CHANGED');
+});
+
+test('invalid bounds, fence fields, path, ticket UUID, digest, and release ID are rejected', () => {
+  const valid = ticketFor();
+  const invalidFences: CollaborationRoomOwnerFence[] = [
+    ownerFence({ epoch: 0 }),
+    ownerFence({ token: '' }),
+    ownerFence({ backendPid: 0 }),
+    ownerFence({ backendStart: '' }),
+    ownerFence({ scope: ownerScope({ lifecycleGeneration: 0 }) }),
+    ownerFence({ scope: ownerScope({ schemaVersion: Number.MAX_SAFE_INTEGER + 1 }) }),
+    ownerFence({ scope: ownerScope({ path: 'folder/../secret.txt' }) }),
+    ownerFence({ scope: ownerScope({ path: '' }) }),
+    ownerFence({ scope: ownerScope({ documentId: 'd'.repeat(257) }) }),
+  ];
+  for (const fence of invalidFences) {
+    assertAdmissionError(() => captureCollaborationAdmissionOwnerFence(fence), 'ADMISSION_INVALID_REQUEST');
+  }
+
+  const badTickets: CollaborationAdmissionDrainTicket[] = [
+    { ...valid, requestId: REQUEST_ID.toUpperCase() },
+    { ...valid, requestDigest: 'a'.repeat(63) },
+    { ...valid, releaseId: '00000000-0000-8000-a000-000000000000' },
+    { ...valid, fence: ownerFence({ scope: ownerScope({ path: 'x//y' }) }) },
+  ];
+  for (const badTicket of badTickets) {
+    assertAdmissionError(() => captureCollaborationAdmissionDrainTicket(badTicket), 'ADMISSION_INVALID_REQUEST');
+  }
+});
+
+test('same-ticket comparison canonicalizes equivalent object key order and detects field changes', () => {
+  const base = ticketFor();
+  const reordered = {
+    fence: {
+      backendStart: base.fence.backendStart,
+      backendPid: base.fence.backendPid,
+      token: base.fence.token,
+      epoch: base.fence.epoch,
+      scope: {
+        schemaVersion: base.fence.scope.schemaVersion,
+        lifecycleGeneration: base.fence.scope.lifecycleGeneration,
+        representation: base.fence.scope.representation,
+        path: base.fence.scope.path,
+        organizationId: base.fence.scope.organizationId,
+        workspaceId: base.fence.scope.workspaceId,
+        documentId: base.fence.scope.documentId,
+      },
+    },
+    releaseId: base.releaseId,
+    requestDigest: base.requestDigest,
+    requestId: base.requestId,
+  };
+  assert.equal(sameCollaborationAdmissionDrainTicket(base, reordered), true);
+  assert.equal(sameCollaborationAdmissionDrainTicket(base, ticketFor(REQUEST_ID, OTHER_REQUEST_DIGEST)), false);
+  assert.equal(sameCollaborationAdmissionDrainTicket(base, {
+    ...base,
+    fence: { ...base.fence, scope: { ...base.fence.scope, path: 'elsewhere' } },
+  }), false);
+});
+
+function mockDrainQuery(options: {
+  status?: 'draining' | 'released';
+  quiescenceKind?: unknown;
+  quiescenceText?: unknown;
+  releaseId?: unknown;
+} = {}) {
+  const calls: Array<{ sql: string; values?: unknown[] }> = [];
+  const expectedTicket = ticketFor();
+  const query = async (sql: string, values?: unknown[]) => {
+    calls.push({ sql, values });
+    if (sql.includes('FROM collaboration_admission_requests')) {
+      return [{ request_digest: REQUEST_DIGEST, status: 'draining', revision: 1 }];
+    }
+    if (sql.includes('FROM collaboration_admission_targets')) {
+      const status = options.status ?? 'draining';
+      return [{ snapshot_text: JSON.stringify(target()), status, active: true,
+        release_id: options.releaseId === undefined ? (status === 'released' ? expectedTicket.releaseId : null) : options.releaseId,
+        quiescence_kind: options.quiescenceKind === undefined
+          ? (status === 'released' ? 'owner_drain' : null) : options.quiescenceKind,
+        quiescence_text: options.quiescenceText === undefined ? null : options.quiescenceText }];
+    }
+    return [];
+  };
+  return { calls, query };
+}
+
+test('drain lock accepts only pristine draining targets and owner-drain released targets', async () => {
+  const draining = mockDrainQuery();
+  assert.equal(await lockCollaborationAdmissionDrain(draining.query, ticketFor(), 'draining'), 'draining');
+  assert.match(draining.calls[0].sql, /FOR UPDATE/u);
+  assert.match(draining.calls[1].sql, /quiescence_kind, quiescence_text/u);
+  assert.match(draining.calls[1].sql, /FOR UPDATE/u);
+
+  for (const quiescenceText of [null, '{"state":"complete"}']) {
+    const released = mockDrainQuery({ status: 'released', quiescenceText });
+    assert.equal(await lockCollaborationAdmissionDrain(released.query, ticketFor()), 'released');
+    assert.match(released.calls[0].sql, /FOR SHARE/u);
+    assert.match(released.calls[1].sql, /FOR SHARE/u);
+  }
+});
+
+test('drain lock fails closed for invalid, premature, or legacy quiescence markers', async () => {
+  const invalidCases = [
+    { status: 'draining' as const, quiescenceKind: 'owner_drain' },
+    { status: 'draining' as const, quiescenceKind: 'normal_release' },
+    { status: 'draining' as const, quiescenceText: 'already materialized' },
+    { status: 'released' as const, quiescenceKind: null },
+    { status: 'released' as const, quiescenceKind: 'vacant' },
+    { status: 'released' as const, quiescenceKind: 'normal_release' },
+    { status: 'released' as const, quiescenceKind: 'owner_drain', quiescenceText: 17 },
+  ];
+  for (const input of invalidCases) {
+    const mocked = mockDrainQuery(input);
+    await assert.rejects(lockCollaborationAdmissionDrain(mocked.query, ticketFor()), (error: unknown) => {
+      assert.ok(error instanceof CollaborationAdmissionError);
+      assert.equal(error.code, 'ADMISSION_STATE_CHANGED');
+      return true;
+    });
+  }
+});
+
+test('drain acknowledgment atomically marks owner_drain without materializing proof text', async () => {
+  const calls: Array<{ sql: string; values?: unknown[] }> = [];
+  const query = async (sql: string, values?: unknown[]) => {
+    calls.push({ sql, values });
+    return sql.includes('UPDATE collaboration_admission_targets') ? [{ document_id: 'doc-a' }] : [];
+  };
+  const ticket = ticketFor();
+  await acknowledgeCollaborationAdmissionDrain(query, ticket);
+
+  assert.equal(calls.length, 2);
+  assert.match(calls[0].sql, /SET status = 'released', release_id = \$3, quiescence_kind = 'owner_drain'/u);
+  assert.match(calls[0].sql, /quiescence_kind IS NULL AND quiescence_text IS NULL/u);
+  assert.doesNotMatch(calls[0].sql, /SET[^\n]*quiescence_text/u);
+  assert.deepEqual(calls[0].values, [REQUEST_ID, 'doc-a', ticket.releaseId]);
+  assert.match(calls[1].sql, /UPDATE collaboration_admission_requests/u);
+
+  const failedCalls: string[] = [];
+  const noRows = async (sql: string) => { failedCalls.push(sql); return []; };
+  await assert.rejects(acknowledgeCollaborationAdmissionDrain(noRows, ticket), (error: unknown) => {
+    assert.ok(error instanceof CollaborationAdmissionError);
+    assert.equal(error.code, 'ADMISSION_STATE_CHANGED');
+    return true;
+  });
+  assert.equal(failedCalls.length, 1, 'revision is not advanced if the guarded target update did not happen');
+});
+
+test('admission target schema adds constrained quiescence markers idempotently', () => {
+  const createRequest = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('CREATE TABLE IF NOT EXISTS collaboration_admission_requests'));
+  const create = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('CREATE TABLE IF NOT EXISTS collaboration_admission_targets'));
+  assert.ok(createRequest);
+  assert.ok(create);
+  assert.match(createRequest, /outcome_text text/u);
+  assert.match(create, /quiescence_kind text CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain', 'lifecycle_outcome'\)\)/u);
+  assert.match(create, /quiescence_text text/u);
+  assert.match(create, /source_outcome_request_id text/u);
+  assert.match(create, /outcome_snapshot_text text/u);
+  assert.match(create, /outcome_snapshot_digest text/u);
+  const addKind = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('ADD COLUMN IF NOT EXISTS quiescence_kind'));
+  const addText = COLLABORATION_ADMISSION_STATEMENTS.find((sql) => sql.includes('ADD COLUMN IF NOT EXISTS quiescence_text'));
+  const addOutcome = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS outcome_text'));
+  const addSourceOutcome = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS source_outcome_request_id'));
+  const addOutcomeSnapshot = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS outcome_snapshot_text'));
+  const addOutcomeDigest = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('ADD COLUMN IF NOT EXISTS outcome_snapshot_digest'));
+  const sourceOutcomeConstraint = COLLABORATION_ADMISSION_STATEMENTS.find((sql) =>
+    sql.includes('collaboration_admission_source_outcome_fk'));
+  assert.ok(addKind);
+  assert.ok(addText);
+  assert.ok(addOutcome);
+  assert.ok(addSourceOutcome);
+  assert.ok(addOutcomeSnapshot);
+  assert.ok(addOutcomeDigest);
+  assert.ok(sourceOutcomeConstraint);
+  assert.match(addKind, /CHECK \(quiescence_kind IS NULL OR quiescence_kind IN \('vacant', 'normal_release', 'owner_drain', 'lifecycle_outcome'\)\)/u);
+  assert.match(sourceOutcomeConstraint,
+    /FOREIGN KEY \(source_outcome_request_id, document_id\)\s+REFERENCES collaboration_admission_targets\(request_id, document_id\)/u);
+});

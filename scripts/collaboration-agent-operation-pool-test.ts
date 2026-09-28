@@ -7,6 +7,9 @@ import { test } from 'node:test';
 import ts from 'typescript';
 import * as Y from 'yjs';
 import type * as Agent from '../app/lib/collaboration/agent-operations';
+import { executeLifecycleTransaction } from '../app/lib/collaboration/lifecycle-transaction';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from '../app/lib/collaboration/room-admission';
+import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError } from '../app/lib/collaboration/room-admission-contract';
 import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
@@ -42,16 +45,29 @@ function harness(count = 10) {
   let reviewCount = 0;
   let grantCount = 0;
   let directCount = 0;
+  let historyCaptureCount = 0;
+  let transactionalStateLoads = 0;
+  let failHistoryCapture = false;
+  const historyCaptures: { documentId: string; documentSequence: number; source: string }[] = [];
   let leased = 0;
   let opened = 0;
   let maxLeased = 0;
   let closed = false;
+  let listSql = '';
   let failMethod: 'get' | 'run' | 'all' | null = null;
   const waiting: { resolve: () => void; reject: (error: Error) => void }[] = [];
+  const transactionConnections = new WeakSet<object>();
   const indexFor = (documentId: string) => Number(documentId.split('-').at(-1));
   const query = async (method: 'get' | 'run' | 'all', sql: string, params: unknown[] = []) => {
     if (method === failMethod) throw new Error(`EXPECTED_${method.toUpperCase()}_ERROR`);
-    if (method === 'all') return [...rows.values()].filter((row) => row.document_id === params[0]).map((row) => ({ ...row }));
+    if (method === 'all') {
+      // This capacity harness deliberately does not serialize the shared workspace;
+      // PostgreSQL lock ordering is covered by the admission transaction harness.
+      if (sql.includes('pg_advisory_xact_lock') || sql.includes('collaboration_admission_scopes')
+        || sql.includes('collaboration_admission_targets')) return [];
+      listSql = sql;
+      return [...rows.values()].filter((row) => row.document_id === params[0]).map((row) => ({ ...row }));
+    }
     if (method === 'get') {
       if (sql.includes('SELECT name, email')) return { name: 'User' };
       if (firstReadCount < count) {
@@ -64,6 +80,7 @@ function harness(count = 10) {
         : rows.get(String(params[0]));
       return row ? { ...row } : undefined;
     }
+    if (/^(?:BEGIN|COMMIT|ROLLBACK|SET LOCAL)\b/u.test(sql.trim())) return { changes: 0 };
     if (sql.includes('INSERT INTO collaboration_agent_operations')) {
       const insert = /\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)/u.exec(sql)!;
       const row: Record<string, unknown> = {};
@@ -89,13 +106,19 @@ function harness(count = 10) {
     let released = false;
     const run = async (method: 'get' | 'run' | 'all', sql: string, params?: unknown[]) => {
       assert(!released, 'no query may use a released pool client');
-      return query(method, sql, params);
+      const normalized = sql.trim();
+      if (normalized === 'BEGIN') transactionConnections.add(connection);
+      const result = await query(method, sql, params);
+      if (normalized === 'COMMIT' || normalized === 'ROLLBACK') transactionConnections.delete(connection);
+      return result;
     };
-    return { get: (sql, params) => run('get', sql, params), run: (sql, params) => run('run', sql, params),
+    const connection: SqlConnection = { get: (sql, params) => run('get', sql, params), run: (sql, params) => run('run', sql, params),
       all: async (sql, params) => await run('all', sql, params) as unknown[], close() {
         assert(!released, 'a pool client is released exactly once'); released = true;
+        transactionConnections.delete(connection);
         const next = waiting.shift(); if (next) next.resolve(); else leased--;
       } };
+    return connection;
   };
   const nestedRead = async <T>(read: () => T): Promise<T> => {
     const connection = await openDb();
@@ -110,7 +133,29 @@ function harness(count = 10) {
   const mock = (name: string) => {
     if (name === '@/app/lib/db') return { openDb };
     if (name === './server-runtime') return { Y };
-    if (name === './persistence') return { loadCollaborationState: async (documentId: string) => nestedRead(() => ({ ...states[indexFor(documentId)] })) };
+    if (name === './persistence') return {
+      loadCollaborationState: async (documentId: string) => nestedRead(() => ({ ...states[indexFor(documentId)] })),
+      loadCollaborationStateOnConnection: async (database: SqlConnection, documentId: string,
+        includeArchived = false, lock?: 'share') => {
+        assert(transactionConnections.has(database), 'admitted creation loads state on its existing transaction connection');
+        assert.equal(includeArchived, false);
+        assert.equal(lock, 'share', 'legacy admission must retain a state-row share lock through commit');
+        transactionalStateLoads++;
+        return { ...states[indexFor(documentId)] };
+      },
+    };
+    if (name === './lifecycle-transaction') return { executeLifecycleTransaction };
+    if (name === './room-admission') return { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace };
+    if (name === './room-admission-contract') return { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError };
+    if (name === '@/app/lib/file-version-center/history-service') return { fileVersionHistoryService: {
+      capturePersistedCollaboration: async (input: { state: { documentId: string; documentSequence: number }; source: string }) => {
+        await nestedRead(() => undefined);
+        historyCaptureCount++;
+        historyCaptures.push({ documentId: input.state.documentId, documentSequence: input.state.documentSequence, source: input.source });
+        if (failHistoryCapture) throw new Error('EXPECTED_HISTORY_CAPTURE_ERROR');
+        return { outcome: 'captured', revision: { id: `revision-${historyCaptureCount}` }, binding: {} };
+      },
+    } };
     if (name === './document-access') return { readCurrentCollaborationDocument: async (input: { documentId: string; read: (doc: Y.Doc) => unknown }) => {
       await nestedRead(() => undefined); reviewCount++; await reviews.promise;
       return input.read(docs[indexFor(input.documentId)]);
@@ -161,7 +206,11 @@ function harness(count = 10) {
       result_json: JSON.stringify({ status: 'needs_review', appliedTargetIds: [], conflicts: [], stateVector: '', durability: 'needs_review' }) });
   });
   return { agent, docs, rows, states, targets, addReviews, firstReads, reviews, grants,
-    stats: () => ({ leased, opened, maxLeased, waiting: waiting.length, reviewCount, grantCount, directCount }),
+    listSql: () => listSql,
+    stats: () => ({ leased, opened, maxLeased, waiting: waiting.length, reviewCount, grantCount, directCount,
+      transactionalStateLoads }),
+    historyCaptures: () => historyCaptures.map((capture) => ({ ...capture })),
+    failHistoryCapture: () => { failHistoryCapture = true; },
     fail: (method: typeof failMethod) => { failMethod = method; },
     nestedRead,
     persist: () => states.forEach((state, index) => {
@@ -174,6 +223,32 @@ function harness(count = 10) {
     },
   };
 }
+
+test('operation list projects graph lifecycle without rewriting legacy status or disclosing inaccessible nodes', async () => {
+  const h = harness(4); h.addReviews(); h.reviews.resolve();
+  try {
+    Object.assign(h.rows.get('operation-0')!, { graph_proposal_id: 'proposal-0', graph_proposal_lifecycle: 'open' });
+    Object.assign(h.rows.get('operation-1')!, { graph_proposal_id: 'proposal-1', graph_proposal_lifecycle: 'included' });
+    Object.assign(h.rows.get('operation-2')!, { graph_proposal_id: 'proposal-2', graph_proposal_lifecycle: null });
+    const open = (await h.agent.listAgentOperations({ documentId: 'document-0', workspace, userId: 'user' }))[0]!;
+    assert.equal(open.proposalLifecycle, 'open');
+    assert.equal(open.operationStatus, 'needs_review');
+    const closed = (await h.agent.listAgentOperations({ documentId: 'document-1', workspace, userId: 'user' }))[0]!;
+    assert.equal(closed.proposalLifecycle, 'included');
+    assert.equal(closed.operationStatus, 'needs_review', 'the historical operation status remains unchanged');
+    const unauthorized = (await h.agent.listAgentOperations({ documentId: 'document-1', workspace, userId: 'other' }))[0]!;
+    assert.equal(unauthorized.proposalLifecycle, null);
+    const stale = (await h.agent.listAgentOperations({ documentId: 'document-2', workspace, userId: 'user' }))[0]!;
+    assert.equal(stale.proposalLifecycle, null, 'an unproven graph scope is never presented as legacy');
+    const legacy = (await h.agent.listAgentOperations({ documentId: 'document-3', workspace, userId: 'user' }))[0]!;
+    assert.equal(Object.hasOwn(legacy, 'proposalLifecycle'), false);
+    assert.match(h.listSql(), /proposal\.operation_id = operation\.operation_id/u);
+    assert.match(h.listSql(), /graph\.lifecycle_generation = operation\.document_lifecycle_generation/u);
+    assert.match(h.listSql(), /state\.schema_version = graph\.schema_version/u);
+    assert.match(h.listSql(), /document\.status = 'active'/u);
+    assert.match(h.listSql(), /state\.status = 'active'/u);
+  } finally { h.close(); }
+});
 
 test('ten actual status reviews release operation clients before nested reads and room waits', async () => {
   const h = harness(); h.addReviews();
@@ -198,15 +273,53 @@ test('ten actual direct pure deletions keep pool capacity during grant and durab
   try {
     await until(() => h.stats().grantCount === 10);
     assert.equal(h.stats().leased, 0); assert.equal(h.stats().waiting, 0);
+    assert.equal(h.stats().transactionalStateLoads, 10, 'state loads reuse each admitted transaction instead of nesting a pool borrow');
     h.grants.resolve();
     await until(() => h.stats().directCount === 10);
     assert.equal(h.stats().leased, 0); assert.equal(h.stats().waiting, 0);
     assert(h.docs.every((doc) => doc.getText('content').toString() === ''));
     assert([...h.rows.values()].every((row) => row.status === 'applied_to_ydoc'), 'unpersisted deletes are not confirmed');
-    await h.nestedRead(() => undefined); h.persist();
+    await h.nestedRead(() => undefined);
+    assert.equal(h.historyCaptures().length, 0, 'durable history capture must wait until persisted bytes contain the deletion');
+    h.persist();
     const result = await pending;
     assert(result.every((entry) => entry.durability === 'persisted_yjs'));
+    assert.equal(h.historyCaptures().length, 10, 'each persisted Yjs receipt is captured through the immutable version-history boundary');
+    assert.deepEqual(h.historyCaptures().sort((left, right) => left.documentId.localeCompare(right.documentId)),
+      h.states.map((state) => ({ documentId: state.documentId, documentSequence: 2, source: 'agent_apply' })));
     assert.equal(h.rows.size, 10); assert.equal(h.stats().directCount, 10); assert.equal(h.stats().leased, 0);
+  } finally { h.close(); await pending.catch(() => {}); }
+});
+
+test('direct deletion is not certified durable when immutable version-history capture fails', async () => {
+  const h = harness(1);
+  const state = h.states[0]!;
+  const pending = h.agent.applyPersistedAgentTextOperation({
+    documentId: state.documentId, workspace, initiatedByUserId: 'user', actorId: 'agent', actorSessionId: 'session',
+    actorDisplayName: 'Agent', idempotencyKey: 'history-failure', runGeneration: 1, targets: [h.targets[0]],
+    documentPath: state.path, documentRepresentation: 'plain_text', documentLifecycleGeneration: 1, documentSchemaVersion: 1,
+  });
+  try {
+    await until(() => h.stats().grantCount === 1);
+    h.grants.resolve();
+    await until(() => h.stats().directCount === 1);
+    assert.equal([...h.rows.values()][0]?.status, 'applied_to_ydoc');
+    h.failHistoryCapture();
+    h.persist();
+    const result = await pending;
+    assert.equal(h.historyCaptures().length, 1);
+    assert.equal(result.durability, 'applied_to_ydoc');
+    assert.equal(result.operationStatus, 'partially_applied');
+    assert.notEqual(result.durability, 'persisted_yjs');
+    assert(result.conflicts.some((conflict) => conflict.code === 'persistence_degraded'));
+    assert.equal(h.docs[0]?.getText('content').toString(), '', 'the rejected history capture does not undo an already-persisted pure deletion');
+    const persistedDoc = new Y.Doc();
+    try {
+      Y.applyUpdate(persistedDoc, h.states[0]!.yjsState);
+      assert.equal(persistedDoc.getText('content').toString(), '', 'the persisted Yjs bytes still contain the deletion');
+    } finally { persistedDoc.destroy(); }
+    assert.equal([...h.rows.values()][0]?.status, 'partially_applied');
+    assert.equal(h.stats().leased, 0);
   } finally { h.close(); await pending.catch(() => {}); }
 });
 

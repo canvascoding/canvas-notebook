@@ -12,6 +12,8 @@ import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-mi
 import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from './mobile-notebook-operation-migration';
 import { runFileVersionCenterStorageMigration } from './file-version-center-migration';
 import { runProposalGraphStorageMigration } from './proposal-graph-migration';
+import { COLLABORATION_ROOM_OWNER_UP_SQL, COLLABORATION_ROOM_RELEASE_UP_SQL } from './collaboration-room-owner-migration';
+import { COLLABORATION_ADMISSION_STATEMENTS } from './collaboration-admission-migration';
 import { runEmailCachePostgresMigration } from '@/app/lib/email/cache/postgres-migration';
 import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
@@ -1236,6 +1238,9 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
   await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compacted_at bigint');
   await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compaction_count bigint NOT NULL DEFAULT 0');
+  await pool.query(COLLABORATION_ROOM_OWNER_UP_SQL);
+  await pool.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
+  for (const statement of COLLABORATION_ADMISSION_STATEMENTS) await pool.query(statement);
   await pool.query('ALTER TABLE team_membership_sync_state ADD COLUMN IF NOT EXISTS next_attempt_at bigint');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_workspace_path ON collaboration_yjs_states (workspace_id, path)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_persisted ON collaboration_yjs_states (persisted_at)');

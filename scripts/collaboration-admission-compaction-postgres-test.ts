@@ -1,0 +1,1312 @@
+import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { Client, Pool } from 'pg';
+import ts from 'typescript';
+import * as Y from 'yjs';
+
+import type { SqlConnection } from '../app/lib/db';
+import { lockFileCollaborationPaths } from '../app/lib/files/collaboration-repository';
+import * as roomAdmissionRuntime from '../app/lib/collaboration/room-admission';
+import { createCollaborationAdmissionService } from '../app/lib/collaboration/room-admission';
+import * as roomAdmissionContractRuntime from '../app/lib/collaboration/room-admission-contract';
+import {
+  collaborationAdmissionActionDigest,
+  CollaborationAdmissionError,
+  type CollaborationAdmissionDocument,
+  type CollaborationAdmissionRequest,
+} from '../app/lib/collaboration/room-admission-contract';
+import * as compactionContractModule from '../app/lib/collaboration/compaction-contract';
+import type { CollaborationAdmissionDrainTicket } from '../app/lib/collaboration/room-admission-drain';
+import * as quiescenceRuntime from '../app/lib/collaboration/room-admission-quiescence';
+import { createCollaborationAdmissionQuiescenceService } from '../app/lib/collaboration/room-admission-quiescence';
+import * as handoffRuntime from '../app/lib/collaboration/room-admission-handoff';
+import * as outcomeRuntime from '../app/lib/collaboration/room-admission-outcome';
+import {
+  assertCollaborationRoomOwnerFence,
+  createCollaborationRoomOwnerSession,
+  lockIdentity,
+  type CollaborationRoomOwnerFence,
+} from '../app/lib/collaboration/room-owner';
+import {
+  recoverCollaborationRoomRelease,
+  type CollaborationRoomReleaseSnapshot,
+} from '../app/lib/collaboration/room-owner-release';
+import { COLLABORATION_ADMISSION_STATEMENTS } from '../app/lib/db/collaboration-admission-migration';
+import {
+  COLLABORATION_ROOM_OWNER_UP_SQL,
+  COLLABORATION_ROOM_RELEASE_UP_SQL,
+} from '../app/lib/db/collaboration-room-owner-migration';
+
+const SCHEMA_PREFIX = 'canvas_admission_compact_test_';
+const GENERATED_SCHEMA = new RegExp(`^${SCHEMA_PREFIX}[0-9a-f]{32}$`, 'u');
+const STATEMENT_TIMEOUT_MS = 15_000;
+const LOCK_TIMEOUT_MS = 8_000;
+const OPERATION_TIMEOUT_MS = 20_000;
+const CLEANUP_TIMEOUT_MS = 20_000;
+
+type OwnerSession = Awaited<ReturnType<typeof createCollaborationRoomOwnerSession>>;
+type PersistenceError = Error & { code?: string };
+type TestOutcome = {
+  version: 1 | 2;
+  disposition?: 'aborted';
+  reasonCode?: 'user_cancelled' | 'precondition_failed';
+  requestId: string;
+  requestDigest: string;
+  result: Readonly<Record<string, string>>;
+  targets: readonly unknown[];
+};
+type PersistenceModule = {
+  CollaborationRepresentationMigrationError: new (...args: never[]) => PersistenceError;
+  compactCollaborationState(input: {
+    documentId: string;
+    expectedLifecycleGeneration: number;
+  }): Promise<unknown>;
+  compactCollaborationStateInAdmissionHandoff(database: SqlConnection, input: {
+    documentId: string;
+    expectedLifecycleGeneration: number;
+  }): Promise<{ state: { documentId: string; lifecycleGeneration: number; documentSequence: number }; backupId: string }>;
+  prepareCollaborationCompactionAdmission(
+    database: SqlConnection,
+    input: CollaborationAdmissionRequest,
+  ): Promise<void>;
+};
+type CompactionModule = {
+  createCollaborationCompactionHandoffService(options: {
+    openConnection: () => Promise<SqlConnection>;
+    withMutationLocks: <T>(workspaceIds: readonly string[], operation: () => Promise<T>) => Promise<T>;
+  }): {
+    abort(input: CollaborationAdmissionRequest, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }, reasonCode?: 'user_cancelled' | 'precondition_failed'): Promise<TestOutcome>;
+    execute(input: CollaborationAdmissionRequest, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }): Promise<TestOutcome>;
+  };
+};
+type CoordinatorProgress =
+  | Readonly<{ status: 'completed'; outcome: TestOutcome }>
+  | Readonly<{ status: 'pending'; requestId: string; requestDigest: string; phase: 'quiescence' | 'handoff' }>
+  | Readonly<{ status: 'cancelled'; requestId: string; requestDigest: string }>;
+type CoordinatorModule = {
+  createCollaborationCompactionCoordinator(options: {
+    openConnection: () => Promise<SqlConnection>;
+    withMutationLocks: <T>(workspaceIds: readonly string[], operation: () => Promise<T>) => Promise<T>;
+    assertCanStartAdmission: (request: CollaborationAdmissionRequest) => Promise<void>;
+  }): {
+    advance(input: CollaborationAdmissionRequest, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }): Promise<CoordinatorProgress>;
+    resume(requestId: string, authorization: {
+      authorize: (request: CollaborationAdmissionRequest) => Promise<void>;
+    }): Promise<CoordinatorProgress>;
+  };
+};
+type CoordinatorHarnessHooks = {
+  afterReserveByRequestId: Map<string, () => Promise<void>>;
+};
+type ConnectionHooks = {
+  connections?: number;
+  commitFault?: { position: 'before' | 'after'; remaining: number };
+  onOpen?: (ordinal: number) => Promise<void>;
+  onClose?: (error: Error | undefined, ordinal: number) => void;
+  beforeQuery?: (normalizedSql: string) => Promise<void>;
+  afterQuery?: (normalizedSql: string) => Promise<void>;
+};
+type StateRow = {
+  document_id: string;
+  workspace_id: string;
+  organization_id: string | null;
+  path: string;
+  representation: string;
+  lifecycle_generation: number | string;
+  schema_version: number | string;
+  yjs_state: Uint8Array;
+  state_vector: Uint8Array;
+  document_sequence: number | string;
+  checkpoint_sequence: number | string;
+  room_owner_epoch: number | string;
+  room_owner_token: string | null;
+  room_owner_backend_pid: number | null;
+  room_owner_backend_start: string | null;
+  status: string;
+};
+type BackupRow = {
+  backup_id: string;
+  lifecycle_generation: number | string;
+  document_sequence: number | string;
+  yjs_state: Uint8Array;
+  state_vector: Uint8Array;
+  reason: string;
+};
+type Gate = { promise: Promise<void>; resolve: () => void };
+
+function deferred(): Gate {
+  let resolve!: () => void;
+  return { promise: new Promise<void>((done) => { resolve = done; }), resolve };
+}
+
+function guardedDatabaseUrl(): URL | null {
+  if (process.env.CANVAS_DATABASE_PROVIDER !== 'postgres' || !process.env.DATABASE_URL) return null;
+  let parsed: URL;
+  try { parsed = new URL(process.env.DATABASE_URL); }
+  catch { throw new Error('Admission-compaction PostgreSQL test refused a malformed DATABASE_URL.'); }
+  const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//u, ''));
+  if (!['postgres:', 'postgresql:'].includes(parsed.protocol)
+    || !['localhost', '127.0.0.1'].includes(parsed.hostname)
+    || parsed.port !== '55433' || databaseName !== 'canvas_notebook') {
+    throw new Error('Admission-compaction PostgreSQL test only accepts managed loopback PG18 at 55433/canvas_notebook.');
+  }
+  return parsed;
+}
+
+function assertGeneratedSchema(schema: string): void {
+  if (!GENERATED_SCHEMA.test(schema)) throw new Error('Refusing SQL outside the generated admission-compaction namespace.');
+}
+
+function schemaIdentifier(schema: string): string {
+  assertGeneratedSchema(schema);
+  return `"${schema}"`;
+}
+
+function poolConfig(databaseUrl: URL, applicationName: string, searchPath?: string) {
+  if (searchPath) assertGeneratedSchema(searchPath);
+  return {
+    connectionString: databaseUrl.toString(), application_name: applicationName,
+    connectionTimeoutMillis: 3_000, idleTimeoutMillis: 2_000, allowExitOnIdle: true,
+    options: [searchPath ? `-c search_path=${searchPath}` : '',
+      `-c statement_timeout=${STATEMENT_TIMEOUT_MS}`, `-c lock_timeout=${LOCK_TIMEOUT_MS}`]
+      .filter(Boolean).join(' '),
+  };
+}
+
+function normalizedSql(sql: string): string {
+  return sql.replace(/\s+/gu, ' ').trim().toUpperCase();
+}
+
+async function within<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([promise, new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
+    })]);
+  } finally { if (timeout) clearTimeout(timeout); }
+}
+
+async function verifyManagedPostgres(pool: Pool): Promise<void> {
+  const result = await pool.query<{
+    database_name: string;
+    server_version_num: string;
+    state_table: boolean;
+    backup_table: boolean;
+    operation_table: boolean;
+  }>(`SELECT current_database() AS database_name, current_setting('server_version_num') AS server_version_num,
+      to_regclass('public.collaboration_yjs_states') IS NOT NULL AS state_table,
+      to_regclass('public.collaboration_yjs_state_backups') IS NOT NULL AS backup_table,
+      to_regclass('public.collaboration_agent_operations') IS NOT NULL AS operation_table`);
+  const row = result.rows[0];
+  if (!row || row.database_name !== 'canvas_notebook'
+    || Math.floor(Number(row.server_version_num) / 10_000) !== 18
+    || !row.state_table || !row.backup_table || !row.operation_table) {
+    throw new Error('Admission-compaction test refused a server outside managed PG18.');
+  }
+}
+
+function sanitizeError(error: unknown): string {
+  const candidate = error && typeof error === 'object'
+    ? error as { code?: unknown; message?: unknown; name?: unknown } : {};
+  const name = typeof candidate.name === 'string' && /^[A-Za-z][A-Za-z0-9]*$/u.test(candidate.name)
+    ? candidate.name : 'Error';
+  const code = typeof candidate.code === 'string' && /^[A-Z0-9_]{1,40}$/u.test(candidate.code)
+    ? ` [${candidate.code}]` : '';
+  const message = typeof candidate.message === 'string' ? candidate.message : 'Unknown test failure.';
+  return `${name}${code}: ${message}`.replace(/postgres(?:ql)?:\/\/\S+/giu, '[database-url-redacted]')
+    .replace(/password\s*=\s*\S+/giu, 'password=[redacted]');
+}
+
+function createDocument(content: string): Y.Doc {
+  const document = new Y.Doc({ gc: true });
+  document.getText('content').insert(0, content);
+  return document;
+}
+
+function cloneDocument(source: Y.Doc): Y.Doc {
+  const document = new Y.Doc();
+  Y.applyUpdate(document, Y.encodeStateAsUpdate(source));
+  return document;
+}
+
+function textFromUpdate(update: Uint8Array): string {
+  const document = new Y.Doc();
+  try {
+    Y.applyUpdate(document, update);
+    return document.getText('content').toString();
+  } finally { document.destroy(); }
+}
+
+function admissionError(...codes: CollaborationAdmissionError['code'][]) {
+  return (error: unknown) => {
+    assert.ok(error instanceof CollaborationAdmissionError);
+    assert.ok(codes.includes(error.code), `expected ${codes.join(' or ')}, received ${error.code}`);
+    return true;
+  };
+}
+
+function persistenceError(module: PersistenceModule, code: string) {
+  return (error: unknown) => {
+    assert.ok(error instanceof module.CollaborationRepresentationMigrationError);
+    assert.equal(error.code, code);
+    return true;
+  };
+}
+
+function expectedDocument(documentId: string, lifecycleGeneration = 1): CollaborationAdmissionDocument {
+  return { documentId, workspaceId: 'workspace-compaction', organizationId: 'organization-compaction',
+    path: `${documentId}.md`, representation: 'plain_text', lifecycleGeneration, schemaVersion: 1, status: 'active' };
+}
+
+function compactionRequest(document: CollaborationAdmissionDocument): CollaborationAdmissionRequest {
+  const actionPayloadText = JSON.stringify({ version: 1, documentId: document.documentId,
+    expectedLifecycleGeneration: document.lifecycleGeneration });
+  return { requestId: randomUUID(), actorId: 'actor-compaction', action: 'compact', actionPayloadText,
+    actionDigest: collaborationAdmissionActionDigest('compact', actionPayloadText),
+    scopes: [{ workspaceId: document.workspaceId, organizationId: document.organizationId,
+      path: document.path, kind: 'exact' }], expectedDocuments: [document] };
+}
+
+function createConnectionAdapter(pool: Pool, hookContext: AsyncLocalStorage<ConnectionHooks>) {
+  return async (): Promise<SqlConnection> => {
+    const client = await pool.connect();
+    const hooks = hookContext.getStore();
+    let ordinal = 0;
+    if (hooks) {
+      hooks.connections = (hooks.connections ?? 0) + 1;
+      ordinal = hooks.connections;
+      try { await hooks.onOpen?.(ordinal); }
+      catch (error) {
+        client.release(error instanceof Error ? error : new Error('Admission-compaction open hook failed.'));
+        throw error;
+      }
+    }
+    let closed = false;
+    const query = async (sql: string, params: unknown[] = []) => {
+      const normalized = normalizedSql(sql);
+      await hooks?.beforeQuery?.(normalized);
+      if (normalized === 'COMMIT' && hooks?.commitFault?.position === 'before'
+        && hooks.commitFault.remaining > 0) {
+        hooks.commitFault.remaining -= 1;
+        throw new Error('Injected rejected admission-compaction COMMIT.');
+      }
+      const result = await client.query(sql, params);
+      await hooks?.afterQuery?.(normalized);
+      if (normalized === 'COMMIT' && hooks?.commitFault?.position === 'after'
+        && hooks.commitFault.remaining > 0) {
+        hooks.commitFault.remaining -= 1;
+        throw new Error('Injected lost admission-compaction COMMIT reply.');
+      }
+      return result;
+    };
+    return {
+      get: async (sql, params = []) => (await query(sql, params)).rows[0],
+      all: async (sql, params = []) => (await query(sql, params)).rows,
+      run: async (sql, params = []) => ({ changes: (await query(sql, params)).rowCount ?? 0 }),
+      close: async (error) => {
+        assert.equal(closed, false, 'admission-compaction SQL connection closed twice');
+        closed = true;
+        hooks?.onClose?.(error, ordinal);
+        client.release(error);
+      },
+    };
+  };
+}
+
+async function loadProductionModules(openDb: () => Promise<SqlConnection>, coordinatorHooks: CoordinatorHarnessHooks):
+Promise<{ persistence: PersistenceModule; compaction: CompactionModule; coordinator: CoordinatorModule }> {
+  const persistenceFilename = path.resolve('app/lib/collaboration/persistence.ts');
+  const runtimeRequire = createRequire(persistenceFilename);
+  const mergeFilename = path.resolve('app/lib/collaboration/persistence-merge.ts');
+  const mergeSource = ts.transpileModule(await readFile(mergeFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const mergeModule = { exports: {} as Record<string, unknown> };
+  new Function('require', 'module', 'exports', mergeSource)((name: string) => {
+    if (name === './server-runtime') return { Y };
+    return createRequire(mergeFilename)(name);
+  }, mergeModule, mergeModule.exports);
+  const transactionFilename = path.resolve('app/lib/collaboration/lifecycle-transaction.ts');
+  const transactionSource = ts.transpileModule(await readFile(transactionFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const transactionModule = { exports: {} as Record<string, unknown> };
+  new Function('require', 'module', 'exports', transactionSource)((name: string) => {
+    if (name === 'server-only') return {};
+    return createRequire(transactionFilename)(name);
+  }, transactionModule, transactionModule.exports);
+  const createTextDocument = (content: string) => createDocument(content);
+  // Plain-text codec injection keeps this harness on transactional admission
+  // mechanics. It makes no real rich-Markdown codec or filesystem projection claim.
+  const markdownState = {
+    createPlainTextYDoc: createTextDocument,
+    createRichMarkdownYDoc: createTextDocument,
+    richMarkdownFromYDoc: (document: Y.Doc) => document.getText('content').toString(),
+    validateRichMarkdownYDoc: (document: Y.Doc) => ({ valid: true, markdown: document.getText('content').toString() }),
+    convertRichMarkdownYDoc: (document: Y.Doc) => cloneDocument(document),
+  };
+  const persistenceMocks: Record<string, unknown> = {
+    'server-only': {},
+    '@/app/lib/db': { openDb },
+    '@/app/lib/files/workspace-mutation-lock': {
+      withWorkspaceMutationLock: async (_workspaceId: string, operation: () => Promise<unknown>) => operation(),
+    },
+    '@/app/lib/files/collaboration-repository': {
+      archivePersistedCollaborationStatePathScopes() {},
+      lockFileCollaborationPaths,
+      movePersistedCollaborationStatePathScope() {},
+      reactivatePersistedCollaborationStatePathScope() {},
+      withFileCollaborationTransaction: async (operation: (value: unknown) => Promise<unknown>) => operation({}),
+    },
+    '@/app/lib/markdown/obsidian-metadata': {
+      composeCanvasMarkdownDocument: (prefix: string, body: string) => `${prefix}${body}`,
+    },
+    '@/app/lib/markdown/rich-markdown-codec': {
+      analyzeMarkdownRichMode: () => ({ mode: 'normalizable', prefix: '', normalizedBody: 'normalized' }),
+    },
+    './types': { isRichTextCollaborationRepresentation: (value: string) => value !== 'plain_text' },
+    './markdown-state': markdownState,
+    './runtime-state': {
+      getCollaborationRoomConnectionCount: () => 0,
+      withCollaborationRoomLifecycleLock: async (_documentId: string, operation: () => Promise<unknown>) => operation(),
+    },
+    './server-runtime': { Y },
+    './persistence-merge': mergeModule.exports,
+    './room-owner': await import('../app/lib/collaboration/room-owner'),
+    './room-admission-handoff': handoffRuntime,
+    './compaction-contract': compactionContractModule,
+    './lifecycle-transaction': transactionModule.exports,
+  };
+  const persistenceSource = ts.transpileModule(await readFile(persistenceFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const persistenceCompiledModule = { exports: {} as Record<string, unknown> };
+  new Function('require', 'module', 'exports', persistenceSource)((name: string) =>
+    Object.prototype.hasOwnProperty.call(persistenceMocks, name) ? persistenceMocks[name] : runtimeRequire(name),
+  persistenceCompiledModule, persistenceCompiledModule.exports);
+
+  const compactionFilename = path.resolve('app/lib/collaboration/compaction-handoff.ts');
+  const compactionSource = ts.transpileModule(await readFile(compactionFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const compactionMocks: Record<string, unknown> = {
+    'server-only': {},
+    './compaction-contract': compactionContractModule,
+    './room-admission-handoff': handoffRuntime,
+    './room-admission-outcome': outcomeRuntime,
+    './persistence': persistenceCompiledModule.exports,
+  };
+  const compactionCompiledModule = { exports: {} as Record<string, unknown> };
+  new Function('require', 'module', 'exports', compactionSource)((name: string) =>
+    Object.prototype.hasOwnProperty.call(compactionMocks, name)
+      ? compactionMocks[name] : createRequire(compactionFilename)(name),
+  compactionCompiledModule, compactionCompiledModule.exports);
+
+  const coordinatorAdmissionRuntime = {
+    ...roomAdmissionRuntime,
+    createCollaborationAdmissionService(options:
+      Parameters<typeof roomAdmissionRuntime.createCollaborationAdmissionService>[0]) {
+      const service = roomAdmissionRuntime.createCollaborationAdmissionService(options);
+      return {
+        ...service,
+        async reserve(input: CollaborationAdmissionRequest) {
+          const reservation = await service.reserve(input);
+          const hook = coordinatorHooks.afterReserveByRequestId.get(input.requestId);
+          if (hook) {
+            coordinatorHooks.afterReserveByRequestId.delete(input.requestId);
+            await hook();
+          }
+          return reservation;
+        },
+      };
+    },
+  };
+  const coordinatorFilename = path.resolve('app/lib/collaboration/compaction-coordinator.ts');
+  const coordinatorSource = ts.transpileModule(await readFile(coordinatorFilename, 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const coordinatorMocks: Record<string, unknown> = {
+    'server-only': {},
+    './compaction-contract': compactionContractModule,
+    './compaction-handoff': compactionCompiledModule.exports,
+    './persistence': persistenceCompiledModule.exports,
+    './room-admission': coordinatorAdmissionRuntime,
+    './room-admission-contract': roomAdmissionContractRuntime,
+    './room-admission-handoff': handoffRuntime,
+    './room-admission-outcome': outcomeRuntime,
+    './room-admission-quiescence': quiescenceRuntime,
+  };
+  const coordinatorCompiledModule = { exports: {} as Record<string, unknown> };
+  new Function('require', 'module', 'exports', coordinatorSource)((name: string) =>
+    Object.prototype.hasOwnProperty.call(coordinatorMocks, name)
+      ? coordinatorMocks[name] : createRequire(coordinatorFilename)(name),
+  coordinatorCompiledModule, coordinatorCompiledModule.exports);
+  return { persistence: persistenceCompiledModule.exports as PersistenceModule,
+    compaction: compactionCompiledModule.exports as CompactionModule,
+    coordinator: coordinatorCompiledModule.exports as CoordinatorModule };
+}
+
+async function run(databaseUrl: URL): Promise<void> {
+  const schema = `${SCHEMA_PREFIX}${randomUUID().replaceAll('-', '')}`;
+  assertGeneratedSchema(schema);
+  const schemaSql = schemaIdentifier(schema);
+  const stateTable = `${schemaSql}.collaboration_yjs_states`;
+  const backupTable = `${schemaSql}.collaboration_yjs_state_backups`;
+  const operationTable = `${schemaSql}.collaboration_agent_operations`;
+  const controlPool = new Pool({ ...poolConfig(databaseUrl, 'canvas-admission-compaction-control'), max: 4 });
+  const poolErrors: Error[] = [];
+  controlPool.on('error', (error) => { poolErrors.push(error); });
+  let runtimePool: Pool | undefined;
+  let runtimePoolDrained = false;
+  let schemaCreated = false;
+  const ownerSessions = new Set<OwnerSession>();
+  const cleanupErrors: unknown[] = [];
+  const documents = new Set<Y.Doc>();
+
+  try {
+    await verifyManagedPostgres(controlPool);
+    await controlPool.query(`CREATE SCHEMA ${schemaSql}`);
+    schemaCreated = true;
+    await controlPool.query(`CREATE TABLE ${stateTable} (LIKE public.collaboration_yjs_states INCLUDING ALL)`);
+    await controlPool.query(`CREATE TABLE ${backupTable} (LIKE public.collaboration_yjs_state_backups INCLUDING ALL)`);
+    await controlPool.query(`CREATE TABLE ${operationTable} (LIKE public.collaboration_agent_operations INCLUDING ALL)`);
+    const migrationClient = new Client({ ...poolConfig(databaseUrl, 'canvas-admission-compaction-migration', schema) });
+    await migrationClient.connect();
+    try {
+      assert.equal((await migrationClient.query<{ search_path: string }>('SHOW search_path')).rows[0]?.search_path, schema);
+      for (let pass = 0; pass < 2; pass += 1) {
+        await migrationClient.query(COLLABORATION_ROOM_OWNER_UP_SQL);
+        await migrationClient.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
+        for (const statement of COLLABORATION_ADMISSION_STATEMENTS) await migrationClient.query(statement);
+      }
+    } finally { await migrationClient.end(); }
+
+    runtimePool = new Pool({ ...poolConfig(databaseUrl, 'canvas-admission-compaction-runtime', schema), max: 10 });
+    runtimePool.on('error', (error) => { poolErrors.push(error); });
+    assert.equal((await runtimePool.query<{ search_path: string }>('SHOW search_path')).rows[0]?.search_path, schema);
+    const hookContext = new AsyncLocalStorage<ConnectionHooks>();
+    const openConnection = createConnectionAdapter(runtimePool, hookContext);
+    const coordinatorHooks: CoordinatorHarnessHooks = { afterReserveByRequestId: new Map() };
+    const { persistence, compaction, coordinator } = await loadProductionModules(openConnection, coordinatorHooks);
+    const admission = createCollaborationAdmissionService({ openConnection });
+    const quiescence = createCollaborationAdmissionQuiescenceService({ openConnection });
+    const compactionService = compaction.createCollaborationCompactionHandoffService({
+      openConnection,
+      withMutationLocks: async (workspaceIds, operation) => {
+        assert.deepEqual(workspaceIds, ['workspace-compaction']);
+        return operation();
+      },
+    });
+    const createCoordinator = (assertCanStartAdmission:
+      (request: CollaborationAdmissionRequest) => Promise<void> = async () => undefined) => {
+      const metrics = { activeLocks: 0, lockCalls: 0, startChecks: 0 };
+      const service = coordinator.createCollaborationCompactionCoordinator({
+        openConnection,
+        assertCanStartAdmission: async (request) => {
+          metrics.startChecks += 1;
+          await assertCanStartAdmission(request);
+        },
+        withMutationLocks: async (workspaceIds, operation) => {
+          assert.deepEqual(workspaceIds, ['workspace-compaction']);
+          metrics.lockCalls += 1;
+          metrics.activeLocks += 1;
+          try { return await operation(); }
+          finally { metrics.activeLocks -= 1; }
+        },
+      });
+      return { service, metrics };
+    };
+    const createOwner = async (label: string) => {
+      const client = new Client({ ...poolConfig(databaseUrl, `canvas-admission-compaction-owner-${label}`, schema) });
+      await client.connect();
+      const session = await createCollaborationRoomOwnerSession(client);
+      ownerSessions.add(session);
+      return session;
+    };
+    const ownDocument = (content: string) => {
+      const document = createDocument(content);
+      documents.add(document);
+      return document;
+    };
+    const seed = async (expected: CollaborationAdmissionDocument, content: string, ownerEpoch = 0) => {
+      const document = ownDocument(content);
+      const now = 1_700_000_000_000;
+      await controlPool.query(`INSERT INTO ${stateTable} (
+        document_id,workspace_id,organization_id,path,representation,lifecycle_generation,schema_version,
+        yjs_state,state_vector,document_sequence,persisted_at,checkpointed_at,checkpoint_sequence,
+        canonical_hash,serialized_hash,newline_style,has_bom,degraded,status,
+        room_owner_epoch,room_owner_token,room_owner_backend_pid,room_owner_backend_start
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,0,$10,$10,0,$11,$11,'lf',0,0,'active',$12,NULL,NULL,NULL)`,
+      [expected.documentId, expected.workspaceId, expected.organizationId, expected.path, expected.representation,
+        expected.lifecycleGeneration, expected.schemaVersion, Buffer.from(Y.encodeStateAsUpdate(document)),
+        Buffer.from(Y.encodeStateVector(document)), now, createHash('sha256').update(content).digest('hex'), ownerEpoch]);
+    };
+    const readState = async (documentId: string) => {
+      const result = await controlPool.query<StateRow>(`SELECT * FROM ${stateTable} WHERE document_id=$1`, [documentId]);
+      assert.equal(result.rows.length, 1);
+      return result.rows[0]!;
+    };
+    const readBackups = async (documentId: string) => (await controlPool.query<BackupRow>(
+      `SELECT * FROM ${backupTable} WHERE document_id=$1 ORDER BY created_at`, [documentId],
+    )).rows;
+    const saveAndRelease = async (session: OwnerSession, fence: CollaborationRoomOwnerFence, content: string,
+      admissionTicket?: CollaborationAdmissionDrainTicket) => {
+      const document = ownDocument(content);
+      const yjsState = Buffer.from(Y.encodeStateAsUpdate(document));
+      const stateVector = Buffer.from(Y.encodeStateVector(document));
+      const database = await openConnection();
+      try {
+        await database.run('BEGIN');
+        const row = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id=$1 FOR UPDATE',
+          [fence.scope.documentId]) as StateRow | undefined;
+        assert.ok(row);
+        await assertCollaborationRoomOwnerFence(database, row, fence);
+        await database.run(`UPDATE collaboration_yjs_states SET yjs_state=$2,state_vector=$3,
+          document_sequence=document_sequence+1,checkpoint_sequence=document_sequence+1,
+          checkpointed_at=$4,persisted_at=$4,canonical_hash=$5 WHERE document_id=$1`,
+        [fence.scope.documentId, yjsState, stateVector, Date.now(), createHash('sha256').update(content).digest('hex')]);
+        await database.run('COMMIT');
+      } catch (error) {
+        await Promise.resolve(database.run('ROLLBACK')).catch(() => undefined);
+        throw error;
+      } finally { await database.close(); }
+      const snapshot: CollaborationRoomReleaseSnapshot = Object.freeze({
+        releaseId: admissionTicket?.releaseId ?? randomUUID(), ...(admissionTicket ? { admission: admissionTicket } : {}),
+        yjsState: new Uint8Array(yjsState), stateVector: new Uint8Array(stateVector) });
+      await session.release(fence, snapshot);
+      return snapshot;
+    };
+    const reserveAndProve = async (input: CollaborationAdmissionRequest) => {
+      await admission.reserve(input);
+      return quiescence.prove(input, input.expectedDocuments[0]!.documentId);
+    };
+    const insertPendingOperation = async (expected: CollaborationAdmissionDocument) => {
+      const state = await readState(expected.documentId);
+      const now = Date.now();
+      await controlPool.query(`INSERT INTO ${operationTable} (
+        operation_id,document_id,document_path,document_representation,workspace_id,organization_id,
+        document_lifecycle_generation,schema_version,initiated_by_user_id,actor_id,idempotency_key,run_generation,
+        payload_hash,operation_type,requested_mode,atomicity,status,base_state_vector,base_document_sequence,
+        action_keys_json,created_at,updated_at
+      ) VALUES ($1,$2,$3,'plain_text',$4,$5,$6,1,'user','agent',$7,1,
+        'payload','apply','review','all_or_nothing','preparing',$8,$9,'{}',$10,$10)`,
+      [`operation-${expected.documentId}`, expected.documentId, expected.path, expected.workspaceId,
+        expected.organizationId, expected.lifecycleGeneration, `key-${expected.documentId}`,
+        Buffer.from(state.state_vector), Number(state.document_sequence), now]);
+    };
+    const readOperationStatus = async (documentId: string) => (await controlPool.query<{ status: string }>(
+      `SELECT status FROM ${operationTable} WHERE document_id=$1`, [documentId],
+    )).rows[0]?.status;
+    const readAdmissionTarget = async (requestId: string) => (await controlPool.query<{
+      status: string; active: boolean;
+    }>(`SELECT status,active FROM ${schemaSql}.collaboration_admission_targets WHERE request_id=$1`,
+    [requestId])).rows[0];
+    const readAdmissionProofKind = async (requestId: string) => (await controlPool.query<{
+      quiescence_kind: string | null;
+    }>(`SELECT quiescence_kind FROM ${schemaSql}.collaboration_admission_targets WHERE request_id=$1`,
+    [requestId])).rows[0]?.quiescence_kind ?? null;
+
+    // The real production core is inaccessible without the exact WeakMap-bound handoff transaction.
+    const raw = await openConnection();
+    const delegated: SqlConnection = {
+      get: raw.get.bind(raw), all: raw.all.bind(raw), run: raw.run.bind(raw), close: raw.close.bind(raw),
+    };
+    await assert.rejects(persistence.compactCollaborationStateInAdmissionHandoff(raw,
+      { documentId: 'outside-handoff', expectedLifecycleGeneration: 1 }), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    await assert.rejects(persistence.compactCollaborationStateInAdmissionHandoff(delegated,
+      { documentId: 'outside-handoff', expectedLifecycleGeneration: 1 }), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    await raw.close(new Error('Discarding direct authority probes.'));
+
+    // Floating persistence promises cannot outlive the exact mutation lease, before or after its single-use claim.
+    const floatingHandoff = handoffRuntime.createCollaborationAdmissionHandoffService({
+      openConnection,
+      withMutationLocks: async (_workspaceIds, operation) => operation(),
+    });
+    const runFloatingCase = async (label: string, blockedQuery: 'state' | 'backup') => {
+      const target = expectedDocument(`admission-compaction-floating-${label}`);
+      await seed(target, `floating ${label} content`);
+      const input = compactionRequest(target);
+      await reserveAndProve(input);
+      const gateEntered = deferred();
+      const releaseGate = deferred();
+      const mutateReturned = deferred();
+      let floatingStarted = false;
+      let mutationReturnedFlag = false;
+      let stateUpdatesAfterReturn = 0;
+      let detachedError: unknown;
+      let detachedHandled: Promise<void> | undefined;
+      const hooks: ConnectionHooks = {
+        beforeQuery: async (sql) => {
+          if (floatingStarted && mutationReturnedFlag && sql.startsWith('UPDATE COLLABORATION_YJS_STATES')) {
+            stateUpdatesAfterReturn += 1;
+          }
+        },
+        afterQuery: async (sql) => {
+          const matches = blockedQuery === 'state'
+            ? sql === 'SELECT * FROM COLLABORATION_YJS_STATES WHERE DOCUMENT_ID = $1 FOR UPDATE'
+            : sql.startsWith('INSERT INTO COLLABORATION_YJS_STATE_BACKUPS');
+          if (!floatingStarted || !matches) return;
+          gateEntered.resolve();
+          await releaseGate.promise;
+        },
+      };
+      const execution = hookContext.run(hooks, () => floatingHandoff.execute(input, {
+        authorize: async () => undefined,
+        prepare: (database) => persistence.prepareCollaborationCompactionAdmission(database, input),
+        mutate: async (database) => {
+          floatingStarted = true;
+          const detached = persistence.compactCollaborationStateInAdmissionHandoff(database,
+            { documentId: target.documentId, expectedLifecycleGeneration: target.lifecycleGeneration });
+          detachedHandled = detached.then(
+            () => { assert.fail('floating compaction unexpectedly completed'); },
+            (error: unknown) => { detachedError = error; },
+          );
+          await gateEntered.promise;
+          mutationReturnedFlag = true;
+          mutateReturned.resolve();
+          return {};
+        },
+      }));
+      const executionHandled = execution.then(
+        () => ({ error: undefined as unknown }),
+        (error: unknown) => ({ error }),
+      );
+      await within(Promise.all([gateEntered.promise, mutateReturned.promise]), OPERATION_TIMEOUT_MS,
+        `floating ${label} compaction did not reach its controlled query`);
+      try {
+        const executionResult = await within(executionHandled, OPERATION_TIMEOUT_MS,
+          `floating ${label} handoff did not reject`);
+        admissionError('ADMISSION_RECOVERY_REQUIRED')(executionResult.error);
+      } finally { releaseGate.resolve(); }
+      assert.ok(detachedHandled);
+      await within(detachedHandled, OPERATION_TIMEOUT_MS, `floating ${label} promise did not settle`);
+      assert.ok(detachedError instanceof Error, `floating ${label} promise must reject`);
+      assert.equal(stateUpdatesAfterReturn, 0, 'revoked floating compaction cannot reach the state UPDATE');
+      assert.equal(Number((await readState(target.documentId)).lifecycle_generation), 1);
+      assert.equal((await readBackups(target.documentId)).length, 0);
+    };
+    await runFloatingCase('preclaim', 'state');
+    await runFloatingCase('postclaim', 'backup');
+
+    // Authority cannot transfer to a delegated wrapper, cannot be claimed twice, and expires after mutate returns.
+    const transferDocument = expectedDocument('admission-compaction-authority-transfer');
+    await seed(transferDocument, 'authority transfer content');
+    const transferRequest = compactionRequest(transferDocument);
+    await reserveAndProve(transferRequest);
+    let escapedDatabase: SqlConnection | undefined;
+    await assert.rejects(floatingHandoff.execute(transferRequest, {
+      authorize: async () => undefined,
+      prepare: (database) => persistence.prepareCollaborationCompactionAdmission(database, transferRequest),
+      mutate: async (database) => {
+        escapedDatabase = database;
+        const wrapper: SqlConnection = {
+          get: database.get.bind(database), all: database.all.bind(database),
+          run: database.run.bind(database), close: database.close.bind(database),
+        };
+        await assert.rejects(persistence.compactCollaborationStateInAdmissionHandoff(wrapper,
+          { documentId: transferDocument.documentId, expectedLifecycleGeneration: 1 }),
+        admissionError('ADMISSION_RECOVERY_REQUIRED'));
+        await persistence.compactCollaborationStateInAdmissionHandoff(database,
+          { documentId: transferDocument.documentId, expectedLifecycleGeneration: 1 });
+        const current = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id=$1 FOR UPDATE',
+          [transferDocument.documentId]) as Record<string, unknown>;
+        handoffRuntime.claimCollaborationAdmissionMutation(database, 'compact', current);
+        return {};
+      },
+    }), admissionError('ADMISSION_SCOPE_CHANGED'));
+    assert.ok(escapedDatabase);
+    await assert.rejects(persistence.compactCollaborationStateInAdmissionHandoff(escapedDatabase,
+      { documentId: transferDocument.documentId, expectedLifecycleGeneration: 1 }),
+    admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.equal(Number((await readState(transferDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(transferDocument.documentId)).length, 0);
+
+    // Same-vector deletion-only drift inside raw mutate fails the authority's complete-byte snapshot comparison.
+    const deletionDocument = expectedDocument('admission-compaction-deletion-drift');
+    await seed(deletionDocument, 'delete-me');
+    const deletionRequest = compactionRequest(deletionDocument);
+    await reserveAndProve(deletionRequest);
+    const deletionBefore = await readState(deletionDocument.documentId);
+    const deletionYDoc = ownDocument('');
+    Y.applyUpdate(deletionYDoc, deletionBefore.yjs_state);
+    deletionYDoc.getText('content').delete(0, 1);
+    const deletionUpdate = Buffer.from(Y.encodeStateAsUpdate(deletionYDoc));
+    const deletionVector = Buffer.from(Y.encodeStateVector(deletionYDoc));
+    assert.equal(deletionVector.equals(Buffer.from(deletionBefore.state_vector)), true,
+      'deletion-only drift keeps the state vector unchanged');
+    assert.equal(deletionUpdate.equals(Buffer.from(deletionBefore.yjs_state)), false,
+      'deletion-only drift changes the full update bytes');
+    await assert.rejects(floatingHandoff.execute(deletionRequest, {
+      authorize: async () => undefined,
+      prepare: (database) => persistence.prepareCollaborationCompactionAdmission(database, deletionRequest),
+      mutate: async (database) => {
+        await database.run('UPDATE collaboration_yjs_states SET yjs_state=$2 WHERE document_id=$1',
+          [deletionDocument.documentId, deletionUpdate]);
+        await persistence.compactCollaborationStateInAdmissionHandoff(database,
+          { documentId: deletionDocument.documentId, expectedLifecycleGeneration: 1 });
+        return {};
+      },
+    }), admissionError('ADMISSION_STATE_CHANGED'));
+    const deletionAfter = await readState(deletionDocument.documentId);
+    assert.deepEqual(Buffer.from(deletionAfter.yjs_state), Buffer.from(deletionBefore.yjs_state));
+    assert.deepEqual(Buffer.from(deletionAfter.state_vector), Buffer.from(deletionBefore.state_vector));
+    assert.equal((await readBackups(deletionDocument.documentId)).length, 0);
+
+    // Generic abort preparation receives locks and proofs, never mutation authority.
+    const abortAuthorityDocument = expectedDocument('admission-compaction-abort-no-authority');
+    await seed(abortAuthorityDocument, 'abort preparation content');
+    const abortAuthorityRequest = compactionRequest(abortAuthorityDocument);
+    await reserveAndProve(abortAuthorityRequest);
+    await assert.rejects(floatingHandoff.abort(abortAuthorityRequest, {
+      authorize: async () => undefined,
+      prepare: async (database) => {
+        await persistence.compactCollaborationStateInAdmissionHandoff(database,
+          { documentId: abortAuthorityDocument.documentId, expectedLifecycleGeneration: 1 });
+      },
+    }, 'user_cancelled'), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.deepEqual(await readAdmissionTarget(abortAuthorityRequest.requestId), { status: 'released', active: true });
+    assert.equal(Number((await readState(abortAuthorityDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(abortAuthorityDocument.documentId)).length, 0);
+
+    // Owner-era normal-release proof compacts real Yjs state and preserves the exact predecessor backup.
+    const happyDocument = expectedDocument('admission-compaction-happy');
+    await seed(happyDocument, 'pre-owner content');
+    const happyOwner = await createOwner('happy');
+    const happyFence = await happyOwner.acquire({ ...happyDocument });
+    const happySnapshot = await saveAndRelease(happyOwner, happyFence, 'durable compacted text');
+    const happyRequest = compactionRequest(happyDocument);
+    const happyProof = await reserveAndProve(happyRequest);
+    assert.equal(happyProof.kind, 'normal_release');
+    const executionInput = JSON.parse(JSON.stringify(happyRequest)) as CollaborationAdmissionRequest;
+    let happyAuthorizations = 0;
+    const happyExecution = compactionService.execute(executionInput, {
+      authorize: async () => { happyAuthorizations += 1; },
+    });
+    (executionInput as { actionPayloadText?: string }).actionPayloadText = '{}';
+    const happyOutcome = await within(happyExecution, OPERATION_TIMEOUT_MS, 'admission compaction did not complete');
+    assert.equal(happyAuthorizations, 2, 'authorization repeats after transaction-bound path and operation locks');
+    assert.equal(happyOutcome.result.documentId, happyDocument.documentId);
+    assert.equal(happyOutcome.result.lifecycleGeneration, '2');
+    assert.equal(happyOutcome.result.documentSequence, '2');
+    assert.match(happyOutcome.result.backupId!, /^[0-9a-f-]{36}$/u);
+    const happyState = await readState(happyDocument.documentId);
+    assert.equal(Number(happyState.lifecycle_generation), 2);
+    assert.equal(Number(happyState.document_sequence), 2);
+    assert.equal(Number(happyState.checkpoint_sequence), 2);
+    assert.equal(Number(happyState.room_owner_epoch), happyFence.epoch);
+    assert.equal(textFromUpdate(happyState.yjs_state), 'durable compacted text');
+    const happyBackups = await readBackups(happyDocument.documentId);
+    assert.equal(happyBackups.length, 1);
+    assert.equal(happyBackups[0]?.backup_id, happyOutcome.result.backupId);
+    assert.equal(happyBackups[0]?.reason, 'compaction');
+    assert.equal(Number(happyBackups[0]?.lifecycle_generation), 1);
+    assert.equal(Number(happyBackups[0]?.document_sequence), 1);
+    assert.deepEqual(Buffer.from(happyBackups[0]!.yjs_state), Buffer.from(happySnapshot.yjsState));
+    assert.deepEqual(Buffer.from(happyBackups[0]!.state_vector), Buffer.from(happySnapshot.stateVector));
+    const retryOutcome = await compactionService.execute(happyRequest, {
+      authorize: async () => { happyAuthorizations += 1; },
+    });
+    assert.deepEqual(retryOutcome, happyOutcome);
+    assert.equal(happyAuthorizations, 3, 'completed retry authorizes once and bypasses mutation preparation');
+    assert.equal((await readBackups(happyDocument.documentId)).length, 1);
+    const abortAfterApply = await compactionService.abort(happyRequest,
+      { authorize: async () => { happyAuthorizations += 1; } });
+    assert.deepEqual(abortAfterApply, happyOutcome, 'abort after applied returns the immutable v1 winner');
+    assert.equal(happyAuthorizations, 4);
+    assert.equal((await readBackups(happyDocument.documentId)).length, 1);
+
+    // The legacy public compactor and quiescence proof both reject unproven owner-era state.
+    const legacyDocument = expectedDocument('admission-compaction-legacy-owner');
+    await seed(legacyDocument, 'legacy owner bytes', 1);
+    await assert.rejects(persistence.compactCollaborationState({ documentId: legacyDocument.documentId,
+      expectedLifecycleGeneration: 1 }), persistenceError(persistence, 'room_active'));
+    const legacyRequest = compactionRequest(legacyDocument);
+    await admission.reserve(legacyRequest);
+    await assert.rejects(quiescence.prove(legacyRequest, legacyDocument.documentId),
+      admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.equal((await readBackups(legacyDocument.documentId)).length, 0);
+
+    // Abort remains fail-closed without its named precondition, retained proof, exact current snapshot, or both rights checks.
+    const missingPreconditionDocument = expectedDocument('admission-compaction-abort-missing-precondition');
+    await seed(missingPreconditionDocument, 'no pending operation');
+    const missingPreconditionRequest = compactionRequest(missingPreconditionDocument);
+    await reserveAndProve(missingPreconditionRequest);
+    await assert.rejects(compactionService.abort(missingPreconditionRequest,
+      { authorize: async () => undefined }, 'precondition_failed'), admissionError('ADMISSION_STATE_CHANGED'));
+    assert.deepEqual(await readAdmissionTarget(missingPreconditionRequest.requestId),
+      { status: 'released', active: true });
+
+    const noProofDocument = expectedDocument('admission-compaction-abort-no-proof');
+    await seed(noProofDocument, 'no retained proof');
+    const noProofRequest = compactionRequest(noProofDocument);
+    await admission.reserve(noProofRequest);
+    await assert.rejects(compactionService.abort(noProofRequest,
+      { authorize: async () => undefined }), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.deepEqual(await readAdmissionTarget(noProofRequest.requestId), { status: 'reserved', active: true });
+
+    const driftDocument = expectedDocument('admission-compaction-abort-drift');
+    await seed(driftDocument, 'abort drift content');
+    const driftRequest = compactionRequest(driftDocument);
+    await reserveAndProve(driftRequest);
+    await controlPool.query(`UPDATE ${stateTable} SET document_sequence=document_sequence+1,
+      checkpoint_sequence=checkpoint_sequence+1 WHERE document_id=$1`, [driftDocument.documentId]);
+    await assert.rejects(compactionService.abort(driftRequest,
+      { authorize: async () => undefined }), admissionError('ADMISSION_SCOPE_CHANGED'));
+    assert.deepEqual(await readAdmissionTarget(driftRequest.requestId), { status: 'released', active: true });
+
+    const deniedDocument = expectedDocument('admission-compaction-abort-denied');
+    await seed(deniedDocument, 'authorization denial content');
+    const deniedRequest = compactionRequest(deniedDocument);
+    await reserveAndProve(deniedRequest);
+    const deniedBeforeLocks = new Error('Injected abort authorization denial before locks.');
+    const deniedBeforeHooks: ConnectionHooks = {};
+    await assert.rejects(hookContext.run(deniedBeforeHooks, () => compactionService.abort(deniedRequest, {
+      authorize: async () => { throw deniedBeforeLocks; },
+    })), (error: unknown) => error === deniedBeforeLocks);
+    assert.equal(deniedBeforeHooks.connections ?? 0, 0, 'initial authorization denial opens no SQL connection');
+    let deniedAuthorizationCalls = 0;
+    const deniedAfterLocks = new Error('Injected abort authorization denial after locks.');
+    await assert.rejects(compactionService.abort(deniedRequest, {
+      authorize: async () => {
+        deniedAuthorizationCalls += 1;
+        if (deniedAuthorizationCalls === 2) throw deniedAfterLocks;
+      },
+    }), (error: unknown) => error === deniedAfterLocks);
+    assert.equal(deniedAuthorizationCalls, 2);
+    assert.deepEqual(await readAdmissionTarget(deniedRequest.requestId), { status: 'released', active: true });
+    assert.equal((await readBackups(deniedDocument.documentId)).length, 0);
+
+    // The original request remains retryable after its pending operation reaches a terminal state.
+    const pendingRetryDocument = expectedDocument('admission-compaction-pending-retry');
+    await seed(pendingRetryDocument, 'pending retry content');
+    const pendingRetryRequest = compactionRequest(pendingRetryDocument);
+    await reserveAndProve(pendingRetryRequest);
+    await insertPendingOperation(pendingRetryDocument);
+    await assert.rejects(compactionService.execute(pendingRetryRequest, { authorize: async () => undefined }),
+      persistenceError(persistence, 'agent_operation_pending'));
+    assert.equal(Number((await readState(pendingRetryDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(pendingRetryDocument.documentId)).length, 0);
+    await controlPool.query(`UPDATE ${operationTable} SET status='cancelled' WHERE document_id=$1`,
+      [pendingRetryDocument.documentId]);
+    const pendingOriginalRetry = await compactionService.execute(pendingRetryRequest,
+      { authorize: async () => undefined });
+    assert.equal(pendingOriginalRetry.version, 1);
+    assert.equal(pendingOriginalRetry.result.lifecycleGeneration, '2');
+    assert.equal((await readBackups(pendingRetryDocument.documentId)).length, 1);
+
+    // A locked pending-operation precondition can be explicitly aborted without changing either domain row.
+    const pendingDocument = expectedDocument('admission-compaction-pending');
+    await seed(pendingDocument, 'pending operation content');
+    const pendingRequest = compactionRequest(pendingDocument);
+    await reserveAndProve(pendingRequest);
+    await insertPendingOperation(pendingDocument);
+    const pendingBefore = await readState(pendingDocument.documentId);
+    await assert.rejects(compactionService.execute(pendingRequest, { authorize: async () => undefined }),
+      persistenceError(persistence, 'agent_operation_pending'));
+    let pendingAbortAuthorizations = 0;
+    const pendingAbort = await compactionService.abort(pendingRequest, {
+      authorize: async () => { pendingAbortAuthorizations += 1; },
+    }, 'precondition_failed');
+    assert.equal(pendingAbort.version, 2);
+    assert.equal(pendingAbort.disposition, 'aborted');
+    assert.equal(pendingAbort.reasonCode, 'precondition_failed');
+    assert.deepEqual(Object.keys(pendingAbort.result), []);
+    assert.equal(pendingAbortAuthorizations, 2, 'abort repeats authorization after path and operation locks');
+    const pendingAfterAbort = await readState(pendingDocument.documentId);
+    assert.equal(Number(pendingAfterAbort.lifecycle_generation), 1);
+    assert.equal(Number(pendingAfterAbort.document_sequence), Number(pendingBefore.document_sequence));
+    assert.deepEqual(Buffer.from(pendingAfterAbort.yjs_state), Buffer.from(pendingBefore.yjs_state));
+    assert.deepEqual(Buffer.from(pendingAfterAbort.state_vector), Buffer.from(pendingBefore.state_vector));
+    assert.equal(await readOperationStatus(pendingDocument.documentId), 'preparing');
+    assert.equal((await readBackups(pendingDocument.documentId)).length, 0);
+    assert.deepEqual(await readAdmissionTarget(pendingRequest.requestId), { status: 'completed', active: false });
+    const oldExecuteAfterAbort = await compactionService.execute(pendingRequest,
+      { authorize: async () => { pendingAbortAuthorizations += 1; } });
+    assert.deepEqual(oldExecuteAfterAbort, pendingAbort);
+    assert.equal(pendingAbortAuthorizations, 3, 'historical v2 retry authorizes once without compaction');
+
+    const pendingNewOwner = await createOwner('pending-after-abort');
+    const pendingFence = await pendingNewOwner.acquire({ ...pendingDocument });
+    await saveAndRelease(pendingNewOwner, pendingFence, 'pending abort then fresh compaction');
+    await controlPool.query(`UPDATE ${operationTable} SET status='cancelled' WHERE document_id=$1`,
+      [pendingDocument.documentId]);
+    const pendingFreshRequest = compactionRequest(pendingDocument);
+    const pendingFreshProof = await reserveAndProve(pendingFreshRequest);
+    assert.equal(pendingFreshProof.kind, 'normal_release');
+    const pendingRetry = await compactionService.execute(pendingFreshRequest, { authorize: async () => undefined });
+    assert.equal(pendingRetry.version, 1);
+    assert.equal(pendingRetry.result.lifecycleGeneration, '2');
+    assert.equal(Number((await readState(pendingDocument.documentId)).room_owner_epoch), pendingFence.epoch);
+    assert.equal((await readBackups(pendingDocument.documentId)).length, 1);
+
+    // An owner-drain abort retains historical local-finish evidence after a replacement owner claims.
+    const drainDocument = expectedDocument('admission-compaction-owner-drain-abort');
+    await seed(drainDocument, 'owner drain before release');
+    const drainOwner = await createOwner('abort-drain-old');
+    const drainFence = await drainOwner.acquire({ ...drainDocument });
+    const drainRequest = compactionRequest(drainDocument);
+    await admission.reserve(drainRequest);
+    const drainTicket = await admission.startDrain(drainRequest, drainDocument.documentId);
+    const drainSnapshot = await saveAndRelease(drainOwner, drainFence, 'owner drain durable bytes', drainTicket);
+    const drainProof = await quiescence.prove(drainRequest, drainDocument.documentId);
+    assert.equal(drainProof.kind, 'owner_drain');
+    const drainAbort = await compactionService.abort(drainRequest, { authorize: async () => undefined });
+    assert.equal(drainAbort.version, 2);
+    assert.equal(drainAbort.reasonCode, 'user_cancelled');
+    const drainReplacement = await createOwner('abort-drain-replacement');
+    const drainReplacementFence = await drainReplacement.acquire({ ...drainDocument });
+    assert.ok(drainReplacementFence.epoch > drainFence.epoch);
+    assert.deepEqual(await admission.readDrain(drainTicket), { ticket: drainTicket, status: 'released' });
+    assert.deepEqual(await admission.pendingDrains([drainFence]), [drainTicket]);
+    const drainReceipt = await recoverCollaborationRoomRelease({
+      createClient: async () => {
+        const client = new Client({
+          ...poolConfig(databaseUrl, 'canvas-admission-compaction-drain-recovery', schema),
+        });
+        await client.connect();
+        return client;
+      },
+      fence: drainFence,
+      snapshot: drainSnapshot,
+    });
+    assert.equal(drainReceipt.release_id, drainTicket.releaseId);
+    assert.equal(drainReceipt.owner_epoch, drainFence.epoch);
+    assert.equal(textFromUpdate((await readState(drainDocument.documentId)).yjs_state), 'owner drain durable bytes');
+    assert.equal((await readBackups(drainDocument.documentId)).length, 0);
+
+    // A rejected v1 COMMIT rolls back the backup and state rewrite; the same request then succeeds exactly once.
+    const rejectedExecuteDocument = expectedDocument('admission-compaction-rejected-execute-commit');
+    await seed(rejectedExecuteDocument, 'rejected execute commit content');
+    const rejectedExecuteRequest = compactionRequest(rejectedExecuteDocument);
+    await reserveAndProve(rejectedExecuteRequest);
+    const rejectedExecuteHooks: ConnectionHooks = { commitFault: { position: 'before', remaining: 1 } };
+    await assert.rejects(hookContext.run(rejectedExecuteHooks, () => compactionService.execute(rejectedExecuteRequest,
+      { authorize: async () => undefined })), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.equal(rejectedExecuteHooks.connections, 3);
+    assert.equal(Number((await readState(rejectedExecuteDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(rejectedExecuteDocument.documentId)).length, 0);
+    const rejectedExecuteRetry = await compactionService.execute(rejectedExecuteRequest,
+      { authorize: async () => undefined });
+    assert.equal(rejectedExecuteRetry.version, 1);
+    assert.equal(rejectedExecuteRetry.result.lifecycleGeneration, '2');
+    assert.equal((await readBackups(rejectedExecuteDocument.documentId)).length, 1);
+
+    // A rejected abort COMMIT invents no terminal outcome; the same request can explicitly abort on retry.
+    const rejectedDocument = expectedDocument('admission-compaction-rejected-commit');
+    await seed(rejectedDocument, 'rejected commit content');
+    const rejectedRequest = compactionRequest(rejectedDocument);
+    await reserveAndProve(rejectedRequest);
+    const rejectedHooks: ConnectionHooks = { commitFault: { position: 'before', remaining: 1 } };
+    await assert.rejects(hookContext.run(rejectedHooks, () => compactionService.abort(rejectedRequest,
+      { authorize: async () => undefined })), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.equal(rejectedHooks.connections, 3);
+    assert.equal(Number((await readState(rejectedDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(rejectedDocument.documentId)).length, 0);
+    assert.deepEqual(await readAdmissionTarget(rejectedRequest.requestId), { status: 'released', active: true });
+    const rejectedRetry = await compactionService.abort(rejectedRequest, { authorize: async () => undefined });
+    assert.equal(rejectedRetry.version, 2);
+    assert.equal(rejectedRetry.reasonCode, 'user_cancelled');
+    assert.equal((await readBackups(rejectedDocument.documentId)).length, 0);
+
+    // A committed-but-lost v1 response recovers after the old backend ends and a replacement owner claims.
+    const lostExecuteDocument = expectedDocument('admission-compaction-lost-execute-commit');
+    await seed(lostExecuteDocument, 'lost execute before owner');
+    const lostExecuteOwner = await createOwner('lost-execute-old');
+    const lostExecuteFence = await lostExecuteOwner.acquire({ ...lostExecuteDocument });
+    await saveAndRelease(lostExecuteOwner, lostExecuteFence, 'lost execute durable content');
+    const lostExecuteRequest = compactionRequest(lostExecuteDocument);
+    await reserveAndProve(lostExecuteRequest);
+    let lostExecuteBackendClosed = false;
+    let lostExecuteReplacementFence: CollaborationRoomOwnerFence | undefined;
+    const lostExecuteHooks: ConnectionHooks = {
+      commitFault: { position: 'after', remaining: 1 },
+      onClose: (error, ordinal) => { if (ordinal === 2 && error) lostExecuteBackendClosed = true; },
+      onOpen: async (ordinal) => {
+        if (ordinal !== 3) return;
+        assert.equal(lostExecuteBackendClosed, true,
+          'v1 recovery starts only after the uncertain mutation backend is discarded');
+        const replacement = await createOwner('lost-execute-replacement');
+        lostExecuteReplacementFence = await replacement.acquire({ ...lostExecuteDocument, lifecycleGeneration: 2 });
+      },
+    };
+    const lostExecuteOutcome = await hookContext.run(lostExecuteHooks, () =>
+      compactionService.execute(lostExecuteRequest, { authorize: async () => undefined }));
+    assert.equal(lostExecuteHooks.connections, 3);
+    assert.equal(lostExecuteOutcome.version, 1);
+    assert.equal(lostExecuteOutcome.result.lifecycleGeneration, '2');
+    assert.ok(lostExecuteReplacementFence);
+    assert.ok(lostExecuteReplacementFence.epoch > lostExecuteFence.epoch);
+    assert.equal(textFromUpdate((await readState(lostExecuteDocument.documentId)).yjs_state),
+      'lost execute durable content');
+    assert.equal((await readBackups(lostExecuteDocument.documentId)).length, 1);
+
+    // A committed-but-lost abort recovers its immutable v2 outcome after the old backend ends and a new owner claims.
+    const lostDocument = expectedDocument('admission-compaction-lost-commit');
+    await seed(lostDocument, 'lost commit before owner');
+    const lostOwner = await createOwner('lost-old');
+    const lostFence = await lostOwner.acquire({ ...lostDocument });
+    await saveAndRelease(lostOwner, lostFence, 'lost commit durable content');
+    const lostRequest = compactionRequest(lostDocument);
+    await reserveAndProve(lostRequest);
+    let mutationBackendClosed = false;
+    let replacementFence: CollaborationRoomOwnerFence | undefined;
+    const lostHooks: ConnectionHooks = {
+      commitFault: { position: 'after', remaining: 1 },
+      onClose: (error, ordinal) => { if (ordinal === 2 && error) mutationBackendClosed = true; },
+      onOpen: async (ordinal) => {
+        if (ordinal !== 3) return;
+        assert.equal(mutationBackendClosed, true, 'recovery starts only after the uncertain backend is discarded');
+        const replacement = await createOwner('lost-replacement');
+        replacementFence = await replacement.acquire({ ...lostDocument });
+      },
+    };
+    const lostOutcome = await hookContext.run(lostHooks, () => compactionService.abort(lostRequest,
+      { authorize: async () => undefined }));
+    assert.equal(lostHooks.connections, 3);
+    assert.equal(lostOutcome.version, 2);
+    assert.equal(lostOutcome.reasonCode, 'user_cancelled');
+    assert.ok(replacementFence);
+    assert.ok(replacementFence.epoch > lostFence.epoch);
+    assert.equal(textFromUpdate((await readState(lostDocument.documentId)).yjs_state), 'lost commit durable content');
+    assert.equal((await readBackups(lostDocument.documentId)).length, 0);
+
+    // A new, vacant request advances through preflight, reservation, proof, and the real v1 compaction.
+    const coordinatorVacantDocument = expectedDocument('admission-compaction-coordinator-vacant');
+    await seed(coordinatorVacantDocument, 'coordinator vacant content');
+    const coordinatorVacantRequest = compactionRequest(coordinatorVacantDocument);
+    const coordinatorVacant = createCoordinator();
+    const coordinatorVacantProgress = await coordinatorVacant.service.advance(coordinatorVacantRequest,
+      { authorize: async () => undefined });
+    assert.equal(coordinatorVacantProgress.status, 'completed');
+    if (coordinatorVacantProgress.status !== 'completed') assert.fail('vacant coordinator did not complete');
+    assert.equal(coordinatorVacantProgress.outcome.version, 1);
+    assert.equal(coordinatorVacantProgress.outcome.result.lifecycleGeneration, '2');
+    assert.equal(coordinatorVacant.metrics.startChecks, 2,
+      'new admission gate is checked before preflight and again immediately before reserve');
+    assert.equal(coordinatorVacant.metrics.activeLocks, 0);
+    assert.equal((await readBackups(coordinatorVacantDocument.documentId)).length, 1);
+
+    // Historical v1 completion bypasses a disabled new-admission gate and all mutation locks.
+    const disabledGate = new Error('Injected coordinator admission gate denial.');
+    const coordinatorAppliedRetry = createCoordinator(async () => { throw disabledGate; });
+    const coordinatorAppliedProgress = await coordinatorAppliedRetry.service.advance(coordinatorVacantRequest,
+      { authorize: async () => undefined });
+    assert.deepEqual(coordinatorAppliedProgress, coordinatorVacantProgress);
+    assert.equal(coordinatorAppliedRetry.metrics.startChecks, 0);
+    assert.equal(coordinatorAppliedRetry.metrics.lockCalls, 0);
+
+    // A live owner produces a durable drain ticket and a lock-free pending result; a fresh coordinator resumes it.
+    const coordinatorOwnerDocument = expectedDocument('admission-compaction-coordinator-owner');
+    await seed(coordinatorOwnerDocument, 'coordinator live owner');
+    const coordinatorOwner = await createOwner('coordinator-live');
+    const coordinatorOwnerFence = await coordinatorOwner.acquire({ ...coordinatorOwnerDocument });
+    const coordinatorOwnerRequest = compactionRequest(coordinatorOwnerDocument);
+    const coordinatorOwnerFirst = createCoordinator();
+    const coordinatorOwnerPending = await coordinatorOwnerFirst.service.advance(coordinatorOwnerRequest,
+      { authorize: async () => undefined });
+    assert.equal(coordinatorOwnerPending.status, 'pending');
+    if (coordinatorOwnerPending.status !== 'pending') assert.fail('owned coordinator request did not remain pending');
+    assert.equal(coordinatorOwnerPending.phase, 'quiescence');
+    assert.equal(coordinatorOwnerFirst.metrics.activeLocks, 0,
+      'pending quiescence owns no workspace mutation lock');
+    const [coordinatorOwnerTicket] = await admission.pendingDrains([coordinatorOwnerFence]);
+    assert.ok(coordinatorOwnerTicket);
+    await saveAndRelease(coordinatorOwner, coordinatorOwnerFence, 'coordinator owner released', coordinatorOwnerTicket);
+    const coordinatorOwnerResume = createCoordinator(async () => { throw disabledGate; });
+    const coordinatorOwnerCompleted = await coordinatorOwnerResume.service.resume(coordinatorOwnerRequest.requestId,
+      { authorize: async () => undefined });
+    assert.equal(coordinatorOwnerCompleted.status, 'completed');
+    if (coordinatorOwnerCompleted.status !== 'completed') assert.fail('resumed owner drain did not complete');
+    assert.equal(coordinatorOwnerCompleted.outcome.version, 1);
+    assert.equal(coordinatorOwnerCompleted.outcome.result.lifecycleGeneration, '2');
+    assert.equal(coordinatorOwnerResume.metrics.startChecks, 0,
+      'resuming a durable reservation bypasses the new-admission gate');
+    assert.equal(coordinatorOwnerResume.metrics.activeLocks, 0);
+
+    // Normal unload after reservation but before proof is consumed as normal_release, without a false drain dispatch.
+    const normalRaceDocument = expectedDocument('admission-compaction-coordinator-normal-race');
+    await seed(normalRaceDocument, 'normal release race owner');
+    const normalRaceOwner = await createOwner('coordinator-normal-race');
+    const normalRaceFence = await normalRaceOwner.acquire({ ...normalRaceDocument });
+    const normalRaceRequest = compactionRequest(normalRaceDocument);
+    coordinatorHooks.afterReserveByRequestId.set(normalRaceRequest.requestId, async () => {
+      await saveAndRelease(normalRaceOwner, normalRaceFence, 'normal release wins race');
+    });
+    const normalRaceCoordinator = createCoordinator();
+    const normalRaceProgress = await normalRaceCoordinator.service.advance(normalRaceRequest,
+      { authorize: async () => undefined });
+    assert.equal(normalRaceProgress.status, 'completed');
+    assert.equal(await readAdmissionProofKind(normalRaceRequest.requestId), 'normal_release');
+    assert.deepEqual(await admission.pendingDrains([normalRaceFence]), [],
+      'normal release proof must not create an owner-drain ticket');
+
+    // A tokenless reservation seeing a held room guard waits without inventing a drain ticket.
+    const tokenlessDocument = expectedDocument('admission-compaction-coordinator-tokenless-guard');
+    await seed(tokenlessDocument, 'tokenless guard content');
+    const tokenlessRequest = compactionRequest(tokenlessDocument);
+    const tokenlessGuard = new Client({ ...poolConfig(databaseUrl, 'canvas-admission-compaction-tokenless-guard', schema) });
+    await tokenlessGuard.connect();
+    try {
+      coordinatorHooks.afterReserveByRequestId.set(tokenlessRequest.requestId, async () => {
+        await tokenlessGuard.query('SELECT pg_advisory_lock($1::bigint)', [lockIdentity(tokenlessDocument.documentId).key]);
+      });
+      const tokenlessCoordinator = createCoordinator();
+      const tokenlessProgress = await tokenlessCoordinator.service.advance(tokenlessRequest,
+        { authorize: async () => undefined });
+      assert.equal(tokenlessProgress.status, 'pending');
+      if (tokenlessProgress.status !== 'pending') assert.fail('tokenless guarded request did not remain pending');
+      assert.equal(tokenlessProgress.phase, 'quiescence');
+      assert.equal(tokenlessCoordinator.metrics.activeLocks, 0);
+      assert.deepEqual(await readAdmissionTarget(tokenlessRequest.requestId), { status: 'reserved', active: true });
+    } finally {
+      await tokenlessGuard.query('SELECT pg_advisory_unlock($1::bigint)',
+        [lockIdentity(tokenlessDocument.documentId).key]).catch(() => undefined);
+      await tokenlessGuard.end();
+    }
+
+    // A vanished owner without a release receipt remains fail-closed on resume.
+    const staleOwnerDocument = expectedDocument('admission-compaction-coordinator-stale-owner');
+    await seed(staleOwnerDocument, 'stale owner content');
+    const staleOwner = await createOwner('coordinator-stale');
+    const staleOwnerFence = await staleOwner.acquire({ ...staleOwnerDocument });
+    const staleOwnerRequest = compactionRequest(staleOwnerDocument);
+    const staleOwnerCoordinator = createCoordinator();
+    const staleOwnerPending = await staleOwnerCoordinator.service.advance(staleOwnerRequest,
+      { authorize: async () => undefined });
+    assert.equal(staleOwnerPending.status, 'pending');
+    assert.equal((await admission.pendingDrains([staleOwnerFence])).length, 1);
+    await staleOwner.close();
+    const staleOwnerResume = createCoordinator(async () => { throw disabledGate; });
+    await assert.rejects(staleOwnerResume.service.resume(staleOwnerRequest.requestId,
+      { authorize: async () => undefined }), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    assert.deepEqual(await readAdmissionTarget(staleOwnerRequest.requestId), { status: 'draining', active: true });
+    assert.equal((await readBackups(staleOwnerDocument.documentId)).length, 0);
+
+    // Pending operations detected by the read-only preflight create no reservation.
+    const preflightPendingDocument = expectedDocument('admission-compaction-coordinator-preflight-pending');
+    await seed(preflightPendingDocument, 'preflight pending content');
+    await insertPendingOperation(preflightPendingDocument);
+    const preflightPendingRequest = compactionRequest(preflightPendingDocument);
+    const preflightPendingCoordinator = createCoordinator();
+    await assert.rejects(preflightPendingCoordinator.service.advance(preflightPendingRequest,
+      { authorize: async () => undefined }), persistenceError(persistence, 'agent_operation_pending'));
+    assert.equal(await admission.read(preflightPendingRequest), null);
+    assert.equal(preflightPendingCoordinator.metrics.activeLocks, 0);
+    assert.equal((await readBackups(preflightPendingDocument.documentId)).length, 0);
+
+    // A review appearing after reserve is proven first, then converted to an explicit precondition_failed v2 outcome.
+    const latePendingDocument = expectedDocument('admission-compaction-coordinator-late-pending');
+    await seed(latePendingDocument, 'late pending content');
+    const latePendingRequest = compactionRequest(latePendingDocument);
+    coordinatorHooks.afterReserveByRequestId.set(latePendingRequest.requestId,
+      async () => insertPendingOperation(latePendingDocument));
+    const latePendingCoordinator = createCoordinator();
+    const latePendingProgress = await latePendingCoordinator.service.advance(latePendingRequest,
+      { authorize: async () => undefined });
+    assert.equal(latePendingProgress.status, 'completed');
+    if (latePendingProgress.status !== 'completed') assert.fail('late pending request did not terminate');
+    assert.equal(latePendingProgress.outcome.version, 2);
+    assert.equal(latePendingProgress.outcome.reasonCode, 'precondition_failed');
+    assert.equal(await readOperationStatus(latePendingDocument.documentId), 'preparing');
+    assert.equal(Number((await readState(latePendingDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(latePendingDocument.documentId)).length, 0);
+
+    // Historical v2 completion also bypasses a disabled gate and cannot re-enter mutation locks.
+    const coordinatorAbortedRetry = createCoordinator(async () => { throw disabledGate; });
+    const coordinatorAbortedProgress = await coordinatorAbortedRetry.service.resume(latePendingRequest.requestId,
+      { authorize: async () => undefined });
+    assert.deepEqual(coordinatorAbortedProgress, latePendingProgress);
+    assert.equal(coordinatorAbortedRetry.metrics.startChecks, 0);
+    assert.equal(coordinatorAbortedRetry.metrics.lockCalls, 0);
+
+    // Rights revoked during a durable owner drain stop resume before handoff mutation.
+    const rightsDocument = expectedDocument('admission-compaction-coordinator-rights');
+    await seed(rightsDocument, 'rights before drain');
+    const rightsOwner = await createOwner('coordinator-rights');
+    const rightsFence = await rightsOwner.acquire({ ...rightsDocument });
+    const rightsRequest = compactionRequest(rightsDocument);
+    const rightsFirst = createCoordinator();
+    const rightsPending = await rightsFirst.service.advance(rightsRequest, { authorize: async () => undefined });
+    assert.equal(rightsPending.status, 'pending');
+    const [rightsTicket] = await admission.pendingDrains([rightsFence]);
+    assert.ok(rightsTicket);
+    await saveAndRelease(rightsOwner, rightsFence, 'rights durable release', rightsTicket);
+    const rightsDenied = new Error('Injected revoked coordinator rights.');
+    const rightsResume = createCoordinator(async () => { throw disabledGate; });
+    await assert.rejects(rightsResume.service.resume(rightsRequest.requestId,
+      { authorize: async () => { throw rightsDenied; } }), (error: unknown) => error === rightsDenied);
+    assert.equal(rightsResume.metrics.startChecks, 0);
+    assert.equal(rightsResume.metrics.lockCalls, 0);
+    assert.equal(Number((await readState(rightsDocument.documentId)).lifecycle_generation), 1);
+    assert.equal((await readBackups(rightsDocument.documentId)).length, 0);
+    const rightsRestored = createCoordinator(async () => { throw disabledGate; });
+    const rightsCompleted = await rightsRestored.service.resume(rightsRequest.requestId,
+      { authorize: async () => undefined });
+    assert.equal(rightsCompleted.status, 'completed');
+    if (rightsCompleted.status !== 'completed') assert.fail('re-authorized coordinator resume did not complete');
+    assert.equal(rightsCompleted.outcome.version, 1);
+    assert.equal(rightsCompleted.outcome.result.lifecycleGeneration, '2');
+    assert.equal(rightsRestored.metrics.startChecks, 0);
+    assert.equal((await readBackups(rightsDocument.documentId)).length, 1);
+
+    // A durable cancellation is returned historically without reopening admission or mutation authority.
+    const cancelledDocument = expectedDocument('admission-compaction-coordinator-cancelled');
+    await seed(cancelledDocument, 'cancelled coordinator content');
+    const cancelledRequest = compactionRequest(cancelledDocument);
+    const cancelledReservation = await admission.reserve(cancelledRequest);
+    const cancelled = await admission.cancel(cancelledRequest, cancelledReservation.revision);
+    assert.equal(cancelled.status, 'cancelled');
+    const cancelledCoordinator = createCoordinator(async () => { throw disabledGate; });
+    const cancelledProgress = await cancelledCoordinator.service.resume(cancelledRequest.requestId,
+      { authorize: async () => undefined });
+    assert.equal(cancelledProgress.status, 'cancelled');
+    assert.equal(cancelledCoordinator.metrics.startChecks, 0);
+    assert.equal(cancelledCoordinator.metrics.lockCalls, 0);
+
+    assert.equal(poolErrors.length, 0, 'admission-compaction pools must not emit background errors');
+    console.log('Collaboration admission compaction PostgreSQL: 35 bounded boundaries passed—exact handoff authority, '
+      + 'delegation/escape/double-claim rejection, pre- and post-claim floating-promise revocation, deletion-only drift, '
+      + 'abort-without-mutation-authority, real owner-era backup/compaction, immutable capture and v1 terminal retry, '
+      + 'legacy owner fencing, abort proof/precondition/drift/two-phase-rights guards, pending-operation retry plus v2 abort '
+      + 'and fresh-request compaction, owner-drain abort/local-finish recovery, separate rejected v1/v2 COMMIT retries, '
+      + 'separate lost v1/v2 COMMIT recovery after replacement claims, and bounded coordinator vacant/owner/race/tokenless/'
+      + 'stale/preflight/late-review/rights/terminal recovery—'
+      + 'in one isolated generated schema.');
+  } finally {
+    for (const session of ownerSessions) {
+      try { await within(session.close(), CLEANUP_TIMEOUT_MS, 'Timed out closing an admission-compaction owner session.'); }
+      catch (error) { cleanupErrors.push(error); }
+    }
+    for (const document of documents) document.destroy();
+    if (runtimePool) {
+      try {
+        await within(runtimePool.end(), CLEANUP_TIMEOUT_MS, 'Timed out draining admission-compaction runtime pool.');
+        runtimePoolDrained = true;
+      } catch (error) { cleanupErrors.push(error); }
+    }
+    if (schemaCreated && (!runtimePool || runtimePoolDrained)) {
+      try { await controlPool.query(`DROP SCHEMA ${schemaIdentifier(schema)} CASCADE`); }
+      catch (error) { cleanupErrors.push(error); }
+    }
+    try { await within(controlPool.end(), CLEANUP_TIMEOUT_MS, 'Timed out draining admission-compaction control pool.'); }
+    catch (error) { cleanupErrors.push(error); }
+    if (cleanupErrors.length) throw new AggregateError(cleanupErrors, 'Admission-compaction cleanup failed.');
+  }
+}
+
+const databaseUrl = guardedDatabaseUrl();
+if (!databaseUrl) {
+  console.log('Collaboration admission-compaction PostgreSQL test skipped: guarded managed database environment is not configured.');
+} else {
+  run(databaseUrl).catch((error) => { console.error(sanitizeError(error)); process.exitCode = 1; });
+}

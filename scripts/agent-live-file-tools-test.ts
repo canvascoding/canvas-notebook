@@ -49,6 +49,7 @@ async function harness() {
     readFailsAfterApply: false, reads: 0, revisions: 0, initialized: 0, executed: 0, afterPrepare: null as (() => void) | null,
     afterApply: null as (() => void) | null,
     afterLookup: null as (() => void) | null, audits: 0, lookups: 0,
+    graphProbes: 0, graphFactoryCalls: 0,
     idempotencyKeys: [] as Array<string | undefined>, prepared: [] as PreparedCollaborationTextEdit[] };
   const receipts = new Map<string, { request: AgentFileEditRequestReceipt; operation: PersistedAgentApplyResult;
     identity: { path: string; representation: 'plain_text'; lifecycleGeneration: number; schemaVersion: number } }>();
@@ -101,6 +102,11 @@ async function harness() {
         controls.afterLookup?.();
         return found;
       },
+    },
+    '@/app/lib/file-version-center/proposal-review-capability': { proposalReviewWritesEnabled: () => false },
+    '@/app/lib/file-version-center/proposal-agent-runtime': {
+      hasPotentialProposalAgentRetryKey: async () => { controls.graphProbes++; return false; },
+      createRuntimeProposalAgentService: async () => { controls.graphFactoryCalls++; throw new Error('A Graph-off no-hit must not create a Graph runtime.'); },
     },
     '@/app/lib/collaboration/document-state-service': {
       CollaborationDocumentStateError: class extends Error { constructor(message: string, readonly code: string) { super(message); } },
@@ -187,6 +193,8 @@ test('live read/edit/patch do not read or register a stale/unreadable Markdown p
         assert.equal(asAgentFileToolSuccess(result, method === 'edit' ? 'edit_file' : 'apply_patch').outcome, 'applied');
         assert.match(h.current().content, /Edited sentence\nOther user paragraph\nUser arrived during edit/u);
         assert.deepEqual(h.controls.idempotencyKeys, [method === 'edit' ? 'stable-request-1' : 'stable-patch:0']);
+        assert.ok(h.controls.graphProbes > 0, 'a stable retry key receives a read-only Graph-key probe');
+        assert.equal(h.controls.graphFactoryCalls, 0, 'Graph-off no-hit keeps the existing Legacy path');
       }
       assert.equal(h.controls.reads, 0);
       assert.equal(h.controls.revisions, 0);

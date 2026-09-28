@@ -8,6 +8,7 @@ import path from 'node:path';
 import ts from 'typescript';
 import * as Y from 'yjs';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
+import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import * as Direct from '../app/lib/collaboration/direct-connection';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -42,6 +43,7 @@ async function harness() {
       h.openEntered.resolve();
       await h.releaseOpen.promise;
       return {
+        document: doc,
         async transact(callback: (document: Y.Doc) => void) { h.applied++; callback(doc); },
         async disconnect() { await h.beforeDisconnect(); h.disconnected++; h.events.push('persisted'); },
       };
@@ -59,6 +61,7 @@ async function harness() {
     if (name.endsWith('/direct-connection')) return { ...Direct,
       installCollaborationDirectConnection: (run: typeof h.run) => { h.run = run; } };
     if (name.endsWith('/workspace-mutation-lock')) return { withWorkspaceMutationLock };
+    if (name.endsWith('/room-mutation-lock')) return RoomMutation;
     if (name.endsWith('/runtime-state')) return {
       installCollaborationRoomInspector() {},
       withCollaborationRoomLifecycleLock: async (_id: string, run: () => Promise<unknown>) => run(),

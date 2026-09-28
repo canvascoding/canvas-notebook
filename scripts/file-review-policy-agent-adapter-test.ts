@@ -105,6 +105,8 @@ test('only the new operation receives a revision-bound grant before final policy
   const snapshot = (await h.module.readAgentReviewPolicySnapshot({
     documentId: 'document-one', workspace: workspace as never, initiatedByUserId: 'user-one',
   }))!;
+  assert.ok(Number.isSafeInteger(snapshot.observedAt) && snapshot.observedAt >= 0,
+    'the adapter snapshots a valid server observation time');
   const grantScope = {
     userId: 'user-one', workspaceId: 'workspace-one', agentId: 'agent-one',
     actorSessionId: 'session-one', documentId: 'document-one', lifecycleGeneration: 3,
@@ -123,6 +125,8 @@ test('only the new operation receives a revision-bound grant before final policy
   const operation = (h.calls.find((call) => call.kind === 'resolve')?.input.operation) as Record<string, unknown>;
   assert.equal(operation.operationId, 'operation-new');
   assert.equal(operation.observedPolicyRevision, 7);
+  assert.equal(operation.observedPolicyAt, snapshot.observedAt,
+    'the server captured time travels with the operation into final policy resolution');
   assert.deepEqual(operation.grantScope, grantScope);
 });
 

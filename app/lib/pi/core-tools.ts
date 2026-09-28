@@ -470,7 +470,8 @@ export const piTools: AgentTool[] = [
           content,
           expectedSha256,
           operation: 'write',
-          ...(proposal ? { proposal, idempotencyKey: toolCallId } : {}),
+          idempotencyKey: toolCallId,
+          ...(proposal ? { proposal } : {}),
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],

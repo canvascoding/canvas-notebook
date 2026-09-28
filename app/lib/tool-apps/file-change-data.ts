@@ -4,6 +4,10 @@ import {
   type FileChangeGroupEntryV1,
   type FileChangeGroupV1,
 } from '@/app/lib/file-version-center/contracts/v1';
+import {
+  parseProposalEntryPointV1,
+  type ProposalEntryPointV1,
+} from '@/app/lib/file-version-center/contracts/proposal-entrypoint-v1';
 import { isToolAppRecord } from './types';
 
 export const FILE_CHANGE_APP_DATA_MAX_BYTES = 256 * 1024;
@@ -25,7 +29,13 @@ export type FileChangeAppEntryState = FileChangeGroupEntryV1['outcome']
   | 'rejected'
   | 'reverted'
   | 'restored'
-  | 'superseded';
+  | 'superseded'
+  | 'included'
+  | 'alternative_not_selected'
+  | 'blocked_by_parent'
+  | 'satisfied_elsewhere'
+  | 'unavailable'
+  | 'expired';
 
 export type FileChangeAppEntryData = {
   id: string;
@@ -36,6 +46,7 @@ export type FileChangeAppEntryData = {
   revisionId: string | null;
   additions: number | null;
   deletions: number | null;
+  proposal?: ProposalEntryPointV1;
 };
 
 export type FileChangeAppData = {
@@ -47,6 +58,10 @@ export type FileChangeAppData = {
   createdAt: string;
   entries: FileChangeAppEntryData[];
 };
+
+export function fileChangeAppStatusMessageKey(state: FileChangeAppEntryState | 'mixed', graph = false): string {
+  return state === 'superseded' && graph ? 'fileChangeStatus_graph_superseded' : `fileChangeStatus_${state}`;
+}
 
 const opaqueId = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const fileChangeGroupId = /^fvcg-[a-f0-9]{64}$/u;
@@ -62,16 +77,24 @@ function boundedCount(value: unknown): value is number | null {
 }
 
 function readEntry(value: unknown): FileChangeAppEntryData | null {
+  const requiredKeys = ['id', 'ordinal', 'pathHint', 'state', 'operationId', 'revisionId', 'additions', 'deletions'];
   if (!isToolAppRecord(value)
-    || !exactKeys(value, ['id', 'ordinal', 'pathHint', 'state', 'operationId', 'revisionId', 'additions', 'deletions'])
+    || !exactKeys(value, value.proposal === undefined ? requiredKeys : [...requiredKeys, 'proposal'])
     || typeof value.id !== 'string' || !opaqueId.test(value.id)
     || !Number.isSafeInteger(value.ordinal) || Number(value.ordinal) < 0
     || Number(value.ordinal) >= FILE_VERSION_CENTER_CONTRACT_LIMITS.changeGroupEntries
     || typeof value.pathHint !== 'string' || !isSafeFileVersionPathHint(value.pathHint)
-    || !['applied', 'review_required', 'conflict', 'failed', 'rejected', 'reverted', 'restored', 'superseded'].includes(String(value.state))
+    || !['applied', 'review_required', 'conflict', 'failed', 'rejected', 'reverted', 'restored', 'superseded',
+      'included', 'alternative_not_selected', 'blocked_by_parent', 'satisfied_elsewhere', 'unavailable', 'expired']
+      .includes(String(value.state))
     || (value.operationId !== null && (typeof value.operationId !== 'string' || !opaqueId.test(value.operationId)))
     || (value.revisionId !== null && (typeof value.revisionId !== 'string' || !opaqueId.test(value.revisionId)))
     || !boundedCount(value.additions) || !boundedCount(value.deletions)) return null;
+  let proposal: ProposalEntryPointV1 | undefined;
+  if (value.proposal !== undefined) {
+    if (value.operationId === null) return null;
+    try { proposal = parseProposalEntryPointV1(value.proposal); } catch { return null; }
+  }
   return {
     id: value.id,
     ordinal: Number(value.ordinal),
@@ -81,6 +104,7 @@ function readEntry(value: unknown): FileChangeAppEntryData | null {
     revisionId: value.revisionId as string | null,
     additions: value.additions as number | null,
     deletions: value.deletions as number | null,
+    ...(proposal ? { proposal } : {}),
   };
 }
 
@@ -95,7 +119,9 @@ export function readFileChangeAppData(value: unknown): FileChangeAppData | null 
     || typeof value.id !== 'string' || !fileChangeGroupId.test(value.id)
     || typeof value.workspaceId !== 'string' || !opaqueId.test(value.workspaceId)
     || !['write', 'edit_file', 'apply_patch'].includes(String(value.operation))
-    || !['applied', 'review_required', 'conflict', 'failed', 'rejected', 'reverted', 'restored', 'superseded', 'mixed'].includes(String(value.status))
+    || !['applied', 'review_required', 'conflict', 'failed', 'rejected', 'reverted', 'restored', 'superseded',
+      'included', 'alternative_not_selected', 'blocked_by_parent', 'satisfied_elsewhere', 'unavailable', 'expired', 'mixed']
+      .includes(String(value.status))
     || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))
     || !Array.isArray(value.entries) || value.entries.length < 1
     || value.entries.length > FILE_VERSION_CENTER_CONTRACT_LIMITS.changeGroupEntries) return null;

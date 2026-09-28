@@ -791,6 +791,20 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     return result;
   }, [cancelPendingDocumentOpen, replaceDocumentTabs, showOpenedDocument]);
 
+  const openNotebookEntry = useCallback(async (path: string, options: OpenNotebookFileOptions = {}) => {
+    const workspaceId = options.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
+    const pending = openNotebookFile(path, options);
+    const generation = documentOpenGenerationRef.current;
+    const result = await pending;
+    if (!notebookMountedRef.current || documentOpenGenerationRef.current !== generation
+      || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
+      || !result || result.status === 'opened' || result.status === 'superseded') return;
+    // Keep the restored identity pinned. Only an explicit file-browser selection
+    // may open a replacement at the same path; automatic restore must explain why it stopped.
+    toast.error(result.status === 'missing' ? tNotebook('linkedDocumentUnavailable')
+      : result.error || tNotebook('failedToLoadPreview'));
+  }, [openNotebookFile, tNotebook]);
+
   const bridgedRequestRef = useRef<NotebookFileReferenceRequest | null>(null);
   const completedBridgeRequests = useRef(new Set<string>());
   const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
@@ -834,13 +848,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       && openedPathRef.current !== routeFilePath
     ) {
       openedPathRef.current = routeFilePath;
-      void openNotebookFile(routeFilePath);
+      void openNotebookEntry(routeFilePath);
     }
   }, [
     activeWorkspaceId,
     dispatch,
     documentTabsHydratedFor,
-    openNotebookFile,
+    openNotebookEntry,
     routeFilePath,
     routeWorkspaceId,
   ]);
@@ -917,7 +931,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     if (restoredTabs.activePath) {
       openedPathRef.current = restoredTabs.activePath;
-      void openNotebookFile(restoredTabs.activePath, { explorerBehavior: 'preserve' });
+      void openNotebookEntry(restoredTabs.activePath, { explorerBehavior: 'preserve' });
       if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
     }
@@ -931,7 +945,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     hydrateDocumentTabs,
     layout.preferencesHydrated,
     layout.viewportWidth,
-    openNotebookFile,
+    openNotebookEntry,
     routeFilePath,
     shouldForceChatOpen,
     workspaceReady,
@@ -1000,13 +1014,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId
           && navigationSearch === window.location.search
           && generation === documentOpenGenerationRef.current) {
-          void openNotebookFile(entry.path, { explorerBehavior: 'preserve' });
+          void openNotebookEntry(entry.path, { explorerBehavior: 'preserve' });
         }
       }, 0);
     };
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
     return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookFile, routeFilePath]);
+  }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookEntry, routeFilePath]);
 
   useEffect(() => {
     const handleWorkspaceFileOpen = (event: Event) => {

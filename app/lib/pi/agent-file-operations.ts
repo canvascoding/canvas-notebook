@@ -25,8 +25,8 @@ import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
-import { loadCollaborationStateIncludingArchived } from '@/app/lib/collaboration/persistence';
-import { AgentFileEditOperationScopeError, findAgentFileEditOperation, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
+import { loadCollaborationStateIncludingArchived, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
+import { AgentFileEditOperationScopeError, findAgentFileEditOperation, type AgentTextTarget, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
 import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationMarkdownEdit,
@@ -82,7 +82,10 @@ import {
   type ProposalToolReadRequestV1, type ProposalToolReadResultV1,
 } from '@/app/lib/file-version-center/contracts/proposal-tools-v1';
 import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
-import { createRuntimeProposalAgentService, assertProposalToolsEnabled } from '@/app/lib/file-version-center/proposal-agent-runtime';
+import { createRuntimeProposalAgentService, hasPotentialProposalAgentRetryKey, assertProposalToolsEnabled,
+  assertProposalCreationEnabled } from '@/app/lib/file-version-center/proposal-agent-runtime';
+import { proposalReviewWritesEnabled } from '@/app/lib/file-version-center/proposal-review-capability';
+import { readAgentReviewPolicySnapshot } from '@/app/lib/file-version-center/agent-review-policy-adapter';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
@@ -697,11 +700,11 @@ export async function readAgentCollaborativeTextFile(
   options: CollaborationStructureReadOptions & { proposal?: ProposalToolReadRequestV1 } = {},
 ): Promise<(CollaborationTextSnapshot & { proposal?: ProposalToolReadResultV1 }) | null> {
   const proposal = Object.hasOwn(options, 'proposal') ? parseProposalToolReadRequestV1(options.proposal) : null;
-  if (proposal) assertProposalToolsEnabled();
   await assertAgentPathAllowed(fullPath);
   const collaboration = await collaborativeAgentFileContext(fullPath, initialBuffer);
   if (proposal) {
     if (!collaboration) throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED', 'This file does not support proposal reads.');
+    assertProposalToolsEnabled(collaboration.workspace.workspaceId);
     const runtime = await createRuntimeProposalAgentService({ workspace: collaboration.workspace,
       documentId: collaboration.documentId, path: collaboration.relativePath,
       identity: collaborationAgentIdentity(collaboration.executionContext) });
@@ -1474,7 +1477,6 @@ export async function writeAgentTextFile(params: {
   idempotencyKey?: string;
 }): Promise<AgentFileChangeResult> {
   const proposal = parseOptionalProposalToolEditV1(params);
-  if (proposal) assertProposalToolsEnabled();
   const fullPath = resolveAgentPath(params.path);
   await assertAgentWritablePathAllowed(fullPath);
   if (proposal) {
@@ -1492,6 +1494,23 @@ export async function writeAgentTextFile(params: {
     beforeExisted: before.existed,
     expectedSha256,
   });
+
+  if (before.existed) {
+    const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer ?? undefined);
+    if (collaboration) {
+      const contentAlreadyMatches = before.buffer?.toString('utf8') === params.content;
+      const graph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+        idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+        mutation: { operation: 'write', path: params.path, content: params.content,
+          expectedSha256: params.expectedSha256 ?? null }, content: params.content,
+        lookupOnly: contentAlreadyMatches });
+      if (graph) return graph;
+    }
+  }
+  if (before.existed && before.buffer?.toString('utf8') === params.content) {
+    return commitTextChange({ inputPath: params.path, fullPath, beforeBuffer: before.buffer,
+      beforeExisted: true, nextContent: params.content, operation: params.operation ?? 'write', enforceValidation: true });
+  }
 
   if (expectedSha256 && beforeSha256 !== expectedSha256) {
     throwAgentFileRevisionConflict({ operation: 'write', path: params.path, expectedSha256, currentSha256: beforeSha256 });
@@ -1728,6 +1747,9 @@ async function reusedCollaborativeFileEdit(input: {
   const persisted = operation.durability === 'persisted_yjs' || operation.durability === 'checkpointed_file';
   const reviewRequired = operation.operationStatus === 'needs_review' || operation.operationStatus === 'partially_applied'
     || operation.operationStatus === 'semantic_conflict';
+  if (reviewRequired && proposalReviewWritesEnabled({ workspaceId: workspace.workspaceId })) {
+    throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
+  }
   if (!persisted && !reviewRequired) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
   let current: CollaborationTextSnapshot;
   try {
@@ -1775,6 +1797,7 @@ async function applyPreparedCollaborativeFileEdit(input: {
   idempotencyKey?: string;
   auditOperation: string;
   fingerprint: string;
+  disallowLegacyReview?: boolean;
 }): Promise<AgentFileChangeResult> {
   const validation = validateAgentFileContent(input.inputPath, input.prepared.proposedContent);
   if (!validation.ok) {
@@ -1791,6 +1814,7 @@ async function applyPreparedCollaborativeFileEdit(input: {
       idempotencyKey: input.idempotencyKey,
       fileEditRequest: { fingerprint: input.fingerprint, beforeSha256: input.prepared.sha256,
         proposedSha256: input.prepared.proposedSha256 },
+      disallowLegacyReview: input.disallowLegacyReview,
     });
   } catch (error) {
     if (error instanceof AgentFileEditOperationScopeError) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, error.operation);
@@ -1862,6 +1886,61 @@ type AgentEditFileCommonInput = {
   idempotencyKey?: string;
 };
 
+type GraphFileMutation = {
+  inputPath: string; expectedSha256?: string; edit?: AgentEditFileInput;
+  edits?: AgentPatchFileInput['edits']; content?: string;
+};
+
+function buildGraphFileTargets(input: GraphFileMutation, collaboration: NonNullable<Awaited<ReturnType<typeof collaborativeAgentFileContext>>>,
+  state: PersistedCollaborationState, source: { update: Uint8Array; representation: PreparedCollaborationTextEdit['representation'] }): AgentTextTarget[] {
+  if (source.representation !== state.representation) {
+    throw new ProposalGraphContractError('PROPOSAL_STALE_LIFECYCLE', 'The proposal representation changed.');
+  }
+  const expectedSha256 = normalizeAgentExpectedSha256(input.expectedSha256);
+  const doc = new Y.Doc({ gc: false });
+  try {
+    Y.applyUpdate(doc, source.update);
+    const edit = input.edit;
+    const prepared = edit && (edit.operations !== undefined || edit.blockId !== undefined)
+      ? prepareCollaborationBlockEditInDocument({ document: edit.document!, workspace: collaboration.workspace,
+        path: collaboration.relativePath, state, doc, expectedSha256, groupId: 'proposal-tool',
+        operations: edit.operations, textEdit: edit.blockId ? { blockId: edit.blockId, oldText: edit.oldText!,
+          newText: edit.newText!, expectedOccurrences: edit.expectedOccurrences, replaceAll: edit.replaceAll } : undefined })
+      : prepareCollaborationContentEditInDocument({ documentId: collaboration.documentId, workspace: collaboration.workspace,
+        path: collaboration.relativePath, state, doc, expectedSha256, groupId: 'proposal-tool',
+        plan: (content) => {
+          if (input.content !== undefined) return { proposedContent: input.content, richMode: 'markdown_structure',
+            edits: [{ oldText: content, newText: input.content, expectedOccurrences: 1 }] };
+          if (edit?.mode !== undefined) {
+            const proposedContent = applyAgentMarkdownEdit(content, edit, input.inputPath);
+            return { proposedContent, richMode: 'markdown_structure',
+              edits: [{ oldText: content, newText: proposedContent, expectedOccurrences: 1 }] };
+          }
+          const edits = input.edits ?? [{ oldText: edit!.oldText!, newText: edit!.newText!,
+            expectedOccurrences: edit!.expectedOccurrences, replaceAll: edit!.replaceAll }];
+          return { proposedContent: applyExactTextEdits(content, edits, input.inputPath), edits, richMode: 'exact_text' };
+        } });
+    const validation = validateAgentFileContent(input.inputPath, prepared.proposedContent);
+    if (!validation.ok) throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST',
+      `Proposal validation failed. ${validation.checks.map((check) => check.message).join(' ')}`);
+    return prepared.targets;
+  } finally { doc.destroy(); }
+}
+
+function graphFileChangeResult(input: { inputPath: string; fullPath: string }, result: {
+  node: { operationId: string; lifecycle: string }; proposal: ProposalToolCreationResultV1;
+  authoringPreview: { beforeContent: string; proposedContent: string; beforeSha256: string; proposedSha256: string };
+}): AgentFileChangeResult {
+  const { beforeContent, proposedContent, beforeSha256, proposedSha256 } = result.authoringPreview;
+  return { path: input.inputPath, resolvedPath: input.fullPath, changed: false, snapshot: null,
+    beforeSha256, afterSha256: beforeSha256, size: Buffer.byteLength(beforeContent),
+    diff: createUnifiedDiff(beforeContent, proposedContent, `${input.inputPath} (proposal source)`, `${input.inputPath} (proposal)`),
+    validation: validateAgentFileContent(input.inputPath, proposedContent), proposal: result.proposal,
+    collaboration: { operationId: result.node.operationId,
+      operationStatus: result.node.lifecycle === 'open' ? 'needs_review' : result.node.lifecycle,
+      durability: 'not_applied', reviewRequired: result.node.lifecycle === 'open', proposedSha256 } };
+}
+
 /** Explicit proposal writes never enter the file-projection or Safe-Direct path. */
 async function createProposedAgentFileChange(input: {
   inputPath: string; fullPath: string; proposal: ProposalToolEditV1;
@@ -1870,10 +1949,10 @@ async function createProposedAgentFileChange(input: {
 }): Promise<AgentFileChangeResult> {
   const collaboration = await collaborativeAgentFileContext(input.fullPath);
   if (!collaboration) throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED', 'This file does not support proposal authoring.');
+  assertProposalCreationEnabled(collaboration.workspace.workspaceId);
   const runtime = await createRuntimeProposalAgentService({ workspace: collaboration.workspace,
     documentId: collaboration.documentId, path: collaboration.relativePath,
     identity: collaborationAgentIdentity(collaboration.executionContext) });
-  const expectedSha256 = normalizeAgentExpectedSha256(input.expectedSha256);
   const result = await runtime.service.create({ scope: runtime.scope,
     actorId: collaborationAgentIdentity(collaboration.executionContext).actorId,
     // Provider call IDs may be short and reused by another chat. The trusted
@@ -1882,47 +1961,39 @@ async function createProposedAgentFileChange(input: {
       ? `proposal-tool:${sha256Text(JSON.stringify({ sessionId: collaboration.executionContext.sessionId, key: input.idempotencyKey }))}`
       : `proposal-tool:${randomUUID()}`,
     proposal: input.proposal, mutation: input.mutation,
-    buildTargets: ({ update, representation }) => {
-      if (representation !== runtime.state.representation) throw new ProposalGraphContractError('PROPOSAL_STALE_LIFECYCLE', 'The proposal representation changed.');
-      const doc = new Y.Doc({ gc: false });
-      try {
-        Y.applyUpdate(doc, update);
-        const edit = input.edit;
-        const prepared = edit && (edit.operations !== undefined || edit.blockId !== undefined)
-          ? prepareCollaborationBlockEditInDocument({ document: edit.document!, workspace: collaboration.workspace,
-            path: collaboration.relativePath, state: runtime.state, doc, expectedSha256, groupId: 'proposal-tool',
-            operations: edit.operations, textEdit: edit.blockId ? { blockId: edit.blockId, oldText: edit.oldText!,
-              newText: edit.newText!, expectedOccurrences: edit.expectedOccurrences, replaceAll: edit.replaceAll } : undefined })
-          : prepareCollaborationContentEditInDocument({ documentId: collaboration.documentId, workspace: collaboration.workspace,
-            path: collaboration.relativePath, state: runtime.state, doc, expectedSha256, groupId: 'proposal-tool',
-            plan: (content) => {
-              if (input.content !== undefined) return { proposedContent: input.content, richMode: 'markdown_structure',
-                edits: [{ oldText: content, newText: input.content, expectedOccurrences: 1 }] };
-              if (edit?.mode !== undefined) {
-                const proposedContent = applyAgentMarkdownEdit(content, edit, input.inputPath);
-                return { proposedContent, richMode: 'markdown_structure',
-                  edits: [{ oldText: content, newText: proposedContent, expectedOccurrences: 1 }] };
-              }
-              const edits = input.edits ?? [{ oldText: edit!.oldText!, newText: edit!.newText!,
-                expectedOccurrences: edit!.expectedOccurrences, replaceAll: edit!.replaceAll }];
-              return { proposedContent: applyExactTextEdits(content, edits, input.inputPath), edits, richMode: 'exact_text' };
-            } });
-        const validation = validateAgentFileContent(input.inputPath, prepared.proposedContent);
-        if (!validation.ok) throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST',
-          `Proposal validation failed. ${validation.checks.map((check) => check.message).join(' ')}`);
-        return prepared.targets;
-      } finally { doc.destroy(); }
-    } });
-  const { beforeContent, proposedContent, beforeSha256, proposedSha256 } = result.authoringPreview;
-  // This is an immutable creation receipt, not a claim that a retry's proposal
-  // remains open or that its original base is still today's document.
-  return { path: input.inputPath, resolvedPath: input.fullPath, changed: false, snapshot: null,
-    beforeSha256, afterSha256: beforeSha256, size: Buffer.byteLength(beforeContent),
-    diff: createUnifiedDiff(beforeContent, proposedContent, `${input.inputPath} (proposal source)`, `${input.inputPath} (proposal)`),
-    validation: validateAgentFileContent(input.inputPath, proposedContent), proposal: result.proposal,
-    collaboration: { operationId: result.node.operationId,
-      operationStatus: result.node.lifecycle === 'open' ? 'needs_review' : result.node.lifecycle,
-      durability: 'not_applied', reviewRequired: true, proposedSha256 } };
+    buildTargets: (source) => buildGraphFileTargets(input, collaboration, runtime.state, source) });
+  // This immutable receipt does not claim that a retry's proposal remains open.
+  return graphFileChangeResult(input, result);
+}
+
+/** Ordinary calls never infer a parent. A verified retry precedes today's policy/source decision. */
+async function createOrdinaryGraphFileChange(input: GraphFileMutation & {
+  fullPath: string; idempotencyKey?: string; mutation: unknown;
+  collaboration: NonNullable<Awaited<ReturnType<typeof collaborativeAgentFileContext>>>;
+  forceReview?: boolean;
+  lookupOnly?: boolean;
+}): Promise<AgentFileChangeResult | null> {
+  const graphEnabled = proposalReviewWritesEnabled({ workspaceId: input.collaboration.workspace.workspaceId });
+  if (!graphEnabled && !input.idempotencyKey) return null;
+  const { collaboration } = input;
+  const idempotencyKey = input.idempotencyKey
+    ? `ordinary-tool:${sha256Text(JSON.stringify({ sessionId: collaboration.executionContext.sessionId, key: input.idempotencyKey }))}`
+    : `ordinary-tool:${randomUUID()}`;
+  if (!graphEnabled && !await hasPotentialProposalAgentRetryKey({ documentId: collaboration.documentId,
+    initiatedByUserId: collaboration.executionContext.userId, idempotencyKey })) return null;
+  const runtime = await createRuntimeProposalAgentService({ workspace: collaboration.workspace,
+    documentId: collaboration.documentId, path: collaboration.relativePath,
+    identity: collaborationAgentIdentity(collaboration.executionContext) });
+  const policy = graphEnabled ? await readAgentReviewPolicySnapshot({ documentId: collaboration.documentId,
+    workspace: collaboration.workspace, initiatedByUserId: collaboration.executionContext.userId }) : null;
+  const allowCreate = graphEnabled && !input.lookupOnly && Boolean(input.forceReview || !policy
+    || policy.policy.effectiveMode !== 'safe_direct' || policy.policy.locked);
+  const result = await runtime.service.createIndependent({ scope: runtime.scope,
+    actorId: collaborationAgentIdentity(collaboration.executionContext).actorId,
+    idempotencyKey,
+    mutation: input.mutation, allowCreate,
+    buildTargets: (source) => buildGraphFileTargets(input, collaboration, runtime.state, source) });
+  return result ? graphFileChangeResult(input, result) : null;
 }
 
 export type AgentEditFileInput = AgentEditFileCommonInput & ({
@@ -1954,7 +2025,6 @@ export type AgentEditFileInput = AgentEditFileCommonInput & ({
 
 export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFileChangeResult> {
   const proposal = parseOptionalProposalToolEditV1(params);
-  if (proposal) assertProposalToolsEnabled();
   const markdownEdit = params.mode !== undefined;
   const structured = params.operations !== undefined || params.blockId !== undefined;
   if (markdownEdit && !/\.(?:md|markdown|mdx)$/iu.test(params.path)) {
@@ -1987,6 +2057,8 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
       idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
       mutation: { operation: 'edit_file', ...mutation }, edit: params });
   }
+  const { proposal: _ordinaryProposal, idempotencyKey: _ordinaryRetry, ...ordinaryArgs } = params;
+  const ordinaryMutation = { operation: 'edit_file', ...ordinaryArgs };
   const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
   if (!structured) assertAgentSharedWorkspaceRevision({
     operation: 'edit_file',
@@ -2002,6 +2074,10 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
     const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
       idempotencyKey: params.idempotencyKey, fingerprint });
     if (reused) return reused;
+    const graph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+      idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+      mutation: ordinaryMutation, edit: params });
+    if (graph) return graph;
     const preparation = await prepareOrReuseCollaborativeFileEdit({
       retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
       prepare: () => prepareCollaborationMarkdownEdit({
@@ -2014,10 +2090,17 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
       }),
     });
     if ('reused' in preparation) return preparation.reused;
+    if (preparation.prepared.requestedMode === 'review') {
+      const structuralGraph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+        idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+        mutation: ordinaryMutation, edit: params, forceReview: true });
+      if (structuralGraph) return structuralGraph;
+    }
     return applyPreparedCollaborativeFileEdit({ inputPath: params.path, fullPath, prepared: preparation.prepared,
       workspace: collaboration.workspace, executionContext: collaboration.executionContext,
       idempotencyKey: params.idempotencyKey || `edit-file-markdown:${randomUUID()}`,
-      auditOperation: 'collaboration_edit_file', fingerprint });
+      auditOperation: 'collaboration_edit_file', fingerprint,
+      disallowLegacyReview: proposalReviewWritesEnabled({ workspaceId: collaboration.workspace.workspaceId }) });
   }
   if (structured) {
     if (!collaboration || collaboration.documentId !== params.document!.documentId) {
@@ -2030,6 +2113,10 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
     const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
       idempotencyKey: params.idempotencyKey, fingerprint });
     if (reused) return reused;
+    const graph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+      idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+      mutation: ordinaryMutation, edit: params });
+    if (graph) return graph;
     const preparation = await prepareOrReuseCollaborativeFileEdit({
       retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
       prepare: () => prepareCollaborationBlockEdit({ document: params.document!, workspace: collaboration.workspace,
@@ -2040,10 +2127,17 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
     });
     if ('reused' in preparation) return preparation.reused;
     const { prepared } = preparation;
+    if (prepared.requestedMode === 'review') {
+      const structuralGraph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+        idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+        mutation: ordinaryMutation, edit: params, forceReview: true });
+      if (structuralGraph) return structuralGraph;
+    }
     return applyPreparedCollaborativeFileEdit({ inputPath: params.path, fullPath, prepared,
       workspace: collaboration.workspace, executionContext: collaboration.executionContext,
       idempotencyKey: params.idempotencyKey || `edit-file:${randomUUID()}`,
-      auditOperation: 'collaboration_edit_file', fingerprint });
+      auditOperation: 'collaboration_edit_file', fingerprint,
+      disallowLegacyReview: proposalReviewWritesEnabled({ workspaceId: collaboration.workspace.workspaceId }) });
   }
   // The structured branch above cannot fall back to writing a file projection.
   const oldText = markdownEdit ? '' : params.oldText!;
@@ -2055,6 +2149,10 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
     const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
       idempotencyKey: params.idempotencyKey, fingerprint });
     if (reused) return reused;
+    const graph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+      idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+      mutation: ordinaryMutation, edit: params });
+    if (graph) return graph;
     const preparation = await prepareOrReuseCollaborativeFileEdit({
       retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
       prepare: () => prepareCollaborationTextEdit({
@@ -2068,6 +2166,12 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
     });
     if ('reused' in preparation) return preparation.reused;
     const { prepared } = preparation;
+    if (prepared.requestedMode === 'review') {
+      const structuralGraph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+        idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+        mutation: ordinaryMutation, edit: params, forceReview: true });
+      if (structuralGraph) return structuralGraph;
+    }
     return applyPreparedCollaborativeFileEdit({
       inputPath: params.path,
       fullPath,
@@ -2077,6 +2181,7 @@ export async function editAgentFile(params: AgentEditFileInput): Promise<AgentFi
       idempotencyKey: params.idempotencyKey || `edit-file:${randomUUID()}`,
       auditOperation: 'collaboration_edit_file',
       fingerprint,
+      disallowLegacyReview: proposalReviewWritesEnabled({ workspaceId: collaboration.workspace.workspaceId }),
     });
   }
 
@@ -2114,7 +2219,6 @@ export async function applyAgentFilePatch(params: {
 
   const proposals = params.files.map((file) => parseOptionalProposalToolEditV1(file));
   if (proposals.some(Boolean)) {
-    assertProposalToolsEnabled();
     if (params.files.length !== 1) throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST', 'Proposal patch creation is atomic for one document per call.');
     const file = params.files[0];
     if (!Array.isArray(file.edits) || file.edits.length === 0) throw new ProposalGraphContractError('PROPOSAL_INVALID_REQUEST', 'A proposal patch requires edits.');
@@ -2148,6 +2252,9 @@ export async function applyAgentFilePatch(params: {
         executionContext: AgentExecutionContext;
         idempotencyKey: string;
         fingerprint: string;
+        edits: AgentPatchFileInput['edits'];
+        expectedSha256?: string;
+        mutation: unknown;
       }
   > = [];
 
@@ -2181,6 +2288,13 @@ export async function applyAgentFilePatch(params: {
       const reused = await reusedCollaborativeFileEdit({ inputPath: file.path, fullPath, collaboration,
         idempotencyKey: params.idempotencyKeyPrefix ? idempotencyKey : undefined, fingerprint });
       if (reused) { prepared.push({ kind: 'recorded', result: reused }); continue; }
+      const ordinaryMutation = { operation: 'apply_patch', path: file.path, edits: file.edits,
+        expectedSha256: file.expectedSha256 ?? null };
+      const graph = await createOrdinaryGraphFileChange({ inputPath: file.path, fullPath, collaboration,
+        idempotencyKey: params.idempotencyKeyPrefix ? idempotencyKey : undefined,
+        expectedSha256: file.expectedSha256, mutation: ordinaryMutation, edits: file.edits,
+        lookupOnly: true });
+      if (graph) { prepared.push({ kind: 'recorded', result: graph }); continue; }
       const preparation = await prepareOrReuseCollaborativeFileEdit({
         retry: { inputPath: file.path, fullPath, collaboration,
           idempotencyKey: params.idempotencyKeyPrefix ? idempotencyKey : undefined, fingerprint },
@@ -2208,6 +2322,9 @@ export async function applyAgentFilePatch(params: {
         executionContext: collaboration.executionContext,
         idempotencyKey,
         fingerprint,
+        edits: file.edits,
+        expectedSha256: file.expectedSha256,
+        mutation: ordinaryMutation,
       });
       continue;
     }
@@ -2238,6 +2355,13 @@ export async function applyAgentFilePatch(params: {
     if (file.kind === 'recorded') {
       results.push(file.result);
     } else if (file.kind === 'collaboration') {
+      const graph = await createOrdinaryGraphFileChange({ inputPath: file.inputPath, fullPath: file.fullPath,
+        collaboration: { documentId: file.prepared.documentId, relativePath: file.prepared.path,
+          workspace: file.workspace, executionContext: file.executionContext },
+        idempotencyKey: params.idempotencyKeyPrefix ? file.idempotencyKey : undefined,
+        expectedSha256: file.expectedSha256,
+        mutation: file.mutation, edits: file.edits, forceReview: file.prepared.requestedMode === 'review' });
+      if (graph) { results.push(graph); continue; }
       results.push(await applyPreparedCollaborativeFileEdit({
         inputPath: file.inputPath,
         fullPath: file.fullPath,
@@ -2247,6 +2371,7 @@ export async function applyAgentFilePatch(params: {
         idempotencyKey: file.idempotencyKey,
         auditOperation: 'collaboration_apply_patch',
         fingerprint: file.fingerprint,
+        disallowLegacyReview: proposalReviewWritesEnabled({ workspaceId: file.workspace.workspaceId }),
       }));
     } else {
       // Preflight is intentionally separate from commit for multi-file patches.

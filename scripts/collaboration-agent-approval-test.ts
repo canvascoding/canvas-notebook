@@ -46,16 +46,30 @@ function harness(markdown?: string) {
   let denyGrantLock = false;
   let failGrantCommit = false;
   let beforeGrantLock = () => {};
+  const lifecycleEvents: string[] = [];
   class GrantUnavailableError extends Error {}
 
   const database = {
-    get: async (sql: string) => sql.includes('FROM file_change_proposals') ? (graphBound ? { proposal_id: 'proposal' } : undefined)
+    get: async (sql: string) => sql.includes('FROM collaboration_yjs_states') ? undefined
+      : sql.includes('FROM file_change_proposals') ? (graphBound ? { proposal_id: 'proposal' } : undefined)
       : sql.includes('SELECT name, email') ? { name: 'User' }
       : newDelivery && sql.includes('WHERE document_id = $1 AND initiated_by_user_id') ? undefined : { ...row },
     close: async () => {},
-    all: async (sql: string) => sql.includes("WHERE status IN ('preparing'") ? [{ ...row }] : [],
+    all: async (sql: string) => {
+      if (sql.includes('pg_advisory_xact_lock')) lifecycleEvents.push('ADMISSION_WORKSPACE_LOCK');
+      if (sql.includes('collaboration_admission_scopes') || sql.includes('collaboration_admission_targets')) {
+        lifecycleEvents.push('ADMISSION_OPEN_CHECK');
+        return [];
+      }
+      return sql.includes("WHERE status IN ('preparing'") ? [{ ...row }] : [];
+    },
     run: async (sql: string, params: unknown[]) => {
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.startsWith('SET LOCAL ')) {
+        lifecycleEvents.push(sql);
+        return { changes: 0 };
+      }
       if (sql.includes('INSERT INTO collaboration_agent_operations')) {
+        lifecycleEvents.push('INSERT collaboration_agent_operations');
         const insert = /\(([\s\S]*?)\)\s*VALUES\s*\(([\s\S]*?)\)/.exec(sql)!;
         const columns = insert[1].split(',').map((value) => value.trim());
         const values = insert[2].split(',').map((value) => value.trim());
@@ -106,7 +120,13 @@ function harness(markdown?: string) {
         return null;
       },
     } };
-    if (name === './persistence') return { loadCollaborationState: async () => ({ ...state }) };
+    if (name === './persistence') return {
+      loadCollaborationState: async () => ({ ...state }),
+      loadCollaborationStateOnConnection: async (connection: unknown) => {
+        assert.equal(connection, database, 'new operation state is read on its owning transaction connection');
+        return { ...state };
+      },
+    };
     if (name === './document-access') return { readCurrentCollaborationDocument: async (input: { read: (doc: Y.Doc) => unknown }) => {
       reads++; return input.read(doc);
     } };
@@ -192,7 +212,8 @@ function harness(markdown?: string) {
     return agent.applyPersistedAgentTextOperation(deliveryInput(overrides));
   };
   return { doc, state, row, agent, target, preview, accept, deliver,
-    retryDelivery: () => agent.applyPersistedAgentTextOperation(deliveryInput()),
+    retryDelivery: (overrides: Partial<Parameters<typeof Agent.applyPersistedAgentTextOperation>[0]> = {}) =>
+      agent.applyPersistedAgentTextOperation(deliveryInput(overrides)),
     setGraphBound: (value: boolean) => { graphBound = value; },
     setGrant: (value: { id: string; expiresAt: number } | null) => {
       directGrant = value;
@@ -204,6 +225,7 @@ function harness(markdown?: string) {
     failGrantCommit: () => { failGrantCommit = true; },
     beforeGrantLock: (value: () => void) => { beforeGrantLock = value; }, directCalls: () => directCalls, reads: () => reads,
     historyCaptures: () => historyCaptures,
+    lifecycleEvents: () => [...lifecycleEvents],
     beforeApply: (value: () => void) => { beforeApply = value; }, close: () => doc.destroy() };
 }
 
@@ -367,6 +389,18 @@ test('a safe-direct document policy creates only the new operation authority and
     assert.equal(result.durability, 'persisted_yjs');
     assert.equal(h.row.direct_edit_grant_id, 'policy-generated');
     assert.equal(h.directCalls(), 1);
+    const lifecycle = h.lifecycleEvents();
+    assert.equal(lifecycle[0], 'BEGIN');
+    const statementTimeout = lifecycle.indexOf('SET LOCAL statement_timeout = \'5s\'');
+    const workspaceLock = lifecycle.indexOf('ADMISSION_WORKSPACE_LOCK');
+    const openCheck = lifecycle.indexOf('ADMISSION_OPEN_CHECK');
+    const insert = lifecycle.indexOf('INSERT collaboration_agent_operations');
+    const commit = lifecycle.indexOf('COMMIT');
+    assert.ok(statementTimeout >= 0 && workspaceLock >= 0 && openCheck >= 0 && insert >= 0 && commit >= 0,
+      'every expected lifecycle step is observed');
+    assert.ok(statementTimeout < workspaceLock && workspaceLock < openCheck && openCheck < insert,
+      'creation scopes state, locks admission, and checks reservations before inserting');
+    assert.ok(insert < commit);
     assert.match(h.doc.getText('content').toString(), /^Revised/);
   } finally { h.close(); }
 });
@@ -426,6 +460,34 @@ test('revocation or replacement of the captured grant leaves a proposal', async 
       assert.equal(h.row.direct_edit_grant_id, 'grant-original');
     } finally { h.close(); }
   }
+});
+
+test('graph-enabled direct grant loss cancels the unapplied legacy row without a reviewable retry', async () => {
+  const h = harness();
+  try {
+    h.setGrant({ id: 'grant-original', expiresAt: Date.now() + 60_000 });
+    h.denyPolicyAuthorization();
+    const before = Y.encodeStateAsUpdate(h.doc);
+    await assert.rejects(h.deliver({ disallowLegacyReview: true }), (error: unknown) =>
+      error instanceof Error && 'code' in error && error.code === 'PROPOSAL_UPGRADE_REQUIRED');
+    assert.equal(h.row.status, 'cancelled');
+    assert.equal(h.row.error_code, 'graph_review_reroute_required');
+    const stored = JSON.parse(String(h.row.result_json)) as Agent.PersistedAgentApplyResult;
+    assert.equal(stored.status, 'cancelled');
+    assert.equal(stored.operationStatus, 'cancelled');
+    assert.equal(stored.durability, 'pending');
+    assert.deepEqual(stored.appliedTargetIds, []);
+    assert.equal(h.directCalls(), 0);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc), before);
+
+    const retry = await h.retryDelivery({ disallowLegacyReview: true });
+    assert.equal(retry.operationId, h.row.operation_id);
+    assert.equal(retry.status, 'cancelled');
+    assert.equal(retry.operationStatus, 'cancelled');
+    assert.equal(retry.durability, 'pending');
+    assert.equal(h.directCalls(), 0);
+    assert.deepEqual(Y.encodeStateAsUpdate(h.doc), before);
+  } finally { h.close(); }
 });
 
 test('direct permission expiring while the room opens cannot mutate', async () => {

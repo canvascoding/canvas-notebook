@@ -69,11 +69,14 @@ export type ProposalRelationshipPolicy = (input: {
   dependency: ProposalRelationshipsV1['dependency'];
 }) => Promise<{
   relationships: ProposalRelationshipsV1;
+  /** Prepare referenced rows before node insertion; must share the same rollback boundary. */
+  beforeInsert?(): Promise<void>;
   /** Domain-owned replacement/choice mutation, called only inside the same atomic unit. */
   apply(node: ProposalNodeV1): Promise<void>;
 }>;
 export type ProposalProvenanceDependencies = {
-  withTransaction<T>(scope: ProposalDocumentScopeV1, action: (transaction: ProposalProvenanceTransaction) => Promise<T>): Promise<T>;
+  withTransaction<T>(scope: ProposalDocumentScopeV1, action: (transaction: ProposalProvenanceTransaction) => Promise<T>,
+    intent: 'read' | 'create_operation'): Promise<T>;
   /** Domain policy must cover document access and target-specific management separately. */
   authorize(input: ProposalProvenanceAuthorization): Promise<void>;
   relationshipPolicy?: ProposalRelationshipPolicy;
@@ -104,7 +107,7 @@ function plainRef(ref: ProposalArtifactReferenceV1): ProposalArtifactReferenceV1
 function fullRef(ref: ProposalArtifactReferenceV1): ProposalSnapshotReferenceV1 {
   return { ...plainRef(ref), encoding: 'yjs_full_update_v1' };
 }
-function view(update: Uint8Array, representation: ProposalYjsRepresentation): ProposalProvenanceView {
+export function proposalSourceView(update: Uint8Array, representation: ProposalYjsRepresentation): ProposalProvenanceView {
   // Current proof also rejects pending causal data and invalid representations.
   proposalYjsCurrentProof({ update, representation, revisionId: null });
   const doc = new Y.Doc({ gc: false });
@@ -122,10 +125,29 @@ function sourceReceipt(update: Uint8Array, representation: ProposalYjsRepresenta
   return { contractVersion: 1, kind: 'proposal_source_identity', representation, snapshotSha256: hash(update),
     structureHash: proof.structureHash, stateVectorHash: proof.stateVectorHash, deleteSetHash: proof.deleteSetHash };
 }
-async function persistSourceSnapshot(graph: ProposalGraphStorageTransaction, update: Uint8Array, representation: ProposalYjsRepresentation) {
+export async function persistProposalSourceSnapshot(graph: ProposalGraphStorageTransaction, update: Uint8Array, representation: ProposalYjsRepresentation) {
   const snapshot = fullRef(await graph.putArtifact('yjs_full_update_v1', update));
   const anchorMap = plainRef(await graph.putArtifact('json_v1', encodeJson(sourceReceipt(update, representation))));
   return { snapshot, anchorMap };
+}
+
+/** Shared authoring persistence for agent and explicitly reviewed user transformations. */
+export async function persistProposalAuthoredCandidate(input: {
+  graph: ProposalGraphStorageTransaction;
+  source: ProposalSourceProofV1;
+  sourceUpdate: Uint8Array;
+  representation: ProposalYjsRepresentation;
+  targets: AgentTextTarget[];
+}): Promise<{ authoredCandidate: ProposalNodeV1['authoredCandidate']; content: string }> {
+  const authored = authorProposalYjsCandidate({ representation: input.representation,
+    sourceUpdate: input.sourceUpdate, targets: input.targets });
+  const envelope: WitnessEnvelope = { contractVersion: 1, kind: 'proposal_candidate_witnesses',
+    effectPreconditions: decodeJson(authored.effectPreconditions), anchorMap: decodeJson(authored.anchorMap) };
+  const effectPreconditions = plainRef(await input.graph.putArtifact('json_v1', encodeJson(envelope)));
+  const incrementalPayload = plainRef(await input.graph.putArtifact('json_v1', authored.incrementalPayload));
+  const cumulativeCandidate = fullRef(await input.graph.putArtifact('yjs_full_update_v1', authored.cumulativeCandidate));
+  return { authoredCandidate: { incrementalPayload, cumulativeCandidate, effectPreconditions,
+    sourceProofHash: hashProposalValue(input.source) }, content: authored.content };
 }
 
 /** Source identity receipts and per-proposal effect witnesses have distinct owners. */
@@ -193,7 +215,7 @@ async function storedPreview(transaction: ProposalProvenanceTransaction, node: P
   }
   const source = await transaction.graph.readArtifact(node.source.snapshot);
   const candidate = await transaction.graph.readArtifact(node.authoredCandidate.cumulativeCandidate);
-  return preview(view(source, representation).content, view(candidate, representation).content);
+    return preview(proposalSourceView(source, representation).content, proposalSourceView(candidate, representation).content);
 }
 
 /**
@@ -204,6 +226,64 @@ async function storedPreview(transaction: ProposalProvenanceTransaction, node: P
 export function createProposalProvenanceService(dependencies: ProposalProvenanceDependencies) {
   const now = dependencies.now ?? Date.now; const createId = dependencies.createId ?? randomUUID;
   return {
+    /** Ordinary tool intent has no client-declared parent or source. Retry identity precedes today's current read. */
+    async createIndependent(input: {
+      scope: ProposalDocumentScopeV1; actorId: string; idempotencyKey: string; mutation: unknown;
+      allowCreate: boolean;
+      buildTargets(source: ProposalProvenanceView & { update: Uint8Array; representation: ProposalYjsRepresentation }): AgentTextTarget[] | Promise<AgentTextTarget[]>;
+    }): Promise<{ node: ProposalNodeV1; proposal: ProposalToolCreationResultV1; reused: boolean;
+      authoringPreview: ProposalAuthoringPreview } | null> {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(input.actorId)
+        || !/^[A-Za-z0-9._:-]{16,128}$/u.test(input.idempotencyKey)) fail(Codes.invalidRequest, 'Invalid proposal actor or retry identity.');
+      await dependencies.authorize({ scope: input.scope, action: 'read', proposalIds: [] });
+      const requestDigest = hashProposalValue({ kind: 'ordinary_independent_v1', scope: input.scope,
+        actorId: input.actorId, mutation: input.mutation });
+      return dependencies.withTransaction(input.scope, async (transaction) => {
+        const existing = await transaction.lookupOperation({ idempotencyKey: input.idempotencyKey, requestDigest });
+        if (existing) {
+          const node = await transaction.graph.getProposal(existing.proposalId);
+          if (!node || node.operationId !== existing.operationId) fail(Codes.recoveryRequired, 'Prepared operation has no matching proposal.');
+          sameScope(node.scope, input.scope);
+          if (node.source.kind !== 'authoritative' || node.relationships.dependency !== null
+            || node.relationships.replacesProposalId !== null || node.relationships.choiceGroupId !== null) {
+            fail(Codes.idempotencyMismatch, 'The operation retry does not identify an independent root.');
+          }
+          await dependencies.authorize({ scope: input.scope, action: 'read', proposalIds: [node.proposalId] });
+          return { node, proposal: creationResult(node, 'independent'), reused: true,
+            authoringPreview: await storedPreview(transaction, node) };
+        }
+        if (!input.allowCreate) return null;
+        await dependencies.authorize({ scope: input.scope, action: 'create', proposalIds: [] });
+        const graph = await transaction.graph.loadGraph(); sameScope(graph.scope, input.scope);
+        const current = await transaction.loadCurrent(); sameScope(current.scope, input.scope);
+        const currentProof = proposalYjsCurrentProof({ update: current.update,
+          representation: current.representation, revisionId: current.revisionId });
+        const sourceUpdate = Uint8Array.from(current.update);
+        const refs = await persistProposalSourceSnapshot(transaction.graph, sourceUpdate, current.representation);
+        const source: ProposalSourceProofV1 = { kind: 'authoritative', scope: input.scope, current: currentProof, ...refs };
+        const sourceView = proposalSourceView(sourceUpdate, current.representation);
+        const targets = await input.buildTargets({ ...sourceView, update: Uint8Array.from(sourceUpdate),
+          representation: current.representation });
+        const authored = await persistProposalAuthoredCandidate({ graph: transaction.graph, source,
+          sourceUpdate, representation: current.representation, targets });
+        const proposalId = createId(); const operationId = createId();
+        const node = parseProposalNodeV1({ contractVersion: 1, proposalId, operationId, scope: input.scope,
+          casVersion: 1, source, relationships: { dependency: null, replacesProposalId: null, choiceGroupId: null },
+          authoredCandidate: authored.authoredCandidate, lifecycle: 'open', createdAt: now(), createdByActorId: input.actorId });
+        const beforeInsert = await transaction.loadCurrent(); sameScope(beforeInsert.scope, input.scope);
+        if (beforeInsert.representation !== current.representation || !isDeepStrictEqual(currentProof,
+          proposalYjsCurrentProof({ update: beforeInsert.update, representation: beforeInsert.representation,
+            revisionId: beforeInsert.revisionId }))) fail(Codes.currentChanged, 'The document changed during proposal preparation.');
+        await transaction.insertPreparedOperation({ operationId, proposalId, scope: input.scope,
+          representation: current.representation, source, targets, idempotencyKey: input.idempotencyKey,
+          requestDigest, reviewRequired: true, beforeSha256: hash(sourceView.content),
+          proposedSha256: hash(authored.content),
+          sourceStateVector: Buffer.from(Y.encodeStateVectorFromUpdate(sourceUpdate)).toString('base64') });
+        const inserted = await transaction.graph.insertProposal(node);
+        return { node: inserted, proposal: creationResult(inserted, 'independent'), reused: false,
+          authoringPreview: preview(sourceView.content, authored.content) };
+      }, 'create_operation');
+    },
     async readExact(input: { scope: ProposalDocumentScopeV1; proposalId: string | null }): Promise<{
       metadata: ProposalToolReadResultV1; content: string; structure: ProposalProvenanceStructure; sourceStateVector: string;
     }> {
@@ -217,13 +297,13 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
         let source: ProposalSourceProofV1; let sourceUpdate = current.update;
         if (input.proposalId === null) {
           source = { kind: 'authoritative', scope: input.scope, current: currentProof,
-            ...await persistSourceSnapshot(transaction.graph, sourceUpdate, current.representation) };
+            ...await persistProposalSourceSnapshot(transaction.graph, sourceUpdate, current.representation) };
         } else {
           const selected = graph.nodes.find((node) => node.proposalId === input.proposalId);
           if (!selected) fail(Codes.sourceInvalid, 'The exact proposal is unavailable in this document.');
           const result = await evaluateSource({ transaction, current, graph, selected, authorize: dependencies.authorize });
           sourceUpdate = result.candidateUpdate;
-          const refs = await persistSourceSnapshot(transaction.graph, sourceUpdate, current.representation);
+          const refs = await persistProposalSourceSnapshot(transaction.graph, sourceUpdate, current.representation);
           const evaluatedAt = now();
           const evaluation: ProposalEvaluationV1 = { contractVersion: 1, evaluationId: createId(), proposalId: selected.proposalId,
             scope: input.scope, current: currentProof, graphRevision: graph.graphRevision, status: result.status,
@@ -235,11 +315,11 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
             authoredCandidateHash: selected.authoredCandidate.cumulativeCandidate.sha256,
             evaluationId: evaluation.evaluationId, candidateHash: refs.snapshot.sha256 };
         }
-        const result = view(sourceUpdate, current.representation);
+        const result = proposalSourceView(sourceUpdate, current.representation);
         return { ...result, sourceStateVector: Buffer.from(Y.encodeStateVectorFromUpdate(sourceUpdate)).toString('base64'),
           metadata: parseProposalToolReadResultV1({ contractVersion: 1, source,
           contentSha256: hash(result.content), graphRevision: graph.graphRevision }) };
-      });
+      }, 'read');
     },
 
     async create(input: {
@@ -278,6 +358,10 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
           return { node, proposal: creationResult({ ...node, relationships: existing.authoredRelationships }, request.creationKind),
             reused: true, authoringPreview: await storedPreview(transaction, node) };
         }
+        // Recheck new-write authorization after any owner-lock wait, before
+        // current content or new artifacts are prepared. Exact retries above
+        // retain their read-only route through the same transaction.
+        await dependencies.authorize({ scope: input.scope, action: 'create', proposalIds: referencedIds });
         if ((request.replaces || request.choice) && !dependencies.relationshipPolicy) fail(Codes.upgradeRequired, 'Relationship mutation requires the graph-aware domain orchestrator.');
         const graph = await transaction.graph.loadGraph({ includeProposalIds: referencedIds }); sameScope(graph.scope, input.scope);
         await dependencies.authorize({ scope: input.scope, action: 'read', proposalIds: referencedIds });
@@ -341,19 +425,13 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
           if (!isDeepStrictEqual(relationshipPlan.relationships.dependency, dependency)
             || relationshipPlan.relationships.replacesProposalId !== (request.replaces?.proposalId ?? null)) fail(Codes.sourceInvalid, 'Relationship policy changed the declared source.');
         }
-        const sourceView = view(sourceUpdate, current.representation);
+        const sourceView = proposalSourceView(sourceUpdate, current.representation);
         const targets = await input.buildTargets({ ...sourceView, update: Uint8Array.from(sourceUpdate), representation: current.representation });
-        const authored = authorProposalYjsCandidate({ representation: current.representation, sourceUpdate, targets });
-        const envelope: WitnessEnvelope = { contractVersion: 1, kind: 'proposal_candidate_witnesses',
-          effectPreconditions: decodeJson(authored.effectPreconditions), anchorMap: decodeJson(authored.anchorMap) };
-        // One combined bound prevents splitting an oversized witness across two
-        // individually valid JSON artifacts. Source receipt remains independent.
-        const effectPreconditions = plainRef(await transaction.graph.putArtifact('json_v1', encodeJson(envelope)));
-        const incrementalPayload = plainRef(await transaction.graph.putArtifact('json_v1', authored.incrementalPayload));
-        const cumulativeCandidate = fullRef(await transaction.graph.putArtifact('yjs_full_update_v1', authored.cumulativeCandidate));
+        const authored = await persistProposalAuthoredCandidate({ graph: transaction.graph,
+          source: request.source, sourceUpdate, representation: current.representation, targets });
         const node = parseProposalNodeV1({ contractVersion: 1, proposalId, operationId, scope: input.scope, casVersion: 1,
           source: request.source, relationships: relationshipPlan?.relationships ?? { dependency, replacesProposalId: null, choiceGroupId: null },
-          authoredCandidate: { incrementalPayload, cumulativeCandidate, effectPreconditions, sourceProofHash: hashProposalValue(request.source) },
+          authoredCandidate: authored.authoredCandidate,
           lifecycle: 'open', createdAt: now(), createdByActorId: input.actorId });
         const beforeInsert = await transaction.loadCurrent(); sameScope(beforeInsert.scope, input.scope);
         if (beforeInsert.representation !== current.representation || !isDeepStrictEqual(currentProof,
@@ -364,12 +442,13 @@ export function createProposalProvenanceService(dependencies: ProposalProvenance
           source: request.source, targets, idempotencyKey: input.idempotencyKey, requestDigest, reviewRequired: true,
           beforeSha256: hash(sourceView.content), proposedSha256: hash(authored.content),
           sourceStateVector: Buffer.from(Y.encodeStateVectorFromUpdate(sourceUpdate)).toString('base64') });
+        await relationshipPlan?.beforeInsert?.();
         const inserted = await transaction.graph.insertProposal(node);
         await relationshipPlan?.apply(inserted);
         const final = await transaction.graph.getProposal(proposalId);
         if (!final || final.operationId !== operationId) fail(Codes.recoveryRequired, 'Atomic proposal insertion was not completed.');
         return { node: final, proposal: creationResult(final, request.creationKind), reused: false, authoringPreview: preview(sourceView.content, authored.content) };
-      });
+      }, 'create_operation');
     },
   };
 }

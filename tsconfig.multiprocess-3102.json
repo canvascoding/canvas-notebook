@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": ".next/multiprocess-3102/cache/tsconfig.tsbuildinfo"
+  },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts",
+    "**/*.mts",
+    ".next/multiprocess-3102/types/**/*.ts",
+    ".next/multiprocess-3102/dev/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "docs/template",
+    ".next/multiprocess-3101"
+  ]
+}

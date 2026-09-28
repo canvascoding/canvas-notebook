@@ -9,7 +9,7 @@ import { prepareAgentBlockEdit, type AgentBlockEditRequest } from '../app/lib/co
 import { createAgentTextTarget, createRichAgentTextTargets, createRichMarkdownReviewTarget, type AgentTextTarget } from '../app/lib/collaboration/agent-operations';
 import { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensions } from '../app/lib/collaboration/markdown-state';
 import {
-  authorProposalYjsCandidate, composeProposalYjsCandidate, proposalYjsCurrentProof,
+  authorProposalYjsCandidate, composeProposalYjsCandidate, proposalYjsCurrentProof, proposalYjsRecoveryStateMatches,
   type AuthoredProposalYjsCandidate, type ProposalYjsCompositionEntry, type ProposalYjsRepresentation,
 } from '../app/lib/file-version-center/proposal-yjs-candidate';
 import { PROPOSAL_GRAPH_ERROR_CODES as Codes, PROPOSAL_GRAPH_LIMITS as Limits } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
@@ -284,5 +284,113 @@ test('pending structs, pending deletion sets, malformed artifacts, oversized byt
     assert.ok('reasonCode' in oversized && oversized.reasonCode === Codes.limitExceeded);
     assert.equal(compose(base, [entry('p1', base, p1), entry('p1', base, p1)]).status, 'unavailable');
     assert.equal(compose(base, [entry('p1', base, { ...p1, effectPreconditions: Buffer.from('{"version":1,"introduced":[],"deleted":[]}') })]).status, 'unavailable');
+  } finally { doc.destroy(); }
+});
+
+function gcUpdate(update: Uint8Array): Uint8Array {
+  const doc = new Y.Doc({ gc: true });
+  try { Y.applyUpdate(doc, update); return encode(doc); } finally { doc.destroy(); }
+}
+
+function recoveryMatches(candidateUpdate: Uint8Array, persistedUpdate: Uint8Array,
+  representation: ProposalYjsRepresentation = 'plain_text'): boolean {
+  const candidateBefore = candidateUpdate.slice(); const persistedBefore = persistedUpdate.slice();
+  try { return proposalYjsRecoveryStateMatches({ candidateUpdate, persistedUpdate, representation }); }
+  finally {
+    assert.deepEqual(candidateUpdate, candidateBefore, 'recovery must preserve retained proposal anchors');
+    assert.deepEqual(persistedUpdate, persistedBefore, 'verification must not rewrite persisted bytes');
+  }
+}
+
+for (const replacement of ['Changed', 'Keep', '']) {
+  test(`recovery permits only GC normalization of a complete plain-text candidate (${JSON.stringify(replacement)})`, () => {
+    const source = createPlainTextYDoc('Keep old');
+    try {
+      const authored = edit(encode(source), 'Keep old', replacement);
+      const candidate = authored.cumulativeCandidate; const persisted = gcUpdate(candidate);
+      assert.notDeepEqual(candidate, persisted, 'the fixture actually exercises changed GC serialization');
+      assert.equal(recoveryMatches(candidate, candidate), true, 'strict exact-state fast path');
+      assert.equal(recoveryMatches(candidate, persisted), true);
+      assert.equal(recoveryMatches(persisted, candidate), true, 'both inputs are normalized independently');
+      assert.equal(recoveryMatches(candidate, encode(source)), false, 'an unapplied base is not the candidate');
+    } finally { source.destroy(); }
+  });
+}
+
+for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
+  test(`${representation} recovery preserves rich block identity while allowing GC after block removal`, () => {
+    const source = createRichMarkdownYDoc('Keep\n\nRemove this block', representation);
+    // Block-tree removal uses logical tombstones; edit text first so both
+    // representations also contain deleted CRDT structs eligible for GC.
+    const candidateDoc = reopen(edit(encode(source), 'Remove this block', 'Removed', representation).cumulativeCandidate);
+    const recreated = createRichMarkdownYDoc('Keep', representation);
+    try {
+      if (representation === 'tiptap_xml') candidateDoc.getXmlFragment('body').delete(1, 1);
+      else {
+        const tree = new CollaborationBlockTree(candidateDoc, schema);
+        tree.delete(tree.read().child(1).attrs.id as string, 'recovery-test', 'agent');
+      }
+      const candidate = encode(candidateDoc); const persisted = gcUpdate(candidate);
+      assert.notDeepEqual(candidate, persisted);
+      assert.equal(recoveryMatches(candidate, persisted, representation), true);
+      assert.equal(proposalYjsCurrentProof({ update: candidate, representation, revisionId: null }).contentHash,
+        proposalYjsCurrentProof({ update: encode(recreated), representation, revisionId: null }).contentHash);
+      assert.equal(recoveryMatches(candidate, encode(recreated), representation), false,
+        'equal-looking Markdown with fresh identities does not prove the applied candidate');
+    } finally { source.destroy(); candidateDoc.destroy(); recreated.destroy(); }
+  });
+}
+
+test('recovery rejects partial or different deletions even with equal clocks and equal visible text', () => {
+  const source = createPlainTextYDoc('AAAA'); const base = encode(source);
+  const expected = reopen(base); const partial = reopen(base); const different = reopen(base);
+  try {
+    expected.getText('content').delete(0, 2);
+    partial.getText('content').delete(0, 1);
+    different.getText('content').delete(2, 2);
+    const candidate = encode(expected);
+    assert.deepEqual(Y.encodeStateVector(expected), Y.encodeStateVector(partial));
+    assert.deepEqual(Y.encodeStateVector(expected), Y.encodeStateVector(different));
+    assert.equal(expected.getText('content').toString(), different.getText('content').toString());
+    assert.equal(recoveryMatches(candidate, gcUpdate(encode(partial))), false);
+    assert.equal(recoveryMatches(candidate, gcUpdate(encode(different))), false);
+  } finally { for (const doc of [source, expected, partial, different]) doc.destroy(); }
+});
+
+test('recovery rejects equal text recreated on the same document and later peer edits', () => {
+  const source = createPlainTextYDoc('Before');
+  const candidate = edit(encode(source), 'Before', 'After').cumulativeCandidate;
+  const recreated = reopen(candidate); const peer = reopen(candidate);
+  try {
+    recreated.getText('content').delete(0, 5); recreated.getText('content').insert(0, 'After');
+    peer.getText('content').insert(5, ' peer');
+    assert.equal(recoveryMatches(candidate, gcUpdate(encode(recreated))), false);
+    assert.equal(recoveryMatches(candidate, gcUpdate(encode(peer))), false);
+  } finally { source.destroy(); recreated.destroy(); peer.destroy(); }
+});
+
+for (const kind of ['structures', 'delete ranges'] as const) {
+  test(`recovery fails closed for pending ${kind} on either side, even around a complete candidate`, () => {
+    const candidate = createPlainTextYDoc('After'); const foreign = createPlainTextYDoc('A');
+    try {
+      const vector = Y.encodeStateVector(foreign);
+      if (kind === 'structures') foreign.getText('content').insert(1, 'B');
+      else foreign.getText('content').delete(0, 1);
+      const incomplete = Y.mergeUpdates([encode(candidate), Y.encodeStateAsUpdate(foreign, vector)]);
+      assert.throws(() => recoveryMatches(encode(candidate), incomplete),
+        (error: unknown) => (error as { code: string }).code === Codes.sourceInvalid);
+      assert.throws(() => recoveryMatches(incomplete, encode(candidate)),
+        (error: unknown) => (error as { code: string }).code === Codes.sourceInvalid);
+    } finally { candidate.destroy(); foreign.destroy(); }
+  });
+}
+
+test('recovery rejects malformed and oversized updates on either side', () => {
+  const doc = createPlainTextYDoc('After');
+  try {
+    for (const invalid of [new Uint8Array([255]), new Uint8Array(Limits.candidateBytes + 1)]) {
+      assert.throws(() => recoveryMatches(encode(doc), invalid));
+      assert.throws(() => recoveryMatches(invalid, encode(doc)));
+    }
   } finally { doc.destroy(); }
 });

@@ -203,3 +203,235 @@ test('does not read artifacts whose immutable source proof was tampered with', a
     assert.equal(reads.length, 0);
   } finally { doc.destroy(); }
 });
+
+test('CR-04: a preceding insertion rebases by Yjs identity without losing independent current text', async () => {
+  const { doc, artifacts, graph } = setup();
+  try {
+    doc.getText('content').insert(0, 'Inserted before target.\n');
+    const current = update(doc);
+    const { transaction } = memoryTransaction(graph, artifacts);
+    const result = await evaluateProposalReview({ scope, selectedProposalIds: ['p1'], transaction,
+      loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-shifted', update: current }),
+      confirmCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-shifted', update: current }),
+      authorize: async () => undefined });
+    assert.equal(result.status, 'clean_rebased');
+    assert.equal(result.actionability, 'accept');
+    assert.equal(result.candidateContent, 'Inserted before target.\nA=10 B=2');
+    assert.deepEqual(update(doc), current, 'evaluation must not mutate the authoritative Yjs snapshot');
+  } finally { doc.destroy(); }
+});
+
+test('CR-05: deleting and recreating equal text cannot revive the original proposal target', async () => {
+  const { doc, artifacts, graph } = setup();
+  try {
+    const text = doc.getText('content');
+    text.delete(0, 3);
+    text.insert(0, 'A=1');
+    assert.equal(text.toString(), 'A=1 B=2');
+    const current = update(doc);
+    const { transaction } = memoryTransaction(graph, artifacts);
+    const result = await evaluateProposalReview({ scope, selectedProposalIds: ['p1'], transaction,
+      loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-recreated', update: current }),
+      authorize: async () => undefined });
+    assert.equal(result.status, 'conflicted');
+    assert.equal(result.actionability, 'none');
+    assert.equal(result.candidateContent, null);
+    assert.deepEqual(update(doc), current);
+  } finally { doc.destroy(); }
+});
+
+test('CR-03: independent same-block roots compose in either order and as one batch without mutating current', async (t) => {
+  const { doc, base, artifacts, graph } = setup();
+  const firstRoot = graph.nodes[0]!;
+  const secondRoot = proposal({
+    proposalId: 'p-independent-b', source: base, candidate: edit(base, 'B=2', 'B=20'), artifacts,
+  });
+  graph.nodes = [firstRoot, secondRoot];
+  try {
+    assert.deepEqual(graph.nodes.map((node) => node.relationships.dependency), [null, null]);
+    assert(graph.nodes.every((node) => node.source.kind === 'authoritative'));
+    assert.equal(firstRoot.source.current.fullStateHash, secondRoot.source.current.fullStateHash,
+      'both independent roots must name the same authoritative base');
+
+    const evaluate = async (current: Uint8Array, selectedProposalIds: string[], revisionId: string) => {
+      const { transaction } = memoryTransaction(graph, artifacts);
+      return evaluateProposalReview({
+        scope, selectedProposalIds, transaction,
+        loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId, update: current }),
+        authorize: async () => undefined,
+      });
+    };
+
+    for (const [label, first, second, afterFirst] of [
+      ['A then B', firstRoot, secondRoot, 'A=10 B=2'],
+      ['B then A', secondRoot, firstRoot, 'A=1 B=20'],
+    ] as const) {
+      await t.test(label, async () => {
+        const live = new Y.Doc({ gc: false });
+        try {
+          Y.applyUpdate(live, base);
+          const beforeFirst = update(live);
+          const firstPreview = await evaluate(beforeFirst, [first.proposalId], `revision-${label}-base`);
+          assert.equal(firstPreview.actionability, 'accept', JSON.stringify(firstPreview));
+          assert.equal(firstPreview.candidateContent, afterFirst);
+          assert.deepEqual(update(live), beforeFirst, 'the first evaluation must not mutate live current');
+
+          const firstCandidate = artifacts.get(first.authoredCandidate.cumulativeCandidate.ref);
+          assert(firstCandidate, 'the fixture must include the first proposal’s real Yjs candidate');
+          Y.applyUpdate(live, firstCandidate);
+          assert.equal(live.getText('content').toString(), afterFirst);
+
+          const beforeSecond = update(live);
+          const secondPreview = await evaluate(beforeSecond, [second.proposalId], `revision-${label}-after-first`);
+          assert(['clean', 'clean_rebased'].includes(secondPreview.status), JSON.stringify(secondPreview));
+          assert.equal(secondPreview.actionability, 'accept', JSON.stringify(secondPreview));
+          assert.equal(secondPreview.candidateContent, 'A=10 B=20');
+          assert.deepEqual(update(live), beforeSecond, 'the second evaluation must not mutate live current');
+        } finally { live.destroy(); }
+      });
+    }
+
+    await t.test('one batch', async () => {
+      const beforeBatch = update(doc);
+      const batch = await evaluate(beforeBatch, [firstRoot.proposalId, secondRoot.proposalId], 'revision-batch-base');
+      assert(['clean', 'clean_rebased'].includes(batch.status), JSON.stringify(batch));
+      assert.equal(batch.actionability, 'accept');
+      assert.equal(batch.candidateContent, 'A=10 B=20');
+      assert.deepEqual(new Set(batch.applyProposalIds), new Set([firstRoot.proposalId, secondRoot.proposalId]));
+      assert.deepEqual(update(doc), beforeBatch, 'batch evaluation must not mutate authoritative current');
+    });
+  } finally { doc.destroy(); }
+});
+
+test('CR-03 overlap control: same-block overlapping independent roots conflict without a partial candidate', async () => {
+  const { doc, base, artifacts, graph } = setup();
+  const firstRoot = graph.nodes[0]!;
+  const overlapRoot = proposal({
+    proposalId: 'p-overlap-a', source: base, candidate: edit(base, 'A=1', 'A=11'), artifacts,
+  });
+  graph.nodes = [firstRoot, overlapRoot];
+  try {
+    const current = update(doc);
+    const { transaction } = memoryTransaction(graph, artifacts);
+    const result = await evaluateProposalReview({
+      scope, selectedProposalIds: [firstRoot.proposalId, overlapRoot.proposalId], transaction,
+      loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-overlap', update: current }),
+      authorize: async () => undefined,
+    });
+    assert.equal(result.status, 'conflicted', JSON.stringify(result));
+    assert.equal(result.actionability, 'none');
+    assert.equal(result.candidateContent, null);
+    assert.deepEqual(result.appliedProposalIds, []);
+    assert.deepEqual(update(doc), current, 'a conflicted evaluation must not mutate live current');
+  } finally { doc.destroy(); }
+});
+
+for (const preserveIdentity of [true, false]) {
+  test(`CR-10: ${preserveIdentity ? 'proven contained effect is metadata-only' : 'foreign equal-looking effect grants no approval'}`, async () => {
+    const { doc, artifacts, graph } = setup();
+    try {
+      if (preserveIdentity) Y.applyUpdate(doc, artifacts.get(graph.nodes[0]!.authoredCandidate.cumulativeCandidate.ref)!);
+      else {
+        const text = doc.getText('content');
+        text.delete(0, text.length);
+        text.insert(0, 'A=10 B=2');
+      }
+      assert.equal(doc.getText('content').toString(), 'A=10 B=2');
+      const current = update(doc);
+      const { transaction } = memoryTransaction(graph, artifacts);
+      const result = await evaluateProposalReview({ scope, selectedProposalIds: ['p1'], transaction,
+        loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-after', update: current }),
+        authorize: async () => undefined });
+      assert.equal(result.status, preserveIdentity ? 'satisfied_elsewhere' : 'conflicted');
+      assert.equal(result.actionability, preserveIdentity ? 'complete_satisfied' : 'none');
+      assert.deepEqual(result.appliedProposalIds, []);
+      assert.equal(result.candidateContent, preserveIdentity ? 'A=10 B=2' : null);
+      assert.deepEqual(update(doc), current);
+    } finally { doc.destroy(); }
+  });
+}
+
+test('PG-S14: a disjoint child edit keeps its explicit parent prerequisite', async () => {
+  const doc = createPlainTextYDoc('Definition: A=1\n\nOther paragraph: B=2');
+  const artifacts = new Map<string, Uint8Array>();
+  try {
+    const base = update(doc);
+    const parentCandidate = edit(base, 'Definition: A=1', 'Definition: A=10');
+    const parent = proposal({ proposalId: 'p-definition', source: base, candidate: parentCandidate, artifacts });
+    const childCandidate = edit(parentCandidate.cumulativeCandidate, 'Other paragraph: B=2', 'Other paragraph: B=20');
+    const child = proposal({ proposalId: 'p-other-paragraph', source: parentCandidate.cumulativeCandidate,
+      candidate: childCandidate, artifacts, dependency: parent });
+    const candidateContent = (bytes: Uint8Array) => {
+      const candidateDoc = new Y.Doc({ gc: false });
+      try {
+        Y.applyUpdate(candidateDoc, bytes);
+        return candidateDoc.getText('content').toString();
+      } finally { candidateDoc.destroy(); }
+    };
+    assert.equal(candidateContent(parentCandidate.cumulativeCandidate), 'Definition: A=10\n\nOther paragraph: B=2');
+    assert.equal(candidateContent(childCandidate.cumulativeCandidate), 'Definition: A=10\n\nOther paragraph: B=20');
+    const graph: ProposalGraphSnapshotV1 = {
+      contractVersion: 1, scope, graphRevision: 14, nodes: [parent, child], choiceGroups: [],
+    };
+    const current = update(doc);
+    const authorizationCalls: string[][] = [];
+    const statusMutations: string[] = [];
+
+    const evaluate = async (proposalGraph: ProposalGraphSnapshotV1) => {
+      const { transaction } = memoryTransaction(proposalGraph, artifacts);
+      const guardedTransaction = new Proxy(transaction, {
+        get(target, property, receiver) {
+          const name = String(property);
+          if (['transitionProposal', 'reserveAction', 'advanceAction', 'bindRevision'].includes(name)) {
+            return (..._args: unknown[]) => {
+              statusMutations.push(name);
+              throw new Error('proposal review evaluation must not mutate action or proposal status');
+            };
+          }
+          return Reflect.get(target, property, receiver);
+        },
+      });
+      return evaluateProposalReview({
+        scope, selectedProposalIds: [child.proposalId], transaction: guardedTransaction,
+        loadCurrent: async () => ({ scope, representation: 'plain_text', revisionId: 'revision-pg-s14', update: current }),
+        authorize: async ({ proposalIds }) => { authorizationCalls.push([...proposalIds]); },
+        now: () => 140, createId: () => 'evaluation-pg-s14',
+      });
+    };
+
+    const clean = await evaluate(graph);
+    assert.equal(child.relationships.dependency?.proposalId, parent.proposalId,
+      'the child explicitly names the parent prerequisite despite targeting a separate paragraph');
+    assert.equal(clean.status, 'clean', JSON.stringify(clean));
+    assert.equal(clean.actionability, 'accept');
+    assert.deepEqual(clean.selectedProposalIds, [child.proposalId]);
+    assert.deepEqual(clean.dependencyProposalIds, [parent.proposalId, child.proposalId]);
+    assert.deepEqual(clean.closureProposalIds, [parent.proposalId, child.proposalId]);
+    assert.deepEqual(clean.applyProposalIds, [parent.proposalId, child.proposalId]);
+    assert.deepEqual(clean.appliedProposalIds, [parent.proposalId, child.proposalId]);
+    assert.equal(clean.candidateContent, 'Definition: A=10\n\nOther paragraph: B=20');
+    assert.deepEqual(authorizationCalls, [[child.proposalId], [parent.proposalId, child.proposalId]],
+      'authorization must include the full dependency closure before proposal artifacts are used');
+    assert.equal(parent.lifecycle, 'open');
+    assert.equal(child.lifecycle, 'open');
+    assert.deepEqual(update(doc), current, 'evaluation must not mutate the authoritative Yjs bytes');
+
+    const rejectedParentGraph: ProposalGraphSnapshotV1 = {
+      ...graph,
+      nodes: [{ ...parent, lifecycle: 'rejected' }, child],
+    };
+    const blocked = await evaluate(rejectedParentGraph);
+    assert.equal(blocked.status, 'blocked_by_parent', JSON.stringify(blocked));
+    assert.equal(blocked.reasonCode, Codes.dependencyBlocked);
+    assert.equal(blocked.actionability, 'none');
+    assert.deepEqual(blocked.selectedProposalIds, [child.proposalId]);
+    assert.deepEqual(blocked.dependencyProposalIds, []);
+    assert.deepEqual(blocked.applyProposalIds, []);
+    assert.deepEqual(blocked.appliedProposalIds, []);
+    assert.equal(blocked.candidateContent, null);
+    assert.equal(rejectedParentGraph.nodes[0]?.lifecycle, 'rejected');
+    assert.equal(rejectedParentGraph.nodes[1]?.lifecycle, 'open');
+    assert.deepEqual(update(doc), current, 'blocked evaluation must not mutate the authoritative Yjs bytes');
+    assert.deepEqual(statusMutations, [], 'evaluation must not mutate proposal or action status');
+  } finally { doc.destroy(); }
+});

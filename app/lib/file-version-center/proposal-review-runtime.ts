@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { hasProposalNullEffectProof } from './proposal-null-effect-proof';
+
 import { isDeepStrictEqual } from 'node:util';
 
 import { readCurrentCollaborationDocument } from '../collaboration/document-access';
@@ -9,17 +11,22 @@ import type { WorkspaceContext } from '../workspaces/types';
 import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterDatabase, type FileVersionCenterTransaction } from './database';
 import {
   PROPOSAL_GRAPH_ERROR_CODES as Codes,
+  PROPOSAL_GRAPH_LIMITS as Limits,
   ProposalGraphContractError,
   type ProposalDocumentScopeV1,
   type ProposalGraphErrorCode,
 } from './contracts/proposal-graph-v1';
+import type { ProposalReviewContextV1 } from './contracts/proposal-review-session-v1';
 import { evaluateProposalReview, type ProposalReviewEvaluationResult } from './proposal-review-evaluation';
 import { createProposalReviewCompareService } from './proposal-review-compare-service';
+import { projectProposalReviewPage } from './proposal-review-projection-service';
 import { hashProposalEvaluationSelectionV1 } from './proposal-action-fence';
+import { lockProposalDocumentIdentityRows } from './proposal-document-identity-lock';
 import { resolveProposalClosure } from './proposal-graph-model';
 import { createProposalGraphStorage, type ProposalGraphStorageTransaction } from './proposal-storage';
 import { proposalYjsCurrentProof, proposalYjsSnapshotContent, type ProposalYjsRepresentation } from './proposal-yjs-candidate';
 import type { FileVersionCenterAccess, ResolvedFileVersionTarget } from './query-service';
+import { observeProposalGraph, type ProposalGraphOutcome } from './observability';
 
 type CollaborationIdentityRow = {
   lineage_id: string;
@@ -61,6 +68,21 @@ export type RuntimeProposalReviewDependencies = {
 
 function fail(code: ProposalGraphErrorCode, message: string): never {
   throw new ProposalGraphContractError(code, message);
+}
+
+function evaluationObservationOutcome(status: ProposalReviewEvaluationResult['status']): ProposalGraphOutcome {
+  switch (status) {
+    case 'clean': return 'clean';
+    case 'clean_rebased': return 'clean_rebased';
+    case 'conflicted': return 'conflicted';
+    case 'blocked_by_parent':
+    case 'prerequisite_lost':
+    case 'rebase_pending': return 'blocked';
+    case 'satisfied_elsewhere': return 'satisfied_elsewhere';
+    case 'empty_effect': return 'empty_effect';
+    case 'stale_lifecycle':
+    case 'unavailable': return 'unavailable';
+  }
 }
 
 function assertReadAccess(input: { workspace: WorkspaceContext; access: FileVersionCenterAccess }): void {
@@ -109,7 +131,9 @@ async function loadIdentity(sql: FileVersionCenterTransaction, input: {
   documentId: string;
   workspaceId: string;
 }): Promise<CollaborationIdentityRow | undefined> {
-  return (await sql.query<CollaborationIdentityRow>(`SELECT document.lineage_id, document.workspace_id AS document_workspace_id,
+  const lockedLineageId = await lockProposalDocumentIdentityRows(sql, input);
+  if (!lockedLineageId) return undefined;
+  const row = (await sql.query<CollaborationIdentityRow>(`SELECT document.lineage_id, document.workspace_id AS document_workspace_id,
     document.path AS document_path, document.status AS document_status, document.provider,
     lineage.workspace_id AS lineage_workspace_id, lineage.path AS lineage_path, lineage.status AS lineage_status,
     state.workspace_id, state.organization_id, state.path, state.representation, state.lifecycle_generation,
@@ -117,8 +141,9 @@ async function loadIdentity(sql: FileVersionCenterTransaction, input: {
     FROM collaboration_documents document
     JOIN file_collaboration_lineages lineage ON lineage.id = document.lineage_id
     JOIN collaboration_yjs_states state ON state.document_id = document.id
-    WHERE document.id = $1 AND document.workspace_id = $2 AND lineage.workspace_id = $2 AND state.workspace_id = $2
-    FOR UPDATE OF document, lineage, state`, [input.documentId, input.workspaceId])).rows[0];
+    WHERE document.id = $1 AND document.workspace_id = $2 AND lineage.workspace_id = $2 AND state.workspace_id = $2`,
+  [input.documentId, input.workspaceId])).rows[0];
+  return row?.lineage_id === lockedLineageId ? row : undefined;
 }
 
 /**
@@ -190,7 +215,9 @@ export async function createRuntimeProposalReviewService(input: {
   };
 
   const evaluateSelection = async (inputSelection: { selectedProposalIds: readonly string[] }): Promise<ProposalReviewEvaluationResult> => {
-    return storage.withLockedGraph(scope, {}, async (transaction, sql) => {
+    const startedAt = Date.now();
+    try {
+      const result = await storage.withLockedGraph(scope, {}, async (transaction, sql) => {
         const locked = assertIdentity(await loadIdentity(sql, { documentId: scope.documentId, workspaceId: scope.workspaceId }),
           { scope, target, workspace, state: assertState({ state: await loadState(scope.documentId), target, workspace }) });
         const sequence = Number(locked.document_sequence);
@@ -201,12 +228,146 @@ export async function createRuntimeProposalReviewService(input: {
           confirmCurrent: async () => current(),
           authorize: async (request) => authorize(sql, request.scope, request.proposalIds),
         });
-    });
+      });
+      observeProposalGraph({
+        phase: 'evaluation',
+        outcome: evaluationObservationOutcome(result.status),
+        reasonCode: result.reasonCode ?? undefined,
+        startedAt,
+        selectionCount: inputSelection.selectedProposalIds.length,
+        closureCount: result.closureProposalIds.length,
+        applyCount: result.applyProposalIds.length,
+      });
+      return result;
+    } catch (error) {
+      observeProposalGraph({
+        phase: 'evaluation',
+        outcome: 'failed',
+        reasonCode: error instanceof ProposalGraphContractError ? error.code : undefined,
+        startedAt,
+        selectionCount: inputSelection.selectedProposalIds.length,
+      });
+      throw error;
+    }
   };
 
   return {
     scope,
     evaluateSelection,
+    /** Content-free relationship context, bound to the same graph revision as the evaluated comparison. */
+    async readContext(inputContext: { selectedProposalIds: readonly string[]; expectedGraphRevision: number }): Promise<ProposalReviewContextV1> {
+      const selected = [...inputContext.selectedProposalIds];
+      if (!selected.length || selected.length > Limits.batchMembers || new Set(selected).size !== selected.length
+        || selected.some((id) => typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u.test(id))
+        || !Number.isSafeInteger(inputContext.expectedGraphRevision) || inputContext.expectedGraphRevision < 0) {
+        fail(Codes.invalidRequest, 'The graph context selection is invalid.');
+      }
+      return storage.withLockedGraph(scope, {}, async (transaction, sql) => {
+        assertIdentity(await loadIdentity(sql, { documentId: scope.documentId, workspaceId: scope.workspaceId }),
+          { scope, target, workspace, state: assertState({ state: await loadState(scope.documentId), target, workspace }) });
+        await authorize(sql, scope, selected);
+        const graph = await transaction.loadGraph({ includeProposalIds: selected });
+        if (graph.graphRevision !== inputContext.expectedGraphRevision || !isDeepStrictEqual(graph.scope, scope)) {
+          fail(Codes.graphChanged, 'The graph changed since the displayed evaluation.');
+        }
+        const empty = (reasonCode: ProposalReviewContextV1['reasonCode']): ProposalReviewContextV1 => ({
+          graphRevision: graph.graphRevision, scope: graph.scope, proposals: [], selectedProposalIds: selected,
+          dependencyProposalIds: [], applyProposalIds: [], closingAlternativeProposalIds: [], reasonCode,
+        });
+        const nodes = new Map(graph.nodes.map((node) => [node.proposalId, node]));
+        const rootFor = (id: string): string => {
+          const seen = new Set<string>();
+          let current = id;
+          while (nodes.get(current)?.relationships.dependency) {
+            if (seen.has(current)) fail(Codes.cycle, 'The selected proposal graph is cyclic.');
+            seen.add(current);
+            current = nodes.get(current)!.relationships.dependency!.proposalId;
+          }
+          if (!nodes.has(current)) fail(Codes.sourceInvalid, 'A proposal root is unavailable.');
+          return current;
+        };
+        const roots = [...new Set(selected.map(rootFor))];
+        const rootSet = new Set(roots);
+        // Replacement predecessors and alternative siblings can be independent
+        // dependency roots. They are display relationships, not apply closure.
+        // Expand only through stored explicit links, then authorize every node
+        // before exposing any linked proposal identity.
+        for (let index = 0; index < roots.length; index += 1) {
+          for (const node of graph.nodes) {
+            if (rootFor(node.proposalId) !== roots[index]) continue;
+            const group = node.relationships.choiceGroupId
+              ? graph.choiceGroups.find((item) => item.groupId === node.relationships.choiceGroupId) : null;
+            const linked = [node.relationships.replacesProposalId, ...(group?.memberProposalIds ?? [])];
+            for (const id of linked) {
+              if (!id || !nodes.has(id)) continue;
+              const linkedRoot = rootFor(id);
+              if (!rootSet.has(linkedRoot)) {
+                rootSet.add(linkedRoot);
+                roots.push(linkedRoot);
+              }
+            }
+          }
+        }
+        const rootNodes = graph.nodes.filter((node) => rootSet.has(rootFor(node.proposalId)));
+        const owners = (await sql.query<ProposalOwnerRow>(`SELECT proposal.proposal_id,operation.initiated_by_user_id
+          FROM file_change_proposals proposal
+          JOIN file_proposal_graphs graph ON graph.graph_id=proposal.graph_id
+          JOIN collaboration_agent_operations operation ON operation.operation_id=proposal.operation_id
+          WHERE graph.workspace_id=$1 AND graph.lineage_id=$2 AND graph.document_id=$3
+            AND graph.lifecycle_generation=$4 AND graph.schema_version=$5
+            AND proposal.proposal_id=ANY($6::text[])`,
+        [scope.workspaceId, scope.lineageId, scope.documentId, scope.lifecycleGeneration, scope.schemaVersion,
+          rootNodes.map((node) => node.proposalId)])).rows;
+        const manager = Boolean(access.canManageWorkspace && workspace.permissions.canManageWorkspace);
+        const visible = new Set(owners.filter((row) => manager || row.initiated_by_user_id === access.userId)
+          .map((row) => row.proposal_id));
+        // A relationship ID is visible only if its referenced node is visible too.
+        for (let changed = true; changed;) {
+          changed = false;
+          for (const node of rootNodes) {
+            if (!visible.has(node.proposalId)) continue;
+            const parentId = node.relationships.dependency?.proposalId;
+            const predecessorId = node.relationships.replacesProposalId;
+            if ((parentId && !visible.has(parentId)) || (predecessorId && !visible.has(predecessorId))) {
+              visible.delete(node.proposalId);
+              changed = true;
+            }
+          }
+        }
+        if (selected.some((id) => !visible.has(id)) || roots.some((id) => !visible.has(id))) {
+          return empty(Codes.accessDenied);
+        }
+        const closure = resolveProposalClosure({ graph, selectedProposalIds: selected });
+        if (closure.status === 'ready') {
+          if (closure.closureProposalIds.some((id) => !visible.has(id))) return empty(Codes.accessDenied);
+          await authorize(sql, scope, closure.closureProposalIds);
+        }
+        const proposals: ProposalReviewContextV1['proposals'] = [];
+        for (const root of roots) {
+          const selectedInRoot = selected.filter((id) => rootFor(id) === root);
+          const page = projectProposalReviewPage({ graph,
+            permission: { canRead: true, canWrite: Boolean(access.canWrite), canManage: manager,
+              readableProposalIds: [...visible], ownedProposalIds: [...visible] },
+            selectedProposalIds: selectedInRoot, rootProposalId: root, limit: Limits.nodesPerRoot });
+          if (page.diagnosis.availability !== 'available' || page.page.nextCursor || page.items.some((item) =>
+            !visible.has(item.proposalId) || (item.parentProposalId && !visible.has(item.parentProposalId))
+            || (item.relationships.replacesProposalId && !visible.has(item.relationships.replacesProposalId)))) {
+            return empty(Codes.accessDenied);
+          }
+          proposals.push(...page.items);
+        }
+        if (proposals.length > Limits.nodesPerSnapshot || new Set(proposals.map((item) => item.proposalId)).size !== proposals.length) {
+          fail(Codes.limitExceeded, 'The selected graph context exceeds its bounded size.');
+        }
+        return { graphRevision: graph.graphRevision, scope: graph.scope, proposals, selectedProposalIds: selected,
+          dependencyProposalIds: closure.status === 'ready'
+            ? closure.dependencyProposalIds.filter((id) => !selected.includes(id)) : [],
+          applyProposalIds: closure.status === 'ready' ? closure.applyProposalIds : [],
+          closingAlternativeProposalIds: closure.status === 'ready'
+            ? closure.choiceResolutions.flatMap((choice) => choice.closingProposalIds) : [],
+          reasonCode: closure.status === 'blocked' ? closure.reasonCode : null };
+      });
+    },
     /**
      * A read-only adapter for display pagination. It reauthorizes the entire
      * graph closure and verifies the durable evaluation/artifact on every page.
@@ -243,11 +404,11 @@ export async function createRuntimeProposalReviewService(input: {
             const update = await transaction.readArtifact(evaluation.effectiveCandidate);
             candidateContent = proposalYjsSnapshotContent({ update, representation: stateNow.representation });
             const candidateProof = proposalYjsCurrentProof({ update, representation: stateNow.representation, revisionId: null });
+            nullEffectProven = hasProposalNullEffectProof(evaluation.status, evaluation.current, candidateProof);
             if ((evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect')
-              && !isDeepStrictEqual(candidateProof, evaluation.current)) {
+              && !nullEffectProven) {
               fail(Codes.candidateChanged, 'A satisfied proposal must prove a null effective diff.');
             }
-            nullEffectProven = evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect';
           }
           if (evaluation.status === 'satisfied_elsewhere' || evaluation.status === 'empty_effect') {
             if (!evaluation.effectiveCandidate || !evaluation.anchorMap || !evaluation.effectPreconditions || !nullEffectProven) {

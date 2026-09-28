@@ -15,6 +15,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
+import type { ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,10 @@ import {
   groupFileVersionTimeline,
   type FileVersionTimelineSelection,
 } from '@/app/lib/file-version-center/timeline-state';
+import type { GraphReviewCardStatus } from './GraphReviewComparison';
+import type { ProposalReviewSummaryResponseV1 } from '@/app/lib/file-version-center/contracts/proposal-review-summary-v1';
+
+type ReviewSummaryItem = ProposalReviewSummaryResponseV1['items'][number];
 
 type FileVersionTimelineProps = {
   timeline: FileVersionTimelineResponseV1;
@@ -37,6 +42,11 @@ type FileVersionTimelineProps = {
   onLoadMore: () => void;
   loadingMore: boolean;
   loadMoreError: string | null;
+  evaluatedReview?: GraphReviewCardStatus | null;
+  reviewSummary?: ReviewSummaryItem[] | null;
+  reviewGroupRoots?: ReadonlyMap<string, string> | null;
+  reviewSummaryError?: string | null;
+  onRetryReviewSummary?: () => void;
 };
 
 const CONFLICT_STATUSES = new Set(['semantic_conflict', 'partially_applied']);
@@ -50,15 +60,33 @@ function TimelineRow({
   entry,
   selected,
   onSelect,
+  evaluatedReview,
+  summaryItem,
+  summaryPending,
+  summaryError,
 }: {
   entry: FileVersionTimelineEntryV1;
   selected: boolean;
   onSelect: () => void;
+  evaluatedReview?: GraphReviewCardStatus | null;
+  summaryItem?: ReviewSummaryItem;
+  summaryPending?: boolean;
+  summaryError?: boolean;
 }) {
   const t = useTranslations('fileVersionCenter');
   const locale = useLocale();
-  const conflict = entry.kind === 'agent_operation' && CONFLICT_STATUSES.has(entry.status);
-  const failed = entry.kind === 'agent_operation' && FAILED_STATUSES.has(entry.status);
+  const proposal = summaryItem?.mode === 'graph' ? summaryItem.proposal : null;
+  const evaluation = entry.kind === 'agent_operation' && evaluatedReview?.operationId === entry.operationId
+    ? evaluatedReview : summaryItem?.mode === 'graph' ? summaryItem : null;
+  const lifecycle = entry.kind === 'agent_operation' && evaluatedReview?.operationId === entry.operationId
+    ? evaluatedReview.lifecycle ?? proposal?.lifecycle : proposal?.lifecycle;
+  const historicalLifecycle = lifecycle && lifecycle !== 'open' ? lifecycle : null;
+  const unverified = entry.kind === 'agent_operation' && !evaluation && !summaryItem;
+  const legacyVerified = summaryItem?.mode === 'legacy';
+  const conflict = entry.kind === 'agent_operation' && !historicalLifecycle && (evaluation
+    ? ['conflicted', 'blocked_by_parent', 'prerequisite_lost', 'unavailable', 'stale_lifecycle'].includes(evaluation.status)
+    : legacyVerified && CONFLICT_STATUSES.has(entry.status));
+  const failed = entry.kind === 'agent_operation' && legacyVerified && FAILED_STATUSES.has(entry.status);
   const isAgent = entry.kind === 'agent_operation';
   const isCurrent = entry.kind === 'current';
   const metadataOnly = entry.kind === 'revision' && entry.content.availability === 'metadata_only';
@@ -66,32 +94,40 @@ function TimelineRow({
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(new Date(entryTimestamp(entry)));
-  const status = metadataOnly ? t('metadataOnlyBadge') : isAgent ? t(`status.${entry.status}`) : isCurrent
+  const status = historicalLifecycle ? t(`graph.context.lifecycle.${historicalLifecycle}`)
+    : evaluation ? t(`graph.status.${evaluation.status}`)
+    : unverified && (summaryError || !summaryPending) ? t('graph.summaryUnavailable')
+    : unverified ? t('graph.summaryChecking')
+    : metadataOnly ? t('metadataOnlyBadge') : isAgent ? t(`status.${entry.status}`) : isCurrent
     ? t('status.current')
     : t(`source.${entry.source}`);
-  const title = isAgent ? t('agentProposal') : isCurrent
+  const title = proposal ? t(`graph.card.${proposal.relation}`) : isAgent ? t('agentProposal') : isCurrent
     ? t('currentVersion')
     : t('revisionNumber', { number: entry.revisionNumber });
   const actor = entry.kind === 'current' ? t('authoritativeState')
     : entry.actor.displayName ?? t(`actor.${entry.actor.type}`);
-  const diff = isAgent && (entry.additions !== undefined || entry.deletions !== undefined)
+  const diff = isAgent && legacyVerified
+    && (entry.additions !== undefined || entry.deletions !== undefined)
     ? t('changeCount', { additions: entry.additions ?? 0, deletions: entry.deletions ?? 0 })
     : null;
-  const Icon = conflict ? TriangleAlert : failed ? ShieldAlert : isAgent ? Sparkles
+  const Icon = historicalLifecycle ? History : conflict ? TriangleAlert : failed ? ShieldAlert : isAgent ? Sparkles
     : isCurrent ? CheckCircle2 : History;
 
   return (
-    <li>
+    <li className={proposal && !['root', 'detached'].includes(proposal.relation) ? 'border-l-2 border-violet-500/25 pl-3' : undefined}>
       <button
         type="button"
         aria-pressed={selected}
         data-entry-kind={entry.kind}
-        data-entry-status={isAgent ? entry.status : undefined}
+        data-entry-status={isAgent ? historicalLifecycle ?? evaluation?.status ?? (legacyVerified ? entry.status : undefined) : undefined}
+        data-operation-id={isAgent ? entry.operationId : undefined}
+        data-proposal-relation={proposal?.relation}
         onClick={onSelect}
         className={cn(
           'group w-full rounded-lg border px-3 py-3 text-left transition-colors',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-          isAgent && 'border-violet-500/25 bg-violet-500/[0.045] hover:bg-violet-500/[0.085]',
+          isAgent && !historicalLifecycle && 'border-violet-500/25 bg-violet-500/[0.045] hover:bg-violet-500/[0.085]',
+          historicalLifecycle && 'border-border bg-muted/25 hover:bg-muted/40',
           isCurrent && 'border-emerald-500/25 bg-emerald-500/[0.055] hover:bg-emerald-500/[0.09]',
           entry.kind === 'revision' && 'border-border bg-background hover:bg-muted/45',
           conflict && 'border-amber-500/40 bg-amber-500/[0.07] hover:bg-amber-500/[0.12]',
@@ -102,7 +138,8 @@ function TimelineRow({
         <span className="flex items-start gap-3">
           <span className={cn(
             'mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border bg-background/80',
-            isAgent && 'border-violet-500/25 text-violet-600 dark:text-violet-300',
+            isAgent && !historicalLifecycle && 'border-violet-500/25 text-violet-600 dark:text-violet-300',
+            historicalLifecycle && 'border-border text-muted-foreground',
             isCurrent && 'border-emerald-500/25 text-emerald-700 dark:text-emerald-300',
             conflict && 'border-amber-500/35 text-amber-700 dark:text-amber-300',
             failed && 'border-destructive/30 text-destructive',
@@ -117,7 +154,8 @@ function TimelineRow({
                 variant="outline"
                 className={cn(
                   'shrink-0 bg-background/70 font-medium',
-                  isAgent && !conflict && !failed && 'border-violet-500/30 text-violet-700 dark:text-violet-200',
+                  isAgent && !conflict && !failed && !historicalLifecycle && 'border-violet-500/30 text-violet-700 dark:text-violet-200',
+                  historicalLifecycle && 'border-border text-foreground',
                   isCurrent && 'border-emerald-500/30 text-emerald-700 dark:text-emerald-200',
                   conflict && 'border-amber-500/45 text-amber-800 dark:text-amber-200',
                   failed && 'border-destructive/40 text-destructive',
@@ -138,6 +176,10 @@ function TimelineRow({
               <time dateTime={entryTimestamp(entry)}>{timestamp}</time>
             </span>
             {diff ? <span className="mt-1 block text-xs font-medium text-muted-foreground">{diff}</span> : null}
+            {evaluation?.reasonCode && !historicalLifecycle ? <span className="mt-1 block text-xs text-amber-800 dark:text-amber-200">
+              {evaluation.reasonCode === 'PROPOSAL_BATCH_CONFLICT'
+                ? t('graph.singleCurrentConflict') : t(`graph.reason.${evaluation.reasonCode}`)}
+            </span> : null}
           </span>
         </span>
       </button>
@@ -152,10 +194,49 @@ export function FileVersionTimeline({
   onLoadMore,
   loadingMore,
   loadMoreError,
+  evaluatedReview,
+  reviewSummary,
+  reviewGroupRoots,
+  reviewSummaryError,
+  onRetryReviewSummary,
 }: FileVersionTimelineProps) {
   const t = useTranslations('fileVersionCenter');
   const groups = groupFileVersionTimeline(timeline.entries);
   const readOnly = !timeline.capabilities.restore;
+  const summaryByOperation = new Map(reviewSummary?.map((item) => [item.operationId, item]));
+  const reviewBranches = new Map<string, FileVersionTimelineEntryV1[]>();
+  for (const entry of groups.reviews) {
+    const item = entry.kind === 'agent_operation' ? summaryByOperation.get(entry.operationId) : undefined;
+    const rootId = item?.mode === 'graph' && item.proposal ? item.proposal.rootProposalId
+      : entry.kind === 'agent_operation' ? reviewGroupRoots?.get(entry.operationId) : null;
+    const key = rootId ? `graph:${rootId}` : 'other';
+    const members = reviewBranches.get(key) ?? [];
+    members.push(entry);
+    reviewBranches.set(key, members);
+  }
+  const renderReviewRow = (entry: FileVersionTimelineEntryV1) => <TimelineRow
+    key={fileVersionTimelineEntryKey(entry)} entry={entry}
+    selected={selection.key === fileVersionTimelineEntryKey(entry)}
+    evaluatedReview={evaluatedReview}
+    summaryItem={entry.kind === 'agent_operation' ? summaryByOperation.get(entry.operationId) : undefined}
+    summaryPending={!reviewSummary && !reviewSummaryError}
+    summaryError={Boolean(reviewSummaryError)}
+    onSelect={() => onSelect(entry)} />;
+  const reviewContent = <div className="space-y-3">
+    {reviewSummaryError ? <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-500/35 p-2 text-xs">
+      <span>{reviewSummaryError}</span>
+      {onRetryReviewSummary ? <Button type="button" variant="outline" size="sm" onClick={onRetryReviewSummary}>{t('retry')}</Button> : null}
+    </div> : null}
+    {[...reviewBranches].map(([branch, entries]) => branch === 'other'
+      ? <ol key={branch} className="space-y-2">{entries.map(renderReviewRow)}</ol>
+      : <div key={branch} className="rounded-md border bg-background/70 p-2" data-testid="file-version-review-branch">
+        <div className="mb-2 flex items-center justify-between gap-2 px-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          <span>{t('graph.context.branch')}</span>
+          <span className="font-mono normal-case tracking-normal" title={branch.slice(6)}>{branch.slice(6, 18)}</span>
+        </div>
+        <ol className="space-y-2">{entries.map(renderReviewRow)}</ol>
+      </div>)}
+  </div>;
 
   const section = (
     id: string,
@@ -163,6 +244,7 @@ export function FileVersionTimeline({
     entries: FileVersionTimelineEntryV1[],
     emptyText?: string,
     className?: string,
+    content?: ReactNode,
   ) => (
     <section
       aria-labelledby={id}
@@ -175,13 +257,14 @@ export function FileVersionTimeline({
         </h3>
         <span className="text-xs tabular-nums text-muted-foreground">{entries.length}</span>
       </div>
-      {entries.length > 0 ? (
+      {entries.length > 0 ? content ?? (
         <ol className="space-y-2">
           {entries.map((entry) => (
             <TimelineRow
               key={fileVersionTimelineEntryKey(entry)}
               entry={entry}
               selected={selection.key === fileVersionTimelineEntryKey(entry)}
+              evaluatedReview={evaluatedReview}
               onSelect={() => onSelect(entry)}
             />
           ))}
@@ -213,7 +296,7 @@ export function FileVersionTimeline({
       ) : null}
       <ScrollArea className="min-h-[18rem] flex-1 md:min-h-0 [&_[data-slot=scroll-area-viewport]>div]:!block [&_[data-slot=scroll-area-viewport]>div]:!w-full">
         <div className="w-full space-y-6 p-4 pb-6">
-          {section('version-center-reviews', t('reviewsHeading'), groups.reviews, t('noReviews'))}
+          {section('version-center-reviews', t('reviewsHeading'), groups.reviews, t('noReviews'), undefined, reviewContent)}
           {section('version-center-current', t('currentHeading'), groups.current ? [groups.current] : [], t('currentUnavailable'))}
           {section(
             'version-center-history',

@@ -260,7 +260,9 @@ async function legacyAdapter() {
   const exports = {};
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (['@/app/lib/audit/audit-service', '@/app/lib/db', '@/app/lib/files/collaboration-policy',
-      './direct-connection', './persistence', './document-access', './agent-direct-edit-grants', './presence', './diagnostics'].includes(name)) return {};
+      './direct-connection', './persistence', './document-access', './agent-direct-edit-grants', './presence', './diagnostics',
+      './lifecycle-transaction', './room-admission', './room-admission-contract', './room-admission-handoff',
+      './room-admission-drain', './room-owner-release'].includes(name)) return {};
     return load(name);
   }, { exports }, exports);
   return exports as typeof Agent & {

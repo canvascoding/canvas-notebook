@@ -69,10 +69,10 @@ function rootFor(nodes: Map<string, ProposalNodeV1>, id: string): string {
 }
 
 function relation(node: ProposalNodeV1, rootProposalId: string): ProposalReviewProposalV1['relation'] {
-  if (node.proposalId === rootProposalId) return 'root';
-  if (node.relationships.dependency) return 'dependency';
   if (node.relationships.replacesProposalId) return 'replacement';
   if (node.relationships.choiceGroupId) return 'alternative';
+  if (node.relationships.dependency) return 'dependency';
+  if (node.proposalId === rootProposalId) return 'root';
   return 'detached';
 }
 

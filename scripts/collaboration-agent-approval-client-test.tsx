@@ -73,7 +73,7 @@ async function compileUi(opened: unknown[]) {
   return exports;
 }
 
-test('the editor entry opens the latest review in the global center and never posts an approval itself', async () => {
+test('the editor entry leaves multiple reviews unselected in the global center and never posts an approval itself', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'https://canvas.test' });
   const prior = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'].map((name) => Object.getOwnPropertyDescriptor(globalThis, name));
   Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
@@ -101,11 +101,14 @@ test('the editor entry opens the latest review in the global center and never po
     assert.deepEqual(opened, [{
       contractVersion: 1,
       target: { kind: 'document', workspaceId: 'workspace', documentId: 'document' },
-      selectedEntry: { kind: 'agent_operation', id: 'operation/one' },
       initialView: 'reviews',
       source: 'editor',
     }]);
+    assert.equal('selectedEntry' in (opened[0] as Record<string, unknown>), false,
+      'multiple reviews require the user to select an exact proposal in the global center');
     assert.deepEqual(fetches.map((entry) => entry.method), ['GET']);
+    assert.equal(fetches.some((entry) => entry.method === 'POST'), false,
+      'opening the multi-review entry never silently selects or posts an approval');
     assert.equal(document.body.textContent?.includes('agentAccept'), false,
       'approval controls exist only in the global center');
   } finally {

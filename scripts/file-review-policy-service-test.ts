@@ -80,14 +80,22 @@ async function setup(postgres: PGlite): Promise<void> {
     INSERT INTO collaboration_agent_operations (
       operation_id, document_id, workspace_id, initiated_by_user_id, actor_id,
       actor_session_id, idempotency_key, payload_hash, operation_type, status,
-      base_state_vector, document_lifecycle_generation, created_at, updated_at
+      requested_mode, base_state_vector, document_lifecycle_generation, created_at, updated_at
     ) VALUES
       ('operation-a', 'document-a', 'workspace-a', 'owner', 'main', 'session-a', 'op-a',
-        repeat('a', 64), 'apply', 'queued', '\\x00', 1, 3001, 3001),
+        repeat('a', 64), 'apply', 'preparing', 'direct_apply', '\\x00', 1, 3001, 3001),
       ('operation-existing', 'document-a', 'workspace-a', 'owner', 'main', 'session-a', 'op-existing',
-        repeat('b', 64), 'apply', 'needs_review', '\\x00', 1, 3000, 3000),
+        repeat('b', 64), 'apply', 'needs_review', 'direct_apply', '\\x00', 1, 3000, 3000),
       ('operation-foreign', 'document-a', 'workspace-a', 'other', 'main', 'session-a', 'op-foreign',
-        repeat('c', 64), 'apply', 'queued', '\\x00', 1, 3002, 3002);
+        repeat('c', 64), 'apply', 'preparing', 'direct_apply', '\\x00', 1, 3002, 3002),
+      ('operation-old', 'document-a', 'workspace-a', 'owner', 'main', 'session-a', 'op-old',
+        repeat('d', 64), 'apply', 'preparing', 'direct_apply', '\\x00', 1, 2999, 2999),
+      ('operation-same-time', 'document-a', 'workspace-a', 'owner', 'main', 'session-a', 'op-same-time',
+        repeat('e', 64), 'apply', 'preparing', 'direct_apply', '\\x00', 1, 3000, 3000),
+      ('operation-review-mode', 'document-a', 'workspace-a', 'owner', 'main', 'session-a', 'op-review-mode',
+        repeat('f', 64), 'apply', 'preparing', 'review', '\\x00', 1, 3003, 3003),
+      ('operation-queued', 'document-a', 'workspace-a', 'owner', 'main', 'session-a', 'op-queued',
+        repeat('1', 64), 'apply', 'queued', 'direct_apply', '\\x00', 1, 3004, 3004);
   `);
 }
 
@@ -109,11 +117,52 @@ async function main(): Promise<void> {
       },
     });
 
+    const defaultOperation = {
+      operationId: 'operation-a',
+      observedPolicyRevision: 0,
+      observedPolicyAt: 3_000,
+      grantScope,
+    };
+    const policyRowsBeforeDefault = await postgres.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM file_agent_review_policies`);
+    assert.equal(policyRowsBeforeDefault.rows[0]?.count, '0');
     const missing = await service.readAuthorized({ access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice });
     assert.deepEqual(
       [missing.requestedMode, missing.effectiveMode, missing.revision, missing.locked, missing.reason],
       ['safe_direct', 'safe_direct', 0, false, 'default_safe_direct'],
     );
+    const lookupsBeforeDefault = grantLookups;
+    const defaultDirect = await service.resolveForOperation({
+      access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice, operation: defaultOperation,
+    });
+    assert.equal(defaultDirect.enforcementMode, 'safe_direct');
+    assert.equal(defaultDirect.policy.reason, 'default_safe_direct');
+    assert.equal(defaultDirect.grant?.id, 'grant-a');
+    assert.equal(grantLookups, lookupsBeforeDefault + 1, 'a valid, post-snapshot default operation reaches the active grant resolver');
+    assert.deepEqual((await postgres.query<{ count: string }>(
+      `SELECT count(*)::text AS count FROM file_agent_review_policies`)).rows[0]?.count, '0',
+    'the first ordinary edit does not create a preference row');
+    assert.equal(audits.length, 0, 'the default direct edit emits no policy-write audit event');
+    for (const [name, unsafeOperation] of [
+      ['pre-snapshot operation', { ...defaultOperation, operationId: 'operation-old' }],
+      ['same-time operation', { ...defaultOperation, operationId: 'operation-same-time' }],
+      ['nonzero revision without a policy row', { ...defaultOperation, observedPolicyRevision: 1 }],
+      ['missing server timestamp', { ...defaultOperation, observedPolicyAt: undefined }],
+      ['invalid server timestamp', { ...defaultOperation, observedPolicyAt: Number.NaN }],
+      ['foreign operation owner', { ...defaultOperation, operationId: 'operation-foreign' }],
+      ['unpreparing operation', { ...defaultOperation, operationId: 'operation-queued' }],
+      ['needs_review operation', { ...defaultOperation, operationId: 'operation-existing' }],
+      ['review requested mode', { ...defaultOperation, operationId: 'operation-review-mode' }],
+      ['foreign grant scope', { ...defaultOperation, grantScope: { ...grantScope, workspaceId: 'workspace-b' } }],
+    ] as const) {
+      const before = grantLookups;
+      const decision = await service.resolveForOperation({
+        access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice, operation: unsafeOperation,
+      });
+      assert.equal(decision.enforcementMode, 'review_required', name);
+      assert.equal(decision.grant, null, name);
+      assert.equal(grantLookups, before, `${name} must not reach the grant resolver`);
+    }
 
     const created = await service.writeAuthorized({
       access: ownerAccess,
@@ -163,6 +212,7 @@ async function main(): Promise<void> {
     const operation = {
       operationId: 'operation-a',
       observedPolicyRevision: 3,
+      observedPolicyAt: 3_000,
       grantScope,
     };
     const direct = await service.resolveForOperation({
@@ -174,7 +224,14 @@ async function main(): Promise<void> {
     for (const [name, unsafeOperation] of [
       ['existing operation', { ...operation, operationId: 'operation-existing' }],
       ['foreign operation', { ...operation, operationId: 'operation-foreign' }],
-      ['stale policy snapshot', { ...operation, observedPolicyRevision: 2 }],
+      ['old operation', { ...defaultOperation, operationId: 'operation-old' }],
+      ['operation at snapshot instant', { ...defaultOperation, operationId: 'operation-same-time', observedPolicyAt: 3_000 }],
+      ['stale policy revision', { ...operation, observedPolicyRevision: 2 }],
+      ['missing policy timestamp', { ...defaultOperation, observedPolicyAt: undefined }],
+      ['invalid policy timestamp', { ...defaultOperation, observedPolicyAt: Number.NaN }],
+      ['needs_review operation', { ...operation, operationId: 'operation-existing' }],
+      ['review requested mode', { ...operation, operationId: 'operation-review-mode' }],
+      ['not-yet-preparing operation', { ...operation, operationId: 'operation-queued' }],
       ['wrong workspace scope', { ...operation, grantScope: { ...grantScope, workspaceId: 'workspace-b' } }],
       ['wrong document', { ...operation, grantScope: { ...grantScope, documentId: 'document-missing' } }],
     ] as const) {
@@ -184,6 +241,18 @@ async function main(): Promise<void> {
       });
       assert.equal(decision.enforcementMode, 'review_required', name);
       assert.equal(decision.policy.reason, 'hard_safety', name);
+      assert.equal(grantLookups, before, `${name} must not reach the grant resolver`);
+    }
+
+    for (const [name, evaluation] of [
+      ['forced workspace review', { ...allowChoice, workspacePolicy: 'force_review' as const }],
+      ['hard safety review', { ...allowChoice, hardSafetyRequiresReview: true }],
+      ['explicit review', { ...allowChoice, operationExplicitlyRequiresReview: true }],
+    ] as const) {
+      const before = grantLookups;
+      const decision = await service.resolveForOperation({ access: ownerAccess, lineageId: 'lineage-a', evaluation, operation });
+      assert.equal(decision.enforcementMode, 'review_required', name);
+      assert.equal(decision.grant, null, name);
       assert.equal(grantLookups, before, `${name} must not reach the grant resolver`);
     }
 
@@ -225,12 +294,30 @@ async function main(): Promise<void> {
     assert.equal(failedReadDecision.enforcementMode, 'review_required');
     assert.equal(failedReadDecision.policy.reason, 'persistence_unavailable');
 
+    clock = 3_002;
+    const changedAfterSnapshot = await service.writeAuthorized({
+      access: ownerAccess,
+      lineageId: 'lineage-a',
+      requestedMode: 'safe_direct',
+      expectedRevision: 3,
+      workspacePolicy: 'allow_user_choice',
+    });
+    assert.equal(changedAfterSnapshot.revision, 4);
+    const lookupsBeforePolicyRace = grantLookups;
+    const invalidatedDefault = await service.resolveForOperation({
+      access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice, operation: defaultOperation,
+    });
+    assert.equal(invalidatedDefault.enforcementMode, 'review_required',
+      'writing an explicit policy between the default snapshot and apply invalidates revision zero');
+    assert.equal(invalidatedDefault.grant, null);
+    assert.equal(grantLookups, lookupsBeforePolicyRace, 'the invalidated snapshot never reaches the grant resolver');
+
     await assert.rejects(service.readAuthorized({
       access: { ...ownerAccess, authenticatedWorkspaceId: 'workspace-b', requestedWorkspaceId: 'workspace-b' },
       lineageId: 'lineage-a',
       evaluation: allowChoice,
     }));
-    assert.equal(audits.length, 3, 'only successful CAS writes emit audit records');
+    assert.equal(audits.length, 4, 'only successful CAS writes emit audit records');
     const auditJson = JSON.stringify(audits);
     assert.ok(!auditJson.includes('notes.md'));
     assert.ok(!/(documentContent|content|pathHint|absolutePath)/u.test(auditJson));

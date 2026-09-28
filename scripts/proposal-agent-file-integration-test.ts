@@ -63,7 +63,9 @@ async function facadeHarness() {
   const state = { documentId: 'document', workspaceId: 'workspace', organizationId: 'organization', path: 'document.md',
     representation: 'plain_text' as const, status: 'active', lifecycleGeneration: 2, schemaVersion: 1,
     documentSequence: 7, checkpointSequence: 5 };
-  const controls = { enabled: true, supported: true, factoryCalls: 0, creates: 0, builds: 0, currentReads: 0,
+  const controls = { enabled: true, supported: true, reviewMode: 'review_required' as 'review_required' | 'safe_direct',
+    allowProjectionRead: false,
+    factoryCalls: 0, creates: 0, ordinaryCreates: 0, builds: 0, ordinaryBuilds: 0, currentReads: 0,
     projectionReads: 0, legacyCalls: [] as string[], readIds: [] as Array<string | null>,
     mutations: [] as unknown[], forwardedProposals: [] as ProposalToolEditV1[], idempotencyKeys: [] as string[],
     afterFirst: null as (() => void) | null };
@@ -71,10 +73,14 @@ async function facadeHarness() {
   type Created = { node: ProposalNodeV1; proposal: ProposalToolCreationResultV1; reused: boolean;
     authoringPreview: { beforeContent: string; proposedContent: string; beforeSha256: string; proposedSha256: string } };
   const receipts = new Map<string, Created>();
+  const ordinaryReceipts = new Map<string, { digest: string; value: Created }>();
   const mocks: Record<string, unknown> = {
     'node:fs': { ...nodeFs, promises: { ...fs,
       readFile: async (...args: Parameters<typeof fs.readFile>) => {
-        if (String(args[0]) === fullPath) { controls.projectionReads++; throw new Error('Projection must not be consulted'); }
+        if (String(args[0]) === fullPath) {
+          controls.projectionReads++;
+          if (!controls.allowProjectionRead) throw new Error('Projection must not be consulted');
+        }
         return fs.readFile(...args);
       }, writeFile: forbid('fs.writeFile'), rename: forbid('fs.rename') } },
     '@/app/lib/audit/audit-service': { recordAuditEvent: async () => {} },
@@ -93,7 +99,13 @@ async function facadeHarness() {
       resolveTextCollaborationState: forbid('resolveTextCollaborationState'),
     },
     '@/app/lib/collaboration/agent-operations': {
-      AgentFileEditOperationScopeError: class extends Error {}, findAgentFileEditOperation: forbid('findAgentFileEditOperation'),
+      AgentFileEditOperationScopeError: class extends Error {}, findAgentFileEditOperation: async () => null,
+    },
+    '@/app/lib/file-version-center/proposal-review-capability': {
+      proposalReviewWritesEnabled: () => controls.enabled,
+    },
+    '@/app/lib/file-version-center/agent-review-policy-adapter': {
+      readAgentReviewPolicySnapshot: async () => ({ policy: { effectiveMode: controls.reviewMode, locked: false } }),
     },
     '@/app/lib/public-sharing/public-file-shares': {},
     '@/app/lib/filesystem/workspace-files': { writeFile: forbid('writeWorkspaceFile'), withWorkspaceFileMutationLocks: forbid('withWorkspaceFileMutationLocks') },
@@ -106,6 +118,8 @@ async function facadeHarness() {
     '@/app/lib/excalidraw-collaboration/agent-operations': {}, '@/app/lib/excalidraw-collaboration/repository': {},
     '@/app/lib/file-version-center/proposal-agent-runtime': {
       assertProposalToolsEnabled: () => { if (!controls.enabled) throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED', 'Proposal tools are disabled'); },
+      assertProposalCreationEnabled: () => { if (!controls.enabled) throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED', 'Proposal creation is disabled'); },
+      hasPotentialProposalAgentRetryKey: async (input: { idempotencyKey: string }) => ordinaryReceipts.has(input.idempotencyKey),
       createRuntimeProposalAgentService: async (input: { workspace: { workspaceId: string }; documentId: string; path: string;
         identity: { actorId: string; initiatedByUserId: string; actorSessionId: string } }) => {
         controls.factoryCalls++;
@@ -114,6 +128,43 @@ async function facadeHarness() {
         assert.deepEqual({ actorId: input.identity.actorId, userId: input.identity.initiatedByUserId, session: input.identity.actorSessionId },
           { actorId: 'agent', userId: 'user', session: context.sessionId });
         return { scope, state, service: {
+          createIndependent: async (request: { scope: ProposalDocumentScopeV1; actorId: string; idempotencyKey: string;
+            mutation: unknown; allowCreate: boolean; buildTargets(input: { update: Uint8Array; representation: 'plain_text';
+              content: string; structure: null }): AgentTextTarget[] | Promise<AgentTextTarget[]> }) => {
+            controls.ordinaryCreates++;
+            const digest = JSON.stringify(request.mutation);
+            const stored = ordinaryReceipts.get(request.idempotencyKey);
+            if (stored) {
+              if (stored.digest !== digest) throw new ProposalGraphContractError('PROPOSAL_IDEMPOTENCY_MISMATCH', 'Changed intent');
+              return { ...stored.value, reused: true };
+            }
+            if (!request.allowCreate) return null;
+            controls.ordinaryBuilds++;
+            const update = Y.encodeStateAsUpdate(live);
+            const base = live.getText('content').toString();
+            const targets = await request.buildTargets({ update, representation: 'plain_text', content: base, structure: null });
+            const authored = authorProposalYjsCandidate({ representation: 'plain_text', sourceUpdate: update, targets });
+            const ref = (label: string, bytes: Uint8Array) => ({ ref: label, sha256: hash(bytes), sizeBytes: bytes.byteLength });
+            const ordinarySource: ProposalSourceProofV1 = { kind: 'authoritative', scope,
+              current: proposalYjsCurrentProof({ update, representation: 'plain_text', revisionId: 'revision' }),
+              snapshot: { ...ref('ordinary-current', update), encoding: 'yjs_full_update_v1' },
+              anchorMap: { ref: 'ordinary-anchors', sha256: 'a'.repeat(64), sizeBytes: 2 } };
+            const node: ProposalNodeV1 = { contractVersion: 1, proposalId: 'ordinary-root', operationId: 'ordinary-operation',
+              scope, casVersion: 1, source: ordinarySource,
+              relationships: { dependency: null, replacesProposalId: null, choiceGroupId: null },
+              authoredCandidate: { incrementalPayload: ref('ordinary-payload', authored.incrementalPayload),
+                cumulativeCandidate: { ...ref('ordinary-candidate', authored.cumulativeCandidate), encoding: 'yjs_full_update_v1' },
+                effectPreconditions: ref('ordinary-witness', authored.effectPreconditions), sourceProofHash: 'f'.repeat(64) },
+              lifecycle: 'open', createdAt: 1, createdByActorId: 'agent' };
+            const value: Created = { node, reused: false, proposal: { contractVersion: 1, proposalId: node.proposalId,
+              operationId: node.operationId, scope, creationKind: 'independent', casVersion: 1,
+              candidateHash: node.authoredCandidate.cumulativeCandidate.sha256, source: ordinarySource,
+              relationships: node.relationships, reviewRequired: true },
+              authoringPreview: { beforeContent: base, proposedContent: authored.content,
+                beforeSha256: hash(base), proposedSha256: hash(authored.content) } };
+            ordinaryReceipts.set(request.idempotencyKey, { digest, value });
+            return value;
+          },
           create: async (request: { scope: ProposalDocumentScopeV1; actorId: string; idempotencyKey: string; proposal: ProposalToolEditV1;
             mutation: unknown; buildTargets(input: { update: Uint8Array; representation: 'plain_text'; content: string; structure: null }): AgentTextTarget[] | Promise<AgentTextTarget[]> }) => {
             controls.creates++; controls.mutations.push(structuredClone(request.mutation));
@@ -156,7 +207,10 @@ async function facadeHarness() {
   };
   const edits = await compile<typeof import('../app/lib/collaboration/agent-file-edits')>('app/lib/collaboration/agent-file-edits.ts', {});
   mocks['@/app/lib/collaboration/agent-file-edits'] = { ...edits,
-    prepareCollaborationTextEdit: forbid('prepareCollaborationTextEdit'), prepareCollaborationMarkdownEdit: forbid('prepareCollaborationMarkdownEdit'),
+    prepareCollaborationTextEdit: async () => ({ ...state, content: currentContent, sha256: hash(currentContent),
+      stateVector: Buffer.from(Y.encodeStateVector(live)).toString('base64'), proposedContent: 'Kosten: 20 EUR\n',
+      proposedSha256: hash('Kosten: 20 EUR\n'), targets: [], requestedMode: 'review' }),
+    prepareCollaborationMarkdownEdit: forbid('prepareCollaborationMarkdownEdit'),
     prepareCollaborationBlockEdit: forbid('prepareCollaborationBlockEdit'), executePreparedCollaborationTextEdit: forbid('executePreparedCollaborationTextEdit'),
     readCurrentCollaborationTextSnapshot: async () => { controls.currentReads++; return { ...state, content: currentContent,
       sha256: hash(currentContent), stateVector: Buffer.from(Y.encodeStateVector(live)).toString('base64') }; },
@@ -168,7 +222,16 @@ async function facadeHarness() {
     if (method === 'edit') return operations.editAgentFile({ ...common, oldText: '100 EUR', newText: '150 EUR', idempotencyKey: 'facade-edit-request' });
     return operations.applyAgentFilePatch({ files: [{ ...common, edits: [{ oldText: '100 EUR', newText: '150 EUR' }] }], idempotencyKeyPrefix: 'facade-patch-request' }).then((results) => results[0]);
   };
-  return { operations, controls, call, proposal, fullPath, live, parent, receipts, context,
+  const callOrdinary = (method: 'write' | 'edit' | 'patch', retryKey = `ordinary-${method}`) => {
+    const common = { path: 'document.md', expectedSha256: hash(currentContent) };
+    if (method === 'write') return operations.writeAgentTextFile({ ...common,
+      content: 'Kosten: 20 EUR\n', idempotencyKey: retryKey });
+    if (method === 'edit') return operations.editAgentFile({ ...common,
+      oldText: '10 EUR', newText: '20 EUR', idempotencyKey: retryKey });
+    return operations.applyAgentFilePatch({ files: [{ ...common, edits: [{ oldText: '10 EUR', newText: '20 EUR' }] }],
+      idempotencyKeyPrefix: retryKey }).then((results) => results[0]);
+  };
+  return { operations, controls, call, callOrdinary, proposal, fullPath, live, parent, receipts, ordinaryReceipts, context,
     close: async () => { live.destroy(); parent.destroy(); await fs.rm(root, { recursive: true, force: true }); } };
 }
 
@@ -191,6 +254,57 @@ test('write, edit_file and apply_patch prepare real targets against the explicit
       assert.equal(await fs.readFile(h.fullPath, 'utf8'), 'Old disk projection');
     } finally { await h.close(); }
   }
+});
+
+test('ordinary write, edit_file and apply_patch create independent graph roots and reuse exact intent after current changes', async () => {
+  for (const method of ['write', 'edit', 'patch'] as const) {
+    const h = await facadeHarness();
+    try {
+      h.controls.allowProjectionRead = method === 'write';
+      const first = await h.callOrdinary(method);
+      assert.equal(first.proposal?.creationKind, 'independent');
+      assert.equal(first.proposal?.source.kind, 'authoritative');
+      assert.equal(first.proposal?.relationships.dependency, null);
+      assert.equal(first.collaboration?.operationStatus, 'needs_review');
+      assert.equal(first.collaboration?.reviewRequired, true);
+      assert.equal(first.changed, false);
+      assert.equal(first.beforeSha256, hash(currentContent));
+      assert.equal(first.collaboration?.proposedSha256, hash('Kosten: 20 EUR\n'));
+      assert.equal(h.controls.ordinaryBuilds, 1);
+      assert.deepEqual(h.controls.legacyCalls, []);
+      assert.equal(h.live.getText('content').toString(), currentContent);
+      assert.equal(await fs.readFile(h.fullPath, 'utf8'), 'Old disk projection');
+
+      h.live.getText('content').insert(h.live.getText('content').length, 'Peer change\n');
+      for (const receipt of h.ordinaryReceipts.values()) receipt.value.node.lifecycle = 'applied';
+      const retry = await h.callOrdinary(method);
+      assert.equal(retry.proposal?.proposalId, first.proposal?.proposalId);
+      assert.equal(retry.proposal?.operationId, first.proposal?.operationId);
+      assert.equal(retry.collaboration?.operationStatus, 'applied');
+      assert.equal(retry.collaboration?.reviewRequired, false);
+      assert.equal(h.controls.ordinaryBuilds, 1, 'a retry must not read or prepare against the newer source');
+      assert.equal(h.live.getText('content').toString(), `${currentContent}Peer change\n`);
+      assert.equal(await fs.readFile(h.fullPath, 'utf8'), 'Old disk projection');
+    } finally { await h.close(); }
+  }
+});
+
+test('an existing ordinary graph intent remains an exact retry when the graph creation gate closes', async () => {
+  const h = await facadeHarness();
+  try {
+    const first = await h.callOrdinary('edit', 'rollback-retry-key');
+    h.controls.enabled = false;
+    h.live.getText('content').insert(0, 'Human ');
+    const retry = await h.callOrdinary('edit', 'rollback-retry-key');
+    assert.equal(retry.proposal?.proposalId, first.proposal?.proposalId);
+    assert.equal(retry.collaboration?.operationId, first.collaboration?.operationId);
+    assert.equal(h.controls.ordinaryBuilds, 1);
+    await assert.rejects(h.operations.editAgentFile({ path: 'document.md', expectedSha256: hash(currentContent),
+      oldText: '10 EUR', newText: '30 EUR', idempotencyKey: 'rollback-retry-key' }), errorCode('PROPOSAL_IDEMPOTENCY_MISMATCH'));
+    assert.equal(h.controls.ordinaryBuilds, 1);
+    assert.deepEqual(h.controls.legacyCalls, []);
+    assert.equal(await fs.readFile(h.fullPath, 'utf8'), 'Old disk projection');
+  } finally { await h.close(); }
 });
 
 test('malformed declared proposal never falls back to the old mutation path', async () => {

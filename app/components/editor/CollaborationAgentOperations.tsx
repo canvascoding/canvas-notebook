@@ -36,12 +36,13 @@ export type EditorAgentOperationSummary = {
 };
 
 export function summarizeEditorAgentOperations(operations: AgentOperation[]): EditorAgentOperationSummary {
-  const reviewOperations = operations.filter((operation) => REVIEW_STATUSES.has(operation.operationStatus));
+  const reviewOperations = operations.filter((operation) => REVIEW_STATUSES.has(operation.operationStatus)
+    && (operation.proposalLifecycle === undefined || operation.proposalLifecycle === 'open'));
   return {
     reviewCount: reviewOperations.length,
     conflictCount: reviewOperations.filter((operation) => CONFLICT_STATUSES.has(operation.operationStatus)).length,
     activeCount: operations.filter((operation) => ACTIVE_STATUSES.has(operation.operationStatus)).length,
-    // The collaboration endpoint is ordered by updated_at DESC, so this is the newest open review.
+    // Only the sole review may be selected automatically; multiple reviews require an explicit choice.
     latestReviewOperationId: reviewOperations[0]?.operationId ?? null,
   };
 }
@@ -54,10 +55,10 @@ export function buildEditorAgentVersionCenterRequest(input: {
   return {
     contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
     target: { kind: 'document', workspaceId: input.workspaceId, documentId: input.documentId },
-    ...(input.summary.latestReviewOperationId ? {
+    ...(input.summary.reviewCount === 1 && input.summary.latestReviewOperationId ? {
       selectedEntry: { kind: 'agent_operation' as const, id: input.summary.latestReviewOperationId },
     } : {}),
-    initialView: input.summary.latestReviewOperationId ? 'reviews' : 'history',
+    initialView: input.summary.reviewCount > 0 ? 'reviews' : 'history',
     source: 'editor',
   };
 }

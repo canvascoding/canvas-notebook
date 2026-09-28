@@ -10,6 +10,7 @@ import { Hocuspocus } from '@hocuspocus/server';
 import * as Y from 'yjs';
 import * as Direct from '../app/lib/collaboration/direct-connection';
 import { withWorkspaceMutationLock } from '../app/lib/files/workspace-mutation-lock';
+import * as RoomMutation from '../app/lib/collaboration/room-mutation-lock';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { CollaborationTicketClaims } from '../app/lib/collaboration/types';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -82,6 +83,7 @@ async function main() {
       withCollaborationRoomLifecycleLock: async (_id: string, operation: () => Promise<unknown>) => operation(),
     };
     if (name.endsWith('/workspace-mutation-lock')) return { withWorkspaceMutationLock };
+    if (name.endsWith('/room-mutation-lock')) return RoomMutation;
     if (name.endsWith('/session-workspace-context')) return { resolveAgentExecutionContextForStoredSession: async () => workspace,
       workspaceFromAgentExecutionContext: (value: WorkspaceContext) => value };
     if (name.endsWith('/collaboration-policy')) return { readFileCollaborationState: async () => ({ document: { id: 'doc', status: 'active', provider: 'yjs' } }) };

@@ -19,6 +19,7 @@ import {
 import { FILE_VERSION_CENTER_CONTRACT_LIMITS } from './contracts/v1';
 import { FILE_VERSION_CENTER_LIMITS_V1 } from './policy-v1';
 import type { ProposalReviewEvaluationResult } from './proposal-review-evaluation';
+import { hasProposalNullEffectProof } from './proposal-null-effect-proof';
 import { fileVersionTextLines, projectFileVersionTextDiff } from './text-diff';
 
 type Material = {
@@ -97,7 +98,7 @@ function materialFromEvaluation(result: ProposalReviewEvaluationResult): Materia
   return { evaluation: result.evaluation, selectionHash: result.selectionHash,
     selectedProposalIds: [...result.selectedProposalIds], graphRevision: result.graphRevision,
     currentGraphRevision: result.graphRevision, candidateContent: result.candidateContent, status: result.status,
-    nullEffectProven: result.current !== null && result.candidateProof !== null && proofEquals(result.current, result.candidateProof) };
+    nullEffectProven: hasProposalNullEffectProof(result.status, result.current, result.candidateProof) };
 }
 
 export function createProposalReviewCompareService(dependencies: ProposalReviewCompareDependencies) {

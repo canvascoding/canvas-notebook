@@ -140,6 +140,9 @@ test('reading observes live source without rewriting it and migration waits for 
   const second = await page.context().newPage();
   try {
     await page.goto(`/notebook?path=${encodeURIComponent(path)}`);
+    // Establish this scenario's mode explicitly; opening defaults/preferences
+    // are not the behavior under test here.
+    await page.getByRole('button', { name: 'Read', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('heading', { name: 'Live preview' })).toBeVisible();
     expect(await readContent()).toBe(content);

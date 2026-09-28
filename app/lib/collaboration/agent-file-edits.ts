@@ -478,6 +478,7 @@ export async function executePreparedCollaborationTextEdit(input: {
   identity: CollaborationAgentIdentity;
   idempotencyKey?: string;
   fileEditRequest?: AgentFileEditRequestReceipt;
+  disallowLegacyReview?: boolean;
 }): Promise<PersistedAgentApplyResult> {
   return applyPersistedAgentTextOperation({
     documentId: input.prepared.documentId,
@@ -497,5 +498,6 @@ export async function executePreparedCollaborationTextEdit(input: {
     baseStateVector: input.prepared.stateVector,
     baseDocumentSequence: input.prepared.documentSequence,
     fileEditRequest: input.fileEditRequest,
+    disallowLegacyReview: input.disallowLegacyReview,
   });
 }

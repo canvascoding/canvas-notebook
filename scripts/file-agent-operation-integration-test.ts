@@ -10,6 +10,7 @@ import {
   readCurrentCollaborationTextSnapshot,
 } from '../app/lib/collaboration/agent-file-edits';
 import { materializeCollaborationCheckpoint } from '../app/lib/collaboration/checkpoint';
+import { captureAgentStateSnapshot } from '../app/lib/collaboration/agent-durability';
 import {
   acceptAgentOperation,
   applyAgentTextTargets,
@@ -73,13 +74,13 @@ if (process.env.CANVAS_DATABASE_PROVIDER !== 'postgres' || !process.env.DATABASE
 }
 
 const suffix = randomUUID();
-const documentId = `agent-operation-test-${suffix}`;
+let documentId = `agent-operation-test-${suffix}`;
 let richDocumentId = `agent-operation-rich-test-${suffix}`;
 const compactionDocumentId = `agent-operation-compaction-test-${suffix}`;
-const sagaFirstDocumentId = `agent-operation-saga-first-${suffix}`;
-const sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
+let sagaFirstDocumentId = `agent-operation-saga-first-${suffix}`;
+let sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
 const archivedDocumentId = `agent-operation-archived-${suffix}`;
-const checkpointRaceDocumentId = `agent-operation-checkpoint-race-${suffix}`;
+let checkpointRaceDocumentId = `agent-operation-checkpoint-race-${suffix}`;
 const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
 let toolDocumentId: string | null = null;
@@ -218,6 +219,10 @@ grantFixture = await ensureAgentGrantIntegrationFixture({ userId, agentId: 'canv
 Object.assign(workspace, grantFixture.workspace);
 Object.assign(agentExecutionContext, grantFixture.execution);
 await fs.mkdir(workspace.rootPath, { recursive: true });
+const documentIdentity = await getFileCollaborationState({ workspace,
+  path: `agent-operation-${suffix}.txt`, ensureDocument: true });
+assert(documentIdentity.document);
+documentId = documentIdentity.document.id;
 await ensureCollaborationState({
   documentId,
   workspaceId,
@@ -311,6 +316,10 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
 });
 
 try {
+  const checkpointIdentity = await getFileCollaborationState({ workspace,
+    path: `agent-operation-checkpoint-race-${suffix}.txt`, ensureDocument: true });
+  assert(checkpointIdentity.document);
+  checkpointRaceDocumentId = checkpointIdentity.document.id;
   await ensureCollaborationState({
     documentId: checkpointRaceDocumentId,
     workspaceId,
@@ -471,12 +480,48 @@ try {
     currentText.insert(currentText.length, 'human conflict');
     await persistCollaborationYDoc(checkpointRaceDocumentId, deletionBase.lifecycleGeneration, deletionDoc);
     deferredAgentPersistence.add(checkpointRaceDocumentId);
+    const beforeIndependentApply = currentText.toString();
+    const beforeIndependentState = await loadCollaborationState(checkpointRaceDocumentId);
+    assert(beforeIndependentState);
+    const beforeIndependentDirectCalls = directConnectionInputs.length;
     const partial = await applyPersistedAgentTextOperation({
       documentId: checkpointRaceDocumentId, workspace, initiatedByUserId: userId,
       actorId: 'agent-b', actorDisplayName: 'Agent B', idempotencyKey: `partial-delay-${suffix}`,
       runGeneration: 1, explicitUserRequest: true, independentGroups: true, targets: [firstGroup, conflictedGroup],
     });
-    assert(partial.conflicts.some((conflict) => conflict.code === 'target_changed'));
+    assert.equal(partial.operationStatus, 'needs_review', 'new independent-group operations always require review');
+    assert.deepEqual(partial.appliedTargetIds, []);
+    assert.equal(currentText.toString(), beforeIndependentApply, 'review policy must not partially mutate the live document');
+    assert.equal(await persistedText(checkpointRaceDocumentId), beforeIndependentApply);
+    assert.deepEqual((await loadCollaborationState(checkpointRaceDocumentId))?.yjsState, beforeIndependentState.yjsState);
+    assert.equal(directConnectionInputs.length, beforeIndependentDirectCalls, 'a mandatory review cannot enter the direct writer');
+
+    // Legacy databases can still contain partial independent-group receipts.
+    // Reproduce that historical state explicitly, without bypassing today's
+    // policy in product code, then exercise the real delayed-durability reader.
+    // This fixture covers durability/recovery only, not legacy revert payloads.
+    const legacyPartial = applyAgentTextTargets({ doc: deletionDoc,
+      targets: [firstGroup, conflictedGroup], independentGroups: true,
+      origin: { actorType: 'agent', actorId: 'agent-b', initiatedByUserId: userId, operationId: partial.operationId } });
+    assert.equal(legacyPartial.status, 'partially_applied');
+    assert.deepEqual(legacyPartial.appliedTargetIds, [firstGroup.targetId]);
+    assert(legacyPartial.conflicts.some((conflict) => conflict.code === 'target_changed'));
+    const legacySnapshot = captureAgentStateSnapshot(deletionDoc, Y);
+    assert(legacySnapshot);
+    const legacyDatabase = await openDb();
+    try {
+      await legacyDatabase.run(`UPDATE collaboration_agent_operations
+        SET status = 'partially_applied', error_code = 'persistence_degraded',
+          result_json = $1, resulting_state_snapshot = $2, resulting_state_vector_hash = $3,
+          applied_at = $4, cas_version = cas_version + 1
+        WHERE operation_id = $5`, [JSON.stringify({ ...partial, status: legacyPartial.status,
+        appliedTargetIds: legacyPartial.appliedTargetIds, conflicts: legacyPartial.conflicts, stateVector: legacyPartial.stateVector,
+        operationStatus: 'partially_applied', durability: 'applied_to_ydoc' }),
+        Buffer.from(legacySnapshot), createHash('sha256').update(Buffer.from(legacyPartial.stateVector, 'base64')).digest('hex'),
+        Date.now(), partial.operationId]);
+    } finally { await legacyDatabase.close(); }
+    const pendingPartial = await getAgentOperation({ operationId: partial.operationId, workspace, userId });
+    assert.equal(pendingPartial?.durability, 'applied_to_ydoc', 'the historical receipt cannot claim durability before its bytes are saved');
     await persistCollaborationYDoc(checkpointRaceDocumentId, deletionBase.lifecycleGeneration, deletionDoc);
     const resolvedPartial = await getAgentOperation({ operationId: partial.operationId, workspace, userId });
     assert.equal(resolvedPartial?.operationStatus, 'partially_applied');
@@ -1470,59 +1515,77 @@ try {
     safeNormalizationMigrationDocumentId,
   );
   assert(safeNormalizationStateBeforeFailedCheckpoint);
-  let restoredFailedNormalizationCheckpoint = false;
+  let failedNormalizationMaterializations = 0;
   await assert.rejects(
     () => changeCollaborationRepresentationWithSafeMarkdownNormalization({
       documentId: safeNormalizationMigrationDocumentId!,
       expectedLifecycleGeneration: safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
       schemaVersion: 1,
       checkpoint: {
-        write: async ({ canonicalContent }) => {
-          await fs.writeFile(
-            path.join(workspace.rootPath, safeNormalizationMigrationPath),
-            canonicalContent,
-            'utf8',
-          );
+        materialize: async () => {
+          failedNormalizationMaterializations++;
           throw new Error('synthetic normalized checkpoint failure');
-        },
-        restore: async ({ canonicalContent }) => {
-          restoredFailedNormalizationCheckpoint = true;
-          await fs.writeFile(
-            path.join(workspace.rootPath, safeNormalizationMigrationPath),
-            canonicalContent,
-            'utf8',
-          );
-        },
-        finalize: () => {
-          assert.fail('A failed normalized checkpoint must not finalize its file projection.');
         },
       },
     }),
     (error: unknown) => error instanceof CollaborationRepresentationMigrationError
       && error.code === 'checkpoint_failed',
   );
-  assert.equal(restoredFailedNormalizationCheckpoint, true);
+  assert.equal(failedNormalizationMaterializations, 1);
   const safeNormalizationStateAfterFailedCheckpoint = await loadCollaborationState(
     safeNormalizationMigrationDocumentId,
   );
   assert(safeNormalizationStateAfterFailedCheckpoint);
-  assert.equal(safeNormalizationStateAfterFailedCheckpoint.representation, 'plain_text');
+  assert.equal(safeNormalizationStateAfterFailedCheckpoint.representation, 'tiptap_xml');
   assert.equal(
     safeNormalizationStateAfterFailedCheckpoint.lifecycleGeneration,
-    safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration,
+    safeNormalizationStateBeforeFailedCheckpoint.lifecycleGeneration + 1,
   );
   assert.equal(
     safeNormalizationStateAfterFailedCheckpoint.documentSequence,
-    safeNormalizationStateBeforeFailedCheckpoint.documentSequence,
+    safeNormalizationStateBeforeFailedCheckpoint.documentSequence + 1,
   );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.checkpointSequence,
+    safeNormalizationStateBeforeFailedCheckpoint.checkpointSequence,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.checkpointedAt,
+    safeNormalizationStateBeforeFailedCheckpoint.checkpointedAt,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.canonicalHash,
+    safeNormalizationStateBeforeFailedCheckpoint.canonicalHash,
+  );
+  assert.equal(
+    safeNormalizationStateAfterFailedCheckpoint.serializedHash,
+    safeNormalizationStateBeforeFailedCheckpoint.serializedHash,
+  );
+  assert.equal(await persistedText(safeNormalizationMigrationDocumentId), safeNormalizationExpected);
   assert.equal(
     await fs.readFile(path.join(workspace.rootPath, safeNormalizationMigrationPath), 'utf8'),
     safeNormalizationMigrationContent,
   );
+  const retriedNormalizationCheckpoint = await materializeCollaborationCheckpoint({
+    state: safeNormalizationStateAfterFailedCheckpoint,
+    workspace,
+    actorUserId: userId,
+    actorType: 'system',
+  });
+  assert.equal(
+    retriedNormalizationCheckpoint.state.checkpointSequence,
+    safeNormalizationStateAfterFailedCheckpoint.documentSequence,
+  );
   const safeNormalizationGrant = await createCollaborationSessionGrant({
     workspace,
     fileOptions: { workspace },
-    request: { path: safeNormalizationMigrationPath, provider: 'yjs', representation: 'auto', allowRichMigration: true, expectedLifecycleGeneration: 1 },
+    request: {
+      path: safeNormalizationMigrationPath,
+      provider: 'yjs',
+      representation: 'auto',
+      allowRichMigration: true,
+      expectedLifecycleGeneration: safeNormalizationStateAfterFailedCheckpoint.lifecycleGeneration,
+    },
   });
   assert.equal(safeNormalizationGrant.representation, 'tiptap_xml');
   assert.equal(safeNormalizationGrant.lifecycleGeneration, 2);
@@ -1751,6 +1814,13 @@ try {
   // Cross-document requests are explicit sagas. A conflict in a later
   // document exposes the already applied item and requires compensation;
   // distributed all-or-nothing is refused before any document is changed.
+  const sagaFirstIdentity = await getFileCollaborationState({ workspace,
+    path: `agent-operation-saga-first-${suffix}.txt`, ensureDocument: true });
+  const sagaSecondIdentity = await getFileCollaborationState({ workspace,
+    path: `agent-operation-saga-second-${suffix}.txt`, ensureDocument: true });
+  assert(sagaFirstIdentity.document && sagaSecondIdentity.document);
+  sagaFirstDocumentId = sagaFirstIdentity.document.id;
+  sagaSecondDocumentId = sagaSecondIdentity.document.id;
   await ensureCollaborationState({
     documentId: sagaFirstDocumentId,
     workspaceId,
@@ -1930,6 +2000,10 @@ try {
   assert.equal(staleView?.operationStatus, 'needs_review');
   assert.equal(staleView?.proposalVersion, null);
   assert.equal(await persistedText(), 'User alpha\nBeta human after seeing agent\nGamma reviewed');
+} catch (error) {
+  // Preserve the failing assertion even if teardown discovers another issue.
+  console.error('Agent operation integration failed before cleanup:', error);
+  throw error;
 } finally {
   uninstallDirectConnection();
   uninstallDocumentReader();
@@ -1943,6 +2017,7 @@ try {
       [workspaceId],
     );
     await database.run('DELETE FROM collaboration_agent_sagas WHERE workspace_id = $1', [workspaceId]);
+    await database.run('DELETE FROM file_change_groups WHERE workspace_id = $1', [workspaceId]);
     for (const cleanupDocumentId of [
       documentId,
       richDocumentId,

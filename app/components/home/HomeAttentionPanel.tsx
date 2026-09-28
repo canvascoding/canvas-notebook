@@ -25,7 +25,10 @@ export function HomeAttentionPanel({ summary, isLoading }: { summary: Notificati
     setPending(`${item.workspaceId}:${item.id}`);
     setError(false);
     try {
-      await updateNotification({ action: dismiss ? 'dismiss_item' : 'mark_item_read', itemId: item.id, workspaceId: item.workspaceId });
+      await updateNotification({ action: dismiss ? 'dismiss_item' : 'mark_item_read',
+        itemId: item.id, workspaceId: item.workspaceId,
+        ...(item.target.kind === 'file_change' && item.target.branch ? { expectedRevision: item.target.branch.revision } : {}),
+      });
     } catch {
       setError(true);
     } finally {

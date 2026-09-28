@@ -21,6 +21,7 @@ type PatchPayload = {
   itemId?: string;
   workspaceId?: string;
   read?: boolean;
+  expectedRevision?: string;
 };
 
 function mobileInboxErrorResponse(error: unknown) {
@@ -144,6 +145,7 @@ export async function PATCH(request: NextRequest) {
         action: payload.action,
         itemId: payload.itemId,
         read: payload.read,
+        expectedRevision: payload.expectedRevision,
         includeFileChanges: true,
       });
       return NextResponse.json({ success: true, data });

@@ -11,6 +11,8 @@ import { assessDocxEditorCompatibility } from '@/app/lib/office/editor-compatibi
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
+import { collaborativeReadSnapshot } from '@/app/lib/files/collaborative-read-snapshot';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -86,18 +88,37 @@ export async function GET(request: NextRequest) {
         );
     }
 
-    const content = await readFile(path, fileOptions);
+    let collaboration = await getFileCollaborationState({
+      workspace: workspaceResult.workspace,
+      path,
+      ensureDocument: true,
+    });
+    const liveDocument = collaboration.document?.provider === 'yjs' && collaboration.document.status === 'active'
+      ? collaboration.document : null;
+    const durableContent = liveDocument ? collaborativeReadSnapshot({
+      workspace: workspaceResult.workspace, collaboration,
+      state: await loadCollaborationState(liveDocument.id),
+    }) : null;
+    const content = durableContent ?? await readFile(path, fileOptions);
+    if (content.byteLength > sizeLimit) {
+      return NextResponse.json({ success: false, error: 'File is too large to read' }, { status: 413 });
+    }
     const sha256 = sha256Buffer(content);
-    const revision = await ensureFileRevisionForCurrentContent({
+    // A read does not capture history for a Yjs-owned document: its durable
+    // mutation/checkpoint owns that. Otherwise a delayed disk projection can
+    // append old -> new -> old revisions merely by opening the file.
+    const revision = liveDocument
+      ? collaboration.latestRevision?.contentHash === sha256 ? collaboration.latestRevision : null
+      : await ensureFileRevisionForCurrentContent({
       workspace: workspaceResult.workspace,
       path,
       contentHash: sha256,
-      sizeBytes: stats.size,
+      sizeBytes: content.byteLength,
       actorUserId: workspaceResult.session.user.id,
       actorType: 'user',
       sourceSessionId: null,
     });
-    const collaboration = await getFileCollaborationState({
+    if (!liveDocument) collaboration = await getFileCollaborationState({
       workspace: workspaceResult.workspace,
       path,
       ensureDocument: true,
@@ -109,7 +130,7 @@ export async function GET(request: NextRequest) {
         path: path,
         content: content.toString('utf-8'),
         stats: {
-          size: stats.size,
+          size: content.byteLength,
           modified: stats.modified,
           permissions: stats.permissions,
           sha256,

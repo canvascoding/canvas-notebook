@@ -56,12 +56,18 @@ async function main() {
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   const responses = new Map<string, () => void>();
   const notificationMutations: unknown[] = [];
+  let revokeResolvedDocument = false;
   globalThis.fetch = async (_input, init) => {
     const url = new URL(String(_input), window.location.origin);
     const body = JSON.parse(String(init?.body)) as FileVersionCenterRequestV1;
     if (url.pathname === '/api/notifications/summary') {
       notificationMutations.push(body);
       return Response.json({ success: true });
+    }
+    if (url.pathname.endsWith('/resolve') && revokeResolvedDocument && body.target.workspaceId === 'workspace-one') {
+      return Response.json({ contractVersion: 1, success: false, error: {
+        code: 'FVRC_ACCESS_DENIED', message: 'Access was removed.', retryable: false,
+      } }, { status: 403 });
     }
     if (body.target.workspaceId === 'workspace-delayed') {
       await new Promise<void>((resolve) => responses.set('delayed', resolve));
@@ -133,6 +139,16 @@ async function main() {
   await settle();
   assert.match(document.body.textContent ?? '', /Notes\/current\.md/u,
     'a late response from another workspace cannot replace the active document');
+
+  revokeResolvedDocument = true;
+  await act(async () => { openVersionCenter({ ...request, target: { ...request.target } }); });
+  await settle();
+  assert.match(document.body.textContent ?? '', /Access was removed/u);
+  assert.equal(document.querySelector('[data-testid="file-version-center-responsive-layout"]'), null,
+    'revocation purges a previously visible private timeline, not only its action buttons');
+  assert.doesNotMatch(document.body.textContent ?? '', /Notes\/current\.md/u,
+    'the revoked document path is no longer shown from cached timeline data');
+  revokeResolvedDocument = false;
 
   await act(async () => {
     openVersionCenter({ ...request, target: { ...request.target, workspaceId: 'workspace-denied' } });

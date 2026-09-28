@@ -87,6 +87,7 @@ function assertDeepLinkRoundtrip(request: FileVersionCenterRequestV1, href: stri
   assert.equal(decoded.contractVersion, FILE_VERSION_CENTER_CONTRACT_VERSION);
   assert.deepEqual(decoded.target, request.target);
   assert.deepEqual(decoded.selectedEntry, request.selectedEntry);
+  assert.equal(decoded.branchOverview, request.branchOverview);
   assert.equal(decoded.initialView, request.initialView);
   assert.equal(decoded.source, 'deep_link');
   assert.equal(new URL(link, 'https://canvas.test').searchParams.get('fvrcSource'), null);
@@ -110,6 +111,61 @@ async function main() {
   for (const request of openRequests) {
     assertDeepLinkRoundtrip(request, '/notebook?chat=open#editor');
   }
+
+  const branchRequest = parseFileVersionCenterRequestV1({
+    contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
+    target: { kind: 'lineage', workspaceId: 'workspace-one', lineageId: 'lineage-one' },
+    selectedEntry: { kind: 'agent_operation', id: 'operation-root-exact' },
+    branchOverview: true,
+    initialView: 'reviews',
+    source: 'deep_link',
+  });
+  const branchHref = buildFileVersionCenterDeepLinkV1('/notebook?chat=open#editor', branchRequest);
+  const branchParams = new URLSearchParams(branchHref.split('?', 2)[1]?.split('#', 1)[0] ?? '');
+  assert.equal(branchParams.get('fvrcBranch'), '1');
+  const decodedBranch = parseFileVersionCenterDeepLinkV1(branchParams);
+  assert.equal(decodedBranch?.branchOverview, true);
+  assert.deepEqual(decodedBranch?.selectedEntry, { kind: 'agent_operation', id: 'operation-root-exact' },
+    'branch overview round-trips the exact selected root operation');
+  assertDeepLinkRoundtrip(branchRequest, '/notebook?chat=open#editor');
+
+  const noSelectionHref = buildFileVersionCenterDeepLinkV1('/notebook', {
+    contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
+    target: { kind: 'lineage', workspaceId: 'workspace-one', lineageId: 'lineage-one' },
+    initialView: 'history',
+    source: 'deep_link',
+  });
+  assert.equal(new URLSearchParams(noSelectionHref.split('?', 2)[1]).has('fvrcBranch'), false,
+    'ordinary historical links remain free of the opt-in branch key');
+  const staleBranchHref = buildFileVersionCenterDeepLinkV1('/notebook?fvrcBranch=1', {
+    contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
+    target: { kind: 'lineage', workspaceId: 'workspace-one', lineageId: 'lineage-one' },
+    initialView: 'history',
+    source: 'deep_link',
+  });
+  assert.equal(new URLSearchParams(staleBranchHref.split('?', 2)[1]).has('fvrcBranch'), false,
+    'serializing a non-branch request clears stale branch intent from the current URL');
+
+  const branchBase = 'fvrc=1&fvrcTarget=lineage&fvrcWorkspace=workspace-one&fvrcRef=lineage-one&fvrcView=reviews';
+  for (const malformed of [
+    `${branchBase}&fvrcBranch=0&fvrcSelectedKind=agent_operation&fvrcSelectedId=operation-one`,
+    `${branchBase}&fvrcBranch=true&fvrcSelectedKind=agent_operation&fvrcSelectedId=operation-one`,
+    `${branchBase}&fvrcBranch=1`,
+    `${branchBase}&fvrcBranch=1&fvrcSelectedKind=revision&fvrcSelectedId=revision-one`,
+    'fvrc=1&fvrcTarget=lineage&fvrcWorkspace=workspace-one&fvrcRef=lineage-one&fvrcBranch=1&fvrcView=history&fvrcSelectedKind=agent_operation&fvrcSelectedId=operation-one',
+    `${branchBase}&fvrcSelectedKind=agent_operation`,
+    `${branchBase}&fvrcSelectedId=operation-one`,
+    `${branchBase}&fvrcSelectedKind=unknown&fvrcSelectedId=operation-one`,
+  ]) {
+    expectContractError(
+      () => parseFileVersionCenterDeepLinkV1(new URLSearchParams(malformed)),
+      FILE_VERSION_CENTER_ERROR_CODES.invalidRequest,
+    );
+  }
+  expectContractError(() => parseFileVersionCenterRequestV1({ ...branchRequest, branchOverview: false }),
+    FILE_VERSION_CENTER_ERROR_CODES.invalidRequest);
+  expectContractError(() => parseFileVersionCenterRequestV1({ ...branchRequest, selectedEntry: undefined }),
+    FILE_VERSION_CENTER_ERROR_CODES.invalidRequest);
 
   parseFileVersionCapabilitiesV1(fixtures.valid.capabilities);
   parseFileReviewPolicyV1(fixtures.valid.policy);

@@ -475,6 +475,14 @@ test('tool result metadata forces review while legacy outcomes and stable confli
       assert.equal(result.collaboration?.reviewRequired, true);
       assert.equal(result.recommendedAction, 'review_in_editor');
       assert.equal(Object.hasOwn(result, 'resolvedPath'), false);
+      const apparentlyClosed = { ...legacy, changed: false, collaboration: { ...legacy.collaboration!,
+        operationStatus: 'applied', durability: 'not_applied', reviewRequired: false } };
+      assert.equal(asAgentFileToolSuccess({ ...apparentlyClosed, proposal: parent.proposal }, operation).outcome, 'unchanged');
+      assert.equal(asAgentFileToolSuccess({ ...apparentlyClosed, changed: undefined as unknown as boolean,
+        proposal: parent.proposal }, operation).outcome, 'review_required');
+      assert.equal(asAgentFileToolSuccess({ ...apparentlyClosed,
+        collaboration: { ...apparentlyClosed.collaboration, reviewRequired: undefined as unknown as boolean },
+        proposal: parent.proposal }, operation).outcome, 'review_required');
       assert.equal(asAgentFileToolSuccess(legacy, operation).outcome, 'applied');
       assert.equal(asAgentFileToolSuccess({ ...legacy, changed: false }, operation).outcome, 'unchanged');
       const error = asAgentFileToolError(new ProposalGraphContractError('PROPOSAL_PARENT_CHANGED', 'Read exact source again'), operation, legacy.path);

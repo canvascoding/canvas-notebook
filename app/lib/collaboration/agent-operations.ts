@@ -25,12 +25,13 @@ import {
   ProposalGraphContractError,
 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import {
-  proposalYjsCurrentProof,
+  proposalYjsCurrentProof, proposalYjsRecoveryStateMatches,
   type ProposalYjsRepresentation,
 } from '@/app/lib/file-version-center/proposal-yjs-candidate';
 import type {
   ProposalCurrentProofV1,
   ProposalDocumentScopeV1,
+  ProposalLifecycleV1,
 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import {
   authorizeNewAgentDirectApply,
@@ -43,7 +44,10 @@ import {
   AgentDirectConnectionAuthorizationError,
   runCollaborationDirectConnection,
 } from './direct-connection';
-import { loadCollaborationState, type PersistedCollaborationState } from './persistence';
+import { loadCollaborationState, loadCollaborationStateOnConnection, type PersistedCollaborationState } from './persistence';
+import { executeLifecycleTransaction } from './lifecycle-transaction';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
+import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError } from './room-admission-contract';
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import { logCollaborationDiagnostic } from './diagnostics';
 import { readCurrentCollaborationDocument } from './document-access';
@@ -180,7 +184,7 @@ export interface AgentApplyConflict {
 }
 
 export interface AgentApplyResult {
-  status: 'applied_to_ydoc' | 'partially_applied' | 'needs_review' | 'semantic_conflict';
+  status: 'applied_to_ydoc' | 'partially_applied' | 'needs_review' | 'semantic_conflict' | 'cancelled';
   appliedTargetIds: string[];
   conflicts: AgentApplyConflict[];
   stateVector: string;
@@ -1098,7 +1102,7 @@ function parseResult(row: AgentOperationRow): PersistedAgentApplyResult {
   if (row.result_json) {
     const parsed = JSON.parse(row.result_json) as Partial<PersistedAgentApplyResult>;
     return {
-      status: parsed.status || (row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc'),
+      status: row.status === 'cancelled' ? 'cancelled' : parsed.status || (row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc'),
       appliedTargetIds: parsed.appliedTargetIds || [],
       conflicts: parsed.conflicts || [],
       stateVector: parsed.stateVector || Buffer.from(row.base_state_vector).toString('base64'),
@@ -1110,7 +1114,7 @@ function parseResult(row: AgentOperationRow): PersistedAgentApplyResult {
     };
   }
   return {
-    status: row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc',
+    status: row.status === 'cancelled' ? 'cancelled' : row.status === 'semantic_conflict' ? 'semantic_conflict' : row.status === 'partially_applied' ? 'partially_applied' : row.status === 'needs_review' ? 'needs_review' : 'applied_to_ydoc',
     appliedTargetIds: [],
     conflicts: [],
     stateVector: Buffer.from(row.base_state_vector).toString('base64'),
@@ -1217,7 +1221,7 @@ async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Par
     || (row.expected_canonical_hash ?? null) !== (input.expectedCanonicalHash || null)) {
     throw new Error('Idempotency key was already used with a different or unverifiable agent file request.');
   }
-  const state = await loadCollaborationState(row.document_id);
+  const state = await (input.loadState ?? loadCollaborationState)(row.document_id);
   if (!state || state.status !== 'active' || state.workspaceId !== row.workspace_id || state.organizationId !== row.organization_id
     || state.path !== row.document_path || state.representation !== row.document_representation
     || state.lifecycleGeneration !== Number(row.document_lifecycle_generation) || state.schemaVersion !== Number(row.schema_version)) {
@@ -1227,6 +1231,9 @@ async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Par
 
 async function createOrLoadOperation(input: {
   database: SqlConnection;
+  /** Internal creation adapter; graph callers retain their existing transaction. */
+  loadState?: typeof loadCollaborationState;
+  beforeInsert?: (state: PersistedCollaborationState) => Promise<void>;
   /** Internal graph creation may reserve an ID in the same atomic transaction. */
   operationId?: string;
   documentId: string;
@@ -1313,7 +1320,7 @@ async function createOrLoadOperation(input: {
       return { row: chainDuplicate, created: false };
     }
   }
-  const state = await loadCollaborationState(input.documentId);
+  const state = await (input.loadState ?? loadCollaborationState)(input.documentId);
   if (
     !state
     || state.workspaceId !== input.workspace.workspaceId
@@ -1323,6 +1330,7 @@ async function createOrLoadOperation(input: {
   ) {
     throw new Error('Collaboration document is unavailable or stale.');
   }
+  await input.beforeInsert?.(state);
   const now = Date.now();
   const operationId = input.operationId ?? randomUUID();
   await input.database.run(
@@ -1372,6 +1380,64 @@ async function createOrLoadOperation(input: {
   const row = await readOperation(input.database, operationId);
   if (!row) throw new Error('Failed to create collaboration agent operation.');
   return { row, created: true };
+}
+
+/** Only legacy creation owns this short transaction; later work remains statementwise. */
+async function createOrLoadAdmittedOperation(
+  input: Omit<Parameters<typeof createOrLoadOperation>[0], 'database' | 'loadState' | 'beforeInsert'>,
+): Promise<{ row: AgentOperationRow; created: boolean }> {
+  // No caller-owned target, request receipt, or workspace object survives an await.
+  const captured = structuredClone(input);
+  return executeLifecycleTransaction({
+    openConnection: openDb,
+    execute: async (database) => {
+      await database.run("SET LOCAL statement_timeout = '5s'");
+      await database.run("SET LOCAL lock_timeout = '4s'");
+      const query = async (sql: string, values?: unknown[]) =>
+        await database.all(sql, values) as Array<Record<string, unknown>>;
+      await lockCollaborationAdmissionWorkspace(query, captured.workspace.workspaceId);
+      return createOrLoadOperation({ ...captured, database,
+        // Handoff terminalization does not take the workspace admission guard.
+        // Retain the state row so its generation/path cannot change between
+        // reading this snapshot, checking admission, and committing the INSERT.
+        loadState: (documentId) => loadCollaborationStateOnConnection(database, documentId, false, 'share'),
+        beforeInsert: async (state) => {
+          if (state.organizationId !== (captured.workspace.organizationId ?? null)
+            || (captured.documentLifecycleGeneration !== undefined
+              && state.lifecycleGeneration !== captured.documentLifecycleGeneration)
+            || (captured.documentSchemaVersion !== undefined && state.schemaVersion !== captured.documentSchemaVersion)) {
+            throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+          }
+          const scope = captureCollaborationAdmissionWriterScope({ documentId: captured.documentId,
+            workspaceId: captured.workspace.workspaceId, path: state.path });
+          await assertCollaborationAdmissionOpen(query, scope);
+        },
+      });
+    },
+    recoverCommitted: async (attempted, commitError) => {
+      // executeLifecycleTransaction has confirmed discard. This connection is
+      // read-only: a missing operation cannot be recreated by commit recovery.
+      const database = await openDb();
+      try {
+        const recovered = await readOperation(database, attempted.row.operation_id);
+        if (!recovered) throw commitError;
+        const immutable: Array<keyof AgentOperationRow> = ['operation_id', 'document_id', 'workspace_id',
+          'organization_id', 'document_path', 'document_representation', 'document_lifecycle_generation',
+          'schema_version', 'initiated_by_user_id', 'actor_id', 'actor_session_id', 'agent_run_id',
+          'idempotency_key', 'run_generation', 'payload_hash', 'operation_type', 'atomicity',
+          'supersedes_operation_id', 'correlation_id', 'causation_id', 'trigger_depth',
+          'expected_canonical_hash', 'file_edit_request_json', 'operation_payload', 'base_document_sequence', 'created_at'];
+        if (immutable.some((key) => !isDeepStrictEqual(recovered[key], attempted.row[key]))
+          || !Buffer.from(recovered.base_state_vector).equals(Buffer.from(attempted.row.base_state_vector))
+          || (Number(recovered.cas_version) === 0 && recovered.requested_mode !== attempted.row.requested_mode)) {
+          throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+        }
+        await assertLegacyActionIsIndependent(database, recovered.operation_id);
+        return { row: recovered, created: attempted.created && recovered.status === 'preparing'
+          && Number(recovered.cas_version) === 0 };
+      } finally { await database.close(); }
+    },
+  });
 }
 
 /**
@@ -1430,6 +1496,7 @@ export async function prepareProposalAgentOperation(input: {
   const created = await createOrLoadOperation({
     ...input, database, requestedMode: 'review', operationType: 'apply',
     independentGroups: false, runGeneration: 1, directEditGrantId: null,
+    loadState: (documentId) => loadCollaborationStateOnConnection(database, documentId),
   });
   if (!created.created || created.row.operation_id !== input.operationId) {
     // Retry lookup belongs before source preparation in the provenance service.
@@ -1470,6 +1537,7 @@ export async function prepareProposalGraphActionOperation(input: {
   const database = proposalOperationDatabase(input.transaction);
   const created = await createOrLoadOperation({
     database,
+    loadState: (documentId) => loadCollaborationStateOnConnection(database, documentId),
     operationId: input.actionId,
     documentId: input.scope.documentId,
     workspace: input.workspace,
@@ -1503,6 +1571,8 @@ export type ProposalGraphCandidateApplyInput = {
   initiatedByUserId: string;
   actorId: string;
   actorDisplayName: string;
+  /** Review approvals use the authenticated user session, not an agent run. */
+  actorType?: 'agent' | 'user';
   actorSessionId?: string;
   representation: ProposalYjsRepresentation;
   expectedCurrent: ProposalCurrentProofV1;
@@ -1578,6 +1648,9 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
   if (!input.workspace.permissions.canWrite || input.workspace.workspaceId !== input.scope.workspaceId) {
     throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_ACCESS_DENIED', 'Workspace write permission is required.');
   }
+  if (input.actorType === 'user' && (!input.actorSessionId || input.actorId !== input.initiatedByUserId)) {
+    throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_ACCESS_DENIED', 'A review approval requires its authenticated user session.');
+  }
   const candidate = prepareProposalCandidate(input);
   return serialized(input.scope.documentId, async () => {
     const database = createAgentOperationDatabase();
@@ -1592,9 +1665,9 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
       }
       await assertProposalGraphActionReceipt({ database, actionId: input.actionId, scope: input.scope,
         candidateSha256: input.candidateSha256, expectedCurrent: input.expectedCurrent });
-      if (row.status === 'persisted_yjs' && row.version_revision_id) {
-        return { operationId: row.operation_id, revisionId: row.version_revision_id,
-          current: { ...candidate.current, revisionId: row.version_revision_id } };
+      if (['persisted_yjs', 'checkpointed_file'].includes(row.status)) {
+        return await finalizeDurableProposalCandidateHistory({ database, row, workspace: input.workspace, candidate,
+          baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });
       }
       if (row.status !== 'preparing') {
         throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The action operation requires durable recovery.');
@@ -1609,6 +1682,7 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
       row = await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'applying' });
       let resultingSnapshot: Uint8Array | null = null;
       let appliedCurrent: ProposalCurrentProofV1 | null = null;
+      let candidateCallbackEntered = false;
       try {
         await runCollaborationDirectConnection({
           documentId: row.document_id,
@@ -1620,10 +1694,13 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
           workspace: input.workspace,
           actorId: input.actorId,
           actorDisplayName: input.actorDisplayName,
+          actorType: input.actorType ?? 'agent',
+          versionSource: 'agent_apply',
           initiatedByUserId: input.initiatedByUserId,
           operationId: input.actionId,
           actorSessionId: input.actorSessionId,
         }, (doc) => {
+          candidateCallbackEntered = true;
           const live = proposalYjsCurrentProof({
             update: Y.encodeStateAsUpdate(doc), representation: input.representation, revisionId: input.expectedCurrent.revisionId,
           });
@@ -1664,11 +1741,16 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
           } });
         });
       } catch (error) {
-        if (error instanceof ProposalActionDefinitelyUnappliedError) {
+        const unapplied = error instanceof ProposalActionDefinitelyUnappliedError ? error
+          : !candidateCallbackEntered ? new ProposalActionDefinitelyUnappliedError(
+            error instanceof AgentDirectConnectionAuthorizationError ? 'PROPOSAL_ACCESS_DENIED' : 'PROPOSAL_CONTENT_UNAVAILABLE',
+            'The candidate action stopped before document mutation began.',
+          ) : null;
+        if (unapplied) {
           row = await transitionOperation({ database, row, expectedStatuses: ['applying'], status: 'cancelled',
             fields: { error_code: 'proposal_action_not_applied' } }).catch(() => row);
         }
-        throw error;
+        throw unapplied ?? error;
       }
       const durable = await waitForProposalCandidateDurability({ database, row, workspace: input.workspace, candidate,
         baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });
@@ -1707,9 +1789,9 @@ export async function recoverProposalGraphCandidateOperation(input: ProposalGrap
         if (error instanceof ProposalGraphContractError && error.code === 'PROPOSAL_CANDIDATE_CHANGED') throw error;
         throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The graph action receipt cannot be recovered safely.');
       }
-      if (row.status === 'persisted_yjs' && row.version_revision_id) {
-        return { operationId: row.operation_id, revisionId: row.version_revision_id,
-          current: { ...candidate.current, revisionId: row.version_revision_id } };
+      if (['persisted_yjs', 'checkpointed_file'].includes(row.status)) {
+        return await finalizeDurableProposalCandidateHistory({ database, row, workspace: input.workspace, candidate,
+          baseRevisionId: input.baseRevisionId ?? row.checkpoint_revision_id });
       }
       if (row.status === 'preparing') {
         row = await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'cancelled',
@@ -1774,7 +1856,9 @@ function proposalRecoveryCurrentMatches(input: {
 }): boolean {
   try {
     return isDeepStrictEqual(proposalYjsCurrentProof({ update: input.state.yjsState,
-      representation: input.input.representation, revisionId: null }), input.candidate.current);
+      representation: input.input.representation, revisionId: null }), input.candidate.current)
+      || proposalYjsRecoveryStateMatches({ persistedUpdate: input.state.yjsState,
+        candidateUpdate: input.input.candidateUpdate, representation: input.input.representation });
   } catch {
     return false;
   }
@@ -1790,6 +1874,52 @@ function proposalRecoverySnapshot(update: Uint8Array): Uint8Array | null {
   } finally {
     doc.destroy();
   }
+}
+
+async function finalizeDurableProposalCandidateHistory(input: {
+  database: SqlConnection;
+  row: AgentOperationRow;
+  workspace: WorkspaceContext;
+  candidate: PreparedProposalCandidate;
+  baseRevisionId: string | null | undefined;
+}): Promise<ProposalGraphCandidateApplyResult> {
+  let row = input.row;
+  if (!row.version_revision_id) {
+    const captured = await fileVersionHistoryService.capture({
+      workspace: input.workspace,
+      path: row.document_path!,
+      content: input.candidate.content,
+      source: 'agent_apply',
+      actorUserId: row.initiated_by_user_id,
+      actorType: 'agent',
+      sourceSessionId: row.actor_session_id,
+      baseRevisionId: input.baseRevisionId ?? null,
+      stateVector: input.candidate.stateVector,
+    });
+    if (!captured.revision) {
+      throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate version history is not available.');
+    }
+    for (let attempt = 0; attempt < 3 && !row.version_revision_id; attempt += 1) {
+      if (!['persisted_yjs', 'checkpointed_file'].includes(row.status)) {
+        throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The durable action changed before history recovery.');
+      }
+      try {
+        row = await transitionOperation({ database: input.database, row, expectedStatuses: [row.status], status: row.status,
+          fields: { version_revision_id: captured.revision.id } });
+      } catch {
+        const refreshed = await readOperation(input.database, row.operation_id);
+        if (!refreshed) {
+          throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The durable action disappeared during history recovery.');
+        }
+        row = refreshed;
+      }
+    }
+  }
+  if (!row.version_revision_id) {
+    throw new ProposalGraphContractError('PROPOSAL_RECOVERY_REQUIRED', 'The candidate history could not be attached to the durable action.');
+  }
+  return { operationId: row.operation_id, revisionId: row.version_revision_id,
+    current: { ...input.candidate.current, revisionId: row.version_revision_id } };
 }
 
 async function waitForProposalCandidateDurability(input: {
@@ -2399,6 +2529,8 @@ export async function applyPersistedAgentTextOperation(input: {
   baseStateVector?: string;
   baseDocumentSequence?: number;
   fileEditRequest?: AgentFileEditRequestReceipt;
+  /** Graph-enabled ordinary tools may not create an actionable legacy review. */
+  disallowLegacyReview?: boolean;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   const trustedRevert = input.operationType === 'revert' && input[USER_REVERT_AUTHORITY] === true;
@@ -2433,8 +2565,11 @@ export async function applyPersistedAgentTextOperation(input: {
       const mustReview = requestedMode === 'review'
         || (!trustedRevert && (!directScope || !policyAllowsDirect))
         || hardSafetyReview;
-      const created = await createOrLoadOperation({
-        database,
+      if (mustReview && input.disallowLegacyReview) {
+        throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+          'Direct editing is no longer authorized. Start a fresh tool call for graph review; no legacy operation was created.');
+      }
+      const created = await createOrLoadAdmittedOperation({
         documentId: input.documentId,
         workspace: input.workspace,
         initiatedByUserId: input.initiatedByUserId,
@@ -2479,6 +2614,11 @@ export async function applyPersistedAgentTextOperation(input: {
         operationExplicitlyRequiresReview: false,
       });
       if (authorization.enforcementMode !== 'safe_direct' || !authorization.grant) {
+        if (input.disallowLegacyReview) {
+          await cancelUnappliedGraphReroute(database, created.row);
+          throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+            'Direct editing authorization changed. The unapplied operation was cancelled; start a fresh tool call.');
+        }
         return placeAgentOperationInReview(database, created.row, 'policy_review_required');
       }
       const authorizedRow = await transitionOperation({
@@ -2505,15 +2645,33 @@ export async function applyPersistedAgentTextOperation(input: {
           return appliedResult;
         }
         if (isAgentDatabaseCapacityError(error)) {
+          if (input.disallowLegacyReview) {
+            await cancelUnappliedGraphReroute(database, authorizedRow);
+            throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+              'Direct editing could not be authorized. The unapplied operation was cancelled; start a fresh tool call.');
+          }
           return placeAgentOperationInReview(database, authorizedRow, 'backpressure_review_required');
         }
         if (!(error instanceof AgentDirectEditGrantUnavailableError)) throw error;
+        if (input.disallowLegacyReview) {
+          await cancelUnappliedGraphReroute(database, authorizedRow);
+          throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+            'Direct editing grant was lost. The unapplied operation was cancelled; start a fresh tool call.');
+        }
         return placeAgentOperationInReview(database, authorizedRow, 'authorization_revoked');
       }
     } finally {
       await database.close();
     }
   });
+}
+
+async function cancelUnappliedGraphReroute(database: SqlConnection, row: AgentOperationRow): Promise<void> {
+  const result = { ...publicResult(row, { status: 'cancelled', appliedTargetIds: [], conflicts: [],
+    stateVector: Buffer.from(row.base_state_vector).toString('base64') }, 'pending'),
+    operationStatus: 'cancelled' as const, casVersion: Number(row.cas_version) + 1 };
+  await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'cancelled',
+    fields: { result_json: JSON.stringify(result), error_code: 'graph_review_reroute_required' } });
 }
 
 async function placeAgentOperationInReview(database: SqlConnection, row: AgentOperationRow, code: string) {
@@ -2858,14 +3016,29 @@ export async function listAgentOperations(input: {
   workspace: WorkspaceContext;
   userId: string;
   pendingOnly?: boolean;
-}): Promise<AgentOperationView[]> {
+}): Promise<Array<AgentOperationView & { proposalLifecycle?: ProposalLifecycleV1 | null }>> {
   if (!input.workspace.permissions.canRead) return [];
   const database = createAgentOperationDatabase();
   try {
     const rows = await database.all(
-      `SELECT operation.*, COALESCE(initiator.name, initiator.email, initiator.id) AS initiated_by_display_name
+      `SELECT operation.*, COALESCE(initiator.name, initiator.email, initiator.id) AS initiated_by_display_name,
+         proposal.proposal_id AS graph_proposal_id,
+         CASE WHEN graph.graph_id IS NOT NULL AND document.id IS NOT NULL AND state.document_id IS NOT NULL
+           THEN proposal.lifecycle ELSE NULL END AS graph_proposal_lifecycle
        FROM collaboration_agent_operations operation
        LEFT JOIN "user" initiator ON initiator.id = operation.initiated_by_user_id
+       LEFT JOIN file_change_proposals proposal ON proposal.operation_id = operation.operation_id
+       LEFT JOIN file_proposal_graphs graph ON graph.graph_id = proposal.graph_id
+         AND graph.workspace_id = operation.workspace_id AND graph.document_id = operation.document_id
+         AND graph.lifecycle_generation = operation.document_lifecycle_generation
+         AND graph.schema_version = operation.schema_version
+       LEFT JOIN collaboration_documents document ON document.id = graph.document_id
+         AND document.workspace_id = graph.workspace_id AND document.lineage_id = graph.lineage_id
+         AND document.status = 'active' AND document.provider = 'yjs'
+       LEFT JOIN collaboration_yjs_states state ON state.document_id = graph.document_id
+         AND state.workspace_id = graph.workspace_id
+         AND state.lifecycle_generation = graph.lifecycle_generation AND state.schema_version = graph.schema_version
+         AND state.status = 'active' AND state.organization_id IS NOT DISTINCT FROM operation.organization_id
        WHERE operation.document_id = $1 AND operation.workspace_id = $2
          AND ($3 = 0 OR operation.status IN ('needs_review', 'partially_applied', 'semantic_conflict', 'cancel_requested'))
        ORDER BY operation.updated_at DESC LIMIT 50`,
@@ -2874,10 +3047,19 @@ export async function listAgentOperations(input: {
         input.workspace.workspaceId,
         input.pendingOnly ? 1 : 0,
       ],
-    ) as AgentOperationRow[];
+    ) as Array<AgentOperationRow & {
+      graph_proposal_id: string | null;
+      graph_proposal_lifecycle: ProposalLifecycleV1 | null;
+    }>;
     return Promise.all(rows.map(async (stored) => {
       const row = await reconcileAgentOperationDurability(database, stored, input.workspace);
-      return toOperationView(row, await reviewTargets(row, input.userId), input.userId, canManageOperation(row, input.workspace, input.userId));
+      const actionsAllowed = canManageOperation(row, input.workspace, input.userId);
+      return {
+        ...toOperationView(row, await reviewTargets(row, input.userId), input.userId, actionsAllowed),
+        ...(stored.graph_proposal_id ? {
+          proposalLifecycle: actionsAllowed ? stored.graph_proposal_lifecycle : null,
+        } : {}),
+      };
     }));
   } finally {
     await database.close();
@@ -3084,7 +3266,10 @@ export async function detectLateAgentSemanticConflicts(input: {
   documentId: string;
   doc: YTypes.Doc;
   observedDocumentSequence?: number | null;
+  /** Process-local owner check only; this is not an atomic database metadata fence. */
+  assertRoomActive?: () => void;
 }): Promise<void> {
+  input.assertRoomActive?.();
   const memoryWindows = recentAgentChangeWindows.get(input.documentId);
   if (!memoryWindows) return;
 
@@ -3142,6 +3327,7 @@ export async function detectLateAgentSemanticConflicts(input: {
       const window = memoryWindows.get(operationId);
       if (!window || window.conflicts.length === 0) continue;
       const row = await readOperation(database, operationId);
+      input.assertRoomActive?.();
       if (!row || !['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file', 'partially_applied', 'reverted'].includes(row.status)) {
         continue;
       }

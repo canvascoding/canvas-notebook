@@ -110,6 +110,7 @@ export const FileVersionCenterRequestSchemaV1 = Type.Object({
   contractVersion: ContractVersionSchema,
   target: FileVersionCenterTargetSchemaV1,
   selectedEntry: Type.Optional(FileVersionCenterSelectionSchemaV1),
+  branchOverview: Type.Optional(Type.Literal(true)),
   initialView: Type.Union([Type.Literal('reviews'), Type.Literal('history')]),
   source: Type.Union([
     Type.Literal('editor'),
@@ -549,6 +550,13 @@ export function assertFileVersionCenterContractV1<T extends TSchema>(
 export function parseFileVersionCenterRequestV1(value: unknown): FileVersionCenterRequestV1 {
   assertNoForbiddenReferenceFields(value);
   assertFileVersionCenterContractV1(FileVersionCenterRequestSchemaV1, value);
+  if (value.branchOverview === true
+    && (value.initialView !== 'reviews' || value.selectedEntry?.kind !== 'agent_operation')) {
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.invalidRequest,
+      'A branch overview requires a selected agent operation in the reviews view.',
+    );
+  }
   return value;
 }
 

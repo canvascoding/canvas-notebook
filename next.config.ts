@@ -29,9 +29,19 @@ const deploymentId = (
 const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
   ? process.env.NEXT_ALLOWED_DEV_ORIGINS.split(',').map(o => o.trim()).filter(Boolean)
   : [];
+const multiprocessTestPort = process.env.CANVAS_COLLABORATION_MULTIPROCESS_TEST === '1'
+  && process.env.NODE_ENV === 'development'
+  && ['3101', '3102'].includes(process.env.PORT || '')
+  ? process.env.PORT
+  : null;
 
 const nextConfig: NextConfig = {
   deploymentId,
+
+  ...(multiprocessTestPort ? {
+    distDir: `.next/multiprocess-${multiprocessTestPort}`,
+    typescript: { tsconfigPath: `tsconfig.multiprocess-${multiprocessTestPort}.json` },
+  } : {}),
 
   ...(allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 

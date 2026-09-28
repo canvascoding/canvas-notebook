@@ -18,6 +18,7 @@ export const FILE_VERSION_CENTER_DEEP_LINK_KEYS_V1 = Object.freeze({
   initialView: 'fvrcView',
   selectedKind: 'fvrcSelectedKind',
   selectedId: 'fvrcSelectedId',
+  branchOverview: 'fvrcBranch',
 } as const);
 
 type SearchParamsReader = Pick<URLSearchParams, 'get'>;
@@ -53,9 +54,18 @@ function targetFromParams(params: SearchParamsReader): FileVersionCenterTargetV1
 function selectedEntryFromParams(params: SearchParamsReader): FileVersionCenterSelectionV1 | undefined {
   const kind = params.get(FILE_VERSION_CENTER_DEEP_LINK_KEYS_V1.selectedKind);
   const id = params.get(FILE_VERSION_CENTER_DEEP_LINK_KEYS_V1.selectedId);
-  if (!id) return undefined;
+  if (kind === null && id === null) return undefined;
+  if (kind === null || id === null) {
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.invalidRequest,
+      'The file version center selection is incomplete.',
+    );
+  }
   if (kind === 'agent_operation' || kind === 'revision') return { kind, id };
-  return undefined;
+  throw new FileVersionCenterContractError(
+    FILE_VERSION_CENTER_ERROR_CODES.invalidRequest,
+    'The file version center selection kind is not supported.',
+  );
 }
 
 function assertDeepLinkSize(params: URLSearchParams): void {
@@ -93,6 +103,8 @@ export function buildFileVersionCenterDeepLinkV1(
     params.delete(keys.selectedKind);
     params.delete(keys.selectedId);
   }
+  if (request.branchOverview === true) params.set(keys.branchOverview, '1');
+  else params.delete(keys.branchOverview);
   assertDeepLinkSize(params);
   const nextQuery = params.toString();
   return `${pathname}${nextQuery ? `?${nextQuery}` : ''}${hash ? `#${hash}` : ''}`;
@@ -117,12 +129,20 @@ export function parseFileVersionCenterDeepLinkV1(
     );
   }
   const initialView = params.get(FILE_VERSION_CENTER_DEEP_LINK_KEYS_V1.initialView);
+  const rawBranchOverview = params.get(FILE_VERSION_CENTER_DEEP_LINK_KEYS_V1.branchOverview);
+  if (rawBranchOverview !== null && rawBranchOverview !== '1') {
+    throw new FileVersionCenterContractError(
+      FILE_VERSION_CENTER_ERROR_CODES.invalidRequest,
+      'The file version center branch overview flag is invalid.',
+    );
+  }
   const request = {
     contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
     target,
     initialView: initialView === 'reviews' ? 'reviews' as const : 'history' as const,
     source: 'deep_link' as const,
     selectedEntry: selectedEntryFromParams(params),
+    ...(rawBranchOverview === '1' ? { branchOverview: true as const } : {}),
   };
   return parseFileVersionCenterRequestV1(request);
 }

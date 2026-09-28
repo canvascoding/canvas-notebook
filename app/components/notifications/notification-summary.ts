@@ -1,6 +1,6 @@
 'use client';
 
-import type { FileChangeReviewNotificationReason } from '@/app/lib/file-version-center/notification-contract';
+import type { FileChangeReviewNotificationReason, FileChangeReviewNotificationTarget } from '@/app/lib/file-version-center/notification-contract';
 
 export type NotificationItem = {
   id: string;
@@ -23,7 +23,7 @@ export type NotificationItem = {
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string }
     | { kind: 'mcp'; connectionId: string }
-    | { kind: 'file_change'; workspaceId: string; lineageId: string; operationId: string }
+    | FileChangeReviewNotificationTarget
     | { kind: 'memory'; scope: 'workspace' | 'organization'; entryId: string; collectionId: string; workspaceId?: string; organizationId?: string };
 };
 

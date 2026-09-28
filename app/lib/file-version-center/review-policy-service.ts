@@ -237,6 +237,8 @@ async function loadMatchingOperation(
       AND operation.actor_session_id = $7
       AND operation.document_lifecycle_generation = $8
       AND operation.operation_type = 'apply'
+      AND operation.status = 'preparing'
+      AND operation.requested_mode = 'direct_apply'
   `, [input.operationId, input.userId, input.workspaceId, input.lineageId,
     input.grantScope.documentId, input.grantScope.agentId, input.grantScope.actorSessionId,
     input.grantScope.lifecycleGeneration]);
@@ -246,19 +248,25 @@ async function loadMatchingOperation(
 
 function operationIsFutureAndOwned(input: {
   access: FileReviewPolicyAccess;
-  stored: StoredPolicy;
+  stored: StoredPolicy | null;
   operation: {
     observedPolicyRevision: number | null;
+    observedPolicyAt?: number;
     grantScope: AgentDirectEditGrantScope;
   };
   storedOperation: { createdAt: number } | null;
 }): boolean {
   const { access, stored, operation } = input;
+  // An implicit default has no preference-row timestamp. Only a newly created
+  // operation after the server's snapshot can use revision zero; a later toggle
+  // switches back to the stored revision boundary and invalidates that snapshot.
+  const boundary = stored?.updatedAt ?? operation.observedPolicyAt;
   return input.storedOperation !== null
     && operation.grantScope.userId === access.userId
     && operation.grantScope.workspaceId === access.requestedWorkspaceId
-    && input.storedOperation.createdAt > stored.updatedAt
-    && operation.observedPolicyRevision === stored.revision;
+    && typeof boundary === 'number' && Number.isSafeInteger(boundary) && boundary >= 0
+    && input.storedOperation.createdAt > boundary
+    && operation.observedPolicyRevision === (stored?.revision ?? 0);
 }
 
 async function resolveExistingDirectEditGrant(
@@ -406,6 +414,7 @@ export function createFileReviewPolicyService(options: {
       operation: {
         operationId: string;
         observedPolicyRevision: number | null;
+        observedPolicyAt?: number;
         grantScope: AgentDirectEditGrantScope;
       };
     }): Promise<FileReviewPolicyOperationDecision> {
@@ -419,18 +428,16 @@ export function createFileReviewPolicyService(options: {
             workspaceId: input.access.requestedWorkspaceId,
             lineageId: input.lineageId,
           });
-          const storedOperation = stored
-            ? await loadMatchingOperation(transaction, {
-                operationId: input.operation.operationId,
-                userId: input.access.userId,
-                workspaceId: input.access.requestedWorkspaceId,
-                lineageId: input.lineageId,
-                grantScope: input.operation.grantScope,
-              })
-            : null;
+          const storedOperation = await loadMatchingOperation(transaction, {
+            operationId: input.operation.operationId,
+            userId: input.access.userId,
+            workspaceId: input.access.requestedWorkspaceId,
+            lineageId: input.lineageId,
+            grantScope: input.operation.grantScope,
+          });
           return { stored, storedOperation };
         });
-        const futureAndOwned = loaded.stored !== null && operationIsFutureAndOwned({
+        const futureAndOwned = operationIsFutureAndOwned({
           access: input.access,
           stored: loaded.stored,
           operation: input.operation,

@@ -3,9 +3,9 @@ import 'server-only';
 import { and, eq, isNull } from 'drizzle-orm';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
-import { requireAgentAccess } from '@/app/lib/agents/access';
+import { getAgentAccessOnConnection, requireAgentAccess } from '@/app/lib/agents/access';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
-import { db, openDb } from '@/app/lib/db';
+import { db, openDb, type SqlConnection } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 import {
   resolveEffectiveSkillReadRoots,
@@ -20,6 +20,7 @@ import { assertWorkspacePermission } from '@/app/lib/workspaces/permissions';
 import {
   getPostgresWorkspaceState,
   findPostgresUserById,
+  readPostgresWorkspaceForActorOnConnection,
   resolvePostgresWorkspaceForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext, WorkspacePermissions, WorkspaceType } from '@/app/lib/workspaces/types';
@@ -357,4 +358,37 @@ export async function resolveAgentExecutionContextForStoredSession(input: {
   }
 
   return resolveAgentExecutionContextForSession(input);
+}
+
+/** Fresh, read-only authorization on the caller's connection; no bootstrap, snapshot writes or pool borrow. */
+export async function readStoredAgentWorkspaceOnConnection(database: SqlConnection, input: {
+  sessionId: string;
+  userId: string;
+  agentId: string;
+  workspaceId: string;
+  permissions?: WorkspacePermissionRequirement[];
+}): Promise<WorkspaceContext> {
+  const { sessionId, userId, agentId, workspaceId } = input;
+  const permissions = input.permissions ? [...input.permissions] : undefined;
+  const session = await database.get(
+    `SELECT workspace_id FROM pi_sessions
+     WHERE session_id = $1 AND user_id = $2 AND agent_id = $3 AND archived_at IS NULL LIMIT 1`,
+    [sessionId, userId, agentId],
+  ) as { workspace_id: string | null } | undefined;
+  if (!session || session.workspace_id !== workspaceId) {
+    throw new Error('The originating agent session is unavailable in this workspace.');
+  }
+  const user = await findPostgresUserById(database, userId);
+  if (!user) throw new Error('Workspace not found or inaccessible.');
+  const workspace = await readPostgresWorkspaceForActorOnConnection(database,
+    resolveWorkspaceActor({ id: user.id, email: user.email, role: user.role }), workspaceId);
+  if (!workspace || workspace.legacy || workspace.workspaceId !== workspaceId) {
+    throw new Error('Workspace not found or inaccessible.');
+  }
+  assertPermissions(workspace, permissions);
+  const access = await getAgentAccessOnConnection(database, userId, agentId, {
+    organizationId: workspace.organizationId, workspaceId: workspace.workspaceId, projectId: workspace.projectId,
+  });
+  if (!access.canUse) throw new Error('Agent access is no longer available in this workspace.');
+  return workspace;
 }

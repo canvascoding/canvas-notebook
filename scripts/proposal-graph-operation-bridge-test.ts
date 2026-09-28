@@ -32,7 +32,8 @@ function operationBridgeHarness() {
   const forbiddenCalls: string[] = [];
   let transactionActive = false;
   let failReviewTransition = false;
-  let loads = 0;
+  let scopedLoads = 0;
+  let globalLoads = 0;
   const forbidden = (name: string) => () => {
     forbiddenCalls.push(name);
     throw new Error(`Review-only preparation must not call ${name}`);
@@ -45,9 +46,26 @@ function operationBridgeHarness() {
   const exports = {};
   const mock = (name: string) => {
     if (name === '@/app/lib/db') return { openDb: forbidden('openDb') };
-    if (name === './persistence') return { loadCollaborationState: async (id: string) => {
-      assert.equal(id, state.documentId); loads++; return { ...state };
-    } };
+    if (name === './persistence') return {
+      loadCollaborationState: async (id: string) => {
+        assert.equal(id, state.documentId);
+        globalLoads++;
+        return { ...state };
+      },
+      loadCollaborationStateOnConnection: async (
+        database: { get(sql: string, params?: unknown[]): Promise<unknown> },
+        id: string,
+      ) => {
+        assert.equal(id, state.documentId);
+        scopedLoads++;
+        const row = await database.get(
+          'SELECT document_id FROM collaboration_yjs_states WHERE document_id = $1',
+          [id],
+        ) as { document_id?: string } | undefined;
+        assert.equal(row?.document_id, state.documentId);
+        return { ...state };
+      },
+    };
     if (name === './server-runtime') return { Y };
     if (name === '@/app/lib/file-version-center/agent-review-policy-adapter') return {
       authorizeNewAgentDirectApply: forbidden('authorizeNewAgentDirectApply'),
@@ -95,6 +113,10 @@ function operationBridgeHarness() {
       rows.set(String(row.operation_id), row as Row);
       return [{ '?column?': 1 }];
     }
+    if (sql.includes('FROM collaboration_yjs_states')) {
+      assert.deepEqual(params, [state.documentId]);
+      return [{ document_id: state.documentId }];
+    }
     if (sql.trim().startsWith('UPDATE ')) {
       assert.match(sql, /RETURNING 1$/u);
       if (failReviewTransition) throw new Error('Injected needs_review transition failure');
@@ -131,7 +153,8 @@ function operationBridgeHarness() {
     try { return await action(); } catch (error) { rows = before; throw error; }
     finally { transactionActive = false; }
   };
-  return { agent, doc, state, transaction, rows: () => rows, sqlTrace, forbiddenCalls, loads: () => loads, prepare, atomic,
+  return { agent, doc, state, transaction, rows: () => rows, sqlTrace, forbiddenCalls,
+    scopedLoads: () => scopedLoads, globalLoads: () => globalLoads, prepare, atomic,
     failReviewTransition: () => { failReviewTransition = true; }, close: () => doc.destroy() };
 }
 
@@ -155,7 +178,11 @@ test('graph operation bridge stores only a durable review operation and never ob
     assert.equal(row.document_path, 'document.txt');
     assert.equal(row.actor_session_id, 'session');
     assert.equal(row.base_document_sequence, 7);
-    assert.equal(h.loads(), 1);
+    assert.equal(h.scopedLoads(), 1);
+    assert.equal(h.globalLoads(), 0);
+    const stateRead = h.sqlTrace.findIndex((sql) => sql.includes('FROM collaboration_yjs_states'));
+    const operationInsert = h.sqlTrace.findIndex((sql) => sql.includes('INSERT INTO collaboration_agent_operations'));
+    assert.ok(stateRead >= 0 && operationInsert > stateRead, 'the graph transaction reads state before inserting its operation');
     assert.deepEqual(h.forbiddenCalls, []);
     assert.equal(h.doc.getText('content').toString(), 'Original');
   } finally { h.close(); }
@@ -184,6 +211,12 @@ test('graph action bridge reserves a synthetic action operation in the graph tra
     assert.equal(row.document_id, 'document');
     assert.equal(row.document_lifecycle_generation, 1);
     assert.equal(row.schema_version, 1);
+    assert.equal(h.scopedLoads(), 1);
+    assert.equal(h.globalLoads(), 0, 'graph action preparation must not borrow a global state connection');
+    const stateRead = h.sqlTrace.findIndex((sql) => sql.includes('FROM collaboration_yjs_states'));
+    const operationInsert = h.sqlTrace.findIndex((sql) => sql.includes('INSERT INTO collaboration_agent_operations'));
+    assert.ok(stateRead >= 0 && operationInsert > stateRead,
+      'the graph action transaction reads state before inserting its synthetic operation');
     assert.deepEqual(h.forbiddenCalls, []);
   } finally { h.close(); }
 });

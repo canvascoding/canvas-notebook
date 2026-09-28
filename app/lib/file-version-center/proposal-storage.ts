@@ -356,9 +356,20 @@ function createGraphTransaction(input: {
           || (existing.chosen_proposal_id !== null && existing.chosen_proposal_id !== group.chosenProposalId)))) {
         fail(Codes.choiceConflict, 'Choice group cannot change its prerequisite or resolved winner.');
       }
-      const oldMembers = (await db.query<{ proposal_id: string }>(`SELECT proposal_id FROM file_proposal_choice_memberships
-        WHERE graph_id=$1 AND group_id=$2`, [gid, group.groupId])).rows;
-      if (oldMembers.some((member) => !group.memberProposalIds.includes(member.proposal_id))) fail(Codes.choiceConflict, 'Choice membership is append-only.');
+      const oldMembers = (await db.query<{ proposal_id: string; lifecycle: ProposalLifecycleV1 | null;
+        choice_group_id: string | null; dependency_proposal_id: string | null }>(`SELECT membership.proposal_id,
+          proposal.lifecycle,proposal.choice_group_id,proposal.dependency_proposal_id
+        FROM file_proposal_choice_memberships membership LEFT JOIN file_change_proposals proposal
+          ON proposal.graph_id=membership.graph_id AND proposal.proposal_id=membership.proposal_id
+        WHERE membership.graph_id=$1 AND membership.group_id=$2`, [gid, group.groupId])).rows;
+      const omitted = oldMembers.filter(member => !group.memberProposalIds.includes(member.proposal_id));
+      // Active projections omit terminal history. Its exact count is checked
+      // under the graph lock; existing membership rows are never removed.
+      if (omitted.length !== (group.archivedMemberCount ?? 0) || omitted.some(member => member.lifecycle === 'open')
+        || oldMembers.some(member => member.lifecycle === null || member.choice_group_id !== group.groupId
+          || member.dependency_proposal_id !== group.dependencyProposalId)) {
+        fail(Codes.choiceConflict, 'Choice membership is append-only; only proven terminal history may be omitted.');
+      }
       await db.query(`INSERT INTO file_proposal_choice_groups
         (graph_id,group_id,group_revision,dependency_proposal_id,chosen_proposal_id,created_at,updated_at)
         VALUES ($1,$2,$3,$4,$5,$6,$6) ON CONFLICT (graph_id,group_id) DO UPDATE SET
@@ -453,7 +464,9 @@ function createGraphTransaction(input: {
           || !request.fence.selectedProposalIds.includes(evaluation.proposalId)
           || evaluation.expiresAt <= now()
           || (['accept', 'batch_accept'].includes(receipt.actionType) && !['clean', 'clean_rebased'].includes(evaluation.status))
-          || (receipt.actionType === 'complete_satisfied' && evaluation.status !== 'satisfied_elsewhere')) {
+          || (receipt.actionType === 'complete_satisfied'
+            && (!['satisfied_elsewhere', 'empty_effect'].includes(evaluation.status)
+              || !evaluation.anchorMap || !evaluation.effectPreconditions))) {
           fail(Codes.candidateChanged, 'Approved evaluation is unavailable or differs from the shown current state.');
         }
         await pin({ actionId: receipt.actionId }, evaluationArtifacts(evaluation));

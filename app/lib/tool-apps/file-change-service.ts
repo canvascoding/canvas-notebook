@@ -1,6 +1,8 @@
 import 'server-only';
 
 import type { FileChangeGroupV1 } from '@/app/lib/file-version-center/contracts/v1';
+import type { ProposalEntryPointV1 } from '@/app/lib/file-version-center/contracts/proposal-entrypoint-v1';
+import { readProposalEntryPoint, type ProposalEntryPointReadInput } from '@/app/lib/file-version-center/proposal-entrypoint-service';
 import {
   createRuntimeFileVersionCenterDatabase,
   type FileVersionCenterDatabase,
@@ -16,6 +18,7 @@ type CurrentEntryRow = {
   operation_status: string | null;
   latest_revision_id: string | null;
   latest_revision_source: string | null;
+  proposal_id: string | null;
 };
 
 function currentState(
@@ -40,16 +43,21 @@ function currentState(
 export async function presentFileChangeAppData(
   group: FileChangeGroupV1,
   database: FileVersionCenterDatabase = createRuntimeFileVersionCenterDatabase(),
+  review?: Pick<ProposalEntryPointReadInput, 'access' | 'workspace'> & {
+    readEntryPoint?: typeof readProposalEntryPoint;
+  },
 ): Promise<FileChangeAppData> {
   const rows = await database.transaction((transaction) => transaction.query<CurrentEntryRow>(`
     SELECT entry.entry_id,
       operation.status AS operation_status,
+      proposal.proposal_id,
       latest_revision.id AS latest_revision_id,
       latest_content.source AS latest_revision_source
     FROM file_change_group_entries entry
     LEFT JOIN collaboration_agent_operations operation
       ON operation.operation_id = entry.operation_id
       AND operation.workspace_id = entry.workspace_id
+    LEFT JOIN file_change_proposals proposal ON proposal.operation_id=operation.operation_id
     LEFT JOIN LATERAL (
       SELECT revision.id
       FROM file_revisions revision
@@ -66,16 +74,41 @@ export async function presentFileChangeAppData(
     ORDER BY entry.ordinal ASC
   `, [group.id, group.workspaceId]));
   const currentById = new Map(rows.rows.map((row) => [row.entry_id, row]));
-  const entries = group.entries.map((entry) => ({
-    id: entry.id,
-    ordinal: entry.ordinal,
-    pathHint: entry.pathHint,
-    state: currentState(entry, currentById.get(entry.id)),
-    operationId: entry.operationId ?? null,
-    revisionId: entry.revisionId ?? null,
-    additions: entry.additions ?? null,
-    deletions: entry.deletions ?? null,
-  }));
+  const annotations = new Map<string, ProposalEntryPointV1>();
+  for (const entry of group.entries) {
+    if (!currentById.get(entry.id)?.proposal_id || !entry.operationId || !entry.lineageId || !review) continue;
+    try {
+      const annotation = await (review.readEntryPoint ?? readProposalEntryPoint)({
+        workspace: review.workspace, access: review.access, lineageId: entry.lineageId, operationId: entry.operationId,
+      }, { database });
+      if (annotation) annotations.set(entry.id, annotation);
+    } catch {
+      // A revoked permission or changed proof must not become a stale active
+      // review prompt. The exact historical reference remains unchanged.
+    }
+  }
+  const entries = group.entries.map((entry) => {
+    const proposal = annotations.get(entry.id);
+    let state = currentState(entry, currentById.get(entry.id));
+    if (currentById.get(entry.id)?.proposal_id) {
+      state = !proposal ? 'unavailable' : proposal.lifecycle !== 'open' ? proposal.lifecycle
+        : ['blocked_by_parent', 'prerequisite_lost'].includes(proposal.status) ? 'blocked_by_parent'
+          : proposal.status === 'conflicted' ? 'conflict'
+            : ['clean', 'clean_rebased', 'empty_effect', 'satisfied_elsewhere'].includes(proposal.status)
+              ? 'review_required' : 'unavailable';
+    }
+    return {
+      id: entry.id,
+      ordinal: entry.ordinal,
+      pathHint: entry.pathHint,
+      state,
+      operationId: entry.operationId ?? null,
+      revisionId: entry.revisionId ?? null,
+      additions: entry.additions ?? null,
+      deletions: entry.deletions ?? null,
+      ...(proposal ? { proposal } : {}),
+    };
+  });
   const states = new Set(entries.map((entry) => entry.state));
   const data = readFileChangeAppData({
     contractVersion: 1,

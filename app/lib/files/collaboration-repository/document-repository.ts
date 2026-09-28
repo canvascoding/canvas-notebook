@@ -1,6 +1,8 @@
 import 'server-only';
 
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from '@/app/lib/collaboration/room-admission';
+import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError } from '@/app/lib/collaboration/room-admission-contract';
 
 import {
   type CollaborationDocumentRecord,
@@ -71,6 +73,28 @@ export async function ensureCollaborationDocument(
     nowMs: number;
   },
 ): Promise<CollaborationDocumentRecord> {
+  params = { ...params, workspace: { ...params.workspace } };
+  const scope = captureCollaborationAdmissionWriterScope({ documentId: params.id,
+    workspaceId: params.workspace.workspaceId, path: params.path });
+  const existing = await getActiveCollaborationDocument(transaction, scope.workspaceId, scope.path, params.provider);
+  if (existing) {
+    // Final checkpoints for already admitted rooms must remain possible during
+    // a drain. Update only this identity; never turn an archive/move race into
+    // an unguarded INSERT through the old upsert fallback.
+    const row = await getRow<DocumentRow>(transaction, `UPDATE collaboration_documents
+      SET lineage_id = COALESCE(lineage_id, $1), snapshot_revision_id = COALESCE(snapshot_revision_id, $2),
+        updated_at = $3
+      WHERE id = $4 AND workspace_id = $5 AND path = $6 AND provider = $7 AND status = 'active'
+        AND organization_id IS NOT DISTINCT FROM $8 AND (lineage_id IS NULL OR lineage_id = $1)
+      RETURNING *`, [params.lineageId, params.snapshotRevisionId ?? null, params.nowMs,
+      existing.id, scope.workspaceId, scope.path, params.provider, params.workspace.organizationId ?? null]);
+    if (!row) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+    return mapDocument(row);
+  }
+  const query = async (sql: string, values?: unknown[]) =>
+    await transaction.all(sql, values) as Array<Record<string, unknown>>;
+  await lockCollaborationAdmissionWorkspace(query, scope.workspaceId);
+  await assertCollaborationAdmissionOpen(query, scope);
   const row = await getRow<DocumentRow>(transaction, `
     INSERT INTO collaboration_documents (
       id, organization_id, customer_id, project_id, workspace_id, workspace_type,
@@ -78,11 +102,7 @@ export async function ensureCollaborationDocument(
       created_at, updated_at
     )
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0, $10, 'active', $11, $11)
-    ON CONFLICT (workspace_id, path, provider) WHERE status = 'active'
-    DO UPDATE SET
-      lineage_id = COALESCE(collaboration_documents.lineage_id, EXCLUDED.lineage_id),
-      snapshot_revision_id = COALESCE(collaboration_documents.snapshot_revision_id, EXCLUDED.snapshot_revision_id),
-      updated_at = EXCLUDED.updated_at
+    ON CONFLICT (workspace_id, path, provider) WHERE status = 'active' DO NOTHING
     RETURNING *
   `, [
     params.id,
@@ -97,8 +117,13 @@ export async function ensureCollaborationDocument(
     params.snapshotRevisionId ?? null,
     params.nowMs,
   ]);
-  if (!row) throw new Error(`Failed to ensure collaboration document for ${params.path}.`);
-  return mapDocument(row);
+  const document = row ? mapDocument(row)
+    : await getActiveCollaborationDocument(transaction, scope.workspaceId, scope.path, params.provider);
+  if (!document || document.organizationId !== (params.workspace.organizationId ?? null)
+    || document.lineageId !== params.lineageId) {
+    throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  }
+  return document;
 }
 
 export async function updateCollaborationDocumentCheckpoint(

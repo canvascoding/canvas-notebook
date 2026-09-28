@@ -11,11 +11,7 @@ import {
   loadExcalidrawScene,
 } from '@/app/lib/excalidraw-collaboration/repository';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
-import {
-  finalizeCollaborationCheckpointProjection,
-  materializeCollaborationCheckpoint,
-  writeCollaborationCheckpointFile,
-} from './checkpoint';
+import { materializeCollaborationCheckpoint } from './checkpoint';
 import {
   CollaborationDocumentStateError,
   resolveTextCollaborationState,
@@ -230,26 +226,11 @@ export async function createCollaborationSessionGrant(input: {
               schemaVersion: COLLABORATION_SCHEMA_VERSION,
               representation: selectedTargetRepresentation,
               checkpoint: {
-                write: ({ state, canonicalContent }) => writeCollaborationCheckpointFile({
+                materialize: async ({ state }) => (await materializeCollaborationCheckpoint({
                   state,
                   workspace,
-                  canonicalContent,
                   actorType: 'system',
-                }),
-                restore: async ({ state }) => {
-                  await materializeCollaborationCheckpoint({
-                    state,
-                    workspace,
-                    actorType: 'system',
-                  });
-                },
-                finalize: async ({ state, fileWrite }) => {
-                  await finalizeCollaborationCheckpointProjection({
-                    state,
-                    workspace,
-                    revisionId: fileWrite.revisionId,
-                  });
-                },
+                })).state,
               },
             });
             resolved = {

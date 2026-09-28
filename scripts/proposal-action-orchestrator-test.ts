@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 
 import {
@@ -69,6 +70,8 @@ function harness(currentAvailable = true, materializeThrows = false) {
   let recoverFailure = false;
   let applyDefinitelyUnapplied = false;
   let recoverDefinitelyUnapplied = false;
+  let materializeFailure = materializeThrows;
+  const operationAdmissions: boolean[] = [];
   let evaluationProposalId = 'p2';
   let evaluationSelectionHash: string | undefined;
   let satisfiedEvaluationStatus: 'satisfied_elsewhere' | 'empty_effect' | 'clean' = 'satisfied_elsewhere';
@@ -104,13 +107,30 @@ function harness(currentAvailable = true, materializeThrows = false) {
     bindRevision: async () => {},
   } as unknown as ProposalGraphStorageTransaction;
   const orchestrator = createProposalActionOrchestrator({
-    withLockedGraph: async (_scope, _options, action) => action(transaction, {} as FileVersionCenterTransaction),
+    withLockedGraph: async (_scope, options, action) => {
+      operationAdmissions.push(options.operationAdmission === true);
+      const before = structuredClone(snapshot);
+      const beforeActions = new Map([...actions].map(([key, value]) => [key, structuredClone(value)]));
+      const beforeRequests = new Map([...requests].map(([key, value]) => [key, structuredClone(value)]));
+      try {
+        return await action(transaction, {} as FileVersionCenterTransaction);
+      } catch (error) {
+        Object.assign(snapshot, before);
+        actions.clear();
+        for (const [key, value] of beforeActions) actions.set(key, value);
+        requests.clear();
+        for (const [key, value] of beforeRequests) requests.set(key, value);
+        throw error;
+      }
+    },
     authorize: async () => ({ userId: 'reviewer', actorId: 'reviewer', authorizationRevision: 'access-1' }),
     readCurrent: async () => {
       if (!currentAvailable) throw new Error('document bytes unavailable');
       return currentProofFixture;
     },
-    prepareDurably: async () => {},
+    prepareDurably: async () => {
+      assert.equal(operationAdmissions.at(-1), true, 'operation preparation requires its admitted graph transaction');
+    },
     applyDurably: async (input) => {
       assert.equal(input.candidate.evaluation.evaluationId, 'evaluation-p2');
       assert.deepEqual(input.candidate.update, new Uint8Array([1]));
@@ -129,9 +149,12 @@ function harness(currentAvailable = true, materializeThrows = false) {
       if (recoverFailure) throw Object.assign(new Error('durability cannot be proven'), { code: 'PROPOSAL_RECOVERY_REQUIRED' });
       return { operationId: input.actionId, revisionId: 'revision-v1', current: { ...currentProofFixture, revisionId: 'revision-v1' } as ProposalCurrentProofV1 };
     },
-    materializeCreation: async ({ creation, actorId, now }) => {
-      if (materializeThrows) throw new Error('creation transaction failed');
-      return { ...creation, lifecycle: 'open', casVersion: 1, createdAt: now, createdByActorId: actorId };
+    materializeCreation: async ({ creation, actorId, now, transaction: graphTransaction }) => {
+      if (materializeFailure) throw new Error('creation transaction failed');
+      assert.equal(operationAdmissions.at(-1), true, 'creation materialization requires its admitted graph transaction');
+      const node = { ...creation, lifecycle: 'open' as const, casVersion: 1, createdAt: now, createdByActorId: actorId };
+      await graphTransaction.insertProposal(node);
+      return node;
     }, signingSecret: secret, now: () => clock, createId: (() => { let id = 0; return () => `action-${++id}`; })(),
   });
   return { orchestrator, state: () => snapshot, applies: () => applyCalls, recoveries: () => recoverCalls,
@@ -141,6 +164,19 @@ function harness(currentAvailable = true, materializeThrows = false) {
     setEvaluationProposalId: (proposalId: string) => { evaluationProposalId = proposalId; },
     setEvaluationSelectionHash: (selectionHash: string | undefined) => { evaluationSelectionHash = selectionHash; },
     setSatisfiedEvaluationStatus: (status: typeof satisfiedEvaluationStatus) => { satisfiedEvaluationStatus = status; },
+    setMaterializeFailure: (failed: boolean) => { materializeFailure = failed; },
+    operationAdmissions: () => [...operationAdmissions],
+    seedPreparedMetadata: (approved: ReturnType<typeof metadataRequest>) => {
+      const actionId = 'legacy-action';
+      actions.set(actionId, { contractVersion: 1, actionId, scope: approved.fence.scope,
+        actorId: approved.fence.actor.userId, actionType: approved.fence.actionType,
+        requestDigest: approved.fence.requestDigest,
+        idempotencyKeyHash: createHash('sha256').update(approved.idempotencyKey, 'utf8').digest('hex'),
+        affectedProposalIds: approved.fence.closure.map((member) => member.proposalId), operationId: null,
+        createdAt: clock, updatedAt: clock, phase: 'prepared', result: null, errorCode: null });
+      requests.set(actionId, { fence: approved.fence, creation: approved.creation });
+      return actionId;
+    },
     action: (id: string) => actions.get(id) ?? null };
 }
 
@@ -154,11 +190,15 @@ test('accept applies the exact dependency closure once, closes its alternative a
   ]);
   assert.equal(h.applies(), 1);
   assert.deepEqual(h.state().nodes.map((node) => node.lifecycle), ['included', 'applied', 'alternative_not_selected']);
+  assert.deepEqual(h.operationAdmissions(), [true, false],
+    'only the transaction which prepares the new operation requests admission');
 });
 
 test('a completed identical retry returns its receipt without a second durable apply', async () => {
   const h = harness(); const first = await h.orchestrator.execute(request()); const retry = await h.orchestrator.execute(request());
   assert.deepEqual(retry, first); assert.equal(h.applies(), 1);
+  assert.deepEqual(h.operationAdmissions(), [true, false, true],
+    'an exact retry may take the outer guard but never enters a second finalization transaction');
 });
 
 test('restart recovery finalizes durable evidence exactly once and never replays live apply', async () => {
@@ -241,6 +281,8 @@ test('single reject changes only the selected proposal and never applies documen
   const h = harness(false); const rejected = await h.orchestrator.execute(request('reject'));
   assert.equal(rejected.phase, 'succeeded'); assert.equal(rejected.result?.kind, 'metadata_only');
   assert.deepEqual(h.state().nodes.map((node) => node.lifecycle), ['open', 'rejected', 'open']); assert.equal(h.applies(), 0);
+  assert.deepEqual(h.operationAdmissions(), [false, false],
+    'metadata-only rejection never requests operation admission');
 });
 
 test('branch reject propagates deterministically to dependency descendants, never to independent nodes', async () => {
@@ -276,15 +318,37 @@ test('replace and detach create the exact prepared proposal atomically', async (
   const replaceHarness = harness();
   const replaced = await replaceHarness.orchestrator.execute(metadataRequest('replace', replacementCreation));
   assert.deepEqual(replaced.result?.createdProposalIds, ['replacement-new']);
+  assert.deepEqual(replaceHarness.operationAdmissions(), [true]);
+  assert.equal(replaceHarness.state().nodes.filter((node) => node.proposalId === 'replacement-new').length, 1);
   const detachHarness = harness();
   const detached = await detachHarness.orchestrator.execute(metadataRequest('detach', detachedCreation));
   assert.deepEqual(detached.result?.createdProposalIds, ['detached-new']);
+  assert.deepEqual(detachHarness.operationAdmissions(), [true]);
+  assert.equal(detachHarness.state().nodes.filter((node) => node.proposalId === 'detached-new').length, 1);
+});
+
+test('a legacy persisted prepared metadata action completes through the operation-admission transaction', async () => {
+  const h = harness();
+  const approved = metadataRequest('detach', detachedCreation);
+  const actionId = h.seedPreparedMetadata(approved);
+  const recovered = await h.orchestrator.recoverMetadata(proposalScopeFixture, actionId);
+  assert.equal(recovered.phase, 'succeeded');
+  assert.deepEqual(recovered.result?.createdProposalIds, ['detached-new']);
+  const retry = await h.orchestrator.execute(approved);
+  assert.deepEqual(retry, recovered);
+  assert.equal(h.state().nodes.filter((node) => node.proposalId === 'detached-new').length, 1);
+  assert.deepEqual(h.operationAdmissions(), [true, true],
+    'legacy creation recovery and its terminal exact retry use the guard without rematerializing');
 });
 
 test('complete_satisfied requires and records the satisfied evaluation', async () => {
   const h = harness();
+  h.setEvaluationSelectionHash(hashProposalEvaluationSelectionV1({
+    selectedProposalIds: ['p2'], closureProposalIds: ['p1', 'p2', 'p3'], applyProposalIds: ['p1', 'p2'], graphRevision: 3,
+  }));
   const completed = await h.orchestrator.execute(metadataRequest('complete_satisfied'));
   assert.equal(completed.result?.resolutions[0]?.lifecycle, 'satisfied_elsewhere');
+  assert.deepEqual(h.state().nodes.map((node) => node.lifecycle), ['open', 'satisfied_elsewhere', 'open']);
 
   const empty = harness();
   empty.setSatisfiedEvaluationStatus('empty_effect');
@@ -294,6 +358,14 @@ test('complete_satisfied requires and records the satisfied evaluation', async (
   const wrong = harness();
   wrong.setSatisfiedEvaluationStatus('clean');
   await assert.rejects(wrong.orchestrator.execute(metadataRequest('complete_satisfied')), {
+    code: 'PROPOSAL_CANDIDATE_CHANGED',
+  });
+
+  const wrongClosure = harness();
+  wrongClosure.setEvaluationSelectionHash(hashProposalEvaluationSelectionV1({
+    selectedProposalIds: ['p2'], closureProposalIds: ['p2'], applyProposalIds: [], graphRevision: 3,
+  }));
+  await assert.rejects(wrongClosure.orchestrator.execute(metadataRequest('complete_satisfied')), {
     code: 'PROPOSAL_CANDIDATE_CHANGED',
   });
 });
@@ -309,6 +381,8 @@ test('creation failure leaves the graph unresolved', async () => {
   const h = harness(true, true);
   await assert.rejects(h.orchestrator.execute(metadataRequest('replace', replacementCreation)), /creation transaction failed/);
   assert.deepEqual(h.state().nodes.map((node) => node.lifecycle), ['open', 'open', 'open']);
+  assert.equal(h.action('action-1'), null, 'operation, proposal and receipt roll back together');
+  assert.deepEqual(h.operationAdmissions(), [true]);
 });
 
 test('rebase is explicitly unavailable instead of succeeding as a no-op', async () => {

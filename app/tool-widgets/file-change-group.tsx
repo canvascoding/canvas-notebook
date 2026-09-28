@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import {
   FILE_CHANGE_APP_VISIBLE_ENTRIES,
+  fileChangeAppStatusMessageKey,
   readFileChangeAppData,
 } from '../lib/tool-apps/file-change-data';
 import { WidgetShell } from './components';
@@ -12,13 +13,26 @@ function FileChangeGroupView() {
   const visible = data.entries.slice(0, FILE_CHANGE_APP_VISIBLE_ENTRIES);
   const remaining = data.entries.length - visible.length;
   return <WidgetShell title={t(data.operation === 'apply_patch' ? 'fileChangesBatch' : 'fileChanges')}
-    status={t(`fileChangeStatus_${data.status}`)}>
+    status={t(fileChangeAppStatusMessageKey(data.status, data.entries.some((entry) => Boolean(entry.proposal))))}>
     <h1>{data.entries.length === 1 ? data.entries[0]!.pathHint : t('fileChangeFiles', { count: data.entries.length })}</h1>
     <ol className="widget-file-list">
       {visible.map((entry) => <li key={entry.id}>
         <span className={`widget-file-state widget-file-state-${entry.state}`} aria-hidden="true" />
-        <span className="widget-file-name" title={entry.pathHint}>{entry.pathHint}</span>
-        <span className="widget-file-outcome">{t(`fileChangeStatus_${entry.state}`)}</span>
+        <span className="widget-file-name" title={entry.pathHint}>
+          {entry.pathHint}
+          {entry.proposal ? <small style={{ display: 'block', whiteSpace: 'normal', overflowWrap: 'anywhere',
+            fontSize: 11, fontWeight: 400, color: 'var(--color-text-secondary,#666)' }}>
+            {t(entry.proposal.rootProposalId === entry.proposal.proposalId
+              ? 'fileChangeProposalRoot' : 'fileChangeProposalBranch')}
+            {' · '}{t(`fileChangeProposalStatus_${entry.proposal.status}`)}
+            {entry.proposal.successors.length > 0 ? ` · ${t('fileChangeSuccessorCount', {
+              count: entry.proposal.successors.length,
+            })}: ${[...new Set(entry.proposal.successors.map((successor) =>
+              t(`fileChangeSuccessorRelation_${successor.relation}`)))].join(', ')}` : ''}
+            {entry.proposal.moreSuccessors ? ` · ${t('fileChangeMoreSuccessors')}` : ''}
+          </small> : null}
+        </span>
+        <span className="widget-file-outcome">{t(fileChangeAppStatusMessageKey(entry.state, Boolean(entry.proposal)))}</span>
         {entry.additions !== null || entry.deletions !== null ? <span className="widget-file-diff" aria-label={t('fileChangeDiff', {
           additions: entry.additions ?? 0, deletions: entry.deletions ?? 0,
         })}><b>+{entry.additions ?? 0}</b><i>−{entry.deletions ?? 0}</i></span> : null}

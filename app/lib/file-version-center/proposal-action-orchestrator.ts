@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 import { hashProposalEvaluationSelectionV1, verifyProposalActionFence, type ProposalFenceState } from './proposal-action-fence';
 import {
@@ -44,7 +45,7 @@ export class ProposalActionDefinitelyUnappliedError extends ProposalGraphContrac
 
 export type ProposalActionOrchestratorDependencies = {
   /** The graph lock is the only mutation serialisation boundary for this document scope. */
-  withLockedGraph<T>(scope: ProposalDocumentScopeV1, options: { actionId?: string },
+  withLockedGraph<T>(scope: ProposalDocumentScopeV1, options: { actionId?: string; operationAdmission?: boolean },
     action: (transaction: ProposalGraphStorageTransaction, sql: FileVersionCenterTransaction) => Promise<T>): Promise<T>;
   /** Reauthorization is deliberately repeated for each action; a fence is not permission. */
   authorize(input: { scope: ProposalDocumentScopeV1; proposalIds: string[]; actionType: ProposalActionRequestV1['fence']['actionType'] }): Promise<ActionActor>;
@@ -58,7 +59,7 @@ export type ProposalActionOrchestratorDependencies = {
   /** Restart recovery may prove a persisted candidate, but must never replay a live mutation. */
   recoverDurably?(input: { scope: ProposalDocumentScopeV1; actionId: string; proposalIds: string[]; operationIds: string[];
     current: ProposalCurrentProofV1; candidate: DurableCandidate }): Promise<DurableContentResult>;
-  /** Provenance service owns creation bytes; orchestrator only commits the exact approved node. */
+  /** The callback atomically creates the operation, proposal node and relationship memberships in the supplied transaction. */
   materializeCreation(input: { creation: NonNullable<ProposalActionRequestV1['creation']>; actorId: string; now: number;
     transaction: ProposalGraphStorageTransaction; sql: FileVersionCenterTransaction }): Promise<ProposalNodeV1>;
   signingSecret: string | Uint8Array;
@@ -118,15 +119,20 @@ function assertEvaluationSelection(input: {
   evaluation: ProposalEvaluationV1;
   request: ProposalActionRequestV1;
   shape: ReturnType<typeof actionShape>;
-  graphRevision: number;
+  graph: ProposalGraphSnapshotV1;
 }): void {
-  const { evaluation, request, shape, graphRevision } = input;
+  const { evaluation, request, shape, graph } = input;
   const selectedProposalIds = request.fence.selectedProposalIds;
+  // A satisfied action resolves only the selected node, but the evaluation
+  // proves the full candidate/dependency closure that was shown to the user.
+  const evaluated = request.fence.actionType === 'complete_satisfied'
+    ? resolveProposalClosure({ graph, selectedProposalIds }) : null;
+  if (evaluated?.status === 'blocked') fail(evaluated.reasonCode, 'The evaluated proposal closure changed.');
   const expected = hashProposalEvaluationSelectionV1({
     selectedProposalIds,
-    closureProposalIds: shape.closureIds,
-    applyProposalIds: shape.applyIds,
-    graphRevision,
+    closureProposalIds: evaluated?.closureProposalIds ?? shape.closureIds,
+    applyProposalIds: evaluated?.applyProposalIds ?? shape.applyIds,
+    graphRevision: graph.graphRevision,
   });
   if (evaluation.selectionHash !== undefined) {
     if (evaluation.selectionHash !== expected) {
@@ -208,7 +214,8 @@ export function createProposalActionOrchestrator(dependencies: ProposalActionOrc
       }
       const actionId = createId();
       const initial = pendingReceipt({ actionId, request, now: now() });
-      const prepared = await dependencies.withLockedGraph(request.fence.scope, { actionId }, async (transaction, sql) => {
+      const operationAdmission = PROPOSAL_ACTION_RULES_V1[request.fence.actionType].writesContent || request.creation !== null;
+      const prepared = await dependencies.withLockedGraph(request.fence.scope, { actionId, operationAdmission }, async (transaction, sql) => {
         // reserveAction resolves an exact durable retry before expiry/fence work. If this
         // is a new request and verification fails, the surrounding transaction rolls back.
         const reserved = await transaction.reserveAction(initial, { fence: request.fence, creation: request.creation });
@@ -235,7 +242,7 @@ export function createProposalActionOrchestrator(dependencies: ProposalActionOrc
             || (evaluationRule !== 'any' && !(evaluationRule as readonly string[]).includes(evaluation.status))) {
             fail(Codes.candidateChanged, 'The displayed proposal evaluation is no longer current.');
           }
-          assertEvaluationSelection({ evaluation, request, shape, graphRevision: graph.graphRevision });
+          assertEvaluationSelection({ evaluation, request, shape, graph });
           if (PROPOSAL_ACTION_RULES_V1[request.fence.actionType].writesContent) {
             if (!evaluation.effectiveCandidate) fail(Codes.candidateChanged, 'The approved candidate artifact is unavailable.');
             candidate = { evaluation, update: await transaction.readArtifact(evaluation.effectiveCandidate) };
@@ -250,13 +257,23 @@ export function createProposalActionOrchestrator(dependencies: ProposalActionOrc
           await transaction.advanceAction(applying);
           return { receipt: applying, current, graph, candidate };
         }
+        if (request.creation) {
+          const succeeded = await finishPreparedMetadataTransaction({ dependencies, scope: graph.scope,
+            actionId, time: now(), transaction, sql });
+          return { receipt: succeeded, current, graph, candidate };
+        }
         return { receipt: reserved, current, graph, candidate };
       });
-      if (prepared.receipt.actionId !== actionId) return prepared.receipt;
+      if (prepared.receipt.actionId !== actionId) {
+        return prepared.receipt.phase === 'prepared' && !PROPOSAL_ACTION_RULES_V1[prepared.receipt.actionType].writesContent
+          ? finishPreparedMetadata(dependencies, request.fence.scope, prepared.receipt.actionId, now(), request.creation !== null)
+          : prepared.receipt;
+      }
       if (!prepared.graph) return prepared.receipt;
 
       const contentAction = PROPOSAL_ACTION_RULES_V1[request.fence.actionType].writesContent;
-      if (!contentAction) return finalizeMetadata({ dependencies, request, actionId, receipt: prepared.receipt, now: now() });
+      if (!contentAction) return prepared.receipt.phase === 'succeeded' || prepared.receipt.phase === 'failed'
+        ? prepared.receipt : finishPreparedMetadata(dependencies, request.fence.scope, actionId, now(), request.creation !== null);
       if (!prepared.current || !prepared.candidate) fail(Codes.candidateChanged, 'The approved candidate artifact is unavailable.');
       if (prepared.receipt.phase !== 'applying' || prepared.receipt.operationId !== actionId) return prepared.receipt;
       // The action ID is the one durable collaboration-operation identity. Proposal
@@ -294,6 +311,10 @@ export function createProposalActionOrchestrator(dependencies: ProposalActionOrc
         recoverDurably: dependencies.recoverDurably,
         now,
       }, scope, actionId);
+    },
+    /** A reserved metadata action can finish after a lost response or process restart. */
+    async recoverMetadata(scope: ProposalDocumentScopeV1, actionId: string): Promise<ProposalActionReceiptV1> {
+      return finishPreparedMetadata(dependencies, scope, actionId, now());
     },
   };
 }
@@ -461,15 +482,69 @@ async function transitionResolutions(transaction: ProposalGraphStorageTransactio
   }
 }
 
-async function finalizeMetadata(input: { dependencies: ProposalActionOrchestratorDependencies; request: ProposalActionRequestV1; actionId: string; receipt: ProposalActionReceiptV1; now: number }): Promise<ProposalActionReceiptV1> {
-  return input.dependencies.withLockedGraph(input.request.fence.scope, { actionId: input.actionId }, async (transaction, sql) => {
-      const created = input.request.creation ? await input.dependencies.materializeCreation({ creation: input.request.creation,
-        actorId: input.request.fence.actor.actorId, now: input.now, transaction, sql }) : null;
-    const result = { kind: 'metadata_only' as const, revisionId: null, current: null, createdProposalIds: created ? [created.proposalId] : [], resolutions: resolutions(input.request) };
-    await transitionResolutions(transaction, input.request, result.resolutions);
-    if (created) await transaction.insertProposal(created);
-    const succeeded: ProposalActionReceiptV1 = { ...input.receipt, phase: 'succeeded', updatedAt: input.now, result, errorCode: null };
-    await transaction.advanceAction(succeeded);
-    return succeeded;
-  });
+async function finishPreparedMetadata(dependencies: ProposalActionOrchestratorDependencies,
+  scope: ProposalDocumentScopeV1, actionId: string, time: number, operationAdmission = true): Promise<ProposalActionReceiptV1> {
+  try {
+    return await dependencies.withLockedGraph(scope, { actionId, operationAdmission }, (transaction, sql) =>
+      finishPreparedMetadataTransaction({ dependencies, scope, actionId, time, transaction, sql }));
+  } catch (error) {
+    if (!(error instanceof ProposalGraphContractError) || error.code === Codes.recoveryRequired) throw error;
+    // Metadata finalization has no live document mutation. A validated domain
+    // failure can release its reservation atomically without an uncertain apply.
+    return dependencies.withLockedGraph(scope, { actionId }, async (transaction) => {
+      const receipt = await transaction.getAction(actionId);
+      if (!receipt || receipt.phase !== 'prepared') fail(Codes.recoveryRequired, 'The metadata reservation changed before failure.');
+      const failed: ProposalActionReceiptV1 = { ...receipt, phase: 'failed', result: null,
+        errorCode: error.code, updatedAt: Math.max(time, receipt.updatedAt) };
+      await transaction.advanceAction(failed);
+      return failed;
+    });
+  }
+}
+
+async function finishPreparedMetadataTransaction(input: {
+  dependencies: ProposalActionOrchestratorDependencies;
+  scope: ProposalDocumentScopeV1;
+  actionId: string;
+  time: number;
+  transaction: ProposalGraphStorageTransaction;
+  sql: FileVersionCenterTransaction;
+}): Promise<ProposalActionReceiptV1> {
+  const { dependencies, scope, actionId, time, transaction, sql } = input;
+  const receipt = await transaction.getAction(actionId);
+  const request = await transaction.getActionRequest(actionId);
+  if (!receipt || !request || !sameScope(receipt.scope, scope) || !sameScope(request.fence.scope, scope)
+    || receipt.requestDigest !== request.fence.requestDigest || receipt.actionId !== actionId) {
+    fail(Codes.recoveryRequired, 'The prepared metadata action is unavailable.');
+  }
+  if (receipt.phase === 'succeeded' || receipt.phase === 'failed') return receipt;
+  if (receipt.phase !== 'prepared' || PROPOSAL_ACTION_RULES_V1[receipt.actionType].writesContent
+    || receipt.actionType !== request.fence.actionType) {
+    fail(Codes.recoveryRequired, 'The action is not a recoverable metadata reservation.');
+  }
+  const graph = await transaction.loadGraph({ includeProposalIds: request.fence.closure.map((member) => member.proposalId) });
+  const actor = await dependencies.authorize({ scope, proposalIds: request.fence.closure.map((member) => member.proposalId),
+    actionType: receipt.actionType });
+  const current = ['reject', 'branch_reject'].includes(receipt.actionType) ? null : await dependencies.readCurrent(scope);
+  const restoredRequest = { contractVersion: 1 as const, ...request, fenceToken: '', idempotencyKey: '' };
+  const shape = actionShape(graph, restoredRequest);
+  const expected = expectedState({ graph, current, actor, request: restoredRequest, shape });
+  const { fence } = request;
+  const storedState: ProposalFenceState = { scope: fence.scope, actor: fence.actor, actionType: fence.actionType,
+    current: fence.current, graphRevision: fence.graphRevision, evaluationId: fence.evaluationId,
+    effectiveCandidateHash: fence.effectiveCandidateHash, closure: fence.closure,
+    selectedProposalIds: fence.selectedProposalIds, applyProposalIds: fence.applyProposalIds,
+    choiceResolutions: fence.choiceResolutions };
+  if (!isDeepStrictEqual(expected, storedState)) fail(Codes.graphChanged, 'The prepared metadata action changed before finalization.');
+  // The stored request passed its signed, unexpired fence at reservation.
+  // Recovery rechecks fresh authority/current/graph, but does not treat a
+  // later expiration as cancellation of an already accepted action.
+  const created = request.creation ? await dependencies.materializeCreation({ creation: request.creation,
+    actorId: fence.actor.actorId, now: time, transaction, sql }) : null;
+  const result = { kind: 'metadata_only' as const, revisionId: null, current: null,
+    createdProposalIds: created ? [created.proposalId] : [], resolutions: resolutions(request) };
+  await transitionResolutions(transaction, request, result.resolutions);
+  const succeeded: ProposalActionReceiptV1 = { ...receipt, phase: 'succeeded', updatedAt: time, result, errorCode: null };
+  await transaction.advanceAction(succeeded);
+  return succeeded;
 }

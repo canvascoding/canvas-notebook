@@ -64,10 +64,37 @@ async function serviceHarness() {
     status: 'persisted_yjs', result_json: JSON.stringify(result), base_state_vector: Y.encodeStateVector(doc),
     resulting_state_snapshot: null, cas_version: 3 };
   let writes = 0;
+  const transactionEvents: string[] = [];
+  let openAdmissionChecks = 0;
+  const database = {
+    get: async (sql: string) => sql.includes('FROM collaboration_agent_operations') ? row : undefined,
+    all: async (sql: string) => {
+      if (sql.includes('collaboration_admission_scopes')) {
+        openAdmissionChecks++;
+        return [{ request_id: 'active-reservation' }];
+      }
+      if (sql.includes('collaboration_admission_targets')) {
+        openAdmissionChecks++;
+        return [{ request_id: 'active-reservation' }];
+      }
+      return [];
+    },
+    run: async (sql: string) => {
+      transactionEvents.push(sql);
+      if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK' || sql.startsWith('SET LOCAL ')) {
+        return { changes: 0 };
+      }
+      writes++;
+      throw new Error('A replay must not write');
+    },
+    close: async () => { transactionEvents.push('CLOSE'); },
+  };
   const agent = await compile<typeof Agent & { operationPayloadHash: (value: unknown) => string }>(
     'app/lib/collaboration/agent-operations.ts', (name, load) => {
-      if (name === '@/app/lib/db') return { openDb: async () => ({ get: async () => row,
-        run: async () => { writes++; throw new Error('A replay must not write'); }, close: async () => {} }) };
+      if (name === '@/app/lib/db') return { openDb: async () => database };
+      if (name === './lifecycle-transaction' || name === './room-admission'
+        || name === './room-admission-contract' || name === './room-admission-handoff'
+        || name === './room-admission-drain' || name === './room-owner-release') return load(name);
       if (name === './presence') return { getWorkspacePresenceSnapshot: () => ({ entries: [] }) };
       if (name === './agent-direct-edit-grants') return { resolveAgentDirectEditGrant: async () => null };
       if (name === '@/app/lib/file-version-center/agent-review-policy-adapter') return {
@@ -76,13 +103,21 @@ async function serviceHarness() {
           policy: { effectiveMode: 'review_required', locked: false },
         }),
       };
-      if (name === './persistence') return { loadCollaborationState: async () => state };
+      if (name === './persistence') return {
+        loadCollaborationState: async () => state,
+        loadCollaborationStateOnConnection: async (connection: unknown) => {
+          assert.equal(connection, database, 'replay identity is checked using the owning transaction connection');
+          return state;
+        },
+      };
       if (name === './server-runtime') return { Y };
       if (name.startsWith('node:') || name === 'server-only') return load(name);
       return {};
     }, '\nexport { operationPayloadHash };\n');
   row.payload_hash = agent.operationPayloadHash({ ...input, independentGroups: false, operationType: 'apply' });
-  return { agent, row, input, request, state, target, writes: () => writes, close: () => doc.destroy() };
+  return { agent, row, input, request, state, target, writes: () => writes,
+    transactionEvents: () => [...transactionEvents], openAdmissionChecks: () => openAdmissionChecks,
+    close: () => doc.destroy() };
 }
 
 test('same server request reuses the original operation despite new prepared Yjs bytes and snapshot hashes', async () => {
@@ -95,6 +130,10 @@ test('same server request reuses the original operation despite new prepared Yjs
       fileEditRequest: { ...h.request, beforeSha256: hash('new current'), proposedSha256: hash('new preview') } });
     assert.equal(result.operationId, 'original-operation'); assert.equal(result.fileEditRequestReused, true);
     assert.equal(result.durability, 'persisted_yjs'); assert.equal(h.writes(), 0);
+    assert.equal(h.openAdmissionChecks(), 0, 'an existing operation does not inspect or reject an active admission reservation');
+    assert.ok(h.transactionEvents().includes('BEGIN'));
+    assert.ok(h.transactionEvents().includes('COMMIT'));
+    assert.equal(h.transactionEvents().some((sql) => sql.includes('INSERT INTO collaboration_agent_operations')), false);
     assert.equal(h.row.file_edit_request_json, receiptBefore, 'original hashes are never replaced by a repeated preparation');
     assert.equal(JSON.parse(h.row.result_json).fileEditRequestReused, undefined, 'the delivery hint is not stored as operation state');
   } finally { h.close(); }
@@ -237,6 +276,11 @@ async function boundaryHarness(mode: 'apply-race' | 'prepare-race', outcome: 'du
     '@/app/lib/files/collaboration-policy': { readFileCollaborationState: async () => ({ crdtCapable: true, document: metadata }) },
     '@/app/lib/collaboration/persistence': { loadCollaborationStateIncludingArchived: async () => state },
     '@/app/lib/collaboration/agent-operations': { AgentFileEditOperationScopeError: ScopeError, findAgentFileEditOperation: find },
+    '@/app/lib/file-version-center/proposal-review-capability': { proposalReviewWritesEnabled: () => false },
+    '@/app/lib/file-version-center/proposal-agent-runtime': {
+      hasPotentialProposalAgentRetryKey: async () => false,
+      createRuntimeProposalAgentService: async () => { throw new Error('Graph-off no-hit must not create a Graph runtime.'); },
+    },
     '@/app/lib/collaboration/agent-file-edits': { readCurrentCollaborationTextSnapshot: async () => current(),
       prepareCollaborationBlockEdit: prepare,
       prepareCollaborationTextEdit: async (input: { edits: unknown }) => {

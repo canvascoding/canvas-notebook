@@ -9,6 +9,7 @@ type CollaborationDocumentReader = <T>(
   documentId: string,
   workspaceId: string,
   read: (doc: YTypes.Doc) => T,
+  loadState?: typeof loadCollaborationState,
 ) => Promise<T>;
 
 const globalBridge = globalThis as typeof globalThis & {
@@ -33,12 +34,14 @@ export async function readCurrentCollaborationDocument<T>(input: {
   documentId: string;
   workspaceId: string;
   read: (doc: YTypes.Doc) => T;
+  /** Internal transaction owner supplies its own state read; default callers retain ordinary reads. */
+  loadState?: typeof loadCollaborationState;
 }): Promise<T> {
   const handler = globalBridge.__canvasCollaborationDocumentReader;
-  if (handler) return handler(input.documentId, input.workspaceId, input.read);
+  if (handler) return handler(input.documentId, input.workspaceId, input.read, input.loadState);
 
-  const state = await loadCollaborationState(input.documentId);
-  if (!state || state.status !== 'active' || state.workspaceId !== input.workspaceId) {
+  const state = await (input.loadState ?? loadCollaborationState)(input.documentId);
+  if (!state || state.documentId !== input.documentId || state.status !== 'active' || state.workspaceId !== input.workspaceId) {
     throw new Error('The collaborative document state is unavailable or stale.');
   }
   const doc = new Y.Doc({ gc: true });
