@@ -46,6 +46,7 @@ import { Input } from '@/components/ui/input';
 import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
 import { copyWorkspacePaths, previewWorkspaceCopy, previewWorkspaceRename, workspaceHeaders, type WorkspaceFileOperationDryRun } from '@/app/lib/files/client';
+import type { WorkspacePlannerIssue } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, joinWorkspacePath } from '@/app/lib/files/path-utils';
 import { isWorkspaceImageFileName, shareWorkspaceImageFile } from '@/app/lib/files/workspace-image-share';
@@ -71,6 +72,21 @@ import { FileInfoDialog } from './FileInfoDialog';
 import { FileVersionMenuItem, type FileVersionMenuSource } from './FileVersionMenuItem';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
+
+const previewIssueKeys = {
+  'unsupported-operation': 'fileOperationIssueUnsupportedOperation',
+  'cross-workspace-move': 'fileOperationIssueCrossWorkspaceMove',
+  'invalid-path': 'fileOperationIssueInvalidPath',
+  'missing-source': 'fileOperationIssueMissingSource',
+  'overlapping-selection': 'fileOperationIssueOverlappingSelection',
+  'destination-collision': 'fileOperationIssueDestinationCollision',
+  'duplicate-destination': 'fileOperationIssueDuplicateDestination',
+  'directory-cycle': 'fileOperationIssueDirectoryCycle',
+  'incomplete-index': 'fileOperationIssueIncompleteIndex',
+  'uncopied-cross-workspace-target': 'fileOperationIssueUncopiedTarget',
+  'stale-content': 'fileOperationIssueStaleContent',
+  'unsupported-target-format': 'fileOperationIssueUnsupportedTargetFormat',
+} as const satisfies Record<WorkspacePlannerIssue['code'], string>;
 
 interface FileActionsDropdownProps {
   node: FileNode | null;
@@ -106,6 +122,8 @@ export function FileActionsDropdown({
   versionCenterSource = 'file_browser',
 }: FileActionsDropdownProps) {
   const t = useTranslations('notebook');
+  const linkWarningDescription = (status: 'partial' | 'incomplete') => t(status === 'partial'
+    ? 'fileOperationLinksPartial' : 'fileOperationLinksUnverified');
   const locale = useLocale();
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState('.');
@@ -296,7 +314,7 @@ export function FileActionsDropdown({
       const result = await renamePath(node.path, newPath);
       if (result && result.linkStatus && result.linkStatus !== 'complete') {
         toast.warning(t('fileOperationLinksIncomplete'), {
-          description: result.linkUpdates?.warnings.slice(0, 2).join(' '),
+          description: linkWarningDescription(result.linkStatus),
         });
       }
       setRenameOpen(false);
@@ -476,10 +494,10 @@ export function FileActionsDropdown({
           copied: summary.copiedCount,
           failed: summary.unresolvedCount,
         }), { description: result.linkStatus && result.linkStatus !== 'complete'
-          ? t('fileOperationLinksIncomplete') : undefined });
+          ? linkWarningDescription(result.linkStatus) : undefined });
       } else {
         if (result.linkStatus && result.linkStatus !== 'complete') {
-          toast.warning(t('fileOperationLinksIncomplete'), { description: result.linkWarnings?.join(' ') });
+          toast.warning(t('fileOperationLinksIncomplete'), { description: linkWarningDescription(result.linkStatus) });
         } else {
           toast.success(t('copyToWorkspaceSuccess', { count: summary.copiedCount }));
         }
@@ -539,10 +557,10 @@ export function FileActionsDropdown({
           copied: summary.copiedCount,
           failed: summary.unresolvedCount,
         }), { description: result.linkStatus && result.linkStatus !== 'complete'
-          ? t('fileOperationLinksIncomplete') : undefined });
+          ? linkWarningDescription(result.linkStatus) : undefined });
       } else {
         if (result.linkStatus && result.linkStatus !== 'complete') {
-          toast.warning(t('fileOperationLinksIncomplete'), { description: result.linkWarnings?.join(' ') });
+          toast.warning(t('fileOperationLinksIncomplete'), { description: linkWarningDescription(result.linkStatus) });
         } else {
           toast.success(t('pasteSuccess', { count: summary.copiedCount }));
         }
@@ -557,7 +575,7 @@ export function FileActionsDropdown({
     try {
       const result = await duplicatePath(node.path);
       if (result.linkStatus && result.linkStatus !== 'complete') {
-        toast.warning(t('fileOperationLinksIncomplete'), { description: result.linkWarnings?.join(' ') });
+        toast.warning(t('fileOperationLinksIncomplete'), { description: linkWarningDescription(result.linkStatus) });
       }
       closeMenu();
     } catch (duplicateError) {
@@ -609,7 +627,7 @@ export function FileActionsDropdown({
       const result = await renamePath(node.path, destination);
       if (result && result.linkStatus && result.linkStatus !== 'complete') {
         toast.warning(t('fileOperationLinksIncomplete'), {
-          description: result.linkUpdates?.warnings.slice(0, 2).join(' '),
+          description: linkWarningDescription(result.linkStatus),
         });
       }
       onAfterMove?.(node.path, destination, node);
@@ -815,7 +833,9 @@ export function FileActionsDropdown({
                 ))}
                 {renamePreview.plan.linkEdits.length > 5 && <p>+{renamePreview.plan.linkEdits.length - 5}</p>}
                 {renamePreview.plan.issues.slice(0, 3).map((issue, index) => (
-                  <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">{issue.path}: {issue.detail}</p>
+                  <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">
+                    {issue.path ? `${issue.path}: ` : ''}{t(previewIssueKeys[issue.code])}
+                  </p>
                 ))}
                 <p className="mt-1 text-muted-foreground">{t('fileOperationPreviewRevalidate')}</p>
               </div>
@@ -933,7 +953,9 @@ export function FileActionsDropdown({
               ))}
               {copyPreview.plan.linkEdits.length > 5 && <p>+{copyPreview.plan.linkEdits.length - 5}</p>}
               {copyPreview.plan.issues.slice(0, 3).map((issue, index) => (
-                <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">{issue.path}: {issue.detail}</p>
+                <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">
+                  {issue.path ? `${issue.path}: ` : ''}{t(previewIssueKeys[issue.code])}
+                </p>
               ))}
               <p className="mt-1 text-muted-foreground">{t('fileOperationPreviewRevalidate')}</p>
             </div>
