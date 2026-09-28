@@ -130,6 +130,7 @@ async function main() {
         && /access may be restricted/u.test(message.body)));
       assert.deepEqual(await recordTeamLicenseTermWarning({ ...input, now: term - day }), { stage: 1, created: true });
       assert.equal((await listTeamLicenseAttention(memberAttention)).length, 3);
+      const ownerNoticesBeforeGrace = (await listTeamLicenseAttention(ownerAttention)).length;
       assert.deepEqual(await recordTeamLicenseTermWarning({
         ...input, graceEndsAt: new Date(term + 7 * day).toISOString(), now: term + 1000,
       }), { stage: null, created: true });
@@ -139,6 +140,20 @@ async function main() {
       memberNotices = await listTeamLicenseAttention(memberAttention);
       assert.equal(memberNotices.length, 4);
       assert.match(memberNotices[0].detail, /Schonfrist/u);
+      const ownerGraceNotices = await listTeamLicenseAttention(ownerAttention);
+      assert.equal(ownerGraceNotices.length, ownerNoticesBeforeGrace + 1);
+      assert.match(ownerGraceNotices[0].detail, /Verlängere den Grant im Control Plane/u);
+      assert.equal(ownerGraceNotices[0].unread, true);
+      assert.deepEqual((await database.all(`
+        SELECT action, user_id FROM audit_events WHERE action IN ('team.owner_grace', 'team.member_grace')
+        ORDER BY action
+      `) as Array<{ action: string; user_id: string }>), [
+        { action: 'team.member_grace', user_id: memberId },
+        { action: 'team.owner_grace', user_id: ownerId },
+      ]);
+      assert.equal((await database.all(`
+        SELECT id FROM team_license_email_outbox WHERE user_id = $1 AND event_kind = 'owner_grace'
+      `, [ownerId])).length, 1);
       assert.equal((await database.all(`
         SELECT id FROM team_license_email_outbox WHERE user_id = $1 AND event_kind = 'member_grace'
       `, [memberId])).length, 1);
@@ -152,6 +167,8 @@ async function main() {
       });
       assert(deliveredMessages.some((message) => message.to === 'warned-member@example.test'
         && /grace period/u.test(message.body)));
+      assert(deliveredMessages.some((message) => message.to === `${organizationId}@example.test`
+        && /Renew the grant in Control Plane/u.test(message.body)));
       assert.deepEqual(await recordTeamLicenseTermWarning({
         ...input, grantId: 'renewed-grant', termEndsAt: new Date(term + 30 * day).toISOString(),
         graceEndsAt: null, now: term + 16 * day,

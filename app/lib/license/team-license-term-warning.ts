@@ -51,7 +51,8 @@ export async function recordTeamLicenseTermWarning(input: {
   const recipients = stage
     ? [{ userId: owner.owner_user_id, kind: `owner_term_${stage}d` as TeamLicenseEmailKind },
       ...members.map((member) => ({ userId: member.user_id, kind: `member_term_${stage}d` as TeamLicenseEmailKind }))]
-    : members.map((member) => ({ userId: member.user_id, kind: 'member_grace' as TeamLicenseEmailKind }));
+    : [{ userId: owner.owner_user_id, kind: 'owner_grace' as TeamLicenseEmailKind },
+      ...members.map((member) => ({ userId: member.user_id, kind: 'member_grace' as TeamLicenseEmailKind }))];
   await input.database.run('BEGIN');
   try {
     let created = false;
@@ -60,7 +61,9 @@ export async function recordTeamLicenseTermWarning(input: {
         input.instanceId, input.organizationId, input.grantId,
         graceEndsAt ?? input.termEndsAt, stage ?? 'grace', recipient.userId,
       ])).digest('hex')}`;
-      const action = graceEndsAt ? 'team.member_grace' : `team.grant_expiring_${stage}d`;
+      const action = graceEndsAt
+        ? recipient.kind === 'owner_grace' ? 'team.owner_grace' : 'team.member_grace'
+        : `team.grant_expiring_${stage}d`;
       const inserted = await input.database.get(`
         INSERT INTO audit_events
           (id, organization_id, user_id, source, event_type, entity_type, entity_id,
