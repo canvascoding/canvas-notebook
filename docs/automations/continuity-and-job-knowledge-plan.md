@@ -2,7 +2,7 @@
 
 Stand: 2026-09-28
 
-Status: Pakete A–E implementiert (lokaler Branch; Browser-E2E noch nicht freigegeben)
+Status: Pakete A–E einschließlich Abschlusslücken implementiert (lokaler Branch; Browser-E2E noch nicht freigegeben)
 
 Referenzstände: Canvas Notebook `4b8d4d485`, Hermes Agent `614b9b3f3c1ea8e24e6c7370bd85f9639f779bf0`
 
@@ -12,15 +12,16 @@ Referenzstände: Canvas Notebook `4b8d4d485`, Hermes Agent `614b9b3f3c1ea8e24e6c
 | --- | --- | --- |
 | A | `3ec198a0e` | PostgreSQL-Schema, Migration, `continuityMode=off` und begrenzter Job-Zustand mit Revision/Mutation-ID |
 | B | `11339b17e` | Letztes relevantes eigenes Ergebnis mit Run-Pin, Scope-Prüfung, Promptbudget und Provenienz |
-| C | `2e017182f`, `19d61876e` | Nur für reguläre Automationsläufe gebundenes `automation_job_state`-Tool |
+| C | `2e017182f`, `19d61876e`, `761385b0a` | Nur für reguläre Automationsläufe gebundene `automation_job_state`- und `automation_run_result`-Tools |
 | D | `038f20bb2` | Maximal drei Quell-Jobs, Zyklenschutz, Run-Pins, Workspace-Cutoff und redigierte Run-API |
-| E | `ab00b97ee` | Web-/Mobile-State-API, Editor-Einstellungen, Zustandsansicht und Run-Diagnose |
+| E | `ab00b97ee`, `01fd5f651` | Web-/Mobile-State-API, Editor-Einstellungen, Zustandsansicht, Run-Diagnose und persistierte Scheduler-Skips |
+| Abnahme | `10aad6889` | Workspace-Scope-Integrationstest und reparierter bestehender npm-Testbefehl |
 
 Bestehende Jobs behalten `off` und eine leere Quellliste. Die automatischen Kontextblöcke bleiben bei `min(2.048 Tokens, 5 % des Modellfensters)` gedeckelt; ein voller Kontext lässt den aktuellen Auftrag unverändert weiterlaufen. Ein Workspace-Wechsel setzt die Kontextgrenze und entfernt Quellverknüpfungen. Ein gelöschter Quell-Job kann als konfigurierte, nicht mehr lesbare ID verbleiben und wird beim Lauf mit `source_missing` ausgelassen. Der Scheduler und seine 90-Sekunden-Regel wurden nicht geändert.
 
-Der Zustand ist über `GET /api/automations/jobs/:jobId/state` als Metadatenliste und über `GET .../state?key=...` für einen einzelnen Wert erreichbar. `DELETE .../state` setzt einen Schlüssel mit `expectedRevision` und `mutationId` zurück. Die Mobile-v1-Routen spiegeln den Vertrag. Run-APIs entfernen interne Retry-Pins und redigieren Quell-Run-IDs; Detailzugriffe prüfen den historischen Run-Workspace.
+Der Zustand ist über `GET /api/automations/jobs/:jobId/state` als Metadatenliste und über `GET .../state?key=...` für einen einzelnen Wert erreichbar. `DELETE .../state` setzt einen Schlüssel mit `expectedRevision` und `mutationId` zurück. Die Mobile-v1-Routen spiegeln den Vertrag. Run-APIs entfernen interne Retry-Pins und redigieren Quell-Run-IDs; Detailzugriffe prüfen den historischen Run-Workspace. Übersprungene, nie eingereihte Termine werden atomar als Audit-Ereignis gespeichert und getrennt von Runs im Verlauf gezeigt; die 90-Sekunden-Regel und das Ausbleiben eines Runs bleiben erhalten. Das Agent-Tool `automation_run_result` liest auf Anforderung nur das an den laufenden Run gepinnte eigene oder konfigurierte Quell-Ergebnis und begrenzt jede Antwort auf 8 KiB sowie 2.048 geschätzte Tokens.
 
-Verifiziert wurden der Produktionsbuild, TypeScript, ESLint ohne Fehler, die gezielten Migration-/Store-/Runner-/API-/Mobile-/UI-Tests sowie Scheduler-Recovery und Delivery. Die bestehende npm-Alias `test:automation:workspace-scope` verweist auf eine nicht vorhandene Datei; die neuen Source-Job-Tests decken die Workspace-Grenzen direkt ab. Eine echte Browser-E2E-Prüfung ist wegen der in `AGENTS.md` verlangten ausdrücklichen Freigabe noch offen. Container wurden nicht gebaut.
+Verifiziert wurden der Produktionsbuild, TypeScript, ESLint ohne Fehler, die gezielten Migration-/Store-/Runner-/API-/Mobile-/UI-Tests sowie Scheduler-Recovery und Delivery. `test:automation:workspace-scope` läuft mit einem eigenen PGlite-Integrationstest. Zusätzlich sind die Registry-Gates und die Größen-/Rechteprüfung des Run-Lesers getestet. Eine echte Browser-E2E-Prüfung ist wegen der in `AGENTS.md` verlangten ausdrücklichen Freigabe noch offen. Container wurden nicht gebaut.
 
 ## Ziel und Abgrenzung
 
