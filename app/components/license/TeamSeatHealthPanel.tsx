@@ -114,6 +114,7 @@ function copyFor(locale: string) {
         queuedSync: 'Membership-Abgleich wurde eingeplant.',
         queuedRefresh: 'Lizenz-Refresh wurde eingeplant.',
         actionFailed: 'Recovery-Aktion konnte nicht eingeplant werden.',
+        organizationBlocker: 'Der Team-Abgleich ist blockiert: Community Team unterstützt derzeit genau eine lokale Organisation. Vor einem neuen Abgleich müssen die Organisationen geprüft und auf eine eindeutige Zuordnung gebracht werden. Offene Operationen bleiben erhalten.',
         unknown: 'Nicht verfügbar',
       }
     : {
@@ -198,6 +199,7 @@ function copyFor(locale: string) {
         queuedSync: 'Membership sync was scheduled.',
         queuedRefresh: 'License refresh was scheduled.',
         actionFailed: 'The recovery action could not be scheduled.',
+        organizationBlocker: 'Team sync is blocked: Community Team currently supports exactly one local organization. Review the organizations and establish a single authoritative mapping before syncing again. Pending operations are retained.',
         unknown: 'Unavailable',
       };
 }
@@ -460,6 +462,11 @@ export function TeamSeatHealthPanel({
       </CardHeader>
 
       <CardContent className="space-y-4 px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+        {health.sync.blocker === 'TEAM_SEAT_SUBJECT_CONFLICT' ? (
+          <p role="alert" className="border border-destructive p-4 text-sm text-destructive">
+            {copy.organizationBlocker}
+          </p>
+        ) : null}
         <section className="flex items-start justify-between gap-4 border border-border p-4">
           <div>
             <label htmlFor="team-license-notifications" className="text-sm font-medium">{copy.notificationSetting}</label>

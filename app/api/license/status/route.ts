@@ -47,10 +47,20 @@ export async function GET(request: NextRequest) {
             getCommunityLicenseClaimStatus(),
             readTeamLicenseEmailOutboxDiagnostics(database, organization.organizationId),
           ]);
+          const organizationRows = await database.all(`
+            SELECT organization_id
+            FROM canvas_organization_settings
+            ORDER BY organization_id ASC
+            LIMIT 2
+          `) as Array<{ organization_id: string }>;
           ownerHealth = {
             teamSeatHealth: {
               ...buildTeamSeatHealth({
                 organizationId: organization.organizationId,
+                organizationReady: status.hostingMode !== 'community'
+                  || status.edition !== 'team'
+                  || (organizationRows.length === 1
+                    && organizationRows[0].organization_id === organization.organizationId),
                 diagnostics,
                 claim,
                 licenseStatus: status,

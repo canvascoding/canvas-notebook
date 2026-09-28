@@ -22,6 +22,7 @@ export type TeamSeatHealth = {
   };
   sync: {
     state: TeamSeatHealthState;
+    blocker: 'TEAM_SEAT_SUBJECT_CONFLICT' | null;
     observedQuantity: number | null;
     approvedQuantity: number | null;
     billedQuantity: number | null;

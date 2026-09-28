@@ -123,6 +123,7 @@ function main(): void {
     now,
   });
   assert.equal(healthy.sync.state, 'healthy');
+  assert.equal(healthy.sync.blocker, null);
   assert.deepEqual(
     [
       healthy.sync.observedQuantity,
@@ -136,6 +137,21 @@ function main(): void {
   assert.equal(healthy.recovery.canSyncSnapshot, true);
   assert.equal(healthy.recovery.canRefreshLicense, true);
   assert.equal(healthy.recovery.costConfirmationRequired, false);
+  const multiOrganization = buildTeamSeatHealth({
+    organizationId: 'organization-health',
+    organizationReady: false,
+    diagnostics: diagnostics(),
+    claim: { state: 'connected', claimId: 'claim-id', organizationId: 'control-plane-organization', token: {
+      configured: true, expiresAt: new Date(now + 3_600_000).toISOString(), expired: false,
+    } },
+    licenseStatus: licenseStatus(),
+    now,
+  });
+  assert.equal(multiOrganization.sync.state, 'attention');
+  assert.equal(multiOrganization.sync.blocker, 'TEAM_SEAT_SUBJECT_CONFLICT');
+  assert.equal(multiOrganization.sync.pendingOperations, 3);
+  assert.equal(multiOrganization.recovery.canSyncSnapshot, false);
+  assert.equal(multiOrganization.recovery.canRefreshLicense, false);
   assert.deepEqual(healthy.license, {
     class: 'commercial',
     environment: 'production',
@@ -285,6 +301,7 @@ function main(): void {
   assert.match(statusRoute, /isOrganizationBillingApprover/u);
   assert.match(statusRoute, /teamSeatHealth:\s*\{\s*\.\.\.buildTeamSeatHealth\(/u);
   assert.match(statusRoute, /emailDelivery,/u);
+  assert.match(statusRoute, /organizationRows\.length === 1/u);
   assert.match(statusRoute, /publicLicenseStatus\(status,\s*code\)/u);
   assert.match(statusRoute, /runtimeDatabaseProvider:\s*getDatabaseProvider\(\)/u);
   assert.doesNotMatch(statusRoute, /\.\.\.status/u);
@@ -303,6 +320,8 @@ function main(): void {
   );
   assert.match(recoveryRoute, /isOrganizationBillingApprover/u);
   assert.match(recoveryRoute, /costConfirmationRequired:\s*false/u);
+  assert.match(recoveryRoute, /assertSingleCommunityTeamOrganization\(database\)/u);
+  assert.match(recoveryRoute, /TEAM_SEAT_SUBJECT_CONFLICT|error\.code/u);
   assert.match(recoveryRoute, /automaticPurchaseAttempted:\s*false/u);
   assert.doesNotMatch(recoveryRoute, /seat_prepare|seat_execute|prepareCommunityTeamSeatChange|executeCommunityTeamSeatChange/u);
 
@@ -354,6 +373,7 @@ function main(): void {
   assert.match(healthPanel, /not represented as a Stripe subscription/u);
   assert.match(healthPanel, /health\.license\.expiresAt/u);
   assert.match(healthPanel, /health\.grace\.remainingSeconds/u);
+  assert.match(healthPanel, /health\.sync\.blocker === 'TEAM_SEAT_SUBJECT_CONFLICT'/u);
   assert.doesNotMatch(
     healthPanel,
     /JSON\.stringify\(\{[^}]*(licenseClass|licenseEnvironment|environment)/u,
