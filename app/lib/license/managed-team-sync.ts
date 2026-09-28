@@ -6,6 +6,7 @@ import { requestTeamControlPlane, redactTeamControlPlaneLogText } from '@/app/li
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { PENDING_TEAM_MEMBERSHIP_BAN_REASON } from '@/app/lib/auth';
 import { getDeploymentMode } from '@/app/lib/organization/config';
+import { lastHumanActivityAt } from '@/app/lib/instance/human-activity';
 import { ensureOrganizationPermissionRow, organizationPermissionDefaults } from '@/app/lib/organization/permission-provisioning';
 import { isTeamMembershipReactivationBanReason, TEAM_LICENSE_FALLBACK_BAN_REASON, TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
@@ -493,6 +494,7 @@ export async function runManagedTeamSyncCycle(options: {
       || error === 'MANAGED_TEAM_PENDING_LOCAL_IDENTITY') {
       await sendIdentityReport(instanceId, local.members, options.fetchImpl);
     }
+    const humanActivityAt = await lastHumanActivityAt().catch(() => null);
     await managedRequest(ACK_PATH, 'POST', {
       membershipRevision: sync.membershipRevision,
       memberHash: sync.memberHash,
@@ -500,6 +502,7 @@ export async function runManagedTeamSyncCycle(options: {
       certificateFingerprint: license.fingerprint,
       effectiveSeatLimit: license.seatLimit,
       appliedMemberCount,
+      ...(humanActivityAt ? { lastHumanActivityAt: humanActivityAt } : {}),
       ...(error ? { error } : {}),
     }, options.fetchImpl);
     return error ? 'pending' : 'applied';

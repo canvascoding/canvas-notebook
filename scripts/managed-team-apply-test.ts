@@ -93,6 +93,7 @@ async function main() {
   process.env.DATA = dataDir;
   const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
   const { readManagedTeamAccessPolicy } = await import('../app/lib/license/managed-team-access-policy');
+  const { recordHumanActivity } = await import('../app/lib/instance/human-activity');
   const fixture = await setupDatabase(dataDir);
   const { database } = fixture;
   try {
@@ -174,6 +175,7 @@ async function main() {
     assert.equal(activationCount, 1);
     assert.equal(acknowledgements.length, 2);
     assert(acknowledgements.every((ack) => ack.error === undefined && ack.appliedMemberCount === 2));
+    assert(acknowledgements.every((ack) => ack.lastHumanActivityAt === undefined));
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-revoked'`)).rows[0].status, 'removed');
     assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 0);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
@@ -199,6 +201,7 @@ async function main() {
     assert.equal(fixture.mutationCount, mutationsAfterApply);
     assert.deepEqual(acknowledgements[3], acknowledgements[2]);
     assert.equal((await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!))?.allowNewMembers, true);
+    const humanActivityAt = (await recordHumanActivity(new Date(Date.now() - 90_000))).lastHumanActivityAt;
 
     const graceEndsAt = Date.now() + 7 * 24 * 60 * 60_000;
     const graceMembers = [
@@ -240,6 +243,7 @@ async function main() {
     assert.equal(fixture.mutationCount, mutationsBeforeGrace);
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
     assert.equal(acknowledgements.at(-1)?.appliedMemberCount, 2);
+    assert.equal(acknowledgements.at(-1)?.lastHumanActivityAt, humanActivityAt);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-grace-new'`)).rows[0].status, 'approval_required');
     assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-grace-new'`)).rows[0].banned, 1);
     assert.deepEqual(await readManagedTeamAccessPolicy(process.env.CANVAS_INSTANCE_ID!), {
@@ -260,6 +264,7 @@ async function main() {
     const mutationsAfterRestriction = fixture.mutationCount;
     assert.equal(await runManagedTeamSyncCycle(syncOptions), 'applied');
     assert.equal(fixture.mutationCount, mutationsAfterRestriction);
+    assert.equal(acknowledgements.at(-1)?.lastHumanActivityAt, humanActivityAt);
 
     const restoredMembers = graceMembers.map((member) => member.status === 'suspended'
       ? { ...member, status: 'active' } : member);
