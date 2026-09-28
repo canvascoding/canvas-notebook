@@ -23,4 +23,6 @@ const ordinary = 'The report omitted a section. [Keep this reference] [An unrela
 assert.equal(stripInternalProjectionNotices(ordinary), ordinary);
 assert.equal(extractPiMessageText({ role: 'user', content: `Why does ${imageNotice} appear?`, timestamp: 1 } as AgentMessage), `Why does ${imageNotice} appear?`);
 assert.equal(extractPiMessageText({ role: 'assistant', content: [{ type: 'text', text: `Done.\n${imageNotice}` }] } as AgentMessage), 'Done.');
+assert.equal(extractPiMessageText({ role: 'assistant', content: [{ type: 'text', text: '<think>Private reasoning</think>Done.</think>' }] } as AgentMessage), 'Done.');
+assert.equal(extractPiMessageText({ role: 'assistant', content: [{ type: 'text', text: 'Done.</think>' }] } as AgentMessage), 'Done.');
 console.log('chat-projection-display-test: ok');
