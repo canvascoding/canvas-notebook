@@ -5,7 +5,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { getUserPreferences } from '@/app/lib/user-preferences';
 import { getSystemSmtpConfigurationStatus } from '@/app/lib/email/system-smtp-config';
 import { getManagedSystemEmailAvailability, ManagedSystemEmailDeliveryUnknownError, sendManagedSystemEmail } from '@/app/lib/email/managed-system-email-client';
-import { sendSystemSmtpEmail } from '@/app/lib/email/system-smtp-service';
+import { sendSystemSmtpEmail, SystemSmtpDeliveryUnknownError } from '@/app/lib/email/system-smtp-service';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 
 type EmailDatabase = Pick<SqlConnection, 'get' | 'run' | 'close'>;
@@ -232,7 +232,7 @@ export async function processTeamLicenseEmailOutbox(options: {
         `, [job.id, response.messageId, now]);
         counts.delivered += 1;
       } catch (error) {
-        if (error instanceof ManagedSystemEmailDeliveryUnknownError) {
+        if (error instanceof ManagedSystemEmailDeliveryUnknownError || error instanceof SystemSmtpDeliveryUnknownError) {
           await database.run(`
             UPDATE team_license_email_outbox SET status = 'manual_review', lease_until = NULL,
               error = $2, updated_at = $3

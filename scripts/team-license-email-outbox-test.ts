@@ -28,6 +28,8 @@ async function main() {
     const { ManagedSystemEmailDeliveryUnknownError, ManagedSystemEmailHttpError, sendManagedSystemEmail } = await import('../app/lib/email/managed-system-email-client');
     const { adoptActiveTeamMembership } = await import('../app/lib/organization/team-membership');
     const { updateUserPreferences } = await import('../app/lib/user-preferences');
+    const { saveSystemSmtpConfiguration, clearSystemSmtpConfiguration } = await import('../app/lib/email/system-smtp-config');
+    const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-transport');
     const { seedTeamSeatOrganization, withTeamSeatTestDatabase } = await import('./team-seat-test-db');
     const previousFetch = globalThis.fetch;
     const previousManaged = process.env.CANVAS_MANAGED_SERVICES_ENABLED;
@@ -174,6 +176,60 @@ async function main() {
         database, now: restoredAt + 60_000,
         deliver: async () => { throw new Error('Unknown delivery must not auto-retry'); },
       }), { delivered: 0, failed: 0, skipped: 0, manualReview: 0 });
+
+      await saveSystemSmtpConfiguration({
+        host: 'smtp.example.test', port: 587, secure: false,
+        username: 'notifications@example.test', password: 'test-password',
+        fromAddress: 'notifications@example.test',
+      });
+      const sentMessageIds: string[] = [];
+      setSmtpTransportFactoryForTests((options) => ({
+        sendMail: async (message: { messageId?: string }) => {
+          sentMessageIds.push(message.messageId || '');
+          throw Object.assign(new Error('Connection reset after DATA'), { code: 'ECONNRESET', command: 'DATA' });
+        },
+        close: () => undefined,
+        options,
+      }) as never);
+      try {
+        await enqueueTeamLicenseEmail(database, {
+          auditEventId: 'local-smtp-unknown', organizationId, userId: ownerId,
+          kind: 'owner_restricted', reason: 'expired', seatLimit: 1, now: restoredAt + 90_000,
+        });
+        assert.deepEqual(await processTeamLicenseEmailOutbox({ database, now: restoredAt + 90_000 }), {
+          delivered: 0, failed: 0, skipped: 0, manualReview: 1,
+        });
+        assert.equal(sentMessageIds.length, 1);
+        assert.match(sentMessageIds[0], /^<[a-f0-9]{64}@example\.test>$/u);
+        assert.equal((await database.get(`
+          SELECT status FROM team_license_email_outbox WHERE audit_event_id = 'local-smtp-unknown'
+        `) as { status: string }).status, 'manual_review');
+        assert.deepEqual(await processTeamLicenseEmailOutbox({ database, now: restoredAt + 150_000 }), {
+          delivered: 0, failed: 0, skipped: 0, manualReview: 0,
+        });
+        assert.equal(sentMessageIds.length, 1);
+
+        setSmtpTransportFactoryForTests((options) => ({
+          sendMail: async () => {
+            throw Object.assign(new Error('Mailbox temporarily unavailable'), { responseCode: 451, command: 'DATA' });
+          },
+          close: () => undefined,
+          options,
+        }) as never);
+        await enqueueTeamLicenseEmail(database, {
+          auditEventId: 'local-smtp-rejected', organizationId, userId: ownerId,
+          kind: 'owner_restricted', reason: 'expired', seatLimit: 1, now: restoredAt + 180_000,
+        });
+        assert.deepEqual(await processTeamLicenseEmailOutbox({ database, now: restoredAt + 180_000 }), {
+          delivered: 0, failed: 1, skipped: 0, manualReview: 0,
+        });
+        assert.equal((await database.get(`
+          SELECT status FROM team_license_email_outbox WHERE audit_event_id = 'local-smtp-rejected'
+        `) as { status: string }).status, 'failed');
+      } finally {
+        setSmtpTransportFactoryForTests(null);
+        await clearSystemSmtpConfiguration();
+      }
     });
   } finally {
     if (previousData === undefined) delete process.env.DATA;

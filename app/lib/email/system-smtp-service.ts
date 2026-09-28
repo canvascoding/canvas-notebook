@@ -15,6 +15,8 @@ export type SystemSmtpEmailInput = {
   messageId?: string;
 };
 
+export class SystemSmtpDeliveryUnknownError extends Error {}
+
 async function requireSystemSmtpConfiguration() {
   const configuration = await getSystemSmtpConfiguration();
   if (!configuration) throw new Error('System SMTP is not configured.');
@@ -54,6 +56,11 @@ export async function sendSystemSmtpEmail(input: SystemSmtpEmailInput): Promise<
       ...(input.isHtml ? { html: input.body } : { text: input.body }),
       disableFileAccess: true,
       disableUrlAccess: true,
+    }).catch((error: unknown) => {
+      const responseCode = error && typeof error === 'object' && 'responseCode' in error
+        ? error.responseCode : undefined;
+      if (typeof responseCode === 'number' && responseCode >= 400 && responseCode <= 599) throw error;
+      throw new SystemSmtpDeliveryUnknownError('System SMTP delivery response is unknown.');
     });
     return { messageId: typeof response.messageId === 'string' && response.messageId.trim() ? response.messageId : null };
   } finally {
