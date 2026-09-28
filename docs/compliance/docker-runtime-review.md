@@ -154,6 +154,19 @@ hat SHA-256 `54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb`
 und ist nun als separate Notice gebunden. Beide Linux-Wheels enthalten
 selbst keine Lizenzdatei. Die drei nativen Dateien pro Architektur,
 einschliesslich `libgomp`, bleiben weiterhin in der offenen Einzelpruefung.
+Die Python-Erweiterung laedt die gebuendelten `libctranslate2` und
+`libgomp` auf beiden Plattformen. Die mitgelieferte `libgomp` ist nicht
+bytegleich mit der Debian-`libgomp1` im selben Image; ihre SHA-256-Werte
+sind amd64 `a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a`
+und arm64 `43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537`.
+[GCC-12.2-Quellcode](https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-12.2.0/libgomp/parallel.c)
+nennt GPLv3+ mit [Runtime Library Exception 3.1](https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-12.2.0/COPYING.RUNTIME);
+dies belegt noch nicht, aus welchem GCC-Build die konkreten Wheel-Dateien
+stammen. Vor einer Freigabe fehlen das exakte Wheel-Build-Rezept und die
+Compiler-/Drittkomponenten-Versionen, die Pruefung statisch eingebetteter
+Bibliotheken sowie passende Lizenztexte und Quellcode-Nachweise pro
+Architektur. Der bereits gebundene MIT-Text deckt nur den nachgewiesenen
+CTranslate2-Quellstand ab und ist keine Freigabe dieser Payload.
 
 Zusaetzlicher Befund zu den exakt gelockten PyAV-18.1.0-Wheels:
 `libavcodec` bindet in beiden Images die im Wheel enthaltenen

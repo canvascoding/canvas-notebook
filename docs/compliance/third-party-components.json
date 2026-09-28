@@ -24,12 +24,12 @@
       {
         "name": "first-commercial-release-approval",
         "versionOrCommit": "2026.9.27.1",
-        "reason": "The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. The owner must resolve the exact PyAV wheel's bundled x264/x265 and FFmpeg license-mode discrepancy, review the other new native wheel payloads and the combined MPL-2.0 AND MIT terms of tqdm before a new image release."
+        "reason": "The 2026-07-17 approval applies only to the prior 45-package Python runtime. This candidate adds Faster-Whisper and 13 locked Python packages. Before a new image release the owner must resolve the exact PyAV wheel x264/x265 and FFmpeg license-mode discrepancy, establish provenance and obligations for the CTranslate2 wheel bundled libgomp, review the other new native payloads and the combined MPL-2.0 AND MIT terms of tqdm."
       },
       {
         "name": "docker-python:ctranslate2",
         "versionOrCommit": "4.8.2 / d44d2d069eb88c7b7804da864c10c201501cb4a9",
-        "reason": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. The amd64 and arm64 wheel RECORDs each list libctranslate2, libgomp and a Python extension. The bundled native payload and its obligations remain unapproved."
+        "reason": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. Both wheel RECORDs list libctranslate2, libgomp and a Python extension; the extension dynamically loads the bundled libraries. Bundled libgomp SHA-256 is a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a on amd64 and 43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537 on arm64, distinct from installed Debian libgomp. GCC 12.2.0 libgomp source uses GPLv3-or-later with GCC Runtime Library Exception 3.1, but that does not establish the exact wheel binary provenance. Obtain wheel build recipe, compiler and dependency versions, statically embedded component inventory, corresponding source and applicable texts for both exact wheels before an owner decision."
       },
       {
         "name": "docker-python:tqdm",
@@ -10575,7 +10575,7 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. The amd64 and arm64 wheel RECORDs each list libctranslate2, libgomp and a Python extension. The bundled native payload and its obligations remain unapproved."
+      "reviewNotes": "The official v4.8.2 tag resolves to d44d2d069eb88c7b7804da864c10c201501cb4a9. Its Python version.py declares 4.8.2 and setup.py declares MIT. The exact tag LICENSE SHA-256 is 54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb; the text is bundled separately because both Linux wheels omit a license file. Both wheel RECORDs list libctranslate2, libgomp and a Python extension; the extension dynamically loads the bundled libraries. Bundled libgomp SHA-256 is a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a on amd64 and 43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537 on arm64, distinct from installed Debian libgomp. GCC 12.2.0 libgomp source uses GPLv3-or-later with GCC Runtime Library Exception 3.1, but that does not establish the exact wheel binary provenance. Obtain wheel build recipe, compiler and dependency versions, statically embedded component inventory, corresponding source and applicable texts for both exact wheels before an owner decision."
     },
     {
       "name": "docker-python:flatbuffers",
