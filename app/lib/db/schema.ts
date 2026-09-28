@@ -2142,6 +2142,8 @@ export const automationJobs = pgTable("automation_jobs", {
   triggerKind: text("trigger_kind").notNull().default('schedule'),
   resultPolicy: text("result_policy").notNull().default('deliver_all'),
   continuityMode: text("continuity_mode").notNull().default('off'),
+  sourceJobIdsJson: text("source_job_ids_json").notNull().default('[]'),
+  contextCutoffAt: pgTimestamp("context_cutoff_at"),
   eventConfigJson: text("event_config_json"),
   channelId: text("channel_id"),
   composioTriggerId: text("composio_trigger_id"),

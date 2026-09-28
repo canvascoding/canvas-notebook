@@ -1088,6 +1088,18 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS continuity_mode text NOT NULL DEFAULT 'off'");
+  await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS source_job_ids_json text NOT NULL DEFAULT '[]'");
+  await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS context_cutoff_at bigint');
+  await pool.query(`
+    DO $automation_source_constraints$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'automation_jobs_source_job_ids_json_check') THEN
+        ALTER TABLE automation_jobs ADD CONSTRAINT automation_jobs_source_job_ids_json_check
+          CHECK (jsonb_typeof(source_job_ids_json::jsonb) = 'array' AND jsonb_array_length(source_job_ids_json::jsonb) <= 3);
+      END IF;
+    END
+    $automation_source_constraints$;
+  `);
   await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS event_config_json text');
   await pool.query(`
     DO $automation_continuity_constraints$

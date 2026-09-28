@@ -65,14 +65,19 @@ async function assertAutomationContinuityMigration(): Promise<void> {
         'daily', '{"kind":"daily","times":["09:00"],"timeZone":"UTC"}', 'UTC', 'state-owner', 1, 1
       );
       ALTER TABLE automation_jobs DROP COLUMN continuity_mode;
+      ALTER TABLE automation_jobs DROP COLUMN source_job_ids_json;
+      ALTER TABLE automation_jobs DROP COLUMN context_cutoff_at;
     `);
     await runPostgresMigrations(migrationTarget);
     await runPostgresMigrations(migrationTarget);
-    const jobs = await postgres.query<{ continuity_mode: string }>(
-      "SELECT continuity_mode FROM automation_jobs WHERE id = 'state-job'",
+    const jobs = await postgres.query<{ continuity_mode: string; source_job_ids_json: string; context_cutoff_at: number | null }>(
+      "SELECT continuity_mode, source_job_ids_json, context_cutoff_at FROM automation_jobs WHERE id = 'state-job'",
     );
     assert.equal(jobs.rows[0]?.continuity_mode, 'off');
+    assert.equal(jobs.rows[0]?.source_job_ids_json, '[]');
+    assert.equal(jobs.rows[0]?.context_cutoff_at, null);
     await assert.rejects(postgres.exec("UPDATE automation_jobs SET continuity_mode = 'invalid' WHERE id = 'state-job'"));
+    await assert.rejects(postgres.exec("UPDATE automation_jobs SET source_job_ids_json = '[1,2,3,4]' WHERE id = 'state-job'"));
 
     await postgres.exec(`
       INSERT INTO automation_job_state (job_id, job_scope, key, value, revision, updated_at)

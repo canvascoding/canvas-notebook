@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
 import { assertCanAccessAutomationJob, canAccessAutomationRun } from '@/app/lib/automations/policy';
+import { projectAutomationRunForApi } from '@/app/lib/automations/public-run';
 import { getAutomationJob, listAutomationRuns } from '@/app/lib/automations/store';
 
 type RouteContext = {
@@ -33,5 +34,5 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const visibleRuns = (await Promise.all((await listAutomationRuns(jobId)).map(async (run) => (
     await canAccessAutomationRun(session.user.id, run) ? run : null
   )))).filter((run): run is NonNullable<typeof run> => run !== null);
-  return NextResponse.json({ success: true, data: visibleRuns });
+  return NextResponse.json({ success: true, data: visibleRuns.map(projectAutomationRunForApi) });
 }

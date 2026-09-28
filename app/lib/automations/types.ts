@@ -106,6 +106,7 @@ export type AutomationJobRecord = {
   triggerKind: AutomationJobTriggerKind;
   resultPolicy: AutomationResultPolicy;
   continuityMode: AutomationContinuityMode;
+  sourceJobIds: string[];
   eventConfig: Record<string, unknown> | null;
   channelId: string | null;
   composioTriggerId: string | null;
@@ -174,6 +175,7 @@ export type CreateAutomationJobInput = {
   deliveryChannelSessionKey?: string | null;
   resultPolicy?: AutomationResultPolicy;
   continuityMode?: AutomationContinuityMode;
+  sourceJobIds?: string[];
   triggerKind?: Extract<AutomationJobTriggerKind, 'schedule' | 'event'>;
   eventConfig?: Record<string, unknown> | null;
   schedule: FriendlySchedule;
@@ -199,6 +201,7 @@ export type CreateWebhookAutomationJobInput = {
   deliveryChannelSessionKey?: string | null;
   status?: AutomationJobStatus;
   continuityMode?: AutomationContinuityMode;
+  sourceJobIds?: string[];
   composioTriggerId: string;
   composioTriggerSlug: string;
   composioToolkitSlug: string;
@@ -227,6 +230,7 @@ export type CreateCustomWebhookAutomationJobInput = {
   deliveryChannelSessionKey?: string | null;
   status?: AutomationJobStatus;
   continuityMode?: AutomationContinuityMode;
+  sourceJobIds?: string[];
 };
 
 export type UpdateAutomationJobInput = Partial<Omit<CreateAutomationJobInput, 'scope' | 'workspaceId'>> & {

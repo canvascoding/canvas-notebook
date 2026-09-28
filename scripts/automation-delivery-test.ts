@@ -125,6 +125,7 @@ async function main() {
     triggerKind: 'schedule',
     resultPolicy: 'deliver_all',
     continuityMode: 'off',
+    sourceJobIds: [],
     eventConfig: null,
     channelId: null,
     composioTriggerId: null,

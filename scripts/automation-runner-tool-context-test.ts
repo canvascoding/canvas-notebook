@@ -343,6 +343,16 @@ moduleInternals._load = (request, parent, isMain) => {
       },
     };
   }
+  if (request === './policy' && parent?.filename?.endsWith('/app/lib/automations/store.ts')) {
+    const policy = originalLoad(request, parent, isMain) as Record<string, unknown>;
+    return { ...policy, canAccessAutomationJob: async (viewerId: string,
+      source: { ownerUserId?: string | null; createdByUserId: string }) =>
+      (source.ownerUserId || source.createdByUserId) === viewerId };
+  }
+  if (request === '@/app/lib/pi/session-workspace-context'
+    && parent?.filename?.endsWith('/app/lib/automations/store.ts')) {
+    return { resolveAgentSessionWorkspaceForUser: async () => ({}) };
+  }
 
   if (request === './run-timeout') {
     return {
@@ -1111,6 +1121,30 @@ async function main() {
   assert.match(agentLoopPrompts.at(-1) || '', /### Task\nReport a concise current result\./);
   assert.equal((fullWindowRun?.metadataJson?.automationContext as { reason?: string })?.reason,
     'final_budget_exceeded');
+
+  const sourceTargetJob = await createAutomationJob(
+    {
+      name: 'Source Target Automation',
+      prompt: 'Summarize the configured source.',
+      preferredSkill: 'auto',
+      agentId,
+      deliveryMode: 'silent',
+      deliverySessionMode: 'new_session',
+      sourceJobIds: [continuityJob.id],
+      schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    },
+    userId,
+  );
+  const sourceTargetRun = await scheduleAutomationJobRun(sourceTargetJob.id, 'manual', new Date(now.getTime() + 4));
+  assert.ok(sourceTargetRun);
+  await executeAutomationRun(sourceTargetRun.id);
+  const sourceTargetPrompt = agentLoopPrompts.at(-1) || '';
+  assert.match(sourceTargetPrompt, /Relevant Source Automation Result/);
+  assert.ok(sourceTargetPrompt.includes(`Source job: ${continuityJob.id}`));
+  assert.ok(sourceTargetPrompt.includes('### Task\nSummarize the configured source.'));
+  const sourceTargetCompleted = await getAutomationRun(sourceTargetRun.id);
+  assert.equal(sourceTargetCompleted?.status, 'success');
+  assert.equal((sourceTargetCompleted?.metadataJson?.automationContext as { sources?: unknown[] })?.sources?.length, 1);
 
   const organization = await db.query.canvasOrganizationSettings.findFirst();
   assert.ok(organization);

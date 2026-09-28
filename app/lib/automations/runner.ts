@@ -62,7 +62,7 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 
 import { prepareAutomationHistoryWithCompaction } from './history-compaction';
-import { composeAutomationPreviousResult, getAutomationContextTokenBudget } from './context-composer';
+import { composeAutomationPreviousResult, composeAutomationSourceResults, getAutomationContextTokenBudget, getAutomationTotalContextTokenBudget } from './context-composer';
 import { recoverAutomationRuntimePayload } from './runtime-compaction';
 import { buildAutomationPrompt } from './prompt';
 import { classifyAutomationResult, NO_ACTION_TOKEN } from './result-policy';
@@ -84,6 +84,7 @@ import {
   getAutomationJob,
   getAutomationRun,
   getAutomationPreviousRelevantResult,
+  getAutomationSourceResults,
   markAutomationRunFinished,
   markAutomationRunRetryScheduled,
   markAutomationRunStarted,
@@ -384,6 +385,9 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       console.warn(`[Automationen] Run ${runId} could not be marked as started (already running or completed), aborting`);
       return;
     }
+    const pinnedContinuityMode = (startedRun.metadataJson?.automationContinuity as { mode?: unknown } | undefined)?.mode;
+    const pinnedSources = (startedRun.metadataJson?.automationSources as { sources?: unknown } | undefined)?.sources;
+    const pinnedSourceCount = Array.isArray(pinnedSources) ? pinnedSources.length : 0;
     runTransitionExpectation = {
       status: 'running',
       attemptNumber: startedRun.attemptNumber,
@@ -659,7 +663,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
         let preparedHistory = await prepareHistoryForRuntime(executableRuntime);
         automationSummary = preparedHistory.summary;
-        if (job.continuityMode === 'last_relevant') {
+        if (pinnedContinuityMode === 'last_relevant' || pinnedSourceCount > 0) {
           assertAutomationExecutionActive(executionSignal);
           const basePreparedHistory = preparedHistory;
           let provenance: Record<string, unknown> = {
@@ -671,13 +675,21 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             omittedBlocks: ['previous_result'],
           };
           try {
-            const previous = await getAutomationPreviousRelevantResult({
+            const previous = pinnedContinuityMode === 'last_relevant' ? await getAutomationPreviousRelevantResult({
               runId: run.id,
               jobId: job.id,
               workspaceId: automationWorkspace.workspaceId,
               workspaceType: automationWorkspace.workspaceType,
               organizationId: automationWorkspace.organizationId,
-            });
+            }) : { sourceRunId: null, finishedAt: null, piSessionId: null, resultText: null, reason: 'disabled' };
+            const sourceResults = pinnedSourceCount ? await getAutomationSourceResults({
+              runId: run.id,
+              jobId: job.id,
+              actorUserId: automationUserId,
+              workspaceId: automationWorkspace.workspaceId,
+              workspaceType: automationWorkspace.workspaceType,
+              organizationId: automationWorkspace.organizationId,
+            }) : [];
             const outputTokenCap = getPiRequestOutputTokenCap(executableRuntime.model);
             const baseline = await preparePiFinalPayload({
               messages: preparedHistory.composition.llmMessages,
@@ -691,13 +703,24 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             const availableTokens = budget.contextBudgetExceeded || budget.payloadBudgetExceeded
               ? 0
               : Math.max(0, budget.contextWindowTokens - budget.estimatedTotalTokens);
+            const totalTokenBudget = getAutomationTotalContextTokenBudget({
+              contextWindowTokens: budget.contextWindowTokens, availableTokens,
+            });
+            const maxContextBytes = Math.max(0, MAX_LLM_HISTORY_BYTES - budget.serializedMessageBytes - 4_096);
             const composition = composeAutomationPreviousResult({
               previous,
               maxTokens: getAutomationContextTokenBudget({
                 contextWindowTokens: budget.contextWindowTokens,
                 availableTokens,
               }),
-              maxBytes: Math.max(0, MAX_LLM_HISTORY_BYTES - budget.serializedMessageBytes - 4_096),
+              maxBytes: maxContextBytes,
+              currentSessionId: piSessionId,
+              hasPersistedSession: Boolean(persistedSession),
+            });
+            const sourceComposition = composeAutomationSourceResults({
+              sources: sourceResults,
+              maxTokens: Math.min(1_024, Math.max(0, totalTokenBudget - composition.estimatedTokens - 8)),
+              maxBytes: Math.max(0, maxContextBytes - Buffer.byteLength(composition.block, 'utf8') - 8),
               currentSessionId: piSessionId,
               hasPersistedSession: Boolean(persistedSession),
             });
@@ -707,16 +730,20 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               sourceFinishedAt: previous.finishedAt,
               sourceStatus: previous.resultText ? 'success' : null,
               reason: composition.reason,
-              estimatedTokens: composition.estimatedTokens,
+              estimatedTokens: composition.estimatedTokens + sourceComposition.estimatedTokens,
               truncated: composition.truncated,
-              omittedBlocks: composition.block ? [] : ['previous_result'],
+              sources: sourceComposition.details,
+              omittedBlocks: [
+                ...(!composition.block && pinnedContinuityMode === 'last_relevant' ? ['previous_result'] : []),
+                ...(sourceComposition.details.some((source) => source.reason !== 'included' && source.reason !== 'included_truncated') ? ['source_results'] : []),
+              ],
             };
-            if (composition.block) {
+            if (composition.block || sourceComposition.block) {
               promptMessage.content = buildAutomationPrompt({
                 ...promptInput,
-                previousResultContext: composition.block,
+                previousResultContext: [composition.block, sourceComposition.block].filter(Boolean).join('\n\n'),
               });
-              const enrichedPayload = await preparePiFinalPayload({
+              const checkEnrichedPayload = () => preparePiFinalPayload({
                 messages: basePreparedHistory.composition.llmMessages,
                 model: executableRuntime.model,
                 effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
@@ -724,13 +751,26 @@ export async function executeAutomationRun(runId: string): Promise<void> {
                 requestOutputTokenCap: outputTokenCap,
                 runtimeContractRevision: 'canvas-pi-automation-v1',
               }, automationImageNormalizationOptions);
+              let enrichedPayload = await checkEnrichedPayload();
+              if ((enrichedPayload.budgetSnapshot.contextBudgetExceeded
+                || enrichedPayload.budgetSnapshot.payloadBudgetExceeded) && sourceComposition.block) {
+                promptMessage.content = composition.block
+                  ? buildAutomationPrompt({ ...promptInput, previousResultContext: composition.block })
+                  : promptText;
+                provenance = { ...provenance, estimatedTokens: composition.estimatedTokens,
+                  sources: sourceComposition.details.map((source) => source.reason === 'included' || source.reason === 'included_truncated'
+                    ? { ...source, reason: 'final_budget_exceeded', estimatedTokens: 0, truncated: false }
+                    : source),
+                  omittedBlocks: [...(provenance.omittedBlocks as string[]), 'source_results'] };
+                enrichedPayload = await checkEnrichedPayload();
+              }
               if (enrichedPayload.budgetSnapshot.contextBudgetExceeded
                 || enrichedPayload.budgetSnapshot.payloadBudgetExceeded) {
                 promptMessage.content = promptText;
                 preparedHistory = basePreparedHistory;
                 automationSummary = basePreparedHistory.summary;
                 provenance = { ...provenance, reason: 'final_budget_exceeded', estimatedTokens: 0,
-                  truncated: false, omittedBlocks: ['previous_result'] };
+                  truncated: false, omittedBlocks: ['previous_result', 'source_results'] };
               }
             }
           } catch (error) {
@@ -739,8 +779,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             preparedHistory = basePreparedHistory;
             automationSummary = basePreparedHistory.summary;
             provenance = { ...provenance, reason: 'context_unavailable', estimatedTokens: 0,
-              truncated: false, omittedBlocks: ['previous_result'] };
-            console.warn('[Automationen] Previous result context omitted:', error);
+              truncated: false, omittedBlocks: ['previous_result', 'source_results'] };
+            console.warn('[Automationen] Automation context omitted:', error);
           }
           try {
             await recordAutomationRunContextProvenance({
