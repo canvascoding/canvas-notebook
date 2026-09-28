@@ -589,7 +589,8 @@
     "test:proposal-graph:review-summary": "tsx --conditions react-server scripts/proposal-review-summary-test.ts && tsx --conditions react-server scripts/proposal-review-summary-route-test.ts",
     "test:email:review": "tsx --conditions react-server scripts/email-outbox-review-test.ts && tsx --conditions react-server scripts/workspace-email-postgres-migration-test.ts && tsx scripts/email-review-store-test.ts",
     "test:email:search": "tsx scripts/email-search-query-test.ts && tsx --conditions react-server scripts/email-search-provider-test.ts && tsx --conditions react-server scripts/email-search-imap-test.ts && tsx --conditions react-server scripts/email-search-managed-test.ts",
-    "test:email:setup": "tsx --conditions react-server scripts/email-business-assignment-test.ts && tsx --conditions react-server scripts/email-smtp-normalization-test.ts"
+    "test:email:setup": "tsx --conditions react-server scripts/email-business-assignment-test.ts && tsx --conditions react-server scripts/email-smtp-normalization-test.ts",
+    "test:team-seat:production-manual-activation": "tsx --conditions react-server scripts/production-manual-license-activation-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",
