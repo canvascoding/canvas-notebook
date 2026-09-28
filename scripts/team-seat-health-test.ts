@@ -283,7 +283,8 @@ function main(): void {
     'utf8',
   );
   assert.match(statusRoute, /isOrganizationBillingApprover/u);
-  assert.match(statusRoute, /teamSeatHealth:\s*buildTeamSeatHealth/u);
+  assert.match(statusRoute, /teamSeatHealth:\s*\{\s*\.\.\.buildTeamSeatHealth\(/u);
+  assert.match(statusRoute, /emailDelivery,/u);
   assert.match(statusRoute, /publicLicenseStatus\(status,\s*code\)/u);
   assert.match(statusRoute, /runtimeDatabaseProvider:\s*getDatabaseProvider\(\)/u);
   assert.doesNotMatch(statusRoute, /\.\.\.status/u);
