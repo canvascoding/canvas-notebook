@@ -12,7 +12,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { InertMarkdownPreview } from '@/app/components/shared/InertMarkdownPreview';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -34,7 +34,7 @@ import {
 } from '@/app/lib/file-version-center/compare-client';
 import { FileVersionCenterClientError } from '@/app/lib/file-version-center/client';
 import type { FileVersionMutation } from '@/app/lib/file-version-center/action-client';
-import type { FileVersionTimelineSelection } from '@/app/lib/file-version-center/timeline-state';
+import { matchingCurrentRevision, type FileVersionTimelineSelection } from '@/app/lib/file-version-center/timeline-state';
 import { cn } from '@/lib/utils';
 
 import { FileVersionLoadingSkeleton } from './FileVersionLoadingSkeleton';
@@ -561,6 +561,35 @@ function EmptyComparison({
   );
 }
 
+function CurrentRevisionDetails({ revision }: {
+  revision: Extract<FileVersionTimelineEntryV1, { kind: 'revision' }>;
+}) {
+  const t = useTranslations('fileVersionCenter');
+  const locale = useLocale();
+  const savedAt = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(revision.createdAt));
+  return (
+    <dl className="w-full overflow-hidden rounded-lg border bg-background text-left text-xs">
+      <div className="grid gap-1 border-b px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedAt')}</dt>
+        <dd><time dateTime={revision.createdAt}>{savedAt}</time></dd>
+      </div>
+      <div className="grid gap-1 border-b px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedBy')}</dt>
+        <dd className="min-w-0 break-words">{revision.actor.displayName ?? t(`actor.${revision.actor.type}`)}</dd>
+      </div>
+      <div className="grid gap-1 border-b px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedSource')}</dt>
+        <dd>{t(`source.${revision.source}`)}</dd>
+      </div>
+      <div className="grid gap-1 px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedRevisionId')}</dt>
+        <dd className="min-w-0 break-all font-mono">{revision.revisionId}</dd>
+      </div>
+    </dl>
+  );
+}
+
 export function FileVersionComparison({
   request,
   timeline,
@@ -584,6 +613,7 @@ export function FileVersionComparison({
 }) {
   const t = useTranslations('fileVersionCenter');
   const current = timeline.entries.find((entry) => entry.kind === 'current');
+  const currentRevision = matchingCurrentRevision(timeline.entries);
   const selected = selection.entry;
   const metadataOnly = selected?.kind === 'revision' && selected.content.availability === 'metadata_only';
   const identity = selected && selected.kind !== 'current'
@@ -671,8 +701,9 @@ export function FileVersionComparison({
       ) : !selected || selected.kind === 'current' ? (
         <EmptyComparison
           icon={<Columns2 className="size-4" aria-hidden="true" />}
-          title={t('currentVersion')}
-          description={t('selectionDescription')}
+          title={currentRevision ? `${t('currentVersion')} · ${t('revisionNumber', { number: currentRevision.revisionNumber })}` : t('currentVersion')}
+          description={currentRevision ? t('currentSavedDescription', { number: currentRevision.revisionNumber }) : t('selectionDescription')}
+          action={currentRevision ? <CurrentRevisionDetails revision={currentRevision} /> : undefined}
         />
       ) : (
         <LoadedComparison

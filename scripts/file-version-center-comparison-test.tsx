@@ -283,6 +283,30 @@ async function main() {
   assert.ok([...document.querySelectorAll('button')].some((candidate) => /Continue editing/u.test(candidate.textContent ?? '')),
     'the safe route back to the document remains available');
 
+  const savedCurrent = {
+    ...revisionEntry,
+    id: currentEntry.revisionId,
+    revisionId: currentEntry.revisionId,
+    content: { ...revisionEntry.content, sha256: currentEntry.sha256, sizeBytes: currentEntry.sizeBytes },
+  };
+  const requestsBeforeCurrent = requestedCursors.length;
+  await act(async () => root.render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <FileVersionComparison
+        request={{ ...request, selectedEntry: undefined }}
+        timeline={{ ...timeline, entries: [currentEntry, savedCurrent, revisionEntry] }}
+        selection={{ key: 'current', entry: currentEntry, state: 'selected' }}
+        onTimelineInvalidate={() => {}}
+        onContinue={() => {}}
+      />
+    </NextIntlClientProvider>,
+  ));
+  assert.match(document.body.textContent ?? '', /Current version · Version 7[\s\S]*matches saved Version 7/u);
+  assert.match(document.body.textContent ?? '', /Saved at[\s\S]*Saved by[\s\S]*Frank[\s\S]*Source[\s\S]*Version ID[\s\S]*revision-current/u,
+    'the current view retains the folded revision metadata without an empty comparison');
+  assert.equal(requestedCursors.length, requestsBeforeCurrent,
+    'opening Current does not issue an unnecessary self-comparison request');
+
   assert.throws(() => mergeFileVersionComparePayload(
     comparison([firstHunk], true) as never,
     { ...comparison([secondHunk], false), response: {

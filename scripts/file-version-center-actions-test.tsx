@@ -322,6 +322,14 @@ async function componentCase(): Promise<void> {
     'restore confirmation shows the authoritative current SHA fence before mutation');
   await act(async () => root.unmount());
 
+  root = await mount(new FileVersionActionController(), [], {
+    ...revisionEntry,
+    content: { ...revisionEntry.content, sha256: current.sha256 },
+  });
+  assert.equal([...document.querySelectorAll('button')].some((candidate) => /Restore version/u.test(candidate.textContent ?? '')), false,
+    'a byte-identical saved version never offers a no-op restore');
+  await act(async () => root.unmount());
+
   const { FileVersionCenterHost } = await import('../app/components/file-version-center/FileVersionCenterHost');
   const { openVersionCenter, closeVersionCenter } = await import('../app/store/file-version-center-store');
   let mutated = false;
