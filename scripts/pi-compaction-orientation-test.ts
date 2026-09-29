@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
-import type { AssistantMessage, AssistantMessageEventStream, Model } from '@earendil-works/pi-ai';
+import { getCurrentSystemPrompt, type AssistantMessage, type AssistantMessageEventStream, type Model } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 import { buildPiSummaryOrientation } from '../app/lib/pi/compaction/orientation';
-import { generatePiRollingSummaryV2 } from '../app/lib/pi/compaction/summary-generator';
 import { validatePiRollingSummaryBody } from '../app/lib/pi/compaction/summary-contract';
 import { buildPiSummarySourceInput } from '../app/lib/pi/compaction/summary-input';
 
@@ -21,6 +20,12 @@ function assistant(text: string, timestamp = 2): AssistantMessage {
 const body = '## Active Task\nCompare the corrected travel options.\n## Completed Work\nEarlier research.\n'
   + '## Decisions and Constraints\nKeep the confirmed deadline.\n## Files, Commands, and Exact Errors\nNone.\n## Remaining Work\nFinish the comparison.';
 async function main() {
+  const piLoader = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+  const loadBeforePi = piLoader._load;
+  piLoader._load = (request, parent, isMain) => request === '@earendil-works/pi-ai'
+    ? loadBeforePi(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain)
+    : loadBeforePi(request, parent, isMain);
+  const { generatePiRollingSummaryV2 } = await import('../app/lib/pi/compaction/summary-generator');
   const recent = [user('Correction: Lima in December, not November.', 100),
     assistant('Should I compare the December travel requirements?', 101), user('Yes, do that.', 102)];
   const orientation = buildPiSummaryOrientation({ messages: recent, contextWindow: model.contextWindow });
@@ -53,8 +58,8 @@ async function main() {
   const prompts: string[] = [];
   const systems: string[] = [];
   const streamFn: StreamFn = async (_model, context) => {
-    prompts.push(String(context.messages[0].content));
-    systems.push(context.systemPrompt ?? '');
+    prompts.push(String(context.messages.find((message) => message.role === 'user')?.content ?? ''));
+    systems.push(getCurrentSystemPrompt(context.messages) ?? '');
     return { result: async () => assistant(body) } as AssistantMessageEventStream;
   };
   const original = JSON.stringify({ source, recent });

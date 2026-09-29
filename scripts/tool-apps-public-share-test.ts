@@ -122,9 +122,9 @@ async function main() {
     const many = Array.from({ length: 30 }, (_, i) => ({ id: `11111111-1111-4111-8111-${String(i).padStart(12, '0')}` }));
     const descriptors = publicShareToolApps([...many, many[0]], 'many', 'list');
     assert.equal(descriptors.length, MAX_BUILTIN_TOOL_APPS);
-    const raw = { role: 'toolResult', toolName: tool.name, toolCallId: 'many', content: [{ type: 'text', text: 'x'.repeat(250_000) }],
-      details: { publicShareAction: 'list', shares: many, toolApps: descriptors } };
-    const persisted = projectAgentMessageForPersistence(raw as AgentMessage);
+    const raw = { role: 'toolResult' as const, toolName: tool.name, toolCallId: 'many', content: [{ type: 'text' as const, text: 'x'.repeat(250_000) }],
+      isError: false, timestamp: Date.now(), details: { publicShareAction: 'list', shares: many, toolApps: descriptors } };
+    const persisted = projectAgentMessageForPersistence(raw as unknown as AgentMessage);
     const display = projectAgentMessageForLoadedContext(persisted, 'display');
     assert.equal(readToolAppInvocations(display).length, MAX_BUILTIN_TOOL_APPS);
     assert.ok(JSON.stringify(display).length < 30_000);

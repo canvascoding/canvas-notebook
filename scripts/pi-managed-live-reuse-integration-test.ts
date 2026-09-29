@@ -78,11 +78,12 @@ async function main() {
   const streamFn: StreamFn = async (_selectedModel, context) => {
     streamCall += 1;
     const text = JSON.stringify(context.messages);
+    const currentTools = piAi.getCurrentTools(context.messages);
     modelContexts.push({ roles: context.messages.map(message => message.role), text,
-      toolNames: context.tools?.map(item => item.name) ?? [] });
+      toolNames: currentTools.map(item => item.name) });
     if (streamCall === 1) {
-      assert.ok(context.tools?.some(item => item.name === 'first'));
-      assert.ok(!context.tools?.some(item => item.name === 'second'));
+      assert.ok(currentTools.some(item => item.name === 'first'));
+      assert.ok(!currentTools.some(item => item.name === 'second'));
       return completedStream(assistant([{ type: 'toolCall', id: 'tool-first', name: 'first', arguments: {} }], 'toolUse'));
     }
     if (streamCall === 2) {
@@ -93,8 +94,8 @@ async function main() {
     if (streamCall === 3) {
       assert.match(text, /First answer\./u, 'the second managed run keeps the first persisted answer');
       assert.match(text, /first result/u, 'the second managed run keeps the first tool result');
-      assert.ok(context.tools?.some(item => item.name === 'second'));
-      assert.ok(!context.tools?.some(item => item.name === 'first'));
+      assert.ok(currentTools.some(item => item.name === 'second'));
+      assert.ok(!currentTools.some(item => item.name === 'first'));
       return completedStream(assistant([{ type: 'toolCall', id: 'tool-second', name: 'second', arguments: {} }], 'toolUse'));
     }
     assert.equal(streamCall, 4);
@@ -281,7 +282,8 @@ async function main() {
     assert.notEqual(restored.runtime, firstRuntime);
     runtime = restored.runtime;
     liveRuntime = runtime;
-    assert.equal(runtime.agent.state.messages.length, 5, 'a fresh runtime loads the stored first task');
+    assert.equal(runtime.agent.state.messages.filter(message => message.role !== 'system').length, 5,
+      'a fresh runtime loads the stored first task');
     assert.deepEqual(runtime.agent.state.tools.map(item => item.name), ['second']);
     const releaseSecondProgress = attachManagedProgressBridge(runtime, progressRequest('second-task'));
     await startAndWait('Second managed task with different tools');

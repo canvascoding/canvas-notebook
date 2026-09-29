@@ -4,9 +4,9 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.27.1
-- Lockfile SHA-256: `debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5`
-- Distributed components: 1449
-- Release gate: **approved**
+- Lockfile SHA-256: `2f32df9ecc15eda3fea2cdbe49e9d9b99fdd738217443200e41a207b1ec51eaf`
+- Distributed components: 1441
+- Release gate: **blocked**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
 Third-party trademarks and branding are not granted by the software licenses below.
@@ -39,7 +39,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | electron-runtime | 42.6.1 | native | MIT | allowed |
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | allowed |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
-| @anthropic-ai/sdk | 0.123.0 | runtime | MIT | allowed |
+| @anthropic-ai/sdk | 0.124.0 | runtime | MIT | allowed |
 | @apm-js-collab/code-transformer-bundler-plugins | 0.5.0 | runtime | MIT | allowed |
 | @apm-js-collab/code-transformer | 0.15.0 | runtime | Apache-2.0 | allowed |
 | @apm-js-collab/tracing-hooks | 0.10.1 | runtime | Apache-2.0 | allowed |
@@ -47,30 +47,25 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @asamuzakjp/dom-selector | 7.1.1 | runtime | MIT | allowed |
 | @asamuzakjp/generational-cache | 1.0.1 | runtime | MIT | allowed |
 | @asamuzakjp/nwsapi | 2.3.9 | runtime | MIT | allowed |
-| @aws-crypto/sha256-browser | 5.2.0 | runtime | Apache-2.0 | allowed |
-| @aws-crypto/sha256-js | 5.2.0 | runtime | Apache-2.0 | allowed |
-| @aws-crypto/supports-web-crypto | 5.2.0 | runtime | Apache-2.0 | allowed |
-| @aws-crypto/util | 5.2.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/client-bedrock-runtime | 3.1048.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/core | 3.978.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-env | 3.972.68 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-http | 3.972.70 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-ini | 3.973.13 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-login | 3.972.75 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-node | 3.972.79 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-process | 3.972.68 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-sso | 3.973.12 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-web-identity | 3.972.74 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/eventstream-handler-node | 3.972.34 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/middleware-eventstream | 3.972.29 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/middleware-websocket | 3.972.53 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/nested-clients | 3.997.42 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/signature-v4-multi-region | 3.996.44 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/token-providers | 3.1048.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/token-providers | 3.1108.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/types | 3.974.5 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/util-locate-window | 3.965.10 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/xml-builder | 3.972.40 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/client-bedrock-runtime | 3.1127.0 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/core | 3.978.1 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-env | 3.972.72 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-http | 3.972.74 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-ini | 3.973.17 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-login | 3.972.79 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-node | 3.972.84 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-process | 3.972.72 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-sso | 3.973.16 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-web-identity | 3.972.78 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/eventstream-handler-node | 3.972.35 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/middleware-eventstream | 3.972.30 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/middleware-websocket | 3.972.54 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/nested-clients | 3.997.46 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/signature-v4-multi-region | 3.996.47 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/token-providers | 3.1127.0 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/token-providers | 3.1138.0 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/types | 3.974.6 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/xml-builder | 3.972.41 | runtime | Apache-2.0 | allowed |
 | @aws/lambda-invoke-store | 0.3.0 | runtime | Apache-2.0 | allowed |
 | @babel/code-frame | 7.29.7 | runtime | MIT | allowed |
 | @babel/compat-data | 7.29.7 | runtime | MIT | allowed |
@@ -144,39 +139,39 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @csstools/postcss-is-pseudo-class | 5.0.3 | runtime | MIT-0 | allowed |
 | @csstools/selector-resolve-nested | 3.1.0 | runtime | MIT-0 | allowed |
 | @csstools/selector-specificity | 5.0.0 | runtime | MIT-0 | allowed |
-| @earendil-works/chord | 0.85.1 | runtime | MIT | allowed |
-| @earendil-works/pi-agent-core | 0.85.1 | runtime | MIT | allowed |
-| @earendil-works/pi-ai | 0.85.1 | runtime | MIT | allowed |
-| @earendil-works/pi-telemetry | 0.85.1 | runtime | MIT | allowed |
+| @earendil-works/chord | 0.87.1 | runtime | MIT | allowed |
+| @earendil-works/pi-agent-core | 0.87.1 | runtime | MIT | allowed |
+| @earendil-works/pi-ai | 0.87.1 | runtime | MIT | allowed |
+| @earendil-works/pi-telemetry | 0.87.1 | runtime | MIT | allowed |
 | @eigenpal/docx-js-editor | 0.5.3 | runtime | MIT | allowed |
 | @electric-sql/pglite | 0.5.4 | runtime | Apache-2.0 | allowed |
 | @emnapi/runtime | 1.11.3 | runtime | MIT | allowed |
-| @esbuild/aix-ppc64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/android-arm | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/android-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/android-x64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/darwin-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/darwin-x64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/freebsd-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/freebsd-x64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-arm | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-ia32 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-loong64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-mips64el | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-ppc64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-riscv64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-s390x | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/linux-x64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/netbsd-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/netbsd-x64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/openbsd-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/openbsd-x64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/openharmony-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/sunos-x64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/win32-arm64 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/win32-ia32 | 0.28.1 | runtime | MIT | allowed |
-| @esbuild/win32-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/aix-ppc64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/android-arm | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/android-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/android-x64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/darwin-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/darwin-x64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/freebsd-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/freebsd-x64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-arm | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-ia32 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-loong64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-mips64el | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-ppc64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-riscv64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-s390x | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/linux-x64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/netbsd-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/netbsd-x64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/openbsd-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/openbsd-x64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/openharmony-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/sunos-x64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/win32-arm64 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/win32-ia32 | 0.28.2 | runtime | MIT | allowed |
+| @esbuild/win32-x64 | 0.28.2 | runtime | MIT | allowed |
 | @excalidraw/excalidraw | 0.18.1 | runtime | MIT | allowed |
 | @excalidraw/laser-pointer | 1.3.1 | runtime | MIT | allowed |
 | @excalidraw/markdown-to-text | 0.1.2 | runtime | MIT | allowed |
@@ -191,8 +186,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @formatjs/icu-messageformat-parser | 3.5.14 | runtime | MIT | allowed |
 | @formatjs/icu-skeleton-parser | 2.1.11 | runtime | MIT | allowed |
 | @formatjs/intl-localematcher | 0.8.12 | runtime | MIT | allowed |
-| @google/genai | 1.52.0 | runtime | Apache-2.0 | allowed |
-| @google/genai | 2.11.0 | runtime | Apache-2.0 | allowed |
+| @google/genai | 2.21.0 | runtime | Apache-2.0 | allowed |
 | @grammyjs/types | 3.28.0 | runtime | MIT | allowed |
 | @hocuspocus/common | 4.4.0 | runtime | MIT | allowed |
 | @hocuspocus/provider | 4.4.0 | runtime | MIT | allowed |
@@ -468,17 +462,12 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @sentry/server-utils | 10.65.0 | runtime | MIT | allowed |
 | @sentry/vercel-edge | 10.65.0 | runtime | MIT | allowed |
 | @sentry/webpack-plugin | 5.4.0 | runtime | MIT | allowed |
-| @smithy/core | 3.33.3 | runtime | Apache-2.0 | allowed |
-| @smithy/credential-provider-imds | 4.5.0 | runtime | Apache-2.0 | allowed |
+| @smithy/core | 3.35.0 | runtime | Apache-2.0 | allowed |
+| @smithy/credential-provider-imds | 4.5.2 | runtime | Apache-2.0 | allowed |
 | @smithy/fetch-http-handler | 5.8.0 | runtime | Apache-2.0 | allowed |
-| @smithy/is-array-buffer | 2.2.0 | runtime | Apache-2.0 | allowed |
-| @smithy/node-http-handler | 4.10.0 | runtime | Apache-2.0 | allowed |
-| @smithy/node-http-handler | 4.10.0 | runtime | Apache-2.0 | allowed |
-| @smithy/node-http-handler | 4.7.3 | runtime | Apache-2.0 | allowed |
-| @smithy/signature-v4 | 5.7.0 | runtime | Apache-2.0 | allowed |
-| @smithy/types | 4.18.0 | runtime | Apache-2.0 | allowed |
-| @smithy/util-buffer-from | 2.2.0 | runtime | Apache-2.0 | allowed |
-| @smithy/util-utf8 | 2.3.0 | runtime | Apache-2.0 | allowed |
+| @smithy/node-http-handler | 4.12.1 | runtime | Apache-2.0 | allowed |
+| @smithy/signature-v4 | 5.7.4 | runtime | Apache-2.0 | allowed |
+| @smithy/types | 4.19.0 | runtime | Apache-2.0 | allowed |
 | @stablelib/base64 | 1.0.1 | runtime | MIT | allowed |
 | @standard-schema/spec | 1.1.0 | runtime | MIT | allowed |
 | @standard-schema/utils | 0.3.0 | runtime | MIT | allowed |
@@ -637,6 +626,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | accepts | 2.0.0 | runtime | MIT | allowed |
 | acorn | 8.17.0 | runtime | MIT | allowed |
 | agent-base | 7.1.4 | runtime | MIT | allowed |
+| agent-base | 9.0.0 | runtime | MIT | allowed |
 | ajv-formats | 3.0.1 | runtime | MIT | allowed |
 | ajv-keywords | 5.1.0 | runtime | MIT | allowed |
 | ajv | 8.20.0 | runtime | MIT | allowed |
@@ -834,7 +824,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | es-object-atoms | 1.1.2 | runtime | MIT | allowed |
 | es-toolkit | 1.49.0 | runtime | MIT | allowed |
 | es6-promise-pool | 2.5.0 | runtime | MIT | allowed |
-| esbuild | 0.28.1 | runtime | MIT | allowed |
+| esbuild | 0.28.2 | runtime | MIT | allowed |
 | escalade | 3.2.0 | runtime | MIT | allowed |
 | escape-html | 1.0.3 | runtime | MIT | allowed |
 | escape-string-regexp | 5.0.0 | runtime | MIT | allowed |
@@ -923,8 +913,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | htmlparser2 | 10.1.0 | runtime | MIT | allowed |
 | http-errors | 1.8.1 | runtime | MIT | allowed |
 | http-errors | 2.0.1 | runtime | MIT | allowed |
-| http-proxy-agent | 7.0.2 | runtime | MIT | allowed |
+| http-proxy-agent | 9.1.0 | runtime | MIT | allowed |
 | https-proxy-agent | 7.0.6 | runtime | MIT | allowed |
+| https-proxy-agent | 9.1.0 | runtime | MIT | allowed |
 | https | 1.0.0 | runtime | ISC | allowed |
 | iconv-lite | 0.6.3 | runtime | MIT | allowed |
 | iconv-lite | 0.7.3 | runtime | MIT | allowed |
@@ -934,7 +925,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | iconv-lite | 0.7.3 | runtime | MIT | allowed |
 | icu-minify | 4.13.2 | runtime | MIT | allowed |
 | ieee754 | 1.2.1 | runtime | BSD-3-Clause | allowed |
-| ignore | 7.0.5 | runtime | MIT | allowed |
+| ignore | 7.0.8 | runtime | MIT | allowed |
 | image-blob-reduce | 3.0.1 | runtime | MIT | allowed |
 | image-size | 2.0.4 | runtime | MIT | allowed |
 | imapflow | 1.7.8 | runtime | MIT | allowed |
@@ -1230,6 +1221,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | prosemirror-view | 1.42.1 | runtime | MIT | allowed |
 | protobufjs | 7.6.5 | runtime | BSD-3-Clause | allowed |
 | proxy-addr | 2.0.7 | runtime | MIT | allowed |
+| proxy-agent-negotiate | 1.1.0 | runtime | MIT | review_required |
 | proxy-from-env | 1.1.0 | runtime | MIT | allowed |
 | punycode.js | 2.3.1 | runtime | MIT | allowed |
 | punycode | 2.3.1 | runtime | MIT | allowed |
@@ -1381,7 +1373,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | tweetnacl | 1.0.3 | runtime | Unlicense | allowed |
 | type-fest | 0.7.1 | runtime | (MIT OR CC0-1.0) | allowed |
 | type-is | 2.1.0 | runtime | MIT | allowed |
-| typebox | 1.3.7 | runtime | MIT | allowed |
+| typebox | 1.3.27 | runtime | MIT | allowed |
 | typed-query-selector | 2.12.2 | runtime | MIT | allowed |
 | typescript | 6.0.3 | runtime | Apache-2.0 | allowed |
 | uc.micro | 2.1.0 | runtime | MIT | allowed |
@@ -1464,6 +1456,12 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | zustand | 4.5.7 | runtime | MIT | allowed |
 | zustand | 5.0.14 | runtime | MIT | allowed |
 | zwitch | 2.0.4 | runtime | MIT | allowed |
+
+## Commercial release blockers
+
+The following entries require a documented responsible/legal decision before a commercial release:
+
+- **proxy-agent-negotiate 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
 
 ## License texts and copyright notices
 
@@ -2266,7 +2264,7 @@ THE SOFTWARE.
 
 ### License text 07364a5f7d01
 
-Applies to @aws-sdk/eventstream-handler-node@3.972.34, @aws-sdk/middleware-websocket@3.972.53, @aws-sdk/signature-v4-multi-region@3.996.44, @smithy/core@3.33.3, @smithy/types@4.18.0.
+Applies to @aws-sdk/eventstream-handler-node@3.972.35, @aws-sdk/middleware-websocket@3.972.54, @aws-sdk/signature-v4-multi-region@3.996.47, @smithy/core@3.35.0, @smithy/types@4.19.0.
 
 Copyright notices:
 
@@ -4325,7 +4323,7 @@ SOFTWARE.
 
 ### License text 18c295fdd68d
 
-Applies to @aws-sdk/client-bedrock-runtime@3.1048.0.
+Applies to @aws-sdk/client-bedrock-runtime@3.1127.0.
 
 Copyright notices:
 
@@ -7652,7 +7650,7 @@ Copyright notices:
 
 ### License text 4186c3f89c23
 
-Applies to @aws-sdk/core@3.978.0, @aws-sdk/credential-provider-http@3.972.70, @aws-sdk/credential-provider-login@3.972.75, @aws-sdk/nested-clients@3.997.42.
+Applies to @aws-sdk/core@3.978.1, @aws-sdk/credential-provider-http@3.972.74, @aws-sdk/credential-provider-login@3.972.79, @aws-sdk/nested-clients@3.997.46.
 
 Copyright notices:
 
@@ -9068,7 +9066,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 4f6a1985796d
 
-Applies to @earendil-works/chord@0.85.1, @earendil-works/pi-agent-core@0.85.1, @earendil-works/pi-ai@0.85.1, @earendil-works/pi-telemetry@0.85.1.
+Applies to @earendil-works/chord@0.87.1, @earendil-works/pi-agent-core@0.87.1, @earendil-works/pi-ai@0.87.1, @earendil-works/pi-telemetry@0.87.1.
 
 Copyright notices:
 
@@ -9720,7 +9718,7 @@ SOFTWARE.
 
 ### License text 542e7521fab2
 
-Applies to ignore@7.0.5.
+Applies to ignore@7.0.8.
 
 Copyright notices:
 
@@ -12954,7 +12952,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 71368fd0f5b4
 
-Applies to agent-base@7.1.4, http-proxy-agent@7.0.2, https-proxy-agent@7.0.6.
+Applies to agent-base@7.1.4, agent-base@9.0.0, http-proxy-agent@9.1.0, https-proxy-agent@7.0.6, https-proxy-agent@9.1.0.
 
 Copyright notices:
 
@@ -15052,7 +15050,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 84d995af201d
 
-Applies to @aws-sdk/credential-provider-process@3.972.68, @aws-sdk/credential-provider-sso@3.973.12, @aws-sdk/credential-provider-web-identity@3.972.74.
+Applies to @aws-sdk/credential-provider-process@3.972.72, @aws-sdk/credential-provider-sso@3.973.16, @aws-sdk/credential-provider-web-identity@3.972.78.
 
 Copyright notices:
 
@@ -20472,219 +20470,6 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### License text a8ad31b1c3f4
-
-Applies to @aws-crypto/sha256-js@5.2.0.
-
-Copyright notices:
-
-- (c) You must retain, in the Source form of any Derivative Works
-- that You distribute, all copyright, patent, trademark, and
-
-```text
-Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "{}"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright {yyyy} {name of copyright owner}
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-```
-
 ### License text a9801fb52ba2
 
 Applies to jsonfile@6.2.1.
@@ -22292,7 +22077,7 @@ Copyright notices:
 
 ### License text b40ec5baec7b
 
-Applies to @esbuild/aix-ppc64@0.28.1, @esbuild/android-arm@0.28.1, @esbuild/android-arm64@0.28.1, @esbuild/android-x64@0.28.1, @esbuild/darwin-arm64@0.28.1, @esbuild/darwin-x64@0.28.1, @esbuild/freebsd-arm64@0.28.1, @esbuild/freebsd-x64@0.28.1, @esbuild/linux-arm@0.28.1, @esbuild/linux-arm64@0.28.1, @esbuild/linux-ia32@0.28.1, @esbuild/linux-loong64@0.28.1, @esbuild/linux-mips64el@0.28.1, @esbuild/linux-ppc64@0.28.1, @esbuild/linux-riscv64@0.28.1, @esbuild/linux-s390x@0.28.1, @esbuild/linux-x64@0.28.1, @esbuild/netbsd-arm64@0.28.1, @esbuild/netbsd-x64@0.28.1, @esbuild/openbsd-arm64@0.28.1, @esbuild/openbsd-x64@0.28.1, @esbuild/openharmony-arm64@0.28.1, @esbuild/sunos-x64@0.28.1, @esbuild/win32-arm64@0.28.1, @esbuild/win32-ia32@0.28.1, @esbuild/win32-x64@0.28.1, esbuild@0.28.1.
+Applies to @esbuild/aix-ppc64@0.28.2, @esbuild/android-arm@0.28.2, @esbuild/android-arm64@0.28.2, @esbuild/android-x64@0.28.2, @esbuild/darwin-arm64@0.28.2, @esbuild/darwin-x64@0.28.2, @esbuild/freebsd-arm64@0.28.2, @esbuild/freebsd-x64@0.28.2, @esbuild/linux-arm@0.28.2, @esbuild/linux-arm64@0.28.2, @esbuild/linux-ia32@0.28.2, @esbuild/linux-loong64@0.28.2, @esbuild/linux-mips64el@0.28.2, @esbuild/linux-ppc64@0.28.2, @esbuild/linux-riscv64@0.28.2, @esbuild/linux-s390x@0.28.2, @esbuild/linux-x64@0.28.2, @esbuild/netbsd-arm64@0.28.2, @esbuild/netbsd-x64@0.28.2, @esbuild/openbsd-arm64@0.28.2, @esbuild/openbsd-x64@0.28.2, @esbuild/openharmony-arm64@0.28.2, @esbuild/sunos-x64@0.28.2, @esbuild/win32-arm64@0.28.2, @esbuild/win32-ia32@0.28.2, @esbuild/win32-x64@0.28.2, esbuild@0.28.2.
 
 Copyright notices:
 
@@ -22477,7 +22262,7 @@ SOFTWARE.
 
 ### License text b659ef9e3ce8
 
-Applies to @aws-sdk/credential-provider-env@3.972.68, @aws-sdk/credential-provider-ini@3.973.13, @aws-sdk/credential-provider-node@3.972.79, @aws-sdk/token-providers@3.1048.0, @aws-sdk/token-providers@3.1108.0, @aws-sdk/types@3.974.5, @aws-sdk/util-locate-window@3.965.10, @aws-sdk/xml-builder@3.972.40, @smithy/credential-provider-imds@4.5.0, @smithy/fetch-http-handler@5.8.0, @smithy/is-array-buffer@2.2.0, @smithy/node-http-handler@4.10.0, @smithy/node-http-handler@4.10.0, @smithy/node-http-handler@4.7.3, @smithy/signature-v4@5.7.0, @smithy/util-buffer-from@2.2.0, @smithy/util-utf8@2.3.0.
+Applies to @aws-sdk/credential-provider-env@3.972.72, @aws-sdk/credential-provider-ini@3.973.17, @aws-sdk/credential-provider-node@3.972.84, @aws-sdk/token-providers@3.1127.0, @aws-sdk/token-providers@3.1138.0, @aws-sdk/types@3.974.6, @aws-sdk/xml-builder@3.972.41, @smithy/credential-provider-imds@4.5.2, @smithy/fetch-http-handler@5.8.0, @smithy/node-http-handler@4.12.1, @smithy/signature-v4@5.7.4.
 
 Copyright notices:
 
@@ -22868,7 +22653,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text baaa39822b65
 
-Applies to typebox@1.3.7.
+Applies to typebox@1.3.27.
 
 Copyright notices:
 
@@ -25031,7 +24816,7 @@ SOFTWARE.
 
 ### License text cfc7749b96f6
 
-Applies to @aws-crypto/sha256-browser@5.2.0, @aws-crypto/supports-web-crypto@5.2.0, @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@1.52.0, @google/genai@2.11.0, @xtuc/long@4.2.2, chevrotain@11.0.3, dompurify@3.4.13, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2, mj-context-menu@0.6.1.
+Applies to @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@2.21.0, @xtuc/long@4.2.2, chevrotain@11.0.3, dompurify@3.4.13, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2, mj-context-menu@0.6.1.
 
 Copyright notices:
 
@@ -26116,219 +25901,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text db1ed8cccea0
-
-Applies to @aws-crypto/util@5.2.0.
-
-Copyright notices:
-
-- (c) You must retain, in the Source form of any Derivative Works
-- that You distribute, all copyright, patent, trademark, and
-
-```text
-                                Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
-
-   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
-
-   1. Definitions.
-
-      "License" shall mean the terms and conditions for use, reproduction,
-      and distribution as defined by Sections 1 through 9 of this document.
-
-      "Licensor" shall mean the copyright owner or entity authorized by
-      the copyright owner that is granting the License.
-
-      "Legal Entity" shall mean the union of the acting entity and all
-      other entities that control, are controlled by, or are under common
-      control with that entity. For the purposes of this definition,
-      "control" means (i) the power, direct or indirect, to cause the
-      direction or management of such entity, whether by contract or
-      otherwise, or (ii) ownership of fifty percent (50%) or more of the
-      outstanding shares, or (iii) beneficial ownership of such entity.
-
-      "You" (or "Your") shall mean an individual or Legal Entity
-      exercising permissions granted by this License.
-
-      "Source" form shall mean the preferred form for making modifications,
-      including but not limited to software source code, documentation
-      source, and configuration files.
-
-      "Object" form shall mean any form resulting from mechanical
-      transformation or translation of a Source form, including but
-      not limited to compiled object code, generated documentation,
-      and conversions to other media types.
-
-      "Work" shall mean the work of authorship, whether in Source or
-      Object form, made available under the License, as indicated by a
-      copyright notice that is included in or attached to the work
-      (an example is provided in the Appendix below).
-
-      "Derivative Works" shall mean any work, whether in Source or Object
-      form, that is based on (or derived from) the Work and for which the
-      editorial revisions, annotations, elaborations, or other modifications
-      represent, as a whole, an original work of authorship. For the purposes
-      of this License, Derivative Works shall not include works that remain
-      separable from, or merely link (or bind by name) to the interfaces of,
-      the Work and Derivative Works thereof.
-
-      "Contribution" shall mean any work of authorship, including
-      the original version of the Work and any modifications or additions
-      to that Work or Derivative Works thereof, that is intentionally
-      submitted to Licensor for inclusion in the Work by the copyright owner
-      or by an individual or Legal Entity authorized to submit on behalf of
-      the copyright owner. For the purposes of this definition, "submitted"
-      means any form of electronic, verbal, or written communication sent
-      to the Licensor or its representatives, including but not limited to
-      communication on electronic mailing lists, source code control systems,
-      and issue tracking systems that are managed by, or on behalf of, the
-      Licensor for the purpose of discussing and improving the Work, but
-      excluding communication that is conspicuously marked or otherwise
-      designated in writing by the copyright owner as "Not a Contribution."
-
-      "Contributor" shall mean Licensor and any individual or Legal Entity
-      on behalf of whom a Contribution has been received by Licensor and
-      subsequently incorporated within the Work.
-
-   2. Grant of Copyright License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      copyright license to reproduce, prepare Derivative Works of,
-      publicly display, publicly perform, sublicense, and distribute the
-      Work and such Derivative Works in Source or Object form.
-
-   3. Grant of Patent License. Subject to the terms and conditions of
-      this License, each Contributor hereby grants to You a perpetual,
-      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
-      (except as stated in this section) patent license to make, have made,
-      use, offer to sell, sell, import, and otherwise transfer the Work,
-      where such license applies only to those patent claims licensable
-      by such Contributor that are necessarily infringed by their
-      Contribution(s) alone or by combination of their Contribution(s)
-      with the Work to which such Contribution(s) was submitted. If You
-      institute patent litigation against any entity (including a
-      cross-claim or counterclaim in a lawsuit) alleging that the Work
-      or a Contribution incorporated within the Work constitutes direct
-      or contributory patent infringement, then any patent licenses
-      granted to You under this License for that Work shall terminate
-      as of the date such litigation is filed.
-
-   4. Redistribution. You may reproduce and distribute copies of the
-      Work or Derivative Works thereof in any medium, with or without
-      modifications, and in Source or Object form, provided that You
-      meet the following conditions:
-
-      (a) You must give any other recipients of the Work or
-          Derivative Works a copy of this License; and
-
-      (b) You must cause any modified files to carry prominent notices
-          stating that You changed the files; and
-
-      (c) You must retain, in the Source form of any Derivative Works
-          that You distribute, all copyright, patent, trademark, and
-          attribution notices from the Source form of the Work,
-          excluding those notices that do not pertain to any part of
-          the Derivative Works; and
-
-      (d) If the Work includes a "NOTICE" text file as part of its
-          distribution, then any Derivative Works that You distribute must
-          include a readable copy of the attribution notices contained
-          within such NOTICE file, excluding those notices that do not
-          pertain to any part of the Derivative Works, in at least one
-          of the following places: within a NOTICE text file distributed
-          as part of the Derivative Works; within the Source form or
-          documentation, if provided along with the Derivative Works; or,
-          within a display generated by the Derivative Works, if and
-          wherever such third-party notices normally appear. The contents
-          of the NOTICE file are for informational purposes only and
-          do not modify the License. You may add Your own attribution
-          notices within Derivative Works that You distribute, alongside
-          or as an addendum to the NOTICE text from the Work, provided
-          that such additional attribution notices cannot be construed
-          as modifying the License.
-
-      You may add Your own copyright statement to Your modifications and
-      may provide additional or different license terms and conditions
-      for use, reproduction, or distribution of Your modifications, or
-      for any such Derivative Works as a whole, provided Your use,
-      reproduction, and distribution of the Work otherwise complies with
-      the conditions stated in this License.
-
-   5. Submission of Contributions. Unless You explicitly state otherwise,
-      any Contribution intentionally submitted for inclusion in the Work
-      by You to the Licensor shall be under the terms and conditions of
-      this License, without any additional terms or conditions.
-      Notwithstanding the above, nothing herein shall supersede or modify
-      the terms of any separate license agreement you may have executed
-      with Licensor regarding such Contributions.
-
-   6. Trademarks. This License does not grant permission to use the trade
-      names, trademarks, service marks, or product names of the Licensor,
-      except as required for reasonable and customary use in describing the
-      origin of the Work and reproducing the content of the NOTICE file.
-
-   7. Disclaimer of Warranty. Unless required by applicable law or
-      agreed to in writing, Licensor provides the Work (and each
-      Contributor provides its Contributions) on an "AS IS" BASIS,
-      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
-      implied, including, without limitation, any warranties or conditions
-      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
-      PARTICULAR PURPOSE. You are solely responsible for determining the
-      appropriateness of using or redistributing the Work and assume any
-      risks associated with Your exercise of permissions under this License.
-
-   8. Limitation of Liability. In no event and under no legal theory,
-      whether in tort (including negligence), contract, or otherwise,
-      unless required by applicable law (such as deliberate and grossly
-      negligent acts) or agreed to in writing, shall any Contributor be
-      liable to You for damages, including any direct, indirect, special,
-      incidental, or consequential damages of any character arising as a
-      result of this License or out of the use or inability to use the
-      Work (including but not limited to damages for loss of goodwill,
-      work stoppage, computer failure or malfunction, or any and all
-      other commercial damages or losses), even if such Contributor
-      has been advised of the possibility of such damages.
-
-   9. Accepting Warranty or Additional Liability. While redistributing
-      the Work or Derivative Works thereof, You may choose to offer,
-      and charge a fee for, acceptance of support, warranty, indemnity,
-      or other liability obligations and/or rights consistent with this
-      License. However, in accepting such obligations, You may act only
-      on Your own behalf and on Your sole responsibility, not on behalf
-      of any other Contributor, and only if You agree to indemnify,
-      defend, and hold each Contributor harmless for any liability
-      incurred by, or claims asserted against, such Contributor by reason
-      of your accepting any such warranty or additional liability.
-
-   END OF TERMS AND CONDITIONS
-
-   APPENDIX: How to apply the Apache License to your work.
-
-      To apply the Apache License to your work, attach the following
-      boilerplate notice, with the fields enclosed by brackets "{}"
-      replaced with your own identifying information. (Don't include
-      the brackets!)  The text should be enclosed in the appropriate
-      comment syntax for the file format. We also recommend that a
-      file or class name and description of purpose be included on the
-      same "printed page" as the copyright notice for easier
-      identification within third-party archives.
-
-   Copyright {yyyy} {name of copyright owner}
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
 ```
 
 ### License text db480f236292
@@ -27743,7 +27315,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### License text e345c2ee7df4
 
-Applies to @aws-sdk/middleware-eventstream@3.972.29.
+Applies to @aws-sdk/middleware-eventstream@3.972.30.
 
 Copyright notices:
 
@@ -29716,7 +29288,7 @@ SOFTWARE.
 
 ### License text f8508be03f7b
 
-Applies to @anthropic-ai/sdk@0.123.0.
+Applies to @anthropic-ai/sdk@0.124.0.
 
 Copyright notices:
 

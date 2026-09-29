@@ -10,6 +10,7 @@ import type {
   Model,
   UserMessage,
 } from '@earendil-works/pi-ai';
+import { normalizeContext } from '@earendil-works/pi-ai';
 
 import {
   composePiHistoryForLlm,
@@ -355,7 +356,7 @@ async function callLegacySummaryModel(input: {
   );
   try {
     const stream = await Promise.race([
-      input.streamFn(input.model, input.context, {
+      input.streamFn(input.model, normalizeContext(input.context), {
         temperature: 0,
         // Keep native provider headroom; prompt fitting reserves it above.
         sessionId: input.sessionId ? `${input.sessionId}:${input.sessionSuffix}` : undefined,

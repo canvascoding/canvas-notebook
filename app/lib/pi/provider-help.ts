@@ -166,6 +166,26 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     supportsBothAuthMethods: true,
   },
 
+  meta: {
+    ...apiKeyProviderHelp({
+      title: 'Meta AI',
+      shortDescription: 'Meta AI models with an API key or Meta login',
+      envName: 'META_API_KEY',
+      documentationUrl: 'https://ai.meta.com/',
+    }),
+    supportsBothAuthMethods: true,
+  },
+
+  radius: {
+    ...apiKeyProviderHelp({
+      title: 'Radius',
+      shortDescription: 'Radius model gateway with an API key or login',
+      envName: 'RADIUS_API_KEY',
+      documentationUrl: 'https://radius.pi.dev/',
+    }),
+    supportsBothAuthMethods: true,
+  },
+
   'canvas-control-plane': {
     category: 'api-key',
     title: 'Canvas Control Plane',
@@ -718,7 +738,7 @@ export function supportsBothAuthMethods(providerId: string): boolean {
 export type AuthMethodCategory = 'api-key' | 'oauth' | 'self-hosted' | 'cloud-infra';
 
 export function getVisibleOAuthProviders(): string[] {
-  return ['openai-codex', 'openrouter', 'kimi-coding', 'xai'];
+  return ['openai-codex', 'openrouter', 'kimi-coding', 'meta', 'radius', 'xai'];
 }
 
 export function getApiKeyProviders(): string[] {

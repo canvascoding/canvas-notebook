@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
-import type { Message, Model } from '@earendil-works/pi-ai';
+import { getCurrentSystemPrompt, type Message, type Model } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-delegated-output-'));
@@ -24,7 +24,10 @@ async function main() {
     // import executes the real ESM runAgentLoop implementation below.
     if (request === '@earendil-works/pi-agent-core') return { Agent: class Agent {} };
     if ((request.startsWith('.') || request.startsWith('@/')) && request.endsWith('/auth')) return { auth: {} };
-    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return {
+      ...originalLoad(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain) as object,
+      getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined,
+    };
     if (request === '@/app/lib/pi/session-store') return { savePiSession: async (_session: string, _user: string, _provider: string, _model: string, messages: AgentMessage[], _summary: unknown, options: { toolOutputModel?: unknown }) => {
       saved = structuredClone(messages); savedModel = options.toolOutputModel;
     } };
@@ -61,7 +64,7 @@ async function main() {
       promptMessage, executionContext: identity, baseSystemPrompt: 'base instructions', systemPrompt: 'old instructions', tools: [fixtureTool], signal: new AbortController().signal,
       runtime: { model, selection: { selection: { providerId: model.provider, thinkingLevel: 'off' } },
         streamFn: async (_model: Parameters<StreamFn>[0], context: Parameters<StreamFn>[1], options: Parameters<StreamFn>[2]) => {
-          sentOutputCap = options?.maxTokens; sent = context.messages; effectiveInstructions = context.systemPrompt || '';
+          sentOutputCap = options?.maxTokens; sent = context.messages; effectiveInstructions = getCurrentSystemPrompt(context.messages) || '';
           const reply = context.messages.some(message => message.role === 'toolResult')
             ? { ...assistant, content: [{ type: 'text' as const, text: 'Collected six results.' }], stopReason: 'stop' as const, timestamp: 20 }
             : assistant;

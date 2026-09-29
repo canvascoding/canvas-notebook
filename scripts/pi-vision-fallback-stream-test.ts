@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 import type { StreamFn } from '@earendil-works/pi-agent-core';
-import type { Api, AssistantMessage, AssistantMessageEventStream, Context, Model } from '@earendil-works/pi-ai';
+import { normalizeContext, type Api, type AssistantMessage, type AssistantMessageEventStream, type Model, type TranscriptContext } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 
 type TestStreamEvent = {
   type: string;
@@ -67,7 +67,7 @@ const model = {
   maxTokens: 1_024,
 } as unknown as Model<'openai-completions'>;
 
-const imageContext: Context = {
+const imageContext: TranscriptContext = normalizeContext({
   messages: [{
     role: 'toolResult',
     toolCallId: 'read-1',
@@ -79,7 +79,7 @@ const imageContext: Context = {
     isError: false,
     timestamp: Date.now(),
   }],
-};
+});
 
 function message(overrides: Partial<AssistantMessage> = {}): AssistantMessage {
   return {
@@ -127,7 +127,7 @@ function rejectedImageStream() {
 
 async function main() {
   const { createVisionFallbackStreamFn } = await import('../app/lib/pi/vision-fallback-stream');
-  const calls: Array<{ model: Model<Api>; context: Context }> = [];
+  const calls: Array<{ model: Model<Api>; context: TranscriptContext }> = [];
   const baseFallbackStreamFn: StreamFn = async (requestedModel, context) => {
     calls.push({ model: requestedModel as Model<Api>, context });
     return (calls.length === 1 ? rejectedImageStream() : doneStream()) as unknown as AssistantMessageEventStream;

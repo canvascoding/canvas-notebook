@@ -25,6 +25,8 @@ const PROVIDER_API_KEY_NAMES: Record<string, readonly string[]> = {
   deepseek: ['DEEPSEEK_API_KEY'],
   fireworks: ['FIREWORKS_API_KEY'],
   'github-copilot': ['COPILOT_GITHUB_TOKEN'],
+  meta: ['META_API_KEY'],
+  radius: ['RADIUS_API_KEY'],
   google: ['GEMINI_API_KEY'],
   openrouter: ['OPENROUTER_API_KEY'],
   groq: ['GROQ_API_KEY'],

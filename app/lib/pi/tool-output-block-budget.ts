@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import type { Api, Model } from '@earendil-works/pi-ai';
+import type { Api, JsonValue, Model } from '@earendil-works/pi-ai';
 import { estimatePiTextTokens } from './context-budget';
 import { projectAgentMessageForLoadedContext } from './message-projection';
 import { getToolOutputMetadata } from './tool-output-metadata';
@@ -46,7 +46,7 @@ function textCost(message: ToolResultMessage, text: string): number {
   // multimodal budget and the authoritative final provider-payload snapshot.
   return estimatePiTextTokens(JSON.stringify({ role: 'toolResult', toolCallId: message.toolCallId,
     toolName: message.toolName, isError: message.isError, timestamp: message.timestamp,
-    ...(message.addedToolNames ? { addedToolNames: message.addedToolNames } : {}), content: [{ type: 'text', text }] }));
+    content: [{ type: 'text', text }] }));
 }
 
 function allocate(desired: number[], minimum: number[], available: number): number[] {
@@ -147,7 +147,9 @@ function applyView(message: ToolResultMessage, view: ToolOutputModelView): ToolR
     replaced = true;
     return [{ type: 'text' as const, text: view.text }];
   });
-  return { ...message, content, details: { ...detailsOf(message), ...view.readDetails, toolOutputView: view } };
+  return { ...message, content, details: JSON.parse(JSON.stringify({
+    ...detailsOf(message), ...view.readDetails, toolOutputView: view,
+  })) as JsonValue };
 }
 
 /** Pure and deterministic: history growth and free capacity never resize old blocks. */
@@ -196,7 +198,7 @@ export function planToolOutputBlockViews(messages: AgentMessage[], model: ToolOu
     const allocation = allocate(desired, minimum, available);
     results.forEach((result, index) => {
       const metadata = getToolOutputMetadata(result.details);
-      const sourceKey = digest([textOf(result), result.isError, result.addedToolNames, metadata, detailsOf(result).toolOutputReadWindow]);
+      const sourceKey = digest([textOf(result), result.isError, metadata, detailsOf(result).toolOutputReadWindow]);
       const saved = detailsOf(result).toolOutputView as ToolOutputModelView | undefined;
       const rendered = saved?.version === 1 && saved.policyVersion === TOOL_OUTPUT_VIEW_POLICY && saved.modelKey === modelKey
         && saved.blockKey === blockKey && saved.sourceKey === sourceKey && saved.allocatedTokens === allocation[index]

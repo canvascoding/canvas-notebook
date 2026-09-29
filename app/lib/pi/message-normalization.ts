@@ -519,12 +519,10 @@ async function normalizePiMessage(
     // This prevents context explosion when tools like 'ls' list many image files
     // Images should only be included when explicitly returned by the tool (e.g., read tool)
     const normalizedContent = await normalizeImageArray(message.content, false, options);
-    // UI/store metadata and tool execution usage are not provider input. Keep
-    // deferred-tool activation, which providers do consume at this boundary.
+    // UI/store metadata and tool execution usage are not provider input.
     return {
       role: 'toolResult', toolCallId: message.toolCallId, toolName: message.toolName,
       content: normalizedContent, isError: message.isError, timestamp: message.timestamp,
-      ...(message.addedToolNames ? { addedToolNames: message.addedToolNames } : {}),
     } satisfies ToolResultMessage;
   }
 
@@ -544,7 +542,7 @@ function enforceImagePayloadBudget(messages: Message[]): Message[] {
   let includedImageBytes = 0;
 
   return [...messages].reverse().map((message) => {
-    if (message.role === 'assistant' || !Array.isArray(message.content)) {
+    if (message.role === 'assistant' || message.role === 'system' || !Array.isArray(message.content)) {
       return message;
     }
 

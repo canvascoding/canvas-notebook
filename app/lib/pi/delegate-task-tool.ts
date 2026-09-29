@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { finalizeToolOutputBlocks } from './tool-output-block-storage';
 import { estimatePiToolSchemaTokens, getPiRequestOutputTokenCap, withPiRequestOutputTokenCap } from './context-budget';
 import type { AgentContext, AgentLoopConfig, AgentMessage, AgentTool, ThinkingLevel } from '@earendil-works/pi-agent-core';
+import { createInitialSystemMessage, toToolDeclaration } from '@earendil-works/pi-ai';
+import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 import { Type } from 'typebox';
 import { and, eq } from 'drizzle-orm';
 
@@ -440,16 +442,17 @@ export async function runEphemeralWorker(params: {
     if (!appended) throw new Error('Delegated worker is no longer in an active run.');
   };
   const checkpointMessages = async (messages: AgentMessage[]) => {
-    if (messages.length < persistedLength) {
+    const persistentMessages = messages.filter((message) => message.role !== 'system');
+    if (persistentMessages.length < persistedLength) {
       throw new Error('Delegated worker message checkpoint moved backwards.');
     }
-    if (messages.length === persistedLength) return;
+    if (persistentMessages.length === persistedLength) return;
     await savePiSession(
       params.sessionId,
       params.request.userId,
       provider,
       model.id,
-      messages,
+      persistentMessages,
       undefined,
       {
         titleOverride: buildEphemeralSessionTitle(params.request.goal),
@@ -458,8 +461,8 @@ export async function runEphemeralWorker(params: {
         toolOutputModel: model,
       },
     );
-    persistedLength = messages.length;
-    finalMessages = messages.slice();
+    persistedLength = persistentMessages.length;
+    finalMessages = persistentMessages.slice();
   };
 
   try {
@@ -489,8 +492,7 @@ export async function runEphemeralWorker(params: {
     };
     const { runAgentLoop } = await import('@earendil-works/pi-agent-core');
     const context: AgentContext = {
-      systemPrompt: params.systemPrompt,
-      messages: [],
+      messages: [createInitialSystemMessage(params.systemPrompt, params.tools.map(toToolDeclaration))!],
       tools: params.tools,
     };
     const thinkingLevel = params.runtime.selection.selection.thinkingLevel as ThinkingLevel;
@@ -654,7 +656,11 @@ export async function runEphemeralWorker(params: {
           throw new Error('Delegated worker payload exceeds the selected model context or transfer budget.');
         }
         throwIfDelegationAborted(params.signal);
-        return prepared.messages;
+        const systemMessage = createInitialSystemMessage(effectiveSystemPrompt, params.tools.map(toToolDeclaration));
+        return [
+          ...(systemMessage ? [systemMessage] : []),
+          ...prepared.messages.filter((message) => message.role !== 'system'),
+        ];
       },
       prepareNextTurn: async (turnContext: { context: AgentContext }) => {
         throwIfDelegationAborted(params.signal);
@@ -664,12 +670,10 @@ export async function runEphemeralWorker(params: {
         });
         throwIfDelegationAborted(params.signal);
         effectiveSystemPrompt = replaceWorkspaceFileTreePromptBlock(params.baseSystemPrompt, nextWorkspaceFileTree.promptBlock);
-        return {
-          context: {
-            ...turnContext.context,
-            systemPrompt: effectiveSystemPrompt,
-          },
-        };
+        return replaceNextTurnContext(turnContext.context, {
+          systemPrompt: effectiveSystemPrompt,
+          tools: params.tools,
+        });
       },
       sessionId: params.sessionId,
     } satisfies AgentLoopConfig;

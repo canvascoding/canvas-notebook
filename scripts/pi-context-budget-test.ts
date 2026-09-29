@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 import type { AgentMessage, AgentTool, StreamFn } from '@earendil-works/pi-agent-core';
-import type { AssistantMessageEventStream, Model } from '@earendil-works/pi-ai';
+import { normalizeContext, type AssistantMessageEventStream, type Model } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 
 import {
   createPiContextBudgetSnapshot,
@@ -65,7 +65,7 @@ async function main() {
     sentMaxTokens = options?.maxTokens;
     return {} as AssistantMessageEventStream;
   };
-  await withPiRequestOutputTokenCap(baseStreamFn, outputTokenCap)(model, { messages: [] });
+  await withPiRequestOutputTokenCap(baseStreamFn, outputTokenCap)(model, normalizeContext({ messages: [] }));
   assert.equal(sentMaxTokens, outputTokenCap, 'the reserved cap must be the cap actually sent');
 
   const imageData = Buffer.alloc(12_000, 7).toString('base64');

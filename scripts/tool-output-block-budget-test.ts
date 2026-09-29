@@ -60,8 +60,8 @@ async function main() {
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     };
     const messages: AgentMessage[] = [{ role: 'user', content: 'Compare the sources and preserve the created identifiers.', timestamp: 1 }, assistant,
-      ...prepared.map(({ name, result }, index) => ({ ...result, role: 'toolResult' as const, toolName: name, toolCallId: `block-${index}`,
-        isError: false, timestamp: index + 3, ...(index === 2 ? { addedToolNames: ['future_discovered_tool'] } : {}) })),
+      ...prepared.map(({ name, result }, index) => ({ ...result, details: result.details === undefined ? undefined : JSON.parse(JSON.stringify(result.details)),
+        role: 'toolResult' as const, toolName: name, toolCallId: `block-${index}`, isError: false, timestamp: index + 3 })),
     ];
     const originalContent = messages.map(message => JSON.stringify('content' in message ? message.content : undefined));
     const first = await finalizeToolOutputBlocks(messages, baseModel, identity);
@@ -116,7 +116,7 @@ async function main() {
         const results = payload.messages.filter(message => message.role === 'toolResult');
         assert.equal(results.length, prepared.length);
         assert.ok(results.every(result => result.details === undefined), 'internal views/details are absent from the provider payload');
-        assert.deepEqual(results[2].addedToolNames, ['future_discovered_tool']);
+        assert.equal(results[2].details, undefined);
         if (contextWindow === 32_000) assert.ok(drafts.reduce((sum, draft) => sum + draft.view.text.length, 0) > allocatedBefore.reduce((sum, value) => sum + value, 0), 'an explicit larger model can restore a larger view');
       }
     }

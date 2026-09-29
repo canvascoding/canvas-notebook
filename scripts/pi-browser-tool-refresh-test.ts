@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
+import path from 'node:path';
 
 import { Value } from 'typebox/value';
+import { getCurrentSystemPrompt } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 
-import { replaceNextTurnContext } from '../app/lib/pi/next-turn-context';
 
 async function main() {
   const moduleInternals = Module as typeof Module & {
@@ -11,6 +12,9 @@ async function main() {
   };
   const originalLoad = moduleInternals._load;
   moduleInternals._load = (request, parent, isMain) => {
+    if (request === '@earendil-works/pi-ai') {
+      return originalLoad(path.join(process.cwd(), 'node_modules/@earendil-works/pi-ai/dist/index.js'), parent, false);
+    }
     if (request === 'server-only') {
       return {};
     }
@@ -18,12 +22,12 @@ async function main() {
   };
 
   try {
+    const { replaceNextTurnContext } = await import('../app/lib/pi/next-turn-context');
     const { createBrowserGatewayTool } = await import('../app/lib/pi/browser/tool');
     const dormantBrowserTool = createBrowserGatewayTool({}, { mode: 'dormant' });
     const activeBrowserTool = createBrowserGatewayTool({}, { mode: 'active' });
 
     const nextTurn = replaceNextTurnContext({
-      systemPrompt: 'dormant browser schema',
       messages: [],
       tools: [dormantBrowserTool],
     }, {
@@ -32,7 +36,7 @@ async function main() {
     });
 
     assert.ok(nextTurn.context, 'the next agent turn must receive a replacement context');
-    assert.equal(nextTurn.context.systemPrompt, 'active browser schema');
+    assert.equal(getCurrentSystemPrompt(nextTurn.context.messages), 'active browser schema');
     assert.equal(nextTurn.context.tools?.[0], activeBrowserTool);
 
     const activeSchema = activeBrowserTool.parameters;

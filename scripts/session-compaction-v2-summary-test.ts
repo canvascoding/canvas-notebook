@@ -45,7 +45,10 @@ function silentStream(): AssistantMessageEventStream {
 async function main() {
   const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = internals._load;
-  internals._load = (request, parent, isMain) => request === 'server-only' ? {} : originalLoad(request, parent, isMain);
+  internals._load = (request, parent, isMain) => request === 'server-only' ? {}
+    : request === '@earendil-works/pi-ai'
+      ? originalLoad(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain)
+      : originalLoad(request, parent, isMain);
   try {
     const { summarizePiSessionHistory } = await import('../app/lib/pi/session-summary');
     const { PI_ROLLING_SUMMARY_CONTRACT } = await import('../app/lib/pi/compaction/summary-contract');

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
+import Module from 'node:module';
 
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
-import type { AssistantMessage, AssistantMessageEventStream, Model } from '@earendil-works/pi-ai';
+import { getCurrentSystemPrompt, type AssistantMessage, type AssistantMessageEventStream, type Model } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 
-import { generatePiRollingSummaryV2 } from '../app/lib/pi/compaction/summary-generator';
 import { samplePiCompactionSummaryRecords } from '../app/lib/pi/compaction/recovery';
 import { estimateTextTokens } from '../app/lib/pi/history-budget';
 
@@ -38,6 +38,12 @@ function sleep(milliseconds: number): Promise<void> {
 }
 
 async function main() {
+  const piLoader = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
+  const loadBeforePi = piLoader._load;
+  piLoader._load = (request, parent, isMain) => request === '@earendil-works/pi-ai'
+    ? loadBeforePi(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain)
+    : loadBeforePi(request, parent, isMain);
+  const { generatePiRollingSummaryV2 } = await import('../app/lib/pi/compaction/summary-generator');
   const records = Array.from({ length: 32 }, (_, index) => (
     `[message ${index + 1}] ${index === 31 ? 'NEWEST' : `record-${index + 1}`}\n${'detail '.repeat(300)}`
   ));
@@ -74,7 +80,7 @@ async function main() {
     previousSummaryText: null, messagesToSummarize: promptMessages, model, sessionId: 'prompt-preserves-sample',
     tailMode: 'lean',
     streamFn: async (_requestedModel, context) => {
-      sampledPrompt = String(context.messages[0]?.content ?? '');
+      sampledPrompt = String(context.messages.find((message) => message.role === 'user')?.content ?? '');
       return stream(response(body));
     },
   });
@@ -146,8 +152,8 @@ async function main() {
     streamFn: async (requestedModel, context) => {
       outputReserveMainCalls += 1;
       assert.equal(requestedModel.id, largeOutputMain.id);
-      const promptTokens = estimateTextTokens(context.systemPrompt ?? '')
-        + estimateTextTokens(String(context.messages[0]?.content ?? ''));
+      const promptTokens = estimateTextTokens(getCurrentSystemPrompt(context.messages) ?? '')
+        + estimateTextTokens(String(context.messages.find((message) => message.role === 'user')?.content ?? ''));
       assert.ok(
         largeOutputMain.contextWindow - largeOutputMain.maxTokens - 768 > promptTokens + 32,
         'the common prompt reserves the main model native output allowance',
