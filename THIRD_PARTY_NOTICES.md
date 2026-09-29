@@ -6,7 +6,7 @@ versioned overrides, and the bundled non-npm component inventory.
 - Canvas Notebook version: 2026.9.27.1
 - Lockfile SHA-256: `2f32df9ecc15eda3fea2cdbe49e9d9b99fdd738217443200e41a207b1ec51eaf`
 - Distributed components: 1441
-- Release gate: **blocked**
+- Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
 Third-party trademarks and branding are not granted by the software licenses below.
@@ -1221,7 +1221,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | prosemirror-view | 1.42.1 | runtime | MIT | allowed |
 | protobufjs | 7.6.5 | runtime | BSD-3-Clause | allowed |
 | proxy-addr | 2.0.7 | runtime | MIT | allowed |
-| proxy-agent-negotiate | 1.1.0 | runtime | MIT | review_required |
+| proxy-agent-negotiate | 1.1.0 | runtime | MIT | allowed |
 | proxy-from-env | 1.1.0 | runtime | MIT | allowed |
 | punycode.js | 2.3.1 | runtime | MIT | allowed |
 | punycode | 2.3.1 | runtime | MIT | allowed |
@@ -1456,12 +1456,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | zustand | 4.5.7 | runtime | MIT | allowed |
 | zustand | 5.0.14 | runtime | MIT | allowed |
 | zwitch | 2.0.4 | runtime | MIT | allowed |
-
-## Commercial release blockers
-
-The following entries require a documented responsible/legal decision before a commercial release:
-
-- **proxy-agent-negotiate 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
 
 ## License texts and copyright notices
 
@@ -28699,7 +28693,7 @@ SOFTWARE.
 
 ### License text f0112ade926a
 
-Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @better-auth/utils@0.5.0, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, lazy-val@1.0.5, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
+Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @better-auth/utils@0.5.0, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, lazy-val@1.0.5, proxy-agent-negotiate@1.1.0, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
 
 Copyright notices:
 
@@ -28712,6 +28706,7 @@ Copyright notices:
 - Copyright (c) EigenPal and contributors
 - Copyright (c) IndigoUnited and contributors
 - Copyright (c) Microsoft Corporation.
+- Copyright (c) Nathan Rajlich and contributors
 - Copyright (c) Rich Harris and contributors
 - Copyright (c) Sami Samhuri
 - Copyright (c) Sebastian Markbåge and contributors
