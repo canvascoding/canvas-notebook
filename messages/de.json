@@ -8556,6 +8556,11 @@
     "refreshingTimeline": "Timeline wird aktualisiert…",
     "retryTimeline": "Aktualisierung erneut versuchen",
     "comparisonViews": "Vergleichsansichten",
+    "diffLayout": {
+      "label": "Vergleichsanordnung",
+      "side_by_side": "Nebeneinander",
+      "stacked": "Untereinander"
+    },
     "currentDiffLabel": "Diff des aktuellen Dokuments",
     "candidateDiffLabel": "Diff der ausgewählten Version",
     "noDifferences": "Keine Unterschiede gefunden.",

@@ -204,6 +204,17 @@ async function main() {
   panes[0].scrollTop = 50;
   await act(async () => { panes[0].dispatchEvent(new Event('scroll', { bubbles: true })); });
   assert.equal(panes[1].scrollTop, 100, 'paired diff panes synchronize their relative scroll positions');
+  const layoutButton = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')]
+    .find((candidate) => candidate.textContent === label)!;
+  assert.equal(layoutButton('Side by side').getAttribute('aria-pressed'), 'true');
+  await act(async () => { layoutButton('Above and below').click(); });
+  assert.equal(document.querySelector('[data-diff-layout="stacked"]')?.getAttribute('data-synchronized-scroll'), 'false',
+    'stacked comparison disables paired vertical scrolling');
+  assert.equal(layoutButton('Above and below').getAttribute('aria-pressed'), 'true');
+  assert.match(document.querySelector('[data-diff-layout="stacked"]')?.textContent ?? '', /Current version[\s\S]*Old milestone[\s\S]*Version 7[\s\S]*New milestone/u,
+    'the full current and candidate hunks remain readable one above the other');
+  await act(async () => { layoutButton('Side by side').click(); });
+  assert.equal(document.querySelector('[data-diff-layout="side_by_side"]')?.getAttribute('data-synchronized-scroll'), 'true');
 
   const loadButton = [...document.querySelectorAll<HTMLButtonElement>('button')]
     .find((candidate) => /Load more changes/u.test(candidate.textContent ?? ''))!;

@@ -8557,6 +8557,11 @@
     "refreshingTimeline": "Refreshing timeline…",
     "retryTimeline": "Try refreshing again",
     "comparisonViews": "Comparison views",
+    "diffLayout": {
+      "label": "Comparison layout",
+      "side_by_side": "Side by side",
+      "stacked": "Above and below"
+    },
     "currentDiffLabel": "Current document diff",
     "candidateDiffLabel": "Selected version diff",
     "noDifferences": "No differences were found.",

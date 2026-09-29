@@ -43,6 +43,7 @@ import { GraphReviewComparison, type GraphReviewCardStatus } from './GraphReview
 
 type CandidateEntry = Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' | 'revision' }>;
 type TimelineRefreshState = 'idle' | 'refreshing' | 'confirmed_stale' | 'failed';
+type DiffLayout = 'side_by_side' | 'stacked';
 
 function selectionFor(entry: CandidateEntry) {
   return { kind: entry.kind, id: entry.id } as const;
@@ -61,17 +62,20 @@ function SynchronizedPanes({
   right,
   leftLabel,
   rightLabel,
+  layout,
 }: {
   left: ReactNode;
   right: ReactNode;
   leftLabel: string;
   rightLabel: string;
+  layout: DiffLayout;
 }) {
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const synchronizingRef = useRef<'left' | 'right' | null>(null);
 
   const synchronize = useCallback((side: 'left' | 'right', event: UIEvent<HTMLDivElement>) => {
+    if (layout === 'stacked') return;
     if (synchronizingRef.current && synchronizingRef.current !== side) return;
     const source = event.currentTarget;
     const target = side === 'left' ? rightRef.current : leftRef.current;
@@ -81,17 +85,19 @@ function SynchronizedPanes({
     const targetRange = Math.max(0, target.scrollHeight - target.clientHeight);
     target.scrollTop = (source.scrollTop / sourceRange) * targetRange;
     queueMicrotask(() => { synchronizingRef.current = null; });
-  }, []);
+  }, [layout]);
 
   return (
-    <div data-synchronized-scroll="true" className="grid min-h-0 grid-cols-1 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-2">
+    <div data-synchronized-scroll={layout === 'side_by_side'} data-diff-layout={layout}
+      className={cn('grid min-h-0 grid-cols-1 gap-px overflow-hidden rounded-lg border bg-border', layout === 'side_by_side' && 'md:grid-cols-2')}>
       <div
         ref={leftRef}
         tabIndex={0}
         role="region"
         aria-label={leftLabel}
         onScroll={(event) => synchronize('left', event)}
-        className="max-h-[48dvh] min-w-0 overflow-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn('min-w-0 overflow-x-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+          layout === 'side_by_side' && 'max-h-[48dvh] overflow-y-auto')}
       >
         {left}
       </div>
@@ -101,7 +107,8 @@ function SynchronizedPanes({
         role="region"
         aria-label={rightLabel}
         onScroll={(event) => synchronize('right', event)}
-        className="max-h-[48dvh] min-w-0 overflow-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn('min-w-0 overflow-x-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+          layout === 'side_by_side' && 'max-h-[48dvh] overflow-y-auto')}
       >
         {right}
       </div>
@@ -224,6 +231,8 @@ function LoadedComparison({
   timelineStale,
   onTimelineInvalidate,
   onContinue,
+  diffLayout,
+  onDiffLayoutChange,
 }: {
   request: FileVersionCenterRequestV1;
   current: Extract<FileVersionTimelineEntryV1, { kind: 'current' }>;
@@ -234,6 +243,8 @@ function LoadedComparison({
   timelineStale: boolean;
   onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
   onContinue: () => void;
+  diffLayout: DiffLayout;
+  onDiffLayoutChange: (layout: DiffLayout) => void;
 }) {
   const t = useTranslations('fileVersionCenter');
   const [snapshot, setSnapshot] = useState<{ identity: string; payload: FileVersionComparePayload } | null>(null);
@@ -466,6 +477,18 @@ function LoadedComparison({
           <TabsContent value="changes" className="min-h-0 overflow-auto p-3 sm:p-4">
             {payload.response.hunks.length > 0 ? (
               <>
+                <div role="group" aria-label={t('diffLayout.label')}
+                  className="mb-3 hidden items-center justify-end gap-1 md:flex">
+                  <span className="mr-1 text-xs text-muted-foreground">{t('diffLayout.label')}</span>
+                  {(['side_by_side', 'stacked'] as const).map((layout) => <Button
+                    key={layout}
+                    type="button"
+                    variant={diffLayout === layout ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={diffLayout === layout}
+                    onClick={() => onDiffLayoutChange(layout)}
+                  >{t(`diffLayout.${layout}`)}</Button>)}
+                </div>
                 <div className="md:hidden"><UnifiedDiff hunks={payload.response.hunks} /></div>
                 <div className="hidden md:block">
                   <SynchronizedPanes
@@ -473,6 +496,7 @@ function LoadedComparison({
                     right={<DiffSide hunks={payload.response.hunks} side="candidate" heading={selectedTitle} />}
                     leftLabel={t('currentDiffLabel')}
                     rightLabel={t('candidateDiffLabel')}
+                    layout={diffLayout}
                   />
                 </div>
               </>
@@ -612,6 +636,7 @@ export function FileVersionComparison({
   isStale?: boolean;
 }) {
   const t = useTranslations('fileVersionCenter');
+  const [diffLayout, setDiffLayout] = useState<DiffLayout>('side_by_side');
   const current = timeline.entries.find((entry) => entry.kind === 'current');
   const currentRevision = matchingCurrentRevision(timeline.entries);
   const selected = selection.entry;
@@ -669,6 +694,8 @@ export function FileVersionComparison({
             timelineStale={isStale}
             onTimelineInvalidate={onTimelineInvalidate}
             onContinue={onContinue}
+            diffLayout={diffLayout}
+            onDiffLayoutChange={setDiffLayout}
           /> : <EmptyComparison
             icon={<RefreshCw className="size-4" aria-hidden="true" />}
             title={t('currentUnavailable')}
@@ -717,6 +744,8 @@ export function FileVersionComparison({
           timelineStale={isStale}
           onTimelineInvalidate={onTimelineInvalidate}
           onContinue={onContinue}
+          diffLayout={diffLayout}
+          onDiffLayoutChange={setDiffLayout}
         />
       )}
     </main>
