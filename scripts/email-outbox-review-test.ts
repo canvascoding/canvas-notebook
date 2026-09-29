@@ -61,6 +61,25 @@ async function main() {
     const fixedManual = await compose.updateBrowserEmailDraft('reviewer', failedManual.id, { accountId: 'account', mailboxWorkspaceId: 'workspace', expectedVersion: failedManual.version, to: ['allowed@example.test'], subject: 'Manual browser send', body: 'Recovered' });
     const sentManual = await compose.sendBrowserEmailDraft('reviewer', failedManual.id, { accountId: 'account', mailboxWorkspaceId: 'workspace', expectedVersion: Number((fixedManual as { draft: { version: number } }).draft.version) });
     assert.equal((sentManual as { sentByUserId: string }).sentByUserId, 'reviewer'); assert.equal((sentManual as { status: string }).status, 'sent'); assert.equal(browserTransportCalls, 1);
+    for (const scope of ['personal', 'workspace'] as const) {
+      const draftId = `agent-revision-${scope}`;
+      await db.insert(emailDrafts).values({
+        id: draftId, userId: 'owner', accountId: 'account', workspaceId: scope === 'workspace' ? 'workspace' : null,
+        mailboxId: scope === 'workspace' ? 'mailbox' : null, origin: 'agent', outboxStatus: 'awaiting_review',
+        version: 1, subject: 'Original', body: '<p>Original</p>', isHtml: true,
+        toJson: '["allowed@example.test"]', ccJson: '[]', bccJson: '[]', createdAt: now, updatedAt: now,
+      });
+      const update = (expectedVersion: number, actor: 'agent' | 'human') => {
+        const input = { userId: scope === 'workspace' ? 'reviewer' : 'owner', draftId, expectedVersion, actor,
+          subject: 'Revised', body: '<p>Revised</p>', to: ['allowed@example.test'] };
+        return scope === 'workspace' ? outbox.updateWorkspaceOutboxDraft({ ...input, workspaceId: 'workspace' }) : outbox.updatePersonalOutboxDraft(input);
+      };
+      const revised = await update(1, 'agent');
+      assert.equal(revised.version, 2);
+      await assert.rejects(update(1, 'agent'), /changed.*Reload/u);
+      const humanRevision = await update(revised.version, 'human');
+      await assert.rejects(update(humanRevision.version, 'agent'), /reviewed by a person/u);
+    }
     let serial = 0;
     for (const scope of ['personal', 'workspace', 'human'] as const) {
       const identity = scope === 'personal' ? { userId: 'owner' } : { userId: 'reviewer', workspaceId: 'workspace' };

@@ -17,6 +17,8 @@ import {
   createPersonalOutboxDraft,
   createWorkspaceInboxCase,
   createWorkspaceOutboxDraft,
+  findPersonalOutboxDraft,
+  findWorkspaceOutboxDraft,
   listPersonalInboxCases,
   listPersonalOutboxDrafts,
   listWorkspaceInboxCases,
@@ -428,22 +430,39 @@ export function createEmailAgentTools(context: EmailAgentToolsContext = {}): Age
       },
     },
     {
-      name: 'email_update_outbox_draft', label: 'Update email Outbox draft', description: 'Updates an Outbox draft for human review. It never sends email. Replaces attachments with new workspace-file snapshots when attachments are provided.',
-      parameters: Type.Object({ ...mailboxParameter, draftId: Type.String({ minLength: 1 }), expectedVersion: Type.Number({ minimum: 1 }), to: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }), cc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), bcc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), subject: Type.String({ minLength: 1 }), bodyMarkdown: Type.Optional(Type.String({ minLength: 1, description: 'Preferred: Markdown email body. Formatting is shown in the review editor.' })), body: Type.Optional(Type.String({ minLength: 1, description: 'Legacy plain-text email body.' })), bodyHtml: Type.Optional(Type.String({ description: 'Legacy HTML email body.' })), attachments: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1, description: 'Workspace-relative path of a file to attach.' }), name: Type.Optional(Type.String({ minLength: 1 })), deliveryFormat: Type.Optional(Type.Union([Type.Literal('original'), Type.Literal('pdf')])) }))) }),
+      name: 'email_update_outbox_draft', label: 'Update email Outbox draft', description: 'Revises a listed Outbox draft for human review. Use its draftId and version; include only changed fields. It never sends email.',
+      parameters: Type.Object({ ...mailboxParameter, draftId: Type.String({ minLength: 1 }), expectedVersion: Type.Number({ minimum: 1 }), to: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })), cc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), bcc: Type.Optional(Type.Array(Type.String({ minLength: 1 }))), subject: Type.Optional(Type.String({ minLength: 1 })), bodyMarkdown: Type.Optional(Type.String({ minLength: 1, description: 'Markdown replacement for the email body.' })), body: Type.Optional(Type.String({ minLength: 1, description: 'Legacy plain-text email body.' })), bodyHtml: Type.Optional(Type.String({ description: 'Legacy HTML email body.' })), attachments: Type.Optional(Type.Array(Type.Object({ path: Type.String({ minLength: 1, description: 'Workspace-relative path of a file to attach.' }), name: Type.Optional(Type.String({ minLength: 1 })), deliveryFormat: Type.Optional(Type.Union([Type.Literal('original'), Type.Literal('pdf')])) }))) }),
       execute: async (_toolCallId, params) => {
         try {
-          const value = params as { mailboxWorkspaceId?: string; mailboxId?: string; draftId: string; expectedVersion: number; to: string[]; cc?: string[]; bcc?: string[]; subject: string; bodyMarkdown?: string; body?: string; bodyHtml?: string; attachments?: Array<{ path: string; name?: string; deliveryFormat?: 'original' | 'pdf' }> };
-          const emailBody = agentOutboxBody(value);
+          const value = params as { mailboxWorkspaceId?: string; mailboxId?: string; draftId: string; expectedVersion: number; to?: string[]; cc?: string[]; bcc?: string[]; subject?: string; bodyMarkdown?: string; body?: string; bodyHtml?: string; attachments?: Array<{ path: string; name?: string; deliveryFormat?: 'original' | 'pdf' }> };
+          const hasBody = value.bodyMarkdown !== undefined || value.body !== undefined || value.bodyHtml !== undefined;
+          if (!hasBody && value.to === undefined && value.cc === undefined && value.bcc === undefined && value.subject === undefined && value.attachments === undefined) {
+            throw new Error('Provide at least one field to update.');
+          }
           const mailbox = await requireMailbox(context, value.mailboxId, value.mailboxWorkspaceId);
+          const current = mailbox.kind === 'workspace'
+            ? await findWorkspaceOutboxDraft(requireUser(context), mailbox.workspaceId!, value.draftId)
+            : await findPersonalOutboxDraft(requireUser(context), value.draftId);
+          if (!current || current.accountId !== mailbox.accountId || (mailbox.kind === 'workspace' && current.mailboxId !== mailbox.id)) {
+            throw new Error('Outbox draft not found in the selected mailbox.');
+          }
+          if (current.version !== value.expectedVersion) throw new Error('This outbox draft has changed. Reload it before saving.');
+          const emailBody = hasBody ? agentOutboxBody(value) : { body: current.body, bodyHtml: current.isHtml ? current.body : undefined };
           const attachments = value.attachments === undefined
             ? undefined
             : await snapshotAgentWorkspaceEmailAttachments(
               value.attachments.map((attachment) => ({ ...attachment, source: 'workspace' as const })),
               requireUser(context),
             );
+          const update = {
+            draftId: value.draftId, expectedVersion: value.expectedVersion,
+            to: value.to ?? current.to, cc: value.cc ?? current.cc, bcc: value.bcc ?? current.bcc,
+            subject: value.subject ?? current.subject, ...emailBody, attachments,
+            status: 'awaiting_review' as const, actor: 'agent' as const,
+          };
           const draft = mailbox.kind === 'workspace'
-            ? await updateWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, ...value, ...emailBody, attachments, status: 'awaiting_review', actor: 'agent' })
-            : await updatePersonalOutboxDraft({ userId: requireUser(context), ...value, ...emailBody, attachments, status: 'awaiting_review', actor: 'agent' });
+            ? await updateWorkspaceOutboxDraft({ userId: requireUser(context), workspaceId: mailbox.workspaceId!, ...update })
+            : await updatePersonalOutboxDraft({ userId: requireUser(context), ...update });
           return result(draft, false, mailboxUiIntent(mailbox, 'review-draft', {
             draftId: draft.id,
             subject: draft.subject,
