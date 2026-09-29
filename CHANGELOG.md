@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.29.1] - 2026-09-29
+
+### Added
+
+- Added graph-aware document review with batch decisions, durable proposal recovery, and safer collaboration lifecycle handoffs.
+- Added managed Team Seat lifecycle, invitation, license recovery, and owner notification workflows.
+- Added agent workspace operation review, subagent lifecycle controls, admin-managed dictation, and reviewed email drafting.
+
+### Changed
+
+- Improved file version comparisons, mobile review, chat loading, workspace file operations, and agent context handling.
+- Updated the Pi agent SDK and transcript migration, and hardened collaboration persistence across process and ownership changes.
+
+### Fixed
+
+- Fixed review of unopened new documents and preserved correct review state across edits, restores, and concurrent collaboration.
+- Fixed visible-chat unread notifications, email draft updates, and multiple managed-license recovery edge cases.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.27.1] - 2026-09-27
 
 ### Added

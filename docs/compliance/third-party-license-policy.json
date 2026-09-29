@@ -105,6 +105,36 @@
       "licensePath": "LICENSE",
       "reason": "The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/nested-clients/package.json at version 3.997.42 and the repository Apache-2.0 license."
     },
+    "@earendil-works/chord@0.87.1": {
+      "repositoryUrl": "https://github.com/earendil-works/pi",
+      "revision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+      "licensePath": "LICENSE",
+      "reason": "The exact npm package omits LICENSE. The immutable v0.87.1 release commit contains packages/chord/package.json declaring MIT and the repository MIT license."
+    },
+    "@earendil-works/pi-agent-core@0.87.1": {
+      "repositoryUrl": "https://github.com/earendil-works/pi",
+      "revision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+      "licensePath": "LICENSE",
+      "reason": "The exact npm package omits LICENSE. The immutable v0.87.1 release commit contains packages/agent/package.json declaring MIT and the repository MIT license."
+    },
+    "@earendil-works/pi-ai@0.87.1": {
+      "repositoryUrl": "https://github.com/earendil-works/pi",
+      "revision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+      "licensePath": "LICENSE",
+      "reason": "The exact npm package omits LICENSE. The immutable v0.87.1 release commit contains packages/ai/package.json declaring MIT and the repository MIT license."
+    },
+    "@earendil-works/pi-telemetry@0.87.1": {
+      "repositoryUrl": "https://github.com/earendil-works/pi",
+      "revision": "f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
+      "licensePath": "LICENSE",
+      "reason": "The exact npm package omits LICENSE. The immutable v0.87.1 release commit contains packages/telemetry/package.json declaring MIT and the repository MIT license."
+    },
+    "@esbuild/darwin-arm64@0.28.2": {
+      "repositoryUrl": "https://github.com/evanw/esbuild",
+      "revision": "609683d892977362a0f99026cb74b96263d728a9",
+      "licensePath": "LICENSE.md",
+      "reason": "The exact npm binary package omits LICENSE. The immutable v0.28.2 release commit contains npm/esbuild/darwin-arm64/package.json declaring MIT and the repository MIT license."
+    },
     "@next/swc-win32-arm64-msvc@16.2.10": {
       "repositoryUrl": "https://github.com/vercel/next.js",
       "revision": "9dadfd693c5d26bb3c85d1c17802f49dde244b3e",
