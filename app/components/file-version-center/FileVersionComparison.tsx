@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { useLocale, useTranslations } from 'next-intl';
 
 import { InertMarkdownPreview } from '@/app/components/shared/InertMarkdownPreview';
+import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -249,6 +250,8 @@ function LoadedComparison({
   const t = useTranslations('fileVersionCenter');
   const [snapshot, setSnapshot] = useState<{ identity: string; payload: FileVersionComparePayload } | null>(null);
   const payload = snapshot?.payload ?? null;
+  const markdownPreviewDocument = useMemo(() => payload?.preview.format === 'markdown'
+    ? parseCanvasMarkdownDocument(payload.preview.candidate ?? '') : null, [payload]);
   const [error, setError] = useState<FileVersionCenterClientError | Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [retryVersion, setRetryVersion] = useState(0);
@@ -529,12 +532,22 @@ function LoadedComparison({
                 ) : null}
               </div>
               {payload.preview.format === 'markdown' ? (
-                <InertMarkdownPreview
-                  content={payload.preview.candidate ?? ''}
-                  imageLabel={t('blockedImage')}
-                  linkLabel={t('blockedLink')}
-                  className="canvas-document-reading text-sm leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:text-lg [&_h3]:font-semibold [&_p+p]:mt-3 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:bg-muted/30 [&_pre]:p-3"
-                />
+                <>
+                  {markdownPreviewDocument?.frontmatter && !markdownPreviewDocument.error ? (
+                    <details className="mb-4 rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                      <summary className="cursor-pointer font-medium">{t('previewProperties')}</summary>
+                      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono leading-5 text-muted-foreground">{markdownPreviewDocument.frontmatter.raw}</pre>
+                    </details>
+                  ) : null}
+                  <InertMarkdownPreview
+                    content={markdownPreviewDocument?.frontmatter && !markdownPreviewDocument.error
+                      ? markdownPreviewDocument.body : payload.preview.candidate ?? ''}
+                    imageLabel={t('blockedImage')}
+                    linkLabel={t('blockedLink')}
+                    tableLabel={t('previewScrollableTable')}
+                    className="canvas-document-reading text-sm leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:text-lg [&_h3]:font-semibold [&_p+p]:mt-3 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:bg-muted/30 [&_pre]:p-3"
+                  />
+                </>
               ) : (
                 <pre className="whitespace-pre-wrap break-words rounded-lg border bg-muted/20 p-4 text-sm">{payload.preview.candidate}</pre>
               )}

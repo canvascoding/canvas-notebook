@@ -78,7 +78,30 @@ const timeline: FileVersionTimelineResponseV1 = {
 };
 
 const largeTail = `COMPLETE-CANDIDATE-TAIL-${'x'.repeat(120_000)}`;
-const unsafeCandidate = `# Result\n\n[External](https://tracking.test/link)\n\n![Pixel](https://tracking.test/pixel.png)\n\n<iframe src="https://tracking.test/frame"></iframe>\n\n${largeTail}`;
+const unsafeCandidate = String.raw`---
+title: Review Plan
+tags: [review]
+---
+
+# Result
+
+| No. | Title | Handle | Genre | Status | Folder |
+| ---: | --- | --- | --- | :---: | --- |
+| 01 | A long article title | article-one | Guide | Ready | 01_article-one/ |
+
+Inline $E = mc^2$.
+
+$$
+\int_0^1 x^2\,dx
+$$
+
+[External](https://tracking.test/link)
+
+![Pixel](https://tracking.test/pixel.png)
+
+<iframe src="https://tracking.test/frame"></iframe>
+
+${largeTail}`;
 
 const firstHunk = {
   id: 'hunk-one', oldStart: 1, oldLines: 2, newStart: 1, newLines: 2,
@@ -232,6 +255,18 @@ async function main() {
   const preview = document.querySelector('[data-external-requests="blocked"]')!;
   assert.ok(preview.textContent?.includes('COMPLETE-CANDIDATE-TAIL-'));
   assert.ok(preview.textContent?.endsWith('x'.repeat(100)), 'the full admitted candidate reaches the preview tail');
+  const tableRegion = document.querySelector<HTMLElement>('[role="region"][aria-label="Scrollable document table"]');
+  assert.ok(tableRegion);
+  assert.ok(tableRegion.className.includes('overflow-x-auto') && tableRegion.querySelectorAll('th').length === 6,
+    'wide GFM tables scroll within their own labelled region instead of squeezing columns');
+  assert.equal(tableRegion.querySelector('th')?.style.minWidth, '9rem');
+  assert.equal(tableRegion.querySelector('th')?.style.textAlign, 'right', 'GFM column alignment remains visible');
+  assert.ok(preview.querySelector('.katex') && preview.querySelector('.katex-display'),
+    'inline and block formulas use the same KaTeX pipeline as the document reader');
+  assert.ok([...document.querySelectorAll('details summary')].some((summary) => summary.textContent === 'Document properties'),
+    'document frontmatter is separated from the rendered body');
+  assert.doesNotMatch(preview.textContent ?? '', /Review Plan/u,
+    'raw YAML is not accidentally rendered as document prose');
   assert.equal(preview.querySelectorAll('a, img, iframe, script, [href], [src]').length, 0,
     'preview markdown cannot create active links, request-bearing images, frames or scripts');
   await act(async () => { tab('Preview').focus(); });
@@ -450,6 +485,9 @@ async function main() {
     'the existing collaboration markdown preview remains inert after renderer extraction');
   assert.match(document.body.textContent ?? '', /agentPreviewExactText/u,
     'the existing exact-source review remains present');
+  assert.ok(document.querySelector('[role="region"][aria-label="agentPreviewScrollableTable"] table th'),
+    'the in-editor agent preview also receives scrollable Markdown tables');
+  assert.ok(document.querySelector('.katex-display'), 'the in-editor agent preview retains block formulas');
   await act(async () => compatibilityRoot.unmount());
   console.log('file-version-center-comparison-test: ok');
 }
