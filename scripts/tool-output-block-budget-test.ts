@@ -90,6 +90,26 @@ async function main() {
     assert.ok(!/[\uD800-\uDBFF]$/u.test(visibleReadBody));
     assert.match(toolText(read), new RegExp(`nextOffset: ${readDetails.nextOffset};`));
 
+    // A completed write can carry more than 6k tokens of arguments. Its result
+    // still needs to reach the model without executing the write a second time.
+    const writeBody = 'Campaign paragraph. '.repeat(1_600);
+    const writeAssistant: Extract<AgentMessage, { role: 'assistant' }> = {
+      ...assistant,
+      content: [{ type: 'toolCall', name: 'create_file', id: 'write-once',
+        arguments: { path: 'campaigns/first.md', content: writeBody } }],
+    };
+    const writeResult: ToolMessage = {
+      ...(messages[4] as ToolMessage), toolCallId: 'write-once', toolName: 'create_file',
+      content: [{ type: 'text', text: 'Created campaigns/first.md' }],
+    };
+    const writeRound: AgentMessage[] = [writeAssistant, writeResult];
+    assert.ok(estimatePiTextTokens(JSON.stringify({ role: 'assistant', content: writeAssistant.content })) > 6_000);
+    const projectedWriteRound = projectToolOutputBlocks(writeRound, model(262_144));
+    assert.equal((projectedWriteRound[0] as typeof writeAssistant).content[0].type, 'toolCall');
+    assert.equal((projectedWriteRound[0] as typeof writeAssistant).content[0].arguments.content, writeBody);
+    assert.equal((projectedWriteRound[1] as ToolMessage).toolCallId, 'write-once');
+    assert.equal((writeAssistant.content[0] as { arguments: { content: string } }).arguments.content, writeBody);
+
     assert.deepEqual(projectToolOutputBlocks(first, baseModel).map(message => 'content' in message ? message.content : undefined), first.map(message => 'content' in message ? message.content : undefined), 'provider projection is idempotent');
     const resumed = messages.map(message => parsePersistedPiMessage(JSON.stringify(projectAgentMessageForPersistence(message))));
     assert.deepEqual(projectToolOutputBlocks(resumed, baseModel).map(message => 'content' in message ? message.content : undefined), first.map(message => 'content' in message ? message.content : undefined), 'persisted and active views match');
