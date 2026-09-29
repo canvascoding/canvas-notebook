@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire, registerHooks } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSync } from 'esbuild';
 
 const filename = fileURLToPath(import.meta.url);
@@ -45,7 +45,9 @@ if (!process.argv.includes('--probe')) {
     originalError(...args);
   };
   const hooks = registerHooks({ load(url, context, nextLoad) {
-    if (/\/yjs\/dist\/yjs\.(?:cjs|mjs)$/.test(url)) loadedYjs.add(url);
+    if (/\/yjs\/dist\/yjs\.(?:cjs|mjs)$/.test(url)) {
+      loadedYjs.add(url);
+    }
     return nextLoad(url, context);
   } });
   const documents = [];
@@ -81,25 +83,19 @@ if (!process.argv.includes('--probe')) {
       return matches[0];
     };
     const { validateRichMarkdownYDoc } = await builtExports('validateRichMarkdownYDoc');
-    // The custom WebSocket host loads TypeScript/CJS while Next can use native
-    // ESM externals. Build fixtures through that host's source entry points and
-    // validate them through the already loaded, production-compiled endpoint.
+    // The custom WebSocket host and the Next server route use the shared CJS
+    // runtime from server-runtime.ts. Build fixtures through that host's source
+    // entry points and validate them through the production-compiled endpoint.
     unregisterTs = require('tsx/cjs/api').register();
     const markdown = require('../app/lib/collaboration/markdown-state.ts');
     const { CollaborationBlockTree } = require('../app/lib/collaboration/block-tree.ts');
     const { getSchema } = require('@tiptap/core');
     const schema = getSchema(markdown.richMarkdownSchemaExtensions());
     const Y = require('yjs');
-    const esmY = await import('yjs');
-    for (const name of ['Doc', 'AbstractType', 'XmlElement', 'XmlText', 'Map', 'Array']) {
-      assert.equal(esmY[name], Y[name], `Node ESM/CJS must share Yjs.${name}`);
-    }
     const xml = markdown.createRichMarkdownYDoc('# Title\n\nAlpha\n\nBeta'); documents.push(xml);
     assert(xml instanceof Y.Doc, 'the built transformer and endpoint must share Yjs constructors');
-    assert.deepEqual((await import('@tiptap/y-tiptap')).yXmlFragmentToProsemirrorJSON(xml.getXmlFragment('body')),
-      require('@tiptap/y-tiptap').yXmlFragmentToProsemirrorJSON(xml.getXmlFragment('body')),
-      'native ESM and CJS adapters must read the same XML objects');
-    assert.equal(validateRichMarkdownYDoc(xml).valid, true, 'built XML conversion retains text and structure');
+    const initialValidation = validateRichMarkdownYDoc(xml);
+    assert.equal(initialValidation.valid, true, `built XML conversion retains text and structure: ${JSON.stringify(initialValidation)}; modules=${[...loadedYjs].join(', ')}`);
     const left = markdown.convertRichMarkdownYDoc(xml, 'tiptap_blocks'); documents.push(left);
     const right = new Y.Doc(); documents.push(right); Y.applyUpdate(right, Y.encodeStateAsUpdate(left));
     const a = new CollaborationBlockTree(left, schema);
@@ -134,7 +130,8 @@ if (!process.argv.includes('--probe')) {
       assert.equal(validateRichMarkdownYDoc(fixture).valid, true, 'the built checkpoint accepts preserved nested block structures');
       assert.deepEqual(Y.encodeStateAsUpdate(fixture), saved, 'nested block validation is read-only');
     }
-    assert.equal(loadedYjs.size, 1, `Production loaded multiple Yjs modules: ${[...loadedYjs].join(', ')}`);
+    assert.deepEqual([...loadedYjs], [pathToFileURL(require.resolve('yjs')).href],
+      `The production CJS graph must load exactly its shared Yjs module: ${[...loadedYjs].join(', ')}`);
     assert.deepEqual(duplicateWarnings, []);
     console.log('Browser ESM is preserved. Node and built checkpoint modules share one Yjs instance; XML/block validation, concurrent move/text editing and binary reload preserve identity and content.');
   } finally {

@@ -1,5 +1,6 @@
 import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from "next";
+import path from 'node:path';
 import createNextIntlPlugin from 'next-intl/plugin';
 import packageJson from './package.json';
 
@@ -52,6 +53,9 @@ const nextConfig: NextConfig = {
 
   // Wichtig für native Server-Pakete: Als external markieren im Server Bundle
   webpack: (config, { isServer }) => {
+    config.resolve.alias['@/app/lib/collaboration/yjs-runtime'] = path.resolve(
+      process.cwd(), `app/lib/collaboration/yjs-runtime${isServer ? '' : '.browser'}`,
+    );
     if (isServer) {
       config.externals.push(...externalPackages);
     }
@@ -66,6 +70,11 @@ const nextConfig: NextConfig = {
     '/api/files/download': ['./data/**/*', './next.config.ts'],
   },
   turbopack: {
+    resolveAlias: {
+      '@/app/lib/collaboration/yjs-runtime': {
+        browser: './app/lib/collaboration/yjs-runtime.browser',
+      },
+    },
     ignoreIssue: [
       {
         path: /next\.config\.ts$/,
