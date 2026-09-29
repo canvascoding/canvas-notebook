@@ -22,7 +22,11 @@ async function main() {
     if (request === 'server-only') return {};
     if ((request.startsWith('.') || request.startsWith('@/')) && request.endsWith('/auth')) return { auth: {} };
     if (request === '@earendil-works/pi-agent-core') return { Agent: class Agent {} };
-    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return {
+      getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined,
+      toToolDeclaration: (tool: unknown) => tool,
+      createInitialSystemMessage: (systemPrompt: string) => ({ role: 'system', content: systemPrompt, timestamp: 0 }),
+    };
     return originalLoad(request, parent, isMain);
   };
   try {
@@ -69,8 +73,7 @@ async function main() {
     const smallDrafts = planToolOutputBlockViews(messages, baseModel).drafts;
     const allocatedBefore = smallDrafts.map(draft => draft.view.text.length);
     for (const draft of smallDrafts) assert.ok(draft.view.estimatedTokens <= 800);
-    const assistantCost = estimatePiTextTokens(JSON.stringify({ role: 'assistant', content: assistant.content }));
-    assert.ok(smallDrafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, assistantCost) <= 2_400);
+    assert.ok(smallDrafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, 0) <= 2_400);
     assert.match(toolText(first[2] as ToolMessage), /\[S3\]/);
     assert.match(toolText(first[3] as ToolMessage), /\[S2\]/);
     for (let index = 4; index < 10; index++) {
@@ -126,7 +129,7 @@ async function main() {
         const view = projectToolOutputBlocks(resumed, effectiveModel);
         const drafts = planToolOutputBlockViews(resumed, effectiveModel).drafts;
         assert.ok(drafts.every(draft => draft.view.estimatedTokens <= Math.floor(contextWindow * 0.05)));
-        assert.ok(drafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, assistantCost) <= Math.min(6_000, Math.floor(contextWindow * 0.15)));
+        assert.ok(drafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, 0) <= Math.min(6_000, Math.floor(contextWindow * 0.15)));
         const texts = view.filter((message): message is ToolMessage => message.role === 'toolResult').map(toolText);
         if (comparableText) assert.deepEqual(texts, comparableText, 'provider names do not change budgeting');
         comparableText = texts;
@@ -154,7 +157,7 @@ async function main() {
       const candidate = await runtime.transformContext(structuredClone(resumed));
       const sent = await runtime.prepareFinalPayload(candidate);
       const canonical = await preparePiFinalPayload({ messages: candidate, model: effectiveModel, effectiveInstructions: [{ role: 'system', content: 'system instructions' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
-      assert.deepEqual(sent, canonical.messages, 'real LivePiRuntime sends the canonical bounded view');
+      assert.deepEqual(sent.filter(message => message.role !== 'system'), canonical.messages, 'real LivePiRuntime sends the canonical bounded view');
       const measured = await measurePiContextStatus(runtime.lastComposition, { messages: candidate, model: effectiveModel,
         effectiveInstructions: [{ role: 'system', content: 'system instructions' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
       assert.equal(measured.components?.messages, canonical.budgetSnapshot.serializedMessageTokens, 'context status measures the same provider messages');

@@ -8,7 +8,7 @@ import { headTailToolText } from './tool-output-format';
 import { resizeTextReadResult } from './text-read-result';
 import { TOOL_OUTPUT_BLOCK_MAX_CONTEXT_FRACTION, TOOL_OUTPUT_BLOCK_MAX_TOKENS, TOOL_OUTPUT_SMALL_MODEL_MAX_CONTEXT_FRACTION } from './tool-output-policy';
 
-export const TOOL_OUTPUT_VIEW_POLICY = 'tool-block-v1';
+export const TOOL_OUTPUT_VIEW_POLICY = 'tool-block-v2';
 export type ToolOutputBudgetModel = Pick<Model<Api>, 'id' | 'provider' | 'contextWindow'>;
 type ToolResultMessage = Extract<AgentMessage, { role: 'toolResult' }>;
 export type ToolOutputModelView = {
@@ -173,8 +173,10 @@ export function planToolOutputBlockViews(messages: AgentMessage[], model: ToolOu
     if (calls.length !== results.length || calls.some(call => results.filter(result => result.toolCallId === call.id).length !== 1)) continue;
     if (!results.some(result => getToolOutputMetadata(result.details) || detailsOf(result).toolOutputReadWindow)) continue;
     const blockKey = digest(calls);
-    const assistantTokens = estimatePiTextTokens(JSON.stringify({ role: 'assistant', content: assistant.content.filter(part => part.type !== 'thinking') }));
-    const available = Math.max(0, blockLimit - assistantTokens);
+    // Tool-call arguments are the canonical execution record. Budget result
+    // bodies separately, as the final provider payload already accounts for
+    // the full assistant call (including large write arguments).
+    const available = blockLimit;
     const applied = results.map(result => detailsOf(result).toolOutputView as ToolOutputModelView | undefined);
     if (applied.every((view, index) => view?.version === 1 && view.policyVersion === TOOL_OUTPUT_VIEW_POLICY
       && view.modelKey === modelKey && view.blockKey === blockKey && view.text === textOf(results[index])
@@ -193,7 +195,7 @@ export function planToolOutputBlockViews(messages: AgentMessage[], model: ToolOu
     const minimumTotal = minimum.reduce((total, value) => total + value, 0);
     const oversizedMinimum = minimum.find(value => value > resultLimit);
     if (oversizedMinimum !== undefined) throw new ToolOutputBlockBudgetError(oversizedMinimum, resultLimit, 'result');
-    if (minimumTotal > available) throw new ToolOutputBlockBudgetError(minimumTotal + assistantTokens, blockLimit);
+    if (minimumTotal > available) throw new ToolOutputBlockBudgetError(minimumTotal, blockLimit);
     const desired = results.map((result, index) => Math.max(minimum[index], Math.min(resultLimit, textCost(result, textOf(result)))));
     const allocation = allocate(desired, minimum, available);
     results.forEach((result, index) => {
