@@ -198,6 +198,12 @@ export async function patchChatSessions(
   });
   const data = await safeFetchJson<PatchChatSessionsResponse>(res);
   if (data?.success) void invalidateChatQueries('workspaceId' in payload && typeof payload.workspaceId === 'string' ? payload.workspaceId : null, scope);
+  const updatesReadState = ('markAsRead' in payload && payload.markAsRead === true)
+    || ('markAsUnread' in payload && payload.markAsUnread === true)
+    || ('markAllAsRead' in payload && payload.markAllAsRead === true);
+  if (updatesReadState && typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+  }
   return data;
 }
 

@@ -12,9 +12,10 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { InertMarkdownPreview } from '@/app/components/shared/InertMarkdownPreview';
+import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadata';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -34,7 +35,7 @@ import {
 } from '@/app/lib/file-version-center/compare-client';
 import { FileVersionCenterClientError } from '@/app/lib/file-version-center/client';
 import type { FileVersionMutation } from '@/app/lib/file-version-center/action-client';
-import type { FileVersionTimelineSelection } from '@/app/lib/file-version-center/timeline-state';
+import { matchingCurrentRevision, type FileVersionTimelineSelection } from '@/app/lib/file-version-center/timeline-state';
 import { cn } from '@/lib/utils';
 
 import { FileVersionLoadingSkeleton } from './FileVersionLoadingSkeleton';
@@ -43,6 +44,7 @@ import { GraphReviewComparison, type GraphReviewCardStatus } from './GraphReview
 
 type CandidateEntry = Extract<FileVersionTimelineEntryV1, { kind: 'agent_operation' | 'revision' }>;
 type TimelineRefreshState = 'idle' | 'refreshing' | 'confirmed_stale' | 'failed';
+type DiffLayout = 'side_by_side' | 'stacked';
 
 function selectionFor(entry: CandidateEntry) {
   return { kind: entry.kind, id: entry.id } as const;
@@ -61,17 +63,20 @@ function SynchronizedPanes({
   right,
   leftLabel,
   rightLabel,
+  layout,
 }: {
   left: ReactNode;
   right: ReactNode;
   leftLabel: string;
   rightLabel: string;
+  layout: DiffLayout;
 }) {
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
   const synchronizingRef = useRef<'left' | 'right' | null>(null);
 
   const synchronize = useCallback((side: 'left' | 'right', event: UIEvent<HTMLDivElement>) => {
+    if (layout === 'stacked') return;
     if (synchronizingRef.current && synchronizingRef.current !== side) return;
     const source = event.currentTarget;
     const target = side === 'left' ? rightRef.current : leftRef.current;
@@ -81,17 +86,19 @@ function SynchronizedPanes({
     const targetRange = Math.max(0, target.scrollHeight - target.clientHeight);
     target.scrollTop = (source.scrollTop / sourceRange) * targetRange;
     queueMicrotask(() => { synchronizingRef.current = null; });
-  }, []);
+  }, [layout]);
 
   return (
-    <div data-synchronized-scroll="true" className="grid min-h-0 grid-cols-1 gap-px overflow-hidden rounded-lg border bg-border md:grid-cols-2">
+    <div data-synchronized-scroll={layout === 'side_by_side'} data-diff-layout={layout}
+      className={cn('grid min-h-0 grid-cols-1 gap-px overflow-hidden rounded-lg border bg-border', layout === 'side_by_side' && 'md:grid-cols-2')}>
       <div
         ref={leftRef}
         tabIndex={0}
         role="region"
         aria-label={leftLabel}
         onScroll={(event) => synchronize('left', event)}
-        className="max-h-[48dvh] min-w-0 overflow-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn('min-w-0 overflow-x-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+          layout === 'side_by_side' && 'max-h-[48dvh] overflow-y-auto')}
       >
         {left}
       </div>
@@ -101,7 +108,8 @@ function SynchronizedPanes({
         role="region"
         aria-label={rightLabel}
         onScroll={(event) => synchronize('right', event)}
-        className="max-h-[48dvh] min-w-0 overflow-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        className={cn('min-w-0 overflow-x-auto bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+          layout === 'side_by_side' && 'max-h-[48dvh] overflow-y-auto')}
       >
         {right}
       </div>
@@ -224,6 +232,8 @@ function LoadedComparison({
   timelineStale,
   onTimelineInvalidate,
   onContinue,
+  diffLayout,
+  onDiffLayoutChange,
 }: {
   request: FileVersionCenterRequestV1;
   current: Extract<FileVersionTimelineEntryV1, { kind: 'current' }>;
@@ -234,10 +244,14 @@ function LoadedComparison({
   timelineStale: boolean;
   onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
   onContinue: () => void;
+  diffLayout: DiffLayout;
+  onDiffLayoutChange: (layout: DiffLayout) => void;
 }) {
   const t = useTranslations('fileVersionCenter');
   const [snapshot, setSnapshot] = useState<{ identity: string; payload: FileVersionComparePayload } | null>(null);
   const payload = snapshot?.payload ?? null;
+  const markdownPreviewDocument = useMemo(() => payload?.preview.format === 'markdown'
+    ? parseCanvasMarkdownDocument(payload.preview.candidate ?? '') : null, [payload]);
   const [error, setError] = useState<FileVersionCenterClientError | Error | null>(null);
   const [loading, setLoading] = useState(true);
   const [retryVersion, setRetryVersion] = useState(0);
@@ -466,6 +480,18 @@ function LoadedComparison({
           <TabsContent value="changes" className="min-h-0 overflow-auto p-3 sm:p-4">
             {payload.response.hunks.length > 0 ? (
               <>
+                <div role="group" aria-label={t('diffLayout.label')}
+                  className="mb-3 hidden items-center justify-end gap-1 md:flex">
+                  <span className="mr-1 text-xs text-muted-foreground">{t('diffLayout.label')}</span>
+                  {(['side_by_side', 'stacked'] as const).map((layout) => <Button
+                    key={layout}
+                    type="button"
+                    variant={diffLayout === layout ? 'secondary' : 'ghost'}
+                    size="sm"
+                    aria-pressed={diffLayout === layout}
+                    onClick={() => onDiffLayoutChange(layout)}
+                  >{t(`diffLayout.${layout}`)}</Button>)}
+                </div>
                 <div className="md:hidden"><UnifiedDiff hunks={payload.response.hunks} /></div>
                 <div className="hidden md:block">
                   <SynchronizedPanes
@@ -473,6 +499,7 @@ function LoadedComparison({
                     right={<DiffSide hunks={payload.response.hunks} side="candidate" heading={selectedTitle} />}
                     leftLabel={t('currentDiffLabel')}
                     rightLabel={t('candidateDiffLabel')}
+                    layout={diffLayout}
                   />
                 </div>
               </>
@@ -505,12 +532,22 @@ function LoadedComparison({
                 ) : null}
               </div>
               {payload.preview.format === 'markdown' ? (
-                <InertMarkdownPreview
-                  content={payload.preview.candidate ?? ''}
-                  imageLabel={t('blockedImage')}
-                  linkLabel={t('blockedLink')}
-                  className="canvas-document-reading text-sm leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:text-lg [&_h3]:font-semibold [&_p+p]:mt-3 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:bg-muted/30 [&_pre]:p-3"
-                />
+                <>
+                  {markdownPreviewDocument?.frontmatter && !markdownPreviewDocument.error ? (
+                    <details className="mb-4 rounded-md border bg-muted/20 px-3 py-2 text-xs">
+                      <summary className="cursor-pointer font-medium">{t('previewProperties')}</summary>
+                      <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono leading-5 text-muted-foreground">{markdownPreviewDocument.frontmatter.raw}</pre>
+                    </details>
+                  ) : null}
+                  <InertMarkdownPreview
+                    content={markdownPreviewDocument?.frontmatter && !markdownPreviewDocument.error
+                      ? markdownPreviewDocument.body : payload.preview.candidate ?? ''}
+                    imageLabel={t('blockedImage')}
+                    linkLabel={t('blockedLink')}
+                    tableLabel={t('previewScrollableTable')}
+                    className="canvas-document-reading text-sm leading-relaxed [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:text-lg [&_h3]:font-semibold [&_p+p]:mt-3 [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:bg-muted/30 [&_pre]:p-3"
+                  />
+                </>
               ) : (
                 <pre className="whitespace-pre-wrap break-words rounded-lg border bg-muted/20 p-4 text-sm">{payload.preview.candidate}</pre>
               )}
@@ -561,6 +598,35 @@ function EmptyComparison({
   );
 }
 
+function CurrentRevisionDetails({ revision }: {
+  revision: Extract<FileVersionTimelineEntryV1, { kind: 'revision' }>;
+}) {
+  const t = useTranslations('fileVersionCenter');
+  const locale = useLocale();
+  const savedAt = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(revision.createdAt));
+  return (
+    <dl className="w-full overflow-hidden rounded-lg border bg-background text-left text-xs">
+      <div className="grid gap-1 border-b px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedAt')}</dt>
+        <dd><time dateTime={revision.createdAt}>{savedAt}</time></dd>
+      </div>
+      <div className="grid gap-1 border-b px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedBy')}</dt>
+        <dd className="min-w-0 break-words">{revision.actor.displayName ?? t(`actor.${revision.actor.type}`)}</dd>
+      </div>
+      <div className="grid gap-1 border-b px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedSource')}</dt>
+        <dd>{t(`source.${revision.source}`)}</dd>
+      </div>
+      <div className="grid gap-1 px-3 py-2 sm:grid-cols-[7rem_minmax(0,1fr)]">
+        <dt className="text-muted-foreground">{t('details.savedRevisionId')}</dt>
+        <dd className="min-w-0 break-all font-mono">{revision.revisionId}</dd>
+      </div>
+    </dl>
+  );
+}
+
 export function FileVersionComparison({
   request,
   timeline,
@@ -583,7 +649,9 @@ export function FileVersionComparison({
   isStale?: boolean;
 }) {
   const t = useTranslations('fileVersionCenter');
+  const [diffLayout, setDiffLayout] = useState<DiffLayout>('side_by_side');
   const current = timeline.entries.find((entry) => entry.kind === 'current');
+  const currentRevision = matchingCurrentRevision(timeline.entries);
   const selected = selection.entry;
   const metadataOnly = selected?.kind === 'revision' && selected.content.availability === 'metadata_only';
   const identity = selected && selected.kind !== 'current'
@@ -639,6 +707,8 @@ export function FileVersionComparison({
             timelineStale={isStale}
             onTimelineInvalidate={onTimelineInvalidate}
             onContinue={onContinue}
+            diffLayout={diffLayout}
+            onDiffLayoutChange={setDiffLayout}
           /> : <EmptyComparison
             icon={<RefreshCw className="size-4" aria-hidden="true" />}
             title={t('currentUnavailable')}
@@ -671,8 +741,9 @@ export function FileVersionComparison({
       ) : !selected || selected.kind === 'current' ? (
         <EmptyComparison
           icon={<Columns2 className="size-4" aria-hidden="true" />}
-          title={t('currentVersion')}
-          description={t('selectionDescription')}
+          title={currentRevision ? `${t('currentVersion')} · ${t('revisionNumber', { number: currentRevision.revisionNumber })}` : t('currentVersion')}
+          description={currentRevision ? t('currentSavedDescription', { number: currentRevision.revisionNumber }) : t('selectionDescription')}
+          action={currentRevision ? <CurrentRevisionDetails revision={currentRevision} /> : undefined}
         />
       ) : (
         <LoadedComparison
@@ -686,6 +757,8 @@ export function FileVersionComparison({
           timelineStale={isStale}
           onTimelineInvalidate={onTimelineInvalidate}
           onContinue={onContinue}
+          diffLayout={diffLayout}
+          onDiffLayoutChange={setDiffLayout}
         />
       )}
     </main>

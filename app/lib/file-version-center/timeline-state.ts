@@ -44,6 +44,20 @@ export function groupFileVersionTimeline(
   return { reviews, current, revisions };
 }
 
+export function matchingCurrentRevision(
+  entries: FileVersionTimelineEntryV1[],
+): FileVersionTimelineGroups['revisions'][number] | null {
+  const current = entries.find((entry) => entry.kind === 'current');
+  if (!current?.revisionId) return null;
+  return entries.find((entry): entry is FileVersionTimelineGroups['revisions'][number] => (
+    entry.kind === 'revision'
+    && entry.revisionId === current.revisionId
+    && entry.content.availability === 'available'
+    && entry.content.sha256 === current.sha256
+    && entry.content.sizeBytes === current.sizeBytes
+  )) ?? null;
+}
+
 export function mergeFileVersionTimelinePage(
   previous: FileVersionTimelineResponseV1,
   next: FileVersionTimelineResponseV1,
@@ -69,6 +83,11 @@ export function reconcileFileVersionTimelineSelection(input: {
 }): FileVersionTimelineSelection {
   const requestedKey = input.selectedKey ?? requestSelectionKey(input.request);
   const indexed = new Map(input.timeline.entries.map((entry) => [fileVersionTimelineEntryKey(entry), entry]));
+  const currentRevision = matchingCurrentRevision(input.timeline.entries);
+  if (currentRevision && requestedKey === fileVersionTimelineEntryKey(currentRevision)) {
+    const current = indexed.get('current');
+    if (current) return { key: 'current', entry: current, state: 'selected' };
+  }
   const reviews = input.timeline.entries.filter((entry) => entry.kind === 'agent_operation');
   // An unselected review entry point must not pick a winner from multiple proposals
   // (including a still paginated set). Exact links never use this default.

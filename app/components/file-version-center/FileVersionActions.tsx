@@ -122,7 +122,8 @@ export function FileVersionActions({
   const restoreEnabled = entry.kind === 'revision'
     && entry.restorable
     && restoreAllowed
-    && candidateAvailable;
+    && candidateAvailable
+    && entry.content.sha256 !== current.sha256;
   const busyLabel = busy ? t(`actions.busy.${busy}`) : null;
 
   return (
