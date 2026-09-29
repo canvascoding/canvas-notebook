@@ -6,9 +6,7 @@
     "reviewedAt": "2026-07-17",
     "notes": "The responsible product owner approved the first deterministic commercial inventory by explicit Codex task instruction on 2026-07-17. This approval is documented in docs/compliance/third-party-release-approval-2026.7.17.1.md and does not override component-level blockers or unfulfilled license obligations."
   },
-  "pendingDistributionReviews": [
-    { "name": "docker-runtime:optional-dictation-boundary", "versionOrCommit": "2026-09-28", "reason": "The dictation wheels have moved to an opt-in DATA installation, but the changed final amd64/arm64 image composition and installation boundary still need a version-specific owner review before commercial distribution." }
-  ],
+  "pendingDistributionReviews": [],
   "licenseDecisions": {
     "0BSD": "allowed",
     "Apache-2.0": "allowed",

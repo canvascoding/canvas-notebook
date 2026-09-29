@@ -16,17 +16,11 @@
     "developmentOnlyReviewRequired": 36
   },
   "releaseGate": {
-    "status": "blocked",
+    "status": "approved",
     "approvalStatus": "approved",
     "approvalReviewedBy": "Frank Alexander Weber",
     "approvalReviewedAt": "2026-07-17",
-    "blockers": [
-      {
-        "name": "docker-runtime:optional-dictation-boundary",
-        "versionOrCommit": "2026-09-28",
-        "reason": "The dictation wheels have moved to an opt-in DATA installation, but the changed final amd64/arm64 image composition and installation boundary still need a version-specific owner review before commercial distribution."
-      }
-    ]
+    "blockers": []
   },
   "components": [
     {

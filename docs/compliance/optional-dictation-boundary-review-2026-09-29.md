@@ -1,8 +1,8 @@
-# Optional dictation distribution boundary: local image audit
+# Optional dictation distribution boundary: Docker exclusion
 
-Date: 2026-09-29. Source: Notebook `c2f4e1ef8` with a clean worktree.
-This is technical evidence for the current base-image candidate, not a
-commercial-release approval.
+Date: 2026-09-29. The first image pair below came from Notebook `c2f4e1ef8`
+before the installer exclusion. It established that the base image already
+omitted the 13 optional Wheels, but left a callable installer in Docker.
 
 | Platform | Local image ID | Debian | Python (pip) | Global npm | Inventory SHA-256 |
 | --- | --- | ---: | ---: | ---: | --- |
@@ -31,9 +31,37 @@ payload evidence. Those findings no longer describe binaries in the base
 image, but remain relevant when the optional installer runs. The local image
 comparison does not settle distribution or downstream installation obligations.
 
-`npm run test:licenses:release` therefore still fails on
-`docker-runtime:optional-dictation-boundary@2026-09-28`. To close the review,
-the release owner must decide whether to ship the optional installer with a
-documented disposition of its native dependency findings, or disable that
-installer for the commercial release while preserving cloud dictation. A
-new source change or release candidate needs its own image evidence.
+The original `npm run test:licenses:release` failed on
+`docker-runtime:optional-dictation-boundary@2026-09-28`. The Docker candidate
+was then changed to remove both Python scripts from the final image, report
+local installation as disabled, reject local settings and installation
+requests server-side, and retain OpenAI/Groq cloud dictation. The optional
+Wheels are not approved for redistribution or future Docker installation.
+
+| Platform | Remediated local image ID | Debian | Python (pip) | Global npm | Inventory SHA-256 |
+| --- | --- | ---: | ---: | ---: | --- |
+| linux/amd64 | `sha256:28fb079fac38a7594a15ffc204b801f43c850807905c445ff1b6a984c4cff138` | 513 | 48 (45) | 153 | `9c82d5776ddc1492ce1e995cbeeddcbf7fd7e71a58f03cb4af163639b1f574cf` |
+| linux/arm64 | `sha256:8b12e37c8b8a107215af0e53459998b5a187abd010ad95180813d14dcdac30e1` | 509 | 48 (45) | 153 | `aec18491310cfa71c03b0c4bf733ce74d484e8b3bee1d71402c8e789cf77753b` |
+
+Both remediated images passed their runtime inventory and Sharp-linkage checks,
+then `runtime-multiarch-compliance-test.mjs`. Each final image was inspected
+with a one-off container: `/app/scripts/dictation-runtime.py` and
+`/app/scripts/dictation-worker.py` are absent, while `CANVAS_RUNTIME_ENV=docker`
+is set. All 13 optional Python distributions remain absent. The embedded
+notices, component manifest, optional-lock text and libvips source archive
+match across architectures; notices, manifest and lock also match the source.
+Both inventories bind Dockerfile SHA-256
+`04e7716e22e1457e73d42b0cb55e6c423eca69b02ae9758b897ecac8ed77430e`.
+The Docker boundary test, TypeScript, focused ESLint, host production build,
+Python installer tests, `npm run test:licenses` and
+`npm run test:licenses:release` pass with zero release blockers.
+The broader `npm run verify:release` advanced through lockfile, license,
+PostgreSQL SQL-compatibility, lint and production build, then failed in the
+separate Yjs ESM/CJS collaboration-module assertion on local Node 26.7.0.
+This image review does not claim that broader release verification passed.
+
+This closes the Docker distribution review by excluding the unresolved
+optional installer from that artifact. It does not clear the historical
+PyAV/FFmpeg or CTranslate2 findings for a later source/host installation or
+for any future Docker image that re-enables local dictation. A tagged
+release-workflow run and registry publication were not performed here.

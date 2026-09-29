@@ -222,7 +222,8 @@ COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
-RUN rm -f ./scripts/apply-pending-migration-restore.ts
+RUN rm -f ./scripts/apply-pending-migration-restore.ts \
+  ./scripts/dictation-runtime.py ./scripts/dictation-worker.py
 
 # Copy seed assets (preset preview images, sys prompts, etc.)
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts

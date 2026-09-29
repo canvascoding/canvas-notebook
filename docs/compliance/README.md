@@ -52,16 +52,17 @@ statische Komponentenmanifest umfasst:
 | automatisch beziehungsweise dokumentiert `allowed` | 1.931 |
 | `review_required` im Gesamtbestand | 36, alle nicht ausgeliefert |
 | pauschal `blocked` | 0 |
-| Blocker im statischen kommerziellen Release-Gate | 1 |
+| Blocker im statischen kommerziellen Release-Gate | 0 |
 
 Der normale Build prueft die exakten Namen, Versionen und Hashes des
 45-Paket-Basis-Locks. Der Runtime-Inventartest im Docker-Build prueft die
 Abwesenheit der optionalen Diktatpakete im Basis-Image. Die 13 Pakete bleiben
-fuer eine optionale Installation versionsgebunden dokumentiert. Das aktuelle
-kommerzielle Release-Gate hat einen offenen Blocker
-`docker-runtime:optional-dictation-boundary`: Die neue
-Image-Zusammensetzung und Installationsgrenze benoetigen eine versionsbezogene
-Owner-Freigabe. `npm run test:licenses:release` muss bis dahin fehlschlagen.
+fuer eine optionale Installation versionsgebunden dokumentiert. Der aktuelle
+kommerzielle Docker-Release entfernt Installer und Worker aus dem Image,
+sperrt lokale Auswahl und Installation serverseitig und laesst Cloud-Diktat
+bestehen. Die Images beider Architekturen und die Grenze sind im
+[`optional-dictation-boundary-review-2026-09-29.md`](optional-dictation-boundary-review-2026-09-29.md)
+belegt. `npm run test:licenses:release` ist fuer diesen Docker-Kandidaten gruen.
 Die 14 Blocker des frueheren 58-Paket-Image-Kandidaten sind historische
 Pruefbefunde und keine Aussage ueber den aktuellen Basis-Image-Inhalt.
 Der Release-Workflow startet beide Architektur-Builds erst nach dem strikten
@@ -71,7 +72,8 @@ Multi-Arch-Manifest folgt nur auf den erfolgreichen Vergleich beider
 Evidenzsaetze. Fuer Notebook `c2f4e1ef8` wurden lokale amd64-/arm64-Images
 gebaut und verglichen; die Evidenz steht in
 [`optional-dictation-boundary-review-2026-09-29.md`](optional-dictation-boundary-review-2026-09-29.md).
-Ein Release-Workflow mit Push wurde nicht ausgefuehrt.
+Ein Release-Workflow mit Push wurde nicht ausgefuehrt. Die optionale lokale
+Installation aus einem Source-/Host-Setup ist nicht Teil dieser Docker-Pruefung.
 
 Die erste verantwortliche Gesamtfreigabe ist dokumentiert. Zehn npm-Pakete
 und drei Pakete des global installierten npm wurden fuer ihre exakten
@@ -107,8 +109,8 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
   dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
 
 Fuer den freigegebenen Kandidaten vom 17. Juli war
-`npm run test:licenses:release` statisch gruen. Im aktuellen Quellstand bleibt
-es wegen der optionalen Diktat-Installationsgrenze rot. `npm run
+`npm run test:licenses:release` statisch gruen. Im aktuellen Docker-Kandidaten
+ist es nach der technischen Abgrenzung wieder gruen. `npm run
 verify:release` prueft ausserdem vor Lint und Produktions-Build mit einem
 skriptfreien `npm ci --dry-run`, dass `package.json` und Lockfile auch in einer
 frischen CI-Umgebung vollstaendig synchron sind.

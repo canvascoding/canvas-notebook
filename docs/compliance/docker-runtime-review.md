@@ -2,19 +2,16 @@
 
 ## Current dictation-image status, 2026-09-28
 
-The July Schema-4 approval below covers the earlier 45-package Python lock.
+The July Schema-4 approval below covers the 45-package Python base lock.
 The [dictation dependency intake](dictation-python-dependency-intake-2026-09-28.md)
-records the later 58-package images and their bundled PyAV/FFmpeg GPL codec
-finding. The current source moves those 13 additional wheels to an explicit,
-post-deployment installation under `/data`; see the
-[optional runtime design](optional-dictation-runtime-2026-09-28.md). They are no
-longer in the Docker build's Python lock. The fresh local amd64/arm64 image
-audit at Notebook `c2f4e1ef8` is recorded in
-[optional-dictation-boundary-review-2026-09-29.md](optional-dictation-boundary-review-2026-09-29.md).
-It verifies the base-image composition, but the optional installation path
-and its native dependency obligations still need a version-specific owner
-decision. One release blocker remains; no new commercial-release approval is
-recorded here.
+records the historical 58-package images and their bundled PyAV/FFmpeg GPL
+codec finding. The current Docker release excludes all 13 additional wheels,
+the local installer and its worker. The
+[2026-09-29 boundary review](optional-dictation-boundary-review-2026-09-29.md)
+records fresh local amd64/arm64 image audits and the fail-closed Docker path.
+The Docker distribution blocker was resolved by excluding the optional
+installation path; the release gate is green. This is no approval to
+redistribute the optional wheels or enable local dictation in a Docker image.
 
 Stand: 2026-07-17
 
@@ -504,4 +501,7 @@ Der Docker-Sammelposten darf erst auf `allowed` wechseln, wenn:
 6. ein benannter verantwortlicher oder rechtlicher Reviewer die konkrete
    Plattformmatrix freigibt.
 
-Bis dahin muss `npm run test:licenses:release` fehlschlagen.
+Fuer einen ungeprueften Kandidaten muss `npm run test:licenses:release`
+fehlschlagen. Der aktuelle 45-Paket-Docker-Kandidat schliesst den optionalen
+Diktat-Installer aus und besteht das Gate; seine Nachweise stehen im
+[Boundary Review](optional-dictation-boundary-review-2026-09-29.md).

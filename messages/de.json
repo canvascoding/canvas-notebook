@@ -1598,6 +1598,7 @@
     "localInstalling": "Lokale Transkriptions-Runtime wird installiert …",
     "localInstalled": "Lokale Transkriptions-Runtime installiert.",
     "localUnavailable": "Lokale Transkription ist erst nach der Installation der optionalen Runtime verfügbar.",
+    "localDisabled": "Lokale Transkription ist in dieser Docker-Version nicht verfügbar. Wähle OpenAI oder Groq für Cloud-Diktat.",
     "installError": "Die lokale Transkriptions-Runtime konnte nicht installiert werden.",
     "cloudNote": "Cloud-Transkription sendet die Aufnahme an den gewählten Anbieter. Den API-Schlüssel unter Einstellungen → Secrets/Integrationen hinterlegen.",
     "available": "Dienst verfügbar. Bei lokaler Transkription wird das Modell erst bei der ersten Aufnahme geladen.",

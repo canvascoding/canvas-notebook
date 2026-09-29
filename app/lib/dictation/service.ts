@@ -2,6 +2,7 @@ import 'server-only';
 
 import { getGroqApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
 import { localDictationAvailable, transcribeLocally } from './local-worker';
+import { localDictationRuntimeSupported } from './runtime-install';
 import { readDictationSettings, type DictationSettings } from './settings';
 
 export const MAX_DICTATION_BYTES = 25 * 1024 * 1024;
@@ -35,6 +36,15 @@ export async function readDictationAvailability(settings?: DictationSettings): P
     return { enabled: false, available: false, provider: selected.provider, model: selected.model, reason: null };
   }
   if (selected.provider === 'local') {
+    if (!localDictationRuntimeSupported()) {
+      return {
+        enabled: true,
+        available: false,
+        provider: 'local',
+        model: selected.model,
+        reason: 'Local dictation is unavailable in this Docker release. Choose a cloud provider.',
+      };
+    }
     const available = await localDictationAvailable();
     return {
       enabled: true,
