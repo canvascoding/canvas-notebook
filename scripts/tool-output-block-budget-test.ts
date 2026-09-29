@@ -116,14 +116,17 @@ async function main() {
     const writeRound: AgentMessage[] = [writeAssistant, writeResult];
     assert.ok(estimatePiTextTokens(JSON.stringify({ role: 'assistant', content: writeAssistant.content })) > 6_000);
     const projectedWriteRound = projectToolOutputBlocks(writeRound, model(262_144));
-    assert.equal((projectedWriteRound[0] as typeof writeAssistant).content[0].type, 'toolCall');
-    assert.equal((projectedWriteRound[0] as typeof writeAssistant).content[0].arguments.content, writeBody);
+    const projectedCall = (projectedWriteRound[0] as typeof writeAssistant).content.find(part => part.type === 'toolCall');
+    assert.ok(projectedCall && projectedCall.type === 'toolCall');
+    assert.equal(projectedCall.arguments.content, writeBody);
     assert.equal((projectedWriteRound[1] as ToolMessage).toolCallId, 'write-once');
-    assert.equal((writeAssistant.content[0] as { arguments: { content: string } }).arguments.content, writeBody);
+    const originalCall = writeAssistant.content.find(part => part.type === 'toolCall');
+    assert.ok(originalCall && originalCall.type === 'toolCall');
+    assert.equal(originalCall.arguments.content, writeBody);
     const finalizedWriteRound = await finalizeToolOutputBlocks(writeRound, model(262_144), identity);
     const resumedWriteRound = writeRound.map(message => parsePersistedPiMessage(JSON.stringify(projectAgentMessageForPersistence(message))));
-    assert.deepEqual(projectToolOutputBlocks(resumedWriteRound, model(262_144)).map(message => message.content),
-      finalizedWriteRound.map(message => message.content), 'resumed write round uses the same model view');
+    assert.deepEqual(projectToolOutputBlocks(resumedWriteRound, model(262_144)).map(message => 'content' in message ? message.content : undefined),
+      finalizedWriteRound.map(message => 'content' in message ? message.content : undefined), 'resumed write round uses the same model view');
     const writePayload = await preparePiFinalPayload({ messages: resumedWriteRound, model: model(262_144),
       effectiveInstructions: [{ role: 'system', content: 'Continue the campaign.' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
     assert.equal(writePayload.budgetSnapshot.contextBudgetExceeded, false);
@@ -173,7 +176,7 @@ async function main() {
       const candidate = await runtime.transformContext(structuredClone(resumed));
       const sent = await runtime.prepareFinalPayload(candidate);
       const canonical = await preparePiFinalPayload({ messages: candidate, model: effectiveModel, effectiveInstructions: [{ role: 'system', content: 'system instructions' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
-      assert.deepEqual(sent.filter(message => message.role !== 'system'), canonical.messages, 'real LivePiRuntime sends the canonical bounded view');
+      assert.deepEqual(sent.filter((message: { role: string }) => message.role !== 'system'), canonical.messages, 'real LivePiRuntime sends the canonical bounded view');
       const measured = await measurePiContextStatus(runtime.lastComposition, { messages: candidate, model: effectiveModel,
         effectiveInstructions: [{ role: 'system', content: 'system instructions' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
       assert.equal(measured.components?.messages, canonical.budgetSnapshot.serializedMessageTokens, 'context status measures the same provider messages');
