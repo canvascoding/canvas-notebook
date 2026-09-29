@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 
 import type { StreamFn } from '@earendil-works/pi-agent-core';
-import type {
+import {
   AssistantMessage,
   AssistantMessageEvent,
   AssistantMessageEventStream,
-  Context,
+  normalizeContext,
+  TranscriptContext,
   Model,
-} from '@earendil-works/pi-ai';
+} from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 
 const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
@@ -29,14 +30,14 @@ const model = {
   maxTokens: 1_000,
 } satisfies Model<'openai-completions'>;
 
-const initialContext: Context = {
+const initialContext: TranscriptContext = normalizeContext({
   systemPrompt: 'Overflow recovery test.',
   messages: [{ role: 'user', content: 'Initial request.', timestamp: 1 }],
-};
-const recoveredContext: Context = {
-  systemPrompt: initialContext.systemPrompt,
+});
+const recoveredContext: TranscriptContext = normalizeContext({
+  systemPrompt: 'Overflow recovery test.',
   messages: [{ role: 'user', content: 'Compacted request.', timestamp: 2 }],
-};
+});
 
 function assistantMessage(input: {
   text?: string;

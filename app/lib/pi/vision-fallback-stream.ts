@@ -2,7 +2,7 @@ import type {
   Api,
   AssistantMessage,
   AssistantMessageEventStream,
-  Context,
+  TranscriptContext,
   Message,
   Model,
   SimpleStreamOptions,
@@ -26,7 +26,7 @@ function isMessageWithContent(message: Message): message is MessageWithContent {
   return isRecord(message) && Array.isArray(message.content);
 }
 
-function contextContainsImages(context: Context): boolean {
+function contextContainsImages(context: TranscriptContext): boolean {
   return context.messages.some((message) => (
     isMessageWithContent(message) && message.content.some(isImagePart)
   ));
@@ -50,7 +50,7 @@ function modelWithTextOnlyInput(model: Model<Api>): Model<Api> {
  * refused image input. It preserves surrounding text and tool results so the
  * same agent turn can continue rather than failing the tool chain.
  */
-export function removeImagesAfterProviderRejection(context: Context): Context {
+export function removeImagesAfterProviderRejection(context: TranscriptContext): TranscriptContext {
   return {
     ...context,
     messages: context.messages.map((message) => {
@@ -119,7 +119,7 @@ export function createVisionFallbackStreamFn(
 
   return async (
     model: Model<Api>,
-    context: Context,
+    context: TranscriptContext,
     options?: SimpleStreamOptions,
   ): Promise<AssistantMessageEventStream> => {
     if (!contextContainsImages(context)) {

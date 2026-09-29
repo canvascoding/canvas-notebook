@@ -12,7 +12,7 @@ import {
   type StreamFn,
   type ThinkingLevel,
 } from '@earendil-works/pi-agent-core';
-import type { Api, AssistantMessage, Context, Message, Model } from '@earendil-works/pi-ai';
+import { createInitialSystemMessage, normalizeContext, toToolDeclaration, type Api, type AssistantMessage, type Message, type Model, type TranscriptContext } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
@@ -759,7 +759,7 @@ export class LivePiRuntime {
     selectionMode: PiHistorySelectionMode = 'automatic',
   ) {
     return projectPiHermesHistory({
-      messages,
+      messages: messages.filter((message) => message.role !== 'system'),
       summary: this.summary,
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
@@ -788,6 +788,7 @@ export class LivePiRuntime {
     onStarted?: () => void;
   }): Promise<PiCompactionCoordinatorResult> {
     await this.persistMessages('turn_end');
+    const historyMessages = input.messages.filter((message) => message.role !== 'system');
     const summarySnapshot = { ...this.summary };
     const generation = this.createCompactionGeneration(input.runtimeContext);
     const systemPromptTokens = estimateTextTokens(this.getEffectiveSystemPrompt());
@@ -810,7 +811,7 @@ export class LivePiRuntime {
       ownsStatus,
       bypassCooldown: input.bypassCooldown === true,
       selectionMode: input.selectionMode ?? 'automatic',
-      messageCount: input.messages.length,
+      messageCount: historyMessages.length,
       additionalContextTokens: input.additionalContextTokens,
       systemPromptTokens,
       toolTokens,
@@ -867,7 +868,7 @@ export class LivePiRuntime {
         ),
         prepareCandidate: (candidateSignal, reportProgress) => preparePiHermesCompactionCandidate({
           compactionAttemptId: attemptId,
-          messages: input.messages.slice(),
+          messages: historyMessages.slice(),
           summary: summarySnapshot,
           systemPromptTokens,
           model: this.model,
@@ -1006,7 +1007,14 @@ export class LivePiRuntime {
       );
     }
 
-    return prepared.messages;
+    const systemMessage = createInitialSystemMessage(
+      this.getEffectiveSystemPrompt(),
+      this.getEffectiveTools().map(toToolDeclaration),
+    );
+    return [
+      ...(systemMessage ? [systemMessage] : []),
+      ...prepared.messages.filter((message) => message.role !== 'system'),
+    ];
   }
 
   getContextBudgetEvidence(): Readonly<{
@@ -1441,7 +1449,7 @@ export class LivePiRuntime {
       this.workspaceFileTreePromptBlock = '';
       this.invalidateContextBudget();
       if (!this.isRunning && !this.agent.state.isStreaming) {
-        this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+        this.updateAgentSystemPrompt();
       }
       return;
     }
@@ -1452,7 +1460,7 @@ export class LivePiRuntime {
     this.workspaceFileTreePromptBlock = result.promptBlock;
     this.invalidateContextBudget();
     if (!this.isRunning && !this.agent.state.isStreaming) {
-      this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+      this.updateAgentSystemPrompt();
     }
   }
 
@@ -1506,7 +1514,7 @@ export class LivePiRuntime {
     this.invalidateContextBudget();
     this.agent.state.tools = this.getEffectiveTools();
     if (!this.isRunning && !this.agent.state.isStreaming) {
-      this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+      this.updateAgentSystemPrompt();
     }
   }
 
@@ -1533,7 +1541,7 @@ export class LivePiRuntime {
     this.systemPrompt = snapshot.systemPrompt;
     this.systemPromptRefreshRequested = false;
     this.invalidateContextBudget();
-    this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+    this.updateAgentSystemPrompt();
     await db
       .update(piSessions)
       .set(piSystemPromptSnapshotDbFields(snapshot))
@@ -1542,6 +1550,16 @@ export class LivePiRuntime {
         eq(piSessions.userId, this.userId),
         eq(piSessions.agentId, this.agentId),
       ));
+  }
+
+  private updateAgentSystemPrompt(): void {
+    const prompt = this.getEffectiveSystemPrompt();
+    if (this.agent.state.systemPrompt === prompt) return;
+    const systemMessage = createInitialSystemMessage(prompt, this.agent.state.tools.map(toToolDeclaration));
+    this.agent.state.messages = [
+      ...(systemMessage ? [systemMessage] : []),
+      ...this.agent.state.messages.filter((message) => message.role !== 'system'),
+    ];
   }
 
   private getEffectiveSystemPrompt(): string {
@@ -2005,7 +2023,7 @@ export class LivePiRuntime {
     );
   }
 
-  async recoverProviderContextOverflow(signal?: AbortSignal): Promise<Context | null> {
+  async recoverProviderContextOverflow(signal?: AbortSignal): Promise<TranscriptContext | null> {
     const messages = this.agent.state.messages.slice();
     let latestUserMessageText = '';
     let latestUserMessageContext: PiRuntimePromptContext | undefined;
@@ -2036,11 +2054,16 @@ export class LivePiRuntime {
     const candidate = await this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
     const prepared = await this.buildFinalPayload(candidate);
     if (!this.isFinalPayloadSendable(prepared.budgetSnapshot)) return null;
-    return {
-      systemPrompt: this.getEffectiveSystemPrompt(),
-      tools: this.getEffectiveTools(),
-      messages: prepared.messages,
-    };
+    const systemMessage = createInitialSystemMessage(
+      this.getEffectiveSystemPrompt(),
+      this.getEffectiveTools().map(toToolDeclaration),
+    );
+    return normalizeContext({
+      messages: [
+        ...(systemMessage ? [systemMessage] : []),
+        ...prepared.messages.filter((message) => message.role !== 'system'),
+      ],
+    });
   }
 
   private resetRunSupervisorForUserMessage(message: Extract<AgentMessage, { role: 'user' }>): void {
@@ -2164,9 +2187,7 @@ export class LivePiRuntime {
 
     this.agent.state.tools = this.getEffectiveTools();
     const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
-    if (this.agent.state.systemPrompt !== effectiveSystemPrompt) {
-      this.agent.state.systemPrompt = effectiveSystemPrompt;
-    }
+    if (this.agent.state.systemPrompt !== effectiveSystemPrompt) this.updateAgentSystemPrompt();
 
     const prompts = initialContinuation ? [initialContinuation, sanitized] : sanitized;
     void this.agent.prompt(prompts).catch(async (error) => {
@@ -2792,7 +2813,7 @@ export class LivePiRuntime {
     if (this.persistPromise) {
       const pending = this.persistPromise;
       const persistedCount = await pending;
-      if (this.agent.state.messages.length > this.lastPersistedLength) {
+      if (this.agent.state.messages.filter((message) => message.role !== 'system').length > this.lastPersistedLength) {
         return persistedCount + await this.persistMessages(reason);
       }
       return persistedCount;
@@ -2807,7 +2828,7 @@ export class LivePiRuntime {
   }
 
   private async persistMessagesOnce(reason: 'turn_end' | 'agent_end' | 'error'): Promise<number> {
-    const allMessages = this.agent.state.messages.slice();
+    const allMessages = this.agent.state.messages.filter((message) => message.role !== 'system');
     const startIndex = this.lastPersistedLength;
     if (allMessages.length <= startIndex) return 0;
 

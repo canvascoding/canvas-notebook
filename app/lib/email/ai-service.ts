@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { AssistantMessage, AssistantMessageEvent, Message } from '@earendil-works/pi-ai';
+import { normalizeContext } from '@earendil-works/pi-ai';
 
 import { assertEmailAiComposeInput, assertEmailAiInstruction } from '@/app/lib/email/ai-input-limits';
 import { resolveScopedEmailAiRuntime, type EmailAiScope } from '@/app/lib/email/ai-runtime';
@@ -64,10 +65,10 @@ async function completeEmailAi(params: {
   const runtime = await resolveScopedEmailAiRuntime(params.scope);
   const stream = await runtime.streamFn(
     runtime.model,
-    {
+    normalizeContext({
       systemPrompt: params.systemPrompt,
       messages: params.messages,
-    },
+    }),
     {
       temperature: params.temperature,
       maxTokens: Math.max(256, Math.min(runtime.model.maxTokens, params.maxTokens)),
@@ -98,10 +99,10 @@ async function streamEmailAi(params: {
   const runtime = await resolveScopedEmailAiRuntime(params.scope);
   return runtime.streamFn(
     runtime.model,
-    {
+    normalizeContext({
       systemPrompt: params.systemPrompt,
       messages: params.messages,
-    },
+    }),
     {
       temperature: params.temperature,
       maxTokens: Math.max(256, Math.min(runtime.model.maxTokens, params.maxTokens)),

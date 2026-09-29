@@ -245,7 +245,10 @@ async function main() {
       assert.equal(getToolOutputMetadata(result.details)?.references.length, 0);
       todoResults.push({ ...result, role: 'toolResult' as const, toolName: call.name, toolCallId: call.id, isError: false, timestamp: 4 });
     }
-    const todoViews = await finalizeToolOutputBlocks([{ ...piMetadataFixture, content: todoCalls }, ...todoResults],
+    const todoViews = await finalizeToolOutputBlocks([{ ...piMetadataFixture, content: todoCalls }, ...todoResults.map((message) => ({
+      ...message,
+      details: message.details === undefined ? undefined : JSON.parse(JSON.stringify(message.details)),
+    }))],
       { id: 'builtin-budget-test', provider: 'fixture', contextWindow: 16000 }, identity);
     assert.doesNotMatch(JSON.stringify(todoViews), /toolApps?|ui:\/\/canvas\//);
     for (const message of todoResults) {

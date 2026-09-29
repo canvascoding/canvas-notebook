@@ -69,6 +69,24 @@
     }
   ],
   "sourceRevisionOverrides": {
+    "@aws-sdk/credential-provider-http@3.972.74": {
+      "repositoryUrl": "https://github.com/aws/aws-sdk-js-v3",
+      "revision": "c68e50e4a6e0469a20c2894fe8a29c140553ebb8",
+      "licensePath": "LICENSE",
+      "reason": "The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1138.0 release commit contains packages-internal/credential-provider-http/package.json at version 3.972.74 and the repository Apache-2.0 license."
+    },
+    "@aws-sdk/credential-provider-login@3.972.79": {
+      "repositoryUrl": "https://github.com/aws/aws-sdk-js-v3",
+      "revision": "c68e50e4a6e0469a20c2894fe8a29c140553ebb8",
+      "licensePath": "LICENSE",
+      "reason": "The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1138.0 release commit contains packages-internal/credential-provider-login/package.json at version 3.972.79 and the repository Apache-2.0 license."
+    },
+    "@aws-sdk/nested-clients@3.997.46": {
+      "repositoryUrl": "https://github.com/aws/aws-sdk-js-v3",
+      "revision": "c68e50e4a6e0469a20c2894fe8a29c140553ebb8",
+      "licensePath": "LICENSE",
+      "reason": "The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1138.0 release commit contains packages-internal/nested-clients/package.json at version 3.997.46 and the repository Apache-2.0 license."
+    },
     "@aws-sdk/credential-provider-http@3.972.70": {
       "repositoryUrl": "https://github.com/aws/aws-sdk-js-v3",
       "revision": "26b0eb790ff86399b7af7b74ce8c188f25512cc6",
@@ -650,6 +668,19 @@
       "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
       "verificationSource": "node_modules/lemonadejs/LICENSE.md",
       "reason": "The package includes an MIT license but omits the lockfile license field."
+    },
+    "proxy-agent-negotiate@1.1.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://github.com/TooTallNate/proxy-agents/tree/b7e5f7ccce1a3ac5b339cc4c587974e8989cbc16/packages/negotiate",
+      "verificationSource": "https://github.com/TooTallNate/proxy-agents/blob/b7e5f7ccce1a3ac5b339cc4c587974e8989cbc16/packages/negotiate/package.json",
+      "reason": "The exact npm release and matching proxy-agent-negotiate@1.1.0 source tag declare MIT and identify Nathan Rajlich as author, but neither the tarball nor this package's source contains a LICENSE or explicit copyright statement. A sibling package at the same source commit carries the full MIT terms and names Nathan Rajlich. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-09-29 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the publisher author metadata with a contributors qualifier as the best available attribution. Any version change requires a new review.",
+      "copyrightNotices": [
+        "Copyright (c) Nathan Rajlich and contributors"
+      ],
+      "policyDecision": "allowed",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-09-29"
     },
     "@zone-eu/mailsplit@5.4.16": {
       "verifiedLicense": "MIT",

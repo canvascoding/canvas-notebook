@@ -44,6 +44,8 @@ const EXPECTED_BUILTIN_ENV: Record<string, readonly string[]> = {
   groq: ['GROQ_API_KEY'],
   huggingface: ['HF_TOKEN'],
   'kimi-coding': ['KIMI_API_KEY'],
+  meta: ['META_API_KEY'],
+  radius: ['RADIUS_API_KEY'],
   minimax: ['MINIMAX_API_KEY'],
   'minimax-cn': ['MINIMAX_CN_API_KEY'],
   mistral: ['MISTRAL_API_KEY'],
@@ -100,7 +102,7 @@ async function main() {
     resolveProviderInstallationRuntimeAuth,
   } = await import('../app/lib/agent-runtime-policy/installation-credentials');
   const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
-  const { getPiProviders } = await import('../app/lib/pi/model-resolver');
+  const { getPiModels, getPiProviders } = await import('../app/lib/pi/model-resolver');
   const {
     getAuthMethodForProvider,
     getProviderEnvVars,
@@ -108,6 +110,15 @@ async function main() {
   } = await import('../app/lib/pi/provider-help');
 
   const discovered = getPiProviders();
+  for (const [providerId, modelId] of [
+    ['openai', 'gpt-6-sol'],
+    ['openai', 'gpt-6-luna'],
+    ['anthropic', 'claude-opus-5-5'],
+    ['xai', 'grok-4.7'],
+  ]) {
+    assert.ok(getPiModels(providerId).some((model) => model.id === modelId),
+      `${providerId}/${modelId} must be selectable from the upgraded Pi catalog`);
+  }
   for (const providerId of discovered) {
     const help = getProviderHelp(providerId);
     assert.ok(help, `discovered provider ${providerId} must have ProviderHelp metadata`);

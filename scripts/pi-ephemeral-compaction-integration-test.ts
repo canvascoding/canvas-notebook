@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
-import type { AssistantMessage, Model } from '@earendil-works/pi-ai';
+import { getCurrentSystemPrompt, type AssistantMessage, type Model } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 import { Type } from 'typebox';
 import { createPiTestDatabase } from './helpers/pi-test-database';
 
@@ -58,7 +58,10 @@ async function main() {
     if (request === '@earendil-works/pi-agent-core') return { Agent: class Agent {} };
     if ((request.startsWith('.') || request.startsWith('@/')) && request.endsWith('/auth')) return { auth: {} };
     if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
-      return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
+      return {
+        ...originalLoad(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain) as object,
+        getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined,
+      };
     }
     if (request === '@/app/lib/agents/workspace-file-tree-context') return {
       buildWorkspaceFileTreePrompt: async () => ({ promptBlock: 'workspace tree' }),
@@ -101,7 +104,7 @@ async function main() {
     let summaryCalls = 0;
     const modelContexts: string[] = [];
     const streamFn: StreamFn = async (_requestedModel, context) => {
-      if (/rolling summary|compact internal summary/i.test(context.systemPrompt || '')) {
+      if (/rolling summary|compact internal summary/i.test(getCurrentSystemPrompt(context.messages) || '')) {
         summaryCalls += 1;
         return completedStream(assistant([{ type: 'text', text: [
           '## Active Task',
@@ -236,7 +239,7 @@ async function main() {
       tools: [fixtureTool], signal: new AbortController().signal,
       runtime: { model, selection: { selection: { providerId: model.provider, thinkingLevel: 'off' } },
         streamFn: async (_requestedModel: Parameters<StreamFn>[0], context: Parameters<StreamFn>[1]) => {
-          if (/rolling summary|compact internal summary/i.test(context.systemPrompt || '')) {
+          if (/rolling summary|compact internal summary/i.test(getCurrentSystemPrompt(context.messages) || '')) {
             failedSummaryCalls += 1;
             throw new Error('synthetic summary provider failure');
           }
@@ -281,7 +284,7 @@ async function main() {
       tools: [fixtureTool], signal: abortController.signal,
       runtime: { model, selection: { selection: { providerId: model.provider, thinkingLevel: 'off' } },
         streamFn: async (_requestedModel: Parameters<StreamFn>[0], context: Parameters<StreamFn>[1]) => {
-          if (/rolling summary|compact internal summary/i.test(context.systemPrompt || '')) {
+          if (/rolling summary|compact internal summary/i.test(getCurrentSystemPrompt(context.messages) || '')) {
             abortSummaryCalls += 1;
             queueMicrotask(() => abortController.abort(new Error('cancelled during summary')));
             return { result: () => new Promise<AssistantMessage>(() => undefined) } as Awaited<ReturnType<StreamFn>>;

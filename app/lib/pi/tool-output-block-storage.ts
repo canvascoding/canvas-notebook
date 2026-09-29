@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { JsonValue } from '@earendil-works/pi-ai';
 import { getToolOutputMetadata } from './tool-output-metadata';
 import { ToolOutputBlockBudgetError, planToolOutputBlockViews, type ToolOutputBudgetModel, type ToolOutputViewDraft } from './tool-output-block-budget';
 import { storeToolOutput, type ToolOutputIdentity } from './tool-output-store';
@@ -34,7 +35,9 @@ async function archiveDraft(draft: ToolOutputViewDraft, identity: ToolOutputIden
       nextMetadata.references.push({ reference, manifestReference, bytes, characters, sha256, complete });
       nextMetadata.storedBytes += bytes;
     } else nextMetadata.storageError = stored.error;
-    message.details = { ...(message.details as Record<string, unknown>), toolOutput: nextMetadata };
+    message.details = JSON.parse(JSON.stringify({
+      ...(message.details as Record<string, unknown>), toolOutput: nextMetadata,
+    })) as JsonValue;
   })();
   pendingArchives.set(message, operation);
   try { await operation; } finally { pendingArchives.delete(message); }
@@ -49,7 +52,9 @@ export async function finalizeToolOutputBlocks(messages: AgentMessage[], model: 
   for (const draft of finalized.drafts) {
     const previous = (draft.original.details as { toolOutputView?: { sourceKey?: string; modelKey?: string } } | undefined)?.toolOutputView;
     if (previous?.sourceKey !== draft.view.sourceKey || previous?.modelKey !== draft.view.modelKey) changed++;
-    draft.original.details = { ...(draft.original.details as Record<string, unknown>), toolOutputView: draft.view };
+    draft.original.details = JSON.parse(JSON.stringify({
+      ...(draft.original.details as Record<string, unknown>), toolOutputView: draft.view,
+    })) as JsonValue;
   }
   if (changed) {
     const outputs = finalized.drafts.map(draft => getToolOutputMetadata(draft.original.details));

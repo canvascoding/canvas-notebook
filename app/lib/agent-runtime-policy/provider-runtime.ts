@@ -4,7 +4,7 @@ import type {
   Api,
   AssistantMessage,
   AssistantMessageEventStream,
-  Context,
+  TranscriptContext,
   Model,
   SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
@@ -302,7 +302,7 @@ export type ExecutableAgentRuntime = {
   getApiKey: (providerId: string) => Promise<string | undefined>;
   streamFn: (
     model: Model<Api>,
-    context: Context,
+    context: TranscriptContext,
     options?: SimpleStreamOptions,
   ) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
   requiresRecreation: () => boolean;

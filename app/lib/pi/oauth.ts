@@ -35,7 +35,9 @@ export const PI_OAUTH_PROVIDERS = [
   'openai-codex',
   'github-copilot',
   'kimi-coding',
+  'meta',
   'openrouter',
+  'radius',
   'xai',
 ] as const;
 
@@ -51,6 +53,8 @@ export const PI_VISIBLE_OAUTH_PROVIDERS: OAuthProviderId[] = [
   'openai-codex',
   'openrouter',
   'kimi-coding',
+  'meta',
+  'radius',
   'xai',
 ];
 
@@ -60,6 +64,8 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   'openai-codex': 'OpenAI Codex (ChatGPT Login)',
   'github-copilot': 'GitHub Copilot',
   'kimi-coding': 'Kimi Code',
+  'meta': 'Meta AI',
+  'radius': 'Radius',
   'openrouter': 'OpenRouter',
   'xai': 'xAI (Grok/X)',
 };

@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
+import { normalizeContext } from '@earendil-works/pi-ai';
 import { and, eq, lt, or } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
@@ -122,10 +123,10 @@ export async function generatePendingPiSessionTitle(input: {
     try {
       const stream = await input.streamFn(
         input.model,
-        {
+        normalizeContext({
           systemPrompt: SESSION_TITLE_SYSTEM_PROMPT,
           messages: [titlePromptMessage(firstUserText)],
-        },
+        }),
         {
           maxTokens: Math.min(TITLE_MAX_TOKENS, input.model.maxTokens),
           sessionId: `session-title:${input.sessionId}`,

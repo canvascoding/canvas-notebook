@@ -14,6 +14,7 @@ import type {
   Model,
   UserMessage,
 } from '@earendil-works/pi-ai';
+import { normalizeContext } from '@earendil-works/pi-ai';
 
 import { estimateTextTokens } from '../history-budget';
 import { isPiActionableUserMessage } from './selection';
@@ -259,10 +260,10 @@ async function callSummaryModel(
     const stream = await Promise.race([
       streamFn(
         model,
-        {
+        normalizeContext({
           systemPrompt: call.systemPrompt,
           messages: [{ role: 'user', content: call.prompt, timestamp: Date.now() } as UserMessage],
-        },
+        }),
         {
           temperature: 0,
           // Do not set maxTokens here. Reasoning and visible summary text
