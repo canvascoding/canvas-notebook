@@ -5,6 +5,7 @@ import { createPiTestDatabase } from './helpers/pi-test-database';
 
 let database: Awaited<ReturnType<typeof createPiTestDatabase>>;
 const calls: Array<{ userId: string; accountId: string }> = [];
+const outboxCalls: Array<Record<string, unknown>> = [];
 const checkedWorkspaces: string[] = [];
 let allowMailboxWorkspace = true;
 let canRunMailboxAgent = true;
@@ -23,7 +24,12 @@ internal._load = (request, parent, isMain) => {
     return { workspaceId, permissions: { canRead: true, canRunAgent: canRunMailboxAgent } };
   } };
   if (request === '@/app/lib/email/service') return { readEmailMessage: async (userId: string, accountId: string) => { calls.push({ userId, accountId }); return { message: { id: 'message', subject: 'Fixture' } }; } };
-  if (['@/app/lib/email/attachment-batch', '@/app/lib/email/attachment-workspace-save', '@/app/lib/email/attachments', '@/app/lib/email/workspace-inbox-outbox'].includes(request)) return {};
+  if (request === '@/app/lib/email/attachments') return { snapshotAgentWorkspaceEmailAttachments: async () => [] };
+  if (request === '@/app/lib/email/workspace-inbox-outbox') {
+    const capture = async (input: Record<string, unknown>) => { outboxCalls.push(input); return { id: 'draft-test', subject: input.subject, version: 1 }; };
+    return { createPersonalOutboxDraft: capture, createWorkspaceOutboxDraft: capture, updatePersonalOutboxDraft: capture, updateWorkspaceOutboxDraft: capture };
+  }
+  if (['@/app/lib/email/attachment-batch', '@/app/lib/email/attachment-workspace-save'].includes(request)) return {};
   return originalLoad(request, parent, isMain);
 };
 async function main() {
@@ -73,6 +79,16 @@ async function main() {
   assert.match(JSON.stringify(boundDenied), /Workspace agent access denied/);
   assert.equal(calls.length, 2, 'Bound automation also respects revoked agent permissions');
   canRunMailboxAgent = true;
+  await invoke('email_create_outbox_draft', { mailboxId: 'account:personal', to: ['recipient@example.test'], subject: 'Formatted', bodyMarkdown: 'Hallo **Frank**' });
+  assert.match(String(outboxCalls.at(-1)?.bodyHtml), /<strong>Frank<\/strong>/u);
+  assert.doesNotMatch(String(outboxCalls.at(-1)?.bodyHtml), /\*\*Frank\*\*/u);
+  await bound.find(tool => tool.name === 'email_update_outbox_draft')!.execute('bound', { draftId: 'draft-test', expectedVersion: 1, to: ['recipient@example.test'], subject: 'Updated', bodyMarkdown: '- Eins\n- Zwei' } as never);
+  assert.match(String(outboxCalls.at(-1)?.bodyHtml), /<li>Eins<\/li>/u);
+  assert.equal(outboxCalls.at(-1)?.actor, 'agent');
+  await invoke('email_create_outbox_draft', { mailboxId: 'account:personal', to: ['recipient@example.test'], subject: 'Plain', body: 'Price is *5*' });
+  assert.equal(outboxCalls.at(-1)?.body, 'Price is *5*', 'Legacy plain text remains plain text');
+  const ambiguous = await invoke('email_create_outbox_draft', { mailboxId: 'account:personal', to: ['recipient@example.test'], subject: 'Invalid', body: 'plain', bodyMarkdown: '**bold**' });
+  assert.match(JSON.stringify(ambiguous), /Provide bodyMarkdown or the legacy/u);
   await database.db.update(workspaceEmailMailboxes).set({ status: 'archived' }).where(eq(workspaceEmailMailboxes.id, 'mailbox-work'));
   await invoke('email_read_message', { mailboxId: 'mailbox-work', mailboxWorkspaceId: 'mail-workspace', messageId: 'message' });
   assert.equal(calls.length, 2, 'Archived assignment cannot reach provider');
