@@ -28,6 +28,7 @@ export async function readNotificationAttention(input: {
   userId: string;
   workspaces: WorkspaceContext[];
   now?: Date;
+  excludeChatSessionId?: string;
 }) {
   const now = input.now ?? new Date();
   const workspaceIds = input.workspaces.map((workspace) => workspace.workspaceId);
@@ -42,6 +43,7 @@ export async function readNotificationAttention(input: {
       filter: 'notifications',
       limit: 12,
       includeFileChanges: true,
+      excludeChatSessionId: input.excludeChatSessionId,
     }), {
       scope: { workspaceIds, workspaceCount: workspaceIds.length },
       counts: { unread: 0, chat: 0, emails: 0, todos: 0, todoUnread: 0, studio: 0, automation: 0 },
@@ -63,6 +65,7 @@ export async function readNotificationAttention(input: {
       userId: input.userId,
       workspaces: input.workspaces,
       includeFileChanges: true,
+      excludeChatSessionId: input.excludeChatSessionId,
     }), 0),
     settleNotificationSource(listMemoryApprovalAttention({ userId: input.userId, workspaces: input.workspaces }), []),
     settleNotificationSource(listMcpConnectionAttention({ userId: input.userId, now: now.getTime() }), []),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import {
@@ -81,6 +81,9 @@ export function NotificationBell() {
   const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<NotificationSummary | null>(null);
+  const [activeChatSessionId, setActiveChatSessionId] = useState<string | null>(null);
+  const activeChatSessionIdRef = useRef<string | null>(null);
+  const refreshGenerationRef = useRef(0);
   const [isLoading, setIsLoading] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [memoryDecisions, setMemoryDecisions] = useState<Record<string, 'approve' | 'reject' | null>>({});
@@ -89,17 +92,39 @@ export function NotificationBell() {
   const [licenseEmailEnabled, setLicenseEmailEnabled] = useState<boolean | null>(null);
   const [savingLicenseEmail, setSavingLicenseEmail] = useState(false);
 
-  const unreadCount = summary?.unreadCount ?? 0;
+  const visibleSummary = useMemo(() => {
+    if (!summary || !activeChatSessionId) return summary;
+    const isActiveChatItem = (item: NotificationItem) => item.target.kind === 'chat' && item.target.sessionId === activeChatSessionId;
+    const hiddenUnread = summary.sections.notifications.filter((item) => isActiveChatItem(item) && item.unread).length;
+    if (!hiddenUnread) return summary;
+    return {
+      ...summary,
+      unreadCount: Math.max(0, summary.unreadCount - hiddenUnread),
+      counts: {
+        ...summary.counts,
+        unread: Math.max(0, summary.counts.unread - hiddenUnread),
+        chat: Math.max(0, summary.counts.chat - hiddenUnread),
+      },
+      items: summary.items.filter((item) => !isActiveChatItem(item)),
+      sections: {
+        ...summary.sections,
+        notifications: summary.sections.notifications.filter((item) => !isActiveChatItem(item)),
+      },
+    };
+  }, [activeChatSessionId, summary]);
+  const unreadCount = visibleSummary?.unreadCount ?? 0;
   const badgeLabel = useMemo(() => formatBadgeCount(unreadCount), [unreadCount]);
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGenerationRef.current;
     setIsLoading(true);
     try {
-      setSummary(await readNotificationSummary());
+      const nextSummary = await readNotificationSummary({ activeChatSessionId: activeChatSessionIdRef.current });
+      if (generation === refreshGenerationRef.current) setSummary(nextSummary);
     } catch {
-      setSummary(null);
+      if (generation === refreshGenerationRef.current) setSummary(null);
     } finally {
-      setIsLoading(false);
+      if (generation === refreshGenerationRef.current) setIsLoading(false);
     }
   }, []);
 
@@ -116,13 +141,21 @@ export function NotificationBell() {
     const handleUpdate = () => {
       window.setTimeout(() => void refresh(), 100);
     };
+    const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; isVisible: boolean }>) => {
+      const nextSessionId = event.detail.isVisible ? event.detail.sessionId : null;
+      activeChatSessionIdRef.current = nextSessionId;
+      setActiveChatSessionId(nextSessionId);
+      void refresh();
+    };
     window.addEventListener('session_updated', handleUpdate);
+    window.addEventListener('chat-active-session-changed', handleActiveSessionChanged as EventListener);
     window.addEventListener('todo_updated', handleUpdate);
     window.addEventListener('notification_summary_updated', handleUpdate);
     return () => {
       window.clearTimeout(initialRefresh);
       window.clearInterval(interval);
       window.removeEventListener('session_updated', handleUpdate);
+      window.removeEventListener('chat-active-session-changed', handleActiveSessionChanged as EventListener);
       window.removeEventListener('todo_updated', handleUpdate);
       window.removeEventListener('notification_summary_updated', handleUpdate);
     };
@@ -254,11 +287,11 @@ export function NotificationBell() {
   }, [mutateInbox, refresh]);
 
   const notificationItems = useMemo(
-    () => summary?.sections.notifications ?? summary?.items.filter((item) => item.target.kind !== 'todo') ?? [],
-    [summary],
+    () => visibleSummary?.sections.notifications ?? visibleSummary?.items.filter((item) => item.target.kind !== 'todo') ?? [],
+    [visibleSummary],
   );
-  const todoItems = summary?.sections.todoAttention ?? summary?.sections.todos ?? summary?.items.filter((item) => item.target.kind === 'todo') ?? [];
-  const emailItems = summary?.sections.emailAttention ?? summary?.items.filter((item) => item.target.kind === 'email') ?? [];
+  const todoItems = visibleSummary?.sections.todoAttention ?? visibleSummary?.sections.todos ?? visibleSummary?.items.filter((item) => item.target.kind === 'todo') ?? [];
+  const emailItems = visibleSummary?.sections.emailAttention ?? visibleSummary?.items.filter((item) => item.target.kind === 'email') ?? [];
 
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
