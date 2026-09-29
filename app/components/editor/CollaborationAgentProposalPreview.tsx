@@ -73,6 +73,7 @@ export function CollaborationAgentProposalPreview({ target, index, t, onReady }:
           className={classes}
           imageLabel={t('agentPreviewBlock_image')}
           linkLabel={t('agentPreviewProperty_href')}
+          tableLabel={t('agentPreviewScrollableTable')}
         />
         <div className="mt-3 border-t pt-2"><p className="mb-1 font-medium">{t('agentPreviewExactText')}</p><SourceText content={content} t={t} /></div>
       </div>

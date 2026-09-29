@@ -147,6 +147,7 @@ async function main() {
   const { FileVersionCenterHost } = await import('../app/components/file-version-center/FileVersionCenterHost');
   const {
     mergeFileVersionTimelinePage,
+    matchingCurrentRevision,
     reconcileFileVersionTimelineSelection,
   } = await import('../app/lib/file-version-center/timeline-state');
   const { openVersionCenter } = await import('../app/store/file-version-center-store');
@@ -553,6 +554,59 @@ async function main() {
   </NextIntlClientProvider>));
   assert.match(document.querySelector<HTMLButtonElement>('[data-operation-id="operation-two"]')?.textContent ?? '', /Needs review/iu,
     'the old timeline status appears only after the server explicitly declares legacy mode');
+  const savedCurrent = {
+    ...revisionEntry,
+    id: currentEntry.revisionId,
+    revisionId: currentEntry.revisionId,
+    revisionNumber: 8,
+    content: { ...revisionEntry.content, sha256: currentEntry.sha256, sizeBytes: currentEntry.sizeBytes },
+  };
+  const matchingTimeline = response([currentEntry, savedCurrent, revisionEntry], { hasMore: false, nextCursor: null });
+  assert.equal(matchingCurrentRevision(matchingTimeline.entries)?.revisionNumber, 8,
+    'only the captured revision with the current content is folded into Current');
+  const currentSelection = reconcileFileVersionTimelineSelection({
+    request: { ...request, selectedEntry: undefined }, timeline: matchingTimeline,
+  });
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={matchingTimeline} selection={currentSelection}
+      onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.match(document.querySelector('[data-entry-kind="current"]')?.textContent ?? '', /Current version[\s\S]*Version 8[\s\S]*Frank/u,
+    'Current exposes the saved version number and provenance');
+  assert.deepEqual([...document.querySelectorAll('[data-entry-kind="revision"]')].map((entry) => entry.textContent?.match(/Version \d+/u)?.[0]),
+    ['Version 7'], 'the duplicate current snapshot is omitted while older versions remain');
+  assert.match(document.querySelector('[data-testid="file-version-history-section"]')?.textContent ?? '', /Version history\s*1/u);
+
+  const explicitSelection = reconcileFileVersionTimelineSelection({
+    request: { ...request, selectedEntry: { kind: 'revision', id: savedCurrent.id } }, timeline: matchingTimeline,
+  });
+  assert.equal(explicitSelection.key, 'current',
+    'a direct link to the byte-identical saved version resolves to the Current card');
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={matchingTimeline} selection={explicitSelection}
+      onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.ok(document.querySelector('[data-entry-kind="current"][aria-pressed="true"]'),
+    'an explicitly linked current snapshot selects Current instead of leaving an orphaned hidden row');
+  assert.equal(document.querySelectorAll('[data-entry-kind="revision"]').length, 1,
+    'the matching revision remains folded even when it was the requested deep link');
+
+  const mismatchedSnapshot = { ...savedCurrent, content: { ...savedCurrent.content, sha256: 'c'.repeat(64) } };
+  const mismatchedTimeline = response([currentEntry, mismatchedSnapshot], { hasMore: false, nextCursor: null });
+  assert.equal(matchingCurrentRevision(mismatchedTimeline.entries), null,
+    'a matching revision ID never hides a different content hash');
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={mismatchedTimeline} selection={currentSelection}
+      onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.equal(document.querySelectorAll('[data-entry-kind="revision"]').length, 1);
+
+  await act(async () => cardRoot.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+    <FileVersionTimeline timeline={response([currentEntry, savedCurrent], { hasMore: true, nextCursor: 'next' })}
+      selection={currentSelection} onSelect={() => {}} onLoadMore={() => {}} loadingMore={false} loadMoreError={null} />
+  </NextIntlClientProvider>));
+  assert.match(document.querySelector('[data-testid="file-version-history-section"]')?.textContent ?? '', /Load older versions to see earlier states/u,
+    'pagination does not falsely claim that no older saved versions exist');
   await act(async () => cardRoot.unmount());
   console.log('file-version-center-timeline-test: ok');
 }
