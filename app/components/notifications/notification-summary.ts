@@ -58,8 +58,10 @@ type ApiResponse<T> = {
   error?: string;
 };
 
-export async function readNotificationSummary(): Promise<NotificationSummary> {
-  const response = await fetch('/api/notifications/summary', {
+export async function readNotificationSummary(options: { activeChatSessionId?: string | null } = {}): Promise<NotificationSummary> {
+  const params = new URLSearchParams();
+  if (options.activeChatSessionId) params.set('activeChatSessionId', options.activeChatSessionId);
+  const response = await fetch(`/api/notifications/summary${params.size ? `?${params}` : ''}`, {
     credentials: 'include',
     cache: 'no-store',
   });

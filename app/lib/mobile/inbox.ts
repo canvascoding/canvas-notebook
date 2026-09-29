@@ -12,6 +12,7 @@ import {
   isNotNull,
   isNull,
   like,
+  ne,
   or,
   type AnyColumn,
   type SQL,
@@ -378,6 +379,7 @@ async function collectInboxItems(input: {
   workspace: WorkspaceContext;
   sortAsOf: Date;
   includeFileChanges?: boolean;
+  excludeChatSessionId?: string;
 }) {
   const state = await readState({ userId: input.userId, workspaceId: input.workspace.workspaceId });
   const [sessionRows, todos, generationRows, automationRows, emailItems, fileChangeItems] = await Promise.all([
@@ -390,6 +392,7 @@ async function collectInboxItems(input: {
       eq(piSessions.userId, input.userId),
       eq(piSessions.sessionKind, 'conversation'),
       workspaceCondition(piSessions.workspaceId, input.workspace),
+      input.excludeChatSessionId ? ne(piSessions.sessionId, input.excludeChatSessionId) : undefined,
     )).orderBy(desc(piSessions.lastMessageAt), desc(piSessions.id)).limit(MAX_SOURCE_ITEMS),
     listInboxTodos({ userId: input.userId, workspace: input.workspace }),
     db.select({
@@ -609,6 +612,7 @@ async function collectAggregateInboxItems(input: {
   workspaces: WorkspaceContext[];
   sortAsOf: Date;
   includeFileChanges?: boolean;
+  excludeChatSessionId?: string;
 }): Promise<CollectedAggregateInboxItem[]> {
   const items: CollectedAggregateInboxItem[] = [];
   const concurrency = 4;
@@ -620,6 +624,7 @@ async function collectAggregateInboxItems(input: {
         workspace,
         sortAsOf: input.sortAsOf,
         includeFileChanges: input.includeFileChanges,
+        excludeChatSessionId: input.excludeChatSessionId,
       });
       return workspaceItems.map((item) => ({ ...item, workspaceId: workspace.workspaceId }));
     }));
@@ -792,6 +797,7 @@ export async function listMobileAggregateInbox(input: {
   limit?: number;
   groupWorkspaceTodos?: boolean;
   includeFileChanges?: boolean;
+  excludeChatSessionId?: string;
 }) {
   const filter = MOBILE_INBOX_FILTERS.includes(input.filter as MobileInboxFilter)
     ? input.filter as MobileInboxFilter
@@ -914,6 +920,7 @@ export async function countMobileUnreadNotifications(input: {
   userId: string;
   workspaces: WorkspaceContext[];
   includeFileChanges?: boolean;
+  excludeChatSessionId?: string;
 }): Promise<number> {
   const workspaces = [...new Map(input.workspaces.map((workspace) => [workspace.workspaceId, workspace])).values()];
   const counts = await Promise.all(workspaces.map(async (workspace) => {
@@ -925,6 +932,7 @@ export async function countMobileUnreadNotifications(input: {
       }).from(piSessions).where(and(
         eq(piSessions.userId, input.userId),
         eq(piSessions.sessionKind, 'conversation'),
+        input.excludeChatSessionId ? ne(piSessions.sessionId, input.excludeChatSessionId) : undefined,
         workspaceCondition(piSessions.workspaceId, workspace),
         isNotNull(piSessions.lastMessageAt),
         or(

@@ -50,9 +50,11 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const scope = await loadMobileInboxScope(session.user);
+    const activeChatSessionId = request.nextUrl.searchParams.get('activeChatSessionId')?.trim();
     const attention = await readNotificationAttention({
       userId: session.user.id,
       workspaces: scope.includedWorkspaces,
+      excludeChatSessionId: activeChatSessionId && activeChatSessionId.length <= 256 ? activeChatSessionId : undefined,
     });
     const items = [...attention.sections.notifications, ...attention.sections.todoAttention, ...attention.sections.emailAttention];
 
