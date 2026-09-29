@@ -11,6 +11,17 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.29.2] - 2026-09-29
+
+### Changed
+
+- Budget agent tool results separately from call arguments and prioritize large results for spillover to reduce context overflow after large writes.
+- Defer tool blocks that cannot be reduced further to the remaining context budget.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.29.1] - 2026-09-29
 
 ### Added
