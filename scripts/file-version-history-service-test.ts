@@ -148,6 +148,26 @@ async function main(): Promise<void> {
       captureEnabled: () => true,
     });
 
+    const initial = await service.capture({
+      workspace,
+      path: 'notes.md',
+      content: '',
+      source: 'initial',
+      actorUserId: 'owner',
+      actorType: 'user',
+    });
+    assert.equal(initial.outcome, 'captured');
+    assert.equal(initial.binding?.rawSizeBytes, 0);
+    assert.equal(initial.binding?.source, 'initial');
+    assert.equal((await service.capture({
+      workspace,
+      path: 'notes.md',
+      content: '',
+      source: 'initial',
+      actorUserId: 'owner',
+      actorType: 'user',
+    })).outcome, 'already_captured', 'retrying the initial capture must not create another version');
+
     const first = await service.capture({
       workspace,
       path: 'notes.md',
@@ -238,7 +258,7 @@ async function main(): Promise<void> {
         (SELECT COUNT(*)::text FROM file_revision_contents) AS bindings,
         (SELECT COUNT(*)::text FROM file_version_blobs) AS blobs
     `);
-    assert.deepEqual(counts.rows[0], { revisions: '3', bindings: '3', blobs: '3' });
+    assert.deepEqual(counts.rows[0], { revisions: '4', bindings: '4', blobs: '4' });
     console.log('file-version-history-service-test: ok');
   } finally {
     await postgres.close();

@@ -849,6 +849,8 @@ export const collaborationDocuments = pgTable("collaboration_documents", {
   lineageId: text("lineage_id"),
   provider: text("provider").notNull().default("yjs"),
   stateVersion: bigint("state_version", { mode: "number" }).notNull().default(0),
+  // A missing Yjs row is safe to read from disk only before the first initialization.
+  yjsStateLifecycle: text("yjs_state_lifecycle").notNull().default("never_initialized"),
   snapshotRevisionId: text("snapshot_revision_id"),
   status: text("status").notNull().default("active"),
   createdAt: pgTimestamp("created_at").notNull(),
@@ -864,6 +866,8 @@ export const collaborationDocuments = pgTable("collaboration_documents", {
   projectStatusIdx: index("idx_collab_documents_project_status").on(table.projectId, table.status, table.updatedAt),
   statusCheck: check("collaboration_documents_status_check", sql`${table.status} IN ('active', 'archived')`),
   providerCheck: check("collaboration_documents_provider_check", sql`${table.provider} IN ('yjs', 'excalidraw')`),
+  yjsStateLifecycleCheck: check("collaboration_documents_yjs_state_lifecycle_check",
+    sql`${table.yjsStateLifecycle} IN ('never_initialized', 'initialized', 'legacy_unknown')`),
 }));
 
 // Attempts are marked before file I/O; checkpoint receipts are committed with

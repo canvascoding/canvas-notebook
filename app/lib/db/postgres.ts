@@ -1261,6 +1261,54 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     )
   `);
   await pool.query("ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'");
+  // Existing documents without a Yjs row are ambiguous: the row may never
+  // have been initialized, or its authoritative state may have been lost.
+  // Only documents created after this migration receive the safe fallback.
+  await pool.query('ALTER TABLE collaboration_documents ADD COLUMN IF NOT EXISTS yjs_state_lifecycle text');
+  await pool.query(`
+    UPDATE collaboration_documents AS document
+    SET yjs_state_lifecycle = CASE WHEN EXISTS (
+      SELECT 1 FROM collaboration_yjs_states AS state WHERE state.document_id = document.id
+    ) THEN 'initialized' ELSE 'legacy_unknown' END
+    WHERE document.yjs_state_lifecycle IS NULL
+  `);
+  await pool.query(`
+    UPDATE collaboration_documents AS document
+    SET yjs_state_lifecycle = 'initialized'
+    WHERE document.provider = 'yjs' AND document.yjs_state_lifecycle <> 'initialized'
+      AND EXISTS (SELECT 1 FROM collaboration_yjs_states AS state WHERE state.document_id = document.id)
+  `);
+  await pool.query("ALTER TABLE collaboration_documents ALTER COLUMN yjs_state_lifecycle SET DEFAULT 'never_initialized'");
+  await pool.query('ALTER TABLE collaboration_documents ALTER COLUMN yjs_state_lifecycle SET NOT NULL');
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conname = 'collaboration_documents_yjs_state_lifecycle_check') THEN
+        ALTER TABLE collaboration_documents ADD CONSTRAINT collaboration_documents_yjs_state_lifecycle_check
+          CHECK (yjs_state_lifecycle IN ('never_initialized', 'initialized', 'legacy_unknown'));
+      END IF;
+    END $$
+  `);
+  // The marker advances in the same transaction as the first authoritative
+  // state insert. Deleting or losing that state must never re-enable fallback.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION mark_collaboration_yjs_state_initialized()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      UPDATE collaboration_documents SET yjs_state_lifecycle = 'initialized'
+      WHERE id = NEW.document_id AND provider = 'yjs';
+      RETURN NEW;
+    END $$
+  `);
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'collaboration_yjs_state_initialized') THEN
+        CREATE TRIGGER collaboration_yjs_state_initialized
+          AFTER INSERT ON collaboration_yjs_states FOR EACH ROW
+          EXECUTE FUNCTION mark_collaboration_yjs_state_initialized();
+      END IF;
+    END $$
+  `);
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (

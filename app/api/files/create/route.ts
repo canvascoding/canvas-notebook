@@ -2,6 +2,7 @@ import { WorkspacePathAliasError } from '@/app/lib/workspaces/path-guard';
 import { randomUUID } from 'node:crypto';
 import { createEmptyDocx } from '@/app/lib/office/empty-docx';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
+import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createDirectoryIfAbsent, writeFileIfAbsent } from '@/app/lib/filesystem/workspace-files';
@@ -73,13 +74,10 @@ export async function POST(request: NextRequest) {
         actorSessionId: null,
         actorType: 'user',
       });
-      await writeFileIfAbsent(
-        path,
-        template === 'excalidraw' || isExcalidrawFilePath(path)
-          ? createEmptyExcalidrawFileContent()
-          : '',
-        fileOptions
-      );
+      const initialContent = template === 'excalidraw' || isExcalidrawFilePath(path)
+        ? createEmptyExcalidrawFileContent()
+        : '';
+      await writeFileIfAbsent(path, initialContent, fileOptions);
       const revision = await getWorkspaceFileRevision(path, fileOptions);
       if (revision) {
         await ensureFileRevisionForCurrentContent({
@@ -90,6 +88,16 @@ export async function POST(request: NextRequest) {
           actorUserId: workspaceResult.session.user.id,
           actorType: 'user',
           sourceSessionId: null,
+        });
+        // The revision ledger alone is metadata-only. Bind the initial bytes
+        // now so history works before the editor's first autosave/session.
+        await fileVersionHistoryService.capture({
+          workspace: workspaceResult.workspace,
+          path,
+          content: initialContent,
+          source: 'initial',
+          actorUserId: workspaceResult.session.user.id,
+          actorType: 'user',
         });
       }
     } else {
