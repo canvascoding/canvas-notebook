@@ -68,7 +68,10 @@ Der Release-Workflow startet beide Architektur-Builds erst nach dem strikten
 Lizenz- und Sicherheitstest. Er baut jedes Image lokal, prueft dessen natives
 Inventar und pusht erst danach architekturspezifische Build-Tags. Das
 Multi-Arch-Manifest folgt nur auf den erfolgreichen Vergleich beider
-Evidenzsaetze. Ein Image des aktuellen Quellstands wurde noch nicht gebaut.
+Evidenzsaetze. Fuer Notebook `c2f4e1ef8` wurden lokale amd64-/arm64-Images
+gebaut und verglichen; die Evidenz steht in
+[`optional-dictation-boundary-review-2026-09-29.md`](optional-dictation-boundary-review-2026-09-29.md).
+Ein Release-Workflow mit Push wurde nicht ausgefuehrt.
 
 Die erste verantwortliche Gesamtfreigabe ist dokumentiert. Zehn npm-Pakete
 und drei Pakete des global installierten npm wurden fuer ihre exakten
