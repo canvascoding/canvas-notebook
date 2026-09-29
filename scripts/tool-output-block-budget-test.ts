@@ -76,14 +76,22 @@ async function main() {
     assert.ok(smallDrafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, 0) <= 2_400);
     assert.match(toolText(first[2] as ToolMessage), /\[S3\]/);
     assert.match(toolText(first[3] as ToolMessage), /\[S2\]/);
+    let archivedMediumResults = 0;
+    let preservedMediumResults = 0;
     for (let index = 4; index < 10; index++) {
       const original = messages[index] as ToolMessage;
       assert.match(toolText(first[index] as ToolMessage), new RegExp(`created-${index - 2}`));
       const reference = getToolOutputMetadata(original.details)?.references[0];
-      assert.ok(reference, 'several medium results exceeding a block budget are archived before trimming');
+      if (toolText(first[index] as ToolMessage) === toolText(original)) {
+        preservedMediumResults++;
+        continue;
+      }
+      archivedMediumResults++;
+      assert.ok(reference, 'trimmed medium results are archived');
       const stored = JSON.parse((await readStoredToolOutput(identity, reference.reference)).content);
       assert.equal(stored.content[0].text, toolText(original));
     }
+    assert.ok(archivedMediumResults > 0 && preservedMediumResults > 0, 'largest-first allocation keeps smaller results intact');
     const read = first[10] as ToolMessage;
     const readDetails = read.details as { nextOffset: number; offset: number; toolOutputReadWindow: { bodyStart: number; bodyEnd: number } };
     const visibleReadBody = toolText(read).slice(readDetails.toolOutputReadWindow.bodyStart, readDetails.toolOutputReadWindow.bodyEnd);

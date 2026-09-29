@@ -65,6 +65,21 @@ function allocate(desired: number[], minimum: number[], available: number): numb
   return allocation;
 }
 
+/** Preserve small results; spill the largest result bodies first, like Hermes. */
+function allocateResultTokens(desired: number[], minimum: number[], available: number): number[] {
+  const allocation = desired.slice();
+  let excess = Math.max(0, allocation.reduce((sum, value) => sum + value, 0) - available);
+  const largestFirst = desired.map((value, index) => ({ value, index }))
+    .sort((left, right) => right.value - left.value || left.index - right.index);
+  for (const { index } of largestFirst) {
+    if (!excess) break;
+    const removed = Math.min(excess, allocation[index] - minimum[index]);
+    allocation[index] -= removed;
+    excess -= removed;
+  }
+  return allocation;
+}
+
 function renderWeb(message: ToolResultMessage, maxChars: number): string | null {
   const metadata = getToolOutputMetadata(message.details);
   const layout = metadata?.webLayout;
@@ -197,7 +212,7 @@ export function planToolOutputBlockViews(messages: AgentMessage[], model: ToolOu
     if (oversizedMinimum !== undefined) throw new ToolOutputBlockBudgetError(oversizedMinimum, resultLimit, 'result');
     if (minimumTotal > available) throw new ToolOutputBlockBudgetError(minimumTotal, blockLimit);
     const desired = results.map((result, index) => Math.max(minimum[index], Math.min(resultLimit, textCost(result, textOf(result)))));
-    const allocation = allocate(desired, minimum, available);
+    const allocation = allocateResultTokens(desired, minimum, available);
     results.forEach((result, index) => {
       const metadata = getToolOutputMetadata(result.details);
       const sourceKey = digest([textOf(result), result.isError, metadata, detailsOf(result).toolOutputReadWindow]);
