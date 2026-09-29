@@ -11,7 +11,7 @@ import { Switch } from '@/components/ui/switch';
 type Provider = 'local' | 'openai' | 'groq';
 type Settings = { enabled: boolean; provider: Provider; model: string; language: string };
 type Status = { available: boolean; reason: string | null };
-type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed'; message?: string };
+type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed' | 'disabled'; message?: string };
 type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; localInstall: LocalInstall }; error?: string };
 type InstallResponse = { success: boolean; data?: { localInstall: LocalInstall }; error?: string };
 
@@ -116,7 +116,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
             const provider = event.target.value as Provider;
             setSettings({ ...settings, provider, model: models[provider][0] }); setStatus(null); setSaved(false);
           }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-            <option value="local">{t('providers.local')}</option>
+            <option value="local" disabled={localInstall?.state === 'disabled'}>{t('providers.local')}</option>
             <option value="openai">OpenAI</option>
             <option value="groq">Groq</option>
           </select>
@@ -126,7 +126,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
           <div className="space-y-2"><Label htmlFor="dictation-model">{t('model')}</Label><select id="dictation-model" value={settings.model} onChange={(event) => { setSettings({ ...settings, model: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">{models[settings.provider].map((model) => <option key={model} value={model}>{model}</option>)}</select></div>
           <div className="space-y-2"><Label htmlFor="dictation-language">{t('language')}</Label><select id="dictation-language" value={settings.language} onChange={(event) => { setSettings({ ...settings, language: event.target.value }); setStatus(null); setSaved(false); }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"><option value="auto">{t('automatic')}</option><option value="de">Deutsch</option><option value="en">English</option></select></div>
         </div>
-        {settings.provider === 'local' ? <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+        {settings.provider === 'local' && localInstall?.state === 'disabled' ? <p role="status" className="text-sm text-muted-foreground">{t('localDisabled')}</p> : settings.provider === 'local' ? <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
           <p>{t('localNote')}</p>
           <p>{t('localInstallDisclosure')} <a className="underline" href="https://ffmpeg.org/legal.html" target="_blank" rel="noopener noreferrer">{t('localLicenseLink')}</a></p>
           {localInstall?.state === 'installed' && <p role="status" className="text-emerald-700 dark:text-emerald-400">{t('localInstalled')}</p>}

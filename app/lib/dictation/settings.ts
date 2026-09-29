@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { localDictationRuntimeSupported } from '@/app/lib/dictation/runtime-install';
 import { readSettingsTextFileIfExists, writeSettingsJsonFileAtomic } from '@/app/lib/settings-storage';
 
 export const DICTATION_PROVIDERS = ['local', 'openai', 'groq'] as const;
@@ -68,6 +69,9 @@ export async function readDictationSettings(): Promise<DictationSettings> {
 
 export async function writeDictationSettings(value: unknown): Promise<DictationSettings> {
   const settings = validateDictationSettings(value);
+  if (!localDictationRuntimeSupported() && settings.provider === 'local') {
+    throw new Error('Local dictation is unavailable in this Docker release. Choose a cloud provider.');
+  }
   const write = pendingWrite.then(async () => {
     await writeSettingsJsonFileAtomic(SETTINGS_PATH, settings);
     return settings;

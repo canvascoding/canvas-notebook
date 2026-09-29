@@ -4,6 +4,7 @@ import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import { requireManagedTeamInvitationPolicy } from '@/app/lib/license/managed-team-invitation-policy';
 import { SeatLimitGuardError } from '@/app/lib/license/seat-limit';
 import {
   prepareAcceptedInvitationSeat,
@@ -14,6 +15,8 @@ import {
   TeamInvitationError,
 } from '@/app/lib/organization/team-invitations';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { acceptTeamMembershipInvitation } from '@/app/lib/organization/team-invitations';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { publicRateLimit, publicResourceRateLimit } from '@/app/lib/security/public-rate-limit';
 import { readBoundedJson } from '@/app/lib/api/bounded-json';
@@ -49,6 +52,22 @@ export async function POST(request: NextRequest) {
     }
     const targetLimit = await publicResourceRateLimit({ limit: 40, windowMs: 60_000, keyPrefix: 'membership-invitation-accept' }, body.token);
     if (!targetLimit.ok) return targetLimit.response;
+    const invitationPolicyResponse = await requireManagedTeamInvitationPolicy();
+    if (invitationPolicyResponse) return invitationPolicyResponse;
+    if (getDeploymentMode() === 'managed-team') {
+      const accepted = await acceptTeamMembershipInvitation({ token: body.token, requestId: body.requestId });
+      return NextResponse.json({
+        success: true,
+        data: {
+          invitationId: accepted.invitation.id,
+          email: accepted.membership.candidateEmail,
+          role: accepted.membership.role,
+          localIdentityKey: accepted.membership.id,
+          status: 'pending_control_plane',
+          replayed: accepted.replayed,
+        },
+      }, { status: 202 });
+    }
     const accepted = await prepareAcceptedInvitationSeat({
       token: body.token,
       requestId: body.requestId,

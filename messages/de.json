@@ -156,6 +156,7 @@
     "loginButton": "Anmelden",
     "loggingIn": "Wird angemeldet...",
     "loginFailed": "Anmeldung fehlgeschlagen",
+    "teamLicenseAccessPaused": "Dein Team-Zugang ist pausiert, weil die Lizenz deiner Organisation nicht mehr aktiv ist. Bitte wende dich an deine Administratorin oder deinen Administrator.",
     "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
     "loginSuccessful": "Anmeldung erfolgreich",
     "sessionCheckingTitle": "Anmeldung wird geprüft",
@@ -1597,6 +1598,7 @@
     "localInstalling": "Lokale Transkriptions-Runtime wird installiert …",
     "localInstalled": "Lokale Transkriptions-Runtime installiert.",
     "localUnavailable": "Lokale Transkription ist erst nach der Installation der optionalen Runtime verfügbar.",
+    "localDisabled": "Lokale Transkription ist in dieser Docker-Version nicht verfügbar. Wähle OpenAI oder Groq für Cloud-Diktat.",
     "installError": "Die lokale Transkriptions-Runtime konnte nicht installiert werden.",
     "cloudNote": "Cloud-Transkription sendet die Aufnahme an den gewählten Anbieter. Den API-Schlüssel unter Einstellungen → Secrets/Integrationen hinterlegen.",
     "available": "Dienst verfügbar. Bei lokaler Transkription wird das Modell erst bei der ersten Aufnahme geladen.",
@@ -3247,7 +3249,8 @@
       "automation": "Automation benötigt Aufmerksamkeit",
       "file_change": "Dateiänderung",
       "memory": "Memory-Freigabe erforderlich",
-      "mcp": "MCP-Verbindung benötigt Aufmerksamkeit"
+      "mcp": "MCP-Verbindung benötigt Aufmerksamkeit",
+      "license": "Team-Lizenzereignis"
     },
     "fileChanges": {
       "openFailed": "Die Dateiänderung konnte nicht geöffnet werden.",
@@ -3490,7 +3493,7 @@
   "invitationAcceptance": {
     "eyebrow": "Private Team-Einladung",
     "title": "Dein Workspace wartet",
-    "description": "Prüfe zuerst die Einladung. Bei der Annahme entsteht nur eine ausstehende Mitgliedschaft; dein Account bleibt gesperrt, bis der Billing-Owner die exakten Seat-Kosten freigibt.",
+    "description": "Prüfe zuerst die Einladung. Bei der Annahme entsteht eine ausstehende Mitgliedschaft; dein Account bleibt bis zur nötigen Freigabe und zum bestätigten Seat-Limit gesperrt.",
     "loading": "Einladung wird sicher geprüft...",
     "email": "Eingeladene E-Mail",
     "role": "Team-Rolle",
@@ -3504,6 +3507,9 @@
     "retry": "Billing und Aktivierung erneut versuchen",
     "password": "Wähle dein Passwort",
     "passwordHint": "Der Account wird erst nach bestätigtem Billing und signiertem Seat-Limit loginfähig.",
+    "managedPasswordHint": "Dein Account bleibt gesperrt, bis der Administrator deine Identität zugeordnet hat und das signierte Team-Limit übernommen wurde. Dieser Schritt berechnet dir nichts.",
+    "managedPendingTitle": "Administratorfreigabe ausstehend",
+    "managedPendingDescription": "Dein Passwort ist gesetzt und dein Account bleibt gesperrt. Nach der Bestätigung deines Teamzugangs kannst du über diese Einladung zurückkehren.",
     "billingPendingHint": "Beim Billing ist noch eine Aktion erforderlich. Dein Account bleibt gesperrt; versuche es erneut, nachdem der Billing-Owner den Provider-Status geklärt hat.",
     "waitingHint": "Das exakte Seat-Angebot wartet im Control Plane auf einen Organisations-Owner oder eine Billing-Rolle. Du kannst diese Seite sicher schließen und mit demselben Link zurückkehren.",
     "expiredHint": "Der vorherige Preis ist nicht mehr gültig. Lade ein aktuelles serverseitig berechnetes Angebot; der Billing-Owner muss es erneut bestätigen.",
@@ -4352,6 +4358,11 @@
         "recoveryDescription": "Die Aktivierung für {email} wurde bereits vorgemerkt und kann sicher fortgesetzt werden.",
         "retrySetup": "Aktivierung fortsetzen"
       },
+      "managedPending": {
+        "description": "Das Konto bleibt gesperrt, bis die Identität im Control Plane zugeordnet und die signierte Lizenz synchronisiert ist.",
+        "password": "Startpasswort",
+        "submit": "Gesperrte Identität vorbereiten"
+      },
       "reactivationDialog": {
         "title": "Team-Mitglied reaktivieren",
         "description": "Bevor sich {email} wieder anmelden kann, ist ein aktuelles Seat-Angebot erforderlich.",
@@ -4495,6 +4506,7 @@
         "created": "{email} wurde angelegt.",
         "activationStarted": "Die Aktivierung für {email} wurde vorgemerkt. Vor der Kontoerstellung wird das Seat-Limit bestätigt.",
         "quotePrepared": "Das Team-Seat-Angebot für {email} ist bereit.",
+        "managedPending": "{email} wartet auf die Zuordnung im Control Plane. Bis zur Freigabe besteht kein Zugriff.",
         "quoteChecked": "Der Freigabestatus wurde aktualisiert.",
         "quoteRefreshed": "Ein neues Team-Seat-Angebot wurde geladen und muss erneut bestätigt werden.",
         "activationProcessed": "Der Status der Mitgliedschaftsaktivierung wurde aktualisiert.",

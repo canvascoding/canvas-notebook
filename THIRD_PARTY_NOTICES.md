@@ -6,7 +6,7 @@ versioned overrides, and the bundled non-npm component inventory.
 - Canvas Notebook version: 2026.9.27.1
 - Lockfile SHA-256: `debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5`
 - Distributed components: 1449
-- Release gate: **blocked**
+- Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
 Third-party trademarks and branding are not granted by the software licenses below.
@@ -1464,12 +1464,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | zustand | 4.5.7 | runtime | MIT | allowed |
 | zustand | 5.0.14 | runtime | MIT | allowed |
 | zwitch | 2.0.4 | runtime | MIT | allowed |
-
-## Commercial release blockers
-
-The following entries require a documented responsible/legal decision before a commercial release:
-
-- **docker-runtime:optional-dictation-boundary 2026-09-28:** The dictation wheels have moved to an opt-in DATA installation, but the changed final amd64/arm64 image composition and installation boundary still need a version-specific owner review before commercial distribution.
 
 ## License texts and copyright notices
 

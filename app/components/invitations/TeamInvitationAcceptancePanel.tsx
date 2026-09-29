@@ -75,6 +75,8 @@ export function TeamInvitationAcceptancePanel({
   const locale = useLocale();
   const [preview, setPreview] = useState<InvitationPreview | null>(null);
   const [quote, setQuote] = useState<InvitationSeatQuote | null>(null);
+  const [managedAccepted, setManagedAccepted] = useState(false);
+  const [managedPending, setManagedPending] = useState(false);
   const [requestId, setRequestId] = useState(
     validRequestId(initialRequestId) ? initialRequestId : null,
   );
@@ -157,13 +159,20 @@ export function TeamInvitationAcceptancePanel({
         success?: boolean;
         data?: {
           quote?: InvitationSeatQuote;
+          status?: string;
         };
         error?: string;
       };
-      if (!response.ok || payload.success !== true || !payload.data?.quote) {
+      if (!response.ok || payload.success !== true || !payload.data) {
         throw new Error(payload.error || t('errors.accept'));
       }
-      setQuote(payload.data.quote);
+      if (payload.data.status === 'pending_control_plane') {
+        setManagedAccepted(true);
+      } else if (payload.data.quote) {
+        setQuote(payload.data.quote);
+      } else {
+        throw new Error(t('errors.accept'));
+      }
       setPreview((current) => current ? { ...current, status: 'accepted' } : current);
     } catch (acceptError) {
       setError(acceptError instanceof Error ? acceptError.message : t('errors.accept'));
@@ -173,7 +182,7 @@ export function TeamInvitationAcceptancePanel({
   };
 
   const activate = async () => {
-    if (!requestId || !quote) return;
+    if (!requestId || (!quote && !managedAccepted)) return;
     if (password.length < 8 || password.length > 128) {
       setError(t('errors.password'));
       return;
@@ -189,14 +198,19 @@ export function TeamInvitationAcceptancePanel({
       });
       const payload = await response.json().catch(() => ({})) as {
         success?: boolean;
-        data?: InvitationSeatQuote;
+        data?: InvitationSeatQuote | { status: 'pending'; localIdentityKey: string };
         error?: string;
       };
       if (!response.ok || payload.success !== true || !payload.data) {
         throw new Error(payload.error || t('errors.activate'));
       }
-      setQuote(payload.data);
-      if (payload.data.stage === 'active') setPassword('');
+      if ('status' in payload.data && payload.data.status === 'pending') {
+        setManagedPending(true);
+        setPassword('');
+      } else if ('stage' in payload.data) {
+        setQuote(payload.data);
+        if (payload.data.stage === 'active') setPassword('');
+      }
     } catch (activationError) {
       setError(activationError instanceof Error ? activationError.message : t('errors.activate'));
     } finally {
@@ -326,7 +340,7 @@ export function TeamInvitationAcceptancePanel({
               </div>
             )}
 
-            {!quote && preview && (
+            {!quote && !managedAccepted && preview && (
               <div className="space-y-3">
                 <p className="text-sm leading-6 text-muted-foreground">{t('consent')}</p>
                 <Button
@@ -338,6 +352,34 @@ export function TeamInvitationAcceptancePanel({
                   {busy === 'accept' ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <ArrowRight data-icon="inline-start" />}
                   {preview.status === 'accepted' ? t('resume') : t('accept')}
                 </Button>
+              </div>
+            )}
+
+            {managedAccepted && !managedPending && (
+              <div className="space-y-4 border bg-muted/20 p-4">
+                <div className="space-y-2">
+                  <Label htmlFor="managed-invitation-password">{t('password')}</Label>
+                  <Input
+                    id="managed-invitation-password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    disabled={busy !== null}
+                  />
+                  <p className="text-xs text-muted-foreground">{t('managedPasswordHint')}</p>
+                </div>
+                <Button type="button" disabled={busy !== null} onClick={() => void activate()}>
+                  {busy === 'activate' ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <KeyRound data-icon="inline-start" />}
+                  {t('activate')}
+                </Button>
+              </div>
+            )}
+
+            {managedPending && (
+              <div className="border border-primary bg-muted/20 p-4">
+                <p className="font-medium">{t('managedPendingTitle')}</p>
+                <p className="mt-2 text-sm text-muted-foreground">{t('managedPendingDescription')}</p>
               </div>
             )}
 

@@ -254,6 +254,7 @@ export function UserManagementPanel({
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [membershipSeatQuote, setMembershipSeatQuote] = useState<MembershipSeatQuote | null>(null);
+  const [managedPendingKey, setManagedPendingKey] = useState<string | null>(null);
   const [activationPassword, setActivationPassword] = useState('');
   const [reactivationTarget, setReactivationTarget] = useState<ManagedUser | null>(null);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
@@ -376,12 +377,12 @@ export function UserManagementPanel({
     setMessage(null);
   };
 
-  const runAction = async (actionKey: string, action: () => Promise<void>, successMessage: string) => {
+  const runAction = async (actionKey: string, action: () => Promise<void>, successMessage: string | (() => string)) => {
     setActiveAction(actionKey);
     resetTransientState();
     try {
       await action();
-      setMessage(successMessage);
+      setMessage(typeof successMessage === 'function' ? successMessage() : successMessage);
       await loadUsers();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : t('errors.action'));
@@ -399,6 +400,7 @@ export function UserManagementPanel({
   const createUser = async () => {
     const name = createDraft.name.trim();
     const email = createDraft.email.trim().toLowerCase();
+    let managedPending = false;
 
     if (!name || !email) {
       setError(t('errors.createValidation'));
@@ -420,16 +422,42 @@ export function UserManagementPanel({
         });
         const payload = await response.json().catch(() => ({})) as {
           success?: boolean;
-          data?: MembershipSeatQuote;
+          data?: MembershipSeatQuote | { status: 'pending_control_plane'; localIdentityKey: string };
           error?: string;
         };
         if (!response.ok || payload.success !== true || !payload.data) {
           throw new Error(payload.error || t('errors.create'));
         }
-        setMembershipSeatQuote(payload.data);
+        if ('status' in payload.data && payload.data.status === 'pending_control_plane') {
+          managedPending = true;
+          setManagedPendingKey(payload.data.localIdentityKey);
+        } else {
+          setMembershipSeatQuote(payload.data as MembershipSeatQuote);
+        }
       },
-      t('messages.quotePrepared', { email }),
+      () => managedPending
+        ? t('messages.managedPending', { email })
+        : t('messages.quotePrepared', { email }),
     );
+  };
+
+  const bindManagedIdentity = async () => {
+    if (!managedPendingKey || activationPassword.length < 8 || activationPassword.length > 128) {
+      setError(t('errors.activation'));
+      return;
+    }
+    await runAction('activate', async () => {
+      const response = await fetch(`/api/admin/organization/memberships/${encodeURIComponent(managedPendingKey)}/activate`, {
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: activationPassword }),
+      });
+      const payload = await response.json().catch(() => ({})) as { success?: boolean; error?: string };
+      if (!response.ok || payload.success !== true) throw new Error(payload.error || t('errors.activation'));
+      setCreateOpen(false);
+      setManagedPendingKey(null);
+      setActivationPassword('');
+      await loadUsers();
+    }, t('messages.managedPending', { email: createDraft.email.trim().toLowerCase() }));
   };
 
   const updateMembershipSeatQuote = async (method: 'GET' | 'POST') => {
@@ -1300,6 +1328,7 @@ export function UserManagementPanel({
           if (!open) {
             setCreateDraft(createEmptyDraft());
             setMembershipSeatQuote(null);
+            setManagedPendingKey(null);
             setActivationPassword('');
             setReactivationTarget(null);
           }
@@ -1316,7 +1345,23 @@ export function UserManagementPanel({
                 : t('createDialog.description')}
             </DialogDescription>
           </DialogHeader>
-          {membershipSeatQuote ? (
+          {managedPendingKey ? (
+            <div className="flex flex-col gap-4">
+              <p className="text-sm text-muted-foreground">{t('managedPending.description')}</p>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="managed-membership-password">{t('managedPending.password')}</Label>
+                <Input id="managed-membership-password" type="password" minLength={8} maxLength={128}
+                  value={activationPassword} onChange={(event) => setActivationPassword(event.target.value)}
+                  disabled={activeAction === 'activate'} />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)}>{t('cancel')}</Button>
+                <Button type="button" onClick={() => void bindManagedIdentity()} disabled={activeAction === 'activate'}>
+                  {t('managedPending.submit')}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : membershipSeatQuote ? (
             <div className="flex flex-col gap-4">
               <div className="rounded-md border bg-muted/30 p-4">
                 <div className="flex items-start justify-between gap-3">

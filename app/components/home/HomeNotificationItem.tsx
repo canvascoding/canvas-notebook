@@ -1,6 +1,6 @@
 'use client';
 
-import { BrainCircuit, Check, CircleAlert, FileClock, ImageIcon, ListTodo, Loader2, Mail, MessageSquare, PlugZap, Workflow, X } from 'lucide-react';
+import { BrainCircuit, Check, CircleAlert, FileClock, ImageIcon, KeyRound, ListTodo, Loader2, Mail, MessageSquare, PlugZap, Workflow, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { Link } from '@/i18n/navigation';
@@ -24,6 +24,7 @@ const ICONS = {
   automation: Workflow,
   memory: BrainCircuit,
   mcp: PlugZap,
+  license: KeyRound,
   file_change: FileClock,
 };
 

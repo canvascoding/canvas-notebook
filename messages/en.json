@@ -156,6 +156,7 @@
     "loginButton": "Login",
     "loggingIn": "Logging in...",
     "loginFailed": "Login failed",
+    "teamLicenseAccessPaused": "Your team access is paused because your organization's license is no longer active. Please contact your administrator.",
     "unexpectedError": "An unexpected error occurred",
     "loginSuccessful": "Login successful",
     "sessionCheckingTitle": "Checking your sign-in",
@@ -1598,6 +1599,7 @@
     "localInstalling": "Installing the local transcription runtime…",
     "localInstalled": "Local transcription runtime installed.",
     "localUnavailable": "Local transcription is unavailable until the optional runtime is installed.",
+    "localDisabled": "Local transcription is unavailable in this Docker release. Choose OpenAI or Groq for cloud dictation.",
     "installError": "Could not install the local transcription runtime.",
     "cloudNote": "Cloud transcription sends the recording to the selected provider. Store its API key under Settings → Secrets/Integrations.",
     "available": "Service available. Local models load when the first recording is transcribed.",
@@ -3248,7 +3250,8 @@
       "automation": "Automation needs attention",
       "file_change": "File change",
       "memory": "Memory approval required",
-      "mcp": "MCP connection needs attention"
+      "mcp": "MCP connection needs attention",
+      "license": "Team license event"
     },
     "fileChanges": {
       "openFailed": "The file change could not be opened.",
@@ -3491,7 +3494,7 @@
   "invitationAcceptance": {
     "eyebrow": "Private Team invitation",
     "title": "Your workspace is waiting",
-    "description": "Review the invitation first. Accepting it creates a pending membership; your account stays locked until the billing owner approves the exact Seat cost.",
+    "description": "Review the invitation first. Accepting it creates a pending membership; your account stays locked until the required approval and signed Seat limit are confirmed.",
     "loading": "Checking this invitation securely...",
     "email": "Invited email",
     "role": "Team role",
@@ -3505,6 +3508,9 @@
     "retry": "Retry billing and activation",
     "password": "Choose your password",
     "passwordHint": "The account becomes sign-in capable only after billing and the signed Seat limit are confirmed.",
+    "managedPasswordHint": "Your account remains locked until the administrator maps your identity and the signed Team limit is applied. This step does not charge you.",
+    "managedPendingTitle": "Waiting for administrator approval",
+    "managedPendingDescription": "Your password is set and your account remains locked. You can return to this invitation after the administrator confirms your Team access.",
     "billingPendingHint": "Billing still needs action. Your account remains locked; retry after the billing owner has resolved the provider state.",
     "waitingHint": "The exact Seat quote is waiting for an organization owner or billing role in the Control Plane. You can safely close this page and return with the same link.",
     "expiredHint": "The previous price is no longer valid. Load a current server-calculated quote; the billing owner must confirm it again.",
@@ -4353,6 +4359,11 @@
         "recoveryDescription": "Activation for {email} is already staged and can be resumed safely.",
         "retrySetup": "Resume activation"
       },
+      "managedPending": {
+        "description": "The account remains blocked until its identity is mapped in Control Plane and the signed license is synchronized.",
+        "password": "Initial password",
+        "submit": "Prepare blocked identity"
+      },
       "reactivationDialog": {
         "title": "Reactivate Team member",
         "description": "A current Seat quote is required before {email} can sign in again.",
@@ -4496,6 +4507,7 @@
         "created": "{email} was created.",
         "activationStarted": "Activation for {email} was staged. The Seat limit will be confirmed before account creation.",
         "quotePrepared": "The Team Seat quote for {email} is ready.",
+        "managedPending": "{email} is waiting for Control Plane mapping. Access remains blocked until approval.",
         "quoteChecked": "The approval status was refreshed.",
         "quoteRefreshed": "A new Team Seat quote was loaded and must be confirmed again.",
         "activationProcessed": "The membership activation state was updated.",

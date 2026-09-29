@@ -109,10 +109,8 @@ assert.equal(
 assert.equal(inventory.releaseGate.approvalStatus, 'approved');
 assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
 assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
-assert.equal(inventory.releaseGate.status, 'blocked');
-assert.deepEqual(inventory.releaseGate.blockers.map(({ name }) => name), [
-  'docker-runtime:optional-dictation-boundary',
-]);
+assert.equal(inventory.releaseGate.status, 'approved');
+assert.deepEqual(inventory.releaseGate.blockers, []);
 assert.equal(
   inventory.summary.distributedReviewRequired,
   0,
@@ -162,6 +160,7 @@ for (const requiredDockerFragment of [
   "find node_modules -type d -path '*/@img/sharp-*'",
   '--require-hashes -r /app/requirements/runtime-python.txt',
   'COPY --from=builder /app/requirements/dictation-python.txt /app/requirements/dictation-python.txt',
+  './scripts/dictation-runtime.py ./scripts/dictation-worker.py',
   'capture-runtime-component-inventory.mjs',
   'runtime-component-inventory-test.mjs',
   'sharp-runtime-linkage-test.mjs',

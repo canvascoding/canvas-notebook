@@ -2,18 +2,251 @@
 
 ## Current dictation-image status, 2026-09-28
 
-The July Schema-4 approval below covers the earlier 45-package Python lock.
+The July Schema-4 approval below covers the 45-package Python base lock.
 The [dictation dependency intake](dictation-python-dependency-intake-2026-09-28.md)
-records the later 58-package images and their bundled PyAV/FFmpeg GPL codec
-finding. The current source moves those 13 additional wheels to an explicit,
-post-deployment installation under `/data`; see the
-[optional runtime design](optional-dictation-runtime-2026-09-28.md). They are no
-longer in the Docker build's Python lock, but the changed final images still
-need a fresh amd64/arm64 audit. One version-specific release blocker remains
-for that image and installation-boundary review. No new commercial-release
-approval is recorded here.
+records the historical 58-package images and their bundled PyAV/FFmpeg GPL
+codec finding. The current Docker release excludes all 13 additional wheels,
+the local installer and its worker. The
+[2026-09-29 boundary review](optional-dictation-boundary-review-2026-09-29.md)
+records fresh local amd64/arm64 image audits and the fail-closed Docker path.
+The Docker distribution blocker was resolved by excluding the optional
+installation path; the release gate is green. This is no approval to
+redistribute the optional wheels or enable local dictation in a Docker image.
 
 Stand: 2026-07-17
+
+## Kandidat mit lokaler Diktatfunktion (2026-09-28)
+
+Der Merge von `main` erweitert `requirements/runtime-python.txt` fuer
+Faster-Whisper von 45 auf 58 per pip installierte Pakete. Der alte
+Schema-4-Image-Nachweis fuer `v2026.7.17.5` gilt weiterhin nur fuer dessen
+45-Paket-Lock und ist keine Freigabe dieses Kandidaten. Der neue Lock hat SHA-256
+`c7f508dc3b17741b74e76911182003a95439187f25985313323d40dcef521533`.
+
+Die folgenden 13 neuen Pakete wurden jeweils anhand der exakten
+[PyPI-Versionsmetadaten](https://pypi.org/) geprueft. Saemtliche 105 im Lock
+aufgefuehrten neuen SHA-256-Dateihashes stimmen mit den Dateien derselben
+PyPI-Version ueberein; es gab keinen unbekannten Hash. Die Lizenzspalte gibt
+die dortige SPDX-Expression oder, wenn sie fehlt, die PyPI-Klassifikation an.
+
+| Paket | Version | Lock-Hashes | PyPI-Lizenzmetadaten |
+| --- | --- | ---: | --- |
+| [anyio](https://pypi.org/project/anyio/4.15.1/) | 4.15.1 | 2 | MIT |
+| [av](https://pypi.org/project/av/18.1.0/) | 18.1.0 | 19 | BSD-3-Clause |
+| [ctranslate2](https://pypi.org/project/ctranslate2/4.8.2/) | 4.8.2 | 35 | MIT |
+| [faster-whisper](https://pypi.org/project/faster-whisper/1.2.1/) | 1.2.1 | 1 | MIT |
+| [filelock](https://pypi.org/project/filelock/4.0.5/) | 4.0.5 | 2 | MIT |
+| [fsspec](https://pypi.org/project/fsspec/2026.9.0/) | 2026.9.0 | 2 | BSD-3-Clause |
+| [h11](https://pypi.org/project/h11/0.16.0/) | 0.16.0 | 2 | MIT |
+| [hf-xet](https://pypi.org/project/hf-xet/1.6.0/) | 1.6.0 | 17 | Apache-2.0 |
+| [httpcore](https://pypi.org/project/httpcore/1.0.9/) | 1.0.9 | 2 | BSD-3-Clause |
+| [httpx](https://pypi.org/project/httpx/0.28.1/) | 0.28.1 | 2 | BSD-3-Clause |
+| [huggingface-hub](https://pypi.org/project/huggingface-hub/1.33.0/) | 1.33.0 | 2 | Apache-2.0 |
+| [tokenizers](https://pypi.org/project/tokenizers/0.23.2/) | 0.23.2 | 17 | Apache-2.0 (Klassifikation) |
+| [tqdm](https://pypi.org/project/tqdm/4.70.1/) | 4.70.1 | 2 | MPL-2.0 AND MIT (Freitext; gesonderte Lizenzentscheidung erforderlich) |
+
+Die Hashpruefung und der statische `test:licenses`-Gate bestaetigen
+Reproduzierbarkeit und bekannte Bezugsdateien, aber ersetzen weder das
+Image-Inventar noch die Freigabe der neuen Runtime-Lizenzen. Insbesondere
+`tqdm` faellt wegen der kombinierten MPL-/MIT-Angabe nicht unter die alte
+MIT-Standardentscheidung. Vor einer neuen Image-Veroeffentlichung sind die
+beiden Plattform-Inventare, deren Lizenzdateien und der Release-Gate erneut zu
+pruefen und die versionsgenaue Owner-Entscheidung festzuhalten.
+
+Der erste isolierte arm64-Image-Build zeigte ausserdem, dass `av@18.1.0`
+Python-Bytecode unter `.dist-info/licenses/__pycache__` mitliefert. Der
+Collector verwirft jetzt nur Cache-/Bytecode-Pfade und behaelt die echten
+PEP-639-Texte; eine synthetische PyAV-Fixture und der Image-Build pruefen
+diese Grenze. Der naechste Image-Gate fand bei `tokenizers@0.23.2` weder
+Lizenz-Metadaten noch einen Lizenztext im Python-Wheel. Das exakte
+[PyPI-sdist](https://pypi.org/project/tokenizers/0.23.2/#files) mit SHA-256
+`7f0f085686b9de0d0079e6f874ae053600db64c5d13049e0bbc0119926d25aac`
+enthaelt `tokenizers/LICENSE`. Dessen SHA-256
+`c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`
+ist byte-identisch zum Root-`LICENSE` am offiziellen
+[Tag `v0.23.2`](https://github.com/huggingface/tokenizers/releases/tag/v0.23.2)
+(`88a4498ad4ea1a9487b0a9b0ff881383fd5a06a3`); das zugehoerige
+`tokenizers/Cargo.toml` nennt Version 0.23.2 und Apache-2.0. Der Text ist
+separat in den Notices und im Image enthalten, und der Runtime-Test bindet
+ihn an Version, Commit und Dateihash. Eine blosse PyPI-Klassifikation reicht
+dafuer nicht aus.
+
+Das [PyPI-sdist fuer `tqdm@4.70.1`](https://pypi.org/project/tqdm/4.70.1/#files)
+hat SHA-256 `cefd0eca11b2a37a3aee776544d4f4ae913f02688135b5556b8788dfa474afc4`.
+Sein `LICENCE`-Text ist mit dem offiziellen Tag `v4.70.1`
+(`9cf5a12b1f955468a17f0ba3c59092b23e4258ac`) byte-identisch
+(SHA-256 `fcff87c3a47ce8028a8512aa182d4fcf0ad1c90544ee75cf9b343684cac194de`)
+und wird ebenfalls in die Notices aufgenommen. Die Policy markiert diesen
+Eintrag `review_required` und die Freigabe des gesamten neuen Image-Kandidaten
+`pending`; die Freigabe vom Juli bleibt nur historisch gueltig. Der statische
+Release-Gate muss deshalb blockieren, bis der Owner die neuen nativen
+Abhaengigkeiten und MPL-/MIT-Bedingungen bewertet hat.
+
+Ein `pip download --require-hashes --only-binary=:all:` mit CPython 3.11 und
+`manylinux_2_28`/`manylinux2014` fuer x86_64 waehlt genau 58 Wheels und
+akzeptiert deren Lock-Hashes. Die bereits vorher enthaltene Version
+`pypdfium2@5.12.0` ist auf PyPI inzwischen als yanked markiert; pip nennt
+als Grund einen Setup-Fehler in einigen Bindgen-Pfaden und bezeichnet die
+Wheels als effektiv identisch zu 5.12.1. Das aendert keine Lizenzentscheidung
+dieses Diktat-Merges, muss aber vor einem neuen Release bewusst geprueft werden.
+
+Ein isolierter lokaler arm64-Docker-Build des Kandidaten (Image-ID
+`sha256:9aeab5c353db702dde9ef4fbb13c767a65671b11ff1d1f5079e683dc1ddb771b`)
+bestand den fokussierten PEP-639-Test, den vollstaendigen Runtime-Inventartest
+und den Sharp-Linkage-Test. Das aus dem gestoppten Image entnommene Inventar
+enthaelt 509 Debian-Pakete, 61 Python-Distributionen (58 pip- und drei
+Debian-verwaltete) sowie 153 globale npm-Pakete. Sein Python-Lock-Hash stimmt
+mit der obigen Datei ueberein. Fuer `av@18.1.0` blieben drei echte
+Lizenzdateien und kein Bytecode als Beleg; `tokenizers@0.23.2` hat weiterhin
+null Wheel-eigene Belege und wird nur durch die versionierte externe
+Apache-2.0-Evidenz akzeptiert; `tqdm@4.70.1` hat einen Wheel-eigenen Beleg
+und die separate gebundene `LICENCE`-Kopie. Das Image wurde weder gestartet
+noch fuer den vorhandenen lokalen Vier-Dienste-Teststack eingesetzt. Die
+Owner-Freigabe steht weiterhin aus.
+
+### Zwei aktuelle lokale Plattform-Images
+
+Fuer den Lizenz-Branch `bcf0385a8` wurden am 28. September beide
+Plattform-Images isoliert gebaut und ohne Starten eines App-Containers aus
+den Images geprueft. Die folgenden Werte sind lokale Image-IDs und
+Inventar-Dateihashes, keine veroeffentlichten Multi-Arch-Manifest-Digests:
+
+| Plattform | lokale Image-ID | SHA-256 des Schema-4-Inventars | Debian-Binaries / Sources | Python / globales npm |
+| --- | --- | --- | ---: | ---: |
+| linux/amd64 | `sha256:014f6295918966ebe1801ea76d7a238fc9130055ed34370ec74b331340a6de02` | `46a3e729e020786beacf7798d8cf2968d52d15b6201586e595eb2ba838bdafe1` | 513 / 341 | 61 / 153 |
+| linux/arm64 | `sha256:e356cf4d58efe41fd371cfae28f20aafbdb1b8f40623f2a2a0a1dc71b81318e8` | `63b6b70196519cc053f892b74e9513d7ec87115d2778edebae7ba10d6dfceebe` | 509 / 339 | 61 / 153 |
+
+Auf beiden Images bestand
+`scripts/runtime-component-inventory-test.mjs` mit dem aktuellen
+Python-Lock und der Native-Policy. Das gemeinsame
+`scripts/runtime-multiarch-compliance-test.mjs` bestand mit beiden
+Inventaren und Sharp-Linkage-Dateien. Dockerfile-, Policy- und
+Python-Lock-Hashes sind zwischen den Inventaren gleich; auch alle 61
+Python-Namen/Versionen stimmen ueberein, davon 58 per pip installierte
+Pakete. Die extrahierten Notices und das statische Komponentenmanifest
+stimmen auf beiden Plattformen bytegenau mit dem Branch ueberein; das
+mitgelieferte libvips-Quellarchiv besteht auf beiden den erwarteten
+SHA-256-Test `3c41e1d5458081bfa4a5bc54e116c46259c75c6760a18027764555632b9dda3e`.
+
+Die folgenden Zahlen stammen aus den `RECORD`-Dateien der exakt in
+beiden Images installierten 13 neuen Wheels. Die erste Zahl gilt fuer
+amd64, die zweite fuer arm64. „Native Dateien“ zaehlt `.so`-Eintraege
+einschliesslich gebuendelter Bibliotheken; die Lizenzangabe stammt nur
+aus Wheel-Metadaten und ist noch keine Entscheidung ueber diese Dateien.
+
+| Wheel | Lizenzangabe | Wheel-eigene Lizenzdateien | Native Dateien |
+| --- | --- | ---: | ---: |
+| `anyio@4.15.1` | MIT | 1 / 1 | 0 / 0 |
+| `av@18.1.0` | BSD-3-Clause | 3 / 3 | 81 / 80 |
+| `ctranslate2@4.8.2` | MIT | 0 / 0 | 3 / 3 |
+| `faster-whisper@1.2.1` | MIT | 1 / 1 | 0 / 0 |
+| `filelock@4.0.5` | MIT | 1 / 1 | 0 / 0 |
+| `fsspec@2026.9.0` | BSD-3-Clause | 1 / 1 | 0 / 0 |
+| `h11@0.16.0` | MIT | 1 / 1 | 0 / 0 |
+| `hf-xet@1.6.0` | Apache-2.0 | 1 / 1 | 1 / 1 |
+| `httpcore@1.0.9` | BSD-3-Clause | 1 / 1 | 0 / 0 |
+| `httpx@0.28.1` | BSD-3-Clause | 1 / 1 | 0 / 0 |
+| `huggingface-hub@1.33.0` | Apache-2.0 | 1 / 1 | 0 / 0 |
+| `tokenizers@0.23.2` | keine Wheel-Angabe | 0 / 0 | 1 / 1 |
+| `tqdm@4.70.1` | MPL-2.0 AND MIT | 1 / 1 | 0 / 0 |
+
+PyAVs `RECORD` fuehrt unter anderem eigene `av.libs`-Kopien von
+`libavcodec`, `libavformat`, `libx264` und `libx265`; `libvpl`
+steht nur im amd64-Wheel. `ctranslate2` liefert neben seiner
+Python-Erweiterung eine eigene `libctranslate2` und `libgomp`.
+`hf-xet` und `tokenizers` enthalten jeweils eine native
+Python-Erweiterung. Diese genaue Payload und die fehlenden Wheel-Texte
+bei `ctranslate2` und `tokenizers` sind Gegenstand der offenen
+Einzelpruefung; der gebundene externe Apache-Text fuer `tokenizers`
+ist oben dokumentiert.
+
+Fuer `hf-xet@1.6.0` erfasst
+[`hf-xet-native-evidence.json`](hf-xet-native-evidence.json) die native
+Erweiterung aus genau diesen beiden historischen lokalen Images. Das
+[`capture-hf-xet-native-evidence.py`](../../scripts/capture-hf-xet-native-evidence.py)
+prueft den SHA-256-Hash und die Groesse gegen den jeweiligen Wheel-`RECORD`-
+Eintrag, die ELF-Architektur und die dynamisch benoetigten Bibliotheken.
+Die Erweiterung hat SHA-256
+`9f493e4d60ce7d973f77d6e638efc9fa59329967de8b17d2fb83baf3ed8d73b9`
+auf amd64 und
+`bcc6a3cbf4e36c16df2c40c5b124852be2acb293fc4130e11224029a04adc383`
+auf arm64; beide `RECORD`-Pruefungen bestehen. Dies belegt den Inhalt und
+die dynamische Linkage dieser historischen Images. Herkunft und Rechte
+statisch eingebetteter Rust-/Drittkomponenten sowie die kommerzielle
+Freigabe bleiben offen. Ein neuer Release-Image-Build muss separat gegen
+seine eigene Image-ID geprueft werden.
+
+Der fruehere Diktat-Image-Kandidat hatte eine architekturspezifische Pruefung
+dieser Erweiterung im Release-Workflow. Im aktuellen Basis-Image fehlen die
+optionalen Diktat-Wheels absichtlich; der Release-Workflow fordert daher
+keine `hf-xet`-Erweiterung mehr an und archiviert fuer dieses Basis-Image
+keinen solchen Nachweis. Das getrennte Capture-Skript bleibt fuer eine
+spaetere Pruefung der optionalen Installation verfuegbar. Der aktuelle
+Release-Pfad prueft stattdessen die Abwesenheit aller 13 optionalen Pakete im
+Runtime-Inventar. Ein neuer amd64-/arm64-Image-Build fuer diesen Draft-PR
+steht noch aus.
+
+Der exakte CTranslate2-Tag `v4.8.2` verweist auf Commit
+`d44d2d069eb88c7b7804da864c10c201501cb4a9`. Sein
+[MIT-Lizenztext](https://github.com/OpenNMT/CTranslate2/blob/v4.8.2/LICENSE)
+hat SHA-256 `54aa79d9fe3c09e67a16dcd95b9e88676405a6ec174efda31036983cf7672ecb`
+und ist nun als separate Notice gebunden. Beide Linux-Wheels enthalten
+selbst keine Lizenzdatei. Die drei nativen Dateien pro Architektur,
+einschliesslich `libgomp`, bleiben weiterhin in der offenen Einzelpruefung.
+Die Python-Erweiterung laedt die gebuendelten `libctranslate2` und
+`libgomp` auf beiden Plattformen. Die mitgelieferte `libgomp` ist nicht
+bytegleich mit der Debian-`libgomp1` im selben Image; ihre SHA-256-Werte
+sind amd64 `a43904e4fa297301d4640dc1bb3c8a3480b406f99e498eba9b1914b68aab604a`
+und arm64 `43642df04bdf20f9b4122d336ef3e2e6a486c536e614159ac0e981a901d54537`.
+[GCC-12.2-Quellcode](https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-12.2.0/libgomp/parallel.c)
+nennt GPLv3+ mit [Runtime Library Exception 3.1](https://raw.githubusercontent.com/gcc-mirror/gcc/releases/gcc-12.2.0/COPYING.RUNTIME);
+dies belegt noch nicht, aus welchem GCC-Build die konkreten Wheel-Dateien
+stammen. Vor einer Freigabe fehlen das exakte Wheel-Build-Rezept und die
+Compiler-/Drittkomponenten-Versionen, die Pruefung statisch eingebetteter
+Bibliotheken sowie passende Lizenztexte und Quellcode-Nachweise pro
+Architektur. Der bereits gebundene MIT-Text deckt nur den nachgewiesenen
+CTranslate2-Quellstand ab und ist keine Freigabe dieser Payload.
+
+Zusaetzlicher Befund zu den exakt gelockten PyAV-18.1.0-Wheels:
+`libavcodec` bindet in beiden Images die im Wheel enthaltenen
+`libx264` und `libx265` direkt. Das Wheel liefert nur PyAVs
+BSD-3-Clause-Lizenztext; fuer die beiden Encoder liegt im Wheel kein
+eigener Lizenztext oder Nachweis einer kommerziellen Lizenz. Ein
+schreibgeschuetzter Offline-Aufruf von `avcodec_license()` in beiden
+Images meldet `LGPL version 3 or later`, waehrend die Build-Konfiguration
+`--enable-libx264 --enable-libx265 --enable-version3`, aber kein
+`--enable-gpl` enthaelt. Das weicht von der
+[FFmpeg-Dokumentation zu x264/x265](https://www.ffmpeg.org/general.html#x264)
+und den [FFmpeg-Lizenzhinweisen](https://ffmpeg.org/legal.html) ab.
+Vor einer Freigabe muss der Owner Herkunft und Nutzungsrechte der exakten
+x264-/x265-Binaerdateien und den FFmpeg-Lizenzmodus klaeren oder ein
+Image mit einer entsprechend anders gebauten, erneut inventarisierten
+Wheel-Variante pruefen. Dies ist ein technischer Befund, keine rechtliche
+Bewertung oder Freigabe. Die genannten Image-IDs gehoeren zum vorherigen
+Produkt-Head `bcf0385a8`; nach Aenderungen an Notice oder Policy sind
+deren eingebettete Compliance-Artefakte nicht mehr aktuell.
+
+Auch das separat installierte Debian-`ffmpeg` meldet in beiden exakten
+Images bei `ffmpeg -buildconf` die Flags `--enable-gpl`,
+`--enable-libx264` und `--enable-libx265`. Ein PyAV-Source-Build gegen
+dieses System-FFmpeg behebt den Befund deshalb nicht. Das CLI wird in
+`app/lib/files/media-preview.ts` fuer Medienvorschauen genutzt; PyAV
+kommt ueber Faster-Whisper fuer das Diktat hinzu. Wenn der Release-Owner
+eine Variante ohne diese Encoder waehlt, muss er ein entsprechend
+konfiguriertes, versions- und quellgebundenes FFmpeg fuer CLI und
+PyAV-Wheels auf amd64 und arm64 bereitstellen. Danach sind Hash-Lock,
+Lizenzmodus, dynamische Bibliotheksbindungen, Notices und Source-Archive
+im finalen Image erneut zu pruefen. Die Medienvorschau und die Diktat-
+Eingaben WebM, Ogg, M4A, MP3 und WAV muessen dabei weiter funktionieren.
+Andere GPL-Komponenten im Image sind davon unabhaengig zu pruefen.
+
+Diese technische Plattformpruefung ist keine kommerzielle Freigabe und
+keine produktive Bereitstellung. Der statische Release-Gate blockiert
+weiterhin 14 Eintraege: die neue Gesamtfreigabe und die Einzelpruefung
+aller 13 neu hinzugefuegten Python-Pakete, einschliesslich der kombinierten
+MPL-/MIT-Pflichten von `tqdm`. Ein spaeter veroeffentlichtes Image muss
+mit seinen tatsaechlichen Manifest-Digests und denselben Gates erneut
+geprueft werden.
 
 ## Abschlussupdate fuer Schema 4
 
@@ -268,4 +501,7 @@ Der Docker-Sammelposten darf erst auf `allowed` wechseln, wenn:
 6. ein benannter verantwortlicher oder rechtlicher Reviewer die konkrete
    Plattformmatrix freigibt.
 
-Bis dahin muss `npm run test:licenses:release` fehlschlagen.
+Fuer einen ungeprueften Kandidaten muss `npm run test:licenses:release`
+fehlschlagen. Der aktuelle 45-Paket-Docker-Kandidat schliesst den optionalen
+Diktat-Installer aus und besteht das Gate; seine Nachweise stehen im
+[Boundary Review](optional-dictation-boundary-review-2026-09-29.md).

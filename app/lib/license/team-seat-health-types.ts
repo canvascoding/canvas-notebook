@@ -3,6 +3,10 @@ export type TeamSeatHealthState = 'healthy' | 'stale' | 'attention' | 'never';
 export type TeamSeatHealth = {
   organizationId: string;
   generatedAt: string;
+  emailDelivery?: {
+    manualReview: number;
+    retryPending: number;
+  };
   license: {
     class: 'commercial' | 'manual' | 'test' | null;
     environment: 'development' | 'test' | 'staging' | 'production' | null;
@@ -18,6 +22,7 @@ export type TeamSeatHealth = {
   };
   sync: {
     state: TeamSeatHealthState;
+    blocker: 'TEAM_SEAT_SUBJECT_CONFLICT' | null;
     observedQuantity: number | null;
     approvedQuantity: number | null;
     billedQuantity: number | null;

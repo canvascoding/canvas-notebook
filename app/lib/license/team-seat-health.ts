@@ -71,8 +71,10 @@ function syncHealthState(input: {
   diagnostics: TeamSeatSyncDiagnostics;
   staleAfterAt: number | null;
   now: number;
+  organizationReady: boolean;
 }): TeamSeatHealthState {
   const { state, outbox } = input.diagnostics;
+  if (!input.organizationReady) return 'attention';
   if (!state?.lastSyncAt) return 'never';
   if (
     state.reconciliationSupportRequired
@@ -92,12 +94,14 @@ function syncHealthState(input: {
 
 export function buildTeamSeatHealth(input: {
   organizationId: string;
+  organizationReady?: boolean;
   diagnostics: TeamSeatSyncDiagnostics;
   claim: CommunityLicenseClaimPublicStatus;
   licenseStatus: LicenseStatus;
   now?: number;
 }): TeamSeatHealth {
   const now = input.now ?? Date.now();
+  const organizationReady = input.organizationReady !== false;
   const state = input.diagnostics.state;
   const scheduledStaleAt = state?.nextReportAt === null || state?.nextReportAt === undefined
     ? null
@@ -130,7 +134,9 @@ export function buildTeamSeatHealth(input: {
         diagnostics: input.diagnostics,
         staleAfterAt,
         now,
+        organizationReady,
       }),
+      blocker: organizationReady ? null : 'TEAM_SEAT_SUBJECT_CONFLICT',
       observedQuantity: state?.currentObservedQuantity
         ?? state?.controlPlaneObservedQuantity
         ?? null,
@@ -164,8 +170,8 @@ export function buildTeamSeatHealth(input: {
       lastRefreshErrorCode: input.licenseStatus.refresh?.lastErrorCode ?? null,
     },
     recovery: {
-      canSyncSnapshot: claim.state === 'connected',
-      canRefreshLicense: claim.state === 'connected'
+      canSyncSnapshot: claim.state === 'connected' && organizationReady,
+      canRefreshLicense: claim.state === 'connected' && organizationReady
         && input.licenseStatus.hostingMode === 'community',
       reconnectRequired: claim.state === 'reconnect_required',
       costConfirmationRequired: false,

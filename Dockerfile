@@ -222,7 +222,8 @@ COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
-RUN rm -f ./scripts/apply-pending-migration-restore.ts
+RUN rm -f ./scripts/apply-pending-migration-restore.ts \
+  ./scripts/dictation-runtime.py ./scripts/dictation-worker.py
 
 # Copy seed assets (preset preview images, sys prompts, etc.)
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts
@@ -234,6 +235,7 @@ RUN test ! -e ./node_modules/better-sqlite3 \
 
 # Capture and verify the final OS/Python/npm/native payload only after the
 # production node_modules and locally-built sharp addons are present.
+RUN node ./scripts/python-license-inventory-test.mjs
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
   --base-image "${NODE_BASE_IMAGE}" \
   --platform "${TARGETPLATFORM}" \

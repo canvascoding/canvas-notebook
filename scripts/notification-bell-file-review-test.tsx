@@ -12,7 +12,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://canvas.test/en/notebook?workspaceId=workspace-one',
 });
 for (const key of [
-  'self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLButtonElement',
+  'self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLFormElement', 'HTMLInputElement', 'HTMLButtonElement',
   'HTMLTextAreaElement', 'Element', 'Node', 'NodeFilter', 'DocumentFragment', 'MutationObserver',
   'CustomEvent', 'Event', 'KeyboardEvent', 'MouseEvent', 'PointerEvent', 'SVGElement', 'getComputedStyle',
 ] as const) {

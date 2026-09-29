@@ -9,10 +9,14 @@ import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 const execFileAsync = promisify(execFile);
 
 export type LocalDictationRuntimeStatus = {
-  state: 'missing' | 'installing' | 'installed' | 'failed';
+  state: 'missing' | 'installing' | 'installed' | 'failed' | 'disabled';
   path?: string;
   message?: string;
 };
+
+export function localDictationRuntimeSupported(): boolean {
+  return process.env.CANVAS_RUNTIME_ENV !== 'docker';
+}
 
 function runtimeCommand() {
   const appRoot = process.env.CANVAS_APP_ROOT?.trim() || process.cwd();
@@ -25,6 +29,7 @@ function runtimeCommand() {
 }
 
 export async function readLocalDictationRuntimeStatus(): Promise<LocalDictationRuntimeStatus> {
+  if (!localDictationRuntimeSupported()) return { state: 'disabled' };
   const { python, script, dataRoot, requirements } = runtimeCommand();
   try {
     const { stdout } = await execFileAsync(python, ['-I', script, 'status', dataRoot, requirements], {
@@ -45,6 +50,9 @@ export async function readLocalDictationRuntimeStatus(): Promise<LocalDictationR
 }
 
 export async function startLocalDictationRuntimeInstall(): Promise<LocalDictationRuntimeStatus> {
+  if (!localDictationRuntimeSupported()) {
+    throw new Error('Local dictation installation is unavailable in this Docker release.');
+  }
   const status = await readLocalDictationRuntimeStatus();
   if (status.state === 'installed' || status.state === 'installing') return status;
   const { python, script, dataRoot, requirements } = runtimeCommand();

@@ -159,6 +159,7 @@ const lockedPythonPackages = new Map(
     .map((match) => [normalizePythonName(match[1]), match[2]]),
 );
 assert(lockedPythonPackages.size > 0, 'the runtime Python lock must contain exact versions');
+assert.equal(lockedPythonPackages.size, 45, 'the distributed Docker image must retain the reviewed 45-package base lock');
 assert.match(requirements, /--hash=sha256:[a-f0-9]{64}/u);
 const pipManagedPackages = inventory.pythonPackages.filter((component) => component.managedBy === 'pip');
 assert.equal(pipManagedPackages.length, lockedPythonPackages.size);

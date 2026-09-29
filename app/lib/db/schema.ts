@@ -1172,6 +1172,14 @@ export const aiRuntimeDefaults = pgTable("ai_runtime_defaults", {
   updatedAt: pgTimestamp("updated_at").notNull(),
 });
 
+export const managedTeamPendingIdentities = pgTable("managed_team_pending_identities", {
+  localIdentityKey: text("local_identity_key").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  pendingUserId: text("pending_user_id").notNull().unique(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+});
+
 /**
  * Organization-owned compaction preferences. These intentionally live beside
  * the organization-scoped model catalog rather than in the instance-wide
@@ -2728,6 +2736,28 @@ export const auditEvents = pgTable("audit_events", {
   userCreatedIdx: index("idx_audit_events_user_created").on(table.userId, table.createdAt),
   entityCreatedIdx: index("idx_audit_events_entity_created").on(table.entityType, table.entityId, table.createdAt),
   sourceActionCreatedIdx: index("idx_audit_events_source_action_created").on(table.source, table.action, table.createdAt),
+}));
+
+export const teamLicenseEmailOutbox = pgTable("team_license_email_outbox", {
+  id: text("id").primaryKey(),
+  auditEventId: text("audit_event_id").notNull(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  eventKind: text("event_kind").notNull(),
+  reason: text("reason").notNull(),
+  seatLimit: bigint("seat_limit", { mode: "number" }).notNull(),
+  status: text("status").notNull().default('pending'),
+  attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+  nextAttemptAt: pgTimestamp("next_attempt_at").notNull(),
+  leaseUntil: pgTimestamp("lease_until"),
+  messageId: text("message_id"),
+  error: text("error"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  deliveredAt: pgTimestamp("delivered_at"),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  dueIdx: index("idx_team_license_email_outbox_due").on(table.status, table.nextAttemptAt),
+  auditRecipientIdx: uniqueIndex("idx_team_license_email_outbox_audit_recipient").on(table.auditEventId, table.userId),
 }));
 
 // Short-lived, metadata-only diagnostics for the public Canvas MCP server.

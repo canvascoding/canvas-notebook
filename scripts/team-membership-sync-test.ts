@@ -6,18 +6,25 @@ import type { SqlConnection } from '../app/lib/db';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import { LicenseControlPlaneError } from '../app/lib/license/control-plane';
 import {
+  assertSingleCommunityTeamOrganization,
+  CommunityTeamOrganizationError,
+} from '../app/lib/license/community-team-organization';
+import {
+  enqueueTeamSeatOutboxOperation,
   getLatestTeamMembershipSnapshotOperation,
   getTeamMembershipSyncState,
   getTeamSeatOutboxOperation,
+  recordTeamMembershipProjectionChange,
   teamSeatSnapshotHash,
 } from '../app/lib/license/team-seat-outbox';
 import { runTeamMembershipSnapshotSyncCycle } from '../app/lib/license/team-membership-sync';
+import { runTeamSeatOutboxWorkerCycle } from '../app/lib/license/team-seat-outbox-worker';
 import type {
   TeamSeatSnapshotRequest,
   TeamSeatSnapshotResponse,
 } from '../app/lib/license/team-seat-contract';
 import type { LicenseStatus } from '../app/lib/license/types';
-import { adoptActiveTeamMembership } from '../app/lib/organization/team-membership';
+import { adoptActiveTeamMembership, getActiveTeamMembershipProjection } from '../app/lib/organization/team-membership';
 
 type PgQueryable = Parameters<typeof runPostgresMigrations>[0];
 
@@ -335,7 +342,199 @@ async function main(): Promise<void> {
   }
 }
 
-void main().catch((error) => {
+async function historicalFailedOutboxScenario(): Promise<void> {
+  const postgres = new PGlite();
+  const database = connectionFor(postgres);
+  const now = Date.parse('2030-02-01T00:00:00.000Z');
+  const organizationId = 'historical-failed-outbox';
+  try {
+    await runPostgresMigrations(postgres as unknown as PgQueryable);
+    await insertUser(postgres, 'historical-owner', 'historical-owner@example.test', 'admin');
+    await insertUser(postgres, 'historical-member', 'historical-member@example.test');
+    await postgres.query(`
+      INSERT INTO canvas_organization_settings (
+        organization_id, owner_user_id, deployment_mode, team_features_enabled,
+        created_at, updated_at
+      ) VALUES ($1, $2, 'team', 1, $3, $3)
+    `, [organizationId, 'historical-owner', now]);
+    await database.run(`
+      INSERT INTO team_memberships (
+        id, organization_id, user_id, candidate_email, role, status,
+        accepted_at, activated_at, created_at, updated_at
+      ) VALUES
+        ('historical-owner-membership', $1, 'historical-owner', 'historical-owner@example.test', 'owner', 'active', $2, $2, $2, $2),
+        ('historical-member-membership', $1, 'historical-member', 'historical-member@example.test', 'member', 'active', $2, $2, $2, $2)
+    `, [organizationId, now]);
+    const projection = await getActiveTeamMembershipProjection(database, organizationId);
+    assert.equal(projection.observedQuantity, 2);
+    for (let revision = 1; revision <= 5; revision += 1) {
+      const generated = await recordTeamMembershipProjectionChange(database, {
+        organizationId,
+        membershipId: projection.members[0].membershipId,
+        operationType: 'reconcile',
+        projection,
+        now: now + revision * 100,
+      });
+      assert.equal(generated.revision, revision);
+    }
+    await database.run(`
+      UPDATE team_seat_outbox
+      SET status = 'failed', attempt_count = 10, max_attempts = 10,
+        next_attempt_at = NULL, last_error_code = 'TEAM_SEAT_FEATURE_DISABLED',
+        last_error = 'Historical rollout block', completed_at = $1
+      WHERE organization_id = $2 AND operation_kind = 'membership_snapshot'
+    `, [now + 1_000, organizationId]);
+    await database.run(`
+      INSERT INTO team_memberships (
+        id, organization_id, candidate_email, role, status, removed_at, created_at, updated_at
+      ) VALUES ($1, $2, 'removed-invitation@example.test', 'member', 'removed', $3, $3, $3)
+    `, ['historical-removed-membership', organizationId, now + 500]);
+    const removedInvitation = await enqueueTeamSeatOutboxOperation(database, {
+      organizationId,
+      dedupeKey: 'historical-removed-invitation',
+      operationKind: 'seat_prepare',
+      operationType: 'invitation_accept',
+      membershipId: 'historical-removed-membership',
+      request: { kind: 'historical-removed-invitation', requestedQuantity: 3 },
+      now: now + 300,
+    });
+    await database.run(`
+      UPDATE team_seat_outbox
+      SET status = 'failed', attempt_count = 10, max_attempts = 10,
+        next_attempt_at = NULL, last_error_code = 'TEAM_SEAT_FEATURE_DISABLED',
+        last_error = 'Historical removed invitation', completed_at = $1
+      WHERE operation_id = $2
+    `, [now + 1_000, removedInvitation.operation.operationId]);
+    const historical = await database.all(`
+      SELECT operation_id, membership_revision, status, attempt_count, last_error_code
+      FROM team_seat_outbox
+      WHERE organization_id = $1 AND operation_kind = 'membership_snapshot'
+      ORDER BY membership_revision
+    `, [organizationId]) as Array<{
+      operation_id: string; membership_revision: number; status: string;
+      attempt_count: number; last_error_code: string;
+    }>;
+    assert.deepEqual(historical.map((row) => row.membership_revision), [1, 2, 3, 4, 5]);
+    assert(historical.every((row) => row.status === 'failed'
+      && row.attempt_count === 10 && row.last_error_code === 'TEAM_SEAT_FEATURE_DISABLED'));
+    const oldSnapshots = await database.all(`
+      SELECT request_json FROM team_seat_outbox
+      WHERE organization_id = $1 AND operation_kind = 'membership_snapshot'
+      ORDER BY membership_revision
+    `, [organizationId]) as Array<{ request_json: string }>;
+    assert(oldSnapshots.every((row) => (JSON.parse(row.request_json) as TeamSeatSnapshotRequest).observedQuantity === 2));
+
+    const cloud = await runTeamMembershipSnapshotSyncCycle({
+      database,
+      sendSnapshot: async () => { throw new Error('Managed Cloud must not replay Community snapshots.'); },
+      licenseStatus: { ...teamLicenseStatus(2), hostingMode: 'cloud', deploymentMode: 'cloud' },
+      now: now + 2_000,
+      forceReport: true,
+    });
+    assert.equal(cloud.organizations, 0);
+    assert.equal(cloud.generated, 0);
+    assert.equal(cloud.attempted, 0);
+    assert.equal((await getTeamMembershipSyncState(database, organizationId))?.currentRevision, 5);
+
+    const sent: Array<{ revision: number; operationId: string; observedQuantity: number }> = [];
+    const recovered = await runTeamMembershipSnapshotSyncCycle({
+      database,
+      sendSnapshot: async (request, operationId) => {
+        sent.push({ revision: request.revision, operationId, observedQuantity: request.observedQuantity });
+        return snapshotResponse(request, operationId, now + 3_000);
+      },
+      licenseStatus: teamLicenseStatus(2),
+      entitlementsVersion: 2,
+      now: now + 3_000,
+      forceReport: true,
+    });
+    assert.equal(recovered.generated, 1);
+    assert.equal(recovered.attempted, 1);
+    assert.equal(recovered.acknowledged, 1);
+    assert.deepEqual(sent.map((entry) => [entry.revision, entry.observedQuantity]), [[6, 2]]);
+    assert(!historical.some((row) => row.operation_id === sent[0].operationId));
+    const current = await getTeamMembershipSyncState(database, organizationId);
+    assert.equal(current?.currentRevision, 6);
+    assert.equal(current?.acknowledgedRevision, 6);
+    assert.equal((await getLatestTeamMembershipSnapshotOperation(database, organizationId))?.status, 'succeeded');
+    for (const row of historical) {
+      const persisted = await getTeamSeatOutboxOperation(database, row.operation_id);
+      assert.equal(persisted?.status, 'failed');
+      assert.equal(persisted?.attemptCount, 10);
+    }
+    const worker = await runTeamSeatOutboxWorkerCycle({
+      database,
+      now: now + 4_000,
+      pendingDelayMs: 0,
+      dispatchOperation: async () => { throw new Error('Failed invitation must not be replayed.'); },
+    });
+    assert.equal(worker.claimed, 0);
+    assert.equal((await getTeamSeatOutboxOperation(database, removedInvitation.operation.operationId))?.status, 'failed');
+    assert.equal((await database.get(`
+      SELECT status FROM team_memberships WHERE id = 'historical-removed-membership'
+    `) as { status: string }).status, 'removed');
+    console.log('historical failed Community outbox recovery: ok');
+  } finally {
+    await postgres.close();
+  }
+}
+
+async function multipleOrganizationsScenario(): Promise<void> {
+  const postgres = new PGlite();
+  const database = connectionFor(postgres);
+  const now = Date.parse('2030-03-01T00:00:00.000Z');
+  try {
+    await runPostgresMigrations(postgres as unknown as PgQueryable);
+    await insertUser(postgres, 'first-owner', 'first-owner@example.test', 'admin');
+    await insertUser(postgres, 'second-owner', 'second-owner@example.test', 'admin');
+    for (const [organizationId, ownerUserId] of [
+      ['first-organization', 'first-owner'],
+      ['second-organization', 'second-owner'],
+    ]) {
+      await database.run(`
+        INSERT INTO canvas_organization_settings (
+          organization_id, owner_user_id, deployment_mode, team_features_enabled,
+          created_at, updated_at
+        ) VALUES ($1, $2, 'team', 1, $3, $3)
+      `, [organizationId, ownerUserId, now]);
+      await database.run(`
+        INSERT INTO team_memberships (
+          id, organization_id, user_id, candidate_email, role, status,
+          accepted_at, activated_at, created_at, updated_at
+        ) VALUES ($1, $2, $3, $4, 'owner', 'active', $5, $5, $5, $5)
+      `, [`${organizationId}-membership`, organizationId, ownerUserId, `${ownerUserId}@example.test`, now]);
+    }
+    await assert.rejects(
+      () => assertSingleCommunityTeamOrganization(database),
+      CommunityTeamOrganizationError,
+    );
+    let sent = 0;
+    await assert.rejects(
+      () => runTeamMembershipSnapshotSyncCycle({
+        database,
+        licenseStatus: teamLicenseStatus(2),
+        sendSnapshot: async () => {
+          sent += 1;
+          throw new Error('A multi-organization snapshot must not be sent.');
+        },
+        now,
+        forceReport: true,
+      }),
+      CommunityTeamOrganizationError,
+    );
+    assert.equal(sent, 0);
+    const outbox = await database.get(`
+      SELECT COUNT(*) AS count FROM team_seat_outbox
+      WHERE operation_kind = 'membership_snapshot'
+    `) as { count: number | string };
+    assert.equal(Number(outbox.count), 0);
+    console.log('multiple Community organizations are blocked before snapshot creation: ok');
+  } finally {
+    await postgres.close();
+  }
+}
+
+void main().then(historicalFailedOutboxScenario).then(multipleOrganizationsScenario).catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });

@@ -376,6 +376,9 @@
     "test:team-seat-reconciliation": "tsx --conditions react-server scripts/team-seat-reconciliation-test.ts",
     "test:team-seat-health": "tsx --conditions react-server scripts/team-seat-health-test.ts",
     "test:team-seat-security": "tsx --conditions react-server scripts/team-seat-security-test.ts",
+    "test:team-seat:login-error": "tsx scripts/team-license-login-error-test.ts",
+    "test:team-seat:notifications": "tsx --conditions react-server scripts/team-license-attention-test.ts && tsx --conditions react-server scripts/team-license-notification-preference-test.ts && tsx --conditions react-server scripts/team-license-email-outbox-test.ts && tsx --conditions react-server scripts/team-license-term-warning-test.ts && tsx scripts/notification-bell-license-preferences-test.tsx",
+    "test:instance:human-activity": "tsx --conditions react-server scripts/human-activity-test.ts",
     "test:invitation-public-routes": "tsx --test scripts/invitation-public-route-test.ts",
     "test:team-membership-sync": "tsx --conditions react-server scripts/team-membership-sync-test.ts",
     "test:community-instance-token-storage": "tsx --conditions react-server scripts/community-instance-token-storage-test.ts",
@@ -390,7 +393,9 @@
     "test:license-domain": "tsx scripts/license-domain-normalization-test.ts",
     "licenses:generate": "tsx scripts/generate-third-party-notices.ts",
     "licenses:refresh-cache": "tsx scripts/refresh-third-party-license-cache.ts && npm run licenses:generate",
-    "test:licenses": "tsx scripts/third-party-license-compliance-test.ts && tsx scripts/generate-third-party-notices.ts --check",
+    "test:licenses": "tsx scripts/third-party-license-compliance-test.ts && tsx scripts/generate-third-party-notices.ts --check && npm run test:dictation-docker-boundary",
+    "test:dictation-docker-boundary": "tsx --conditions react-server scripts/dictation-docker-boundary-test.ts",
+    "test:licenses:python-inventory": "node scripts/python-license-inventory-test.mjs",
     "test:dictation-runtime": "python3 scripts/dictation-runtime-test.py",
     "test:licenses:release": "tsx scripts/generate-third-party-notices.ts --check --release",
     "verify:release:application": "npm ci --dry-run --ignore-scripts --no-audit --no-fund && npm run test:licenses:release && npm run test:db:postgres-sql-compatibility && npm run lint && npm run build && npm run test:collaboration:production-modules",
@@ -601,7 +606,8 @@
     "test:proposal-graph:review-summary": "tsx --conditions react-server scripts/proposal-review-summary-test.ts && tsx --conditions react-server scripts/proposal-review-summary-route-test.ts",
     "test:email:review": "tsx --conditions react-server scripts/email-outbox-review-test.ts && tsx --conditions react-server scripts/workspace-email-postgres-migration-test.ts && tsx scripts/email-review-store-test.ts",
     "test:email:search": "tsx scripts/email-search-query-test.ts && tsx --conditions react-server scripts/email-search-provider-test.ts && tsx --conditions react-server scripts/email-search-imap-test.ts && tsx --conditions react-server scripts/email-search-managed-test.ts",
-    "test:email:setup": "tsx --conditions react-server scripts/email-business-assignment-test.ts && tsx --conditions react-server scripts/email-smtp-normalization-test.ts"
+    "test:email:setup": "tsx --conditions react-server scripts/email-business-assignment-test.ts && tsx --conditions react-server scripts/email-smtp-normalization-test.ts",
+    "test:team-seat:production-manual-activation": "tsx --conditions react-server scripts/production-manual-license-activation-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

@@ -1,7 +1,7 @@
 import type { Node as ProseMirrorNode, Schema } from '@tiptap/pm/model';
 import { TableMap } from '@tiptap/pm/tables';
-import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
-import * as Y from 'yjs';
+import type * as YTypes from 'yjs';
+import { Y, YProsemirror } from '@/app/lib/collaboration/yjs-runtime';
 
 import {
   isBlockPlacementOperation,
@@ -16,7 +16,7 @@ export const BLOCK_TREE_FORMAT_VERSION = RICH_BLOCK_TREE_FORMAT_VERSION;
 export const BLOCK_TREE_KEY = 'canvas-block-tree-v1';
 
 type BlockProperties = { type: string; attrs: Record<string, unknown>; inline: boolean };
-type BlockRecord = Y.Map<unknown>;
+type BlockRecord = YTypes.Map<unknown>;
 
 type DocumentBlock = InitialBlockPlacement & { node: ProseMirrorNode };
 export type BlockMoveIntent = { blockId: string; parentId: string | null; beforeId: string | null };
@@ -43,7 +43,7 @@ function documentBlocks(doc: ProseMirrorNode): Map<string, DocumentBlock> {
 
 function properties(record: BlockRecord): BlockProperties {
   const shape = record.get('shape') as { type: string; inline: boolean };
-  const attrs = record.get('attributes') as Y.Map<unknown>;
+  const attrs = record.get('attributes') as YTypes.Map<unknown>;
   return { ...shape, attrs: attrs.toJSON() };
 }
 
@@ -60,24 +60,24 @@ export class BlockTreeConflict extends Error {
  * the editor/agent adapters for this representation.
  */
 export class CollaborationBlockTree {
-  readonly root: Y.Map<unknown>;
-  readonly records: Y.Map<BlockRecord>;
-  readonly operations: Y.Map<BlockPlacementOperation>;
-  readonly receipts: Y.Map<BlockPlacementOperation>;
+  readonly root: YTypes.Map<unknown>;
+  readonly records: YTypes.Map<BlockRecord>;
+  readonly operations: YTypes.Map<BlockPlacementOperation>;
+  readonly receipts: YTypes.Map<BlockPlacementOperation>;
 
-  constructor(readonly doc: Y.Doc, readonly schema: Schema) {
+  constructor(readonly doc: YTypes.Doc, readonly schema: Schema) {
     this.root = doc.getMap(BLOCK_TREE_KEY);
     if (this.root.get('version') !== BLOCK_TREE_FORMAT_VERSION
       || doc.share.has('body') || !(this.root.get('records') instanceof Y.Map)
       || !(this.root.get('operations') instanceof Y.Map) || !(this.root.get('receipts') instanceof Y.Map)) {
       throw new BlockTreeConflict('format_mismatch');
     }
-    this.records = this.root.get('records') as Y.Map<BlockRecord>;
-    this.operations = this.root.get('operations') as Y.Map<BlockPlacementOperation>;
-    this.receipts = this.root.get('receipts') as Y.Map<BlockPlacementOperation>;
+    this.records = this.root.get('records') as YTypes.Map<BlockRecord>;
+    this.operations = this.root.get('operations') as YTypes.Map<BlockPlacementOperation>;
+    this.receipts = this.root.get('receipts') as YTypes.Map<BlockPlacementOperation>;
   }
 
-  static create(doc: Y.Doc, initial: ProseMirrorNode): CollaborationBlockTree {
+  static create(doc: YTypes.Doc, initial: ProseMirrorNode): CollaborationBlockTree {
     if (doc.share.has(BLOCK_TREE_KEY) || doc.share.has('body')) throw new BlockTreeConflict('format_mismatch');
     initial.check();
     const blocks = documentBlocks(initial);
@@ -104,7 +104,7 @@ export class CollaborationBlockTree {
     const content = new Y.XmlFragment();
     record.set('content', content);
     this.records.set(id, record);
-    if (node.inlineContent) updateYFragment(this.doc, content, node, { mapping: new Map(), isOMark: new Map() });
+    if (node.inlineContent) YProsemirror.updateYFragment(this.doc, content, node, { mapping: new Map(), isOMark: new Map() });
   }
 
   project(): BlockPlacementProjection {
@@ -120,13 +120,13 @@ export class CollaborationBlockTree {
     return projectBlockPlacements(initial, [...this.operations.values()]);
   }
 
-  createUndoManager(origin: unknown): Y.UndoManager {
+  createUndoManager(origin: unknown): YTypes.UndoManager {
     // Receipts are durable even when the corresponding operation is undone:
     // retrying that operation must not silently redo it.
     return new Y.UndoManager([this.records, this.operations], { trackedOrigins: new Set([origin]), captureTimeout: 0 });
   }
 
-  content(blockId: string): Y.XmlFragment {
+  content(blockId: string): YTypes.XmlFragment {
     const record = this.records.get(blockId);
     const content = record?.get('content');
     if (!(content instanceof Y.XmlFragment)) throw new BlockTreeConflict('target_changed');
@@ -141,7 +141,7 @@ export class CollaborationBlockTree {
       if (props.attrs.id !== id) throw new BlockTreeConflict('identity_invalid');
       if (props.inline && (projection.children.get(id)?.length ?? 0) > 0) throw new BlockTreeConflict('structure_invalid');
       const children = props.inline
-        ? (yXmlFragmentToProsemirrorJSON(this.content(id)).content as unknown[][]).flat().map((json) => schema.nodeFromJSON(json))
+        ? (YProsemirror.yXmlFragmentToProsemirrorJSON(this.content(id)).content as unknown[][]).flat().map((json) => schema.nodeFromJSON(json))
         : (projection.children.get(id) ?? []).map(build);
       const type = schema.nodes[props.type];
       if (!type || type.inlineContent !== props.inline) throw new BlockTreeConflict('structure_invalid');
@@ -296,7 +296,7 @@ export class CollaborationBlockTree {
     if (!props.inline || !next.inlineContent || props.type !== next.type.name) throw new BlockTreeConflict('structure_invalid');
     next.check();
     this.doc.transact(() => {
-      updateYFragment(this.doc, this.content(blockId), next, { mapping: new Map(), isOMark: new Map() });
+      YProsemirror.updateYFragment(this.doc, this.content(blockId), next, { mapping: new Map(), isOMark: new Map() });
     }, origin);
   }
 
@@ -349,7 +349,7 @@ export class CollaborationBlockTree {
         if (!old) { this.addRecord(block); continue; }
         if (old.node === block.node) continue;
         const record = this.records.get(block.id)!;
-        const attrs = record.get('attributes') as Y.Map<unknown>;
+        const attrs = record.get('attributes') as YTypes.Map<unknown>;
         for (const key of new Set([...Object.keys(old.node.attrs), ...Object.keys(block.node.attrs)])) {
           if (JSON.stringify(old.node.attrs[key]) === JSON.stringify(block.node.attrs[key])) continue;
           if (block.node.attrs[key] === undefined) attrs.delete(key);
@@ -357,7 +357,7 @@ export class CollaborationBlockTree {
         }
         if (old.node.type !== block.node.type) record.set('shape', { type: block.node.type.name, inline: block.node.inlineContent });
         if (block.node.inlineContent && !old.node.content.eq(block.node.content)) {
-          updateYFragment(this.doc, this.content(block.id), block.node, { mapping: new Map(), isOMark: new Map() });
+          YProsemirror.updateYFragment(this.doc, this.content(block.id), block.node, { mapping: new Map(), isOMark: new Map() });
         }
       }
       if (!structural) return;

@@ -1041,6 +1041,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const table of tables) {
     await pool.query(createTableSql(table));
   }
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_team_pending_user ON managed_team_pending_identities (pending_user_id)');
   await migratePostgresOauthArrayLiterals(pool);
   await normalizePostgresEpochTimestampColumns(pool);
 
