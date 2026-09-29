@@ -128,7 +128,7 @@ async function main() {
     for (const result of mediumResults) {
       const archive = await readStoredToolOutput(identity, getToolOutputMetadata(result.details)!.references[0].reference);
       assert.doesNotMatch(archive.content, /private-widget-resource|mcpApp|mcpToolInput/);
-      assert.equal((result.details as { result: unknown }).result, mcpPayload, 'archiving leaves the original widget display payload intact');
+      assert.deepEqual((result.details as { result: unknown }).result, mcpPayload, 'archiving leaves the original widget display payload intact');
     }
     appEnabled = false;
     mcpPayload = { isError: true, content: [{ type: 'text', text: 'Permission denied' }] };
@@ -245,16 +245,25 @@ async function main() {
       assert.equal(getToolOutputMetadata(result.details)?.references.length, 0);
       todoResults.push({ ...result, role: 'toolResult' as const, toolName: call.name, toolCallId: call.id, isError: false, timestamp: 4 });
     }
-    const todoViews = await finalizeToolOutputBlocks([{ ...piMetadataFixture, content: todoCalls }, ...todoResults.map((message) => ({
+    const todoRound = [{ ...piMetadataFixture, content: todoCalls }, ...todoResults.map((message) => ({
       ...message,
       details: message.details === undefined ? undefined : JSON.parse(JSON.stringify(message.details)),
-    }))],
+    }))];
+    const todoViews = await finalizeToolOutputBlocks(todoRound,
       { id: 'builtin-budget-test', provider: 'fixture', contextWindow: 16000 }, identity);
     assert.doesNotMatch(JSON.stringify(todoViews), /toolApps?|ui:\/\/canvas\//);
-    for (const message of todoResults) {
+    for (const [index, message] of todoResults.entries()) {
       assert.equal(readBuiltinToolAppMessages(parsePersistedPiMessage(JSON.stringify(message), 'display')).length, 1);
-      const archive = await readStoredToolOutput(identity, getToolOutputMetadata(message.details)!.references[0].reference);
-      assert.doesNotMatch(archive.content, /toolApps?|ui:\/\/canvas\//);
+      const view = todoViews[index + 1];
+      assert.equal(view.role, 'toolResult');
+      const shortened = JSON.stringify('content' in view ? view.content : undefined) !== JSON.stringify(message.content);
+      const persistedMessage = todoRound[index + 1] as typeof message;
+      const reference = getToolOutputMetadata(persistedMessage.details)?.references[0];
+      if (shortened) {
+        assert.ok(reference, 'shortened widget output remains readable');
+        const archive = await readStoredToolOutput(identity, reference.reference);
+        assert.doesNotMatch(archive.content, /toolApps?|ui:\/\/canvas\//);
+      }
     }
     console.log('external-tool-output-test: ok (mocked providers/page; real storage and adapters)');
   } finally {
