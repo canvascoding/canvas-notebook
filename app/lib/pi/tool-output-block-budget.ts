@@ -207,10 +207,10 @@ export function planToolOutputBlockViews(messages: AgentMessage[], model: ToolOu
       const minimumCost = textCost(result, render(result, 0).text);
       return Math.min(textCost(result, textOf(result)), minimumCost + (detailsOf(result).toolOutputReadWindow ? 2 : 0));
     });
-    const minimumTotal = minimum.reduce((total, value) => total + value, 0);
-    const oversizedMinimum = minimum.find(value => value > resultLimit);
-    if (oversizedMinimum !== undefined) throw new ToolOutputBlockBudgetError(oversizedMinimum, resultLimit, 'result');
-    if (minimumTotal > available) throw new ToolOutputBlockBudgetError(minimumTotal, blockLimit);
+    // A block with many calls can exceed the soft result cap even when every
+    // result is only a status/reference. Keep all call/result pairs intact and
+    // let the authoritative final payload budget decide whether compaction is
+    // needed. Throwing here would abort after the tools already ran.
     const desired = results.map((result, index) => Math.max(minimum[index], Math.min(resultLimit, textCost(result, textOf(result)))));
     const allocation = allocateResultTokens(desired, minimum, available);
     results.forEach((result, index) => {

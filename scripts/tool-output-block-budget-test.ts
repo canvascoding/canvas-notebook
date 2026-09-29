@@ -33,7 +33,7 @@ async function main() {
     const { prepareToolOutput } = await import('../app/lib/pi/tool-output-preparation');
     const { prepareWebToolOutput } = await import('../app/lib/pi/web-output-preparation');
     const { finalizeToolOutputBlocks } = await import('../app/lib/pi/tool-output-block-storage');
-    const { planToolOutputBlockViews, projectToolOutputBlocks, ToolOutputBlockBudgetError } = await import('../app/lib/pi/tool-output-block-budget');
+    const { planToolOutputBlockViews, projectToolOutputBlocks } = await import('../app/lib/pi/tool-output-block-budget');
     const { getToolOutputMetadata } = await import('../app/lib/pi/tool-output-metadata');
     const { readStoredToolOutput, inspectToolOutputUsage } = await import('../app/lib/pi/tool-output-store');
     const { formatTextReadResult } = await import('../app/lib/pi/text-read-result');
@@ -120,6 +120,14 @@ async function main() {
     assert.equal((projectedWriteRound[0] as typeof writeAssistant).content[0].arguments.content, writeBody);
     assert.equal((projectedWriteRound[1] as ToolMessage).toolCallId, 'write-once');
     assert.equal((writeAssistant.content[0] as { arguments: { content: string } }).arguments.content, writeBody);
+    const finalizedWriteRound = await finalizeToolOutputBlocks(writeRound, model(262_144), identity);
+    const resumedWriteRound = writeRound.map(message => parsePersistedPiMessage(JSON.stringify(projectAgentMessageForPersistence(message))));
+    assert.deepEqual(projectToolOutputBlocks(resumedWriteRound, model(262_144)).map(message => message.content),
+      finalizedWriteRound.map(message => message.content), 'resumed write round uses the same model view');
+    const writePayload = await preparePiFinalPayload({ messages: resumedWriteRound, model: model(262_144),
+      effectiveInstructions: [{ role: 'system', content: 'Continue the campaign.' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
+    assert.equal(writePayload.budgetSnapshot.contextBudgetExceeded, false);
+    assert.equal(writePayload.messages.find(message => message.role === 'toolResult')?.toolCallId, 'write-once');
 
     assert.deepEqual(projectToolOutputBlocks(first, baseModel).map(message => 'content' in message ? message.content : undefined), first.map(message => 'content' in message ? message.content : undefined), 'provider projection is idempotent');
     const resumed = messages.map(message => parsePersistedPiMessage(JSON.stringify(projectAgentMessageForPersistence(message))));
@@ -173,7 +181,12 @@ async function main() {
     const overloaded = await preparePiFinalPayload({ messages: [...first, { role: 'user', content: 'x'.repeat(80_000), timestamp: 30 }], model: baseModel,
       effectiveInstructions: [{ role: 'system', content: 'x'.repeat(10_000) }], effectiveTools: [], requestOutputTokenCap: 1_024 });
     assert.equal(overloaded.budgetSnapshot.contextBudgetExceeded, true, 'real conversation/instruction pressure remains visible');
-    assert.throws(() => projectToolOutputBlocks(messages, model(100)), ToolOutputBlockBudgetError, 'a reference minimum cannot override real capacity');
+    const tinyView = projectToolOutputBlocks(messages, model(100));
+    assert.deepEqual(tinyView.filter(message => message.role === 'toolResult').map(message => message.toolCallId),
+      messages.filter(message => message.role === 'toolResult').map(message => message.toolCallId), 'minimum views preserve every result pairing');
+    const tinyPayload = await preparePiFinalPayload({ messages: tinyView, model: model(100),
+      effectiveInstructions: [{ role: 'system', content: 'Use sources.' }], effectiveTools: [], requestOutputTokenCap: 16 });
+    assert.equal(tinyPayload.budgetSnapshot.contextBudgetExceeded, true, 'the final payload reports genuine context overflow');
     const incomplete = messages.slice(0, -1);
     assert.equal(planToolOutputBlockViews(incomplete, baseModel).drafts.length, 0, 'incomplete blocks are not finalized');
     console.log('tool-output-block-budget-test: ok (16k/32k/262k, canonical payload, storage, resume, model switch and offsets)');
