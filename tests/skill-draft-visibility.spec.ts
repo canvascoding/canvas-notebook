@@ -56,6 +56,9 @@ test('managed skill drafts stay hidden during live creation, refresh, and search
     await expect(page.getByText(`${token}-hidden.txt`, { exact: true })).toHaveCount(0);
 
     await page.reload();
+    const showSidebar = page.getByRole('button', { name: /Show sidebar|Seitenleiste anzeigen/i });
+    await expect(search.or(showSidebar).first()).toBeVisible({ timeout: 45_000 });
+    if (!(await search.isVisible())) await showSidebar.click();
     await expect(search).toBeVisible({ timeout: 45_000 });
     await search.fill(token);
     await expect(page.getByText(visibleName, { exact: true }).first()).toBeVisible({ timeout: 45_000 });
