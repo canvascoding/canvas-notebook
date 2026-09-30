@@ -1,6 +1,6 @@
 import 'server-only';
 
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import type SMTPTransport from 'nodemailer/lib/smtp-transport';
 
 export type SmtpTransportConfig = {
@@ -11,7 +11,7 @@ export type SmtpTransportConfig = {
   password: string;
 };
 
-export type SmtpTransportFactory = (options: SMTPTransport.Options) => nodemailer.Transporter;
+export type SmtpTransportFactory = (options: SMTPTransport.Options) => Transporter;
 
 export const SMTP_CONNECTION_TIMEOUT_MS = 15_000;
 export const SMTP_GREETING_TIMEOUT_MS = 15_000;
@@ -41,6 +41,6 @@ export function smtpTransportOptions(config: SmtpTransportConfig): SMTPTransport
   };
 }
 
-export function createSmtpTransport(config: SmtpTransportConfig): nodemailer.Transporter {
+export function createSmtpTransport(config: SmtpTransportConfig): Transporter {
   return smtpTransportFactory(smtpTransportOptions(config));
 }
