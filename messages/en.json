@@ -1312,6 +1312,7 @@
       }
     },
     "refreshPreview": "Refresh preview",
+    "htmlPreviewBackToFile": "Back to HTML file",
     "refreshingPreview": "Refreshing...",
     "marpPreviewTitle": "Marp preview of {fileName}",
     "marpPreviewFailed": "Failed to render Marp preview",
