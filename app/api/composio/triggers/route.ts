@@ -5,10 +5,10 @@ import {
   getAutomationRouteErrorStatus,
   requireAutomationSession,
 } from '@/app/lib/automations/api';
-import type { AutomationDeliveryMode, AutomationDeliverySessionMode } from '@/app/lib/automations/types';
-import { createWebhookAutomationJob } from '@/app/lib/automations/store';
+import type { AutomationContinuityMode, AutomationDeliveryMode, AutomationDeliverySessionMode } from '@/app/lib/automations/types';
+import { createWebhookAutomationJob, getAutomationJobByComposioTriggerId } from '@/app/lib/automations/store';
 import { presentAutomationJobForViewer } from '@/app/lib/automations/presentation';
-import { createGatewayTrigger, getGatewayTriggerTypes, listGatewayTriggers } from '@/app/lib/composio/composio-gateway';
+import { createGatewayTrigger, deleteGatewayTrigger, getGatewayTriggerTypes, listGatewayTriggers } from '@/app/lib/composio/composio-gateway';
 import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 
 function stringValue(value: unknown): string {
@@ -122,6 +122,8 @@ export async function POST(request: NextRequest) {
       deliverySessionId: stringValue(payload.deliverySessionId) || null,
       deliveryChannelSessionKey: stringValue(payload.deliveryChannelSessionKey) || null,
       status: payload.status === 'paused' ? 'paused' : 'active',
+      continuityMode: payload.continuityMode as AutomationContinuityMode | undefined,
+      sourceJobIds: payload.sourceJobIds as string[] | undefined,
       composioTriggerId: triggerId,
       composioTriggerSlug: stringValue(trigger.triggerSlug) || triggerSlug,
       composioToolkitSlug: stringValue(trigger.toolkitSlug) || toolkitSlug || triggerSlug.split('_')[0]?.toLowerCase() || 'unknown',
@@ -131,7 +133,18 @@ export async function POST(request: NextRequest) {
       webhookTriggerConfig: triggerConfig,
       scope: stringValue(payload.scope) as 'personal' | 'organization' | 'team' || undefined,
       workspaceId,
-    }, session.user);
+    }, session.user).catch(async (error: unknown) => {
+      try {
+        // A failed insert can mean the returned trigger ID already belongs to
+        // another automation. Preserve it if the database has such a binding.
+        if (!await getAutomationJobByComposioTriggerId(triggerId)) {
+          await deleteGatewayTrigger(triggerId, composioContext);
+        }
+      } catch (cleanupError) {
+        logTriggerRouteError('Could not remove gateway trigger after automation creation failed', cleanupError, { triggerId });
+      }
+      throw error;
+    });
 
     logTriggerRoute('POST completed', { triggerId, jobId: job.id, triggerSlug, toolkitSlug });
     return NextResponse.json({

@@ -2199,6 +2199,9 @@ export const automationJobs = pgTable("automation_jobs", {
   jobType: text("job_type").notNull().default('default'),
   triggerKind: text("trigger_kind").notNull().default('schedule'),
   resultPolicy: text("result_policy").notNull().default('deliver_all'),
+  continuityMode: text("continuity_mode").notNull().default('off'),
+  sourceJobIdsJson: text("source_job_ids_json").notNull().default('[]'),
+  contextCutoffAt: pgTimestamp("context_cutoff_at"),
   eventConfigJson: text("event_config_json"),
   channelId: text("channel_id"),
   composioTriggerId: text("composio_trigger_id"),
@@ -2361,6 +2364,7 @@ export const automationRuns = pgTable("automation_runs", {
   workspaceCreatedIdx: index("idx_automation_runs_workspace_created").on(table.workspaceId, table.createdAt),
   projectCreatedIdx: index("idx_automation_runs_project_created").on(table.projectId, table.createdAt),
   jobScopeStatusIdx: index("idx_automation_runs_job_scope_status").on(table.jobScope, table.status, table.scheduledFor),
+  jobStatusFinishedIdx: index("idx_automation_runs_job_status_finished").on(table.jobId, table.status, table.finishedAt, table.id),
 }));
 
 export const studioProducts = pgTable("studio_products", {
@@ -2708,6 +2712,34 @@ export const channelLinkTokens = pgTable("channel_link_tokens", {
   usedAt: pgTimestamp("used_at"),
   createdAt: pgTimestamp("created_at").notNull(),
 });
+
+export const automationJobState = pgTable("automation_job_state", {
+  jobId: text("job_id").notNull().references(() => automationJobs.id, { onDelete: 'cascade' }),
+  jobScope: text("job_scope").notNull(),
+  key: text("key").notNull(),
+  value: text("value").notNull(),
+  deleted: pgBoolean("deleted").notNull().default(false),
+  revision: bigint("revision", { mode: "number" }).notNull().default(1),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  pk: primaryKey(table.jobId, table.key),
+  keyLength: check("automation_job_state_key_length", sql`char_length(${table.key}) BETWEEN 1 AND 128`),
+  valueLength: check("automation_job_state_value_length", sql`octet_length(${table.value}) <= 16384`),
+}));
+
+export const automationJobStateMutations = pgTable("automation_job_state_mutations", {
+  jobId: text("job_id").notNull().references(() => automationJobs.id, { onDelete: 'cascade' }),
+  jobScope: text("job_scope").notNull(),
+  mutationId: text("mutation_id").notNull(),
+  runId: text("run_id").references(() => automationRuns.id, { onDelete: 'set null' }),
+  actorUserId: text("actor_user_id").references(() => user.id, { onDelete: 'set null' }),
+  requestHash: text("request_hash").notNull(),
+  resultJson: text("result_json").notNull(),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  pk: primaryKey(table.jobId, table.mutationId),
+  createdIdx: index("idx_automation_job_state_mutations_created").on(table.jobId, table.createdAt),
+}));
 
 export const auditEvents = pgTable("audit_events", {
   id: text("id").primaryKey(),

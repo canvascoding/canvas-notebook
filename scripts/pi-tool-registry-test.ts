@@ -971,7 +971,7 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'studio_edit_image'), false);
 
   const { db } = await import('../app/lib/db');
-  const { user } = await import('../app/lib/db/schema');
+  const { user, piDelegations } = await import('../app/lib/db/schema');
   const { createAutomationJob: createAutomationJobInStore, getAutomationJob } = await import('../app/lib/automations/store');
   const now = new Date();
   await db.insert(user).values([
@@ -1250,6 +1250,40 @@ async function main() {
     { name: 'read' },
   ] as typeof restrictedRuntimeTools).map((tool) => tool.name);
   assert.deepEqual(normalAutomationToolNames, ['read']);
+
+  const stateContext = { ...bashExecutionContext, userId: 'automation-owner', sessionId: 'state-session',
+    workspaceId: 'state-workspace', canWrite: true };
+  const stateBinding = { jobId: 'bound-job', runId: 'bound-run' };
+  const stateOptions = { executionContext: stateContext, automationExecution: true, automationJobState: stateBinding };
+  const stateToolNames = (tools: Awaited<ReturnType<typeof getPiTools>>) => tools.map((tool) => tool.name);
+  const getStateTools = (options: Parameters<typeof getPiTools>[3]) =>
+    getPiTools(stateContext.userId, stateContext.agentId, stateContext.sessionId, options);
+  const assertAutomationBoundTools = async (options: Parameters<typeof getPiTools>[3], expected: boolean, reason: string) => {
+    const names = stateToolNames(await getStateTools(options));
+    for (const name of ['automation_job_state', 'automation_run_result']) {
+      assert.equal(names.includes(name), expected, `${name}: ${reason}`);
+    }
+  };
+  await assertAutomationBoundTools(stateOptions, true, 'bound tools survive per-agent enabledTools filtering');
+  await assertAutomationBoundTools({ executionContext: stateContext, automationJobState: stateBinding }, false,
+    'normal chat cannot request bound automation tools');
+  await assertAutomationBoundTools({ executionContext: stateContext, automationExecution: true }, false,
+    'missing binding hides bound automation tools');
+  await assertAutomationBoundTools({ ...stateOptions, automationJobState: { jobId: 'bound-job', runId: '' } }, false,
+    'partial binding hides bound automation tools');
+  await assertAutomationBoundTools({ ...stateOptions,
+    executionContext: { ...stateContext, canWrite: false } }, false,
+  'read-only workspace does not pass the regular automation registry gate');
+  await assertAutomationBoundTools({ ...stateOptions, workspaceEmailAutomation: {
+    eventId: 'event', mailboxId: 'mailbox', providerMessageId: 'message', providerThreadId: null,
+    folder: 'INBOX', userId: stateContext.userId, workspaceId: stateContext.workspaceId,
+    automationJobId: stateBinding.jobId, automationRunId: stateBinding.runId, agentId: stateContext.agentId,
+  } }, false, 'inbox event remains on its narrower tool ceiling');
+  await db.insert(piDelegations).values({ id: 'state-worker', userId: stateContext.userId,
+    sourceSessionId: 'source-session', sourceAgentId: stateContext.agentId,
+    workerSessionId: stateContext.sessionId, workerType: 'managed', goal: 'test worker tool ceiling',
+    toolsetsJson: '["automation"]', createdAt: now, updatedAt: now });
+  await assertAutomationBoundTools(stateOptions, false, 'delegated worker cannot receive bound automation tools');
 
   console.log('pi-tool-registry-test: ok');
 

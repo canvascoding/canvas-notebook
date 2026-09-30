@@ -9,6 +9,7 @@ const routeExports = new Map<string, string>([
   ['app/api/mobile/v1/automations/jobs/route.ts', "export { GET, POST } from '@/app/api/automations/jobs/route';"],
   ['app/api/mobile/v1/automations/jobs/[jobId]/route.ts', "export { DELETE, GET, PATCH } from '@/app/api/automations/jobs/[jobId]/route';"],
   ['app/api/mobile/v1/automations/jobs/[jobId]/runs/route.ts', "export { GET } from '@/app/api/automations/jobs/[jobId]/runs/route';"],
+  ['app/api/mobile/v1/automations/jobs/[jobId]/state/route.ts', "export { DELETE, GET } from '@/app/api/automations/jobs/[jobId]/state/route';"],
   ['app/api/mobile/v1/automations/jobs/[jobId]/run-now/route.ts', "export { POST } from '@/app/api/automations/jobs/[jobId]/run-now/route';"],
   ['app/api/mobile/v1/automations/jobs/[jobId]/workspace/route.ts', "export { POST } from '@/app/api/automations/jobs/[jobId]/workspace/route';"],
   ['app/api/mobile/v1/automations/runs/[runId]/route.ts', "export { GET } from '@/app/api/automations/runs/[runId]/route';"],

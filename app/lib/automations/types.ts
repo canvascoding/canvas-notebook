@@ -3,6 +3,7 @@ export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' |
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook' | 'event';
 export type AutomationJobTriggerKind = 'schedule' | 'event' | 'webhook' | 'manual';
 export type AutomationResultPolicy = 'deliver_all' | 'deliver_relevant_only' | 'record_only';
+export type AutomationContinuityMode = 'off' | 'last_relevant';
 export type AutomationPreferredSkill = string;
 export type AutomationJobType = 'default' | 'webhook';
 export type AutomationScope = 'personal' | 'organization';
@@ -104,6 +105,8 @@ export type AutomationJobRecord = {
   jobType: AutomationJobType;
   triggerKind: AutomationJobTriggerKind;
   resultPolicy: AutomationResultPolicy;
+  continuityMode: AutomationContinuityMode;
+  sourceJobIds: string[];
   eventConfig: Record<string, unknown> | null;
   channelId: string | null;
   composioTriggerId: string | null;
@@ -171,6 +174,8 @@ export type CreateAutomationJobInput = {
   deliverySessionId?: string | null;
   deliveryChannelSessionKey?: string | null;
   resultPolicy?: AutomationResultPolicy;
+  continuityMode?: AutomationContinuityMode;
+  sourceJobIds?: string[];
   triggerKind?: Extract<AutomationJobTriggerKind, 'schedule' | 'event'>;
   eventConfig?: Record<string, unknown> | null;
   schedule: FriendlySchedule;
@@ -195,6 +200,8 @@ export type CreateWebhookAutomationJobInput = {
   deliverySessionId?: string | null;
   deliveryChannelSessionKey?: string | null;
   status?: AutomationJobStatus;
+  continuityMode?: AutomationContinuityMode;
+  sourceJobIds?: string[];
   composioTriggerId: string;
   composioTriggerSlug: string;
   composioToolkitSlug: string;
@@ -222,6 +229,8 @@ export type CreateCustomWebhookAutomationJobInput = {
   deliverySessionId?: string | null;
   deliveryChannelSessionKey?: string | null;
   status?: AutomationJobStatus;
+  continuityMode?: AutomationContinuityMode;
+  sourceJobIds?: string[];
 };
 
 export type UpdateAutomationJobInput = Partial<Omit<CreateAutomationJobInput, 'scope' | 'workspaceId'>> & {
