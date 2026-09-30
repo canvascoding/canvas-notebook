@@ -2205,7 +2205,7 @@ function MarkdownBlockCommandMenu({
     return () => window.removeEventListener('pointerdown', handlePointerDown, true);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="tiptap-slash-menu"
@@ -2223,7 +2223,8 @@ function MarkdownBlockCommandMenu({
         items={items}
         labels={{ empty: labels.empty, group: labels.group }}
       />
-    </div>
+    </div>,
+    getSlashCommandMountElement(editor),
   );
 }
 
