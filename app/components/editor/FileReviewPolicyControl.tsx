@@ -46,9 +46,9 @@ export function fileReviewPolicyControlState(input: {
   disabled: boolean;
   visualState: 'loading' | 'error' | 'unavailable' | 'forced' | 'review_required' | 'safe_direct';
 } {
-  if (input.state === 'loading') return { checked: true, disabled: true, visualState: 'loading' };
-  if (input.state === 'error') return { checked: true, disabled: true, visualState: 'error' };
-  if (!input.available || !input.policy) return { checked: true, disabled: true, visualState: 'unavailable' };
+  if (input.state === 'loading') return { checked: false, disabled: true, visualState: 'loading' };
+  if (input.state === 'error') return { checked: false, disabled: true, visualState: 'error' };
+  if (!input.available || !input.policy) return { checked: false, disabled: true, visualState: 'unavailable' };
   if (input.policy.locked) return { checked: true, disabled: true, visualState: 'forced' };
   return {
     checked: input.policy.effectiveMode === 'review_required',

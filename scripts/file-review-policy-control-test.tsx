@@ -116,10 +116,13 @@ test('the pure control states remain fail-closed for loading, errors and forced 
   const { ui } = await compileUi({ resolve: async () => timeline(policy('review_required')),
     update: async () => policy('review_required'), updates: [] });
   assert.deepEqual(ui.fileReviewPolicyControlState({ state: 'loading', busy: false }), {
-    checked: true, disabled: true, visualState: 'loading',
+    checked: false, disabled: true, visualState: 'loading',
   });
   assert.deepEqual(ui.fileReviewPolicyControlState({ state: 'error', busy: false }), {
-    checked: true, disabled: true, visualState: 'error',
+    checked: false, disabled: true, visualState: 'error',
+  });
+  assert.deepEqual(ui.fileReviewPolicyControlState({ state: 'ready', available: false, busy: false }), {
+    checked: false, disabled: true, visualState: 'unavailable',
   });
   assert.deepEqual(ui.fileReviewPolicyControlState({
     state: 'ready', available: true, policy: policy('safe_direct', 0, {
@@ -168,7 +171,7 @@ test('the mobile editor switch uses CAS, reloads conflicts and exposes accessibl
     await flush();
     const loadingSwitch = document.querySelector<HTMLButtonElement>('[role="switch"]');
     assert.equal(loadingSwitch?.disabled, true);
-    assert.equal(loadingSwitch?.getAttribute('aria-checked'), 'true');
+    assert.equal(loadingSwitch?.getAttribute('aria-checked'), 'false');
     assert.equal(document.querySelector('[data-file-review-policy]')?.getAttribute('data-file-review-policy'), 'loading');
     releaseLoading(timeline(policy('review_required', 4)));
     await flush();
@@ -208,7 +211,7 @@ test('the mobile editor switch uses CAS, reloads conflicts and exposes accessibl
     await flush();
     const errorSwitch = document.querySelector<HTMLButtonElement>('[role="switch"]');
     assert.equal(errorSwitch?.disabled, true);
-    assert.equal(errorSwitch?.getAttribute('aria-checked'), 'true');
+    assert.equal(errorSwitch?.getAttribute('aria-checked'), 'false');
     assert.equal(document.querySelector('[data-file-review-policy]')?.getAttribute('data-file-review-policy'), 'error');
     assert.ok(document.querySelector<HTMLButtonElement>('[aria-label="fileReviewPolicyRetry"]'));
 
