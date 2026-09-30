@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 
 export const MCP_LITERAL_ENV_PREFIX = 'CANVAS_MCP_';
-const GENERATED_ENV_KEY = /^CANVAS_MCP_[A-F0-9]{32}_(?:ENV|HEADER)_[A-F0-9]{32}$/;
-export function mcpLiteralEnvKey(connectionIdentity: string, field: 'env' | 'headers', name: string): string {
+const GENERATED_ENV_KEY = /^CANVAS_MCP_[A-F0-9]{32}_(?:ENV|HEADER|URL|ARG)_[A-F0-9]{32}$/;
+export function mcpLiteralEnvKey(connectionIdentity: string, field: 'env' | 'headers' | 'url' | 'args', name: string): string {
   const digest = (value: string) => createHash('sha256').update(value).digest('hex').slice(0, 32).toUpperCase();
-  return `${MCP_LITERAL_ENV_PREFIX}${digest(connectionIdentity)}_${field === 'env' ? 'ENV' : 'HEADER'}_${digest(name)}`;
+  const category = { env: 'ENV', headers: 'HEADER', url: 'URL', args: 'ARG' }[field];
+  return `${MCP_LITERAL_ENV_PREFIX}${digest(connectionIdentity)}_${category}_${digest(name)}`;
 }
 
 /** Generated values contain the original config expression, so expand that expression once. */
@@ -27,6 +28,8 @@ export function mcpConfigUsesChangedEnv(
     && Array.from(value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/gu)).some((match) => changedKeys.has(match[1])
       || (generatedLayer && GENERATED_ENV_KEY.test(match[1]) && references(availableEnv[match[1]], false)));
   return (config.envPassthrough || []).some(key => changedKeys.has(key.trim()))
+    || references(config.url, true)
+    || (config.args || []).some(value => references(value, true))
     || Object.values(config.env || {}).some(value => references(value, true))
     || Object.values(config.headers || {}).some(value => references(value, true))
     || Object.values(config.headersFromEnv || {}).some(key => changedKeys.has(key.trim()))

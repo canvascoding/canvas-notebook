@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readUnifiedEnvState, patchUnifiedEnvEntries, withUnifiedEnvLock } from '@/app/lib/secrets/unified-env-store';
 import { mcpLiteralEnvKey, mcpConfigUsesChangedEnv } from '@/app/lib/mcp/env-references';
+import { hasMcpCredentialUrl, mcpCredentialArgIndices } from '@/app/lib/mcp/credential-fields';
 import { resolveScopedMcpDir, resolveMcpSecretEnvScope, normalizeMcpScope, MCP_SYSTEM_SCOPE, type McpScope } from '@/app/lib/mcp/scope';
 import { hashMcpAuthConfig, hashMcpReferencedAuthConfig, hydrateMcpConnectionIdentities, validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
@@ -162,6 +163,12 @@ function parseMcpConfig(rawContent: string, migrating: boolean): McpConfig {
     if (serverConfig.envPassthrough !== undefined && (!Array.isArray(serverConfig.envPassthrough) || !serverConfig.envPassthrough.every(isValidEnvKey))) {
       throw new McpConfigValidationError(`MCP server "${serverName}" field "envPassthrough" must contain environment variable names only.`);
     }
+    if (serverConfig.url !== undefined && typeof serverConfig.url !== 'string') {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "url" must be a string.`);
+    }
+    if (serverConfig.args !== undefined && (!Array.isArray(serverConfig.args) || serverConfig.args.some(value => typeof value !== 'string'))) {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "args" must contain strings only.`);
+    }
     if (serverConfig.bearerTokenEnv !== undefined && !isValidEnvKey(serverConfig.bearerTokenEnv)) {
       throw new McpConfigValidationError(`MCP server "${serverName}" field "bearerTokenEnv" must be an environment variable name.`);
     }
@@ -211,6 +218,22 @@ async function centralizeMcpLiterals(config: McpConfig, scope: McpScope | null |
         changed = true;
       }
       updated[field] = values;
+    }
+    if (server.url && hasMcpCredentialUrl(server.url)) {
+      const key = mcpLiteralEnvKey(identity, 'url', 'url');
+      pending.push({ key, value: server.url });
+      updated.url = `\${${key}}`;
+      changed = true;
+    }
+    if (server.args) {
+      const sensitive = mcpCredentialArgIndices(server.args);
+      updated.args = server.args.map((value, index) => {
+        if (!sensitive.has(index)) return value;
+        const key = mcpLiteralEnvKey(identity, 'args', String(index));
+        pending.push({ key, value });
+        changed = true;
+        return `\${${key}}`;
+      });
     }
     if (changed) updated.envMigrationBinding = {
       version: 1, priorAuthHash: hashMcpAuthConfig(server), referencedConfigHash: hashMcpReferencedAuthConfig(updated),

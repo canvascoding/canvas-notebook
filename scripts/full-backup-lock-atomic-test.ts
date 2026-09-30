@@ -203,8 +203,22 @@ function write() { fs.writeFileSync(args[args.indexOf('--file') + 1], 'fixture d
       'database dump contents stay private in the archive');
 
     const lockPath = path.join(dataRoot, 'system', 'backups', '.full-backup.lock');
+    // Completed status is published before the worker releases its kernel lock.
+    for (let attempt = 0; attempt < 400; attempt += 1) {
+      const exists = await fs.access(lockPath).then(() => true, () => false);
+      if (!exists) break;
+      await delay(25);
+    }
+    assert.equal(await fs.access(lockPath).then(() => true, () => false), false, 'completed backup releases its file lock');
     await fs.writeFile(lockPath, '{partial legacy lock');
-    const recovered = await backup.createFullBackupJob();
+    let recovered: Awaited<ReturnType<typeof backup.createFullBackupJob>> | undefined;
+    for (let attempt = 0; attempt < 400 && !recovered; attempt += 1) {
+      try { recovered = await backup.createFullBackupJob(); } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'Another full backup is already running.') throw error;
+        await delay(25);
+      }
+    }
+    assert.ok(recovered, 'completed worker releases its in-process guard before recovery');
     for (let attempt = 0; attempt < 1_200; attempt += 1) {
       const job = await backup.getFullBackupJob(recovered.id);
       if (job?.status === 'completed') break;

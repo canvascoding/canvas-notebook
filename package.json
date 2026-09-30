@@ -166,6 +166,7 @@
     "test:secrets:oauth": "tsx --conditions react-server scripts/pi-oauth-unified-secrets-test.ts",
     "test:secrets:email": "tsx --conditions react-server scripts/email-unified-secrets-test.ts",
     "test:secrets:webhooks": "tsx --conditions react-server scripts/secret-composio-webhook-store-test.ts && tsx --conditions react-server scripts/composio-webhook-subscription-secret-test.ts",
+    "test:secrets:mcp-transport": "tsx --conditions react-server scripts/mcp-unified-url-args-test.ts",
     "test:secrets:mcp-config": "tsx --conditions react-server scripts/mcp-unified-config-env-test.ts",
     "test:secrets:mcp": "tsx --conditions react-server scripts/mcp-unified-secrets-test.ts",
     "test:secrets:provider-config": "tsx --conditions react-server scripts/agent-runtime-provider-config-read-test.ts",
@@ -625,7 +626,7 @@
     "test:secrets:bootstrap": "tsx scripts/bootstrap-unified-secrets-test.ts",
     "test:secrets:control-plane": "tsx --conditions react-server scripts/secret-control-plane-contract-test.ts",
     "test:secrets:recovery": "tsx --conditions react-server scripts/full-backup-lock-atomic-test.ts && tsx --conditions react-server scripts/secrets-export-backup-contract-test.ts",
-    "test:secrets": "npm run test:secrets:store && npm run test:secrets:cascade && npm run test:secrets:api && npm run test:secrets:consumers && npm run test:secrets:pi && npm run test:secrets:oauth && npm run test:secrets:email && npm run test:secrets:webhooks && npm run test:secrets:mcp-config && npm run test:secrets:mcp && npm run test:secrets:provider-config && npm run test:secrets:mcp-env && npm run test:secrets:bootstrap && npm run test:secrets:control-plane && npm run test:secrets:recovery && npm run test:secrets:ui",
+    "test:secrets": "npm run test:secrets:store && npm run test:secrets:cascade && npm run test:secrets:api && npm run test:secrets:consumers && npm run test:secrets:pi && npm run test:secrets:oauth && npm run test:secrets:email && npm run test:secrets:webhooks && npm run test:secrets:mcp-config && npm run test:secrets:mcp-transport && npm run test:secrets:mcp && npm run test:secrets:provider-config && npm run test:secrets:mcp-env && npm run test:secrets:bootstrap && npm run test:secrets:control-plane && npm run test:secrets:recovery && npm run test:secrets:ui",
     "test:secrets:regression": "npm run test:integrations:env-scope && npm run test:scoped-data-paths && npm run test:studio:provider-credentials && npm run test:studio:organization-scope && npm run test:studio:seedance && npm run test:studio:veo && npm run test:studio:openai-background && npm run test:agent:provider-verification && npm run test:agents:provider-coverage && npm run test:pi:oauth-scope && npm run test:mcp:storage && npm run test:mcp:manager && npm run test:mcp:oauth && npm run test:mcp:oauth-lifecycle && npm run test:email:accounts && npm run test:email:system && npm run test:migration:upload && npm run test:backup:full && tsx --conditions react-server scripts/brave-search-service-test.ts && tsx --conditions react-server scripts/audio-transcription-service-test.ts && tsx --conditions react-server scripts/email-cache-oauth-reconnect-test.ts && tsx --conditions react-server scripts/dictation-credentials-test.ts"
   },
   "dependencies": {

@@ -15,6 +15,7 @@ declare module 'zip-stream' {
     name: string;
     type?: 'file' | 'directory' | 'symlink';
     stats?: Stats;
+    mode?: number;
   }
 
   class ZipStream extends Transform {

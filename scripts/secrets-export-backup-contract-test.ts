@@ -11,9 +11,9 @@ import type { FullBackupJob } from '../app/lib/backups/types';
 const run = promisify(execFile);
 async function write(file: string, content: string) { await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, content); }
 async function waitFor<T extends MigrationExportJob | FullBackupJob>(id: string, read: (id: string) => Promise<T | null>): Promise<T> {
-  for (let i = 0; i < 200; i++) {
+  for (let i = 0; i < 1000; i++) {
     const job = await read(id); if (job?.status === 'completed') return job; if (job?.status === 'failed') throw new Error(job.error);
-    await new Promise(resolve => setTimeout(resolve, 25));
+    await new Promise(resolve => setTimeout(resolve, 10));
   }
   throw new Error('Fixture archive timed out.');
 }
@@ -110,9 +110,9 @@ async function main() {
     assert.deepEqual(JSON.parse(await zipText(safeExport.filePath, 'data/settings/mcp.json')).mcpServers.safe.args, safeArgs, 'safe arguments and explicit credential references survive portable export');
     for (const unsafe of [
       { env: ['fixture-shape-secret'] }, { env: 'fixture-shape-secret' }, { headers: ['fixture-shape-secret'] }, { headers: 'fixture-shape-secret' },
-      { url: 'https://user:fixture-password@mcp.example.test' }, { url: 'https://mcp.example.test?access_token=fixture-query-token' },
-      { command: 'node', args: ['--api-key', 'fixture-cli-secret'] }, { command: 'node', args: ['--token=fixture-cli-secret'] },
-      { command: 'node', args: ['API_KEY=fixture-env-assignment'] }, { command: 'node', args: ['--header', 'Authorization: Bearer fixture-cli-secret'] },
+      { url: 'https://user:fixture-password@mcp.example.test' }, { url: 'https://mcp.example.test?access_token=fixture-query-token' }, { url: 'https://mcp.example.test?key=fixture-query-key' },
+      { command: 'node', args: ['--api-key', 'fixture-cli-secret'] }, { command: 'node', args: ['--token=fixture-cli-secret'] }, { command: 'node', args: ['--key', 'fixture-cli-key'] }, { command: 'node', args: ['--key=fixture-cli-key-equals'] },
+      { command: 'node', args: ['API_KEY=fixture-env-assignment'] }, { command: 'node', args: ['--header', 'x-api-key: fixture-x-header'] }, { command: 'node', args: ['--header', 'Authorization: Bearer fixture-cli-secret'] },
       { auth: { type: 'api-key', value: 'fixture-auth-secret' } },
     ]) {
       const unsafeRaw = JSON.stringify({ mcpServers: { unsafe } });
@@ -126,10 +126,18 @@ async function main() {
     const underDataBackup = await waitFor((await backup.createFullBackupJob()).id, backup.getFullBackupJob);
     assert.equal(underDataBackup.manifest?.files.some(entry => entry.archivePath === 'data/workspace/custom-canonical-private.txt.lock'), false, 'configured custom lock inside DATA is omitted');
     assert.equal(underDataBackup.manifest?.files.some(entry => entry.archivePath === 'data/system/secrets/Canvas-Secrets.env.lock'), false, 'default canonical lock fixture inside DATA is omitted');
-    await new Promise(resolve => setTimeout(resolve, 25));
     process.env.CANVAS_SECRETS_ENV_PATH = activeCanonical;
     await fs.chmod(activeCanonical, 0o644);
-    const full = await waitFor((await backup.createFullBackupJob()).id, backup.getFullBackupJob); assert.ok(full.filePath);
+    // Completed status can precede the worker's final kernel-lock release.
+    let nextBackup: Awaited<ReturnType<typeof backup.createFullBackupJob>> | undefined;
+    for (let attempt = 0; attempt < 100 && !nextBackup; attempt++) {
+      try { nextBackup = await backup.createFullBackupJob(); } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'Another full backup is already running.') throw error;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+    assert.ok(nextBackup, 'completed backup releases its lock');
+    const full = await waitFor(nextBackup.id, backup.getFullBackupJob); assert.ok(full.filePath);
     const inspected = await backup.inspectFullBackupArchive(full.filePath); assert.equal(inspected.canRestore, true);
     assert.equal(inspected.manifest?.files.some(entry => entry.archivePath.endsWith('Canvas-Secrets.env.lock')), false, 'kernel lock sidecars are recreated after recovery');
     assert.equal(await zipText(full.filePath, 'data/system/secrets/Canvas-Secrets.env'), bytesByScope[2].toString(), 'active external store replaces dormant canonical archive slot');

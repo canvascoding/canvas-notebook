@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { mcpLiteralEnvKey } from '@/app/lib/mcp/env-references';
+import { hasMcpCredentialUrl, mcpCredentialArgIndices } from '@/app/lib/mcp/credential-fields';
 
 const ENV_FILES = new Set(['Canvas-Secrets.env', 'Canvas-Integrations.env', 'Canvas-Agents.env']);
 const SECRET_FIELDS = new Set(['apikey', 'accesskey', 'secretaccesskey', 'sessiontoken', 'accesstoken', 'refreshtoken', 'idtoken', 'token', 'password', 'secret', 'clientsecret', 'authorization', 'credentials', 'credential']);
@@ -20,30 +21,13 @@ export function isPortableCredentialPath(filePath: string, dataRoot: string): bo
   return runtimeRoot && (parts.at(-1) === 'auth.json' || ENV_FILES.has(parts.at(-1)!) || scopedRoot.slice(1).some(part => ['connections', 'states', 'oauth-states', 'mcp-oauth', 'email-oauth', 'email-accounts'].includes(part)));
 }
 
-function isCredentialName(name: string): boolean {
-  return SECRET_FIELDS.has(name.replace(/[_-]/gu, '').toLowerCase()) || /(?:api[-_]?key|(?:access|refresh|session|bearer)?[-_]?token|password|secret|credentials?)/iu.test(name);
-}
-
 function assertPortableUrl(value: string): void {
-  let url: URL;
-  try { url = new URL(value); } catch { return; }
-  if (url.username || url.password) throw new Error('Reconnect before exporting credential-bearing runtime URLs.');
-  for (const [name, content] of url.searchParams) if (isCredentialName(name) && content && !PURE_REFERENCE.test(content)) throw new Error('Reconnect before exporting credential-bearing runtime URL parameters.');
+  if (hasMcpCredentialUrl(value)) throw new Error('Reconnect before exporting credential-bearing runtime URLs.');
 }
 
 function assertPortableArgs(value: unknown): void {
   if (!Array.isArray(value) || value.some(arg => typeof arg !== 'string')) throw new Error('Cannot safely export malformed runtime arguments.');
-  for (let index = 0; index < value.length; index++) {
-    const arg = value[index] as string;
-    const assignment = /^([^=]+)=(.*)$/u.exec(arg);
-    if (assignment && isCredentialName(assignment[1]) && !PURE_REFERENCE.test(assignment[2])) throw new Error('Reconnect before exporting literal runtime argument credentials.');
-    if (/^--?[^=]+$/u.test(arg) && isCredentialName(arg) && value[index + 1] && !PURE_REFERENCE.test(value[index + 1])) throw new Error('Reconnect before exporting literal runtime argument credentials.');
-    if (['-H', '--header', '--headers'].includes(arg) && typeof value[index + 1] === 'string') {
-      const header = /^([^:]+):\s*(.*)$/u.exec(value[index + 1]);
-      if (header && isCredentialName(header[1]) && !PURE_REFERENCE.test(header[2].replace(/^Bearer\s+/iu, ''))) throw new Error('Reconnect before exporting literal runtime header credentials.');
-    }
-    assertPortableUrl(arg);
-  }
+  if (mcpCredentialArgIndices(value).size) throw new Error('Reconnect before exporting literal runtime argument credentials.');
 }
 
 export function isPortableRuntimeConfigPath(filePath: string, dataRoot: string): boolean {
