@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.30.2] - 2026-09-30
+
+### Added
+
+- Added an opt-in experimental document review setting with availability controls and review workflows for agent edits.
+- Added durable checkpoints and production coverage for live document editing through the agent and MCP tools.
+
+### Changed
+
+- Tightened authorization for direct edits and review actions, including OAuth scope checks and review availability enforcement.
+- Improved operation version tracking, checkpoint deduplication, and live review updates.
+
+### Fixed
+
+- Prevented duplicate document history entries for direct MCP room saves.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.30.1] - 2026-09-30
 
 ### Added
