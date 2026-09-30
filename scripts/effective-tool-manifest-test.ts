@@ -47,7 +47,9 @@ const filePrompt = buildEffectiveToolCapabilitiesPrompt(buildEffectiveToolManife
 assert.match(filePrompt, /For Markdown, request `source: "markdown"`/);
 assert.match(filePrompt, /Markdown-aware `edit_file` mode/);
 assert.match(filePrompt, /Never insert multi-block Markdown through plain `oldText`\/`newText`/);
-assert.match(filePrompt, /review-friendly `apply_patch` path/);
+assert.match(filePrompt, /one `apply_patch` call with one `files\[\]` entry/);
+assert.match(filePrompt, /Browser presence does not select the tool/);
+assert.match(filePrompt, /Review is off by default/);
 
 const todoManifest = buildEffectiveToolManifest([
   tool('create_human_todo'),

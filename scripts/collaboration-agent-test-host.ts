@@ -20,10 +20,13 @@ async function executeFixtureTool(value: unknown): Promise<unknown> {
   const input = value as Record<string, unknown>;
   const context = input.context as Record<string, unknown> | undefined;
   const params = input.params as Record<string, unknown> | undefined;
-  if (!['read', 'write', 'edit_file'].includes(String(input.toolName))
+  const patchFiles = input.toolName === 'apply_patch' && Array.isArray(params?.files) ? params.files : null;
+  const fixturePath = patchFiles?.length === 1 && patchFiles[0] && typeof patchFiles[0] === 'object'
+    ? (patchFiles[0] as Record<string, unknown>).path : params?.path;
+  if (!['read', 'write', 'edit_file', 'apply_patch'].includes(String(input.toolName))
     || typeof input.toolCallId !== 'string' || !/^ordinary-[a-z-]+[a-f0-9-]{36}$/u.test(input.toolCallId)
-    || !params || typeof params.path !== 'string'
-    || !/^fvrc-1008-ordinary-[a-f0-9-]{36}\.md$/u.test(params.path)
+    || !params || (input.toolName === 'apply_patch' ? patchFiles?.length !== 1 : typeof params.path !== 'string')
+    || typeof fixturePath !== 'string' || !/^fvrc-1008-ordinary-[a-f0-9-]{36}\.md$/u.test(fixturePath)
     || !context || !['sessionId', 'userId', 'agentId', 'workspaceId'].every(key =>
       typeof context[key] === 'string' && context[key].length > 0 && context[key].length <= 256)) {
     throw new Error('Invalid fixture request.');
@@ -37,7 +40,7 @@ async function executeFixtureTool(value: unknown): Promise<unknown> {
       WHERE session_id = $1 AND user_id = $2 AND agent_id = $3 AND workspace_id = $4
         AND title = $5 AND archived_at IS NULL AND created_at >= $6 LIMIT 1`,
     [context.sessionId, context.userId, context.agentId, context.workspaceId,
-      `FVRC ordinary graph tool acceptance:${params.path}`, hostStartedAt]);
+      `FVRC ordinary graph tool acceptance:${fixturePath}`, hostStartedAt]);
     if (!session) throw new Error('Unavailable fixture session.');
   } finally { await database.close(); }
   const { resolveAgentExecutionContextForStoredSession } = requireFromHere('../app/lib/pi/session-workspace-context');

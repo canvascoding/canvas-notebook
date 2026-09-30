@@ -118,7 +118,7 @@ async function loadHost(options: {
       },
     },
     '../app/lib/pi/core-tools': {
-      piTools: ['read', 'edit_file', 'shell', 'write_file'].map((name) => ({
+      piTools: ['read', 'write', 'edit_file', 'apply_patch', 'shell', 'write_file'].map((name) => ({
         name,
         async execute(callId: string, params: unknown) {
           state.toolExecutions.push({ name, callId, params });
@@ -201,12 +201,16 @@ test('occupied application port is refused before temporary files or server impo
   assert.equal(state.tempDirectoryCreates, 0);
 });
 
-test('fixture validation allows only read/edit_file and rejects invalid tool names and traversal paths', async () => {
+test('fixture validation allows scoped file tools and rejects invalid tool names and traversal paths', async () => {
   for (const value of [
     fixtureInput({ toolName: 'shell' }),
     fixtureInput({ toolName: 'write_file' }),
     fixtureInput({ params: { path: '../../etc/passwd' } }),
     fixtureInput({ params: { path: '/tmp/fvrc-1008-ordinary-00000000-0000-4000-8000-000000000001.md' } }),
+    fixtureInput({ toolName: 'apply_patch', params: { files: [{ path: '../../etc/passwd', edits: [] }] } }),
+    fixtureInput({ toolName: 'apply_patch', params: { files: [
+      { path: FIXTURE_PATH, edits: [] }, { path: FIXTURE_PATH, edits: [] },
+    ] } }),
   ]) {
     const { host, state } = await loadHost();
     await assert.rejects(host.__test.executeFixtureTool(value));
@@ -232,7 +236,7 @@ test('stored session query requires exact fixture title and excludes archived se
 });
 
 test('execution authority is freshly resolved from stored session and caller permissions/paths are ignored', async () => {
-  for (const toolName of ['read', 'edit_file']) {
+  for (const toolName of ['read', 'write', 'edit_file']) {
     const authority = { userId: USER_ID, sessionId: SESSION_ID, agentId: AGENT_ID,
       workspaceId: WORKSPACE_ID, rootPath: '/server-current-root', legacy: false,
       permissions: { canRead: true, canWrite: false, canRunAgent: false } };
@@ -251,6 +255,11 @@ test('execution authority is freshly resolved from stored session and caller per
     assert.deepEqual(state.toolExecutions, [{ name: toolName, callId: TOOL_CALL_ID, params: { path: FIXTURE_PATH } }]);
     assert.deepEqual(result, { name: toolName, callId: TOOL_CALL_ID, params: { path: FIXTURE_PATH } });
   }
+  const { host, state } = await loadHost();
+  const patchParams = { files: [{ path: FIXTURE_PATH, edits: [{ oldText: 'a', newText: 'b' }] }] };
+  const patch = await host.__test.executeFixtureTool(fixtureInput({ toolName: 'apply_patch', params: patchParams }));
+  assert.deepEqual(state.toolExecutions, [{ name: 'apply_patch', callId: TOOL_CALL_ID, params: patchParams }]);
+  assert.deepEqual(patch, { name: 'apply_patch', callId: TOOL_CALL_ID, params: patchParams });
 });
 
 test('missing stored session and legacy or wrong-workspace authority fail closed before a tool executes', async () => {

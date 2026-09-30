@@ -44,3 +44,37 @@ test('review off writes an existing Markdown document to Yjs and the file before
     expect(await revisionCount()).toBe(before + 1);
   }, { initialReviewRequired: false, bindToolSessionToFixture: true });
 });
+
+test('three distant exact edits in one patch create one physical checkpoint and one revision', async ({ browser }) => {
+  test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the local collaboration stack.');
+  test.setTimeout(120_000);
+  const lines = Array.from({ length: 100 }, (_, index) => `Line ${index + 1}: original`);
+  const initial = `${lines.join('\n')}\n`;
+  const edited = [...lines];
+  for (const number of [10, 40, 60]) edited[number - 1] = `Line ${number}: updated`;
+  const expected = `${edited.join('\n')}\n`;
+  await withOrdinaryAgentDocument(browser, initial, async ({ filePath, agentContext, content, revisionCount, page }) => {
+    await expect(page.locator('[data-file-review-policy]').getByRole('switch')).not.toBeChecked();
+    const before = await revisionCount();
+    const read = await runOrdinaryAgentTool({ toolName: 'read', toolCallId: `ordinary-direct-patch-${randomUUID()}`,
+      params: { path: filePath }, context: agentContext }, { inProcess: true });
+    expect(read.isError).not.toBe(true);
+    const callId = `ordinary-direct-patch-${randomUUID()}`;
+    const params = { files: [{ path: filePath, expectedSha256: read.details!.sha256,
+      edits: [10, 40, 60].map(number => ({ oldText: `Line ${number}: original`, newText: `Line ${number}: updated` })) }] };
+    const patch = await runOrdinaryAgentTool({ toolName: 'apply_patch', toolCallId: callId,
+      params, context: agentContext }, { inProcess: true });
+    expect(patch.isError, patch.details?.code).not.toBe(true);
+    expect(patch.details?.results?.[0]?.collaboration).toMatchObject({ reviewRequired: false });
+    expect(await content()).toBe(expected);
+    const fullPath = path.join(agentContext.workspaceRoot as string, filePath);
+    expect(await readFile(fullPath, 'utf8')).toBe(expected);
+    expect(await revisionCount()).toBe(before + 1);
+    const retry = await runOrdinaryAgentTool({ toolName: 'apply_patch', toolCallId: callId,
+      params, context: agentContext }, { inProcess: true });
+    expect(retry.isError).not.toBe(true);
+    expect(retry.details?.results?.[0]?.collaboration?.operationId)
+      .toBe(patch.details?.results?.[0]?.collaboration?.operationId);
+    expect(await revisionCount()).toBe(before + 1);
+  }, { initialReviewRequired: false, bindToolSessionToFixture: true });
+});
