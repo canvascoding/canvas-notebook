@@ -2069,6 +2069,7 @@ export class LivePiRuntime {
   private resetRunSupervisorForUserMessage(message: Extract<AgentMessage, { role: 'user' }>): void {
     this.currentUserPromptText = extractUserMessageText(message);
     this.currentUserPromptSignature = getMessageSignature(message);
+    this.executionContext.agentTurnId = randomUUID();
     this.syntheticContinuationCount = 0;
     this.lastContinuationReason = null;
     this.lastTurnDiagnostics = null;

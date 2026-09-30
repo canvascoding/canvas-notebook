@@ -7,6 +7,8 @@ import type { WorkspaceType } from '@/app/lib/workspaces/types';
 export type AgentExecutionContext = {
   userId: string;
   sessionId: string;
+  /** Server-issued identity for the user message currently driving this tool call. */
+  agentTurnId?: string;
   agentId: string | null;
   workspaceId: string;
   workspaceType: WorkspaceType;
