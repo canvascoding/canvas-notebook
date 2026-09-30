@@ -120,6 +120,11 @@ async function main() {
     workspace, actorId: 'agent', actorDisplayName: 'Agent', initiatedByUserId: 'user',
     operationId: `operation-${documentId}`, actorSessionId: 'stored-session',
   });
+  const mcpAuthority = { scope: {
+    userId: 'user', actorId: 'agent', sessionId: 'stored-session', workspaceId: workspace.workspaceId,
+    documentId: 'doc', path: 'doc.txt', lifecycleGeneration: 1,
+  }, verifyCurrent: async () => workspace, assertUnexpired() {} } as unknown as
+    NonNullable<Direct.AgentDirectConnectionInput['mcpAuthority']>;
   let instance!: Hocuspocus;
   const captureInstance = (value: Hocuspocus) => { instance = value; };
   let direct!: Parameters<typeof Direct.installCollaborationDirectConnection>[0];
@@ -207,6 +212,9 @@ async function main() {
     };
     if (name.endsWith('/direct-connection')) return { ...Direct,
       installCollaborationDirectConnection: (handler: typeof direct) => { direct = handler; } };
+    if (name.endsWith('/direct-edit-authority')) return {
+      isDirectMcpEditAuthority: (value: unknown) => value === mcpAuthority,
+    };
     if (name.endsWith('/document-access')) return {
       installCollaborationDocumentReader: (handler: typeof documentReader) => { documentReader = handler; },
     };
@@ -237,6 +245,9 @@ async function main() {
     if (name.endsWith('/history-service')) return { fileVersionHistoryService: { capturePersistedCollaboration: async (capture: {
       source: string; actorUserId: string | null; actorType: string;
     }) => { historyCaptures.push(capture); } } };
+    if (name.endsWith('/agent-turn-history')) return { agentTurnHistoryService: {
+      boundary: async () => false, recoverExpired: async () => undefined,
+    } };
     if (name.endsWith('/access-monitor')) return { createCollaborationAccessMonitor: () => ({
       dispose() {}, add: () => () => {}, check: async (connection: Connection) => {
         accessChecks++;
@@ -585,6 +596,35 @@ async function main() {
       && capture.actorUserId === 'user'), true,
     'ordinary direct-agent persistence keeps its existing author attribution');
     console.log('PASS preceding saveMutex store and direct disconnect reconcile without deadlock');
+
+    const capturesBeforeMcp = historyCaptures.length;
+    const storesBeforeMcp = stores;
+    await bounded(direct({ ...inputFor('doc'), mcpAuthority,
+      mcpPolicyFence: async () => undefined }, (document) => {
+      document.getText('content').insert(document.getText('content').length, 'MCP');
+    }), 'OAuth MCP direct operation');
+    assert.equal(stores, storesBeforeMcp + 1, 'the MCP edit persisted through the actual room-store hook');
+    assert.equal(historyCaptures.length, capturesBeforeMcp,
+      'the actual room-store hook leaves exact MCP operation history to its operation receipt');
+    assert.equal(room.getText('content').toString().endsWith('MCP'), true);
+    const reconciledState = states.get('doc')!;
+    controlledPersistResults.push({ ...reconciledState,
+      persistenceDisposition: 'merged', incomingNeedsReconcile: true });
+    const capturesBeforeMcpReconcile = historyCaptures.length;
+    const mcpContext = { ...contextFor('doc'), actorType: 'agent' as const,
+      versionSource: 'agent_apply' as const, versionBaseRevisionId: null,
+      versionSourceSessionId: null, agentTurnId: undefined,
+      exactOperationHistoryOwned: true, initiatedByUserId: 'user', operationId: 'operation-doc' };
+    await bounded(instance.storeDocumentHooks(room, { document: room, documentName: 'doc',
+      lastContext: mcpContext, lastTransactionOrigin: { source: 'connection', connection: anchor },
+      clientsCount: room.getConnectionsCount(), instance }, true), 'MCP reconciled room store');
+    assert.equal(historyCaptures.length, capturesBeforeMcpReconcile + 1);
+    assert.equal(historyCaptures.at(-1)?.source, 'automatic_checkpoint',
+      'a reconciled union retains its system-owned history despite the MCP exact-operation marker');
+    const mcpReconciliation = getReconciliationObservation();
+    await bounded(Promise.all([mcpReconciliation.entered.promise, mcpReconciliation.completed.promise]),
+      'MCP room reconciliation');
+    reconciliationObservation = null;
 
     const readsBeforeScoped = ordinaryStateReads;
     const scopedState = async (documentId: string) => { assert.equal(documentId, 'doc'); return states.get('doc')!; };

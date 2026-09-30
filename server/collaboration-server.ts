@@ -139,6 +139,7 @@ type CollaborationContext = {
   versionBaseRevisionId: string | null;
   versionSourceSessionId: string | null;
   agentTurnId?: string;
+  exactOperationHistoryOwned: boolean;
   initiatedByUserId: string | null;
   operationId: string | null;
   observedDocumentSequence: number | null;
@@ -551,6 +552,7 @@ export function createCollaborationServer(server: http.Server, options: {
           versionSource: 'automatic_checkpoint',
           versionBaseRevisionId: null,
           versionSourceSessionId: null,
+          exactOperationHistoryOwned: false,
           initiatedByUserId: null,
           operationId: null,
           observedDocumentSequence: null,
@@ -837,7 +839,8 @@ export function createCollaborationServer(server: http.Server, options: {
           roomOwners?.fence(document),
         );
         if (state.persistenceDisposition !== 'unchanged'
-          && !(lastContext.agentTurnId && lastContext.actorType === 'agent' && !state.incomingNeedsReconcile)) try {
+          && !(lastContext.actorType === 'agent' && !state.incomingNeedsReconcile
+            && (lastContext.agentTurnId || lastContext.exactOperationHistoryOwned))) try {
           await fileVersionHistoryService.capturePersistedCollaboration({
             workspace: lastContext.workspace,
             state,
@@ -1263,6 +1266,7 @@ export function createCollaborationServer(server: http.Server, options: {
       versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
       versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
       agentTurnId: input.agentTurnId,
+      exactOperationHistoryOwned: actorType === 'agent' && Boolean(input.mcpAuthority),
       initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
       operationId: actorType === 'agent' ? input.operationId : null,
       observedDocumentSequence: state.documentSequence,
