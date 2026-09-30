@@ -50,16 +50,24 @@ export async function retryActiveMemory() {
 export async function decideActiveMemory(decision: MemoryReviewDecision) {
   const state = useMemoryReviewStore.getState();
   if (!state.activeEntry || state.deciding) return;
+  const generation = loadGeneration;
   useMemoryReviewStore.setState({ deciding: decision, error: null });
   try {
     await decideMemoryReviewClient(state.activeEntry, decision);
-    const queue = state.queue.filter((_, index) => index !== state.activeIndex);
     window.dispatchEvent(new CustomEvent('memory_review_updated'));
     window.dispatchEvent(new CustomEvent('notification_summary_updated'));
-    if (!queue.length) { useMemoryReviewStore.setState({ queue: [], activeEntry: null, deciding: null, completed: true }); return; }
+    if (generation !== loadGeneration) return;
+    const queue = state.queue.filter((_, index) => index !== state.activeIndex);
+    if (!queue.length) {
+      useMemoryReviewStore.setState({ queue: [], completed: true });
+      closeMemoryReview();
+      return;
+    }
     useMemoryReviewStore.setState({ queue, deciding: null });
     await loadAt(Math.min(state.activeIndex, queue.length - 1), queue);
-  } catch (error) { useMemoryReviewStore.setState({ deciding: null, error: error instanceof Error ? error.message : 'Unable to save decision.' }); }
+  } catch (error) {
+    if (generation === loadGeneration) useMemoryReviewStore.setState({ deciding: null, error: error instanceof Error ? error.message : 'Unable to save decision.' });
+  }
 }
 
 export const approveActiveMemory = () => decideActiveMemory('approve');
