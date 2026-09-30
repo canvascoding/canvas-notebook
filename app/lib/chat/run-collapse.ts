@@ -127,16 +127,17 @@ function projectMessageSegment(
   const toolMessagesByCallId = new Map<string, ChatMessage>();
   const assignedCallIds = new Set<string>();
   const segmentEnded = runtimeActive === false
-    || (end < messages.length && messages[end].status === 'sent')
-    || messages.slice(start, end).some((message) => {
-      const piMessage = message.piMessage;
-      return message.role === 'assistant' && message.status !== 'sending'
-        && piMessage?.role === 'assistant'
-        && (piMessage.stopReason === 'stop' || piMessage.stopReason === 'error' || piMessage.stopReason === 'aborted');
-    });
+    || (end < messages.length && messages[end].status === 'sent');
+  let terminalAssistantIndex = -1;
 
   for (let index = start; index < end; index += 1) {
     const message = messages[index];
+    const piMessage = message.piMessage;
+    if (message.role === 'assistant' && message.status !== 'sending'
+      && piMessage?.role === 'assistant'
+      && (piMessage.stopReason === 'stop' || piMessage.stopReason === 'error' || piMessage.stopReason === 'aborted')) {
+      terminalAssistantIndex = index;
+    }
     if (message.role === 'toolResult' && message.toolCallId) {
       toolMessagesByCallId.set(message.toolCallId, message);
     }
@@ -153,7 +154,8 @@ function projectMessageSegment(
       continue;
     }
 
-    const batch = createExplicitBatch(message, toolCalls, toolMessagesByCallId, assignedMessageIds, segmentEnded, interruptionText);
+    const batch = createExplicitBatch(message, toolCalls, toolMessagesByCallId, assignedMessageIds,
+      segmentEnded || terminalAssistantIndex >= index, interruptionText);
     projection.batchesByAnchorId.set(batch.anchorMessageId, batch);
   }
 
@@ -173,7 +175,7 @@ function projectMessageSegment(
     if (message.role === 'toolResult' && message.toolCallId
       && toolMessagesByCallId.get(message.toolCallId)?.id !== message.id) continue;
     if (message.role === 'toolResult' && !assignedMessageIds.has(message.id)) {
-      fallbackMessages.push(segmentEnded && !isTerminalToolMessage(message)
+      fallbackMessages.push((segmentEnded || terminalAssistantIndex >= index) && !isTerminalToolMessage(message)
         ? interruptToolMessage(message, interruptionText)
         : message);
       continue;

@@ -10,7 +10,7 @@ import messages from '../../messages/en.json';
 const source: ChatMessage = {
   id: 'assistant', role: 'assistant', content: '', status: 'sent',
   piMessage: { role: 'assistant', content: [{ type: 'toolCall', id: 'manage', name: 'agent_manage', arguments: {} }],
-    stopReason: 'toolUse', timestamp: 1000 } as ChatMessage['piMessage'],
+    stopReason: 'toolUse', timestamp: Date.now() - 1000 } as ChatMessage['piMessage'],
 };
 
 function Harness() {
@@ -39,7 +39,6 @@ function Harness() {
     } as ChatMessage['piMessage'] }])}>Fail model</button>
     <button id="result" onClick={() => emit({ type: 'tool_execution_end', toolCallId: 'manage', toolName: 'agent_manage',
       result: { content: [{ type: 'text', text: 'Agent created successfully.' }], details: { operation: 'create_agent' } } })}>Deliver result</button>
-    <output id="live">{String(runtime.hasLiveMessagesInProgress())}</output>
     <ToolBatchDisclosure batch={batch} expanded={expanded} onToggle={() => setExpanded(!expanded)} />
   </main>;
 }

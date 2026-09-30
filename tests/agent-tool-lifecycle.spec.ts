@@ -13,6 +13,8 @@ test('interrupted agent tools settle and late results replace the interruption',
     body: `<html><head><style>${styles.css}</style></head><body><div id="root"></div><script>${bundle.outputFiles[0].text.replaceAll('</script', '<\\/script')}</script></body></html>` }));
   await page.goto('http://agent-tool-fixture.test/');
   const disclosure = page.getByTestId('chat-run-disclosure');
+  await expect(disclosure.getByText('Manage agents', { exact: true })).toHaveCount(2);
+  await expect(disclosure.locator('.lucide-bot')).toHaveCount(2);
   await expect(disclosure.locator('.animate-spin')).toHaveCount(2);
   await page.locator('#failure').click();
   await expect(disclosure.locator('.animate-spin')).toHaveCount(0);
@@ -26,6 +28,11 @@ test('interrupted agent tools settle and late results replace the interruption',
   await expect.poll(() => page.evaluate(() => (window as unknown as { fixtureHasLiveMessages: () => boolean }).fixtureHasLiveMessages())).toBe(false);
   await page.screenshot({ path: testInfo.outputPath('interrupted-agent-tool.png') });
   await page.locator('#result').click();
-  await expect(disclosure.getByRole('button', { name: /: Done$/ })).toBeVisible();
+  await expect(disclosure.getByRole('button', { name: 'Create agent: Done' })).toBeVisible();
+  await expect(disclosure.getByText('Completed an action', { exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await disclosure.getByRole('button', { name: 'Create agent: Done' }).click();
+  await expect(page.getByText('Agent created successfully.', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('agent-tool-mobile.png'), animations: 'disabled' });
   await expect(disclosure.locator('.animate-spin')).toHaveCount(0);
 });

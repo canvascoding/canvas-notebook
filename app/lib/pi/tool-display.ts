@@ -25,6 +25,7 @@ export type ToolDisplayTone =
   | 'memory'
   | 'session'
   | 'delegation'
+  | 'agents'
   | 'todo'
   | 'publicShare'
   | 'composioSearch'
@@ -97,6 +98,18 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   memory: { label: 'Updated memory', labelDe: 'Memory aktualisiert', tone: 'memory' },
   session_search: { label: 'Searched sessions', labelDe: 'Sessions durchsucht', tone: 'session' },
   delegate_task: { label: 'Delegated task', labelDe: 'Aufgabe delegiert', tone: 'delegation' },
+  agent_manage: { label: 'Manage agents', labelDe: 'Agenten verwalten', tone: 'agents' },
+  list_agents: { label: 'List agents', labelDe: 'Agenten auflisten', tone: 'agents' },
+  inspect_agent: { label: 'Inspect agent', labelDe: 'Agent prüfen', tone: 'agents' },
+  create_agent: { label: 'Create agent', labelDe: 'Agent erstellen', tone: 'agents' },
+  update_agent_profile: { label: 'Update agent profile', labelDe: 'Agentenprofil aktualisieren', tone: 'agents' },
+  update_agent_runtime: { label: 'Update agent runtime', labelDe: 'Agenten-Runtime aktualisieren', tone: 'agents' },
+  update_agent_capabilities: { label: 'Update agent capabilities', labelDe: 'Agentenfähigkeiten aktualisieren', tone: 'agents' },
+  update_agent_file: { label: 'Update agent instructions', labelDe: 'Agentenanweisungen aktualisieren', tone: 'agents' },
+  set_agent_grant: { label: 'Grant agent access', labelDe: 'Agentenzugriff erteilen', tone: 'agents' },
+  remove_agent_grant: { label: 'Remove agent access', labelDe: 'Agentenzugriff entfernen', tone: 'agents' },
+  preview_agent_deletion: { label: 'Preview agent deletion', labelDe: 'Agentenlöschung prüfen', tone: 'agents' },
+  delete_agent: { label: 'Delete agent', labelDe: 'Agent löschen', tone: 'agents' },
   create_human_todo: { label: 'Created human to-do', labelDe: 'To-do für Menschen erstellt', tone: 'todo' },
   list_human_todos: { label: 'Listed human to-dos', labelDe: 'To-dos für Menschen geladen', tone: 'todo' },
   inspect_human_todo: { label: 'Inspected human to-do', labelDe: 'To-do für Menschen geprüft', tone: 'todo' },
@@ -135,9 +148,29 @@ function isNewFileWriteResult(details: unknown): boolean {
   return isRecord(snapshot) && snapshot.existed === false;
 }
 
-export function getToolDisplayInfo(toolName: string | undefined, locale: string, details?: unknown): ToolDisplayInfo {
-  const gatewayOperation = isRecord(details) && typeof details.operation === 'string'
-    ? details.operation.trim()
+function parseToolArguments(args: unknown): Record<string, unknown> | undefined {
+  if (isRecord(args)) return args;
+  if (typeof args !== 'string') return undefined;
+  try {
+    const parsed: unknown = JSON.parse(args);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function getToolDisplayInfo(toolName: string | undefined, locale: string, details?: unknown, args?: unknown): ToolDisplayInfo {
+  const metadata = isRecord(details) ? details : parseToolArguments(args);
+  if (toolName === 'agent_manage' && (metadata?.action === 'search' || metadata?.action === 'describe')) {
+    return {
+      label: metadata.action === 'search'
+        ? (locale.startsWith('de') ? 'Agentenaktionen suchen' : 'Find agent actions')
+        : (locale.startsWith('de') ? 'Agentenaktion prüfen' : 'Inspect agent action'),
+      tone: 'agents',
+    };
+  }
+  const gatewayOperation = typeof metadata?.operation === 'string'
+    ? metadata.operation.trim()
     : '';
   const normalizedName = gatewayOperation || (toolName || '').trim();
   if (normalizedName === 'write' && isNewFileWriteResult(details)) {

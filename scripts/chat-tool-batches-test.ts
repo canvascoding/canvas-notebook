@@ -159,6 +159,11 @@ function toolResult(id: string, toolCallId: string, toolName: string, timestamp:
   const laterRun = message({ id: 'next-user', role: 'user', status: 'sent' });
   assert.equal(buildToolBatchProjection([unfinished, laterRun], true).batchesByAnchorId.get(unfinished.id)?.calls[0].message?.status, 'error',
     'a new run cannot keep an earlier orphaned call active');
+  const earlierAnswer = message({ id: 'earlier-answer', role: 'assistant', piMessage: {
+    role: 'assistant', content: [], stopReason: 'stop', timestamp: 5500,
+  } as ChatMessage['piMessage'] });
+  assert.equal(buildToolBatchProjection([earlierAnswer, unfinished], true).batchesByAnchorId.get(unfinished.id)?.calls[0].message, undefined,
+    'a continued run keeps new calls active after an earlier final answer');
 }
 
 console.log('chat tool batch projection tests passed');

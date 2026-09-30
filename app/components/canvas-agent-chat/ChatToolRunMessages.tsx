@@ -5,6 +5,7 @@ import { StoredToolOutputPreview, type ToolOutputScope } from './StoredToolOutpu
 import { useLocale, useTranslations } from 'next-intl';
 import {
   Brain,
+  Bot,
   CalendarClock,
   CalendarCog,
   CalendarPlus,
@@ -100,6 +101,7 @@ const TOOL_TONE_ICONS: Record<ToolDisplayTone, ComponentType<{ className?: strin
   memory: Brain,
   session: MessagesSquare,
   delegation: Network,
+  agents: Bot,
   todo: ListTodo,
   publicShare: ShieldCheck,
   composioSearch: SearchCheck,
@@ -217,7 +219,7 @@ export function ToolCallPill({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const piDetails = getPiMessageDetails(message.piMessage);
   const pendingReview = workspaceOperationReviewFromDetails(piDetails);
-  const display = getToolDisplayInfo(message.toolName, locale, piDetails);
+  const display = getToolDisplayInfo(message.toolName, locale, piDetails, message.toolArgs);
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
   const isPending = message.status === 'pending';
   const isRunning = isPending || message.status === 'sending' || message.status === 'aborting';
@@ -451,7 +453,7 @@ export function ToolBatchDisclosure({
   const locale = useLocale();
   const primaryCall = batch.calls[0];
   const primaryMessage = primaryCall ? getToolBatchCallMessage(primaryCall) : undefined;
-  const display = getToolDisplayInfo(primaryCall?.toolName, locale, getPiMessageDetails(primaryMessage?.piMessage));
+  const display = getToolDisplayInfo(primaryCall?.toolName, locale, getPiMessageDetails(primaryMessage?.piMessage), primaryCall?.toolArgs);
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
   const completedCount = batch.calls.filter(isFinishedToolCall).length;
   const errorCount = batch.calls.filter((call) => call.message?.status === 'error').length;
