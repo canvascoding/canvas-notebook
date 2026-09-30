@@ -27,9 +27,11 @@ import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
-import { loadCollaborationState, loadCollaborationStateIncludingArchived, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
-import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
-import { AgentFileEditOperationScopeError, findAgentFileEditOperation, type AgentTextTarget, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
+import { loadCollaborationStateIncludingArchived, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
+import { confirmCollaborativeFileCheckpoint as confirmSharedCollaborativeFileCheckpoint,
+  CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
+import { AgentFileEditOperationScopeError, AgentFileReviewDisabledConflictError,
+  findAgentFileEditOperation, type AgentTextTarget, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
 import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationMarkdownEdit,
@@ -66,6 +68,7 @@ import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { getToolOutputRoot, getToolOutputSessionDirectory } from '@/app/lib/pi/tool-output-store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import {
@@ -1816,6 +1819,12 @@ async function reusedCollaborativeFileEdit(input: {
   const persisted = operation.durability === 'persisted_yjs' || operation.durability === 'checkpointed_file';
   const reviewRequired = operation.operationStatus === 'needs_review' || operation.operationStatus === 'partially_applied'
     || operation.operationStatus === 'semantic_conflict';
+  if (reviewRequired && !readDocumentReviewAvailability().documentReviewEnabled) {
+    throw new AgentFileReviewDisabledConflictError(
+      'This earlier operation still requires review or conflict resolution. Document Review Center is disabled; the retry did not apply it.',
+      operation.operationId,
+    );
+  }
   if (reviewRequired && proposalReviewWritesEnabled({ workspaceId: workspace.workspaceId })) {
     throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
   }
@@ -1858,50 +1867,30 @@ async function confirmCollaborativeFileCheckpoint(input: {
   operation?: PersistedAgentApplyResult;
   actorSessionId?: string;
 }): Promise<void> {
-  const deadline = Date.now() + 15_000;
-  do {
-    try {
-      const state = await loadCollaborationState(input.documentId);
-      if (!state || state.status !== 'active' || state.workspaceId !== input.workspace.workspaceId
-        || state.path !== input.snapshot.path
-        || state.lifecycleGeneration !== input.snapshot.lifecycleGeneration
-        || state.schemaVersion !== input.snapshot.schemaVersion
-        || state.representation !== input.snapshot.representation
-        || state.documentSequence < input.snapshot.documentSequence) break;
-      if (state.checkpointSequence >= input.snapshot.documentSequence) {
-        const projection = await readFileCollaborationState({ workspace: input.workspace, path: state.path });
-        if (projection.document?.id === input.documentId
-          && projection.document.stateVersion >= input.snapshot.documentSequence
-          && projection.document.snapshotRevisionId
-          && projection.latestRevision?.id === projection.document.snapshotRevisionId) {
-          const file = await fs.readFile(input.fullPath);
-          if (sha256Buffer(file) === projection.latestRevision.contentHash) {
-            const turnId = getAgentExecutionContext()?.agentTurnId;
-            if (turnId && input.operation?.operationId) {
-              await agentTurnHistoryService.linkCheckpoint({ turnId, workspaceId: input.workspace.workspaceId,
-                operationId: input.operation.operationId, revisionId: projection.latestRevision.id,
-                documentSequence: projection.document.stateVersion,
-                lifecycleGeneration: state.lifecycleGeneration });
-            }
-            return;
-          }
+  try {
+    await confirmSharedCollaborativeFileCheckpoint({
+      path: input.snapshot.path,
+      displayPath: input.inputPath,
+      fullPath: input.fullPath,
+      documentId: input.documentId,
+      workspace: input.workspace,
+      snapshot: input.snapshot,
+      actorSessionId: input.actorSessionId,
+      onConfirmed: async (checkpoint) => {
+        const turnId = getAgentExecutionContext()?.agentTurnId;
+        if (turnId && input.operation?.operationId) {
+          await agentTurnHistoryService.linkCheckpoint({ turnId, workspaceId: input.workspace.workspaceId,
+            operationId: input.operation.operationId, revisionId: checkpoint.revisionId,
+            documentSequence: checkpoint.documentSequence,
+            lifecycleGeneration: checkpoint.lifecycleGeneration });
         }
-      }
-      if (state.checkpointSequence < state.documentSequence) {
-        try {
-          await materializeCollaborationCheckpoint({ state, workspace: input.workspace,
-            actorType: 'agent', sourceSessionId: input.actorSessionId });
-        } catch (error) {
-          if (!(error instanceof CollaborationCheckpointSupersededError)) throw error;
-        }
-      }
-    } catch {
-      // The operation is already durable in Yjs. A failed projection cannot become tool success.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  } while (Date.now() < deadline);
-  if (input.operation) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, input.operation);
-  throw new Error(`The live content of ${input.inputPath} is saved, but its file checkpoint could not be confirmed.`);
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof CollaborationFileCheckpointUnavailableError)) throw error;
+    if (input.operation) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, input.operation);
+    throw error;
+  }
 }
 
 async function prepareOrReuseCollaborativeFileEdit(input: {
@@ -1962,6 +1951,12 @@ async function applyPreparedCollaborativeFileEdit(input: {
   let current: CollaborationTextSnapshot = input.prepared;
   const reviewRequired = operation.operationStatus === 'needs_review'
     || operation.operationStatus === 'partially_applied' || operation.operationStatus === 'semantic_conflict';
+  if (reviewRequired && !readDocumentReviewAvailability().documentReviewEnabled) {
+    throw new AgentFileReviewDisabledConflictError(
+      'The edit could not be applied directly. Document Review Center is disabled; inspect the recorded operation and retry with a precise target.',
+      operation.operationId,
+    );
+  }
   if (!persisted && !reviewRequired) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
   if (persisted) {
     try {

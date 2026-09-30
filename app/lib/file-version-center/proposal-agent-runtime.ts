@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
+
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -30,6 +32,9 @@ function fail(code: ProposalGraphErrorCode, message: string): never { throw new 
 
 /** Workspace-scoped rollout gate; this never replaces fresh source and actor authorization. */
 export function assertProposalToolsEnabled(workspaceId?: string): void {
+  if (!readDocumentReviewAvailability().documentReviewEnabled) {
+    fail(Codes.upgradeRequired, 'Document Review Center is disabled. Existing proposals were preserved and no proposal was applied.');
+  }
   if (!workspaceId || !proposalReviewWritesEnabled({ workspaceId })) {
     fail(Codes.upgradeRequired, 'Graph-aware proposal tools are not enabled for this workspace. No legacy write was attempted.');
   }
@@ -43,14 +48,16 @@ export function assertProposalCreationEnabled(workspaceId?: string): void {
   }
 }
 
-/** An off-mode no-hit must not require Graph identity or allocate Graph metadata. */
+/** Probe only graph-backed retries; a direct operation with the same tool key stays on its own replay path. */
 export async function hasPotentialProposalAgentRetryKey(input: {
   documentId: string; initiatedByUserId: string; idempotencyKey: string;
 }): Promise<boolean> {
   const database = createRuntimeFileVersionCenterDatabase();
   return database.transaction(async (sql) => Boolean((await sql.query<{ operation_id: string }>(
-    `SELECT operation_id FROM collaboration_agent_operations
-      WHERE document_id=$1 AND initiated_by_user_id=$2 AND idempotency_key=$3 LIMIT 1`,
+    `SELECT operation.operation_id FROM collaboration_agent_operations operation
+      INNER JOIN file_change_proposals proposal ON proposal.operation_id=operation.operation_id
+      WHERE operation.document_id=$1 AND operation.initiated_by_user_id=$2
+        AND operation.idempotency_key=$3 LIMIT 1`,
     [input.documentId, input.initiatedByUserId, input.idempotencyKey])).rows[0]));
 }
 

@@ -13,6 +13,7 @@ import {
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
 import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 import { prepareFileVersionContent } from '@/app/lib/file-version-center/version-content-store';
@@ -87,6 +88,16 @@ const MAX_AGENT_TRIGGER_DEPTH = 4;
 const MAX_PENDING_AGENT_APPLIES_PER_DOCUMENT = 16;
 const AGENT_QUEUE_REVIEW_AFTER_MS = 1_000;
 const USER_REVERT_AUTHORITY = Symbol('trusted-user-selective-revert');
+
+/** Review-disabled requests must return a conflict instead of creating an unseen proposal. */
+export class AgentFileReviewDisabledConflictError extends Error {
+  readonly code = 'DOCUMENT_REVIEW_DISABLED_CONFLICT';
+
+  constructor(message: string, readonly operationId?: string) {
+    super(message);
+    this.name = 'AgentFileReviewDisabledConflictError';
+  }
+}
 
 /** Only independent operation-store statements may borrow a client per query. */
 function assertAgentOperationQuery(sql: string): void {
@@ -1719,6 +1730,10 @@ export async function applyProposalGraphCandidateOperation(input: ProposalGraphC
           try {
             Y.applyUpdate(candidateDoc, input.candidateUpdate);
             const delta = Y.encodeStateAsUpdate(candidateDoc, Y.encodeStateVector(doc));
+            if (!readDocumentReviewAvailability().documentReviewEnabled) {
+              throw new ProposalActionDefinitelyUnappliedError('PROPOSAL_UPGRADE_REQUIRED',
+                'Document Review Center was disabled before this proposal could apply. The candidate was not written.');
+            }
             doc.transact(() => Y.applyUpdate(doc, delta), {
               actorType: 'agent', actorId: input.actorId, initiatedByUserId: input.initiatedByUserId, operationId: input.actionId,
             });
@@ -2313,6 +2328,10 @@ async function applyStoredOperation(input: {
       agentTurnId: row.requested_mode === 'direct_apply' && row.operation_type === 'apply' ? row.agent_run_id || undefined : undefined,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
+      if (input.approval && !readDocumentReviewAvailability().documentReviewEnabled) {
+        throw new AgentFileReviewDisabledConflictError(
+          'Document Review Center is disabled. This pending operation was not accepted.', row.operation_id);
+      }
       if (input.directGrant && (input.directGrant.id !== row.direct_edit_grant_id || input.directGrant.expiresAt <= Date.now())) {
         throw new AgentDirectConnectionAuthorizationError('The direct editing permission has expired.');
       }
@@ -2429,6 +2448,13 @@ async function applyStoredOperation(input: {
     const authoritativeApplyStarted = Boolean(appliedExecution.value?.appliedTargetIds.length)
       || fresh.status === 'applied_to_ydoc'
       || fresh.status === 'persisted_yjs';
+    if (error instanceof AgentFileReviewDisabledConflictError && input.approval && !authoritativeApplyStarted) {
+      await transitionOperation({ database: input.database, row: fresh, expectedStatuses: [fresh.status],
+        status: 'needs_review', fields: { result_json: JSON.stringify(priorResult),
+          action_keys_json: input.approval.row.action_keys_json,
+          error_code: 'document_review_disabled_conflict' } });
+      throw error;
+    }
     if (
       !authoritativeApplyStarted
       && (error instanceof AgentOperationCancelledError || cancelRequests.has(row.operation_id) || fresh.status === 'cancel_requested')
@@ -2597,6 +2623,7 @@ export async function applyPersistedAgentTextOperation(input: {
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
   const trustedRevert = input.operationType === 'revert' && input[USER_REVERT_AUTHORITY] === true;
+  const reviewEnabledAtAdmission = readDocumentReviewAvailability().documentReviewEnabled;
   let directScope: AgentDirectEditGrantScope | null = null;
   let policySnapshot: AgentReviewPolicySnapshot | null = null;
   // Capture policy before queueing. A later toggle must not authorize an old queued edit.
@@ -2622,12 +2649,21 @@ export async function applyPersistedAgentTextOperation(input: {
     try {
       const requestedMode = input.requestedMode ?? 'direct_apply';
       const backpressureReview = queue.waitMs >= AGENT_QUEUE_REVIEW_AFTER_MS || queue.depth > 4;
-      const hardSafetyReview = backpressureReview || Boolean(input.independentGroups);
+      const hardSafetyReview = !trustedRevert && (backpressureReview || Boolean(input.independentGroups));
       const policyAllowsDirect = policySnapshot?.policy.effectiveMode === 'safe_direct'
         && !policySnapshot.policy.locked;
       const mustReview = requestedMode === 'review'
         || (!trustedRevert && (!directScope || !policyAllowsDirect))
         || hardSafetyReview;
+      const reviewAvailable = () => reviewEnabledAtAdmission
+        && readDocumentReviewAvailability().documentReviewEnabled;
+      if (mustReview && !reviewAvailable()) {
+        throw new AgentFileReviewDisabledConflictError(
+          backpressureReview
+            ? 'The document is busy. Retry the edit after the live collaboration queue clears.'
+            : 'The edit cannot be applied directly to the current document. Read its current content and retry with a precise target.',
+        );
+      }
       if (mustReview && input.disallowLegacyReview) {
         throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
           'Direct editing is no longer authorized. Start a fresh tool call for graph review; no legacy operation was created.');
@@ -2659,10 +2695,19 @@ export async function applyPersistedAgentTextOperation(input: {
         fileEditRequest: input.fileEditRequest,
         directEditGrantId: null,
       });
-      if (!created.created) return {
-        ...parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace)),
-        ...(input.fileEditRequest ? { fileEditRequestReused: true as const } : {}),
-      };
+      if (!created.created) {
+        const previous = parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace));
+        if (!reviewAvailable() && ['needs_review', 'partially_applied', 'semantic_conflict'].includes(previous.operationStatus)) {
+          throw new AgentFileReviewDisabledConflictError(
+            'This earlier operation still requires review or conflict resolution. Document Review Center is disabled; the retry did not apply it.',
+            previous.operationId,
+          );
+        }
+        return {
+          ...previous,
+          ...(input.fileEditRequest ? { fileEditRequestReused: true as const } : {}),
+        };
+      }
       if (mustReview) return placeAgentOperationInReview(database, created.row,
         backpressureReview ? 'backpressure_review_required' : 'user_review_required');
       if (trustedRevert) return applyStoredOperation({ database, row: created.row,
@@ -2678,6 +2723,13 @@ export async function applyPersistedAgentTextOperation(input: {
         createdInThisCall: created.created,
       });
       if (authorization.enforcementMode !== 'safe_direct' || !authorization.grant) {
+        if (!reviewAvailable()) {
+          await cancelUnappliedReviewFallback(database, created.row.operation_id);
+          throw new AgentFileReviewDisabledConflictError(
+            'Direct editing authorization changed. Read the current document and retry; no review proposal was created.',
+            created.row.operation_id,
+          );
+        }
         if (input.disallowLegacyReview) {
           await cancelUnappliedGraphReroute(database, created.row);
           throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
@@ -2694,7 +2746,7 @@ export async function applyPersistedAgentTextOperation(input: {
       });
       let appliedResult: PersistedAgentApplyResult | undefined;
       try {
-        return await withAgentDirectEditGrant({ grantId: authorization.grant.id, scope: directScope! }, async (currentGrant) => {
+        appliedResult = await withAgentDirectEditGrant({ grantId: authorization.grant.id, scope: directScope! }, async (currentGrant) => {
           appliedResult = await applyStoredOperation({ database, row: authorizedRow, workspace: input.workspace,
             actorDisplayName: input.actorDisplayName, directGrant: currentGrant });
           return appliedResult;
@@ -2706,24 +2758,50 @@ export async function applyPersistedAgentTextOperation(input: {
         if (appliedResult) {
           logCollaborationDiagnostic('warn', { event: 'agent_audit_failed', operationId: created.row.operation_id,
             documentId: input.documentId, workspaceId: input.workspace.workspaceId, code: 'AGENT_GRANT_LOCK_RELEASE_UNCONFIRMED' });
-          return appliedResult;
-        }
-        if (isAgentDatabaseCapacityError(error)) {
+          // The apply result is authoritative even when releasing the grant was unconfirmed.
+        } else if (isAgentDatabaseCapacityError(error)) {
+          if (!reviewAvailable()) {
+            await cancelUnappliedReviewFallback(database, authorizedRow.operation_id);
+            throw new AgentFileReviewDisabledConflictError(
+              'Direct editing capacity is temporarily unavailable. Retry after the document queue clears.',
+              created.row.operation_id,
+            );
+          }
           if (input.disallowLegacyReview) {
             await cancelUnappliedGraphReroute(database, authorizedRow);
             throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
               'Direct editing could not be authorized. The unapplied operation was cancelled; start a fresh tool call.');
           }
           return placeAgentOperationInReview(database, authorizedRow, 'backpressure_review_required');
+        } else if (!(error instanceof AgentDirectEditGrantUnavailableError)) {
+          throw error;
+        } else {
+          if (!reviewAvailable()) {
+            await cancelUnappliedReviewFallback(database, authorizedRow.operation_id);
+            throw new AgentFileReviewDisabledConflictError(
+              'Direct editing permission was lost. Read the current document and retry; no review proposal was created.',
+              created.row.operation_id,
+            );
+          }
+          if (input.disallowLegacyReview) {
+            await cancelUnappliedGraphReroute(database, authorizedRow);
+            throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
+              'Direct editing grant was lost. The unapplied operation was cancelled; start a fresh tool call.');
+          }
+          return placeAgentOperationInReview(database, authorizedRow, 'authorization_revoked');
         }
-        if (!(error instanceof AgentDirectEditGrantUnavailableError)) throw error;
-        if (input.disallowLegacyReview) {
-          await cancelUnappliedGraphReroute(database, authorizedRow);
-          throw new ProposalGraphContractError('PROPOSAL_UPGRADE_REQUIRED',
-            'Direct editing grant was lost. The unapplied operation was cancelled; start a fresh tool call.');
-        }
-        return placeAgentOperationInReview(database, authorizedRow, 'authorization_revoked');
       }
+      if (!appliedResult) throw new Error('The direct edit outcome is unavailable.');
+      if (!reviewAvailable() && ['needs_review', 'partially_applied', 'semantic_conflict'].includes(appliedResult.operationStatus)) {
+        await cancelUnappliedReviewFallback(database, appliedResult.operationId);
+        throw new AgentFileReviewDisabledConflictError(
+          appliedResult.appliedTargetIds.length > 0
+            ? 'The edit was partially applied or its durability is uncertain. Inspect the recorded operation before retrying.'
+            : 'The live document changed before this edit could apply. Read the current content and retry.',
+          appliedResult.operationId,
+        );
+      }
+      return appliedResult;
     } finally {
       await database.close();
     }
@@ -2736,6 +2814,17 @@ async function cancelUnappliedGraphReroute(database: SqlConnection, row: AgentOp
     operationStatus: 'cancelled' as const, casVersion: Number(row.cas_version) + 1 };
   await transitionOperation({ database, row, expectedStatuses: ['preparing'], status: 'cancelled',
     fields: { result_json: JSON.stringify(result), error_code: 'graph_review_reroute_required' } });
+}
+
+async function cancelUnappliedReviewFallback(database: SqlConnection, operationId: string): Promise<void> {
+  const row = await readOperation(database, operationId);
+  if (!row || !['preparing', 'needs_review'].includes(row.status)) return;
+  const previous = parseResult(row);
+  if (previous.appliedTargetIds.length > 0 || previous.durability === 'persisted_yjs'
+    || previous.durability === 'checkpointed_file' || previous.durability === 'applied_to_ydoc') return;
+  const result = { ...previous, operationStatus: 'cancelled' as const, casVersion: Number(row.cas_version) + 1 };
+  await transitionOperation({ database, row, expectedStatuses: [row.status], status: 'cancelled',
+    fields: { result_json: JSON.stringify(result), error_code: 'document_review_disabled_conflict' } });
 }
 
 async function placeAgentOperationInReview(database: SqlConnection, row: AgentOperationRow, code: string) {
@@ -3203,8 +3292,16 @@ export async function acceptAgentOperation(input: {
       const receipt = approvalReceipt(row, input);
       if (receipt.handled) return parseResult(await reconcileAgentOperationDurability(database, row, input.workspace));
       if (!['needs_review', 'partially_applied'].includes(row.status)) return parseResult(row);
+      if (!readDocumentReviewAvailability().documentReviewEnabled) {
+        throw new AgentFileReviewDisabledConflictError(
+          'Document Review Center is disabled. This pending operation was not accepted.', row.operation_id);
+      }
       const review = await reviewTargets(row, input.userId);
       if (!matchesProposalVersion(input.proposalVersion, review.proposalVersion)) throw new AgentProposalChangedError();
+      if (!readDocumentReviewAvailability().documentReviewEnabled) {
+        throw new AgentFileReviewDisabledConflictError(
+          'Document Review Center is disabled. This pending operation was not accepted.', row.operation_id);
+      }
       return applyStoredOperation({
         database,
         row,
@@ -3296,6 +3393,13 @@ export async function cancelAgentOperation(input: {
     row = await authorizedActionRow(database, input);
     await assertLegacyActionIsIndependent(database, row.operation_id);
     cancelRequests.add(input.operationId);
+    if (['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file', 'partially_applied', 'semantic_conflict'].includes(row.status)
+      && !readDocumentReviewAvailability().documentReviewEnabled) {
+      throw new AgentFileReviewDisabledConflictError(
+        'Cancelling an applied edit would create a review proposal. Document Review Center is disabled; read the current content and use a new direct edit to undo the change.',
+        row.operation_id,
+      );
+    }
     if (actionWasHandled(row, 'cancel', input.idempotencyKey)) return parseResult(row);
     row = await rememberAction(database, row, 'cancel', input.idempotencyKey);
     if (['applied_to_ydoc', 'persisted_yjs', 'checkpointed_file', 'partially_applied', 'semantic_conflict'].includes(row.status)) {

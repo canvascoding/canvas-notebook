@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import {
   createFileVersionCenterRouteAuthorizer,
+  documentReviewUnavailableResponse,
   fileVersionCenterCaughtError,
 } from '../app/lib/file-version-center/route-adapter';
 import {
@@ -34,7 +35,7 @@ async function main() {
   const authorize = createFileVersionCenterRouteAuthorizer(async (_request, options) => {
     requested.push(options);
     return { session, workspace: workspace('workspace-one'), response: null } as never;
-  });
+  }, () => true);
   const authorized = await authorize(request, 'workspace-one', 'canRead');
   assert.equal(authorized.authorized, true);
   assert.deepEqual(requested, [{ workspaceId: 'workspace-one', permissions: 'canRead' }]);
@@ -56,7 +57,7 @@ async function main() {
     session,
     workspace: workspace('workspace-other'),
     response: null,
-  }) as never);
+  }) as never, () => true);
   const crossed = await crossWorkspace(request, 'workspace-one', 'canRead');
   assert.equal(crossed.authorized, false);
   if (!crossed.authorized) {
@@ -68,7 +69,7 @@ async function main() {
     session: null,
     workspace: null,
     response: NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 }),
-  }) as never);
+  }) as never, () => { throw new Error('Availability must be checked after authorization.'); });
   const denied = await accessLost(request, 'workspace-one', 'canRead');
   assert.equal(denied.authorized, false);
   if (!denied.authorized) {
@@ -80,8 +81,29 @@ async function main() {
     session,
     workspace: workspace('workspace-one', 'archived'),
     response: null,
-  }) as never);
+  }) as never, () => { throw new Error('Availability must be checked after active membership.'); });
   assert.equal((await inactive(request, 'workspace-one', 'canRead')).authorized, false);
+
+  let enabled = false;
+  const featureControlled = createFileVersionCenterRouteAuthorizer(async () => ({
+    session,
+    workspace: workspace('workspace-one'),
+    response: null,
+  }) as never, () => enabled);
+  const unavailable = await featureControlled(request, 'workspace-one', 'canWrite');
+  assert.equal(unavailable.authorized, false);
+  if (!unavailable.authorized) {
+    assert.equal(unavailable.response.status, 409);
+    assert.equal(unavailable.response.headers.get('cache-control'), 'private, no-store, max-age=0');
+    assert.equal(parseFileVersionCenterErrorResponseV1(await unavailable.response.json()).error.code,
+      FILE_VERSION_CENTER_ERROR_CODES.capabilityUnavailable);
+  }
+  enabled = true;
+  assert.equal((await featureControlled(request, 'workspace-one', 'canWrite')).authorized, true);
+  enabled = false;
+  assert.equal((await featureControlled(request, 'workspace-one', 'canRead')).authorized, false);
+  assert.equal(documentReviewUnavailableResponse(() => true), null);
+  assert.equal(documentReviewUnavailableResponse(() => false)?.status, 409);
 
   const stale = fileVersionCenterCaughtError(new FileVersionCenterContractError(
     FILE_VERSION_CENTER_ERROR_CODES.staleCurrent,
@@ -89,6 +111,12 @@ async function main() {
   ));
   assert.equal(stale.status, 409);
   assert.equal(parseFileVersionCenterErrorResponseV1(await stale.json()).error.retryable, false);
+  const disabledCapability = fileVersionCenterCaughtError(new FileVersionCenterContractError(
+    FILE_VERSION_CENTER_ERROR_CODES.capabilityUnavailable,
+    'The Document Review Center is disabled.',
+  ));
+  assert.equal(disabledCapability.status, 409);
+  assert.equal(parseFileVersionCenterErrorResponseV1(await disabledCapability.json()).error.retryable, false);
   const hidden = fileVersionCenterCaughtError(new Error('secret database path'));
   assert.equal(hidden.status, 500);
   assert.doesNotMatch(await hidden.text(), /secret database path/u);

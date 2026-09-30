@@ -42,6 +42,7 @@ const timeline = (value: Policy | null, capable = true) => ({
 });
 
 async function compileUi(controls: {
+  availability?: () => { documentReviewEnabled: boolean; updatedAt: string | null };
   resolve: () => Promise<ReturnType<typeof timeline>>;
   update: (request: Record<string, unknown>) => Promise<Policy>;
   updates: Record<string, unknown>[];
@@ -61,6 +62,9 @@ async function compileUi(controls: {
   }
   const exports = {} as typeof Ui;
   const mocks: Record<string, unknown> = {
+    '@/app/components/file-version-center/DocumentReviewAvailabilityProvider': {
+      useDocumentReviewAvailability: () => controls.availability?.() ?? { documentReviewEnabled: true, updatedAt: null },
+    },
     'next-intl': { useTranslations: () => (key: string) => key },
     '@/app/lib/file-version-center/client': {
       FileVersionCenterClientError: ClientError,
@@ -145,10 +149,13 @@ test('the mobile editor switch uses CAS, reloads conflicts and exposes accessibl
   Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { configurable: true, value: true });
 
   const updates: Record<string, unknown>[] = [];
+  let reviewEnabled = false;
+  let resolveCount = 0;
   let resolvePolicy = async () => timeline(policy('review_required', 4));
   let updatePolicy = async () => policy('safe_direct', 5);
   const compiled = await compileUi({
-    resolve: () => resolvePolicy(),
+    availability: () => ({ documentReviewEnabled: reviewEnabled, updatedAt: null }),
+    resolve: () => { resolveCount += 1; return resolvePolicy(); },
     update: (request) => updatePolicy().then((value) => {
       assert.ok(request);
       return value;
@@ -163,6 +170,13 @@ test('the mobile editor switch uses CAS, reloads conflicts and exposes accessibl
   };
 
   try {
+    await act(async () => root.render(
+      <compiled.ui.FileReviewPolicyControl workspaceId="workspace-one" path="notes.md" documentId="document-one" />,
+    ));
+    await flush();
+    assert.equal(document.querySelector('[role="switch"]'), null, 'default-off feature hides document review');
+    assert.equal(resolveCount, 0, 'disabled review does not request a timeline');
+    reviewEnabled = true;
     let releaseLoading!: (value: ReturnType<typeof timeline>) => void;
     resolvePolicy = () => new Promise((resolve) => { releaseLoading = resolve; });
     await act(async () => root.render(

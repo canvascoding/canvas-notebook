@@ -56,6 +56,7 @@ import type { GraphReviewCardStatus } from './GraphReviewComparison';
 import { closeWorkspaceOperationReview, useWorkspaceOperationReviewStore } from '@/app/store/workspace-operation-review-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { useWorkspaceOperationReviewNavigation } from './useWorkspaceOperationReviewNavigation';
+import { useDocumentReviewAvailability } from './DocumentReviewAvailabilityProvider';
 
 type MobileReviewPane = 'timeline' | 'comparison';
 
@@ -74,13 +75,15 @@ function subscribeFileVersionAuth(listener: () => void): () => void {
 export function FileVersionCenterHost() {
   const t = useTranslations('fileVersionCenter');
   const router = useRouter();
-  const request = useFileVersionCenterStore((state) => state.request);
+  const { documentReviewEnabled, updatedAt, ready: reviewAvailabilityReady } = useDocumentReviewAvailability();
+  const storedRequest = useFileVersionCenterStore((state) => state.request);
+  const request = documentReviewEnabled ? storedRequest : null;
   const workspaceReviewRequest = useWorkspaceOperationReviewStore((state) => state.request);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const authScope = useSyncExternalStore(subscribeFileVersionAuth, openedDocumentAuthScope, () => null);
   useWorkspaceOperationReviewNavigation(authScope);
   const workspaceReviewAuthScopeRef = useRef(authScope);
-  const targetIdentity = request ? JSON.stringify([authScope, request.target]) : null;
+  const targetIdentity = request ? JSON.stringify([authScope, request.target, updatedAt]) : null;
   const [resolvedTimeline, setResolvedTimeline] = useState<{ identity: string;
     requestTarget: FileVersionCenterRequestV1['target']; value: FileVersionTimelineResponseV1 } | null>(null);
   const [failure, setFailure] = useState<{ identity: string; message: string } | null>(null);
@@ -142,7 +145,8 @@ export function FileVersionCenterHost() {
     options?: { preserveTimeline?: boolean },
   ) => {
     const generation = ++requestGenerationRef.current;
-    const identity = JSON.stringify([authScope, activeRequest.target]);
+    if (!documentReviewEnabled) return;
+    const identity = JSON.stringify([authScope, activeRequest.target, updatedAt]);
     const invalidationRevision = invalidationRevisionRef.current;
     const isCurrent = () => generation === requestGenerationRef.current && !signal?.aborted
       && openedDocumentAuthScope() === authScope;
@@ -191,7 +195,7 @@ export function FileVersionCenterHost() {
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  }, [authScope, purgeResolvedReview, t]);
+  }, [authScope, documentReviewEnabled, updatedAt, purgeResolvedReview, t]);
 
   const requestTarget = request?.target;
   const requestSource = request?.source;
@@ -202,6 +206,8 @@ export function FileVersionCenterHost() {
   }, [requestSource, requestTarget]);
 
   useEffect(() => {
+    if (!reviewAvailabilityReady) return;
+    if (!documentReviewEnabled) { closeVersionCenter(); return; }
     try {
       syncVersionCenterFromLocation(window.location.search);
     } catch {
@@ -216,7 +222,7 @@ export function FileVersionCenterHost() {
     };
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
-  }, []);
+  }, [documentReviewEnabled, reviewAvailabilityReady]);
 
   useEffect(() => {
     if (!resolutionRequest) {
@@ -352,7 +358,7 @@ export function FileVersionCenterHost() {
             || summaryError.code === 'PROPOSAL_ACCESS_DENIED' || summaryError.code === 'FVRC_ACCESS_DENIED'
             || summaryError.code === 'FVRC_NOT_FOUND')) {
           const latestRequest = useFileVersionCenterStore.getState().request;
-          if (latestRequest && JSON.stringify([authScope, latestRequest.target]) === targetIdentity) {
+          if (latestRequest && JSON.stringify([authScope, latestRequest.target, updatedAt]) === targetIdentity) {
             requestGenerationRef.current += 1;
             paginationAbortRef.current?.abort();
             paginationAbortRef.current = null;
@@ -371,7 +377,7 @@ export function FileVersionCenterHost() {
           && requestGenerationRef.current === sourceGeneration
           && summaryRaceRetryRef.current !== retryIncident) {
           const latestRequest = useFileVersionCenterStore.getState().request;
-          if (latestRequest && JSON.stringify([authScope, latestRequest.target]) === targetIdentity) {
+          if (latestRequest && JSON.stringify([authScope, latestRequest.target, updatedAt]) === targetIdentity) {
             summaryRaceRetryRef.current = retryIncident;
             void load(latestRequest, undefined, { preserveTimeline: true });
             return;
@@ -381,7 +387,7 @@ export function FileVersionCenterHost() {
       }
     });
     return () => controller.abort();
-  }, [authScope, load, purgeResolvedReview, requestTarget, reviewIdentity, reviewScopeIdentity,
+  }, [authScope, updatedAt, load, purgeResolvedReview, requestTarget, reviewIdentity, reviewScopeIdentity,
     reviewSummaryReload, t, targetIdentity, timeline]);
 
   useEffect(() => {
@@ -461,7 +467,7 @@ export function FileVersionCenterHost() {
       if (generation !== requestGenerationRef.current || controller.signal.aborted
         || openedDocumentAuthScope() !== authScope) return;
       const merged = mergeFileVersionTimelinePage(activeTimeline, page);
-      const identity = JSON.stringify([authScope, activeRequest.target]);
+      const identity = JSON.stringify([authScope, activeRequest.target, updatedAt]);
       setResolvedTimeline((current) => current?.identity === identity ? { ...current, value: merged } : current);
     } catch (pageError) {
       if (generation !== requestGenerationRef.current || controller.signal.aborted
@@ -471,7 +477,7 @@ export function FileVersionCenterHost() {
       if (paginationAbortRef.current === controller) paginationAbortRef.current = null;
       if (generation === requestGenerationRef.current) setLoadingMore(false);
     }
-  }, [authScope, loadingMore, request, setResolvedTimeline, t, timeline]);
+  }, [authScope, updatedAt, loadingMore, request, setResolvedTimeline, t, timeline]);
 
   const close = useCallback(() => {
     if (request) closeVersionCenter();
@@ -509,19 +515,19 @@ export function FileVersionCenterHost() {
     if (!request || openedDocumentAuthScope() !== authScope) return;
     await invalidateReviewQueries(request.target.workspaceId);
     const activeRequest = useFileVersionCenterStore.getState().request;
-    if (!activeRequest || JSON.stringify([authScope, activeRequest.target]) !== targetIdentity) return;
+    if (!activeRequest || JSON.stringify([authScope, activeRequest.target, updatedAt]) !== targetIdentity) return;
     if (action && activeRequest.selectedEntry?.kind === request.selectedEntry?.kind
       && activeRequest.selectedEntry?.id === request.selectedEntry?.id) selectVersionCenterEntry(null);
     const refreshedRequest = useFileVersionCenterStore.getState().request;
     if (refreshedRequest) await load(refreshedRequest, undefined, { preserveTimeline: true });
-  }, [authScope, load, request, targetIdentity]);
+  }, [authScope, updatedAt, load, request, targetIdentity]);
 
   const refreshCurrentTarget = useCallback(async () => {
     if (!authScope || openedDocumentAuthScope() !== authScope) return;
     const activeRequest = useFileVersionCenterStore.getState().request;
-    if (!activeRequest || JSON.stringify([authScope, activeRequest.target]) !== targetIdentity) return;
+    if (!activeRequest || JSON.stringify([authScope, activeRequest.target, updatedAt]) !== targetIdentity) return;
     await load(activeRequest, undefined, { preserveTimeline: true });
-  }, [authScope, load, targetIdentity]);
+  }, [authScope, updatedAt, load, targetIdentity]);
 
   useEffect(() => {
     if (!targetIdentity || !timelineAvailable || !authScope) return;

@@ -10,6 +10,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import messages from '../messages/en.json';
 import type { NotificationItem } from '../app/components/notifications/notification-summary';
 import type { FileVersionCenterRequestV1 } from '../app/lib/file-version-center/contracts/v1';
+import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
 
 const dom = new JSDOM('<!doctype html><html><body><button id="origin">Open</button><div id="root"></div></body></html>', {
   url: 'https://canvas.test/en/notebook?workspaceId=workspace-one&chat=open#document-heading',
@@ -43,6 +44,7 @@ async function settle(): Promise<void> {
 
 async function main() {
   const { FileVersionCenterHost } = await import('../app/components/file-version-center/FileVersionCenterHost');
+  const DocumentReviewUiFixture = await createDocumentReviewUiFixture();
   const {
     closeVersionCenter,
     claimFileChangeReviewAcknowledgement,
@@ -57,6 +59,7 @@ async function main() {
   const responses = new Map<string, () => void>();
   const notificationMutations: unknown[] = [];
   let revokeResolvedDocument = false;
+  let versionResolveCalls = 0;
   globalThis.fetch = async (_input, init) => {
     const url = new URL(String(_input), window.location.origin);
     const body = JSON.parse(String(init?.body)) as FileVersionCenterRequestV1;
@@ -64,6 +67,7 @@ async function main() {
       notificationMutations.push(body);
       return Response.json({ success: true });
     }
+    if (url.pathname.endsWith('/resolve')) versionResolveCalls += 1;
     if (url.pathname.endsWith('/resolve') && revokeResolvedDocument && body.target.workspaceId === 'workspace-one') {
       return Response.json({ contractVersion: 1, success: false, error: {
         code: 'FVRC_ACCESS_DENIED', message: 'Access was removed.', retryable: false,
@@ -99,11 +103,22 @@ async function main() {
   const origin = document.getElementById('origin') as HTMLButtonElement;
   origin.focus();
   const root = createRoot(document.getElementById('root')!);
-  await act(async () => root.render(
+  const renderHost = async (enabled: boolean) => act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
+      <AppRouterContext.Provider value={fileVersionTestRouter}><DocumentReviewUiFixture enabled={enabled}>
+        <FileVersionCenterHost />
+      </DocumentReviewUiFixture></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
+
+  await renderHost(false);
+  const resolvesBeforeOffOpen = versionResolveCalls;
+  await act(async () => { openVersionCenter(request); });
+  await settle();
+  assert.equal(document.querySelector('[role="dialog"]'), null, 'disabled review never opens a dialog');
+  assert.equal(versionResolveCalls, resolvesBeforeOffOpen, 'disabled review never loads a timeline');
+  await renderHost(true);
+  await settle();
 
   await act(async () => { openVersionCenter(request); });
   await settle();

@@ -28,6 +28,7 @@ async function compile<T>(file: string, mocks: Record<string, unknown>): Promise
 
 async function harness() {
   const controls = {
+    centerEnabled: true,
     graphEnabled: true,
     potentialRetry: false,
     policyMode: 'safe_direct',
@@ -47,6 +48,9 @@ async function harness() {
   };
   const proposalModule = await compile<ProposalModule>('app/lib/file-version-center/ordinary-agent-proposal.ts', {
     'server-only': {},
+    '@/app/lib/document-review-availability': {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: controls.centerEnabled, updatedAt: null }),
+    },
     './proposal-review-capability': {
       proposalReviewWritesEnabled: () => controls.graphEnabled,
     },
@@ -109,6 +113,20 @@ test('rollout-off calls stay on the existing path unless an exact proposal retry
   assert.equal(h.controls.runtimeCalls, 0);
   assert.equal(await h.run({ retryRequested: true }), null);
   assert.equal(h.controls.runtimeCalls, 0);
+});
+
+test('center-off preserves an old proposal and reports a typed disabled retry', async () => {
+  const h = await harness();
+  h.controls.centerEnabled = false;
+  h.controls.potentialRetry = true;
+  assert.equal(await h.run(), null);
+  await assert.rejects(h.run({ retryRequested: true }), (error: unknown) => {
+    assert.ok(error && typeof error === 'object' && 'code' in error);
+    assert.equal(error.code, 'PROPOSAL_UPGRADE_REQUIRED');
+    assert.match(String(error), /Document Review Center is disabled/u);
+    return true;
+  });
+  assert.equal(h.controls.runtimeCalls, 0, 'disabled retries never reach mutation or candidate building');
 });
 
 test('safe-direct policy does not create a proposal', async () => {

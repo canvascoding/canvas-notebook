@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 
 import { PROPOSAL_GRAPH_ERROR_CODES as Codes, ProposalGraphContractError } from '../app/lib/file-version-center/contracts/proposal-graph-v1';
@@ -7,6 +10,7 @@ import { readProposalReviewSession, selectProposalReviewSession } from '../app/l
 import type { FileVersionCenterDatabase } from '../app/lib/file-version-center/database';
 import type { FileVersionCenterAccess, ResolvedFileVersionTarget } from '../app/lib/file-version-center/query-service';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { serverPreferencesPath } from '../app/lib/terminal-policy';
 import { acceptFenceFixture, currentProofFixture, proposalScopeFixture, rootProposalFixture } from './fixtures/proposal-graph-contract-v1';
 
 const target: ResolvedFileVersionTarget = {
@@ -182,11 +186,15 @@ test('historical terminal proposals remain readable without preparing new action
 });
 
 test('the real workspace-scoped canary gate exposes actions only for the authorized allowlisted workspace', async () => {
-  const keys = ['CANVAS_PROPOSAL_GRAPH_MODE', 'CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS', 'FILE_VERSION_CENTER_MODE'] as const;
+  const keys = ['CANVAS_PROPOSAL_GRAPH_MODE', 'CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS', 'FILE_VERSION_CENTER_MODE', 'CANVAS_DATA_ROOT'] as const;
   const previous = keys.map(key => process.env[key]);
+  const testDataRoot = mkdtempSync(join(tmpdir(), 'canvas-review-session-'));
   const selectedProposalIds = ['p1'];
   let actionCalls = 0;
   try {
+    process.env.CANVAS_DATA_ROOT = testDataRoot;
+    mkdirSync(dirname(serverPreferencesPath()), { recursive: true });
+    writeFileSync(serverPreferencesPath(), JSON.stringify({ version: 1, settings: { documentReviewEnabled: true } }));
     process.env.FILE_VERSION_CENTER_MODE = 'full';
     process.env.CANVAS_PROPOSAL_GRAPH_MODE = 'canary';
     process.env.CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS = target.workspaceId;
@@ -232,5 +240,6 @@ test('the real workspace-scoped canary gate exposes actions only for the authori
       if (previous[index] === undefined) delete process.env[key];
       else process.env[key] = previous[index];
     });
+    rmSync(testDataRoot, { recursive: true, force: true });
   }
 });

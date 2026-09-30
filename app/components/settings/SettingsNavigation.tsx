@@ -8,6 +8,7 @@ import {
   Bot,
   Cpu,
   FolderCog,
+  FlaskConical,
   Globe,
   HardDrive,
   Scale,
@@ -51,6 +52,7 @@ import { cn } from '@/lib/utils';
 export type SettingsTab =
   | 'general'
   | 'administration'
+  | 'experimental'
   | 'mobile-app'
   | 'memory'
   | 'integrations'
@@ -196,6 +198,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.administration',
     group: 'system',
     icon: ShieldCheck,
+  },
+  {
+    value: 'experimental',
+    labelKey: 'tabs.experimental',
+    descriptionKey: 'navigation.descriptions.experimental',
+    group: 'system',
+    icon: FlaskConical,
   },
   {
     value: 'user-management',

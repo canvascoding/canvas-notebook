@@ -105,12 +105,14 @@ async function main(): Promise<void> {
     await setup(postgres);
     const audits: AuditEventInput[] = [];
     let clock = 1_000;
+    let reviewEnabled = true;
     let grantState: 'active' | 'expired' | 'revoked' | 'lifecycle_changed' = 'active';
     let grantLookups = 0;
     const service = createFileReviewPolicyService({
       database: database(postgres),
       now: () => clock,
       audit: async (event) => { audits.push(event); },
+      reviewEnabled: () => reviewEnabled,
       resolveDirectEditGrant: async () => {
         grantLookups += 1;
         return grantState === 'active' ? { id: 'grant-a', expiresAt: 99_999 } : null;
@@ -332,6 +334,44 @@ async function main(): Promise<void> {
     const auditJson = JSON.stringify(audits);
     assert.ok(!auditJson.includes('notes.md'));
     assert.ok(!/(documentContent|content|pathHint|absolutePath)/u.test(auditJson));
+
+    clock = 4_000;
+    const reviewPreference = await service.writeAuthorized({ access: ownerAccess, lineageId: 'lineage-a',
+      requestedMode: 'review_required', expectedRevision: 4, workspacePolicy: 'allow_user_choice' });
+    assert.equal(reviewPreference.effectiveMode, 'review_required');
+    await postgres.exec(`INSERT INTO collaboration_agent_operations (
+      operation_id, document_id, workspace_id, initiated_by_user_id, actor_id,
+      actor_session_id, idempotency_key, payload_hash, operation_type, status,
+      requested_mode, base_state_vector, document_lifecycle_generation, created_at, updated_at
+    ) VALUES ('operation-after-toggle', 'document-a', 'workspace-a', 'owner', 'main',
+      'session-a', 'op-after-toggle', repeat('9', 64), 'apply', 'preparing',
+      'direct_apply', '\\x00', 1, 5001, 5001)`);
+    grantState = 'active';
+    reviewEnabled = false;
+    const effectiveOff = await service.readAuthorized({ access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice });
+    assert.deepEqual([effectiveOff.requestedMode, effectiveOff.effectiveMode, effectiveOff.revision, effectiveOff.reason],
+      ['review_required', 'safe_direct', 5, 'default_safe_direct'], 'off overrides only the effective mode');
+    const offOperation = { ...operation, operationId: 'operation-after-toggle',
+      observedPolicyRevision: 5, observedPolicyAt: 5_000 };
+    const offDirect = await service.resolveForOperation({ access: ownerAccess, lineageId: 'lineage-a',
+      evaluation: allowChoice, operation: offOperation });
+    assert.equal(offDirect.enforcementMode, 'safe_direct');
+    assert.equal(offDirect.grant?.id, 'grant-a');
+    for (const evaluation of [
+      { ...allowChoice, hardSafetyRequiresReview: true },
+      { ...allowChoice, operationExplicitlyRequiresReview: true },
+      { ...allowChoice, workspacePolicy: 'force_review' as const },
+    ]) {
+      const blocked = await service.resolveForOperation({ access: ownerAccess, lineageId: 'lineage-a',
+        evaluation, operation: offOperation });
+      assert.equal(blocked.enforcementMode, 'review_required', 'instance off cannot bypass safety locks');
+    }
+    assert.equal((await service.resolveForOperation({ access: ownerAccess, lineageId: 'lineage-a',
+      evaluation: allowChoice, operation: { ...offOperation, observedPolicyRevision: 4 } })).enforcementMode,
+    'review_required', 'instance off cannot bypass a stale policy revision');
+    reviewEnabled = true;
+    const restoredPreference = await service.readAuthorized({ access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice });
+    assert.equal(restoredPreference.effectiveMode, 'review_required', 'the stored preference resumes when enabled');
     console.log('file-review-policy-service-test: ok');
   } finally {
     await postgres.close();

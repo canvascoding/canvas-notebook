@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FileClock, Loader2, ShieldAlert } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 import type { CollaborationAgentOperation } from '@/app/lib/collaboration/agent-operations-client';
 import { resolveFileVersionCenterWhenReady } from '@/app/lib/file-version-center/client';
@@ -58,20 +59,21 @@ export function FileVersionHistoryButton({
   agentOperations?: CollaborationAgentOperation[];
 }) {
   const t = useTranslations('notebook');
+  const { documentReviewEnabled, updatedAt } = useDocumentReviewAvailability();
   const collaborationT = useTranslations('notebook.collaboration');
   const supported = isEditorFileVersionSupported(path);
   const agentSummary = useMemo(() => summarizeEditorAgentOperations(agentOperations), [agentOperations]);
   const hasPendingReviews = Boolean(workspaceId && documentId && agentSummary.reviewCount > 0);
   const target = useMemo(() => workspaceId ? editorFileVersionTarget({ workspaceId, path, documentId }) : null,
     [documentId, path, workspaceId]);
-  const targetKey = target ? JSON.stringify(target) : '';
+  const targetKey = target ? JSON.stringify([target, documentReviewEnabled, updatedAt]) : '';
   const [resolvedCapability, setResolvedCapability] = useState<CapabilityState>({ key: '', state: 'loading' });
   const capability: CapabilityState = resolvedCapability.key === targetKey
     ? resolvedCapability
     : { key: targetKey, state: 'loading' };
 
   useEffect(() => {
-    if (!target || !supported) return;
+    if (!documentReviewEnabled || !target || !supported) return;
     const controller = new AbortController();
     void resolveFileVersionCenterWhenReady({
       contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
@@ -95,9 +97,9 @@ export function FileVersionHistoryButton({
       setResolvedCapability({ key: targetKey, state: 'error' });
     });
     return () => controller.abort();
-  }, [supported, target, targetKey]);
+  }, [documentReviewEnabled, supported, target, targetKey]);
 
-  if (!target || (!supported && !hasPendingReviews)) return null;
+  if (!documentReviewEnabled || !target || (!supported && !hasPendingReviews)) return null;
   const loading = supported && capability.state === 'loading';
   const historyEnabled = capability.state === 'ready' && capability.capabilities.history;
   const enabled = hasPendingReviews || historyEnabled;

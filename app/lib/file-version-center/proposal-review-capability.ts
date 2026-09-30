@@ -1,9 +1,12 @@
 import 'server-only';
 
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
+
 export type ProposalReviewCapabilityMode = 'off' | 'canary' | 'full' | 'local_test';
 
 export type ProposalReviewCapabilityReason =
   | 'enabled'
+  | 'feature_disabled'
   | 'mode_unset'
   | 'explicitly_off'
   | 'invalid_mode'
@@ -41,6 +44,9 @@ function parseWorkspaceAllowlist(value: string): Set<string> | null {
  * This is a feature gate only; callers must still perform their normal authorization checks.
  */
 export function resolveProposalReviewCapability(options?: { workspaceId?: string }): ProposalReviewCapability {
+  if (!readDocumentReviewAvailability().documentReviewEnabled) {
+    return { mode: 'off', enabled: false, reason: 'feature_disabled' };
+  }
   const configuredMode = process.env.CANVAS_PROPOSAL_GRAPH_MODE;
   const configuredAllowlist = process.env.CANVAS_PROPOSAL_GRAPH_WORKSPACE_IDS;
   const workspaceId = options?.workspaceId;
@@ -80,10 +86,13 @@ export function resolveProposalReviewCapability(options?: { workspaceId?: string
     return { mode: 'local_test', enabled: true, reason: 'enabled' };
   }
 
-  return { mode: 'off', enabled: false, reason: 'mode_unset' };
+  if (!isValidWorkspaceId(workspaceId)) {
+    return { mode: 'full', enabled: false, reason: 'invalid_workspace' };
+  }
+  return { mode: 'full', enabled: true, reason: 'enabled' };
 }
 
-/** Production rollout stays closed unless the central workspace-scoped policy enables it. */
+/** Instance approval and any explicit operational restrictions both permit writes. */
 export function proposalReviewWritesEnabled(options?: { workspaceId: string }): boolean {
   return resolveProposalReviewCapability(options).enabled;
 }

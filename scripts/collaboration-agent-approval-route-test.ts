@@ -14,28 +14,32 @@ const request = (value: unknown) => new NextRequest('https://canvas.test/api/fil
   method: 'POST', body: JSON.stringify(value), headers: { 'Content-Type': 'application/json' },
 });
 
-async function harness() {
+async function harness(action: 'accept' | 'reject' | 'revert' | 'direct-edit-grant' = 'accept') {
   const calls: Array<Record<string, unknown>> = [];
   const workspace = { workspaceId: 'workspace', organizationId: 'organization' };
   const controls = {
     denied: false,
     limited: false,
     revokeBeforeMutation: false,
+    documentReviewEnabled: true,
+    disableBeforeMutation: false,
     error: null as Error | null,
   };
   let authorizationCalls = 0;
   class ProposalChangedError extends Error { readonly code = 'AGENT_PROPOSAL_CHANGED'; }
-  const filename = path.resolve('app/api/files/collaboration/operations/[operationId]/accept/route.ts');
+  const filename = path.resolve(`app/api/files/collaboration/operations/[operationId]/${action}/route.ts`);
   const load = createRequire(filename);
   const source = ts.transpileModule(await fs.readFile(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
-  const route = {} as typeof Route;
+  const route = {} as typeof Route & { GET?: typeof Route.POST };
   new Function('require', 'module', 'exports', source)((name: string) => {
     if (name === '@/app/lib/workspaces/request') return { requireRequestWorkspace: async (_request: NextRequest, options: unknown) => {
       authorizationCalls += 1;
+      if (controls.disableBeforeMutation && authorizationCalls === 2) controls.documentReviewEnabled = false;
+      const permission = action === 'direct-edit-grant' ? 'canRead' : 'canWrite';
       assert.deepEqual(options, authorizationCalls === 1
-        ? { permissions: 'canWrite' }
+        ? { permissions: permission }
         : { workspaceId: 'workspace', permissions: 'canWrite' });
       return controls.denied || (controls.revokeBeforeMutation && authorizationCalls === 2)
         ? { response: NextResponse.json({ error: 'Denied' }, { status: 403 }) }
@@ -44,11 +48,17 @@ async function harness() {
     if (name === '@/app/lib/utils/rate-limit') return { dualRateLimit: () => controls.limited
       ? { ok: false, response: new NextResponse(null, { status: 429 }) }
       : { ok: true } };
+    if (name === '@/app/lib/api/route-helpers') return { applyRateLimit: () => controls.limited
+      ? new NextResponse(null, { status: 429 }) : null };
     if (name === '@/app/lib/file-version-center/policy-v1') return { FILE_VERSION_CENTER_RATE_LIMITS_V1: {
       reviewMutation: { perUserPerMinute: 30, perIpPerMinute: 120 },
     } };
     if (name === '@/app/lib/file-version-center/observability') return { observeFileVersionCenter: () => undefined };
     if (name === '@/app/lib/file-version-center/route-adapter') return {
+      documentReviewUnavailableResponse: () => controls.documentReviewEnabled ? null : NextResponse.json({
+        contractVersion: 1, success: false,
+        error: { code: 'FVRC_CAPABILITY_UNAVAILABLE', message: 'The Document Review Center is disabled.', retryable: false },
+      }, { status: 409, headers: { 'Cache-Control': 'private, no-store, max-age=0' } }),
       withFileVersionCenterPrivateHeaders: (response: NextResponse) => {
         response.headers.set('Cache-Control', 'private, no-store, max-age=0');
         return response;
@@ -61,14 +71,42 @@ async function harness() {
         return { operationId: input.operationId, operationStatus: 'persisted_yjs', durability: 'persisted_yjs',
           status: 'applied_to_ydoc', appliedTargetIds: ['target'], conflicts: [] };
       },
+      rejectAgentOperation: async (input: Record<string, unknown>) => {
+        calls.push(input); return { operationId: input.operationId, status: 'rejected' };
+      },
+      revertAgentOperation: async (input: Record<string, unknown>) => {
+        calls.push(input); return { operationId: input.operationId, status: 'reverted' };
+      },
     };
+    if (name === '@/app/lib/collaboration/agent-direct-edit-grants') return {
+      AgentDirectEditGrantUnavailableError: class extends Error {},
+      getAgentDirectEditGrantForOperation: async (input: Record<string, unknown>) => {
+        calls.push(input); return { grant: null };
+      },
+      setAgentDirectEditGrantForOperation: async (input: Record<string, unknown>) => {
+        calls.push(input); return { status: input.action === 'grant' ? 'active' : 'revoked' };
+      },
+    };
+    if (name === '@/app/lib/collaboration/agent-database-capacity') return { isAgentDatabaseCapacityError: () => false };
     return load(name);
   }, { exports: route }, route);
   const accept = (req: NextRequest) => {
     authorizationCalls = 0;
-    return route.POST(req, { params: Promise.resolve({ operationId: 'operation' }) });
+    return route.POST(req, { params: Promise.resolve({
+      get operationId() {
+        if (controls.disableBeforeMutation && (action === 'revert' || action === 'direct-edit-grant')) {
+          controls.documentReviewEnabled = false;
+        }
+        return 'operation';
+      },
+    }) });
   };
-  return { accept, calls, controls, workspace, ProposalChangedError };
+  const get = (req: NextRequest) => {
+    authorizationCalls = 0;
+    if (!route.GET) throw new Error('This route does not expose GET.');
+    return route.GET(req, { params: Promise.resolve({ operationId: 'operation' }) });
+  };
+  return { accept, get, calls, controls, workspace, ProposalChangedError };
 }
 
 test('the accept route forwards only the exact proposal and authenticated action scope', async () => {
@@ -143,6 +181,61 @@ test('permission loss immediately before acceptance prevents the mutation', asyn
   const response = await h.accept(request(body));
   assert.equal(response.status, 403);
   assert.equal(h.calls.length, 0);
+});
+
+test('disabled review blocks public accept, reject and revert without touching pending proposals', async (t) => {
+  for (const action of ['accept', 'reject', 'revert'] as const) await t.test(action, async () => {
+    const h = await harness(action);
+    h.controls.documentReviewEnabled = false;
+    const response = await h.accept(request(action === 'accept' ? body : { idempotencyKey: 'delivery' }));
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error.code, 'FVRC_CAPABILITY_UNAVAILABLE');
+    assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
+    assert.equal(h.calls.length, 0);
+    h.controls.denied = true;
+    assert.equal((await h.accept(request(body))).status, 403);
+  });
+});
+
+test('turning review off during reauthorization stops acceptance and rejection', async (t) => {
+  for (const action of ['accept', 'reject'] as const) await t.test(action, async () => {
+    const h = await harness(action);
+    h.controls.disableBeforeMutation = true;
+    const response = await h.accept(request(action === 'accept' ? body : { idempotencyKey: 'delivery' }));
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error.code, 'FVRC_CAPABILITY_UNAVAILABLE');
+    assert.equal(h.calls.length, 0);
+  });
+});
+
+test('turning review off after parsing also stops revert and grant before their service call', async (t) => {
+  for (const action of ['revert', 'direct-edit-grant'] as const) await t.test(action, async () => {
+    const h = await harness(action);
+    h.controls.disableBeforeMutation = true;
+    const response = await h.accept(request(action === 'revert'
+      ? { idempotencyKey: 'delivery' } : { action: 'grant', idempotencyKey: 'delivery' }));
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).error.code, 'FVRC_CAPABILITY_UNAVAILABLE');
+    assert.equal(h.calls.length, 0);
+  });
+});
+
+test('granting requires enabled review while revocation and grant inspection remain available', async () => {
+  const h = await harness('direct-edit-grant');
+  h.controls.documentReviewEnabled = false;
+  const deniedGrant = await h.accept(request({ action: 'grant', idempotencyKey: 'delivery' }));
+  assert.equal(deniedGrant.status, 409);
+  assert.equal((await deniedGrant.json()).error.code, 'FVRC_CAPABILITY_UNAVAILABLE');
+  assert.equal(h.calls.length, 0);
+  const revoked = await h.accept(request({ action: 'revoke', idempotencyKey: 'revoke' }));
+  assert.equal(revoked.status, 200);
+  assert.equal(h.calls[0]?.action, 'revoke');
+  const inspected = await h.get(new NextRequest('https://canvas.test/direct-edit-grant'));
+  assert.equal(inspected.status, 200);
+  assert.equal(h.calls.length, 2);
+  h.controls.documentReviewEnabled = true;
+  assert.equal((await h.accept(request({ action: 'grant', idempotencyKey: 'grant' }))).status, 200);
+  assert.equal(h.calls[2]?.action, 'grant');
 });
 
 test('a changed proposal has a typed refresh response without leaking service details', async () => {

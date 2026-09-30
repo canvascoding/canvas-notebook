@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 
@@ -18,6 +21,7 @@ import { prepareProposalReviewTransformation } from '../app/lib/file-version-cen
 import { proposalYjsCurrentProof } from '../app/lib/file-version-center/proposal-yjs-candidate';
 import type { FileVersionCenterAccess, ResolvedFileVersionTarget } from '../app/lib/file-version-center/query-service';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { serverPreferencesPath } from '../app/lib/terminal-policy';
 import { seedProposalGraphStorageTestScope, type ProposalGraphStorageTestDatabase } from './proposal-graph-storage-test';
 
 const scope: ProposalDocumentScopeV1 = { workspaceId: 'proposal-workspace', lineageId: 'proposal-lineage',
@@ -30,6 +34,8 @@ const declaration = (source: ProposalSourceProofV1): ProposalToolEditV1 => ({ co
   replaces: null, choice: null });
 
 async function main() {
+  const previousDataRoot = process.env.CANVAS_DATA_ROOT;
+  const testDataRoot = mkdtempSync(join(tmpdir(), 'canvas-review-transform-'));
   const pg = new PGlite();
   const db: ProposalGraphStorageTestDatabase = { kind: 'pglite', query: (sql, params) => pg.query(sql, params),
     exec: async (sql) => { await pg.exec(sql); }, transaction: (action) => pg.transaction((sql) =>
@@ -39,6 +45,9 @@ async function main() {
   let activeSql: FileVersionCenterTransaction | null = null;
   const createId = () => `transform-id-${++nextId}`;
   try {
+    process.env.CANVAS_DATA_ROOT = testDataRoot;
+    mkdirSync(dirname(serverPreferencesPath()), { recursive: true });
+    writeFileSync(serverPreferencesPath(), JSON.stringify({ version: 1, settings: { documentReviewEnabled: true } }));
     await runPostgresMigrations(db as unknown as Parameters<typeof runPostgresMigrations>[0]);
     await seedProposalGraphStorageTestScope(db);
     const storage = createProposalGraphStorage({ database: { transaction: (action) => db.transaction(async (sql) => {
@@ -181,6 +190,12 @@ async function main() {
       idempotencyKey: 'review-transform-action-0001' });
     assert.deepEqual(retry, receipt);
     console.log('proposal-review-transform-service-test: verified replay, replacement, detached source and no live write passed');
-  } finally { live.destroy(); await db.close(); }
+  } finally {
+    if (previousDataRoot === undefined) delete process.env.CANVAS_DATA_ROOT;
+    else process.env.CANVAS_DATA_ROOT = previousDataRoot;
+    rmSync(testDataRoot, { recursive: true, force: true });
+    live.destroy();
+    await db.close();
+  }
 }
 main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

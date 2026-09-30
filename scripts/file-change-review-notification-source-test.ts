@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 
@@ -109,6 +112,13 @@ async function setup(postgres: PGlite): Promise<void> {
 
 async function main(): Promise<void> {
   const postgres = new PGlite();
+  const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-review-notifications-'));
+  const previousDataRoot = process.env.CANVAS_DATA_ROOT;
+  const previousRolloutMode = process.env.FILE_VERSION_CENTER_MODE;
+  process.env.CANVAS_DATA_ROOT = dataRoot;
+  process.env.FILE_VERSION_CENTER_MODE = 'full';
+  const settingsDirectory = path.join(dataRoot, 'system', 'settings');
+  const preferencesPath = path.join(settingsDirectory, 'server-preferences.json');
   let clock = initialNow;
   try {
     await setup(postgres);
@@ -118,8 +128,28 @@ async function main(): Promise<void> {
       notificationsEnabled: () => true,
     });
     const ownerWorkspace = workspace();
+    const defaultSource = createFileChangeReviewNotificationSource({ database: database(postgres) });
+    // Old pending proposals must stay silent until the experimental feature is enabled.
+    assert.deepEqual(await defaultSource.list({ userId: 'owner', workspace: ownerWorkspace }), []);
+    assert.equal(await defaultSource.countUnread({ userId: 'owner', workspace: ownerWorkspace }), 0);
+    await fs.mkdir(settingsDirectory, { recursive: true });
+    await fs.writeFile(preferencesPath, JSON.stringify({ settings: { documentReviewEnabled: true } }));
+    assert.equal((await defaultSource.list({ userId: 'owner', workspace: ownerWorkspace })).length, 4);
+    process.env.FILE_VERSION_CENTER_MODE = 'read_only';
+    assert.deepEqual(await defaultSource.list({ userId: 'owner', workspace: ownerWorkspace }), []);
+    process.env.FILE_VERSION_CENTER_MODE = 'full';
+    await fs.writeFile(preferencesPath, JSON.stringify({ settings: { documentReviewEnabled: false } }));
+    assert.deepEqual(await defaultSource.list({ userId: 'owner', workspace: ownerWorkspace }), []);
+    assert.equal((await defaultSource.setItemState({
+      userId: 'owner', workspace: ownerWorkspace, itemId: 'file-change:operation-review', read: true,
+    })).found, false);
+    assert.equal((await defaultSource.markAllRead({ userId: 'owner', workspace: ownerWorkspace })).updated, 0);
+    const preserved = await postgres.query<{ status: string }>(
+      "SELECT status FROM collaboration_agent_operations WHERE operation_id = 'operation-review'",
+    );
+    assert.equal(preserved.rows[0]?.status, 'needs_review');
     const disabledSource = createFileChangeReviewNotificationSource({
-      database: database(postgres),
+      database: { transaction: async () => { throw new Error('Disabled notifications must not query storage.'); } },
       now: () => new Date(clock),
       notificationsEnabled: () => false,
     });
@@ -204,6 +234,11 @@ async function main(): Promise<void> {
     })).found, false);
     console.log('file-change-review-notification-source-test: ok');
   } finally {
+    if (previousDataRoot === undefined) delete process.env.CANVAS_DATA_ROOT;
+    else process.env.CANVAS_DATA_ROOT = previousDataRoot;
+    if (previousRolloutMode === undefined) delete process.env.FILE_VERSION_CENTER_MODE;
+    else process.env.FILE_VERSION_CENTER_MODE = previousRolloutMode;
+    await fs.rm(dataRoot, { recursive: true, force: true });
     await postgres.close();
   }
 }

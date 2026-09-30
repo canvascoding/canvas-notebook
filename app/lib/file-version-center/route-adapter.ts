@@ -4,6 +4,7 @@ import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
 import { readBoundedJson } from '@/app/lib/api/bounded-json';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { dualRateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -63,6 +64,16 @@ export function fileVersionCenterErrorResponse(
     success: false,
     error: { code, message, retryable },
   }, { status, headers: FILE_VERSION_CENTER_PRIVATE_HEADERS });
+}
+
+export function documentReviewUnavailableResponse(
+  documentReviewEnabled: () => boolean = () => readDocumentReviewAvailability().documentReviewEnabled,
+): NextResponse | null {
+  return documentReviewEnabled() ? null : fileVersionCenterErrorResponse(
+    FILE_VERSION_CENTER_ERROR_CODES.capabilityUnavailable,
+    'The Document Review Center is disabled.',
+    409,
+  );
 }
 
 export async function readFileVersionCenterJson(request: NextRequest): Promise<unknown> {
@@ -128,6 +139,7 @@ function errorStatus(code: FileVersionCenterErrorCode): { status: number; retrya
     FILE_VERSION_CENTER_ERROR_CODES.staleSelection,
     FILE_VERSION_CENTER_ERROR_CODES.conflict,
     FILE_VERSION_CENTER_ERROR_CODES.policyConflict,
+    FILE_VERSION_CENTER_ERROR_CODES.capabilityUnavailable,
   ] as FileVersionCenterErrorCode[]).includes(code)) return { status: 409, retryable: false };
   return { status: 400, retryable: false };
 }
@@ -166,6 +178,7 @@ export function fileVersionCenterCaughtError(
 
 export function createFileVersionCenterRouteAuthorizer(
   authorizeWorkspace: WorkspaceAuthorizer = requireRequestWorkspace,
+  documentReviewEnabled: () => boolean = () => readDocumentReviewAvailability().documentReviewEnabled,
 ) {
   return async (
     request: NextRequest,
@@ -210,6 +223,8 @@ export function createFileVersionCenterRouteAuthorizer(
         ),
       };
     }
+    const unavailable = documentReviewUnavailableResponse(documentReviewEnabled);
+    if (unavailable) return { authorized: false, response: unavailable };
     return { authorized: true, session: result.session, workspace, access };
   };
 }

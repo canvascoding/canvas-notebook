@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { recordAuditEvent, type AuditEventInput } from '@/app/lib/audit/audit-service';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import type {
   AgentDirectEditGrant,
   AgentDirectEditGrantScope,
@@ -119,14 +120,24 @@ function checkedTimestamp(value: number | string | null): number | null {
 function policyFromRecord(
   record: StoredPolicy | null,
   evaluation: FileReviewPolicyEvaluation,
+  reviewEnabled: boolean,
 ): FileReviewPolicyV1 {
-  return resolveEffectiveFileReviewPolicyV1({
+  const policy = resolveEffectiveFileReviewPolicyV1({
     requestedMode: record?.requestedMode ?? null,
     policyRevision: record?.revision ?? null,
     preferenceState: record ? 'loaded' : 'missing',
     persistenceState: 'ready',
     ...evaluation,
   });
+  // The instance switch overrides only a stored user preference for a fresh
+  // decision. Keep the requested mode and revision so an old preference can
+  // take effect again if Review Center is enabled later. Safety and workspace
+  // locks are never converted to direct authorization.
+  if (!reviewEnabled && policy.reason === 'user_preference'
+    && policy.effectiveMode === 'review_required') {
+    return { ...policy, effectiveMode: 'safe_direct', reason: 'default_safe_direct' };
+  }
+  return policy;
 }
 
 function failClosedPolicy(): FileReviewPolicyV1 {
@@ -286,11 +297,13 @@ export function createFileReviewPolicyService(options: {
   now?: () => number;
   audit?: (event: AuditEventInput) => Promise<unknown>;
   resolveDirectEditGrant?: (scope: AgentDirectEditGrantScope) => Promise<AgentDirectEditGrant | null>;
+  reviewEnabled?: () => boolean;
 } = {}) {
   const database = options.database ?? createRuntimeFileVersionCenterDatabase();
   const now = options.now ?? Date.now;
   const audit = options.audit ?? recordAuditEvent;
   const resolveDirectEditGrant = options.resolveDirectEditGrant ?? resolveExistingDirectEditGrant;
+  const reviewEnabled = options.reviewEnabled ?? (() => readDocumentReviewAvailability().documentReviewEnabled);
 
   return {
     async readAuthorized(input: {
@@ -306,7 +319,7 @@ export function createFileReviewPolicyService(options: {
         workspaceId: input.access.requestedWorkspaceId,
         lineageId: input.lineageId,
       }));
-      return policyFromRecord(record, input.evaluation);
+      return policyFromRecord(record, input.evaluation, reviewEnabled());
     },
 
     async writeAuthorized(input: {
@@ -407,7 +420,7 @@ export function createFileReviewPolicyService(options: {
         hardSafetyRequiresReview: false,
         workspacePolicy: input.workspacePolicy,
         operationExplicitlyRequiresReview: false,
-      });
+      }, reviewEnabled());
     },
 
     async resolveForOperation(input: {
@@ -450,7 +463,7 @@ export function createFileReviewPolicyService(options: {
         const policy = policyFromRecord(loaded.stored, {
           ...input.evaluation,
           hardSafetyRequiresReview: input.evaluation.hardSafetyRequiresReview || !futureAndOwned,
-        });
+        }, reviewEnabled());
         if (policy.effectiveMode !== 'safe_direct') {
           return { policy, enforcementMode: 'review_required', grant: null };
         }

@@ -51,6 +51,7 @@ function timeline(
 }
 
 async function compileUi(input: {
+  availability?: () => { documentReviewEnabled: boolean; updatedAt: string | null };
   calls: ResolveCall[];
   opened: unknown[];
   resolve: (call: ResolveCall) => Promise<Timeline>;
@@ -67,6 +68,9 @@ async function compileUi(input: {
   }).outputText;
   const exports = {} as typeof Ui;
   const mocks: Record<string, unknown> = {
+    '@/app/components/file-version-center/DocumentReviewAvailabilityProvider': {
+      useDocumentReviewAvailability: () => input.availability?.() ?? { documentReviewEnabled: true, updatedAt: null },
+    },
     'next-intl': { useTranslations: () => (key: string) => key },
     'lucide-react': {
       FileClock: () => <span data-icon="history" />,
@@ -130,13 +134,22 @@ test('the shared item follows server capabilities and opens only the resolved li
 
   const calls: ResolveCall[] = [];
   const opened: unknown[] = [];
+  let reviewEnabled = false;
   let releaseInitial!: (value: Timeline) => void;
   const initialTimeline = new Promise<Timeline>((resolve) => { releaseInitial = resolve; });
   let resolveTimeline: (call: ResolveCall) => Promise<Timeline> = async () => initialTimeline;
-  const ui = await compileUi({ calls, opened, resolve: (call) => resolveTimeline(call) });
+  const ui = await compileUi({ calls, opened, resolve: (call) => resolveTimeline(call),
+    availability: () => ({ documentReviewEnabled: reviewEnabled, updatedAt: null }) });
   const root = createRoot(document.getElementById('root')!);
 
   try {
+    await act(async () => root.render(
+      <ui.FileVersionMenuItem workspaceId="workspace-one" path="Notes/current.md" source="file_browser" />,
+    ));
+    await settle();
+    assert.equal(document.querySelector('button'), null, 'disabled feature hides the file menu entry');
+    assert.equal(calls.length, 0, 'disabled feature does not probe history');
+    reviewEnabled = true;
     await act(async () => root.render(
       <ui.FileVersionMenuItem workspaceId="workspace-one" path="Notes/current.md" source="file_browser" />,
     ));

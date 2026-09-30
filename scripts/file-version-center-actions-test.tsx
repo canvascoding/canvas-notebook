@@ -18,6 +18,7 @@ import type {
   FileVersionCenterErrorCode,
   FileVersionTimelineEntryV1,
 } from '../app/lib/file-version-center/contracts/v1';
+import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
 
 const proposalVersion = `v1.${'a'.repeat(64)}`;
 
@@ -181,6 +182,7 @@ async function componentCase(): Promise<void> {
   Object.defineProperty(dom.window.HTMLElement.prototype, 'releasePointerCapture', { configurable: true, value: () => {} });
   Object.defineProperty(dom.window.HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: () => {} });
 
+  const DocumentReviewUiFixture = await createDocumentReviewUiFixture();
   const { FileVersionActions } = await import('../app/components/file-version-center/FileVersionActions');
   const request = {
     contractVersion: 1 as const,
@@ -375,7 +377,9 @@ async function componentCase(): Promise<void> {
   root = createRoot(document.getElementById('root')!);
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
+      <AppRouterContext.Provider value={fileVersionTestRouter}><DocumentReviewUiFixture enabled>
+        <FileVersionCenterHost />
+      </DocumentReviewUiFixture></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
   await act(async () => {
@@ -435,7 +439,9 @@ async function componentCase(): Promise<void> {
   root = createRoot(document.getElementById('root')!);
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
+      <AppRouterContext.Provider value={fileVersionTestRouter}><DocumentReviewUiFixture enabled>
+        <FileVersionCenterHost />
+      </DocumentReviewUiFixture></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
   await act(async () => {

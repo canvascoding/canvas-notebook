@@ -9,11 +9,13 @@ import {
   type ExactTextEdit,
 } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyAgentMarkdownEdit, type AgentMarkdownEdit } from '@/app/lib/markdown/agent-markdown-edit';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   applyAgentTextTargets,
   applyPersistedAgentTextOperation,
+  AgentFileReviewDisabledConflictError,
   createAgentTextTarget,
   createRichAgentTextTargets,
   createRichMarkdownReviewTarget,
@@ -386,33 +388,49 @@ export function prepareCollaborationContentEditInDocument(input: Parameters<type
     }
   } catch (error) {
     if (!isRichTextCollaborationRepresentation(state.representation)) throw error;
-    if (state.representation === 'tiptap_blocks') {
-      const proposed = createRichMarkdownYDoc(proposedContent, 'tiptap_blocks');
-      try {
-        // Source metadata has its own shared roots. Never silently route
-        // changes to them through an unanchored whole-document fallback.
-        if (['frontmatter', 'bodyFinalLineEnding'].some((name) => proposed.getText(name).toString() !== doc.getText(name).toString())) {
-          throw new Error('This source edit changes document metadata or final line endings. Use a dedicated source edit instead of a live block proposal.');
-        }
-        const blockEdit = prepareAgentBlockDocumentChange(doc, readRichDocumentJson(proposed));
-        const preview = previewAgentBlockEdit(doc, blockEdit);
-        targets = [{ kind: 'block_edit', targetId: `${input.groupId}:structural`, groupId: input.groupId,
-          startAnchor: '', endAnchor: '', baseTargetHash: preview.footprintHash,
-          replacement: blockEdit.afterText, blockEdit, boundaryPolicy: 'exclude_external' }];
-      } finally { proposed.destroy(); }
-    } else {
-      targets = [createRichMarkdownReviewTarget({
-        doc,
-        currentMarkdown: content,
-        proposedMarkdown: proposedContent,
-        edits,
-        targetId: `${input.groupId}:structural`,
-        groupId: input.groupId,
-      })];
+    try {
+      if (state.representation === 'tiptap_blocks') {
+        const proposed = createRichMarkdownYDoc(proposedContent, 'tiptap_blocks');
+        try {
+          // Source metadata has its own shared roots. Never silently route
+          // changes to them through an unanchored whole-document fallback.
+          if (['frontmatter', 'bodyFinalLineEnding'].some((name) => proposed.getText(name).toString() !== doc.getText(name).toString())) {
+            throw new Error('This source edit changes document metadata or final line endings. Use a dedicated source edit instead of a live block proposal.');
+          }
+          const blockEdit = prepareAgentBlockDocumentChange(doc, readRichDocumentJson(proposed));
+          const preview = previewAgentBlockEdit(doc, blockEdit);
+          const candidate = new Y.Doc({ gc: false });
+          try {
+            Y.applyUpdate(candidate, Y.encodeStateAsUpdate(doc));
+            applyAgentBlockEdit(candidate, blockEdit, 'agent-source-preview');
+            if (canonicalContent(state.representation, candidate) !== proposedContent) {
+              throw new Error('The structural block edit cannot reproduce the requested Markdown content.');
+            }
+          } finally { candidate.destroy(); }
+          targets = [{ kind: 'block_edit', targetId: `${input.groupId}:structural`, groupId: input.groupId,
+            startAnchor: '', endAnchor: '', baseTargetHash: preview.footprintHash,
+            replacement: blockEdit.afterText, blockEdit, boundaryPolicy: 'exclude_external' }];
+        } finally { proposed.destroy(); }
+      } else {
+        targets = [createRichMarkdownReviewTarget({
+          doc,
+          currentMarkdown: content,
+          proposedMarkdown: proposedContent,
+          edits,
+          targetId: `${input.groupId}:structural`,
+          groupId: input.groupId,
+        })];
+      }
+    } catch (fallbackError) {
+      if (!readDocumentReviewAvailability().documentReviewEnabled) {
+        throw new AgentFileReviewDisabledConflictError(
+          'The requested Markdown change cannot be safely mapped to the current live document. Read it again and use a precise edit.');
+      }
+      throw fallbackError;
     }
-    requestedMode = state.representation === 'tiptap_blocks' && plan.richMode === 'markdown_structure'
-      ? 'direct_apply'
-      : 'review';
+    // A verified block edit remains a direct Yjs edit even when an exact-text
+    // request needed structural mapping. Other rich formats need review.
+    requestedMode = state.representation === 'tiptap_blocks' ? 'direct_apply' : 'review';
   }
   return {
     documentId: state.documentId,

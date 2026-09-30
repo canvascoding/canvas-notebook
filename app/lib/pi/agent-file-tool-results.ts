@@ -1,6 +1,8 @@
 import { ExactTextPatchError } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
 import { AgentBlockEditError } from '@/app/lib/collaboration/agent-block-edits';
+import { AgentFileReviewDisabledConflictError } from '@/app/lib/collaboration/agent-operations';
+import { CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
 import { AgentFileOperationOutcomeUnavailableError, type AgentFileChangeResult } from './agent-file-operations';
 import { ProposalGraphContractError } from '../file-version-center/contracts/proposal-graph-v1';
 import { parseProposalToolCreationResultV1, type ProposalToolCreationResultV1 } from '../file-version-center/contracts/proposal-tools-v1';
@@ -38,6 +40,7 @@ export type AgentFileToolError = {
   recommendedAction: 'read_then_retry' | 'inspect_error';
   safeToAutoRetry: false;
   error: string;
+  operationId?: string;
   collaboration?: { operationId: string; operationStatus: string; durability: string };
 };
 
@@ -80,6 +83,20 @@ export function asAgentFileToolError(
   fallbackPath?: string,
 ): AgentFileToolError {
   const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof AgentFileReviewDisabledConflictError
+    || error instanceof CollaborationFileCheckpointUnavailableError) {
+    const operationId = error instanceof AgentFileReviewDisabledConflictError ? error.operationId : undefined;
+    return {
+      contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked',
+      category: error instanceof AgentFileReviewDisabledConflictError ? 'safety_conflict' : 'technical_error',
+      code: error.code, path: fallbackPath || null, message,
+      editIndex: null, expectedOccurrences: null, actualOccurrences: null, matchMode: null, oldTextPreview: null,
+      occurrenceLines: [], expectedSha256: null, currentSha256: null,
+      recommendedAction: error instanceof AgentFileReviewDisabledConflictError && !operationId
+        ? 'read_then_retry' : 'inspect_error',
+      safeToAutoRetry: false, error: message, ...(operationId ? { operationId } : {}),
+    };
+  }
   if (error instanceof ProposalGraphContractError) {
     return {
       contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked', category: 'safety_conflict',

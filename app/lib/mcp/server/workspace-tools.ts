@@ -40,6 +40,10 @@ import {
   prepareCollaborationTextEdit,
   readCurrentCollaborationTextSnapshot,
 } from '@/app/lib/collaboration/agent-file-edits';
+import { confirmCollaborativeFileCheckpoint, CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
+import { AgentFileEditOperationScopeError, AgentFileReviewDisabledConflictError,
+  findAgentFileEditOperation } from '@/app/lib/collaboration/agent-operations';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import {
   resolveTextCollaborationState,
@@ -416,7 +420,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Edit workspace document',
-      description: 'Applies one exact, conflict-protected text replacement to an existing visible workspace file, or creates a review proposal when this document requires agent review. Read the file first, pass its current SHA-256 hash, and always inspect status, review_required, requires_user_action, and review_url before reporting success to the user.',
+      description: 'Applies one exact, conflict-protected text replacement to an existing visible workspace file. Document Review Center is off by default: direct edits succeed only after the live Yjs change reaches the physical file; unsafe edits return a conflict. When review is enabled, a proposal may require user action. Read the file first, pass its current SHA-256 hash, and inspect status, review_required, requires_user_action, and review_url before reporting success.',
       inputSchema: {
         type: 'object' as const,
         properties: {
@@ -1387,6 +1391,14 @@ async function executeUploadKnowledgeAsset(
 }
 
 function editErrorResult(error: unknown): CallToolResult {
+  if (error instanceof AgentFileReviewDisabledConflictError
+    || error instanceof CollaborationFileCheckpointUnavailableError
+    || error instanceof ProposalGraphContractError) {
+    return errorResult(`${error.code}: ${error.message}`);
+  }
+  if (error instanceof AgentFileEditOperationScopeError) {
+    return errorResult(`COLLABORATION_OPERATION_OUTCOME_UNAVAILABLE: Recorded operation ${error.operation.operationId} cannot be reused for this request or document lifecycle. Inspect it before retrying.`);
+  }
   if (error instanceof WorkspaceFileRevisionError) {
     return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
   }
@@ -1465,6 +1477,7 @@ async function executeEditKnowledgeSource(
       expectedOccurrences: expectedOccurrences ?? null,
       replaceAll: replaceAll === true,
     };
+    const fingerprint = sha256Buffer(Buffer.from(JSON.stringify(mutation), 'utf8'));
     const createReviewProposal = current.source === 'live_yjs' && current.documentId
       ? (options: { lookupOnly?: boolean; forceReview?: boolean }) => createOrdinaryAgentProposal({
         workspace,
@@ -1518,6 +1531,12 @@ async function executeEditKnowledgeSource(
       })
       : null;
     const reviewResult = async (proposal: OrdinaryAgentProposalResult): Promise<CallToolResult> => {
+      if (!readDocumentReviewAvailability().documentReviewEnabled) {
+        throw new AgentFileReviewDisabledConflictError(
+          'Document Review Center is disabled. The recorded proposal was not applied.',
+          proposal.node.operationId,
+        );
+      }
       const requiresUserAction = proposal.node.lifecycle === 'open';
       const reviewUrl = buildDirectMcpReviewUrl({
         workspaceId: workspace.workspaceId,
@@ -1568,6 +1587,77 @@ async function executeEditKnowledgeSource(
       const existingProposal = await createReviewProposal({ lookupOnly: true });
       if (existingProposal) return reviewResult(existingProposal);
     }
+    if (current.source === 'live_yjs' && current.documentId && editIdentity.retryRequested) {
+      const found = await findAgentFileEditOperation({
+        documentId: current.documentId,
+        workspace,
+        userId: authorization.principal.userId,
+        actorId: editIdentity.actorId,
+        actorSessionId: authorization.principal.sessionId,
+        idempotencyKey: editIdentity.operationIdempotencyKey,
+        fingerprint,
+      });
+      if (found) {
+        const { operation, request } = found;
+        const reviewRequired = ['needs_review', 'partially_applied', 'semantic_conflict'].includes(operation.operationStatus);
+        if (reviewRequired && !readDocumentReviewAvailability().documentReviewEnabled) {
+          throw new AgentFileReviewDisabledConflictError(
+            'This earlier operation still requires review or conflict resolution. Document Review Center is disabled; the retry did not apply it.',
+            operation.operationId,
+          );
+        }
+        const persisted = operation.durability === 'persisted_yjs' || operation.durability === 'checkpointed_file';
+        if (!persisted && !reviewRequired) {
+          return errorResult(`COLLABORATION_OPERATION_OUTCOME_UNAVAILABLE: Recorded operation ${operation.operationId} is not confirmed. Inspect it before retrying.`);
+        }
+        const after = await readCurrentCollaborationTextSnapshot({ documentId: current.documentId, workspace });
+        if (after.documentId !== current.documentId || after.path !== filePath
+          || after.lifecycleGeneration !== found.identity.lifecycleGeneration
+          || after.schemaVersion !== found.identity.schemaVersion || after.representation !== found.identity.representation) {
+          return errorResult(`COLLABORATION_OPERATION_OUTCOME_UNAVAILABLE: Recorded operation ${operation.operationId} belongs to an old document lifecycle. Inspect it before retrying.`);
+        }
+        if (persisted) await confirmCollaborativeFileCheckpoint({
+          path: filePath,
+          fullPath: validatePath(filePath, { workspace }),
+          documentId: current.documentId,
+          workspace,
+          snapshot: after,
+          actorSessionId: authorization.principal.sessionId,
+        });
+        const changed = persisted && request.beforeSha256 !== request.proposedSha256
+          && operation.appliedTargetIds.length > 0;
+        const afterStats = await getFileStats(filePath, { workspace });
+        const message = reviewRequired
+          ? `The earlier edit to ${filePath} still requires review at ${documentUrl}. No edit was applied by this retry.`
+          : `The existing edit to ${filePath} was confirmed. This retry did not apply it again.`;
+        const structuredContent = {
+          workspace_id: workspace.workspaceId,
+          path: filePath,
+          changed,
+          status: reviewRequired ? 'review_reused' : changed ? 'applied' : 'no_change',
+          review_required: reviewRequired,
+          authoritative_updated: changed,
+          requires_user_action: reviewRequired,
+          before_sha256: request.beforeSha256,
+          after_sha256: after.sha256,
+          current_sha256: after.sha256,
+          proposed_sha256: request.proposedSha256,
+          operation_id: operation.operationId,
+          proposal_id: null,
+          proposal_lifecycle: null,
+          review_url: reviewRequired ? documentUrl : null,
+          document_url: documentUrl,
+          idempotency_key: editIdentity.publicIdempotencyKey,
+          message,
+          size: Buffer.byteLength(after.content, 'utf8'),
+          modified_at: toIsoDate(afterStats.modified),
+        };
+        await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'edit_knowledge_source',
+          workspace, resultCount: 0, path: filePath, beforeSha256: request.beforeSha256,
+          afterSha256: after.sha256, changed: false, reviewRequired });
+        return result(structuredContent, message);
+      }
+    }
     if (current.sha256 !== expectedSha256) {
       return errorResult('The workspace file changed since it was read. Read the current file content again before retrying.');
     }
@@ -1581,6 +1671,23 @@ async function executeEditKnowledgeSource(
       return errorResult('The requested edit would leave the file in an invalid state.');
     }
     if (proposedContent === current.content) {
+      if (current.source === 'live_yjs' && current.documentId) {
+        const unchanged = await readCurrentCollaborationTextSnapshot({
+          documentId: current.documentId,
+          workspace,
+        });
+        if (unchanged.sha256 !== current.sha256) {
+          return errorResult('The live document changed during this edit. Read its current content and retry.');
+        }
+        await confirmCollaborativeFileCheckpoint({
+          path: filePath,
+          fullPath: validatePath(filePath, { workspace }),
+          documentId: current.documentId,
+          workspace,
+          snapshot: unchanged,
+          actorSessionId: authorization.principal.sessionId,
+        });
+      }
       const message = `No change was needed for ${filePath}.`;
       const structuredContent = {
         workspace_id: workspace.workspaceId,
@@ -1651,7 +1758,7 @@ async function executeEditKnowledgeSource(
           },
           idempotencyKey: editIdentity.operationIdempotencyKey,
           fileEditRequest: {
-            fingerprint: sha256Buffer(Buffer.from(JSON.stringify(mutation), 'utf8')),
+            fingerprint,
             beforeSha256: prepared.sha256,
             proposedSha256: prepared.proposedSha256,
           },
@@ -1671,6 +1778,25 @@ async function executeEditKnowledgeSource(
       const reviewRequired = operation.operationStatus === 'needs_review'
         || operation.operationStatus === 'partially_applied'
         || operation.operationStatus === 'semantic_conflict';
+      if (reviewRequired && !readDocumentReviewAvailability().documentReviewEnabled) {
+        throw new AgentFileReviewDisabledConflictError(
+          'The edit could not be applied directly. Document Review Center is disabled; inspect the recorded operation and retry with a precise target.',
+          operation.operationId,
+        );
+      }
+      const persisted = operation.durability === 'persisted_yjs'
+        || operation.durability === 'checkpointed_file';
+      if (!persisted && !reviewRequired) {
+        return errorResult(`The live edit outcome ${operation.operationId} could not be confirmed. Inspect it before retrying.`);
+      }
+      if (persisted) await confirmCollaborativeFileCheckpoint({
+        path: filePath,
+        fullPath: validatePath(filePath, { workspace }),
+        documentId: prepared.documentId,
+        workspace,
+        snapshot: after,
+        actorSessionId: authorization.principal.sessionId,
+      });
       const changed = after.sha256 !== prepared.sha256;
       const afterStats = await getFileStats(filePath, { workspace });
       const message = reviewRequired

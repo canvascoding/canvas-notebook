@@ -4,7 +4,7 @@ import { rejectAgentOperation } from '@/app/lib/collaboration/agent-operations';
 import { readCollaborationOperationIdempotencyKey } from '@/app/lib/collaboration/operation-route';
 import { observeFileVersionCenter } from '@/app/lib/file-version-center/observability';
 import { FILE_VERSION_CENTER_RATE_LIMITS_V1 } from '@/app/lib/file-version-center/policy-v1';
-import { withFileVersionCenterPrivateHeaders } from '@/app/lib/file-version-center/route-adapter';
+import { documentReviewUnavailableResponse, withFileVersionCenterPrivateHeaders } from '@/app/lib/file-version-center/route-adapter';
 import { dualRateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
@@ -15,6 +15,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ op
     observeFileVersionCenter({ operation: 'reject', outcome: 'denied', startedAt });
     return withFileVersionCenterPrivateHeaders(workspaceResult.response);
   }
+  const unavailable = documentReviewUnavailableResponse();
+  if (unavailable) return unavailable;
   const limited = dualRateLimit(request, {
     perUserLimit: FILE_VERSION_CENTER_RATE_LIMITS_V1.reviewMutation.perUserPerMinute,
     perIpLimit: FILE_VERSION_CENTER_RATE_LIMITS_V1.reviewMutation.perIpPerMinute,
@@ -41,6 +43,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ op
       observeFileVersionCenter({ operation: 'reject', outcome: 'denied', startedAt });
       return withFileVersionCenterPrivateHeaders(reauthorization.response);
     }
+    const unavailable = documentReviewUnavailableResponse();
+    if (unavailable) return unavailable;
     const operation = await rejectAgentOperation({
       operationId,
       workspace: reauthorization.workspace,

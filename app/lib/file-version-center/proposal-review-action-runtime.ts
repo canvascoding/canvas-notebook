@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { hasProposalNullEffectProof } from './proposal-null-effect-proof';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
@@ -17,7 +18,8 @@ import { resolveWorkspaceActor } from '../workspaces/context';
 import type { WorkspaceContext } from '../workspaces/types';
 import { resolveAuthSecret } from '../security/auth-secret';
 import { buildProposalActionFence, hashProposalEvaluationSelectionV1, hashProposalValue, signProposalActionFence } from './proposal-action-fence';
-import { createProposalActionOrchestrator, type ProposalActionOrchestratorDependencies } from './proposal-action-orchestrator';
+import { createProposalActionOrchestrator, ProposalActionDefinitelyUnappliedError,
+  type ProposalActionOrchestratorDependencies } from './proposal-action-orchestrator';
 import { createProposalProvenanceService, persistProposalSourceSnapshot,
   proposalSourceView } from './proposal-provenance-service';
 import { proposalReviewWritesEnabled } from './proposal-review-capability';
@@ -166,7 +168,9 @@ export async function createRuntimeProposalReviewActionService(input: {
   const signingSecret = deps?.signingSecret ?? resolveAuthSecret();
 
   const assertEnabled = () => {
-    if (!enabled() || !rolloutWritable()) fail(Codes.upgradeRequired, 'Proposal review actions are not enabled yet.');
+    if (!readDocumentReviewAvailability().documentReviewEnabled || !enabled() || !rolloutWritable()) {
+      fail(Codes.upgradeRequired, 'Document Review Center is disabled. No proposal action was applied.');
+    }
   };
   const freshWorkspace = async (): Promise<WorkspaceContext> => {
     if (!access.canWrite || !access.canRead || access.membership !== 'active' || !access.permissionsResolved
@@ -248,10 +252,24 @@ export async function createRuntimeProposalReviewActionService(input: {
       if (options.operationAdmission) await lockCollaborationAdmissionWorkspace(
         async (statement, params) => (await sql.query(statement, params)).rows, scope.workspaceId);
       await freshWorkspace();
-      return storage.withLockedGraph(scope, { actionId: options.actionId }, (transaction, graphSql) => {
+      const result = await storage.withLockedGraph(scope, { actionId: options.actionId }, (transaction, graphSql) => {
         if (graphSql !== sql) fail(Codes.accessDenied, 'The graph escaped its owning transaction.');
         return action(transaction, sql);
       });
+      // A feature switch can change while graph evaluation is awaiting IO. Roll
+      // back new reservations and metadata mutations before the SQL commit. A
+      // completed content action may only be finalizing an already durable Yjs
+      // edit, and a failed receipt must remain recordable after revocation.
+      const outcome = result && typeof result === 'object' ? result as Record<string, unknown> : null;
+      const receipt = outcome?.receipt && typeof outcome.receipt === 'object'
+        ? outcome.receipt as Record<string, unknown> : null;
+      const actionResult = outcome?.result && typeof outcome.result === 'object'
+        ? outcome.result as Record<string, unknown> : null;
+      const freshReservation = outcome?.graph != null
+        && (receipt?.phase === 'prepared' || receipt?.phase === 'applying');
+      const metadataCompletion = outcome?.phase === 'succeeded' && actionResult?.kind === 'metadata_only';
+      if (options.actionId && (freshReservation || metadataCompletion)) assertEnabled();
+      return result;
     }));
   };
 
@@ -411,6 +429,7 @@ export async function createRuntimeProposalReviewActionService(input: {
         context.representation).content;
       const fresh = await freshWorkspace();
       await assertNewOperationAdmission(sql);
+      assertEnabled();
       await (deps?.prepareCreatedOperation ?? prepareProposalAgentOperation)({ transaction: sql,
         operationId: creation.operationId, documentId: scope.documentId, workspace: fresh,
         initiatedByUserId: access.userId, actorId, actorSessionId: input.reviewerSessionId,
@@ -421,6 +440,7 @@ export async function createRuntimeProposalReviewActionService(input: {
         fileEditRequest: { fingerprint: hashProposalValue({ creation, actorId }),
           beforeSha256: createHash('sha256').update(sourceContent, 'utf8').digest('hex'),
           proposedSha256: createHash('sha256').update(proposedContent, 'utf8').digest('hex') } });
+      assertEnabled();
       await transaction.insertProposal(node);
       if (kind === 'replace' && choice) await transaction.putChoiceGroup({ ...choice, groupRevision: choice.groupRevision + 1,
         memberProposalIds: [...choice.memberProposalIds, creation.proposalId] }, choice.groupRevision);
@@ -459,6 +479,10 @@ export async function createRuntimeProposalReviewActionService(input: {
       if (!state || state.lifecycleGeneration !== scope.lifecycleGeneration || state.schemaVersion !== scope.schemaVersion
         || state.status !== 'active' || state.degraded || state.path !== target.path) {
         fail(Codes.staleLifecycle, 'The document lifecycle changed before durable apply.');
+      }
+      if (!readDocumentReviewAvailability().documentReviewEnabled || !enabled() || !rolloutWritable()) {
+        throw new ProposalActionDefinitelyUnappliedError(Codes.upgradeRequired,
+          'Document Review Center is disabled. The pending proposal was not applied.');
       }
       return (deps?.applyDurably ?? applyProposalGraphCandidateOperation)({ actionId, scope, workspace: fresh,
         initiatedByUserId: access.userId, actorId: access.userId, actorDisplayName: fresh.actor?.email || access.userId,

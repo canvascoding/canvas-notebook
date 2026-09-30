@@ -3,6 +3,7 @@
 import { ChevronLeft, ChevronRight, Eye, FileText, RefreshCw } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useState } from 'react';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 import {
   fileChangeAppStatusMessageKey,
@@ -63,6 +64,7 @@ function ProposalEntryActions({ entry, workspaceId }: { entry: FileChangeAppEntr
 
 export function FileChangeAppActions({ data: value, refresh }: { data: unknown; refresh: () => void }) {
   const t = useTranslations('chat.toolApp');
+  const { documentReviewEnabled } = useDocumentReviewAvailability();
   const [requestedPage, setRequestedPage] = useState(0);
   const openFile = useOpenChatFileReference();
   const data = readFileChangeAppData(value);
@@ -83,9 +85,9 @@ export function FileChangeAppActions({ data: value, refresh }: { data: unknown; 
   const page = paginateFileChangeAppEntries(data.entries, requestedPage);
   return <div className="space-y-2 border-t px-3 py-3">
     <div className="flex flex-wrap gap-2">
-      <Button size="xs" variant="outline" onClick={() => openEntry(preferred)}>
+      {documentReviewEnabled ? <Button size="xs" variant="outline" onClick={() => openEntry(preferred)}>
         <Eye className="mr-1.5 h-3.5 w-3.5" />{t('fileChangeReview')}
-      </Button>
+      </Button> : null}
       {data.entries.length === 1 ? <Button size="xs" variant="ghost" onClick={() => void openFile(preferred.pathHint)}>
         <FileText className="mr-1.5 h-3.5 w-3.5" />{t('fileChangeOpenFile')}
       </Button> : null}
@@ -93,14 +95,14 @@ export function FileChangeAppActions({ data: value, refresh }: { data: unknown; 
         <RefreshCw className="mr-1.5 h-3.5 w-3.5" />{t('reload')}
       </Button>
     </div>
-    {data.entries.length === 1 ? <ProposalEntryActions entry={preferred} workspaceId={data.workspaceId} /> : null}
+    {documentReviewEnabled && data.entries.length === 1 ? <ProposalEntryActions entry={preferred} workspaceId={data.workspaceId} /> : null}
     {data.entries.length > 1 ? <div className="flex flex-wrap gap-1" aria-label={t('fileChangeChooseFile')}>
       {page.entries.map((entry) => <div key={entry.id} className="min-w-0 space-y-1 rounded-md border border-border/70 p-1.5">
         <Button size="xs" variant="ghost" className="h-7 max-w-52 justify-start px-2 font-normal"
-          title={entry.pathHint} onClick={() => openEntry(entry)}>
+          title={entry.pathHint} onClick={() => documentReviewEnabled ? openEntry(entry) : void openFile(entry.pathHint)}>
           <span className="truncate">{entry.pathHint.split('/').at(-1) || entry.pathHint}</span>
         </Button>
-        {entry.proposal ? <ProposalEntryActions entry={entry} workspaceId={data.workspaceId} /> : null}
+        {documentReviewEnabled && entry.proposal ? <ProposalEntryActions entry={entry} workspaceId={data.workspaceId} /> : null}
       </div>)}
       {page.pageCount > 1 ? <span className="flex items-center gap-0.5 self-center text-[11px] text-muted-foreground">
         <Button size="icon-xs" variant="ghost" aria-label={t('fileChangePrevious')}

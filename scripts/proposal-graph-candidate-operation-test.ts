@@ -55,6 +55,8 @@ function harness(replacement = 'after') {
   };
   const history: Array<{ content: string; stateVector: string | Uint8Array | null | undefined }> = [];
   let historyAvailable = true;
+  let reviewEnabled = true;
+  let beforeCandidateCallback: (() => void) | null = null;
   let directConnectionCalls = 0;
   let directConnectionInput: Record<string, unknown> | null = null;
   let directConnectionFailure: 'authorization-before' | 'connection-before' | 'after-callback' | null = null;
@@ -93,6 +95,9 @@ function harness(replacement = 'after') {
   };
   const mock = (name: string) => {
     if (name === '@/app/lib/db') return { openDb: async () => connection };
+    if (name === '@/app/lib/document-review-availability') return {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled }),
+    };
     if (name === '@/app/lib/file-version-center/database') return { createRuntimeFileVersionCenterDatabase: () => ({
       transaction: async (action: (transaction: { query: () => Promise<{ rows: unknown[] }> }) => Promise<unknown>) => action({
         query: async () => ({ rows: recoveryScanEnabled ? [{
@@ -138,6 +143,7 @@ function harness(replacement = 'after') {
         const live = new Y.Doc({ gc: false });
         try {
           Y.applyUpdate(live, state.yjsState);
+          beforeCandidateCallback?.();
           const result = apply(live);
           state = { ...state, yjsState: Y.encodeStateAsUpdate(live), stateVector: Y.encodeStateVector(live), persistedAt: 200, documentSequence: 8 };
           if (directConnectionFailure === 'after-callback') throw new Error('Connection acknowledgement lost after callback.');
@@ -198,6 +204,8 @@ function harness(replacement = 'after') {
     persistCandidate, compactPersisted, recordAppliedCallback, applyIndependentEdit, setHistoryAvailable: (value: boolean) => { historyAvailable = value; },
     setRecoveryScanEnabled: (value: boolean) => { recoveryScanEnabled = value; },
     setDirectConnectionFailure: (value: typeof directConnectionFailure) => { directConnectionFailure = value; },
+    setReviewEnabled: (value: boolean) => { reviewEnabled = value; },
+    setBeforeCandidateCallback: (callback: (() => void) | null) => { beforeCandidateCallback = callback; },
     get directConnectionCalls() { return directConnectionCalls; },
     get directConnectionInput() { return directConnectionInput; },
     currentText: () => { const doc = new Y.Doc(); try { Y.applyUpdate(doc, state.yjsState); return doc.getText('content').toString(); } finally { doc.destroy(); } },
@@ -217,6 +225,34 @@ test('graph candidate action applies only its exact live base, proves durable by
     assert.equal(h.currentText(), 'after'); assert.equal(h.row.status, 'persisted_yjs');
     assert.equal(h.row.version_revision_id, 'candidate-revision'); assert.equal(h.row.checkpoint_revision_id, null);
     assert.equal(h.history.length, 1); assert.equal(h.history[0]!.content, 'after');
+  } finally { h.close(); }
+});
+
+test('disabling review before the candidate mutation leaves the proposal definitely unapplied', async () => {
+  const h = harness();
+  try {
+    h.setBeforeCandidateCallback(() => h.setReviewEnabled(false));
+    await assert.rejects(h.agent.applyProposalGraphCandidateOperation(candidateActionInput(h)), {
+      name: 'ProposalActionDefinitelyUnappliedError', code: 'PROPOSAL_UPGRADE_REQUIRED',
+    });
+    assert.equal(h.directConnectionCalls, 1);
+    assert.equal(h.currentText(), 'before');
+    assert.equal(h.row.status, 'cancelled');
+    assert.equal(h.row.error_code, 'proposal_action_not_applied');
+    assert.equal(h.history.length, 0);
+  } finally { h.close(); }
+});
+
+test('disabling review still finalizes a candidate already persisted before the toggle', async () => {
+  const h = harness();
+  try {
+    h.row.status = 'persisted_yjs';
+    h.persistCandidate();
+    h.setReviewEnabled(false);
+    const result = await h.agent.applyProposalGraphCandidateOperation(candidateActionInput(h));
+    assert.equal(result.revisionId, 'candidate-revision');
+    assert.equal(h.directConnectionCalls, 0);
+    assert.equal(h.currentText(), 'after');
   } finally { h.close(); }
 });
 

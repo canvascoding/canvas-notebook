@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 
 import { ExactTextPatchError } from '../app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '../app/lib/files/revision-guard';
+import { AgentFileReviewDisabledConflictError } from '../app/lib/collaboration/agent-operations';
+import { CollaborationFileCheckpointUnavailableError } from '../app/lib/collaboration/agent-file-checkpoint';
 import { asAgentFileToolError, asAgentFileToolSuccess } from '../app/lib/pi/agent-file-tool-results';
 
 const revision = new WorkspaceFileRevisionError({
@@ -17,6 +19,19 @@ assert.equal(revisionResult.category, 'safety_conflict');
 assert.equal(revisionResult.recommendedAction, 'read_then_retry');
 assert.equal(revisionResult.safeToAutoRetry, false);
 assert.equal(revisionResult.currentSha256, 'b'.repeat(64));
+
+const disabled = asAgentFileToolError(new AgentFileReviewDisabledConflictError('Read current content.'), 'edit_file', 'notes.md');
+assert.equal(disabled.code, 'DOCUMENT_REVIEW_DISABLED_CONFLICT');
+assert.equal(disabled.category, 'safety_conflict');
+assert.equal(disabled.recommendedAction, 'read_then_retry');
+assert.equal(disabled.safeToAutoRetry, false);
+const uncertain = asAgentFileToolError(new AgentFileReviewDisabledConflictError('Inspect earlier operation.', 'operation-one'), 'apply_patch');
+assert.equal(uncertain.operationId, 'operation-one');
+assert.equal(uncertain.recommendedAction, 'inspect_error');
+const checkpoint = asAgentFileToolError(new CollaborationFileCheckpointUnavailableError('notes.md'), 'edit_file');
+assert.equal(checkpoint.code, 'COLLABORATION_FILE_CHECKPOINT_UNAVAILABLE');
+assert.equal(checkpoint.category, 'technical_error');
+assert.equal(checkpoint.recommendedAction, 'inspect_error');
 
 const exactResult = asAgentFileToolError(new ExactTextPatchError({
   code: 'occurrence_mismatch',

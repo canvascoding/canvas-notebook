@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { AdministrationSettingsPanel } from '@/app/components/settings/AdministrationSettingsPanel';
+import { ExperimentalFeaturesSettingsPanel } from '@/app/components/settings/ExperimentalFeaturesSettingsPanel';
 import { DictationSettingsPanel } from '@/app/components/settings/DictationSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { MobileAppSetupCard } from '@/app/components/mobile/MobileAppSetupCard';
@@ -2484,6 +2485,7 @@ export function IntegrationsSettingsClient({
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'administration') return isAdmin;
+      if (tab.value === 'experimental') return isAdmin;
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
@@ -3280,6 +3282,7 @@ export function IntegrationsSettingsClient({
           </div>
 
           {isAdmin && renderLazyTabContent('administration', <AdministrationSettingsPanel />)}
+          {isAdmin && renderLazyTabContent('experimental', <ExperimentalFeaturesSettingsPanel />)}
           {isAdmin && renderLazyTabContent('dictation', <DictationSettingsPanel />)}
 
           {renderLazyTabContent('general',

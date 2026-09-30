@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import { act, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { NextIntlClientProvider } from 'next-intl';
+import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
 
 import messages from '../messages/en.json';
 import { getNotebookQueryClient } from '../app/lib/queries/client';
@@ -65,6 +66,7 @@ async function settle(): Promise<void> {
 
 async function main(): Promise<void> {
   const { FileVersionCenterHost } = await import('../app/components/file-version-center/FileVersionCenterHost');
+  const DocumentReviewUiFixture = await createDocumentReviewUiFixture();
   const { openFileChangeReviewNotification } = await import('../app/components/notifications/notification-actions');
   const { closeVersionCenter, syncVersionCenterFromLocation, useFileVersionCenterStore } = await import('../app/store/file-version-center-store');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
@@ -131,7 +133,9 @@ async function main(): Promise<void> {
   const root = createRoot(document.getElementById('root')!);
   try {
     await act(async () => root.render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
+      <AppRouterContext.Provider value={fileVersionTestRouter}><DocumentReviewUiFixture enabled>
+        <FileVersionCenterHost />
+      </DocumentReviewUiFixture></AppRouterContext.Provider>
     </NextIntlClientProvider>));
     const branch = notification({});
     await act(async () => { assert.equal(await openFileChangeReviewNotification(branch), true); });

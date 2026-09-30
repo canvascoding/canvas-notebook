@@ -42,6 +42,7 @@ function harness(markdown?: string) {
   let graphBound = false;
   let directGrant: { id: string; expiresAt: number } | null = null;
   let policyMode: 'review_required' | 'safe_direct' = 'review_required';
+  let reviewEnabled = true;
   let denyPolicyAuthorization = false;
   let denyGrantLock = false;
   let failGrantCommit = false;
@@ -100,6 +101,9 @@ function harness(markdown?: string) {
   const exports = {};
   const mock = (name: string) => {
     if (name === '@/app/lib/db') return { openDb: async () => database };
+    if (name === '@/app/lib/document-review-availability') return {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled }),
+    };
     if (name === '@/app/lib/file-version-center/history-service') return { fileVersionHistoryService: {
       capturePersistedCollaboration: async (input: Parameters<typeof fileVersionHistoryService.capturePersistedCollaboration>[0]) => {
         assert.deepEqual(input.workspace, workspace);
@@ -220,6 +224,7 @@ function harness(markdown?: string) {
       policyMode = value ? 'safe_direct' : 'review_required';
     },
     setPolicyMode: (value: 'review_required' | 'safe_direct') => { policyMode = value; },
+    setReviewEnabled: (value: boolean) => { reviewEnabled = value; },
     denyPolicyAuthorization: () => { denyPolicyAuthorization = true; },
     denyGrant: () => { denyGrantLock = true; },
     failGrantCommit: () => { failGrantCommit = true; },
@@ -402,6 +407,77 @@ test('a safe-direct document policy creates only the new operation authority and
       'creation scopes state, locks admission, and checks reservations before inserting');
     assert.ok(insert < commit);
     assert.match(h.doc.getText('content').toString(), /^Revised/);
+  } finally { h.close(); }
+});
+
+test('review disabled applies a safe direct edit and rejects every review fallback before a proposal', async () => {
+  const direct = harness();
+  try {
+    direct.setReviewEnabled(false);
+    direct.setPolicyMode('safe_direct');
+    const applied = await direct.deliver();
+    assert.equal(applied.durability, 'persisted_yjs');
+    assert.equal(direct.directCalls(), 1);
+    assert.equal(direct.historyCaptures(), 1);
+    assert.match(direct.doc.getText('content').toString(), /^Revised/u);
+  } finally { direct.close(); }
+
+  for (const [setup, inserted] of [
+    [(h: ReturnType<typeof harness>) => h.setPolicyMode('review_required'), false],
+    [(h: ReturnType<typeof harness>) => { h.setPolicyMode('safe_direct'); h.denyPolicyAuthorization(); }, true],
+  ] as const) {
+    const h = harness();
+    try {
+      h.setReviewEnabled(false);
+      setup(h);
+      await assert.rejects(h.deliver(), { code: 'DOCUMENT_REVIEW_DISABLED_CONFLICT' });
+      assert.equal(h.directCalls(), 0);
+      assert.equal(h.lifecycleEvents().includes('INSERT collaboration_agent_operations'), inserted);
+      if (inserted) assert.equal(h.row.status, 'cancelled', 'an unapplied new operation is not left reviewable');
+      assert.equal(h.doc.getText('content').toString(), 'Original.\n\nOther.');
+    } finally { h.close(); }
+  }
+});
+
+test('legacy approval is blocked if review is disabled before the room mutation', async () => {
+  const h = harness();
+  try {
+    const token = h.preview().proposalVersion!;
+    h.beforeApply(() => h.setReviewEnabled(false));
+    await assert.rejects(h.accept(token), { code: 'DOCUMENT_REVIEW_DISABLED_CONFLICT' });
+    assert.equal(h.doc.getText('content').toString(), 'Original.\n\nOther.');
+    assert.equal(h.row.status, 'needs_review', 'the existing proposal remains pending');
+    assert.equal(h.row.action_keys_json, '{}', 'the rejected approval key can be retried after enabling review');
+  } finally { h.close(); }
+});
+
+test('a live target conflict while review is disabled cancels the unapplied operation', async () => {
+  const h = harness();
+  try {
+    h.setReviewEnabled(false);
+    h.setPolicyMode('safe_direct');
+    h.beforeApply(() => {
+      h.doc.getText('content').delete(0, 8);
+      h.doc.getText('content').insert(0, 'Human');
+    });
+    await assert.rejects(h.deliver(), { code: 'DOCUMENT_REVIEW_DISABLED_CONFLICT' });
+    assert.equal(h.row.status, 'cancelled');
+    assert.equal(h.row.error_code, 'document_review_disabled_conflict');
+    assert.equal(h.doc.getText('content').toString(), 'Human.\n\nOther.');
+    assert.equal(h.historyCaptures(), 0);
+  } finally { h.close(); }
+});
+
+test('cancel of an applied edit cannot create a hidden reverse proposal while review is disabled', async () => {
+  const h = harness();
+  try {
+    h.setPolicyMode('safe_direct');
+    await h.deliver();
+    h.setReviewEnabled(false);
+    await assert.rejects(h.agent.cancelAgentOperation({ operationId: h.row.operation_id, workspace,
+      userId: 'user', idempotencyKey: 'cancel-off' }), { code: 'DOCUMENT_REVIEW_DISABLED_CONFLICT' });
+    assert.equal(h.row.action_keys_json, '{}');
+    assert.equal(h.doc.getText('content').toString(), 'Revised.\n\nOther.');
   } finally { h.close(); }
 });
 

@@ -7,6 +7,7 @@ import {
   getAgentDirectEditGrantForOperation,
   setAgentDirectEditGrantForOperation,
 } from '@/app/lib/collaboration/agent-direct-edit-grants';
+import { documentReviewUnavailableResponse } from '@/app/lib/file-version-center/route-adapter';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 type RouteContext = { params: Promise<{ operationId: string }> };
@@ -54,8 +55,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }, { status: 400 });
   }
   try {
+    const operationId = (await context.params).operationId;
+    if (body.action === 'grant') {
+      const unavailable = documentReviewUnavailableResponse();
+      if (unavailable) return unavailable;
+    }
     const grant = await setAgentDirectEditGrantForOperation({
-      operationId: (await context.params).operationId,
+      operationId,
       workspace: authorized.workspace, userId: authorized.session.user.id,
       action: body.action, idempotencyKey: body.idempotencyKey,
     });

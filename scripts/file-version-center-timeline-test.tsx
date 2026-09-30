@@ -15,6 +15,7 @@ import type {
 import type { ProposalReviewSummaryResponseV1 } from '../app/lib/file-version-center/contracts/proposal-review-summary-v1';
 import { observeOpenedDocumentAuth, openedDocumentAuthScope,
   invalidateOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
+import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
 
 const dom = new JSDOM('<!doctype html><html><body><button id="origin">Open</button><div id="root"></div></body></html>', {
   url: 'https://canvas.test/en/notebook?workspaceId=workspace-one&panel=files#active-file',
@@ -145,6 +146,7 @@ function button(label: RegExp): HTMLButtonElement {
 
 async function main() {
   const { FileVersionCenterHost } = await import('../app/components/file-version-center/FileVersionCenterHost');
+  const DocumentReviewUiFixture = await createDocumentReviewUiFixture();
   const {
     mergeFileVersionTimelinePage,
     matchingCurrentRevision,
@@ -175,7 +177,9 @@ async function main() {
   const root = createRoot(document.getElementById('root')!);
   await act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <AppRouterContext.Provider value={fileVersionTestRouter}><FileVersionCenterHost /></AppRouterContext.Provider>
+      <AppRouterContext.Provider value={fileVersionTestRouter}><DocumentReviewUiFixture enabled>
+        <FileVersionCenterHost />
+      </DocumentReviewUiFixture></AppRouterContext.Provider>
     </NextIntlClientProvider>,
   ));
   await act(async () => { openVersionCenter(request); });

@@ -214,6 +214,9 @@ async function harness() {
       return input.read(live);
     } },
     '../collaboration/agent-operations': bridge, '../collaboration/server-runtime': { Y },
+    '@/app/lib/document-review-availability': {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: graphEnabled, updatedAt: null }),
+    },
     './proposal-review-capability': { proposalReviewWritesEnabled: ({ workspaceId }: { workspaceId?: string }) =>
       graphEnabled && workspaceId === scope.workspaceId },
     './policy-v1': { resolveFileVersionRolloutV1: () => ({ restore: reviewCenterWritable }) },
@@ -501,6 +504,9 @@ async function main() {
       code('PROPOSAL_IDEMPOTENCY_MISMATCH'));
     await assert.rejects(runtime.service.createIndependent({ ...ordinary, idempotencyKey: 'proposal-legacy-key' }),
       code('PROPOSAL_IDEMPOTENCY_MISMATCH'));
+    assert.equal(await h.runtime.hasPotentialProposalAgentRetryKey({ documentId: scope.documentId,
+      initiatedByUserId: identity.initiatedByUserId, idempotencyKey: 'proposal-legacy-key' }), false,
+    'a legacy or direct operation is not misidentified as a graph-backed retry');
     h.resetLive();
     passed('ordinary root uses one SQL unit, no live write and stable intent retry before current/source reads');
 

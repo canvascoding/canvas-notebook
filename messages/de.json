@@ -3694,7 +3694,8 @@
       "skills": "Plugins",
       "license": "Lizenz",
       "systemUpdates": "System-Updates",
-      "legal": "Rechtliches"
+      "legal": "Rechtliches",
+      "experimental": "Experimentelle Funktionen"
     },
     "navigation": {
       "ariaLabel": "Einstellungsbereiche",
@@ -3733,7 +3734,8 @@
         "usage": "Tokenverbrauch, Kosten und Laufzeitereignisse analysieren.",
         "license": "Lizenzstatus und Aktivierung dieser Instanz verwalten.",
         "systemUpdates": "Updates für diese Canvas-Instanz prüfen, installieren und verfolgen.",
-        "legal": "Drittanbieter-Komponenten, Lizenzhinweise und den kommerziellen Release-Status prüfen."
+        "legal": "Drittanbieter-Komponenten, Lizenzhinweise und den kommerziellen Release-Status prüfen.",
+        "experimental": "Optionale Funktionen in Entwicklung für diese Instanz verwalten."
       }
     },
     "memoryPanel": {
@@ -7115,6 +7117,19 @@
         "reconnectDescription": "Diese Verbindung ist nicht mehr aktiv. Verbinde dasselbe Postfach erneut, um es wieder zu verwenden. Bestehende Entwürfe bleiben erhalten.",
         "sendOnlyDescription": "Dieses Konto kann senden. Für Ordner, Empfang und Suche ergänze die IMAP-Verbindung."
       }
+    },
+    "experimental": {
+      "documentReviewTitle": "Dokumenten-Review-Center",
+      "description": "Experimentelle Funktionen gelten für alle Nutzer dieser Instanz und sind standardmäßig ausgeschaltet.",
+      "enableDocumentReview": "Dokumenten-Review-Center aktivieren",
+      "documentReviewDescription": "Aktiviert das Review Center und die optionale Review-Einstellung für Agentenänderungen pro Dokument.",
+      "editingNote": "Agenten und Teammitglieder können Dokumente weiterhin gemeinsam live bearbeiten. Bei ausgeschaltetem Review Center werden neue Agentenänderungen direkt gespeichert. Bereits vorhandene Vorschläge bleiben erhalten.",
+      "loading": "Einstellung wird geladen …",
+      "saving": "Wird gespeichert …",
+      "saved": "Einstellung gespeichert.",
+      "enabled": "Dokumenten-Review-Center ist aktiviert.",
+      "disabled": "Dokumenten-Review-Center ist ausgeschaltet.",
+      "saveError": "Die Einstellung konnte nicht gespeichert werden. Bitte erneut versuchen."
     }
   },
   "skills": {

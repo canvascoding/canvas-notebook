@@ -51,6 +51,7 @@ async function harness() {
       observeFileVersionCenter: (input: unknown) => { calls.push({ kind: 'observe', input }); },
     };
     if (name === '@/app/lib/file-version-center/route-adapter') return {
+      documentReviewUnavailableResponse: () => null,
       withFileVersionCenterPrivateHeaders: (response: NextResponse) => {
         response.headers.set('Cache-Control', 'private, no-store, max-age=0');
         return response;

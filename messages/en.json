@@ -3695,7 +3695,8 @@
       "skills": "Plugins",
       "license": "License",
       "systemUpdates": "System Updates",
-      "legal": "Legal"
+      "legal": "Legal",
+      "experimental": "Experimental Features"
     },
     "navigation": {
       "ariaLabel": "Settings areas",
@@ -3734,7 +3735,8 @@
         "usage": "Analyze token usage, cost, and runtime events.",
         "license": "Manage the license status and activation of this instance.",
         "systemUpdates": "Check, install, and follow updates for this Canvas instance.",
-        "legal": "Review third-party components, license notices, and commercial release readiness."
+        "legal": "Review third-party components, license notices, and commercial release readiness.",
+        "experimental": "Manage optional features in development for this instance."
       }
     },
     "memoryPanel": {
@@ -7116,6 +7118,19 @@
         "reconnectDescription": "This connection is no longer active. Reconnect the same mailbox to use it again. Existing drafts are retained.",
         "sendOnlyDescription": "This account can send email. Add an IMAP connection to browse folders, receive and search messages."
       }
+    },
+    "experimental": {
+      "documentReviewTitle": "Document Review Center",
+      "description": "Experimental features apply to everyone in this instance and are disabled by default.",
+      "enableDocumentReview": "Enable Document Review Center",
+      "documentReviewDescription": "Enables the Review Center and optional review of agent changes for each document.",
+      "editingNote": "Agents and team members can continue editing documents together live. With the Review Center disabled, new agent changes are saved directly. Existing proposals are retained.",
+      "loading": "Loading setting …",
+      "saving": "Saving …",
+      "saved": "Setting saved.",
+      "enabled": "Document Review Center is enabled.",
+      "disabled": "Document Review Center is disabled.",
+      "saveError": "Could not save this setting. Please try again."
     }
   },
   "skills": {

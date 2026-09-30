@@ -3,9 +3,11 @@ import 'server-only';
 import type { AgentTextTarget } from '@/app/lib/collaboration/agent-operations';
 import type { PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 
 import { readAgentReviewPolicySnapshot } from './agent-review-policy-adapter';
 import type { ProposalNodeV1 } from './contracts/proposal-graph-v1';
+import { PROPOSAL_GRAPH_ERROR_CODES as Codes, ProposalGraphContractError } from './contracts/proposal-graph-v1';
 import type { ProposalToolCreationResultV1 } from './contracts/proposal-tools-v1';
 import {
   createRuntimeProposalAgentService,
@@ -54,6 +56,18 @@ export async function createOrdinaryAgentProposal(input: {
     source: OrdinaryAgentProposalSource;
   }): AgentTextTarget[] | Promise<AgentTextTarget[]>;
 }): Promise<OrdinaryAgentProposalResult | null> {
+  if (!readDocumentReviewAvailability().documentReviewEnabled) {
+    if (!input.retryRequested) return null;
+    if (await hasPotentialProposalAgentRetryKey({
+      documentId: input.documentId,
+      initiatedByUserId: input.identity.initiatedByUserId,
+      idempotencyKey: input.idempotencyKey,
+    })) {
+      throw new ProposalGraphContractError(Codes.upgradeRequired,
+        'Document Review Center is disabled. The existing proposal was preserved and was not applied.');
+    }
+    return null;
+  }
   const graphEnabled = proposalReviewWritesEnabled({
     workspaceId: input.workspace.workspaceId,
   });

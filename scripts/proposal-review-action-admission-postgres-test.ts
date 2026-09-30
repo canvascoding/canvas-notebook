@@ -362,6 +362,9 @@ async function run(databaseUrl: URL): Promise<void> {
       '../collaboration/document-access': { readCurrentCollaborationDocument },
       '../collaboration/room-admission': await import('../app/lib/collaboration/room-admission'),
       '../collaboration/agent-operations': bridge, '../collaboration/server-runtime': { Y },
+      '@/app/lib/document-review-availability': {
+        readDocumentReviewAvailability: () => ({ documentReviewEnabled: true, updatedAt: null }),
+      },
       './proposal-review-capability': { proposalReviewWritesEnabled: () => true },
       './policy-v1': { resolveFileVersionRolloutV1: () => ({ restore: true }) },
     });

@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { serverPreferencesPath } from '../app/lib/terminal-policy';
 import {
   proposalReviewWritesEnabled,
   resolveProposalReviewCapability,
@@ -12,6 +16,9 @@ const envKeys = [
 ] as const;
 const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
 const testEnvironment: Record<string, string | undefined> = process.env;
+const dataRoot = mkdtempSync(path.join(tmpdir(), 'canvas-proposal-capability-'));
+const previousDataRoot = process.env.CANVAS_DATA_ROOT;
+process.env.CANVAS_DATA_ROOT = dataRoot;
 
 function setEnv(values: Partial<Record<(typeof envKeys)[number], string | undefined>>): void {
   for (const key of envKeys) {
@@ -27,9 +34,19 @@ function result(workspaceId?: string) {
 
 try {
   setEnv({ NODE_ENV: 'test' });
-  assert.deepEqual(result('workspace-1'), { mode: 'off', enabled: false, reason: 'mode_unset' });
+  assert.deepEqual(result('workspace-1'), { mode: 'off', enabled: false, reason: 'feature_disabled' });
   assert.equal(proposalReviewWritesEnabled({ workspaceId: 'workspace-1' }), false);
   assert.equal(proposalReviewWritesEnabled(), false);
+  setEnv({ NODE_ENV: 'production', CANVAS_PROPOSAL_GRAPH_MODE: 'full' });
+  assert.deepEqual(result('workspace-1'), { mode: 'off', enabled: false, reason: 'feature_disabled' },
+    'the instance switch dominates an old explicit rollout');
+  mkdirSync(path.dirname(serverPreferencesPath()), { recursive: true });
+  writeFileSync(serverPreferencesPath(), JSON.stringify({ version: 1, settings: { documentReviewEnabled: true } }));
+
+  setEnv({ NODE_ENV: 'production' });
+  assert.deepEqual(result('workspace-1'), { mode: 'full', enabled: true, reason: 'enabled' },
+    'an enabled instance works without legacy graph environment variables');
+  assert.deepEqual(result(), { mode: 'full', enabled: false, reason: 'invalid_workspace' });
 
   for (const nodeEnv of ['development', 'test']) {
     setEnv({ NODE_ENV: nodeEnv, CANVAS_PROPOSAL_REVIEW_LOCAL_TEST: '1' });
@@ -87,6 +104,9 @@ try {
     if (value === undefined) delete testEnvironment[key];
     else testEnvironment[key] = value;
   }
+  if (previousDataRoot === undefined) delete process.env.CANVAS_DATA_ROOT;
+  else process.env.CANVAS_DATA_ROOT = previousDataRoot;
+  rmSync(dataRoot, { recursive: true, force: true });
 }
 
 console.log('proposal-review-capability-test: ok');

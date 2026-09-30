@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { NextIntlClientProvider } from 'next-intl';
 
 import messages from '../messages/en.json';
+import { createDocumentReviewUiFixture } from './helpers/document-review-ui-fixture';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
   url: 'https://canvas.test/en/notebook?workspaceId=workspace-1',
@@ -43,11 +44,14 @@ function button(label: RegExp): HTMLButtonElement {
 
 async function main() {
   const { FileChangeAppActions } = await import('../app/components/canvas-agent-chat/FileChangeAppActions');
+  const DocumentReviewUiFixture = await createDocumentReviewUiFixture();
   const { closeVersionCenter, useFileVersionCenterStore } = await import('../app/store/file-version-center-store');
   const root = createRoot(document.getElementById('root')!);
-  const render = async (data: unknown) => act(async () => root.render(
+  const render = async (data: unknown, enabled = true) => act(async () => root.render(
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <FileChangeAppActions data={data} refresh={() => {}} />
+      <DocumentReviewUiFixture enabled={enabled}>
+        <FileChangeAppActions data={data} refresh={() => {}} />
+      </DocumentReviewUiFixture>
     </NextIntlClientProvider>,
   ));
 
@@ -109,6 +113,30 @@ async function main() {
   assert.equal(useFileVersionCenterStore.getState().request?.selectedEntry, undefined,
     'a pending turn opens current history without selecting an unavailable review operation');
   assert.equal(useFileVersionCenterStore.getState().request?.initialView, 'history');
+
+  await act(async () => { closeVersionCenter(); });
+  const { useFileStore } = await import('../app/store/file-store');
+  const openedPaths: string[] = [];
+  const priorFileStore = useFileStore.getState().revealAndLoadFile;
+  useFileStore.setState({ revealAndLoadFile: async (filePath) => {
+    openedPaths.push(filePath);
+    return { status: 'opened', path: filePath };
+  } });
+  try {
+    await render(graphData, false);
+    assert.equal(document.querySelector('[data-testid="file-change-proposal-entry"]'), null,
+      'disabled review hides successor navigation');
+    assert.equal([...document.querySelectorAll('button')].some((candidate) => /View changes/iu.test(candidate.textContent ?? '')),
+      false, 'disabled review hides the review action');
+    await act(async () => { button(/Open file/iu).click(); });
+    assert.deepEqual(openedPaths, ['docs/plan.md'], 'ordinary file opening remains available');
+    assert.equal(useFileVersionCenterStore.getState().request, null,
+      'file opening does not resurrect the disabled review');
+    await render(graphData, true);
+    assert.ok(button(/View changes/iu), 're-enabling review restores the exact review link');
+  } finally {
+    useFileStore.setState({ revealAndLoadFile: priorFileStore });
+  }
 
   await act(async () => root.unmount());
   console.log('File-change chat actions preserve exact graph/legacy review targets and explicit successor choice.');

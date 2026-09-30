@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 import {
   FileVersionCenterClientError,
@@ -67,11 +68,12 @@ export function FileReviewPolicyControl({
   documentId?: string | null;
 }) {
   const t = useTranslations('notebook');
+  const { documentReviewEnabled, updatedAt } = useDocumentReviewAvailability();
   const supported = isEditorFileVersionSupported(path);
   const target = useMemo(() => workspaceId
     ? editorFileVersionTarget({ workspaceId, path, documentId })
     : null, [documentId, path, workspaceId]);
-  const targetKey = target ? JSON.stringify(target) : '';
+  const targetKey = target ? JSON.stringify([target, documentReviewEnabled, updatedAt]) : '';
   const [resolved, setResolved] = useState<PolicyState>({ key: '', state: 'loading' });
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [message, setMessage] = useState<{ key: string; value: 'saved' | 'conflict' } | null>(null);
@@ -81,7 +83,7 @@ export function FileReviewPolicyControl({
   const currentMessage = message?.key === targetKey ? message.value : null;
 
   const load = useCallback(async (signal?: AbortSignal, nextMessage: 'conflict' | null = null) => {
-    if (!target || !supported || signal?.aborted) return;
+    if (!documentReviewEnabled || !target || !supported || signal?.aborted) return;
     const sequence = ++requestSequence.current;
     try {
       const timeline = await resolveFileVersionCenterWhenReady({
@@ -110,15 +112,15 @@ export function FileReviewPolicyControl({
       setResolved({ key: targetKey, state: 'error' });
       setMessage(null);
     }
-  }, [supported, target, targetKey]);
+  }, [documentReviewEnabled, supported, target, targetKey]);
 
   useEffect(() => {
     const controller = new AbortController();
     void Promise.resolve().then(() => load(controller.signal));
-    return () => controller.abort();
+    return () => { controller.abort(); requestSequence.current += 1; };
   }, [load]);
 
-  if (!supported || !target) return null;
+  if (!documentReviewEnabled || !supported || !target) return null;
   const presentation = fileReviewPolicyControlState({
     state: current.state,
     available: current.state === 'ready' ? current.available : undefined,

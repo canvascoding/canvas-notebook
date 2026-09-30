@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 import {
@@ -282,9 +283,10 @@ export function createFileChangeReviewNotificationSource(options: {
 } = {}) {
   const database = options.database ?? createRuntimeFileVersionCenterDatabase();
   const now = options.now ?? (() => new Date());
-  const notificationsEnabled = options.notificationsEnabled ?? (() => resolveFileVersionRolloutV1(
-    process.env[FILE_VERSION_CENTER_ROLLOUT_ENV_V1.mode],
-  ).notifications);
+  const notificationsEnabled = options.notificationsEnabled ?? (() => (
+    readDocumentReviewAvailability().documentReviewEnabled
+    && resolveFileVersionRolloutV1(process.env[FILE_VERSION_CENTER_ROLLOUT_ENV_V1.mode]).notifications
+  ));
 
   const list = async (input: {
     userId: string;

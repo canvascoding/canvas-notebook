@@ -49,6 +49,7 @@ async function harness() {
     schemaVersion: 1, documentSequence: 8, checkpointSequence: 2 };
   doc.on('update', () => { state.documentSequence++; });
   const controls = { eligible: true, metadataPresent: true, persistedPresent: true, unreadable: true,
+    reviewEnabled: false,
     durability: 'persisted_yjs', operationStatus: 'applied_to_ydoc', executeError: null as Error | null,
     readFailsAfterApply: false, reads: 0, revisions: 0, initialized: 0, executed: 0, afterPrepare: null as (() => void) | null,
     afterApply: null as (() => void) | null,
@@ -85,6 +86,18 @@ async function harness() {
     },
     ensureFileRevisionForCurrentContent: async () => { controls.revisions++; return { id: 'revision' }; },
   };
+  const checkpointStore = {
+    CollaborationCheckpointSupersededError: class extends Error {},
+    materializeCollaborationCheckpoint: async () => {
+      const content = doc.getText('content').toString();
+      await fs.writeFile(filePath, content);
+      controls.unreadable = false;
+      state.checkpointSequence = state.documentSequence;
+      metadata.stateVersion = state.documentSequence;
+      metadata.snapshotRevisionId = `checkpoint-${state.documentSequence}`;
+      latestRevision = { id: metadata.snapshotRevisionId, contentHash: operations.sha256Text(content) };
+    },
+  };
   const mocks: Record<string, unknown> = {
     'node:fs': fsAdapter,
     '@/app/lib/audit/audit-service': { recordAuditEvent: async () => { controls.audits++; } },
@@ -95,21 +108,14 @@ async function harness() {
       loadCollaborationStateIncludingArchived: async () => controls.persistedPresent ? state : null,
       loadCollaborationState: async () => controls.persistedPresent ? state : null,
     },
-    '@/app/lib/collaboration/checkpoint': {
-      CollaborationCheckpointSupersededError: class extends Error {},
-      materializeCollaborationCheckpoint: async () => {
-        const content = doc.getText('content').toString();
-        await fs.writeFile(filePath, content);
-        controls.unreadable = false;
-        state.checkpointSequence = state.documentSequence;
-        metadata.stateVersion = state.documentSequence;
-        metadata.snapshotRevisionId = `checkpoint-${state.documentSequence}`;
-        latestRevision = { id: metadata.snapshotRevisionId, contentHash: operations.sha256Text(content) };
-      },
-    },
+    '@/app/lib/collaboration/checkpoint': checkpointStore,
+    '@/app/lib/document-review-availability': { readDocumentReviewAvailability: () => ({ documentReviewEnabled: controls.reviewEnabled }) },
     '@/app/lib/file-version-center/agent-turn-history': { agentTurnHistoryService: { linkCheckpoint: async () => undefined } },
     '@/app/lib/collaboration/agent-operations': {
       AgentFileEditOperationScopeError: OperationScopeError,
+      AgentFileReviewDisabledConflictError: class extends Error {
+        readonly code = 'DOCUMENT_REVIEW_DISABLED_CONFLICT';
+      },
       findAgentFileEditOperation: async (input: { idempotencyKey: string; fingerprint: string; documentId: string;
         userId: string; actorId: string; actorSessionId?: string }) => {
         controls.lookups++;
@@ -196,6 +202,17 @@ async function harness() {
     '@/app/lib/integrations/studio-workspace': { getStudioRoot: () => path.join(root, 'studio'), getStudioWorkspaceRoot: () => path.join(root, 'studio/workspace') },
     '@/app/lib/excalidraw-collaboration/agent-operations': {}, '@/app/lib/excalidraw-collaboration/repository': {},
   };
+  const checkpoint = await compile<typeof import('../app/lib/collaboration/agent-file-checkpoint')>(
+    'app/lib/collaboration/agent-file-checkpoint.ts', {
+      'server-only': {},
+      'node:fs': fsAdapter,
+      '@/app/lib/files/collaboration-policy': policy,
+      '@/app/lib/files/revision-guard': { sha256Buffer: (buffer: Buffer) => operations.sha256Text(buffer.toString('utf8')) },
+      './checkpoint': checkpointStore,
+      './persistence': { loadCollaborationState: async () => controls.persistedPresent ? state : null },
+    },
+  );
+  mocks['@/app/lib/collaboration/agent-file-checkpoint'] = checkpoint;
   const operations = await compile<typeof Operations>('app/lib/pi/agent-file-operations.ts', mocks);
   const toolResults = await compile<typeof ToolResults>('app/lib/pi/agent-file-tool-results.ts', { './agent-file-operations': operations });
   const edit = () => operations.editAgentFile({ path: 'document.md', oldText: 'Live', newText: 'Edited',
@@ -241,8 +258,8 @@ test('operation receipts preserve uncertain, partial and post-commit-read outcom
     try {
       if (scenario === 'checkpointed') h.controls.durability = 'checkpointed_file';
       if (scenario === 'uncertain') h.controls.durability = 'applied_to_ydoc';
-      if (scenario === 'partial') h.controls.operationStatus = 'partially_applied';
-      if (scenario === 'needs-review') { h.controls.operationStatus = 'needs_review'; h.controls.durability = 'none'; }
+      if (scenario === 'partial') { h.controls.operationStatus = 'partially_applied'; h.controls.reviewEnabled = true; }
+      if (scenario === 'needs-review') { h.controls.operationStatus = 'needs_review'; h.controls.durability = 'none'; h.controls.reviewEnabled = true; }
       if (scenario === 'read-failed') h.controls.readFailsAfterApply = true;
       if (scenario === 'moved-after-apply') h.controls.afterApply = () => { h.state.path = 'renamed.md'; };
       if (scenario === 'execution-failed') {
@@ -274,6 +291,35 @@ test('operation receipts preserve uncertain, partial and post-commit-read outcom
       assert.equal(await fs.readFile(h.filePath, 'utf8'), checkpointed ? h.current().content : h.projected);
     } finally { await h.close(); }
   });
+});
+
+test('review-disabled live edits and old review retries return a conflict without applying', async () => {
+  const fresh = await harness();
+  try {
+    fresh.controls.operationStatus = 'needs_review';
+    fresh.controls.durability = 'none';
+    await assert.rejects(fresh.edit(), (error) => {
+      assert.equal((error as { code?: string }).code, 'DOCUMENT_REVIEW_DISABLED_CONFLICT');
+      return true;
+    });
+    assert.equal(fresh.controls.executed, 1);
+    assert.equal(await fs.readFile(fresh.filePath, 'utf8'), fresh.projected);
+  } finally { await fresh.close(); }
+
+  const retry = await harness();
+  try {
+    retry.controls.reviewEnabled = true;
+    retry.controls.operationStatus = 'needs_review';
+    retry.controls.durability = 'none';
+    await retry.edit();
+    retry.controls.reviewEnabled = false;
+    await assert.rejects(retry.edit(), (error) => {
+      assert.equal((error as { code?: string }).code, 'DOCUMENT_REVIEW_DISABLED_CONFLICT');
+      return true;
+    });
+    assert.equal(retry.controls.executed, 1, 'the disabled retry does not call the operation service');
+    assert.equal(await fs.readFile(retry.filePath, 'utf8'), retry.projected);
+  } finally { await retry.close(); }
 });
 
 test('identical edit/patch delivery reuses its receipt before deleted oldText is matched again', async (t) => {

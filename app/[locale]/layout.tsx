@@ -7,6 +7,7 @@ import "@excalidraw/excalidraw/index.css";
 import "../globals.css";
 import { geistMono, geistSans } from '@/app/lib/fonts';
 import { TerminalAvailabilityProvider } from '@/app/components/terminal/TerminalAvailabilityProvider';
+import { DocumentReviewAvailabilityProvider } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 import { Toaster } from "@/components/ui/sonner";
 import { InlineScript } from '@/app/components/InlineScript';
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
@@ -105,15 +106,17 @@ export default async function LocaleLayout({
                 <WorkspaceNavigationSync />
               </Suspense>
               <TerminalAvailabilityProvider>
-                <WebSocketProvider enabled>
-                  {children}
-                  <FileVersionCenterHost />
-                  <MemoryReviewHost />
-                  <Suspense fallback={null}>
-                    <EmailReviewHost />
-                  </Suspense>
-                  <Toaster richColors position="top-right" />
-                </WebSocketProvider>
+                <DocumentReviewAvailabilityProvider>
+                  <WebSocketProvider enabled>
+                    {children}
+                    <FileVersionCenterHost />
+                    <MemoryReviewHost />
+                    <Suspense fallback={null}>
+                      <EmailReviewHost />
+                    </Suspense>
+                    <Toaster richColors position="top-right" />
+                  </WebSocketProvider>
+                </DocumentReviewAvailabilityProvider>
               </TerminalAvailabilityProvider>
             </WorkspaceAppearanceProvider>
           </AppThemeProvider>

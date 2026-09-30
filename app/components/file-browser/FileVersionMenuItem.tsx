@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { FileClock, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useDocumentReviewAvailability } from '@/app/components/file-version-center/DocumentReviewAvailabilityProvider';
 
 import {
   FileVersionCenterClientError,
@@ -57,10 +58,11 @@ export function FileVersionMenuItem({
   source: FileVersionMenuSource;
 }) {
   const t = useTranslations('notebook');
+  const { documentReviewEnabled, updatedAt } = useDocumentReviewAvailability();
   const requestedTarget = useMemo(() => workspaceId
     ? fileVersionMenuTarget({ workspaceId, path, lineageId })
     : null, [lineageId, path, workspaceId]);
-  const targetKey = requestedTarget ? JSON.stringify(requestedTarget) : '';
+  const targetKey = requestedTarget ? JSON.stringify([requestedTarget, documentReviewEnabled, updatedAt]) : '';
   const [resolvedCapability, setResolvedCapability] = useState<MenuCapabilityState>({
     key: '',
     state: 'loading',
@@ -70,7 +72,7 @@ export function FileVersionMenuItem({
     : { key: targetKey, state: requestedTarget ? 'loading' : 'error' };
 
   useEffect(() => {
-    if (!requestedTarget) return;
+    if (!documentReviewEnabled || !requestedTarget) return;
     const controller = new AbortController();
     void resolveFileVersionCenterWhenReady({
       contractVersion: FILE_VERSION_CENTER_CONTRACT_VERSION,
@@ -100,8 +102,9 @@ export function FileVersionMenuItem({
       });
     });
     return () => controller.abort();
-  }, [requestedTarget, source, targetKey]);
+  }, [documentReviewEnabled, requestedTarget, source, targetKey]);
 
+  if (!documentReviewEnabled) return null;
   if (capability.state === 'ready'
     && !capability.capabilities.history
     && capability.capabilities.reason === 'unsupported_type') return null;

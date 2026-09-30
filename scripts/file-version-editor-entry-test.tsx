@@ -64,6 +64,7 @@ function reviewOperation(
 }
 
 async function compileUi(input: {
+  availability?: () => { documentReviewEnabled: boolean; updatedAt: string | null };
   calls: ResolveCall[];
   opened: unknown[];
   resolve: (call: ResolveCall) => Promise<Timeline>;
@@ -80,6 +81,9 @@ async function compileUi(input: {
   }).outputText;
   const exports = {} as typeof Ui;
   const mocks: Record<string, unknown> = {
+    '@/app/components/file-version-center/DocumentReviewAvailabilityProvider': {
+      useDocumentReviewAvailability: () => input.availability?.() ?? { documentReviewEnabled: true, updatedAt: null },
+    },
     'next-intl': {
       useTranslations: () => (key: string, values?: { count?: number }) => values?.count === undefined
         ? key
@@ -177,8 +181,10 @@ test('the responsive editor control fails closed and opens only its latest autho
 
   const calls: ResolveCall[] = [];
   const opened: unknown[] = [];
+  let reviewEnabled = true;
   let resolveTimeline: (call: ResolveCall) => Promise<Timeline> = async () => timeline('lineage-one');
-  const ui = await compileUi({ calls, opened, resolve: (call) => resolveTimeline(call) });
+  const ui = await compileUi({ calls, opened, resolve: (call) => resolveTimeline(call),
+    availability: () => ({ documentReviewEnabled: reviewEnabled, updatedAt: null }) });
   const root = createRoot(document.getElementById('root')!);
   const flush = async () => {
     for (let index = 0; index < 4; index += 1) {
@@ -321,6 +327,14 @@ test('the responsive editor control fails closed and opens only its latest autho
     ));
     assert.equal(document.querySelector('button'), null);
     assert.equal(calls.length, callsBeforeUnsupported, 'unsupported files do not probe hidden version data');
+    reviewEnabled = false;
+    await act(async () => root.render(
+      <ui.FileVersionHistoryButton workspaceId="workspace-one" path="notes.md"
+        documentId="document-one" agentOperations={[singleReview]} />,
+    ));
+    await flush();
+    assert.equal(document.querySelector('button'), null, 'even pending proposals do not expose a disabled review center');
+    assert.equal(calls.length, callsBeforeUnsupported, 'disabled review does not request version history');
   } finally {
     await act(async () => root.unmount());
     dom.window.close();

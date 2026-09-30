@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { test } from 'node:test';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { after, before, test } from 'node:test';
 
 import { Y } from '../app/lib/collaboration/server-runtime';
 import { PROPOSAL_GRAPH_ERROR_CODES as Codes, ProposalGraphContractError,
@@ -8,6 +11,7 @@ import { PROPOSAL_GRAPH_ERROR_CODES as Codes, ProposalGraphContractError,
 import { hashProposalEvaluationSelectionV1 } from '../app/lib/file-version-center/proposal-action-fence';
 import { createRuntimeProposalReviewActionService } from '../app/lib/file-version-center/proposal-review-action-runtime';
 import { proposalYjsCurrentProof } from '../app/lib/file-version-center/proposal-yjs-candidate';
+import { serverPreferencesPath } from '../app/lib/terminal-policy';
 import type { FileVersionCenterDatabase, FileVersionCenterTransaction } from '../app/lib/file-version-center/database';
 import type { ProposalGraphStorageTransaction } from '../app/lib/file-version-center/proposal-storage';
 import type { FileVersionCenterAccess, ResolvedFileVersionTarget } from '../app/lib/file-version-center/query-service';
@@ -17,6 +21,23 @@ import { alternativeChildFixture, childProposalFixture, proposalScopeFixture,
   rootProposalFixture } from './fixtures/proposal-graph-contract-v1';
 
 const secret = 'review-action-test-signing-secret-32-bytes';
+const previousDataRoot = process.env.CANVAS_DATA_ROOT;
+const testDataRoot = mkdtempSync(join(tmpdir(), 'canvas-review-action-'));
+before(() => {
+  process.env.CANVAS_DATA_ROOT = testDataRoot;
+  mkdirSync(dirname(serverPreferencesPath()), { recursive: true });
+  setReviewEnabled(true);
+});
+after(() => {
+  if (previousDataRoot === undefined) delete process.env.CANVAS_DATA_ROOT;
+  else process.env.CANVAS_DATA_ROOT = previousDataRoot;
+  rmSync(testDataRoot, { recursive: true, force: true });
+});
+function setReviewEnabled(enabled: boolean): void {
+  writeFileSync(serverPreferencesPath(), JSON.stringify({ version: 1, settings: {
+    documentReviewEnabled: enabled, documentReviewUpdatedAt: new Date().toISOString(),
+  } }));
+}
 const clock = 1_789_646_400_100;
 const target: ResolvedFileVersionTarget = { workspaceId: proposalScopeFixture.workspaceId,
   lineageId: proposalScopeFixture.lineageId, documentId: proposalScopeFixture.documentId, path: 'review.md',
@@ -214,6 +235,19 @@ test('closed rollout denies new actions but permits an authorized absent receipt
   await assert.rejects(harness({ write: false }).service, code(Codes.accessDenied));
 });
 
+test('instance review switch cannot be bypassed by an injected rollout capability', async () => {
+  setReviewEnabled(false);
+  try {
+    const h = harness({ enabled: true, rolloutWritable: true });
+    const runtime = await h.service;
+    await assert.rejects(runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'reject' }),
+      code(Codes.upgradeRequired));
+    assert.equal(h.actions.size, 0);
+  } finally {
+    setReviewEnabled(true);
+  }
+});
+
 test('prepare signs only the exact stored evaluation selection and current proof', async () => {
   const h = harness();
   const runtime = await h.service;
@@ -252,6 +286,25 @@ test('reject uses a signed graph closure and returns the durable result for an e
     requestDigest: action.fence.requestDigest }), first);
   await assert.rejects(runtime.status({ idempotencyKey: action.idempotencyKey,
     requestDigest: '0'.repeat(64) }), code(Codes.idempotencyMismatch));
+});
+
+test('turning review off before metadata commit rolls back rejection and choice resolution', async () => {
+  const h = harness({ withChildren: true });
+  const runtime = await h.service;
+  const prepared = await runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'branch_reject' });
+  let graphTransactions = 0;
+  h.afterTransaction(() => { if (++graphTransactions === 2) setReviewEnabled(false); });
+  try {
+    const receipt = await runtime.execute({ contractVersion: 1, ...prepared,
+      idempotencyKey: 'branch-reject-admin-off-race-0001', creation: null });
+    assert.equal(receipt.phase, 'failed');
+    assert.equal(receipt.errorCode, Codes.upgradeRequired);
+    assert.deepEqual(h.snapshot.nodes.map((node) => node.lifecycle), ['open', 'open', 'open']);
+    assert.equal(h.applyCalls(), 0);
+  } finally {
+    h.afterTransaction();
+    setReviewEnabled(true);
+  }
 });
 
 test('branch reject signs the descendant closure and resolves every member without content apply', async () => {
@@ -293,6 +346,24 @@ test('accept applies once and an exact retry returns the stored content receipt'
   assert.equal(h.statementsSince(beforeStatus).some((statement) => statement.includes('pg_advisory_xact_lock')), false,
     'status and recovery of an existing action do not acquire the new-operation guard');
   assert.equal(h.applyCalls(), 1);
+});
+
+test('turning review off before reservation commit rolls back an unapplied accept', async () => {
+  const h = harness();
+  const runtime = await h.service;
+  const prepared = await runtime.prepare({ selectedProposalIds: ['p1'], actionType: 'accept', binding: h.binding });
+  const action = { contractVersion: 1 as const, ...prepared,
+    idempotencyKey: 'accept-admin-off-race-0001', creation: null };
+  h.afterTransaction(() => setReviewEnabled(false));
+  try {
+    await assert.rejects(runtime.execute(action), code(Codes.upgradeRequired));
+    assert.equal(h.actions.size, 0, 'the still uncommitted reservation rolls back');
+    assert.equal(h.applyCalls(), 0);
+    assert.equal(h.snapshot.nodes[0]!.lifecycle, 'open');
+  } finally {
+    h.afterTransaction();
+    setReviewEnabled(true);
+  }
 });
 
 test('active admission blocks new accept and batch-accept atomically while exact retries remain available', async () => {
@@ -361,24 +432,29 @@ test('rollback after an uncertain apply retains restart recovery without new mut
   await assert.rejects(runtime.execute(action), code(Codes.recoveryRequired));
   options.enabled = false;
   options.rolloutWritable = false;
+  setReviewEnabled(false);
   const restarted = await h.reopen();
-  await assert.rejects(restarted.execute(action), code(Codes.upgradeRequired));
-  const identity = { idempotencyKey: action.idempotencyKey, requestDigest: action.fence.requestDigest };
-  await assert.rejects(restarted.status({ ...identity, requestDigest: '0'.repeat(64) }), code(Codes.idempotencyMismatch));
-  options.write = false;
-  await assert.rejects(restarted.status(identity), code(Codes.accessDenied));
-  assert.equal(h.recoverCalls(), 0);
-  options.write = true;
-  const receipt = await restarted.status(identity);
-  assert.equal(receipt?.phase, 'succeeded');
-  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'applied');
-  assert.deepEqual(await restarted.status(identity), receipt);
-  assert.equal(h.actions.size, 1);
-  assert.equal(h.applyCalls(), 1);
-  assert.equal(h.recoverCalls(), 1);
+  try {
+    await assert.rejects(restarted.execute(action), code(Codes.upgradeRequired));
+    const identity = { idempotencyKey: action.idempotencyKey, requestDigest: action.fence.requestDigest };
+    await assert.rejects(restarted.status({ ...identity, requestDigest: '0'.repeat(64) }), code(Codes.idempotencyMismatch));
+    options.write = false;
+    await assert.rejects(restarted.status(identity), code(Codes.accessDenied));
+    assert.equal(h.recoverCalls(), 0);
+    options.write = true;
+    const receipt = await restarted.status(identity);
+    assert.equal(receipt?.phase, 'succeeded');
+    assert.equal(h.snapshot.nodes[0]!.lifecycle, 'applied');
+    assert.deepEqual(await restarted.status(identity), receipt);
+    assert.equal(h.actions.size, 1);
+    assert.equal(h.applyCalls(), 1);
+    assert.equal(h.recoverCalls(), 1);
+  } finally {
+    setReviewEnabled(true);
+  }
 });
 
-test('rollback completes only a previously reserved metadata action after restart', async () => {
+test('review-off preserves a previously reserved metadata proposal after restart', async () => {
   const options = { enabled: true, rolloutWritable: true, owner: 'reviewer' };
   const h = harness(options);
   const runtime = await h.service;
@@ -397,9 +473,9 @@ test('rollback completes only a previously reserved metadata action after restar
   assert.equal(h.snapshot.nodes[0]!.lifecycle, 'open');
   options.owner = 'reviewer';
   const receipt = await restarted.status(identity);
-  assert.equal(receipt?.phase, 'succeeded');
-  assert.equal(receipt?.result?.kind, 'metadata_only');
-  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'rejected');
+  assert.equal(receipt?.phase, 'failed');
+  assert.equal(receipt?.errorCode, Codes.upgradeRequired);
+  assert.equal(h.snapshot.nodes[0]!.lifecycle, 'open');
   assert.deepEqual(await restarted.status(identity), receipt);
   assert.equal(h.actions.size, 1);
   assert.equal(h.applyCalls(), 0);
