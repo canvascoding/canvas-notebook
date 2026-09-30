@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.29.2",
-  "lockfileSha256": "a7e73b7a675c27f32412351b408cc0e13d2c3518c3e93e08c602dfd1372fb043",
+  "lockfileSha256": "740823ae06034a19df125623322ab2e1a1a2103cbf63a51230bf8d1ff063e2b1",
   "summary": {
-    "totalComponents": 1960,
-    "npmComponents": 1936,
+    "totalComponents": 1964,
+    "npmComponents": 1940,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1441,
+    "runtimeComponents": 1445,
     "developmentOnlyComponents": 519,
-    "allowed": 1924,
+    "allowed": 1928,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -1461,8 +1461,8 @@
     },
     {
       "name": "@next/eslint-plugin-next",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/eslint-plugin-next",
       "usage": "development-only",
       "distributedIn": [
@@ -1470,14 +1470,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/eslint-plugin-next@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/eslint-plugin-next@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@noble/hashes",
@@ -4590,7 +4590,7 @@
     },
     {
       "name": "electron",
-      "versionOrCommit": "42.6.1",
+      "versionOrCommit": "42.11.10",
       "sourceUrl": "https://github.com/electron/electron",
       "packagePathOrArtifact": "node_modules/electron",
       "usage": "development-only",
@@ -4878,8 +4878,8 @@
     },
     {
       "name": "eslint-config-next",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/eslint-config-next",
       "usage": "development-only",
       "distributedIn": [
@@ -4887,14 +4887,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/eslint-config-next@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/eslint-config-next@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "eslint-import-resolver-node",
@@ -9930,7 +9930,7 @@
     },
     {
       "name": "undici",
-      "versionOrCommit": "6.28.0",
+      "versionOrCommit": "6.29.0",
       "sourceUrl": "https://github.com/nodejs/undici",
       "packagePathOrArtifact": "node_modules/node-gyp/node_modules/undici",
       "usage": "development-only",
@@ -10566,8 +10566,8 @@
     },
     {
       "name": "electron-runtime",
-      "versionOrCommit": "42.6.1",
-      "sourceUrl": "https://github.com/electron/electron/tree/v42.6.1",
+      "versionOrCommit": "42.11.10",
+      "sourceUrl": "https://github.com/electron/electron/tree/v42.11.10",
       "packagePathOrArtifact": "Electron desktop runtime",
       "usage": "native",
       "distributedIn": [
@@ -15776,8 +15776,8 @@
     },
     {
       "name": "@next/env",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/env",
       "usage": "runtime",
       "distributedIn": [
@@ -15788,19 +15788,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/env@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/env@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-darwin-arm64",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-darwin-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -15811,19 +15811,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-arm64@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-arm64@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-darwin-x64",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-darwin-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -15834,19 +15834,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-x64@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-darwin-x64@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-linux-arm64-gnu",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-arm64-gnu",
       "usage": "runtime",
       "distributedIn": [
@@ -15857,19 +15857,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-gnu@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-gnu@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-linux-arm64-musl",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-arm64-musl",
       "usage": "runtime",
       "distributedIn": [
@@ -15880,19 +15880,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-musl@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-arm64-musl@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-linux-x64-gnu",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-x64-gnu",
       "usage": "runtime",
       "distributedIn": [
@@ -15903,19 +15903,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-gnu@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-gnu@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-linux-x64-musl",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-linux-x64-musl",
       "usage": "runtime",
       "distributedIn": [
@@ -15926,19 +15926,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-musl@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-linux-x64-musl@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-win32-arm64-msvc",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-win32-arm64-msvc",
       "usage": "runtime",
       "distributedIn": [
@@ -15949,19 +15949,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-arm64-msvc@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-arm64-msvc@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@next/swc-win32-x64-msvc",
-      "versionOrCommit": "16.3.5",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9",
+      "versionOrCommit": "16.3.8",
+      "sourceUrl": "https://github.com/vercel/next.js/tree/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6",
       "packagePathOrArtifact": "node_modules/@next/swc-win32-x64-msvc",
       "usage": "runtime",
       "distributedIn": [
@@ -15972,14 +15972,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-x64-msvc@16.3.5",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@next/swc-win32-x64-msvc@16.3.8",
       "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
       "copyrightNotices": [
         "Copyright (c) 2025 Vercel, Inc."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/ca2c75eb7f8d9dd012a8bb83c06132149fe221f9/license.md Published source revision: ca2c75eb7f8d9dd012a8bb83c06132149fe221f9"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6/license.md Published source revision: b0fad0d45eb4c4430fda5eeeb442e8a5af08a5f6"
     },
     {
       "name": "@noble/ciphers",
@@ -24300,6 +24300,29 @@
       "reviewNotes": "Technical package review by Codex on 2026-09-08: npm gitHead and v5.4.16 both identify df5b42b046bbab53b9b238c39208658b8732bf75. The complete LICENSE.MIT is byte-identical to the already elected MIT alternative in 5.4.14 (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete text and copyright notice. No package modification or separate NOTICE file. This records source/license evidence, not a new legal or product release approval. Verification source: https://github.com/zone-eu/mailsplit/blob/df5b42b046bbab53b9b238c39208658b8732bf75/LICENSE.MIT"
     },
     {
+      "name": "@zone-eu/mailsplit",
+      "versionOrCommit": "5.4.19",
+      "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/69da215d9481ba56e17a9320cd2d481ac8b690bd",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/@zone-eu/mailsplit",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "(MIT OR EUPL-1.1+)",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.MIT",
+      "licenseTextSha256": "d1cc09bdab0628b32bd6459357fc81aad6894c535baec7973d1dd8c85596fa08",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Technical package review by Codex on 2026-09-30: npm gitHead and v5.4.19 both identify 69da215d9481ba56e17a9320cd2d481ac8b690bd. The installed and upstream LICENSE.MIT are byte-identical to the already elected MIT alternative in 5.4.16 (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete text and copyright notice. This records source/license evidence, not a new legal or product release approval. Verification source: https://github.com/zone-eu/mailsplit/blob/69da215d9481ba56e17a9320cd2d481ac8b690bd/LICENSE.MIT"
+    },
+    {
       "name": "abort-controller",
       "versionOrCommit": "3.0.0",
       "sourceUrl": "https://github.com/mysticatea/abort-controller",
@@ -25268,7 +25291,7 @@
     },
     {
       "name": "brace-expansion",
-      "versionOrCommit": "5.0.9",
+      "versionOrCommit": "5.0.12",
       "sourceUrl": "https://github.com/juliangruber/brace-expansion",
       "packagePathOrArtifact": "node_modules/brace-expansion",
       "usage": "runtime",
@@ -28551,6 +28574,29 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "encoding-japanese",
+      "versionOrCommit": "2.4.0",
+      "sourceUrl": "https://github.com/polygonplanet/encoding.js",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/encoding-japanese",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/encoding-japanese/LICENSE",
+      "licenseTextSha256": "a0977543d7fb164a7bd5e3cb317161ca8a8f679a4e4b9dcecb93c1c499e6dceb",
+      "copyrightNotices": [
+        "Copyright (c) 2012-present polygonplanet",
+        "Copyright (c) Microsoft Corporation."
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "enhanced-resolve",
       "versionOrCommit": "5.25.1",
       "sourceUrl": "https://github.com/webpack/enhanced-resolve",
@@ -29368,7 +29414,7 @@
     },
     {
       "name": "fast-uri",
-      "versionOrCommit": "3.1.6",
+      "versionOrCommit": "3.1.8",
       "sourceUrl": "https://github.com/fastify/fast-uri",
       "packagePathOrArtifact": "node_modules/fast-uri",
       "usage": "runtime",
@@ -31418,7 +31464,7 @@
     },
     {
       "name": "ip-address",
-      "versionOrCommit": "10.5.0",
+      "versionOrCommit": "10.7.2",
       "sourceUrl": "https://github.com/beaugunderson/ip-address",
       "packagePathOrArtifact": "node_modules/ip-address",
       "usage": "runtime",
@@ -32777,6 +32823,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "libbase64",
+      "versionOrCommit": "1.3.1",
+      "sourceUrl": "https://github.com/nodemailer/libbase64",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/libbase64",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/libbase64/LICENSE",
+      "licenseTextSha256": "27d7db274ef1ff4ade7505f696a4d86243b6c73936d1ea10d235f0cee609a576",
+      "copyrightNotices": [
+        "Copyright (c) 2014-2017 Andris Reinman"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "libmime",
       "versionOrCommit": "5.4.3",
       "sourceUrl": "https://github.com/nodemailer/libmime",
@@ -32799,6 +32867,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "libmime",
+      "versionOrCommit": "5.4.6",
+      "sourceUrl": "https://github.com/nodemailer/libmime",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/libmime",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/libmime/LICENSE",
+      "licenseTextSha256": "0f2482bc852021c3226c1df9d75b610a9b795a5a88032cda51098dce3dae6740",
+      "copyrightNotices": [
+        "Copyright (c) 2014-2016 Andris Reinman"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "libqp",
       "versionOrCommit": "2.1.1",
       "sourceUrl": "https://github.com/nodemailer/libqp",
@@ -32813,6 +32903,28 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/libqp/LICENSE",
+      "licenseTextSha256": "2dd95346123a3ae1ecae06a32a40d83f3bd3aecb0aa4198074c6518775974982",
+      "copyrightNotices": [
+        "Copyright (c) 2014-2022 Andris Reinman"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "libqp",
+      "versionOrCommit": "2.1.2",
+      "sourceUrl": "https://github.com/nodemailer/libqp",
+      "packagePathOrArtifact": "node_modules/mailparser/node_modules/libqp",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/mailparser/node_modules/libqp/LICENSE",
       "licenseTextSha256": "2dd95346123a3ae1ecae06a32a40d83f3bd3aecb0aa4198074c6518775974982",
       "copyrightNotices": [
         "Copyright (c) 2014-2022 Andris Reinman"
@@ -33316,7 +33428,7 @@
     },
     {
       "name": "mailparser",
-      "versionOrCommit": "3.9.23",
+      "versionOrCommit": "3.9.32",
       "sourceUrl": "https://github.com/nodemailer/mailparser",
       "packagePathOrArtifact": "node_modules/mailparser",
       "usage": "runtime",
@@ -33382,7 +33494,7 @@
     },
     {
       "name": "markdown-it",
-      "versionOrCommit": "14.3.0",
+      "versionOrCommit": "14.3.2",
       "sourceUrl": "markdown-it/markdown-it",
       "packagePathOrArtifact": "node_modules/markdown-it",
       "usage": "runtime",
@@ -35302,7 +35414,7 @@
     },
     {
       "name": "next",
-      "versionOrCommit": "16.3.5",
+      "versionOrCommit": "16.3.8",
       "sourceUrl": "vercel/next.js",
       "packagePathOrArtifact": "node_modules/next",
       "usage": "runtime",
@@ -35458,29 +35570,7 @@
     },
     {
       "name": "nodemailer",
-      "versionOrCommit": "10.0.1",
-      "sourceUrl": "https://github.com/nodemailer/nodemailer",
-      "packagePathOrArtifact": "node_modules/mailparser/node_modules/nodemailer",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT-0",
-      "verifiedLicense": "MIT-0",
-      "licenseTextRef": "node_modules/mailparser/node_modules/nodemailer/LICENSE",
-      "licenseTextSha256": "4f814dcacd2da618d62829ea1f6238701cf421f18a6b36c91c5d8212245e2c78",
-      "copyrightNotices": [
-        "Copyright (c) 2011-2023 Andris Reinman"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "nodemailer",
-      "versionOrCommit": "9.1.1",
+      "versionOrCommit": "10.0.13",
       "sourceUrl": "https://github.com/nodemailer/nodemailer",
       "packagePathOrArtifact": "node_modules/nodemailer",
       "usage": "runtime",
@@ -41325,7 +41415,7 @@
     },
     {
       "name": "undici",
-      "versionOrCommit": "7.29.0",
+      "versionOrCommit": "7.30.0",
       "sourceUrl": "https://github.com/nodejs/undici",
       "packagePathOrArtifact": "node_modules/undici",
       "usage": "runtime",

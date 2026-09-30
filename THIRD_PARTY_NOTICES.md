@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.29.2
-- Lockfile SHA-256: `a7e73b7a675c27f32412351b408cc0e13d2c3518c3e93e08c602dfd1372fb043`
-- Distributed components: 1441
+- Lockfile SHA-256: `740823ae06034a19df125623322ab2e1a1a2103cbf63a51230bf8d1ff063e2b1`
+- Distributed components: 1445
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -36,7 +36,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
 | docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
 | docker-python:markitdown | 0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551 | native | MIT | allowed |
-| electron-runtime | 42.6.1 | native | MIT | allowed |
+| electron-runtime | 42.11.10 | native | MIT | allowed |
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | allowed |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
 | @anthropic-ai/sdk | 0.124.0 | runtime | MIT | allowed |
@@ -266,15 +266,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @napi-rs/canvas-win32-x64-msvc | 1.0.2 | runtime | MIT | allowed |
 | @napi-rs/canvas | 0.1.80 | runtime | MIT | allowed |
 | @napi-rs/canvas | 1.0.2 | runtime | MIT | allowed |
-| @next/env | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-darwin-arm64 | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-darwin-x64 | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-gnu | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-musl | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-x64-gnu | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-x64-musl | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-win32-arm64-msvc | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-win32-x64-msvc | 16.3.5 | runtime | MIT | allowed |
+| @next/env | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-darwin-arm64 | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-darwin-x64 | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-gnu | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-musl | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-x64-gnu | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-x64-musl | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-win32-arm64-msvc | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-win32-x64-msvc | 16.3.8 | runtime | MIT | allowed |
 | @noble/ciphers | 2.2.0 | runtime | MIT | allowed |
 | @noble/hashes | 2.2.0 | runtime | MIT | allowed |
 | @opentelemetry/api-logs | 0.220.0 | runtime | Apache-2.0 | allowed |
@@ -621,6 +621,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @xtuc/ieee754 | 1.2.0 | runtime | BSD-3-Clause | allowed |
 | @xtuc/long | 4.2.2 | runtime | Apache-2.0 | allowed |
 | @zone-eu/mailsplit | 5.4.16 | runtime | MIT | allowed |
+| @zone-eu/mailsplit | 5.4.19 | runtime | MIT | allowed |
 | abort-controller | 3.0.0 | runtime | MIT | allowed |
 | accepts | 1.3.8 | runtime | MIT | allowed |
 | accepts | 2.0.0 | runtime | MIT | allowed |
@@ -664,7 +665,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | bluebird | 3.4.7 | runtime | MIT | allowed |
 | body-parser | 2.3.0 | runtime | MIT | allowed |
 | bowser | 2.14.1 | runtime | MIT | allowed |
-| brace-expansion | 5.0.9 | runtime | MIT | allowed |
+| brace-expansion | 5.0.12 | runtime | MIT | allowed |
 | braces | 3.0.3 | runtime | MIT | allowed |
 | browser-fs-access | 0.29.1 | runtime | Apache-2.0 | allowed |
 | browserslist | 4.28.8 | runtime | MIT | allowed |
@@ -811,6 +812,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | emoji-regex | 10.6.0 | runtime | MIT | allowed |
 | encodeurl | 2.0.0 | runtime | MIT | allowed |
 | encoding-japanese | 2.3.0 | runtime | MIT | allowed |
+| encoding-japanese | 2.4.0 | runtime | MIT | allowed |
 | enhanced-resolve | 5.25.1 | runtime | MIT | allowed |
 | entities | 4.5.0 | runtime | BSD-2-Clause | allowed |
 | entities | 6.0.1 | runtime | BSD-2-Clause | allowed |
@@ -848,7 +850,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fast-equals | 5.4.1 | runtime | MIT | allowed |
 | fast-fifo | 1.3.2 | runtime | MIT | allowed |
 | fast-sha256 | 1.3.0 | runtime | Unlicense | allowed |
-| fast-uri | 3.1.6 | runtime | BSD-3-Clause | allowed |
+| fast-uri | 3.1.8 | runtime | BSD-3-Clause | allowed |
 | fault | 1.0.4 | runtime | MIT | allowed |
 | fault | 2.0.1 | runtime | MIT | allowed |
 | fdir | 6.5.0 | runtime | MIT | allowed |
@@ -940,7 +942,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | internmap | 1.0.1 | runtime | ISC | allowed |
 | internmap | 2.0.3 | runtime | ISC | allowed |
 | intl-messageformat | 11.2.11 | runtime | BSD-3-Clause | allowed |
-| ip-address | 10.5.0 | runtime | MIT | allowed |
+| ip-address | 10.7.2 | runtime | MIT | allowed |
 | ipaddr.js | 1.9.1 | runtime | MIT | allowed |
 | iron-session | 8.0.4 | runtime | MIT | allowed |
 | iron-webcrypto | 1.2.1 | runtime | MIT | allowed |
@@ -1001,8 +1003,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lemonadejs | 5.3.6 | runtime | MIT | allowed |
 | lib0 | 0.2.117 | runtime | MIT | allowed |
 | libbase64 | 1.3.0 | runtime | MIT | allowed |
+| libbase64 | 1.3.1 | runtime | MIT | allowed |
 | libmime | 5.4.3 | runtime | MIT | allowed |
+| libmime | 5.4.6 | runtime | MIT | allowed |
 | libqp | 2.1.1 | runtime | MIT | allowed |
+| libqp | 2.1.2 | runtime | MIT | allowed |
 | lie | 3.3.0 | runtime | MIT | allowed |
 | lines-and-columns | 1.2.4 | runtime | MIT | allowed |
 | linkify-it | 5.0.2 | runtime | MIT | allowed |
@@ -1025,10 +1030,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lucide-react | 1.24.0 | runtime | ISC | allowed |
 | lz-string | 1.5.0 | runtime | MIT | allowed |
 | magic-string | 0.30.21 | runtime | MIT | allowed |
-| mailparser | 3.9.23 | runtime | MIT | allowed |
+| mailparser | 3.9.32 | runtime | MIT | allowed |
 | mammoth | 1.12.0 | runtime | BSD-2-Clause | allowed |
 | markdown-it-front-matter | 0.2.4 | runtime | MIT | allowed |
-| markdown-it | 14.3.0 | runtime | MIT | allowed |
+| markdown-it | 14.3.2 | runtime | MIT | allowed |
 | markdown-table | 3.0.4 | runtime | MIT | allowed |
 | marked-katex-extension | 5.1.10 | runtime | MIT | allowed |
 | marked | 16.4.2 | runtime | MIT | allowed |
@@ -1114,15 +1119,14 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | next-intl-swc-plugin-extractor | 4.13.2 | runtime | MIT | allowed |
 | next-intl | 4.13.2 | runtime | MIT | allowed |
 | next-themes | 0.4.6 | runtime | MIT | allowed |
-| next | 16.3.5 | runtime | MIT | allowed |
+| next | 16.3.8 | runtime | MIT | allowed |
 | node-addon-api | 7.1.1 | runtime | MIT | allowed |
 | node-domexception | 1.0.0 | runtime | MIT | allowed |
 | node-fetch | 2.7.0 | runtime | MIT | allowed |
 | node-fetch | 3.3.2 | runtime | MIT | allowed |
 | node-pty | 1.1.0 | runtime | MIT | allowed |
 | node-releases | 2.0.54 | runtime | MIT | allowed |
-| nodemailer | 10.0.1 | runtime | MIT-0 | allowed |
-| nodemailer | 9.1.1 | runtime | MIT-0 | allowed |
+| nodemailer | 10.0.13 | runtime | MIT-0 | allowed |
 | normalize-path | 3.0.0 | runtime | MIT | allowed |
 | NousResearch/hermes-agent session-compaction reference | e2f8a0731bf26e95b31e35d73e71e183a1045b81 | runtime | MIT | allowed |
 | object-assign | 4.1.1 | runtime | MIT | allowed |
@@ -1382,7 +1386,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | underscore | 1.13.8 | runtime | MIT | allowed |
 | undici-types | 6.21.0 | runtime | MIT | allowed |
 | undici-types | 8.3.0 | runtime | MIT | allowed |
-| undici | 7.29.0 | runtime | MIT | allowed |
+| undici | 7.30.0 | runtime | MIT | allowed |
 | unified | 11.0.5 | runtime | MIT | allowed |
 | unist-util-find-after | 5.0.0 | runtime | MIT | allowed |
 | unist-util-is | 6.0.1 | runtime | MIT | allowed |
@@ -3504,7 +3508,7 @@ SOFTWARE.
 
 ### License text 0f2482bc8520
 
-Applies to libmime@5.4.3.
+Applies to libmime@5.4.3, libmime@5.4.6.
 
 Copyright notices:
 
@@ -5659,7 +5663,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text 27d7db274ef1
 
-Applies to libbase64@1.3.0.
+Applies to libbase64@1.3.0, libbase64@1.3.1.
 
 Copyright notices:
 
@@ -6306,7 +6310,7 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### License text 2dd95346123a
 
-Applies to libqp@2.1.1.
+Applies to libqp@2.1.1, libqp@2.1.2.
 
 Copyright notices:
 
@@ -6430,7 +6434,7 @@ THE SOFTWARE.
 
 ### License text 2fd433bea68e
 
-Applies to mailparser@3.9.23.
+Applies to mailparser@3.9.32.
 
 Copyright notices:
 
@@ -9092,7 +9096,7 @@ SOFTWARE.
 
 ### License text 4f814dcacd2d
 
-Applies to nodemailer@10.0.1, nodemailer@9.1.1.
+Applies to nodemailer@10.0.13.
 
 Copyright notices:
 
@@ -9405,7 +9409,7 @@ THE SOFTWARE.
 
 ### License text 5154e165bd6c
 
-Applies to electron-runtime@42.6.1.
+Applies to electron-runtime@42.11.10.
 
 Copyright notices:
 
@@ -13698,7 +13702,7 @@ SOFTWARE.
 
 ### License text 792c48c5a849
 
-Applies to markdown-it@14.3.0.
+Applies to markdown-it@14.3.2.
 
 Copyright notices:
 
@@ -18650,7 +18654,7 @@ SOFTWARE.
 
 ### License text 9c63a23124d6
 
-Applies to brace-expansion@5.0.9.
+Applies to brace-expansion@5.0.12.
 
 Copyright notices:
 
@@ -19211,6 +19215,63 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+```
+
+### License text a0977543d7fb
+
+Applies to encoding-japanese@2.4.0.
+
+Copyright notices:
+
+- Copyright (c) 2012-present polygonplanet
+- Copyright (c) Microsoft Corporation.
+
+```text
+MIT License
+
+Copyright (c) 2012-present polygonplanet
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-----
+
+Third-Party Licenses and Credits
+
+TypeScript declarations and type tests are based on the type definitions for
+encoding-japanese from DefinitelyTyped, licensed under the MIT License.
+
+Upstream package: @types/encoding-japanese 2.2.1
+
+The LICENSE distributed with @types/encoding-japanese states:
+
+  Copyright (c) Microsoft Corporation.
+
+The LICENSE in the DefinitelyTyped repository states:
+
+  Copyrights are respective of each contributor listed at the beginning of
+  each definition file.
+
+The contributors credited in the upstream package are:
+  rhysd (https://github.com/rhysd)
+  Piotr Błażejewicz (https://github.com/peterblazejewicz)
+
+The MIT License terms stated above apply equally to these files.
 ```
 
 ### License text a09b0d6d76e7
@@ -20250,7 +20311,7 @@ Copyright notices:
 
 ### License text a6db8096b270
 
-Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.29.0.
+Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.30.0.
 
 Copyright notices:
 
@@ -25367,7 +25428,7 @@ END OF TERMS AND CONDITIONS
 
 ### License text d1cc09bdab06
 
-Applies to @zone-eu/mailsplit@5.4.16.
+Applies to @zone-eu/mailsplit@5.4.16, @zone-eu/mailsplit@5.4.19.
 
 Copyright notices:
 
@@ -26874,7 +26935,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text df7464922225
 
-Applies to fast-uri@3.1.6.
+Applies to fast-uri@3.1.8.
 
 Copyright notices:
 
@@ -28599,7 +28660,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text ee765244e2d5
 
-Applies to @next/env@16.3.5, @next/swc-darwin-arm64@16.3.5, @next/swc-darwin-x64@16.3.5, @next/swc-linux-arm64-gnu@16.3.5, @next/swc-linux-arm64-musl@16.3.5, @next/swc-linux-x64-gnu@16.3.5, @next/swc-linux-x64-musl@16.3.5, @next/swc-win32-arm64-msvc@16.3.5, @next/swc-win32-x64-msvc@16.3.5, next@16.3.5.
+Applies to @next/env@16.3.8, @next/swc-darwin-arm64@16.3.8, @next/swc-darwin-x64@16.3.8, @next/swc-linux-arm64-gnu@16.3.8, @next/swc-linux-arm64-musl@16.3.8, @next/swc-linux-x64-gnu@16.3.8, @next/swc-linux-x64-musl@16.3.8, @next/swc-win32-arm64-msvc@16.3.8, @next/swc-win32-x64-msvc@16.3.8, next@16.3.8.
 
 Copyright notices:
 
@@ -29333,7 +29394,7 @@ SOFTWARE.
 
 ### License text f8d791359a50
 
-Applies to ip-address@10.5.0.
+Applies to ip-address@10.7.2.
 
 Copyright notices:
 
