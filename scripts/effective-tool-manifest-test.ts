@@ -49,7 +49,11 @@ assert.match(filePrompt, /Markdown-aware `edit_file` mode/);
 assert.match(filePrompt, /Never insert multi-block Markdown through plain `oldText`\/`newText`/);
 assert.match(filePrompt, /one `apply_patch` call with one `files\[\]` entry/);
 assert.match(filePrompt, /Browser presence does not select the tool/);
-assert.match(filePrompt, /Review is off by default/);
+assert.match(filePrompt, /Document Review Center is experimental and disabled by default/);
+assert.match(filePrompt, /stored per-document review preference is on/);
+assert.match(filePrompt, /one version per file and uninterrupted task segment/);
+assert.match(filePrompt, /External MCP edits keep one version per operation/);
+assert.doesNotMatch(filePrompt, /separate tool calls normally create separate revisions/);
 
 const todoManifest = buildEffectiveToolManifest([
   tool('create_human_todo'),
