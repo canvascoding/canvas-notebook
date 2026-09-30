@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getGroqApiKeyFromIntegrations, getOpenAIApiKeyFromIntegrations } from '@/app/lib/integrations/env-config';
+import { resolveDictationCredential } from './credentials';
 import { localDictationAvailable, transcribeLocally } from './local-worker';
 import { localDictationRuntimeSupported } from './runtime-install';
 import { readDictationSettings, type DictationSettings } from './settings';
@@ -25,8 +25,9 @@ export type DictationAvailability = {
 };
 
 async function providerKey(provider: DictationSettings['provider']): Promise<string | null> {
-  if (provider === 'groq') return getGroqApiKeyFromIntegrations();
-  if (provider === 'openai') return getOpenAIApiKeyFromIntegrations();
+  if (provider === 'groq' || provider === 'openai') {
+    return (await resolveDictationCredential(provider)).value;
+  }
   return null;
 }
 
@@ -60,7 +61,7 @@ export async function readDictationAvailability(settings?: DictationSettings): P
     available,
     provider: selected.provider,
     model: selected.model,
-    reason: available ? null : `${selected.provider === 'groq' ? 'GROQ_API_KEY' : 'OPENAI_API_KEY'} is missing in Integrations.`,
+    reason: available ? null : `${selected.provider === 'groq' ? 'GROQ_API_KEY' : 'OPENAI_API_KEY'} is missing from the instance-wide dictation credentials.`,
   };
 }
 

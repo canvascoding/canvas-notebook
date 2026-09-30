@@ -5,6 +5,7 @@ import { Loader2, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 
@@ -12,8 +13,11 @@ type Provider = 'local' | 'openai' | 'groq';
 type Settings = { enabled: boolean; provider: Provider; model: string; language: string };
 type Status = { available: boolean; reason: string | null };
 type LocalInstall = { state: 'missing' | 'installing' | 'installed' | 'failed' | 'disabled'; message?: string };
-type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; localInstall: LocalInstall }; error?: string };
+type CredentialStatus = { configured: boolean; source: 'integrations' | 'agents' | 'environment' | null };
+type Credentials = Record<'openai' | 'groq', CredentialStatus>;
+type ResponseData = { success: boolean; data?: { settings: Settings; status: Status; localInstall: LocalInstall; credentials: Credentials }; error?: string };
 type InstallResponse = { success: boolean; data?: { localInstall: LocalInstall }; error?: string };
+type CredentialResponse = { success: boolean; data?: { credentials: Credentials; status: Status }; error?: string };
 
 const models: Record<Provider, readonly string[]> = {
   local: ['tiny', 'base', 'small', 'medium', 'large-v3'],
@@ -26,6 +30,10 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
   const [settings, setSettings] = useState<Settings | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [localInstall, setLocalInstall] = useState<LocalInstall | null>(null);
+  const [credentials, setCredentials] = useState<Credentials | null>(null);
+  const [apiKey, setApiKey] = useState('');
+  const [credentialSaving, setCredentialSaving] = useState(false);
+  const [credentialSaved, setCredentialSaved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [installing, setInstalling] = useState(false);
@@ -38,7 +46,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
       .then(async (response) => {
         const body = await response.json() as ResponseData;
         if (!response.ok || !body.data) throw new Error(body.error || t('loadError'));
-        if (active) { setSettings(body.data.settings); setStatus(body.data.status); setLocalInstall(body.data.localInstall); }
+        if (active) { setSettings(body.data.settings); setStatus(body.data.status); setLocalInstall(body.data.localInstall); setCredentials(body.data.credentials); }
       })
       .catch((cause: unknown) => { if (active) setError(cause instanceof Error ? cause.message : t('loadError')); })
       .finally(() => { if (active) setLoading(false); });
@@ -93,11 +101,36 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
       setSettings(body.data.settings);
       setStatus(body.data.status);
       setLocalInstall(body.data.localInstall);
+      setCredentials(body.data.credentials);
       setSaved(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t('saveError'));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function saveCredential() {
+    if (!settings || settings.provider === 'local' || !apiKey.trim()) return;
+    setCredentialSaving(true);
+    setCredentialSaved(false);
+    setError(null);
+    try {
+      const response = await fetch('/api/admin/dictation/credential', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: settings.provider, apiKey: apiKey.trim() }),
+      });
+      const body = await response.json() as CredentialResponse;
+      if (!response.ok || !body.data) throw new Error(body.error || t('credentialSaveError'));
+      setCredentials(body.data.credentials);
+      setApiKey('');
+      setCredentialSaved(true);
+      setStatus(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t('credentialSaveError'));
+    } finally {
+      setCredentialSaving(false);
     }
   }
 
@@ -114,7 +147,7 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
           <Label htmlFor="dictation-provider">{t('provider')}</Label>
           <select id="dictation-provider" value={settings.provider} onChange={(event) => {
             const provider = event.target.value as Provider;
-            setSettings({ ...settings, provider, model: models[provider][0] }); setStatus(null); setSaved(false);
+            setSettings({ ...settings, provider, model: models[provider][0] }); setStatus(null); setSaved(false); setApiKey(''); setCredentialSaved(false);
           }} className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
             <option value="local" disabled={localInstall?.state === 'disabled'}>{t('providers.local')}</option>
             <option value="openai">OpenAI</option>
@@ -135,7 +168,22 @@ export function DictationSettingsPanel({ onboarding = false }: { onboarding?: bo
           {(localInstall?.state === 'missing' || localInstall?.state === 'failed') && <Button type="button" variant="outline" onClick={() => void installLocalRuntime()} disabled={installing}>
             {installing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('installLocal')}
           </Button>}
-        </div> : <p className="text-sm text-muted-foreground">{t('cloudNote')}</p>}
+        </div> : <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
+          <p className="text-sm text-muted-foreground">{t('cloudNote')}</p>
+          <div className="space-y-2">
+            <Label htmlFor="dictation-api-key">{settings.provider === 'openai' ? 'OPENAI_API_KEY' : 'GROQ_API_KEY'}</Label>
+            <Input id="dictation-api-key" type="password" autoComplete="off" value={apiKey} onChange={(event) => { setApiKey(event.target.value); setCredentialSaved(false); }} placeholder={t('credentialPlaceholder')} />
+            <p role="status" className={`text-xs ${credentials?.[settings.provider]?.configured ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}`}>
+              {credentials?.[settings.provider]?.configured ? t('credentialConfigured') : t('credentialMissing')}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="button" variant="outline" onClick={() => void saveCredential()} disabled={credentialSaving || !apiKey.trim()}>
+              {credentialSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('saveCredential')}
+            </Button>
+            {credentialSaved && <span role="status" className="text-xs text-muted-foreground">{t('credentialSaved')}</span>}
+          </div>
+        </div>}
         {status && settings.enabled && <p role="status" className={status.available ? 'text-sm text-emerald-700 dark:text-emerald-400' : 'text-sm text-amber-700 dark:text-amber-400'}>{status.available ? t('available') : settings.provider === 'local' ? t('localUnavailable') : `${t('unavailable')} ${status.reason ?? ''}`}</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <div className="flex items-center gap-3"><Button type="button" onClick={() => void save()} disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}{t('save')}</Button>{saved && <span role="status" className="text-sm text-muted-foreground">{t('saved')}</span>}</div>
