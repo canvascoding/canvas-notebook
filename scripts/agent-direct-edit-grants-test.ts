@@ -42,7 +42,13 @@ async function compile<T>(filename: string, dependencies: Record<string, unknown
   return exports as T;
 }
 
-async function harness(t: TestContext, simulateLocks = false) {
+type GrantRaceHooks = {
+  afterSessionResolution?: () => void;
+  afterActionInsert?: () => void;
+  afterReceiptRead?: () => void;
+};
+
+async function harness(t: TestContext, simulateLocks = false, hooks: GrantRaceHooks = {}) {
   const sqlite = new DatabaseSync(':memory:');
   t.after(() => sqlite.close());
   sqlite.exec(`PRAGMA foreign_keys = ON;
@@ -63,6 +69,7 @@ async function harness(t: TestContext, simulateLocks = false) {
   }
   let now = 1_000_000;
   let allowed = true;
+  let reviewEnabled = true;
   let currentWorkspace = 'workspace';
   let permissionChecks = 0;
   let connectionCount = 0;
@@ -97,7 +104,9 @@ async function harness(t: TestContext, simulateLocks = false) {
           const row = sqlite.prepare(clean).get(args(values)) as { grant_id: string } | undefined;
           if (row) await lock(`grant:${row.grant_id}`);
         }
-        return sqlite.prepare(clean).get(args(values));
+        const row = sqlite.prepare(clean).get(args(values));
+        if (sql.includes('FROM collaboration_agent_direct_edit_grant_actions')) hooks.afterReceiptRead?.();
+        return row;
       },
       async run(sql: string, values: unknown[] = []) {
         if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(sql)) {
@@ -106,7 +115,9 @@ async function harness(t: TestContext, simulateLocks = false) {
           if (sql !== 'BEGIN') release();
           return {};
         }
-        return sqlite.prepare(sql).run(args(values));
+        const result = sqlite.prepare(sql).run(args(values));
+        if (sql.includes('INSERT INTO collaboration_agent_direct_edit_grant_actions')) hooks.afterActionInsert?.();
+        return result;
       },
       async all(sql: string, values: unknown[] = []) { return sqlite.prepare(sql).all(args(values)); },
       async close() { release(); },
@@ -115,6 +126,9 @@ async function harness(t: TestContext, simulateLocks = false) {
   const service = await compile<typeof Service>('app/lib/collaboration/agent-direct-edit-grants.ts', {
     './diagnostics': { logCollaborationDiagnostic(_level: string, data: Record<string, unknown>) { diagnostics.push(data); } },
     '@/app/lib/db': { openDb },
+    '@/app/lib/document-review-availability': {
+      readDocumentReviewAvailability: () => ({ documentReviewEnabled: reviewEnabled, updatedAt: null }),
+    },
     '@/app/lib/pi/session-workspace-context': {
       async resolveAgentExecutionContextForStoredSession(input: Record<string, unknown>) {
         permissionChecks++;
@@ -123,6 +137,7 @@ async function harness(t: TestContext, simulateLocks = false) {
         assert.equal(input.sessionId, scope.actorSessionId);
         assert.equal(input.agentId, scope.agentId);
         if (!allowed) throw new Error('Current access denied.');
+        hooks.afterSessionResolution?.();
         return { userId: input.userId, sessionId: input.sessionId, agentId: input.agentId,
           workspaceId: currentWorkspace, canWrite: true };
       },
@@ -134,6 +149,8 @@ async function harness(t: TestContext, simulateLocks = false) {
   return { service, sqlite, input, grant, revoke, transactions, waiters, diagnostics,
     setNow(value: number) { now = value; }, get now() { return now; },
     setAllowed(value: boolean) { allowed = value; },
+    setReviewEnabled(value: boolean) { reviewEnabled = value; },
+    get reviewEnabled() { return reviewEnabled; },
     setWorkspace(value: string) { currentWorkspace = value; },
     get permissionChecks() { return permissionChecks; } };
 }
@@ -390,14 +407,21 @@ test('private diagnostics log committed grants and revokes once, without session
   }
 });
 
-async function routeHarness(t: TestContext) {
-  const h = await harness(t);
+async function routeHarness(t: TestContext, hooks: GrantRaceHooks = {}) {
+  const h = await harness(t, false, hooks);
   let authenticated = true;
   let limited = false;
   let userId = 'owner';
   let currentWorkspace = workspace;
   const route = await compile<typeof Route>('app/api/files/collaboration/operations/[operationId]/direct-edit-grant/route.ts', {
     '@/app/lib/collaboration/agent-direct-edit-grants': h.service,
+    '@/app/lib/file-version-center/route-adapter': {
+      documentReviewUnavailableResponse: (enabled: () => boolean = () => h.reviewEnabled) => enabled()
+        ? null
+        : NextResponse.json({ contractVersion: 1, success: false,
+          error: { code: 'FVRC_CAPABILITY_UNAVAILABLE', message: 'The Document Review Center is disabled.', retryable: false },
+        }, { status: 409, headers: { 'Cache-Control': 'private, no-store, max-age=0' } }),
+    },
     '@/app/lib/workspaces/request': {
       async requireRequestWorkspace(_request: NextRequest, options: unknown) {
         assert.deepEqual(options, { permissions: 'canRead' });
@@ -438,6 +462,46 @@ test('real grant API supports grant, status, and revoke without accepting its pr
   assert.equal(h.sqlite.prepare('SELECT status FROM collaboration_agent_operations').get()?.status, 'proposed');
   const revoked = await h.post({ action: 'revoke', idempotencyKey: 'route-revoke' });
   assert.equal((await revoked.json()).grant.active, false);
+});
+
+test('public grant rolls back when Review Center is disabled during session resolution', async (t) => {
+  const hooks: GrantRaceHooks = {};
+  const h = await routeHarness(t, hooks);
+  hooks.afterSessionResolution = () => h.setReviewEnabled(false);
+  const response = await h.post({ action: 'grant', idempotencyKey: 'session-race' });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, 'FVRC_CAPABILITY_UNAVAILABLE');
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grants').get()?.count, 0);
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grant_actions').get()?.count, 0);
+  assert.ok(h.transactions.some((entry) => entry.endsWith(':ROLLBACK')));
+  // The instance setting fences only the public grant action, not internal direct editing.
+  assert.ok((await h.grant('internal-off'))?.active);
+  assert.equal((await h.post({ action: 'revoke', idempotencyKey: 'revoke-off' })).status, 200);
+});
+
+test('public grant rolls back its grant and receipt when Review Center turns off after SQL writes', async (t) => {
+  const hooks: GrantRaceHooks = {};
+  const h = await routeHarness(t, hooks);
+  hooks.afterActionInsert = () => h.setReviewEnabled(false);
+  const response = await h.post({ action: 'grant', idempotencyKey: 'post-write-race' });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, 'FVRC_CAPABILITY_UNAVAILABLE');
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grants').get()?.count, 0);
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grant_actions').get()?.count, 0);
+  assert.ok(h.transactions.some((entry) => entry.endsWith(':ROLLBACK')));
+});
+
+test('public replay cannot return an old grant after Review Center turns off during receipt lookup', async (t) => {
+  const hooks: GrantRaceHooks = {};
+  const h = await routeHarness(t, hooks);
+  let receiptReads = 0;
+  hooks.afterReceiptRead = () => { if (++receiptReads === 2) h.setReviewEnabled(false); };
+  assert.equal((await h.post({ action: 'grant', idempotencyKey: 'replay-race' })).status, 200);
+  const response = await h.post({ action: 'grant', idempotencyKey: 'replay-race' });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error.code, 'FVRC_CAPABILITY_UNAVAILABLE');
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grants').get()?.count, 1);
+  assert.equal(h.sqlite.prepare('SELECT COUNT(*) AS count FROM collaboration_agent_direct_edit_grant_actions').get()?.count, 1);
 });
 
 test('grant API rejects untrusted scope, grant identity, lifetime and authorization fields', async (t) => {

@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { resolveAgentExecutionContextForStoredSession } from '@/app/lib/pi/session-workspace-context';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { logCollaborationDiagnostic, type CollaborationDiagnostic } from './diagnostics';
@@ -29,6 +30,12 @@ export class AgentDirectEditGrantUnavailableError extends Error {
 
   constructor() {
     super('Direct editing is not authorized for this session and document. Submit a proposal for review.');
+  }
+}
+
+export class AgentDirectEditGrantReviewDisabledError extends Error {
+  constructor() {
+    super('The Document Review Center is disabled. No public direct editing grant was created.');
   }
 }
 
@@ -146,13 +153,14 @@ async function ownedOperationScope(db: SqlConnection, input: OperationGrantInput
   return scope;
 }
 
-async function transaction<T>(action: (db: SqlConnection) => Promise<T>): Promise<T> {
+async function transaction<T>(action: (db: SqlConnection) => Promise<T>, beforeCommit?: () => void): Promise<T> {
   return withGrantDatabaseCapacity(async () => {
     const db = await openDb();
     let discard: Error | undefined;
     try {
       await db.run('BEGIN');
       const result = await action(db);
+      beforeCommit?.();
       await db.run('COMMIT');
       return result;
     } catch (error) {
@@ -237,11 +245,19 @@ export async function getAgentDirectEditGrantForOperation(input: OperationGrantI
 /** An explicit user action changes a server-derived scope; it never approves the source proposal. */
 export async function setAgentDirectEditGrantForOperation(input: OperationGrantInput & {
   action: 'grant' | 'revoke'; idempotencyKey: string;
+  /** Public grant requests must remain enabled until their transaction commits. */
+  requireDocumentReviewCenter?: boolean;
 }): Promise<AgentDirectEditGrantState | null> {
   if (!['grant', 'revoke'].includes(input.action) || typeof input.idempotencyKey !== 'string'
     || input.idempotencyKey.trim().length === 0 || input.idempotencyKey.length > 200) {
     throw new Error('A grant or revoke action and an idempotency key of at most 200 characters are required.');
   }
+  const assertPublicGrantAvailable = () => {
+    if (input.action === 'grant' && input.requireDocumentReviewCenter
+      && !readDocumentReviewAvailability().documentReviewEnabled) {
+      throw new AgentDirectEditGrantReviewDisabledError();
+    }
+  };
   let diagnostic: CollaborationDiagnostic | undefined;
   try {
     const result = await transaction(async (db) => {
@@ -254,6 +270,7 @@ export async function setAgentDirectEditGrantForOperation(input: OperationGrantI
       [input.userId, input.operationId, input.idempotencyKey]) as { action: string; grant_id: string | null } | undefined;
       if (receipt && receipt.action !== input.action) throw new Error('This idempotency key was already used for another action.');
       if (receipt) {
+        assertPublicGrantAvailable();
         const row = receipt.grant_id ? await db.get(`SELECT * FROM collaboration_agent_direct_edit_grants
           WHERE grant_id = $1`, [receipt.grant_id]) as GrantRow | undefined : undefined;
         const sessionId = row ? await currentSessionId(db, scope) : null;
@@ -269,6 +286,7 @@ export async function setAgentDirectEditGrantForOperation(input: OperationGrantI
         }
         // Repeated clicks while active do not silently extend the explicitly bounded grant.
         if (!existing || !state(existing, true).active || String(existing.pi_session_db_id) !== sessionId) {
+          assertPublicGrantAvailable();
           const now = Date.now();
           if (existing) await db.run(`UPDATE collaboration_agent_direct_edit_grants SET revoked_at = $1
             WHERE grant_id = $2`, [now, existing.grant_id]);
@@ -293,7 +311,7 @@ export async function setAgentDirectEditGrantForOperation(input: OperationGrantI
         (user_id, operation_id, idempotency_key, action, grant_id, created_at) VALUES ($1, $2, $3, $4, $5, $6)`,
       [input.userId, input.operationId, input.idempotencyKey, input.action, result?.grant_id ?? null, Date.now()]);
       return result ? state(result, input.action === 'grant') : null;
-    });
+    }, assertPublicGrantAvailable);
     if (diagnostic) diagnose(diagnostic);
     return result;
   } catch (error) {

@@ -4,6 +4,7 @@ import { applyRateLimit } from '@/app/lib/api/route-helpers';
 import { isAgentDatabaseCapacityError } from '@/app/lib/collaboration/agent-database-capacity';
 import {
   AgentDirectEditGrantUnavailableError,
+  AgentDirectEditGrantReviewDisabledError,
   getAgentDirectEditGrantForOperation,
   setAgentDirectEditGrantForOperation,
 } from '@/app/lib/collaboration/agent-direct-edit-grants';
@@ -64,9 +65,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       operationId,
       workspace: authorized.workspace, userId: authorized.session.user.id,
       action: body.action, idempotencyKey: body.idempotencyKey,
+      requireDocumentReviewCenter: body.action === 'grant',
     });
     return NextResponse.json({ success: true, grant }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    if (error instanceof AgentDirectEditGrantReviewDisabledError) {
+      return documentReviewUnavailableResponse(() => false)!;
+    }
     return failure(error);
   }
 }
