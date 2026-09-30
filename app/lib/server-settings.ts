@@ -31,6 +31,9 @@ export type ServerSettings = {
   terminalRevocationId?: string;
   terminalUpdatedAt?: string;
   terminalUpdatedBy?: string;
+  documentReviewEnabled?: boolean;
+  documentReviewUpdatedAt?: string;
+  documentReviewUpdatedBy?: string;
   timeZone?: string;
   updatedAt?: string;
   updatedBy?: string;
@@ -139,6 +142,9 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     terminalRevocationId?: unknown;
     terminalUpdatedAt?: unknown;
     terminalUpdatedBy?: unknown;
+    documentReviewEnabled?: unknown;
+    documentReviewUpdatedAt?: unknown;
+    documentReviewUpdatedBy?: unknown;
     timeZone?: unknown;
     updatedAt?: unknown;
     updatedBy?: unknown;
@@ -159,6 +165,9 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     ...(typeof record.terminalRevocationId === 'string' ? { terminalRevocationId: record.terminalRevocationId } : {}),
     ...(typeof record.terminalUpdatedAt === 'string' ? { terminalUpdatedAt: record.terminalUpdatedAt } : {}),
     ...(typeof record.terminalUpdatedBy === 'string' ? { terminalUpdatedBy: record.terminalUpdatedBy } : {}),
+    documentReviewEnabled: record.documentReviewEnabled === true,
+    ...(typeof record.documentReviewUpdatedAt === 'string' ? { documentReviewUpdatedAt: record.documentReviewUpdatedAt } : {}),
+    ...(typeof record.documentReviewUpdatedBy === 'string' ? { documentReviewUpdatedBy: record.documentReviewUpdatedBy } : {}),
     ...(timeZone ? { timeZone } : {}),
     ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
     ...(typeof record.updatedBy === 'string' ? { updatedBy: record.updatedBy } : {}),
@@ -236,6 +245,20 @@ export async function setTerminalEnabled(userId: string, enabled: boolean): Prom
       ...(!enabled ? { terminalRevocationId: randomUUID() } : {}),
       terminalUpdatedAt: new Date().toISOString(),
       terminalUpdatedBy: userId,
+    },
+  });
+}
+
+export async function setDocumentReviewEnabled(userId: string, enabled: boolean): Promise<void> {
+  if (typeof enabled !== 'boolean') throw new Error('Document review enabled must be a boolean.');
+  const file = await readServerSettingsFile();
+  await writeServerSettingsFileAtomic({
+    version: 1,
+    settings: {
+      ...file.settings,
+      documentReviewEnabled: enabled,
+      documentReviewUpdatedAt: new Date().toISOString(),
+      documentReviewUpdatedBy: userId,
     },
   });
 }
