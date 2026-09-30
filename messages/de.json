@@ -2098,6 +2098,13 @@
     "forkUnavailableTitleGenerating": "Warte auf den Chat-Titel, bevor du forkst",
     "fileReferences": "Dateien",
     "referenceList": {
+      "changedTitle": "Dateien · {count}",
+      "viewChanges": "Änderungen ansehen",
+      "operations": "{count, plural, one {# Änderung} other {# Änderungen}}",
+      "operation": "Änderung {count}",
+      "refresh": "Änderungen neu laden",
+      "loadingStatus": "Status wird geladen…",
+      "loadError": "Einige aktuelle Änderungsstatus konnten nicht geladen werden. Versuche es durch Neuladen erneut.",
       "title": "Dateien",
       "created": "Erstellt",
       "changed": "Geändert",

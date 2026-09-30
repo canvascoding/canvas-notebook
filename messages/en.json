@@ -2099,6 +2099,13 @@
     "forkUnavailableTitleGenerating": "Wait for the chat title before forking",
     "fileReferences": "Files",
     "referenceList": {
+      "changedTitle": "Files · {count}",
+      "viewChanges": "View changes",
+      "operations": "{count, plural, one {# change} other {# changes}}",
+      "operation": "Change {count}",
+      "refresh": "Reload changes",
+      "loadingStatus": "Loading status…",
+      "loadError": "Some current change statuses could not be loaded. Reload to try again.",
       "title": "Files",
       "created": "Created",
       "changed": "Changed",

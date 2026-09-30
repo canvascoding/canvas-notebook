@@ -5,7 +5,7 @@ import { useTranslations } from 'next-intl';
 import type { ToolBatch } from '@/app/lib/chat/types';
 import { getPiMessageDetails } from '@/app/lib/chat/message-content';
 import { readMcpReconnectHint } from '@/app/lib/mcp/connection-health-types';
-import { readToolAppInvocations, type ToolAppInvocation } from '@/app/lib/tool-apps/types';
+import { FILE_CHANGE_APP_URI, readToolAppInvocations, type ToolAppInvocation } from '@/app/lib/tool-apps/types';
 import { ToolAppSlotPool } from '@/app/lib/tool-apps/slot-pool';
 import { useMcpAppChatContext } from './McpAppChatContext';
 import { McpReconnectNotice } from './McpReconnectNotice';
@@ -121,7 +121,8 @@ export function ToolAppMessages({ batch }: { batch: ToolBatch }) {
   return <>{batch.calls.map((call) => {
     const message = call.message;
     if (!message) return null;
-    const invocations = readToolAppInvocations(message.piMessage);
+    const invocations = readToolAppInvocations(message.piMessage).filter(invocation =>
+      invocation.kind !== 'builtin' || invocation.descriptor.resourceUri !== FILE_CHANGE_APP_URI);
     const reconnect = readMcpReconnectHint(getPiMessageDetails(message.piMessage));
     if (!invocations.length && !reconnect) return null;
     const callKey = call.toolCallId || call.id;
