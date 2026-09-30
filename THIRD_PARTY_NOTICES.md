@@ -4,7 +4,7 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.29.2
-- Lockfile SHA-256: `a0ecff9b9e490fd49011e6bcb9506720d8577b0580e03ed770d81ad15d6e2b49`
+- Lockfile SHA-256: `740823ae06034a19df125623322ab2e1a1a2103cbf63a51230bf8d1ff063e2b1`
 - Distributed components: 1445
 - Release gate: **approved**
 
@@ -266,15 +266,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @napi-rs/canvas-win32-x64-msvc | 1.0.2 | runtime | MIT | allowed |
 | @napi-rs/canvas | 0.1.80 | runtime | MIT | allowed |
 | @napi-rs/canvas | 1.0.2 | runtime | MIT | allowed |
-| @next/env | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-darwin-arm64 | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-darwin-x64 | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-gnu | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-musl | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-x64-gnu | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-linux-x64-musl | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-win32-arm64-msvc | 16.3.5 | runtime | MIT | allowed |
-| @next/swc-win32-x64-msvc | 16.3.5 | runtime | MIT | allowed |
+| @next/env | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-darwin-arm64 | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-darwin-x64 | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-gnu | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-musl | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-x64-gnu | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-linux-x64-musl | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-win32-arm64-msvc | 16.3.8 | runtime | MIT | allowed |
+| @next/swc-win32-x64-msvc | 16.3.8 | runtime | MIT | allowed |
 | @noble/ciphers | 2.2.0 | runtime | MIT | allowed |
 | @noble/hashes | 2.2.0 | runtime | MIT | allowed |
 | @opentelemetry/api-logs | 0.220.0 | runtime | Apache-2.0 | allowed |
@@ -1119,7 +1119,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | next-intl-swc-plugin-extractor | 4.13.2 | runtime | MIT | allowed |
 | next-intl | 4.13.2 | runtime | MIT | allowed |
 | next-themes | 0.4.6 | runtime | MIT | allowed |
-| next | 16.3.5 | runtime | MIT | allowed |
+| next | 16.3.8 | runtime | MIT | allowed |
 | node-addon-api | 7.1.1 | runtime | MIT | allowed |
 | node-domexception | 1.0.0 | runtime | MIT | allowed |
 | node-fetch | 2.7.0 | runtime | MIT | allowed |
@@ -28660,7 +28660,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text ee765244e2d5
 
-Applies to @next/env@16.3.5, @next/swc-darwin-arm64@16.3.5, @next/swc-darwin-x64@16.3.5, @next/swc-linux-arm64-gnu@16.3.5, @next/swc-linux-arm64-musl@16.3.5, @next/swc-linux-x64-gnu@16.3.5, @next/swc-linux-x64-musl@16.3.5, @next/swc-win32-arm64-msvc@16.3.5, @next/swc-win32-x64-msvc@16.3.5, next@16.3.5.
+Applies to @next/env@16.3.8, @next/swc-darwin-arm64@16.3.8, @next/swc-darwin-x64@16.3.8, @next/swc-linux-arm64-gnu@16.3.8, @next/swc-linux-arm64-musl@16.3.8, @next/swc-linux-x64-gnu@16.3.8, @next/swc-linux-x64-musl@16.3.8, @next/swc-win32-arm64-msvc@16.3.8, @next/swc-win32-x64-msvc@16.3.8, next@16.3.8.
 
 Copyright notices:
 
