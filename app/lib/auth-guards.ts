@@ -6,10 +6,12 @@ import { auth } from '@/app/lib/auth';
 import { hasAnyAuthUser } from '@/app/lib/auth-setup';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
+import { safeAppReturnTo } from '@/app/lib/auth/return-to';
 
 export async function requirePageSession(options?: {
   allowIncompleteOnboarding?: boolean;
   allowIncompleteUserOnboarding?: boolean;
+  returnTo?: string;
 }) {
   const [session, locale] = await Promise.all([
     auth.api.getSession({ headers: await headers() }),
@@ -20,7 +22,8 @@ export async function requirePageSession(options?: {
     if (!(await hasAnyAuthUser())) {
       redirect({ href: '/setup', locale });
     }
-    redirect({ href: '/login', locale });
+    const returnTo = safeAppReturnTo(options?.returnTo);
+    redirect({ href: returnTo ? `/login?${new URLSearchParams({ from: returnTo })}` : '/login', locale });
   }
 
   const onboardingEnabled = isOnboardingEnabled();

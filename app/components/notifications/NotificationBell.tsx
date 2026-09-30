@@ -43,6 +43,7 @@ import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event'
 import { openEmailReview } from '@/app/store/email-review-store';
 import { EmailReviewNotificationActions } from '@/app/components/email-review/EmailReviewNotificationActions';
 import { openMemoryReview } from '@/app/store/memory-review-store';
+import { openTodoDetail } from '@/app/store/todo-detail-store';
 import {
   readNotificationSummary,
   type NotificationItem,
@@ -296,6 +297,11 @@ export function NotificationBell() {
 
   const openItem = useCallback(async (item: NotificationItem) => {
     setOpen(false);
+    if (item.target.kind === 'todo') {
+      if (item.unread) void markItemRead(item).catch(() => undefined);
+      openTodoDetail(item.target.todoId);
+      return;
+    }
     const emailTarget = emailReviewTargetFromNotification(item);
     if (emailTarget) { await openEmailReview(emailTarget); return; }
     if (item.target.kind === 'memory') {

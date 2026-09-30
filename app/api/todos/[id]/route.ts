@@ -17,6 +17,7 @@ import {
 import { isTodoIconKey, type TodoIconKey } from '@/app/lib/todos/icons';
 import { setTodoReadStateForUser } from '@/app/lib/todos/read-state-actions';
 import { todoLifecycleAllowsUnread } from '@/app/lib/todos/read-state-policy';
+import { createTodoWritePolicy } from '@/app/lib/todos/write-policy';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: todo });
+    return NextResponse.json({ success: true, data: { ...todo, canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
   } catch (error) {
     return todoErrorResponse(error, 'Failed to load todo.');
   }
@@ -139,6 +140,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     let todo = existingTodo;
     if (shouldUpdateTodo) {
       const updatedTodo = await updateTodo(session.user.id, id, {
+        ...(payload.expectedUpdatedAt !== undefined ? {
+          expectedUpdatedAt: parseOptionalDate(payload.expectedUpdatedAt) ?? new Date(NaN),
+        } : {}),
         ...(payload.title !== undefined ? { title: String(payload.title) } : {}),
         ...(payload.description !== undefined ? { description: typeof payload.description === 'string' ? payload.description : null } : {}),
         ...(payload.categoryId !== undefined ? { categoryId: typeof payload.categoryId === 'string' ? payload.categoryId : null } : {}),
@@ -166,7 +170,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       })).todo;
     }
 
-    return NextResponse.json({ success: true, data: todo });
+    return NextResponse.json({ success: true, data: { ...todo, canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
   } catch (error) {
     return todoErrorResponse(error, 'Failed to update todo.');
   }
@@ -199,7 +203,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, data: todo });
+    return NextResponse.json({ success: true, data: { ...todo, canWrite: await createTodoWritePolicy(session).canWrite(todo) } });
   } catch (error) {
     return todoErrorResponse(error, 'Failed to delete todo.');
   }

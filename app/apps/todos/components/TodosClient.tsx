@@ -14,49 +14,30 @@ import {
   Check,
   CheckCircle2,
   Circle,
-  Clock3,
   Edit3,
-  Eye,
-  ExternalLink,
-  FileText,
-  FolderSearch,
   FolderKanban,
   Globe2,
   MailCheck,
   MailWarning,
   MailOpen,
   Menu,
-  MessageSquare,
-  Lightbulb,
   ListTodo,
   Minus,
   MoreHorizontal,
   Plus,
   RefreshCcw,
-  Search,
-  Send,
-  Settings2,
   Trash2,
   UserRound,
   Users,
-  X,
 } from 'lucide-react';
 
-import { Link } from '@/i18n/navigation';
 import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
-import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import {
   listWorkspaceFileReferences,
-  readWorkspaceFile,
   type WorkspaceFileReferenceEntry,
 } from '@/app/lib/files/client';
-import {
-  buildTodoFileNotebookHref,
-  getTodoFileFallbackTitle,
-  getTodoFileMetadataTitle,
-} from '@/app/lib/todos/file-link-display';
 import { resolveTodoById } from './todo-selection';
 import { useTodoBulkSelection } from './todo-bulk-selection';
 import { TodoBulkToolbar, TodoSelectionCheckbox } from './TodoBulkToolbar';
@@ -88,89 +69,20 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet';
-import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
+import type { TodoStatus, TodoPriority, TodoCategory, TodoItem, TodoWorkspaceType, TodoFormState, AssigneeOption, TodoListScope } from '@/app/lib/todos/client-types';
+import { TodoIcon, resolvedTodoIconKey, formatDate, isOverdue, todoToForm, emptyForm, priorities, todoFormPayload } from '@/app/lib/todos/client-presentation';
+import { TodoDetailPanel } from './TodoDetailPanel';
+import { TodoEditorFields } from './TodoEditorFields';
 
-type TodoStatus = 'open' | 'done' | 'archived';
-type TodoPriority = 'low' | 'normal' | 'high';
-type TodoSourceType = 'user' | 'agent';
-type TodoScopeKind = 'user' | 'workspace';
-type TodoListScope = 'personal' | 'workspace' | 'global';
 type StatusFilter = TodoStatus | 'all';
 type ReadStateFilter = 'all' | 'read' | 'unread';
+type WorkspaceFileEntry = WorkspaceFileReferenceEntry;
 
 function todoMatchesStatusFilter(todoStatus: TodoStatus, statusFilter: StatusFilter): boolean {
   return statusFilter === 'all' || todoStatus === statusFilter;
 }
-
-type TodoCategory = {
-  id: string;
-  name: string;
-  color: string | null;
-  icon: string | null;
-  isArchived: boolean;
-  sortOrder: number;
-};
-
-type TodoFileLink = {
-  id: string;
-  workspaceId: string | null;
-  workspaceType: TodoWorkspaceType;
-  workspacePath: string;
-  label: string | null;
-};
-
-type TodoWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
-
-type TodoUserSummary = {
-  id: string;
-  name: string | null;
-  email: string | null;
-};
-
-type AssigneeOption = TodoUserSummary & {
-  role?: string | null;
-};
-
-type TodoItem = {
-  id: string;
-  canWrite: boolean;
-  createdByUserId: string | null;
-  assigneeUserId: string | null;
-  organizationId: string | null;
-  workspaceId: string | null;
-  workspaceType: TodoWorkspaceType;
-  scopeKind: TodoScopeKind;
-  workspace: { id: string; name: string; type: TodoWorkspaceType } | null;
-  title: string;
-  description: string | null;
-  status: TodoStatus;
-  priority: TodoPriority;
-  iconKey: TodoIconKey | null;
-  sourceType: TodoSourceType;
-  sourceSessionId: string | null;
-  dueAt: string | null;
-  remindAt: string | null;
-  seenAt: string | null;
-  readAt: string | null;
-  readState: Exclude<ReadStateFilter, 'all'>;
-  completedAt: string | null;
-  completionComment: string | null;
-  followUpSentAt: string | null;
-  followUpError: string | null;
-  emailNotificationSentAt: string | null;
-  emailNotificationError: string | null;
-  archivedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  category: TodoCategory | null;
-  fileLinks: TodoFileLink[];
-  createdBy: TodoUserSummary | null;
-  assignee: TodoUserSummary | null;
-};
-
-type WorkspaceFileEntry = WorkspaceFileReferenceEntry;
 
 type ApiResponse<T> = {
   success: boolean;
@@ -194,46 +106,8 @@ type TodoFollowUpResponse = {
   sessionId: string;
 };
 
-type TodoFormState = {
-  title: string;
-  description: string;
-  categoryId: string;
-  priority: TodoPriority;
-  iconKey: TodoIconKey | '';
-  dueAt: string;
-  remindAt: string;
-  assigneeUserId: string;
-  fileLinks: Array<{ workspacePath: string; label: string | null }>;
-};
-
-type TodoIconKey = 'check' | 'eye' | 'approval' | 'message' | 'file' | 'calendar' | 'warning' | 'idea' | 'user' | 'settings';
-const todoIconKeys: TodoIconKey[] = ['check', 'eye', 'approval', 'message', 'file', 'calendar', 'warning', 'idea', 'user', 'settings'];
-
-function TodoIcon({ iconKey, className = 'h-4 w-4' }: { iconKey: TodoIconKey | null; className?: string }) {
-  if (iconKey === 'eye') return <Eye className={className} />;
-  if (iconKey === 'approval') return <CheckCircle2 className={className} />;
-  if (iconKey === 'message') return <MessageSquare className={className} />;
-  if (iconKey === 'file') return <FileText className={className} />;
-  if (iconKey === 'calendar') return <CalendarDays className={className} />;
-  if (iconKey === 'warning') return <MailWarning className={className} />;
-  if (iconKey === 'idea') return <Lightbulb className={className} />;
-  if (iconKey === 'user') return <UserRound className={className} />;
-  if (iconKey === 'settings') return <Settings2 className={className} />;
-  return <Check className={className} />;
-}
-
-function resolvedTodoIconKey(todo: Pick<TodoItem, 'iconKey' | 'category'>): TodoIconKey {
-  if (todo.iconKey) return todo.iconKey;
-  if (todo.category?.icon === 'search-check') return 'eye';
-  if (todo.category?.icon === 'badge-check') return 'approval';
-  if (todo.category?.icon === 'workflow') return 'settings';
-  return 'check';
-}
-
 const statusFilters: StatusFilter[] = ['open', 'done', 'archived', 'all'];
 const readStateFilters: ReadStateFilter[] = ['all', 'unread', 'read'];
-const priorities: TodoPriority[] = ['low', 'normal', 'high'];
-const emptyTodoFileLinks: TodoFileLink[] = [];
 
 const statusFilterIcons: Record<StatusFilter, typeof Circle> = {
   all: ListTodo,
@@ -254,18 +128,6 @@ const priorityFilterIcons: Record<TodoPriority, typeof Circle> = {
   high: ArrowUp,
 };
 
-const emptyForm: TodoFormState = {
-  title: '',
-  description: '',
-  categoryId: '',
-  priority: 'normal',
-  iconKey: '',
-  dueAt: '',
-  remindAt: '',
-  assigneeUserId: '',
-  fileLinks: [],
-};
-
 async function readApiData<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => null) as ApiResponse<T> | null;
   if (!response.ok || !payload?.success || payload.data === undefined) {
@@ -274,90 +136,12 @@ async function readApiData<T>(response: Response): Promise<T> {
   return payload.data;
 }
 
-function toDateInput(value: string | null) {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return date.toISOString().slice(0, 10);
-}
-
-function formatDate(value: string | null, locale: string) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
-}
-
-function isOverdue(todo: TodoItem) {
-  if (!todo.dueAt || todo.status !== 'open') return false;
-  const due = new Date(todo.dueAt);
-  if (Number.isNaN(due.getTime())) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  due.setHours(0, 0, 0, 0);
-  return due < today;
-}
-
-function todoToForm(todo: TodoItem): TodoFormState {
-  return {
-    title: todo.title,
-    description: todo.description ?? '',
-    categoryId: todo.category?.id ?? '',
-    priority: todo.priority,
-    iconKey: todo.iconKey ?? '',
-    dueAt: toDateInput(todo.dueAt),
-    remindAt: todo.remindAt ? todo.remindAt.slice(0, 16) : '',
-    assigneeUserId: todo.assigneeUserId ?? '',
-    fileLinks: todo.fileLinks.map((link) => ({
-      workspacePath: link.workspacePath,
-      label: link.label,
-    })),
-  };
-}
-
-function isMarkdownFile(path: string) {
-  return /\.(?:md|mdx|markdown)$/i.test(path);
-}
-
-function useTodoFileTitles(todo: TodoItem | null) {
-  const [titles, setTitles] = useState<Record<string, string>>({});
-  const links = todo?.fileLinks ?? emptyTodoFileLinks;
-  const linkKey = links.map((link) => `${link.id}:${link.workspaceId ?? ''}:${link.workspacePath}`).join('|');
-
-  useEffect(() => {
-    let cancelled = false;
-    const markdownLinks = links.filter((link) => isMarkdownFile(link.workspacePath));
-
-    void Promise.all(markdownLinks.map(async (link) => {
-      try {
-        const file = await readWorkspaceFile(link.workspacePath, { workspaceId: link.workspaceId });
-        const title = getTodoFileMetadataTitle(file.content);
-        return title ? [link.id, title] as const : null;
-      } catch {
-        return null;
-      }
-    })).then((resolvedTitles) => {
-      if (cancelled) return;
-      setTitles(Object.fromEntries(resolvedTitles.filter((entry): entry is readonly [string, string] => entry !== null)));
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [linkKey, links]);
-
-  return titles;
-}
-
-function formatTodoUser(user: TodoUserSummary | null | undefined, fallback: string) {
-  return user?.name || user?.email || user?.id || fallback;
-}
-
 function pushTodoChatState(todo: Pick<TodoItem, 'id' | 'sourceSessionId' | 'workspaceId'>) {
   if (!todo.sourceSessionId || typeof window === 'undefined') return;
 
   const url = new URL(window.location.href);
   url.searchParams.set('todo', todo.id);
+  url.searchParams.set('todoView', 'page');
   const nextPath = buildChatSessionHref(
     `${url.pathname}?${url.searchParams.toString()}${url.hash}`,
     todo.sourceSessionId,
@@ -374,271 +158,6 @@ function openDockChatSession(sessionId: string | null, workspaceId?: string | nu
   dispatchOpenChatSession(sessionId, 'todo', workspaceId);
 }
 
-type TodoDetailPanelProps = {
-  todo: TodoItem | null;
-  locale: string;
-  followUpComment: string;
-  isMutating: boolean;
-  isSendingFollowUp: boolean;
-  showEmptyState?: boolean;
-  formatCategoryName: (category: Pick<TodoCategory, 'name' | 'icon'> | null | undefined) => string;
-  onEdit: (todo: TodoItem) => void;
-  onRestore: (todo: TodoItem) => void | Promise<void>;
-  onToggleDone: (todo: TodoItem) => void | Promise<void>;
-  onMarkSeen: (todoId: string) => void | Promise<unknown>;
-  onOpenSession: (todo: Pick<TodoItem, 'id' | 'sourceSessionId' | 'workspaceId'>) => void;
-  onUpdateFollowUpComment: (value: string) => void;
-  onSendFollowUp: (todo: TodoItem) => void | Promise<void>;
-};
-
-function TodoDetailPanel({
-  todo,
-  locale,
-  followUpComment,
-  isMutating,
-  isSendingFollowUp,
-  showEmptyState = true,
-  formatCategoryName,
-  onEdit,
-  onRestore,
-  onToggleDone,
-  onMarkSeen,
-  onOpenSession,
-  onUpdateFollowUpComment,
-  onSendFollowUp,
-}: TodoDetailPanelProps) {
-  const t = useTranslations('todos');
-  const fileTitles = useTodoFileTitles(todo);
-  const scopeLabel = todo?.scopeKind === 'user'
-    ? t('scope.user')
-    : todo?.workspace?.name || (todo ? t(`workspaceType.${todo.workspaceType}`) : '');
-
-  if (!todo) {
-    if (!showEmptyState) return null;
-
-    return (
-      <div className="flex min-h-[260px] flex-col items-center justify-center text-center">
-        <Clock3 className="h-8 w-8 text-muted-foreground" />
-        <p className="mt-3 text-sm font-medium">{t('states.noSelectionTitle')}</p>
-        <p className="mt-1 max-w-xs text-sm text-muted-foreground">{t('states.noSelectionDescription')}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={todo.status === 'done' ? 'default' : todo.status === 'archived' ? 'secondary' : 'outline'}>
-              {t(`status.${todo.status}`)}
-            </Badge>
-            {todo.readState === 'unread' && <Badge>{t('labels.unread')}</Badge>}
-          </div>
-          <h3 className="mt-2 break-words text-lg font-semibold leading-tight">{todo.title}</h3>
-        </div>
-        <Button variant="ghost" size="icon-sm" onClick={() => onEdit(todo)} disabled={todo.status === 'archived' || isMutating}>
-          <Edit3 className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {todo.description ? (
-        <MarkdownRenderer
-          content={todo.description}
-          variant="muted"
-          className="text-sm leading-relaxed text-muted-foreground [&_img]:max-h-48 [&_img]:max-w-full [&_img]:object-contain [&_pre]:max-h-64 [&_table]:text-xs"
-        />
-      ) : (
-        <p className="text-sm text-muted-foreground">{t('states.noDescription')}</p>
-      )}
-
-      <div className="grid gap-2 text-sm">
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <span className="shrink-0 text-muted-foreground">{t('fields.workspace')}</span>
-          <span className="min-w-0 truncate text-right font-medium">
-            {scopeLabel}
-          </span>
-        </div>
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <span className="shrink-0 text-muted-foreground">{t('fields.assignee')}</span>
-          <span className="min-w-0 truncate text-right font-medium">
-            {formatTodoUser(todo.assignee, t('labels.unassigned'))}
-          </span>
-        </div>
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <span className="shrink-0 text-muted-foreground">{t('fields.category')}</span>
-          <span className="min-w-0 truncate text-right font-medium">{formatCategoryName(todo.category)}</span>
-        </div>
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <span className="shrink-0 text-muted-foreground">{t('fields.priority')}</span>
-          <span className="font-medium">{t(`priority.${todo.priority}`)}</span>
-        </div>
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <span className="shrink-0 text-muted-foreground">{t('fields.dueAt')}</span>
-          <span className="min-w-0 truncate text-right font-medium">{formatDate(todo.dueAt, locale) ?? t('fields.noDueAt')}</span>
-        </div>
-      </div>
-
-      {todo.sourceType === 'agent' && (todo.emailNotificationSentAt || todo.emailNotificationError) ? (
-        <div className="space-y-2 border-t border-border pt-4">
-          <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            {t('sections.emailNotification')}
-          </h4>
-          <div
-            className={cn(
-              'space-y-2 border px-3 py-2 text-sm',
-              todo.emailNotificationError
-                ? 'border-destructive/30 bg-destructive/5 text-destructive'
-                : 'border-border bg-muted/40 text-muted-foreground',
-            )}
-          >
-            <div className="flex items-start gap-2">
-              {todo.emailNotificationError ? (
-                <MailWarning className="mt-0.5 h-4 w-4 shrink-0" />
-              ) : (
-                <MailCheck className="mt-0.5 h-4 w-4 shrink-0" />
-              )}
-              <div className="min-w-0 space-y-1">
-                <p className="font-medium">
-                  {todo.emailNotificationError
-                    ? t('labels.emailNotificationBlocked')
-                    : t('labels.emailNotificationSentAt', {
-                        date: todo.emailNotificationSentAt
-                          ? formatDate(todo.emailNotificationSentAt, locale) ?? todo.emailNotificationSentAt
-                          : '',
-                      })}
-                </p>
-                {todo.emailNotificationError ? (
-                  <p className="break-words text-xs leading-relaxed">{todo.emailNotificationError}</p>
-                ) : null}
-              </div>
-            </div>
-            {todo.emailNotificationError ? (
-              <Button asChild size="sm" variant="outline" className="h-8 border-destructive/30 bg-background text-destructive hover:bg-destructive/10 hover:text-destructive">
-                <Link href="/settings?tab=integrations">
-                  <ExternalLink className="h-4 w-4" />
-                  {t('actions.openIntegrationsSettings')}
-                </Link>
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="space-y-2">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          {t('sections.files')}
-        </h4>
-        {todo.fileLinks.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('states.noFiles')}</p>
-        ) : (
-          <div className="space-y-2">
-            {todo.fileLinks.map((link) => (
-              <Button
-                key={link.id}
-                asChild
-                variant="outline"
-                className="h-auto w-full min-w-0 justify-start overflow-hidden whitespace-normal py-2 text-left hover:bg-muted/70"
-              >
-                <Link
-                  href={buildTodoFileNotebookHref({ path: link.workspacePath, workspaceId: link.workspaceId })}
-                  title={link.workspacePath}
-                >
-                  {getFileIconComponent({
-                    name: link.workspacePath.split('/').filter(Boolean).at(-1) || link.workspacePath,
-                    path: link.workspacePath,
-                    type: 'file',
-                    className: 'h-4 w-4',
-                  })}
-                  <span className="min-w-0 flex-1 truncate">
-                    {fileTitles[link.id] || getTodoFileFallbackTitle(link.workspacePath)}
-                  </span>
-                </Link>
-              </Button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {todo.sourceSessionId ? (
-        <div className="space-y-3 border-t border-border pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              {t('sections.session')}
-            </h4>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => onOpenSession(todo)}
-            >
-              <ExternalLink className="h-4 w-4" />
-              {t('actions.openSession')}
-            </Button>
-          </div>
-
-          {todo.status === 'done' ? (
-            <div className="space-y-2">
-              <Label htmlFor="todo-follow-up-comment">{t('fields.followUpComment')}</Label>
-              <Textarea
-                id="todo-follow-up-comment"
-                value={followUpComment}
-                onChange={(event) => onUpdateFollowUpComment(event.target.value)}
-                className="min-h-24"
-                maxLength={5000}
-                placeholder={t('fields.followUpCommentPlaceholder')}
-              />
-              {todo.followUpSentAt ? (
-                <p className="text-xs text-muted-foreground">
-                  {t('labels.followUpSentAt', { date: formatDate(todo.followUpSentAt, locale) ?? todo.followUpSentAt })}
-                </p>
-              ) : null}
-              {todo.followUpError ? (
-                <p className="break-words text-xs text-destructive">{todo.followUpError}</p>
-              ) : null}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void onSendFollowUp(todo)}
-                disabled={isSendingFollowUp || isMutating}
-              >
-                <Send className="h-4 w-4" />
-                {todo.followUpSentAt ? t('actions.sendFollowUpAgain') : t('actions.sendFollowUp')}
-              </Button>
-            </div>
-          ) : (
-            <p className="flex items-start gap-2 text-sm text-muted-foreground">
-              <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" />
-              {t('states.completeBeforeFollowUp')}
-            </p>
-          )}
-        </div>
-      ) : null}
-
-      <div className="flex flex-wrap gap-2">
-        {todo.status === 'archived' ? (
-          <Button size="sm" onClick={() => void onRestore(todo)} disabled={isMutating}>
-            <RefreshCcw className="h-4 w-4" />
-            {t('actions.restore')}
-          </Button>
-        ) : (
-          <>
-            <Button size="sm" onClick={() => void onToggleDone(todo)} disabled={isMutating}>
-              <CheckCircle2 className="h-4 w-4" />
-              {todo.status === 'done' ? t('actions.reopen') : t('actions.complete')}
-            </Button>
-            {todo.readState === 'unread' && (
-              <Button size="sm" variant="outline" onClick={() => void onMarkSeen(todo.id)} disabled={isMutating}>
-                <Check className="h-4 w-4" />
-                {t('actions.markSeen')}
-              </Button>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function TodosClient({ title }: { title: string }) {
   const t = useTranslations('todos');
   const locale = useLocale();
@@ -647,7 +166,7 @@ export function TodosClient({ title }: { title: string }) {
   const pendingTodoParamRef = useRef<string | null>(null);
   const initializedWorkspaceScopeRef = useRef(false);
   const todoListRequestRef = useRef<AbortController | null>(null);
-  const todoIdParam = searchParams.get('todo');
+  const todoIdParam = searchParams.get('todoView') === 'page' ? searchParams.get('todo') : null;
   const requestedWorkspaceId = searchParams.get('workspaceId');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const workspaceStoreInitialized = useWorkspaceStore((state) => state.initialized);
@@ -824,11 +343,6 @@ export function TodosClient({ title }: { title: string }) {
     });
     const data = await readApiData<AssigneeOption[]>(response);
     setAssignees(data);
-    setForm((current) => (
-      current.assigneeUserId && !data.some((candidate) => candidate.id === current.assigneeUserId)
-        ? { ...current, assigneeUserId: '' }
-        : current
-    ));
     return data;
   }, [listScope, selectedWorkspaceId]);
 
@@ -1066,6 +580,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [categories, categoryFilter]);
 
   const openEditDialog = useCallback((todo: TodoItem) => {
+    if (!todo.canWrite || todo.status === 'archived') return;
     setSelectedWorkspaceId(todo.scopeKind === 'workspace' ? todo.workspaceId || '' : '');
     setListScope(todo.scopeKind === 'workspace' ? 'workspace' : 'personal');
     setEditingTodoId(todo.id);
@@ -1076,6 +591,7 @@ export function TodosClient({ title }: { title: string }) {
   }, []);
 
   const saveTodo = useCallback(async () => {
+    if (editingTodoId && (!editingTodo?.canWrite || editingTodo.status === 'archived')) return;
     if (!form.title.trim()) {
       toast.error(t('errors.titleRequired'));
       return;
@@ -1085,15 +601,7 @@ export function TodosClient({ title }: { title: string }) {
     setIsMutating(true);
     try {
       const payload = {
-        title: form.title,
-        description: form.description || null,
-        categoryId: form.categoryId || null,
-        priority: form.priority,
-        iconKey: form.iconKey || null,
-        dueAt: form.dueAt || null,
-        remindAt: form.remindAt ? new Date(form.remindAt).toISOString() : null,
-        assigneeUserId: form.assigneeUserId || null,
-        fileLinks: form.fileLinks,
+        ...todoFormPayload(form, editingTodo),
         ...(!editingTodoId ? {
           scopeKind: listScope === 'workspace' && selectedWorkspaceId ? 'workspace' : 'user',
           ...(listScope === 'workspace' && selectedWorkspaceId ? { workspaceId: selectedWorkspaceId } : {}),
@@ -1117,9 +625,10 @@ export function TodosClient({ title }: { title: string }) {
     } finally {
       setIsMutating(false);
     }
-  }, [editingTodoId, form, listScope, loadTodos, selectedWorkspaceId, t]);
+  }, [editingTodo, editingTodoId, form, listScope, loadTodos, selectedWorkspaceId, t]);
 
   const archiveTodo = useCallback(async (todo: TodoItem) => {
+    if (!todo.canWrite) return;
     todoListRequestRef.current?.abort();
     setIsMutating(true);
     try {
@@ -1141,6 +650,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [loadTodos, t]);
 
   const toggleDone = useCallback(async (todo: TodoItem) => {
+    if (!todo.canWrite) return;
     try {
       const nextStatus = todo.status === 'done' ? 'open' : 'done';
       await updateTodo(todo.id, { status: nextStatus, markSeen: true });
@@ -1151,7 +661,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [t, updateTodo]);
 
   const sendTodoFollowUp = useCallback(async (todo: TodoItem) => {
-    if (!todo.sourceSessionId) return;
+    if (!todo.sourceSessionId || !todo.canWrite) return;
 
     setIsSendingFollowUp(true);
     try {
@@ -1180,6 +690,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [followUpComment, locale, t]);
 
   const restoreTodo = useCallback(async (todo: TodoItem) => {
+    if (!todo.canWrite) return;
     try {
       await updateTodo(todo.id, { status: 'open', markSeen: true });
       toast.success(t('toasts.restored'));
@@ -1670,7 +1181,7 @@ export function TodosClient({ title }: { title: string }) {
                         void toggleDone(todo);
                       }}
                       aria-label={todo.status === 'done' ? t('actions.reopen') : t('actions.complete')}
-                      disabled={todo.status === 'archived' || bulk.busy || isMutating}
+                      disabled={!todo.canWrite || todo.status === 'archived' || bulk.busy || isMutating}
                     >
                       {todo.status === 'done' ? <CheckCircle2 className="h-5 w-5 text-emerald-600" /> : <Circle className="h-5 w-5" />}
                     </button>
@@ -1731,17 +1242,17 @@ export function TodosClient({ title }: { title: string }) {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         {todo.status === 'archived' ? (
-                          <DropdownMenuItem onSelect={() => void restoreTodo(todo)}>
+                          <DropdownMenuItem disabled={!todo.canWrite} onSelect={() => void restoreTodo(todo)}>
                             <RefreshCcw className="h-4 w-4" />
                             {t('actions.restore')}
                           </DropdownMenuItem>
                         ) : (
                           <>
-                            <DropdownMenuItem onSelect={() => void toggleDone(todo)}>
+                            <DropdownMenuItem disabled={!todo.canWrite} onSelect={() => void toggleDone(todo)}>
                               {todo.status === 'done' ? <RefreshCcw className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                               {todo.status === 'done' ? t('actions.reopen') : t('actions.completeQuick')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => openEditDialog(todo)}>
+                            <DropdownMenuItem disabled={!todo.canWrite} onSelect={() => openEditDialog(todo)}>
                               <Edit3 className="h-4 w-4" />
                               {t('actions.edit')}
                             </DropdownMenuItem>
@@ -1751,7 +1262,7 @@ export function TodosClient({ title }: { title: string }) {
                                 {t('actions.markSeen')}
                               </DropdownMenuItem>
                             )}
-                            <DropdownMenuItem variant="destructive" onSelect={() => void archiveTodo(todo)}>
+                            <DropdownMenuItem variant="destructive" disabled={!todo.canWrite} onSelect={() => void archiveTodo(todo)}>
                               <Archive className="h-4 w-4" />
                               {t('actions.archiveTodo')}
                             </DropdownMenuItem>
@@ -1776,6 +1287,7 @@ export function TodosClient({ title }: { title: string }) {
               isSendingFollowUp={isSendingFollowUp}
               formatCategoryName={formatCategoryName}
               onEdit={openEditDialog}
+              onArchive={archiveTodo}
               onRestore={restoreTodo}
               onToggleDone={toggleDone}
               onMarkSeen={(todoId) => updateTodo(todoId, { markSeen: true })}
@@ -1808,6 +1320,7 @@ export function TodosClient({ title }: { title: string }) {
               showEmptyState={false}
               formatCategoryName={formatCategoryName}
               onEdit={openEditDialog}
+              onArchive={archiveTodo}
               onRestore={restoreTodo}
               onToggleDone={toggleDone}
               onMarkSeen={(todoId) => updateTodo(todoId, { markSeen: true })}
@@ -1891,8 +1404,21 @@ export function TodosClient({ title }: { title: string }) {
           </DialogHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="space-y-4">
+            <TodoEditorFields
+              form={form}
+              onChange={setForm}
+              categories={categories}
+              assignees={assignees}
+              selectedCategory={editingTodo?.category}
+              selectedAssignee={editingTodo?.assignee}
+              formatCategoryName={formatCategoryName}
+              fileQuery={fileQuery}
+              onFileQueryChange={setFileQuery}
+              fileResults={fileResults}
+              isFileSearching={isFileSearching}
+              onAddFile={addFileLink}
+              onRemoveFile={removeFileLink}
+              scopeContent={(
                 <div className="rounded-md border border-border bg-muted/35 px-3 py-3">
                   <div className="flex items-start gap-3">
                     {editingTodoId
@@ -1913,152 +1439,8 @@ export function TodosClient({ title }: { title: string }) {
                     </div>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="todo-title">{t('fields.title')}</Label>
-                  <Input
-                    id="todo-title"
-                    data-testid="todo-editor-title"
-                    value={form.title}
-                    onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))}
-                    maxLength={180}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="todo-description">{t('fields.description')}</Label>
-                  <Textarea
-                    id="todo-description"
-                    value={form.description}
-                    onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                    className="min-h-36"
-                    maxLength={5000}
-                  />
-                </div>
-                <div className="grid min-w-0 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <label className="min-w-0 space-y-2 text-sm">
-                    <span className="font-medium">{t('fields.category')}</span>
-                    <select
-                      className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm"
-                      value={form.categoryId}
-                      onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))}
-                    >
-                      <option value="">{t('filters.noCategory')}</option>
-                      {categories.map((category) => (
-                        <option key={category.id} value={category.id}>{formatCategoryName(category)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="min-w-0 space-y-2 text-sm">
-                    <span className="font-medium">{t('fields.priority')}</span>
-                    <select
-                      className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm"
-                      value={form.priority}
-                      onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value as TodoPriority }))}
-                    >
-                      {priorities.map((priority) => (
-                        <option key={priority} value={priority}>{t(`priority.${priority}`)}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="min-w-0 space-y-2 text-sm">
-                    <span className="font-medium">{t('fields.icon')}</span>
-                    <select className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm" value={form.iconKey} onChange={(event) => setForm((current) => ({ ...current, iconKey: event.target.value as TodoIconKey | '' }))}>
-                      <option value="">{t('labels.categoryIcon')}</option>
-                      {todoIconKeys.map((iconKey) => <option key={iconKey} value={iconKey}>{t(`icons.${iconKey}`)}</option>)}
-                    </select>
-                  </label>
-                  <div className="min-w-0 space-y-2">
-                    <Label htmlFor="todo-due-at">{t('fields.dueAt')}</Label>
-                    <Input
-                      id="todo-due-at"
-                      type="date"
-                      value={form.dueAt}
-                      onChange={(event) => setForm((current) => ({ ...current, dueAt: event.target.value }))}
-                      className="block max-w-full [min-inline-size:0] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="todo-remind-at">{t('fields.remindAt')}</Label>
-                  <Input id="todo-remind-at" type="datetime-local" value={form.remindAt} onChange={(event) => setForm((current) => ({ ...current, remindAt: event.target.value }))} />
-                </div>
-                <label className="min-w-0 space-y-2 text-sm">
-                  <span className="font-medium">{t('fields.assignee')}</span>
-                  <select
-                    id="todo-assignee"
-                    className="h-9 w-full min-w-0 max-w-full rounded-md border border-input bg-background px-3 text-sm"
-                    value={form.assigneeUserId}
-                    onChange={(event) => setForm((current) => ({ ...current, assigneeUserId: event.target.value }))}
-                  >
-                    <option value="">{t('labels.unassigned')}</option>
-                    {assignees.map((candidate) => (
-                      <option key={candidate.id} value={candidate.id}>
-                        {formatTodoUser(candidate, candidate.id)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="todo-file-search">{t('fields.fileSearch')}</Label>
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="todo-file-search"
-                      data-testid="todo-file-search"
-                      value={fileQuery}
-                      onChange={(event) => setFileQuery(event.target.value)}
-                      className="pl-9"
-                      placeholder={t('fields.fileSearchPlaceholder')}
-                    />
-                  </div>
-                </div>
-
-                <div className="max-h-52 overflow-y-auto rounded-md border border-border">
-                  {isFileSearching ? (
-                    <div className="p-3 text-sm text-muted-foreground">{t('states.searchingFiles')}</div>
-                  ) : fileResults.length === 0 ? (
-                    <div className="p-3 text-sm text-muted-foreground">{t('states.noFileResults')}</div>
-                  ) : (
-                    fileResults.map((file) => (
-                      <button
-                        key={file.path}
-                        type="button"
-                        data-testid="todo-file-result"
-                        className="flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left text-sm last:border-b-0 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                        disabled={file.type !== 'file'}
-                        onClick={() => addFileLink(file)}
-                      >
-                        <FolderSearch className="h-4 w-4 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate">{file.path}</span>
-                      </button>
-                    ))
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <h4 className="text-sm font-medium">{t('fields.linkedFiles')}</h4>
-                  {form.fileLinks.length === 0 ? (
-                    <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-                      {t('states.noFiles')}
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {form.fileLinks.map((link) => (
-                        <div key={link.workspacePath} className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm">
-                          <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate">{link.label || link.workspacePath}</span>
-                          <Button variant="ghost" size="icon-xs" onClick={() => removeFileLink(link.workspacePath)} aria-label={t('actions.removeFile')}>
-                            <X className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+              )}
+            />
           </div>
 
           <DialogFooter className="shrink-0 border-t px-4 py-4 sm:px-6">

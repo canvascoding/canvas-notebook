@@ -3378,7 +3378,8 @@
       "categories": "Categories",
       "files": "Files",
       "session": "Session",
-      "emailNotification": "Email notification"
+      "emailNotification": "Email notification",
+      "details": "More details"
     },
     "scope": {
       "personal": "Personal",
@@ -3454,7 +3455,7 @@
       "restore": "Restore",
       "edit": "Edit",
       "markSeen": "Mark as read",
-      "archiveTodo": "Delete",
+      "archiveTodo": "Archive",
       "reopen": "Reopen",
       "complete": "Complete",
       "completeQuick": "Quick complete",
@@ -3485,7 +3486,12 @@
       "followUpComment": "Comment for the agent",
       "followUpCommentPlaceholder": "Optional context about what was completed or how the agent should continue",
       "categoryName": "Name",
-      "categoryColor": "Color"
+      "categoryColor": "Color",
+      "createdBy": "Created by",
+      "createdAt": "Created",
+      "updatedAt": "Last updated",
+      "completedAt": "Completed",
+      "completionComment": "Completion comment"
     },
     "states": {
       "loading": "Loading to-dos...",
@@ -3505,7 +3511,8 @@
       "unassigned": "Unassigned",
       "followUpSentAt": "Last sent to the agent: {date}",
       "emailNotificationSentAt": "Email notification sent: {date}",
-      "emailNotificationBlocked": "Email notification not sent"
+      "emailNotificationBlocked": "Email notification not sent",
+      "overdue": "Overdue"
     },
     "detail": {
       "dialogTitle": "Review to-do"
@@ -3544,6 +3551,21 @@
       "titleRequired": "Please enter a title.",
       "categoryNameRequired": "Please enter a category name.",
       "categorySaveFailed": "Could not save category."
+    },
+    "popup": {
+      "description": "View and edit this to-do without leaving the current page.",
+      "openPage": "Open on the to-do page",
+      "close": "Close",
+      "retry": "Try again",
+      "reload": "Load current version",
+      "loadingOptions": "Loading categories and people…",
+      "readOnly": "You can view this to-do. Write access is required to edit it.",
+      "unavailable": "This to-do is no longer available or you do not have access.",
+      "conflict": "This to-do has changed. Your draft has been kept. Load the current version before continuing to edit.",
+      "discardTitle": "Discard unsaved changes?",
+      "discardDescription": "Your changes have not been saved. You can keep editing or discard them.",
+      "keepEditing": "Keep editing",
+      "discard": "Discard"
     }
   },
   "invitationAcceptance": {

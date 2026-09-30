@@ -27,6 +27,8 @@ import {
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 import { imageDimension, portableImageStyle } from '@/app/lib/markdown/core/portable-image';
+import { isUnmodifiedPrimaryClick, todoIdFromHref } from '@/app/lib/todos/navigation';
+import { openTodoDetail } from '@/app/store/todo-detail-store';
 
 interface MarkdownRendererProps {
   content: string;
@@ -197,6 +199,13 @@ export function MarkdownRenderer({
           target="_blank"
           rel="noopener noreferrer"
           className="underline underline-offset-2"
+          onClick={(event) => {
+            if (!href || !isUnmodifiedPrimaryClick(event)) return;
+            const todoId = todoIdFromHref(href, window.location.href);
+            if (!todoId) return;
+            event.preventDefault();
+            openTodoDetail(todoId);
+          }}
         >
           {children}
         </a>
