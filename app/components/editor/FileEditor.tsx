@@ -312,7 +312,6 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
     draft,
     isDirty,
     isSaving,
-    lastSavedAt,
     saveError,
     setActiveFile,
     updateDraft,
@@ -334,6 +333,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
     mode: 'preview',
   });
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
+  const [htmlPreviewNavigation, setHtmlPreviewNavigation] = useState<{ identity: string; navigated: boolean } | null>(null);
   const [markdownViewOverride, setMarkdownViewOverride] = useState<{
     path: string | null;
     mode: 'markdown' | 'slides';
@@ -622,6 +622,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
   const htmlViewMode: HtmlViewMode = isHtml && htmlViewPreference.path === documentIdentity
     ? htmlViewPreference.mode
     : 'preview';
+  const htmlPreviewCanGoBack = htmlPreviewNavigation?.identity === documentIdentity && htmlPreviewNavigation.navigated;
   const displayFileError = fileError && !currentFile
     ? fileError
     : null;
@@ -638,6 +639,11 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
         mode: typeof nextMode === 'function' ? nextMode(currentMode) : nextMode,
       };
     });
+  }, [documentIdentity]);
+
+  const resetHtmlPreview = useCallback(() => {
+    setHtmlPreviewNavigation({ identity: documentIdentity, navigated: false });
+    setHtmlRefreshKey((key) => key + 1);
   }, [documentIdentity]);
 
   const displaySaveError = isCrdtCollaboration
@@ -1079,17 +1085,32 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
             {isHtml && (
               <>
                 {htmlViewMode === 'preview' && (
-                  <FileHeaderTooltip label={t('refreshPreview')}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-6 w-6 p-0"
-                      onClick={() => setHtmlRefreshKey((k) => k + 1)}
-                      aria-label={t('refreshPreview')}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </Button>
-                  </FileHeaderTooltip>
+                  <>
+                    {htmlPreviewCanGoBack && (
+                      <FileHeaderTooltip label={t('htmlPreviewBackToFile')}>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 w-6 p-0"
+                          onClick={resetHtmlPreview}
+                          aria-label={t('htmlPreviewBackToFile')}
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </Button>
+                      </FileHeaderTooltip>
+                    )}
+                    <FileHeaderTooltip label={t('refreshPreview')}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 w-6 p-0"
+                        onClick={resetHtmlPreview}
+                        aria-label={t('refreshPreview')}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </Button>
+                    </FileHeaderTooltip>
+                  </>
                 )}
                 <FileHeaderTooltip label={htmlViewMode === 'code' ? 'Preview' : 'Code'}>
                   <Button
@@ -1379,7 +1400,14 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
               size={currentFile.stats?.size}
             />
           ) : isHtml ? (
-            <HtmlViewer path={currentFile.path} value={draft} onChange={updateDraft} viewMode={htmlViewMode} revision={`${documentRevision}:${previewDependencyVersion}`} refreshKey={htmlRefreshKey} lastSavedAt={lastSavedAt} />
+            <HtmlViewer
+              path={currentFile.path}
+              value={draft}
+              onChange={updateDraft}
+              viewMode={htmlViewMode}
+              refreshKey={htmlRefreshKey}
+              onNavigationChange={(navigated) => setHtmlPreviewNavigation({ identity: documentIdentity, navigated })}
+            />
           ) : isExcalidraw ? (
             <ExcalidrawEditor
               documentIdentity={documentIdentity}

@@ -48,7 +48,7 @@ export async function deliverHtmlPreviewTicket(
       ? `default-src 'none'; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: http:; font-src 'self' data: https:; frame-ancestors 'self' ${appOrigin}`
       : "default-src 'none'; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https: http:; font-src 'self' data: https:; frame-ancestors 'self'";
     const headers: Record<string,string>={...privateHeaders,'Content-Type':contentType,'Content-Security-Policy':executable
-      ? documentCsp + (isHtmlFile(filePath) ? `; sandbox allow-scripts${options.sameOrigin ? '' : ' allow-same-origin'}` : '')
+      ? documentCsp + (isHtmlFile(filePath) ? `; sandbox allow-scripts${options.sameOrigin ? ' allow-popups allow-popups-to-escape-sandbox' : ' allow-same-origin'}` : '')
       : assetCsp};
     if (options.sameOrigin) {
       headers['Access-Control-Allow-Origin']='null';
@@ -56,7 +56,7 @@ export async function deliverHtmlPreviewTicket(
     }
     if(isHtmlFile(filePath) || /\.(?:[cm]?js|css)$/iu.test(filePath)) {
       const source=(await htmlPreviewAssetReader(identity.workspace,identity.userId,identity.kind).read(filePath)).toString('utf8');
-      const body=isHtmlFile(filePath) ? rewriteHtmlPreviewDocument(source,filePath,routePrefix,{opaqueOrigin:options.sameOrigin})
+      const body=isHtmlFile(filePath) ? rewriteHtmlPreviewDocument(source,filePath,routePrefix,{opaqueOrigin:options.sameOrigin,openExternalLinksInNewTab:options.sameOrigin})
         : /\.css$/iu.test(filePath) ? rewriteHtmlPreviewCss(source,routePrefix) : rewriteHtmlPreviewScript(source,routePrefix,filePath);
       return new NextResponse(body,{headers});
     }

@@ -193,8 +193,8 @@ function opaqueWorkerBootstrap(routePrefix: string) {
 }
 
 /** Preserve root-relative assets inside the ticket namespace as well as ordinary relative URLs. */
-export function rewriteHtmlPreviewDocument(html: string, filePath: string, routePrefix: string, options:{opaqueOrigin?:boolean}={}) {
-  const dom = new JSDOM(html);
+export function rewriteHtmlPreviewDocument(html: string, filePath: string, routePrefix: string, options:{opaqueOrigin?:boolean;openExternalLinksInNewTab?:boolean}={}) {
+  const dom = new JSDOM(html, {url:sourceUrl(filePath).href});
   try {
     const document=dom.window.document;
     for(const element of document.querySelectorAll('*')) {
@@ -214,6 +214,13 @@ export function rewriteHtmlPreviewDocument(html: string, filePath: string, route
     }
     if(!document.querySelector('meta[name="viewport" i]')) {
       const viewport=document.createElement('meta');viewport.name='viewport';viewport.content='width=device-width, initial-scale=1';document.head.prepend(viewport);
+    }
+    if(options.openExternalLinksInNewTab) for(const anchor of document.querySelectorAll<HTMLAnchorElement>('a[href]')) {
+      try {
+        const url=new URL(anchor.href);
+        if((url.protocol==='http:' || url.protocol==='https:') && url.origin!==DOCUMENT_ORIGIN) anchor.target='_blank';
+      } catch { /* Leave malformed links to the browser. */ }
+      if(anchor.target.toLowerCase()==='_blank') anchor.relList.add('noopener','noreferrer');
     }
     if(options.opaqueOrigin) {
       const bootstrap=document.createElement('script');bootstrap.textContent=opaqueWorkerBootstrap(routePrefix);document.head.prepend(bootstrap);

@@ -1311,6 +1311,7 @@
       }
     },
     "refreshPreview": "Vorschau aktualisieren",
+    "htmlPreviewBackToFile": "Zurück zur HTML-Datei",
     "refreshingPreview": "Aktualisiert...",
     "marpPreviewTitle": "Marp-Vorschau von {fileName}",
     "marpPreviewFailed": "Marp-Vorschau konnte nicht gerendert werden",

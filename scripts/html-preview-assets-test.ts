@@ -19,6 +19,19 @@ assert.equal(
   `import "${prefix}/report/workers/module.mjs";importScripts("${prefix}/report/worker-helper.js");fetch("${prefix}/report/workers/data.json");const label='./not-a-reference';`,
 );
 assert.ok(rewriteHtmlPreviewDocument('<base href="https://cdn.invalid/"><img src="image.png">', 'report/index.html', prefix).includes('href="https://cdn.invalid/"'));
+const links = new JSDOM(rewriteHtmlPreviewDocument(
+  '<a id="external" href="https://example.invalid/page" target="_self" rel="nofollow">External</a>'
+  + '<a id="local" href="./details.html">Local</a>'
+  + '<a id="fragment" href="#section">Section</a>'
+  + '<a id="blank" href="./details.html" target="_blank">New tab</a>',
+  'report/index.html', prefix, {openExternalLinksInNewTab:true},
+));
+assert.equal(links.window.document.querySelector('#external')?.getAttribute('target'), '_blank');
+assert.equal(links.window.document.querySelector('#external')?.getAttribute('rel'), 'nofollow noopener noreferrer');
+assert.equal(links.window.document.querySelector('#local')?.getAttribute('target'), null);
+assert.equal(links.window.document.querySelector('#fragment')?.getAttribute('target'), null);
+assert.equal(links.window.document.querySelector('#blank')?.getAttribute('rel'), 'noopener noreferrer');
+links.window.close();
 
 async function main() {
   const files: Record<string,string> = {
