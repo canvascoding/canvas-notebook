@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.9.29.2",
-  "lockfileSha256": "740823ae06034a19df125623322ab2e1a1a2103cbf63a51230bf8d1ff063e2b1",
+  "lockfileSha256": "326dab9d46559733559f7530aebc9281be2ec4c5b725b792c1a234a0ed8ed75e",
   "summary": {
     "totalComponents": 1964,
     "npmComponents": 1940,
@@ -28262,8 +28262,8 @@
     },
     {
       "name": "dompurify",
-      "versionOrCommit": "3.4.13",
-      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/56b29c06a5026cd5779ad173ac232423a6b66782",
+      "versionOrCommit": "3.4.16",
+      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/b9b9d80f7e401771c2ccaef5f45def7eec8f27d7",
       "packagePathOrArtifact": "node_modules/dompurify",
       "usage": "runtime",
       "distributedIn": [
@@ -28281,7 +28281,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release declares (MPL-2.0 OR Apache-2.0), and the matching 3.4.13 tag resolves to 56b29c06a5026cd5779ad173ac232423a6b66782. Canvas elects Apache-2.0, retains the complete Apache-2.0 text and DOMPurify license header, and does not modify the package. The exact npm tarball and source tree contain no separate NOTICE file. Verification source: https://github.com/cure53/DOMPurify/blob/3.4.13/LICENSE"
+      "reviewNotes": "The exact npm release declares (MPL-2.0 OR Apache-2.0), and the matching 3.4.16 tag resolves to b9b9d80f7e401771c2ccaef5f45def7eec8f27d7. Canvas elects Apache-2.0, retains the complete Apache-2.0 text and DOMPurify license header, and does not modify the package. The exact npm tarball and source tree contain no separate NOTICE file. Verification source: https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE"
     },
     {
       "name": "domutils",

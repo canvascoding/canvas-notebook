@@ -59,13 +59,14 @@ const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
 
 // Helper to read seed file content
 async function readSeedFile(fileName: string, agentId?: string | null): Promise<string | null> {
-  if (!AGENT_MANAGED_FILE_NAMES.includes(fileName as AgentManagedFileName)) {
+  const seedFileName = AGENT_MANAGED_FILE_NAMES.find((allowedName) => allowedName === fileName);
+  if (!seedFileName) {
     throw new Error('Invalid managed agent file name');
   }
   const normalizedAgentId = normalizeManagedAgentId(agentId);
   const candidatePaths = normalizedAgentId === EMAIL_MANAGED_AGENT_ID
-    ? [path.join(SEED_SYS_PROMPTS_DIR, EMAIL_MANAGED_AGENT_ID, fileName), path.join(SEED_SYS_PROMPTS_DIR, fileName)]
-    : [path.join(SEED_SYS_PROMPTS_DIR, fileName)];
+    ? [path.join(SEED_SYS_PROMPTS_DIR, EMAIL_MANAGED_AGENT_ID, seedFileName), path.join(SEED_SYS_PROMPTS_DIR, seedFileName)]
+    : [path.join(SEED_SYS_PROMPTS_DIR, seedFileName)];
   for (const seedPath of candidatePaths) {
     try {
       return await fs.readFile(seedPath, 'utf8');

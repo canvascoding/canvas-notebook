@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -6,7 +7,7 @@ import { loadCachedWorkspaceWidget } from '../app/lib/home/workspace-widget-cach
 import { createWorkspaceWidgetFetcher, internalAppOrigin } from '../app/lib/home/workspace-widget-fetcher';
 
 async function main() {
-  const suffix = `${Date.now()}-${Math.random()}`;
+  const suffix = randomUUID();
   let loads = 0;
   const load = async () => ({ revision: ++loads });
   const base = { userId: `user-a-${suffix}`, workspaceId: 'workspace-a', widget: 'todos', ttlMs: 60_000, load };
