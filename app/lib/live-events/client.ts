@@ -6,7 +6,7 @@ import { LIVE_EVENTS_PATH, LIVE_EVENTS_PROTOCOL, LIVE_EVENT_ROUTES, type LiveEve
 export type LiveEventSourceLike = Pick<LiveEventSource, 'onopen' | 'onerror' | 'onmessage' | 'addEventListener' | 'removeEventListener' | 'close'>;
 export type LiveEventSourceFactory = (url: string) => LiveEventSourceLike;
 
-/** The three existing event consumers share one socket per browser page. */
+/** Event consumers share one socket per browser page. */
 export class LiveEventTransport {
   private socket: WebSocket | null = null;
   private sources = new Map<string, LiveEventSource>();
@@ -104,7 +104,8 @@ export class LiveEventSource extends EventTarget {
     const channel = (Object.keys(LIVE_EVENT_ROUTES) as LiveEventChannel[]).find(key => LIVE_EVENT_ROUTES[key] === parsed.pathname);
     if (!channel || parsed.origin !== window.location.origin) throw new Error('Unsupported live event source.');
     const workspaceId = parsed.searchParams.get('workspaceId') || undefined;
-    this.subscription = { id: crypto.randomUUID(), channel, ...(channel !== 'terminal' ? { workspaceId } : {}) };
+    this.subscription = { id: crypto.randomUUID(), channel,
+      ...(channel !== 'terminal' && channel !== 'documentReview' ? { workspaceId } : {}) };
     queueMicrotask(() => { if (!this.closed) this.owner.add(this); });
   }
   close(): void {

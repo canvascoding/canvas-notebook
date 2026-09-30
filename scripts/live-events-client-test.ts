@@ -28,29 +28,36 @@ function fixture() {
 }
 const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
 
-test('watch/presence/terminal share one socket and dispatch exact named/multiline events only to their owner', async () => {
+test('watch/presence/terminal/document review share one socket and dispatch only to their owner', async () => {
   const f = fixture();
   try {
     const watch = f.source('/api/files/watch?workspaceId=a');
     const presence = f.source('/api/files/presence?workspaceId=a&stream=1');
     const terminal = f.source('/api/terminal/availability?stream=1');
+    const review = f.source('/api/document-review/availability?stream=1&workspaceId=ignored');
     const received: unknown[] = [];
     watch.addEventListener('filechange', event => received.push(['watch', (event as MessageEvent).data, (event as MessageEvent).lastEventId]));
     presence.onmessage = event => received.push(['presence', event.data]);
     terminal.onmessage = event => received.push(['terminal', event.data]);
+    review.onmessage = event => received.push(['review', JSON.parse(event.data).documentReviewEnabled]);
     await flush(); assert.equal(f.sockets.length, 1);
     const socket = f.sockets[0]; socket.open();
-    assert.deepEqual(socket.sent.map(frame => [frame.channel, frame.workspaceId]), [['files', 'a'], ['presence', 'a'], ['terminal', undefined]]);
+    assert.deepEqual(socket.sent.map(frame => [frame.channel, frame.workspaceId]),
+      [['files', 'a'], ['presence', 'a'], ['terminal', undefined], ['documentReview', undefined]]);
     socket.receive({ type: 'open', id: watch.subscription.id }); assert.equal(watch.readyState, 1);
     socket.receive({ type: 'event', id: watch.subscription.id, event: { event: 'filechange', data: 'line1\nline2', id: 'id1', retry: 2500 } });
     socket.receive({ type: 'event', id: presence.subscription.id, event: { data: 'presence' } });
     socket.receive({ type: 'event', id: terminal.subscription.id, event: { data: '' } });
+    socket.receive({ type: 'event', id: review.subscription.id, event: { data: '{"documentReviewEnabled":false}' } });
+    socket.receive({ type: 'event', id: review.subscription.id, event: { data: '{"documentReviewEnabled":true}' } });
     socket.receive({ type: 'event', id: 'foreign', event: { data: 'must-not-deliver' } });
-    assert.deepEqual(received, [['watch', 'line1\nline2', 'id1'], ['presence', 'presence'], ['terminal', '']]);
+    assert.deepEqual(received, [['watch', 'line1\nline2', 'id1'], ['presence', 'presence'], ['terminal', ''],
+      ['review', false], ['review', true]]);
     assert.equal(watch.retryMs, 2500);
     watch.close(); socket.receive({ type: 'event', id: watch.subscription.id, event: { event: 'filechange', data: 'late' } });
-    assert.equal(received.length, 3); assert.equal(socket.closes, 0);
-    presence.close(); assert.equal(socket.closes, 0); terminal.close(); assert.equal(socket.closes, 1);
+    assert.equal(received.length, 5); assert.equal(socket.closes, 0);
+    presence.close(); assert.equal(socket.closes, 0); terminal.close(); assert.equal(socket.closes, 0);
+    review.close(); assert.equal(socket.closes, 1);
   } finally { f.cleanup(); }
 });
 

@@ -4,6 +4,7 @@ export const LIVE_EVENT_ROUTES = {
   files: '/api/files/watch',
   presence: '/api/files/presence',
   terminal: '/api/terminal/availability',
+  documentReview: '/api/document-review/availability',
 } as const;
 export type LiveEventChannel = keyof typeof LIVE_EVENT_ROUTES;
 export type LiveEventSubscription = { id: string; channel: LiveEventChannel; workspaceId?: string; lastEventId?: string };
@@ -22,7 +23,8 @@ export function isLiveEventSubscription(value: unknown): value is LiveEventSubsc
     && input.type === 'subscribe' && typeof input.id === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(input.id)
     && typeof input.channel === 'string' && Object.hasOwn(LIVE_EVENT_ROUTES, input.channel)
     && (input.workspaceId === undefined || (typeof input.workspaceId === 'string' && /^[a-zA-Z0-9_-]{1,128}$/.test(input.workspaceId)))
-    && (input.channel === 'terminal' ? input.workspaceId === undefined : input.channel === 'files' || typeof input.workspaceId === 'string')
+    && (input.channel === 'terminal' || input.channel === 'documentReview'
+      ? input.workspaceId === undefined : input.channel === 'files' || typeof input.workspaceId === 'string')
     && (input.lastEventId === undefined || (typeof input.lastEventId === 'string' && input.lastEventId.length <= 1024
       && !/[\r\n\0]/.test(input.lastEventId)));
 }
