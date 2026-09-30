@@ -62,5 +62,19 @@
   ],
   "limitations": [
     "These decisions address the exact CodeQL source-to-sink traces. They are not a claim that all filesystem race conditions or local privileged threats have been audited."
-  ]
+  ],
+  "mitigatedFindingsStillReported": {
+    "alerts": [
+      184,
+      185
+    ],
+    "mitigationCommit": "a53b3736cf8526190c5aa93ee5542470b3c88fd8",
+    "mitigation": "The entire release workflow declares cache-mode: none. No job overrides it. GitHub cache service scoped tokens deny both cache restore and save operations, even if checked-out code attempts direct cache API calls.",
+    "remainingScannerLimitation": "CodeQL CachePoisoningQuery.qll determines default-branch cache write access from trigger names alone. It does not test the workflow or job cache-mode. Thus the main Actions analysis 1868484886 still reports these two paths after the mitigation.",
+    "verificationSources": [
+      "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#cache-mode",
+      "https://raw.githubusercontent.com/github/codeql/main/actions/ql/lib/codeql/actions/security/CachePoisoningQuery.qll"
+    ],
+    "resolution": "Dismiss as false positives only after verifying the mitigation exists on main. The original vulnerable capability has been removed; this is not acceptance of an unmitigated cache risk."
+  }
 }
