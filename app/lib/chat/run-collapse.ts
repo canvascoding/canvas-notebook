@@ -1,5 +1,6 @@
 import { getChatMessageTimestamp } from '@/app/lib/chat/message-metadata';
 import { formatToolArgs, getPiMessageContent, isToolCallPart } from '@/app/lib/chat/message-content';
+import { interruptToolMessage } from '@/app/lib/chat/tool-lifecycle';
 import type {
   ChatMessage,
   PersistedToolCallPart,
@@ -61,6 +62,8 @@ function createExplicitBatch(
   toolCalls: PersistedToolCallPart[],
   toolMessagesByCallId: Map<string, ChatMessage>,
   assignedMessageIds: Set<string>,
+  interrupted: boolean,
+  interruptionText: string,
 ): ToolBatch {
   const calls = toolCalls.map<ToolBatchCall>((toolCall) => {
     const message = toolMessagesByCallId.get(toolCall.id);
@@ -73,7 +76,16 @@ function createExplicitBatch(
       toolCallId: toolCall.id,
       toolName: toolCall.name,
       toolArgs: formatToolArgs(toolCall.arguments),
-      message,
+      message: interrupted && !isTerminalToolMessage(message)
+        ? interruptToolMessage(message || {
+            id: `interrupted-${toolCall.id}`,
+            role: 'toolResult',
+            content: '',
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            toolArgs: formatToolArgs(toolCall.arguments),
+          }, interruptionText)
+        : message,
     };
   });
 
@@ -108,10 +120,20 @@ function projectMessageSegment(
   start: number,
   end: number,
   projection: ToolBatchProjection,
+  runtimeActive: boolean | undefined,
+  interruptionText: string,
 ) {
   const assignedMessageIds = new Set<string>();
   const toolMessagesByCallId = new Map<string, ChatMessage>();
   const assignedCallIds = new Set<string>();
+  const segmentEnded = runtimeActive === false
+    || (end < messages.length && messages[end].status === 'sent')
+    || messages.slice(start, end).some((message) => {
+      const piMessage = message.piMessage;
+      return message.role === 'assistant' && message.status !== 'sending'
+        && piMessage?.role === 'assistant'
+        && (piMessage.stopReason === 'stop' || piMessage.stopReason === 'error' || piMessage.stopReason === 'aborted');
+    });
 
   for (let index = start; index < end; index += 1) {
     const message = messages[index];
@@ -131,7 +153,7 @@ function projectMessageSegment(
       continue;
     }
 
-    const batch = createExplicitBatch(message, toolCalls, toolMessagesByCallId, assignedMessageIds);
+    const batch = createExplicitBatch(message, toolCalls, toolMessagesByCallId, assignedMessageIds, segmentEnded, interruptionText);
     projection.batchesByAnchorId.set(batch.anchorMessageId, batch);
   }
 
@@ -151,7 +173,9 @@ function projectMessageSegment(
     if (message.role === 'toolResult' && message.toolCallId
       && toolMessagesByCallId.get(message.toolCallId)?.id !== message.id) continue;
     if (message.role === 'toolResult' && !assignedMessageIds.has(message.id)) {
-      fallbackMessages.push(message);
+      fallbackMessages.push(segmentEnded && !isTerminalToolMessage(message)
+        ? interruptToolMessage(message, interruptionText)
+        : message);
       continue;
     }
 
@@ -174,7 +198,11 @@ function projectMessageSegment(
  * source order. Contiguous tool results are used as a fallback for partial live
  * events and legacy history records without tool-call metadata.
  */
-export function buildToolBatchProjection(messages: ChatMessage[]): ToolBatchProjection {
+export function buildToolBatchProjection(
+  messages: ChatMessage[],
+  runtimeActive?: boolean,
+  interruptionText = 'The run ended before this tool returned a result. Its completion could not be confirmed.',
+): ToolBatchProjection {
   const projection: ToolBatchProjection = {
     batchesByAnchorId: new Map(),
     hiddenToolMessageIds: new Set(),
@@ -186,7 +214,7 @@ export function buildToolBatchProjection(messages: ChatMessage[]): ToolBatchProj
       continue;
     }
 
-    projectMessageSegment(messages, segmentStart, index, projection);
+    projectMessageSegment(messages, segmentStart, index, projection, runtimeActive, interruptionText);
     segmentStart = index + 1;
   }
 

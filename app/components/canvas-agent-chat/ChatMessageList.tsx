@@ -443,7 +443,9 @@ export function ChatMessageList({
   const referenceScope = `${toolOutputScope?.workspaceId}:${toolOutputScope?.sessionId}`;
   // Live and persisted message wrappers may remount; disclosure belongs to the run.
   const [referenceViews, setReferenceViews] = useState<{ scope: string; states: Record<string, FileReferenceViewState> }>({ scope: referenceScope, states: {} });
-  const toolBatchProjection = useMemo(() => buildToolBatchProjection(messages), [messages]);
+  const toolBatchProjection = useMemo(() => buildToolBatchProjection(
+    messages, runtimePhase == null ? undefined : runtimePhase !== 'idle', t('toolExecutionInterrupted'),
+  ), [messages, runtimePhase, t]);
   const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
   const runtimeChanges = useMemo(() => indexChatRuntimeChanges(messages), [messages]);
   const hiddenToolMessageIds = toolBatchProjection.hiddenToolMessageIds;

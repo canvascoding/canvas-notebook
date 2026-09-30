@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { buildToolBatchProjection } from '../app/lib/chat/run-collapse';
+import { settleInterruptedToolMessages } from '../app/lib/chat/tool-lifecycle';
 import type { ChatMessage } from '../app/lib/chat/types';
 
 function message(input: Partial<ChatMessage> & Pick<ChatMessage, 'id' | 'role'>): ChatMessage {
@@ -128,6 +129,36 @@ function toolResult(id: string, toolCallId: string, toolName: string, timestamp:
   assert.equal(batch.calls[0]?.message?.status, 'sending');
   assert.equal(batch.calls[1]?.message, undefined, 'not-yet-started parallel calls should remain in the live batch');
   assert.equal(batch.endedAt, null);
+}
+
+{
+  const source = assistantWithTools('failed-assistant', '', [{ id: 'never-started', name: 'agent_manage' }], 5000);
+  source.piMessage = { ...source.piMessage, stopReason: 'error', errorMessage: 'terminated' } as ChatMessage['piMessage'];
+  const failed = buildToolBatchProjection([source], true).batchesByAnchorId.get(source.id)!;
+  assert.equal(failed.calls[0].message?.status, 'error', 'a partial tool call in a failed model response is terminal');
+  assert.match(failed.calls[0].message?.content || '', /completion could not be confirmed/);
+
+  const unfinished = assistantWithTools('unfinished', '', [{ id: 'unfinished-call', name: 'agent_manage' }], 6000);
+  assert.equal(buildToolBatchProjection([unfinished], true).batchesByAnchorId.get(unfinished.id)?.calls[0].message, undefined);
+  assert.equal(buildToolBatchProjection([unfinished], false).batchesByAnchorId.get(unfinished.id)?.calls[0].message?.status, 'error',
+    'idle history cannot keep an orphaned call waiting forever');
+  const aborted = { ...source, id: 'aborted', piMessage: { ...source.piMessage, stopReason: 'aborted' } as ChatMessage['piMessage'] };
+  assert.equal(buildToolBatchProjection([aborted], true).batchesByAnchorId.get(aborted.id)?.calls[0].message?.status, 'error');
+
+  const completed = toolResult('done', 'never-started', 'agent_manage', 6100);
+  assert.equal(buildToolBatchProjection([source, completed], false).batchesByAnchorId.get(source.id)?.calls[0].message, completed,
+    'an actual result always wins over an interrupted source');
+  const running = toolResult('running', 'unfinished-call', 'agent_manage', 6200, 'sending');
+  const settled = settleInterruptedToolMessages([running, completed], 'Interrupted');
+  assert.equal(settled[0].status, 'error');
+  assert.match(settled[0].content, /agent_manage output\n\nInterrupted/);
+  assert.equal(settled[1], completed);
+  assert.equal(settleInterruptedToolMessages(settled, 'Interrupted'), settled, 'settling is idempotent');
+  assert.equal(buildToolBatchProjection([running], false).batchesByAnchorId.get(running.id)?.calls[0].message?.status, 'error',
+    'legacy tool entries are also settled in idle history');
+  const laterRun = message({ id: 'next-user', role: 'user', status: 'sent' });
+  assert.equal(buildToolBatchProjection([unfinished, laterRun], true).batchesByAnchorId.get(unfinished.id)?.calls[0].message?.status, 'error',
+    'a new run cannot keep an earlier orphaned call active');
 }
 
 console.log('chat tool batch projection tests passed');

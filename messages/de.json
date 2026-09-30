@@ -1637,6 +1637,7 @@
     "stopping": "Wird gestoppt",
     "ready": "Bereit",
     "noOutputYet": "Noch keine Ausgabe",
+    "toolExecutionInterrupted": "Der Lauf wurde beendet, bevor dieses Tool ein Ergebnis zurückgab. Ob die Aktion abgeschlossen wurde, konnte nicht bestätigt werden.",
     "toolStatusRunning": "Läuft",
     "toolStatusPending": "Wartet",
     "toolStatusAborting": "Wird gestoppt",

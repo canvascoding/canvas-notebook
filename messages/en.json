@@ -1638,6 +1638,7 @@
     "stopping": "Stopping",
     "ready": "Ready",
     "noOutputYet": "No output yet",
+    "toolExecutionInterrupted": "The run ended before this tool returned a result. Its completion could not be confirmed.",
     "toolStatusRunning": "Running",
     "toolStatusPending": "Waiting",
     "toolStatusAborting": "Stopping",
