@@ -12,6 +12,7 @@ type PresenceStore = {
   versions: Map<string, number>;
   listeners: Map<string, Set<PresenceListener>>;
   documentPaths?: Map<string, string | null>;
+  hiddenDocumentPaths?: Map<string, string>;
 };
 
 const globalPresence = globalThis as typeof globalThis & { __canvasFilePresence?: PresenceStore };
@@ -25,21 +26,49 @@ const documentPaths = store.documentPaths ??= new Map<string, string | null>();
 
 function currentPresenceEntry(entry: FilePresenceEntry): FilePresenceEntry | null {
   const key = `${entry.workspaceId}\0${entry.documentId}`;
-  if (!documentPaths.has(key)) return entry;
-  const path = documentPaths.get(key);
-  return path ? { ...entry, path } : null;
+  const path = documentPaths.has(key) ? documentPaths.get(key) : entry.path;
+  if (!path || /^(?:\.\/)?\.canvas-skill-drafts(?:\/|$)/.test(path.replaceAll('\\', '/'))) return null;
+  return path === entry.path ? entry : { ...entry, path };
 }
 
 /** Keep late awareness updates attached to the identity's committed path. */
-export function remapWorkspacePresencePaths(workspaceId: string, oldPath: string, newPath: string): void {
+export function remapWorkspacePresencePaths(
+  workspaceId: string,
+  oldPath: string,
+  newPath: string,
+  options: { hideDestination?: boolean } = {},
+): void {
+  const hiddenPaths = store.hiddenDocumentPaths ??= new Map<string, string>();
+  for (const [key, hiddenPath] of hiddenPaths) {
+    if (!key.startsWith(`${workspaceId}\0`)) continue;
+    if (isSameOrDescendantPath(hiddenPath, oldPath)) {
+      const movedPath = remapPath(hiddenPath, oldPath, newPath);
+      if (options.hideDestination) {
+        hiddenPaths.set(key, movedPath);
+      } else {
+        hiddenPaths.delete(key);
+        documentPaths.set(key, movedPath);
+      }
+    } else if (isSameOrDescendantPath(hiddenPath, newPath)) {
+      hiddenPaths.delete(key);
+      documentPaths.set(key, null);
+    }
+  }
   const entries = store.entries.get(workspaceId);
   if (!entries) return;
   const changed = new Set<string>();
   for (const [key, entry] of entries) {
     if (isSameOrDescendantPath(entry.path, oldPath)) {
-      const path = remapPath(entry.path, oldPath, newPath);
-      entries.set(key, { ...entry, path });
-      documentPaths.set(`${workspaceId}\0${entry.documentId}`, path);
+      if (options.hideDestination) {
+        entries.delete(key);
+        const documentKey = `${workspaceId}\0${entry.documentId}`;
+        hiddenPaths.set(documentKey, remapPath(entry.path, oldPath, newPath));
+        documentPaths.set(documentKey, null);
+      } else {
+        const path = remapPath(entry.path, oldPath, newPath);
+        entries.set(key, { ...entry, path });
+        documentPaths.set(`${workspaceId}\0${entry.documentId}`, path);
+      }
       changed.add(entry.documentId);
     } else if (isSameOrDescendantPath(entry.path, newPath)) {
       entries.delete(key);

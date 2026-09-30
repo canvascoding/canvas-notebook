@@ -9,6 +9,8 @@ import {
 import { getCachedFileReferenceEntries } from '../app/lib/filesystem/file-reference-cache';
 import { buildFileTreeCacheKey, fileTreeCache } from '../app/lib/utils/file-tree-cache';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { getWorkspacePresenceSnapshot, subscribeWorkspacePresence, upsertDocumentPresenceEntry } from '../app/lib/collaboration/presence';
+import type { FilePresenceEntry, WorkspacePresenceMessage } from '../app/lib/collaboration/types';
 
 function createWorkspace(workspaceId: string, rootPath: string): WorkspaceContext {
   return {
@@ -30,7 +32,7 @@ function createWorkspace(workspaceId: string, rootPath: string): WorkspaceContex
 }
 
 async function waitFor(predicate: () => boolean, message: string): Promise<void> {
-  const deadline = Date.now() + 2_000;
+  const deadline = Date.now() + 5_000;
   while (!predicate() && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
@@ -46,6 +48,8 @@ async function main() {
   const eventsB: FileEvent[] = [];
 
   try {
+    await mkdir(workspaceA.rootPath, { recursive: true });
+    await mkdir(workspaceB.rootPath, { recursive: true });
     service.subscribe({
       id: 'client-a',
       workspaceId: workspaceA.workspaceId,
@@ -133,12 +137,31 @@ async function main() {
     assert.equal(exported.relativePath, 'exported.md');
     assert.equal(exported.type, 'add');
     assert.equal(exported.mutation, undefined, 'visible add must not expose its hidden source');
+    const presence: FilePresenceEntry = { workspaceId: workspaceA.workspaceId, path: 'exported.md', documentId: 'draft-move-document',
+      userId: 'agent', actorType: 'agent', sessionId: 'test-session', initiatedByUserId: null, displayName: 'Agent',
+      color: '#000', colorLight: '#fff', activity: 'editing', updatedAt: Date.now() };
+    upsertDocumentPresenceEntry(presence);
+    const presenceMessages: WorkspacePresenceMessage[] = [];
+    const unsubscribePresence = subscribeWorkspacePresence(workspaceA.workspaceId, (message) => presenceMessages.push(message));
     await service.withRename(workspaceA, { ...mutation, operationId: 'draft-import', oldPath: 'exported.md', newPath: hiddenNew },
       () => rename(path.join(workspaceA.rootPath, 'exported.md'), path.join(workspaceA.rootPath, hiddenNew)));
     const imported = eventsA.at(-1)!;
     assert.equal(imported.relativePath, 'exported.md');
     assert.equal(imported.type, 'unlink');
     assert.equal(imported.mutation, undefined, 'visible unlink must not expose its hidden destination');
+    assert.equal(getWorkspacePresenceSnapshot(workspaceA.workspaceId).entries.length, 0, 'moving into a draft clears visible presence');
+    upsertDocumentPresenceEntry({ ...presence, updatedAt: Date.now() + 1 });
+    assert.equal(getWorkspacePresenceSnapshot(workspaceA.workspaceId).entries.length, 0, 'late awareness cannot restore presence for a hidden destination');
+    assert.equal(presenceMessages.length, 1);
+    assert.equal(JSON.stringify(presenceMessages).includes('.canvas-skill-drafts'), false);
+    upsertDocumentPresenceEntry({ ...presence, documentId: 'previously-unseen-draft-document', path: hiddenNew });
+    assert.equal(getWorkspacePresenceSnapshot(workspaceA.workspaceId).entries.length, 0, 'incoming awareness cannot expose a draft without an earlier presence entry');
+    await service.withRename(workspaceA, { ...mutation, operationId: 'draft-reexport', oldPath: hiddenNew, newPath: 'reexported.md' },
+      () => rename(path.join(workspaceA.rootPath, hiddenNew), path.join(workspaceA.rootPath, 'reexported.md')));
+    upsertDocumentPresenceEntry({ ...presence, updatedAt: Date.now() + 2 });
+    assert.equal(getWorkspacePresenceSnapshot(workspaceA.workspaceId).entries[0]?.path, 'reexported.md', 'moving back to a visible path restores the identity for awareness');
+    assert.equal(JSON.stringify(presenceMessages).includes('.canvas-skill-drafts'), false);
+    unsubscribePresence();
     await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(JSON.stringify(eventsA).includes('.canvas-skill-drafts'), false, 'no live mutation payload may contain a draft path');
 

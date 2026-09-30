@@ -224,11 +224,11 @@ export class FileWatcherService {
     try {
       const result = await operation();
       pending.committed = true;
-      remapWorkspacePresencePaths(workspace.workspaceId, mutation.oldPath, mutation.newPath);
-      this.pendingEvents = this.pendingEvents.filter((event) => this.findManagedRename(event.workspaceId, event.relativePath) !== pending);
-      clearSubtreeCache(getParentDirectory(mutation.oldPath), workspace.workspaceId);
       const oldHidden = isCanvasSkillDraftPath(mutation.oldPath);
       const newHidden = isCanvasSkillDraftPath(mutation.newPath);
+      remapWorkspacePresencePaths(workspace.workspaceId, mutation.oldPath, mutation.newPath, { hideDestination: newHidden });
+      this.pendingEvents = this.pendingEvents.filter((event) => this.findManagedRename(event.workspaceId, event.relativePath) !== pending);
+      clearSubtreeCache(getParentDirectory(mutation.oldPath), workspace.workspaceId);
       if (oldHidden || newHidden) {
         // A boundary move changes only the visible side of the tree. Never
         // include the private source/destination in a rename payload.
