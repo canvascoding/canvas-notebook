@@ -8,12 +8,16 @@ const encryptionKeys = new Set(['EMAIL_ACCOUNT_SECRET_ENCRYPTION_KEY', 'MCP_CRED
 
 /** Permission scopes are independent of these descriptive usage categories. */
 export function getSecretCategories(key: string): SecretCategory[] {
-  if (key.startsWith('CANVAS_PROFILE_AGENTS__')) return ['agent-runtime'];
+  // Active agent overrides are also used by MCP and by Studio's media fallback.
+  if (key.startsWith('CANVAS_PROFILE_AGENTS__')) {
+    const categories = getSecretCategories(key.slice('CANVAS_PROFILE_AGENTS__'.length));
+    return [...new Set<SecretCategory>(['agent-runtime', ...categories.filter(category => category !== 'other'), 'integrations'])];
+  }
   if (key.startsWith('CANVAS_PROFILE_')) return ['other'];
   const categories: SecretCategory[] = [];
   if (agentKeys.has(key)) categories.push('agent-runtime');
   if (mediaKeys.has(key)) categories.push('media');
-  if (/^(BRAVE_|COMPOSIO_|MCP_|TELEGRAM_|DISCORD_|SLACK_|GITHUB_|GOOGLE_(CLIENT|OAUTH)_|MICROSOFT_|EMAIL_|SYSTEM_SMTP_)/.test(key)) categories.push('integrations');
+  if (/^(CANVAS_MCP_|BRAVE_|WEB_SEARCH_PROVIDER$|COMPOSIO_|MCP_|TELEGRAM_|DISCORD_|SLACK_|GITHUB_|GOOGLE_(CLIENT|OAUTH)_|MICROSOFT_|EMAIL_|SYSTEM_SMTP_)/.test(key)) categories.push('integrations');
   return categories.length ? categories : ['other'];
 }
 

@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
+import { UnifiedSecretsEditor } from '@/app/components/settings/UnifiedSecretsEditor';
 import { AdministrationSettingsPanel } from '@/app/components/settings/AdministrationSettingsPanel';
 import { DictationSettingsPanel } from '@/app/components/settings/DictationSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
@@ -38,7 +39,6 @@ import {
 } from '@/app/components/settings/SettingsNavigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
@@ -70,41 +70,11 @@ import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation
 import { cn } from '@/lib/utils';
 import type { McpConnectionHealth } from '@/app/lib/mcp/connection-health-types';
 
-type EnvScope = 'integrations' | 'agents';
-
 interface EnvEntry {
   key: string;
   value: string;
   encrypted: boolean;
 }
-
-interface EnvState {
-  scope: EnvScope;
-  path: string;
-  exists: boolean;
-  rawContent: string;
-  entries: EnvEntry[];
-  encryptionEnabled: boolean;
-}
-
-interface DraftEntry {
-  id: string;
-  key: string;
-  value: string;
-  encrypted: boolean;
-}
-
-type ScopeEditorState = {
-  state: EnvState | null;
-  draftEntries: DraftEntry[];
-  rawContent: string;
-  activeTab: 'kv' | 'raw';
-  isLoading: boolean;
-  isSaving: boolean;
-  error: string | null;
-  success: string | null;
-  secretVisibilityById: Record<string, boolean>;
-};
 
 type McpConfigState = {
   path: string;
@@ -284,16 +254,10 @@ function emptyEmailSmtpDraft(): EmailSmtpDraft {
   };
 }
 
-type ScopeCardConfig = {
-  scope: EnvScope;
-};
-
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
-const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
 const INTEGRATIONS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-integrations-section-open-state';
 const SETTINGS_TAB_CONTENT_CLASS = 'space-y-4';
 
-type EnvCardOpenState = Record<EnvScope, boolean>;
 type IntegrationsSectionId = 'search' | 'connectedApps' | 'emailAccounts' | 'mcpConfig';
 type IntegrationsSectionOpenState = Record<IntegrationsSectionId, boolean>;
 type ConnectedAppsPanelProps = {
@@ -332,7 +296,6 @@ type CodeEditorProps = {
 };
 
 const DEFAULT_SETTINGS_TAB: SettingsTab = 'general';
-const DEFAULT_ENV_CARD_OPEN_STATE: EnvCardOpenState = { integrations: false, agents: false };
 const DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE: IntegrationsSectionOpenState = {
   search: false,
   connectedApps: false,
@@ -453,20 +416,6 @@ function getStoredSettingsTab(): SettingsTab | null {
   }
 }
 
-function getStoredEnvCardOpenState(): EnvCardOpenState {
-  if (typeof window === 'undefined') return DEFAULT_ENV_CARD_OPEN_STATE;
-
-  try {
-    const storedState = JSON.parse(window.localStorage.getItem(ENV_CARD_OPEN_STORAGE_KEY) || '{}') as Partial<EnvCardOpenState>;
-    return {
-      integrations: typeof storedState.integrations === 'boolean' ? storedState.integrations : DEFAULT_ENV_CARD_OPEN_STATE.integrations,
-      agents: typeof storedState.agents === 'boolean' ? storedState.agents : DEFAULT_ENV_CARD_OPEN_STATE.agents,
-    };
-  } catch {
-    return DEFAULT_ENV_CARD_OPEN_STATE;
-  }
-}
-
 function normalizeIntegrationsSection(value: string | null): IntegrationsSectionId | null {
   if (value === 'connectedApps' || value === 'composio') return 'connectedApps';
   if (value === 'mcpConfig' || value === 'mcp') return 'mcpConfig';
@@ -491,23 +440,6 @@ function getStoredIntegrationsSectionOpenState(): IntegrationsSectionOpenState {
   }
 }
 
-const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
-  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'OLLAMA_API_KEY', 'WEB_SEARCH_PROVIDER', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MICROSOFT_OAUTH_CLIENT_ID', 'MICROSOFT_OAUTH_CLIENT_SECRET'],
-  agents: ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
-};
-
-const INITIAL_SCOPE_STATE = (scope: EnvScope): ScopeEditorState => ({
-  state: null,
-  draftEntries: toDefaultDraftEntries(scope),
-  rawContent: '',
-  activeTab: 'kv',
-  isLoading: true,
-  isSaving: false,
-  error: null,
-  success: null,
-  secretVisibilityById: {},
-});
-
 const INITIAL_MCP_STATE: McpEditorState = {
   state: null,
   status: null,
@@ -520,232 +452,20 @@ const INITIAL_MCP_STATE: McpEditorState = {
   success: null,
 };
 
-const SCOPE_CARDS: ScopeCardConfig[] = [
-  {
-    scope: 'integrations',
-  },
-  {
-    scope: 'agents',
-  },
-];
-
-function normalizeKeyForSecretCheck(key: string): string {
-  return key.trim().toUpperCase();
+/** Fachformulare update only their own logical integration keys in the personal store. */
+export async function patchSettingsIntegrationEnv(patches: Array<{ key: string; value: string | null }>, errorMessage: string): Promise<void> {
+  const response = await fetch('/api/integrations/env?scope=integrations', {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope: 'integrations', secretScope: 'user', patches }),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.success) throw new Error(result.error || errorMessage);
+  window.dispatchEvent(new CustomEvent('canvas_secrets_updated', { detail: { secretScope: 'user' } }));
 }
 
-function isSecretKey(key: string): boolean {
-  const normalized = normalizeKeyForSecretCheck(key);
-  if (normalized.endsWith('_KEY_SOURCE')) {
-    return false;
-  }
-  return (
-    normalized.endsWith('_KEY') ||
-    normalized.includes('_TOKEN') ||
-    normalized.includes('TOKEN') ||
-    normalized.includes('SECRET') ||
-    normalized.includes('PASSWORD')
-  );
-}
-
-function createDraftEntry(entry?: Partial<EnvEntry>): DraftEntry {
-  return {
-    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    key: entry?.key || '',
-    value: entry?.value || '',
-    encrypted: Boolean(entry?.encrypted),
-  };
-}
-
-function toDefaultDraftEntries(scope: EnvScope): DraftEntry[] {
-  return DEFAULT_SCOPE_KEYS[scope].map((key) => createDraftEntry({ key, value: '', encrypted: false }));
-}
-
-function toDraftEntries(scope: EnvScope, entries: EnvEntry[]): DraftEntry[] {
-  if (!entries || entries.length === 0) {
-    return toDefaultDraftEntries(scope);
-  }
-
-  const existingEntries = entries.map((entry) => createDraftEntry(entry));
-  const existingKeys = new Set(entries.map((entry) => entry.key.trim().toUpperCase()).filter(Boolean));
-  const missingDefaults = DEFAULT_SCOPE_KEYS[scope]
-    .filter((key) => !existingKeys.has(key.toUpperCase()))
-    .map((key) => createDraftEntry({ key, value: '', encrypted: false }));
-
-  return [...existingEntries, ...missingDefaults];
-}
-
-function buildHiddenState(entries: DraftEntry[]): Record<string, boolean> {
-  return Object.fromEntries(entries.map((entry) => [entry.id, false])) as Record<string, boolean>;
-}
-
-function countConfiguredEntries(entries: DraftEntry[]): number {
-  return entries.filter((entry) => entry.key.trim().length > 0 && (entry.value.length > 0 || entry.encrypted)).length;
-}
-
-function EnvEditorCard(props: {
-  card: ScopeCardConfig;
-  editor: ScopeEditorState;
-  isOpen: boolean;
-  onOpenChange: (scope: EnvScope, isOpen: boolean) => void;
-  onLoad: (scope: EnvScope) => Promise<void>;
-  onAddEntry: (scope: EnvScope) => void;
-  onRemoveEntry: (scope: EnvScope, index: number) => void;
-  onUpdateEntry: (scope: EnvScope, index: number, patch: Partial<DraftEntry>) => void;
-  onToggleSecret: (scope: EnvScope, entryId: string) => void;
-  onSaveKeyValue: (scope: EnvScope) => Promise<void>;
-}) {
-  const t = useTranslations('settings');
-  const {
-    card,
-    editor,
-    isOpen,
-    onAddEntry,
-    onLoad,
-    onOpenChange,
-    onRemoveEntry,
-    onSaveKeyValue,
-    onToggleSecret,
-    onUpdateEntry,
-  } = props;
-  const configuredCount = countConfiguredEntries(editor.draftEntries);
-
-  return (
-    <Collapsible open={isOpen} onOpenChange={(nextOpen) => onOpenChange(card.scope, nextOpen)}>
-      <Card id={card.scope === 'integrations' ? 'onboarding-settings-env-integrations' : 'onboarding-settings-env-agents'} className="gap-0 py-0">
-        <CardHeader className="p-0">
-          <CollapsibleTrigger asChild>
-            <button
-              type="button"
-              className="flex w-full flex-col gap-3 rounded-lg px-4 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:px-6"
-              aria-label={isOpen ? t('envCard.collapse') : t('envCard.expand')}
-            >
-              <div className="flex w-full items-start justify-between gap-4">
-                <div className="min-w-0 space-y-1">
-                  <CardTitle>{t(`scopes.${card.scope}.title`)}</CardTitle>
-                  <CardDescription>
-                    {t(`scopes.${card.scope}.description`)}
-                  </CardDescription>
-                </div>
-                <div className="flex shrink-0 items-center gap-2 text-sm font-medium text-muted-foreground">
-                  <span className="hidden sm:inline">{isOpen ? t('envCard.collapse') : t('envCard.expand')}</span>
-                  <ChevronDown className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span className="rounded-md bg-muted px-2 py-1">{t('envCard.configuredSummary', { count: configuredCount })}</span>
-                {editor.isLoading ? (
-                  <span className="inline-flex items-center rounded-md bg-muted px-2 py-1">
-                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                    {t('envCard.loadingConfig')}
-                  </span>
-                ) : null}
-                {editor.error && (
-                  <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">
-                    {t('envCard.errorSummary')}
-                  </span>
-                )}
-              </div>
-            </button>
-          </CollapsibleTrigger>
-        </CardHeader>
-        <CollapsibleContent>
-          <CardContent className="space-y-4 px-4 pb-4 pt-0 sm:px-6 sm:pb-6">
-            {editor.isLoading ? (
-              <div className="flex items-center text-sm text-muted-foreground">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {t('envCard.loadingConfig')}
-              </div>
-            ) : (
-              <>
-                {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
-                {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
-
-                <div className="space-y-3">
-                    <div className="hidden grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] gap-3 px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase md:grid">
-                      <span>{t('envCard.columnKey')}</span>
-                      <span>{t('envCard.columnValue')}</span>
-                      <span className="text-right">{t('envCard.columnAction')}</span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {editor.draftEntries.map((entry, index) => {
-                        const secret = isSecretKey(entry.key);
-                        const visible = Boolean(editor.secretVisibilityById[entry.id]);
-
-                        return (
-                          <div
-                            key={entry.id}
-                            className="grid gap-2 md:grid-cols-[minmax(220px,0.9fr)_minmax(0,1.6fr)_auto] md:items-center"
-                          >
-                            <Input
-                              placeholder={t('envCard.placeholderKeyName')}
-                              value={entry.key}
-                              onChange={(event) => onUpdateEntry(card.scope, index, { key: event.target.value })}
-                              disabled={editor.isSaving}
-                            />
-                            <div className="relative min-w-0">
-                              <Input
-                                type={secret && !visible ? 'password' : 'text'}
-                                placeholder={entry.encrypted ? t('envCard.placeholderEncryptedValue') : t('envCard.placeholderValue')}
-                                value={entry.value}
-                                onChange={(event) => onUpdateEntry(card.scope, index, { value: event.target.value })}
-                                disabled={editor.isSaving}
-                                className={secret ? 'pr-11' : undefined}
-                              />
-                              {secret && (
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  className="absolute right-1 top-1/2 -translate-y-1/2"
-                                  aria-label={visible ? t('envCard.hideSecret') : t('envCard.showSecret')}
-                                  onClick={() => onToggleSecret(card.scope, entry.id)}
-                                  disabled={editor.isSaving}
-                                >
-                                  {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                </Button>
-                              )}
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="icon-sm"
-                              aria-label={t('envCard.deleteRow')}
-                              onClick={() => onRemoveEntry(card.scope, index)}
-                              disabled={editor.isSaving}
-                              className="justify-self-start md:justify-self-end"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button type="button" variant="outline" onClick={() => onAddEntry(card.scope)} disabled={editor.isSaving}>
-                        <Plus className="mr-1 h-4 w-4" />
-                        {t('envCard.addRow')}
-                      </Button>
-                      <Button type="button" onClick={() => void onSaveKeyValue(card.scope)} disabled={editor.isSaving || editor.isLoading}>
-                        {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {t('envCard.save')}
-                      </Button>
-                      <Button type="button" variant="outline" onClick={() => void onLoad(card.scope)} disabled={editor.isSaving}>
-                        <RefreshCw className="mr-2 h-4 w-4" />
-                        {t('envCard.reload')}
-                      </Button>
-                    </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </CollapsibleContent>
-      </Card>
-    </Collapsible>
-  );
-}
-
-function SearchIntegrationCard({
+export function SearchIntegrationCard({
   isOpen,
   onOpenChange,
   onEnvSaved,
@@ -811,34 +531,11 @@ function SearchIntegrationCard({
     setError(null);
     setMessage(null);
     try {
-      const currentResponse = await fetch('/api/integrations/env?scope=integrations', {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      const currentPayload = await currentResponse.json();
-      if (!currentResponse.ok || !currentPayload.success) {
-        throw new Error(currentPayload.error || t('errors.load'));
-      }
-      const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
-      const nextEntries = currentEntries
-        .filter((entry) => entry.key !== (nextProvider === 'ollama' ? 'OLLAMA_API_KEY' : 'BRAVE_API_KEY') && entry.key !== 'WEB_SEARCH_PROVIDER')
-        .map((entry) => ({ key: entry.key, value: entry.value }));
       const trimmed = nextValue.trim();
-      if (trimmed) {
-        nextEntries.push({ key: nextProvider === 'ollama' ? 'OLLAMA_API_KEY' : 'BRAVE_API_KEY', value: trimmed });
-      }
-      nextEntries.push({ key: 'WEB_SEARCH_PROVIDER', value: nextProvider });
-
-      const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
-      });
-      const savePayload = await saveResponse.json();
-      if (!saveResponse.ok || !savePayload.success) {
-        throw new Error(savePayload.error || t('errors.save'));
-      }
+      await patchSettingsIntegrationEnv([
+        { key: nextProvider === 'ollama' ? 'OLLAMA_API_KEY' : 'BRAVE_API_KEY', value: trimmed || null },
+        { key: 'WEB_SEARCH_PROVIDER', value: nextProvider },
+      ], t('errors.save'));
       setApiKey(trimmed);
       setApiKeys((current) => ({ ...current, [nextProvider]: trimmed }));
       setProvider(nextProvider);
@@ -1596,22 +1293,10 @@ export function EmailAccountsCard({
     if (!keys.clientIdValue || !keys.clientSecretValue) {
       throw new Error(t('errors.oauthCredentialsRequired'));
     }
-    const currentResponse = await fetch('/api/integrations/env?scope=integrations', { cache: 'no-store' });
-    const currentPayload = await currentResponse.json();
-    if (!currentResponse.ok || !currentPayload.success) throw new Error(currentPayload.error || t('errors.loadIntegrationKeys'));
-    const currentEntries = (currentPayload.data?.entries || []) as EnvEntry[];
-    const nextEntries = currentEntries
-      .filter((entry) => entry.key !== keys.clientId && entry.key !== keys.clientSecret)
-      .map((entry) => ({ key: entry.key, value: entry.value }));
-    nextEntries.push({ key: keys.clientId, value: keys.clientIdValue });
-    nextEntries.push({ key: keys.clientSecret, value: keys.clientSecretValue });
-    const saveResponse = await fetch('/api/integrations/env?scope=integrations', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries: nextEntries }),
-    });
-    const savePayload = await saveResponse.json();
-    if (!saveResponse.ok || !savePayload.success) throw new Error(savePayload.error || t('errors.saveOAuthSettings'));
+    await patchSettingsIntegrationEnv([
+      { key: keys.clientId, value: keys.clientIdValue },
+      { key: keys.clientSecret, value: keys.clientSecretValue },
+    ], t('errors.saveOAuthSettings'));
     await loadOAuthEnv();
   };
 
@@ -2459,7 +2144,6 @@ export function IntegrationsSettingsClient({
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
   const { activeTabOverride } = useHintContext();
-  const secretsInitialLoadStartedRef = useRef(false);
   const mcpInitialLoadStartedRef = useRef(false);
   const mcpAuthorizationFlowsRef = useRef(new Map<string, string>());
 
@@ -2541,61 +2225,8 @@ export function IntegrationsSettingsClient({
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
   };
 
-  const [editors, setEditors] = useState<Record<EnvScope, ScopeEditorState>>({
-    integrations: INITIAL_SCOPE_STATE('integrations'),
-    agents: INITIAL_SCOPE_STATE('agents'),
-  });
   const [mcpEditor, setMcpEditor] = useState<McpEditorState>(INITIAL_MCP_STATE);
-  const [envCardOpenByScope, setEnvCardOpenByScope] = useState<EnvCardOpenState>(DEFAULT_ENV_CARD_OPEN_STATE);
   const [integrationsSectionOpenById, setIntegrationsSectionOpenById] = useState<IntegrationsSectionOpenState>(DEFAULT_INTEGRATIONS_SECTION_OPEN_STATE);
-
-  const loadState = useCallback(async (scope: EnvScope) => {
-    setEditors((current) => ({
-      ...current,
-      [scope]: {
-        ...current[scope],
-        isLoading: true,
-        error: null,
-      },
-    }));
-
-    try {
-      const response = await fetch(`/api/integrations/env?scope=${scope}`, {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('envCard.errors.loadEnvFile'));
-      }
-
-      const nextState: EnvState = payload.data;
-      const nextDraftEntries = toDraftEntries(scope, nextState.entries);
-      setEditors((current) => ({
-        ...current,
-        [scope]: {
-          ...current[scope],
-          state: nextState,
-          draftEntries: nextDraftEntries,
-          rawContent: nextState.rawContent,
-          isLoading: false,
-          error: null,
-          success: null,
-          secretVisibilityById: buildHiddenState(nextDraftEntries),
-        },
-      }));
-    } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : t('envCard.errors.loadEnvFile');
-      setEditors((current) => ({
-        ...current,
-        [scope]: {
-          ...current[scope],
-          isLoading: false,
-          error: message,
-        },
-      }));
-    }
-  }, [t]);
 
   const loadMcpConfig = useCallback(async () => {
     setMcpEditor((current) => ({
@@ -2813,19 +2444,6 @@ export function IntegrationsSettingsClient({
   };
 
   useEffect(() => {
-    if (effectiveTab !== 'secrets' || secretsInitialLoadStartedRef.current) {
-      return;
-    }
-
-    secretsInitialLoadStartedRef.current = true;
-    startTransition(() => {
-      void Promise.all([
-        ...SCOPE_CARDS.map((card) => loadState(card.scope)),
-      ]);
-    });
-  }, [effectiveTab, loadState]);
-
-  useEffect(() => {
     if (effectiveTab !== 'mcp' || mcpInitialLoadStartedRef.current) {
       return;
     }
@@ -2833,12 +2451,11 @@ export function IntegrationsSettingsClient({
     mcpInitialLoadStartedRef.current = true;
     startTransition(() => {
       void Promise.all([
-        ...(isAdmin ? [loadState('integrations')] : []),
         loadMcpConfig(),
         loadMcpStatus(),
       ]);
     });
-  }, [effectiveTab, isAdmin, loadMcpConfig, loadMcpStatus, loadState]);
+  }, [effectiveTab, loadMcpConfig, loadMcpStatus]);
 
   useEffect(() => {
     const locationParams = new URLSearchParams(locationQuery);
@@ -2872,7 +2489,6 @@ export function IntegrationsSettingsClient({
 
   useEffect(() => {
     startTransition(() => {
-      setEnvCardOpenByScope(getStoredEnvCardOpenState());
       setIntegrationsSectionOpenById(getStoredIntegrationsSectionOpenState());
     });
   }, []);
@@ -2891,60 +2507,6 @@ export function IntegrationsSettingsClient({
       }));
     });
   }, [searchParams]);
-
-  const saveScope = async (scope: EnvScope, payload: { mode: 'kv'; entries: Array<{ key: string; value: string }> } | { mode: 'raw'; rawContent: string }) => {
-    setEditors((current) => ({
-      ...current,
-      [scope]: {
-        ...current[scope],
-        isSaving: true,
-        error: null,
-        success: null,
-      },
-    }));
-
-    try {
-      const response = await fetch('/api/integrations/env', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          scope,
-          ...payload,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || t('envCard.errors.saveEnvFile'));
-      }
-
-      const nextState: EnvState = result.data;
-      const nextDraftEntries = toDraftEntries(scope, nextState.entries);
-      setEditors((current) => ({
-        ...current,
-        [scope]: {
-          ...current[scope],
-          state: nextState,
-          draftEntries: nextDraftEntries,
-          rawContent: nextState.rawContent,
-          isSaving: false,
-          error: null,
-          success: payload.mode === 'raw' ? t('envCard.rawSaved') : t('envCard.saved'),
-          secretVisibilityById: buildHiddenState(nextDraftEntries),
-        },
-      }));
-    } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : t('envCard.errors.saveEnvFile');
-      setEditors((current) => ({
-        ...current,
-        [scope]: {
-          ...current[scope],
-          isSaving: false,
-          error: message,
-        },
-      }));
-    }
-  };
 
   const saveMcpConfig = async () => {
     setMcpEditor((current) => ({
@@ -2993,37 +2555,7 @@ export function IntegrationsSettingsClient({
     try {
       const envEntries = collectMcpEnvEntries(draft);
       if (envEntries.length > 0) {
-        const currentEntries = editors.integrations.state?.entries.map((entry) => ({ key: entry.key, value: entry.value })) || [];
-        const nextEntriesByKey = new Map(currentEntries.map((entry) => [entry.key, entry]));
-        for (const entry of envEntries) {
-          nextEntriesByKey.set(entry.key, entry);
-        }
-        const response = await fetch('/api/integrations/env', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            scope: 'integrations',
-            mode: 'kv',
-            entries: Array.from(nextEntriesByKey.values()),
-          }),
-        });
-        const result = await response.json();
-        if (!response.ok || !result.success) {
-          throw new Error(result.error || t('envCard.errors.saveEnvFile'));
-        }
-        const nextState: EnvState = result.data;
-        const nextDraftEntries = toDraftEntries('integrations', nextState.entries);
-        setEditors((current) => ({
-          ...current,
-          integrations: {
-            ...current.integrations,
-            state: nextState,
-            draftEntries: nextDraftEntries,
-            rawContent: nextState.rawContent,
-            secretVisibilityById: buildHiddenState(nextDraftEntries),
-          },
-        }));
+        await patchSettingsIntegrationEnv(envEntries, t('envCard.errors.saveEnvFile'));
       }
 
       const rawContent = updateMcpConfigRawServer(mcpEditor.rawContent, draft, originalName);
@@ -3110,21 +2642,6 @@ export function IntegrationsSettingsClient({
     }
   };
 
-  const setEnvCardOpen = (scope: EnvScope, isOpen: boolean) => {
-    setEnvCardOpenByScope((current) => {
-      const nextState = {
-        ...current,
-        [scope]: isOpen,
-      };
-      try {
-        window.localStorage.setItem(ENV_CARD_OPEN_STORAGE_KEY, JSON.stringify(nextState));
-      } catch {
-        // Settings still work if persistent browser storage is unavailable.
-      }
-      return nextState;
-    });
-  };
-
   const setIntegrationsSectionOpen = (sectionId: IntegrationsSectionId, isOpen: boolean) => {
     setIntegrationsSectionOpenById((current) => {
       const nextState = {
@@ -3137,88 +2654,6 @@ export function IntegrationsSettingsClient({
         // Settings still work if persistent browser storage is unavailable.
       }
       return nextState;
-    });
-  };
-
-  const updateDraftEntry = (scope: EnvScope, index: number, patch: Partial<DraftEntry>) => {
-    setEditors((current) => ({
-      ...current,
-      [scope]: {
-        ...current[scope],
-        draftEntries: current[scope].draftEntries.map((entry, currentIndex) =>
-          currentIndex === index ? { ...entry, ...patch } : entry
-        ),
-      },
-    }));
-  };
-
-  const toggleSecretVisibility = (scope: EnvScope, entryId: string) => {
-    setEditors((current) => ({
-      ...current,
-      [scope]: {
-        ...current[scope],
-        secretVisibilityById: {
-          ...current[scope].secretVisibilityById,
-          [entryId]: !current[scope].secretVisibilityById[entryId],
-        },
-      },
-    }));
-  };
-
-  const addDraftEntry = (scope: EnvScope) => {
-    const entry = createDraftEntry();
-    setEditors((current) => ({
-      ...current,
-      [scope]: {
-        ...current[scope],
-        draftEntries: [...current[scope].draftEntries, entry],
-        secretVisibilityById: {
-          ...current[scope].secretVisibilityById,
-          [entry.id]: false,
-        },
-      },
-    }));
-  };
-
-  const removeDraftEntry = (scope: EnvScope, index: number) => {
-    setEditors((current) => {
-      const editor = current[scope];
-      const target = editor.draftEntries[index];
-      if (editor.draftEntries.length <= 1) {
-        const fallback = createDraftEntry();
-        return {
-          ...current,
-          [scope]: {
-            ...editor,
-            draftEntries: [fallback],
-            secretVisibilityById: { [fallback.id]: false },
-          },
-        };
-      }
-
-      const nextVisibility = { ...editor.secretVisibilityById };
-      if (target) {
-        delete nextVisibility[target.id];
-      }
-
-      return {
-        ...current,
-        [scope]: {
-          ...editor,
-          draftEntries: editor.draftEntries.filter((_, currentIndex) => currentIndex !== index),
-          secretVisibilityById: nextVisibility,
-        },
-      };
-    });
-  };
-
-  const saveKeyValue = async (scope: EnvScope) => {
-    const editor = editors[scope];
-    await saveScope(scope, {
-      mode: 'kv',
-      entries: editor.draftEntries
-        .map((entry) => ({ key: entry.key.trim(), value: entry.value }))
-        .filter((entry) => entry.key.length > 0),
     });
   };
 
@@ -3301,7 +2736,7 @@ export function IntegrationsSettingsClient({
               <SearchIntegrationCard
                 isOpen={integrationsSectionOpenById.search}
                 onOpenChange={(isOpen) => setIntegrationsSectionOpen('search', isOpen)}
-                onEnvSaved={() => loadState('integrations')}
+                onEnvSaved={async () => { await loadMcpStatus(); }}
               />
               <ConnectedAppsPanel
                 isOpen={integrationsSectionOpenById.connectedApps}
@@ -3320,21 +2755,11 @@ export function IntegrationsSettingsClient({
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">{t('secrets.sectionDescription')}</p>
               </div>
-              {SCOPE_CARDS.map((card) => (
-                  <EnvEditorCard
-                    key={card.scope}
-                    card={card}
-                    editor={editors[card.scope]}
-                    isOpen={envCardOpenByScope[card.scope]}
-                    onOpenChange={setEnvCardOpen}
-                    onLoad={loadState}
-                    onAddEntry={addDraftEntry}
-                    onRemoveEntry={removeDraftEntry}
-                    onUpdateEntry={updateDraftEntry}
-                    onToggleSecret={toggleSecretVisibility}
-                    onSaveKeyValue={saveKeyValue}
-                  />
-                ))}
+              <UnifiedSecretsEditor
+                language={locale === 'de' ? 'de' : 'en'}
+                isAdmin={isAdmin}
+                onSaved={async () => { await Promise.all([loadMcpConfig(), loadMcpStatus()]); }}
+              />
               {isAdmin && (
                 <StudioMediaCredentialsPanel
                   locale={locale}

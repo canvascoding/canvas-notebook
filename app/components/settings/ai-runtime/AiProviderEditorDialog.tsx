@@ -448,33 +448,24 @@ export function AiProviderEditorDialog({
 
   const saveOllamaCredential = async (current: AiCatalogProviderDraft) => {
     if (current.providerId !== 'ollama' || ollamaApiKey === ollamaApiKeyBaseline) return;
-    const query = `scope=agents&secretScope=${current.credentialScope}`;
-    const response = await fetch(`/api/integrations/env?${query}`, {
-      credentials: 'include',
-      cache: 'no-store',
-    });
-    const payload = await response.json() as EnvResponse;
-    if (!response.ok || !payload.success || !payload.data) {
-      throw new Error(payload.error || copy.errors.credentialSave);
-    }
-    const entries = new Map(payload.data.entries.map((entry) => [entry.key, entry.value]));
-    if (ollamaApiKey.trim()) entries.set('OLLAMA_API_KEY', ollamaApiKey.trim());
-    else entries.delete('OLLAMA_API_KEY');
     const saveResponse = await fetch('/api/integrations/env', {
-      method: 'PUT',
+      method: 'PATCH',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         scope: 'agents',
         secretScope: current.credentialScope,
-        mode: 'kv',
-        entries: Array.from(entries, ([key, value]) => ({ key, value })),
+        patches: [{
+          key: 'OLLAMA_API_KEY',
+          value: ollamaApiKey.trim() || null,
+        }],
       }),
     });
     const saved = await saveResponse.json() as EnvResponse;
     if (!saveResponse.ok || !saved.success) {
       throw new Error(saved.error || copy.errors.credentialSave);
     }
+    window.dispatchEvent(new CustomEvent('canvas_secrets_updated', { detail: { secretScope: current.credentialScope } }));
   };
 
   const save = async (verify: boolean) => {
