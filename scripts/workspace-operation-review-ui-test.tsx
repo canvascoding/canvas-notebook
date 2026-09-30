@@ -166,6 +166,52 @@ test('workspace operation review shows all decisions against the displayed plan 
     assert.equal(findButton(translate('accept')), undefined);
     assert.equal(controls.decisions.length, 1);
 
+    const warningReview = review();
+    assert.ok(!('deletedPaths' in warningReview.preview));
+    warningReview.preview = { ...warningReview.preview,
+      coverage: { complete: false, omittedSources: [], unresolvedLinks: [
+        { sourcePath: 'Archive/old.md', targetLiteral: 'missing.md', status: 'missing' },
+      ] },
+      linkAssessment: { version: 1, complete: true, blockers: [], warnings: [
+        { sourcePath: 'Archive/old.md', targetLiteral: 'missing.md', status: 'missing', reason: 'unaffected-existing-link' },
+      ] },
+    };
+    controls.current = () => warningReview;
+    controls.decide = async () => ({ ...warningReview, status: 'applied' });
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel key="warning-only" request={{ mode: 'detail', reviewId, workspaceId }} />));
+    assert.match(document.querySelector('[data-testid="workspace-operation-readiness"]')?.textContent ?? '', /Ready for approval/u);
+    assert.ok(findButton(translate('accept')), 'unaffected workspace warnings do not disable approval');
+    const warningDetails = document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-link-warnings"]');
+    assert.equal(warningDetails?.open, false, 'unaffected warnings start collapsed');
+    assert.match(warningDetails?.textContent ?? '', /Archive\/old\.md: missing\.md/u);
+    const coverageDetails = document.querySelector<HTMLDetailsElement>('[data-testid="workspace-operation-link-coverage"]');
+    assert.equal(coverageDetails?.open, false, 'workspace diagnostics start collapsed');
+    assert.match(coverageDetails?.textContent ?? '', /Link coverage: Incomplete/u);
+    assert.equal(document.querySelector('[data-testid="workspace-operation-link-blockers"]'), null);
+    await act(async () => findButton(translate('accept'))?.click());
+    assert.equal(controls.decisions.length, 2, 'warning-only plan can be accepted');
+
+    const affectedReview = review('blocked');
+    assert.ok(!('deletedPaths' in affectedReview.preview));
+    affectedReview.preview = { ...affectedReview.preview, coverage: warningReview.preview.coverage,
+      linkAssessment: { version: 1, complete: false, warnings: warningReview.preview.linkAssessment!.warnings,
+        blockers: [{
+          sourcePath: '05_content-engine/atelier-notes/01_margiela-replica-alternative/maison-margiela-replica-alternative.md',
+          targetLiteral: 'The First 100 Collection', status: 'missing', reason: 'affected-unresolved-link',
+        }],
+      },
+      issues: [{ code: 'incomplete-index', workspaceId, path: '', detail: 'Affected link unresolved.' }],
+    };
+    controls.current = () => affectedReview;
+    await act(async () => root.render(<ui.WorkspaceOperationReviewPanel key="affected-link" request={{ mode: 'detail', reviewId, workspaceId }} />));
+    const blockers = document.querySelector('[data-testid="workspace-operation-link-blockers"]');
+    assert.match(blockers?.textContent ?? '', /atelier-notes\/01_margiela-replica-alternative/u);
+    assert.match(blockers?.textContent ?? '', /The First 100 Collection/u);
+    assert.match(blockers?.textContent ?? '', /Correct its target or create the missing file/u);
+    assert.match(document.querySelector('[data-testid="workspace-operation-readiness"]')?.textContent ?? '', /fresh preview/u);
+    assert.equal(findButton(translate('accept')), undefined, 'affected missing link remains a blocker');
+    assert.ok(findButton(translate('dismiss')));
+
     controls.current = () => review('blocked');
     controls.decide = async () => review('rejected');
     await act(async () => root.render(<ui.WorkspaceOperationReviewPanel key="blocked" request={{ mode: 'detail', reviewId, workspaceId }} />));

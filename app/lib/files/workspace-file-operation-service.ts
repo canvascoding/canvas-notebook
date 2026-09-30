@@ -8,6 +8,7 @@ import { copyFileBetweenWorkspaces, readFile, withWorkspaceCopyMutationLocks,
 import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview,
   WorkspacePreviewBlockedError, WorkspacePreviewStaleError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
+import { isWorkspaceFileOperationLinkSafe } from '@/app/lib/markdown/workspace-file-operation-link-safety';
 import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-write-groups';
 import { applyWorkspaceLinkWriteGroup, preflightWorkspaceLinkWrites,
   probeWorkspaceLinkWriteGroup, type WorkspaceLinkWriteExecutorInput } from '@/app/lib/markdown/workspace-link-write-executor';
@@ -156,7 +157,9 @@ export async function executeWorkspaceFileOperationService(
         scope: 'executor', kind: input.kind, phase: 'preview', outcome: 'conflict',
       });
       if (input.expectedPlanId) assertFreshWorkspaceFileOperationPlan(plan, input.expectedPlanId);
-      else if (plan.readiness !== 'ready') throw new WorkspacePreviewBlockedError();
+      else if (plan.readiness !== 'ready' || !isWorkspaceFileOperationLinkSafe(plan)) {
+        throw new WorkspacePreviewBlockedError();
+      }
       request = { kind: input.kind, selections: selectedFinalPaths(plan, input.selections) };
     }
 
