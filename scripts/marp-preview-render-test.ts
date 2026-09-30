@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import Module from 'node:module';
+import { JSDOM } from 'jsdom';
 
 type MarpRenderModule = typeof import('../app/lib/marp/render');
 
@@ -55,11 +56,16 @@ theme: default
   assert.match(mobilePreview.html, /\.marpit>svg\[data-canvas-active="true"\]/u);
   const scriptNonce = mobilePreview.html.match(/script-src 'nonce-([^']+)'/u)?.[1];
   assert.ok(scriptNonce);
-  const scripts = Array.from(mobilePreview.html.matchAll(/<script\b([^>]*)>/gu));
-  assert.ok(scripts.length > 0);
-  assert.ok(scripts.every((script) => script[1]?.includes(`nonce="${scriptNonce}"`)));
+  const previewDom = new JSDOM(mobilePreview.html);
+  try {
+    const scripts = Array.from(previewDom.window.document.querySelectorAll('script'));
+    assert.ok(scripts.length > 0);
+    assert.ok(scripts.every((script) => script.getAttribute('nonce') === scriptNonce));
+    assert.ok(scripts.every((script) => !script.hasAttribute('src')));
+  } finally {
+    previewDom.window.close();
+  }
   assert.doesNotMatch(mobilePreview.html, /script-src 'unsafe-inline'/u);
-  assert.doesNotMatch(mobilePreview.html, /<script\b[^>]*\bsrc=/u);
   assert.doesNotMatch(mobilePreview.html, /img-src[^>]*https:/u);
 
   const remotePreview = await renderMarpMarkdownToMobilePreview(
