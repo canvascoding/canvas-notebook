@@ -2,6 +2,7 @@ import 'server-only';
 
 import type * as Y from 'yjs';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { DirectMcpEditAuthority } from '@/app/lib/mcp/server/direct-edit-authority';
 import type { TextCollaborationRepresentation } from './types';
 
 /** Raised when the server can no longer prove an agent operation's authority. */
@@ -21,6 +22,9 @@ export interface AgentDirectConnectionInput {
   operationId: string;
   actorType?: 'agent' | 'user';
   actorSessionId?: string;
+  /** Ephemeral OAuth authority; never written to operation storage or serialized. */
+  mcpAuthority?: DirectMcpEditAuthority;
+  mcpPolicyFence?: (workspace: WorkspaceContext) => Promise<void>;
   versionSource?: 'automatic_checkpoint' | 'restore' | 'agent_apply';
   versionBaseRevisionId?: string | null;
   versionSourceSessionId?: string | null;

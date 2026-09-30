@@ -229,6 +229,16 @@ async function main(): Promise<void> {
     });
     assert.equal(direct.enforcementMode, 'safe_direct');
     assert.equal(direct.grant?.id, 'grant-a');
+    grantState = 'revoked';
+    const mcpPolicy = await service.resolveForOperationPolicy({
+      access: ownerAccess, lineageId: 'lineage-a', evaluation: allowChoice, operation,
+    });
+    assert.equal(mcpPolicy.effectiveMode, 'safe_direct',
+      'the policy-only MCP decision retains operation freshness without needing a Pi grant');
+    assert.equal((await service.resolveForOperation({ access: ownerAccess,
+      lineageId: 'lineage-a', evaluation: allowChoice, operation })).enforcementMode, 'review_required',
+    'native Pi direct editing still requires its grant');
+    grantState = 'active';
     const sameTickStored = await service.resolveForOperation({ access: ownerAccess,
       lineageId: 'lineage-a', evaluation: allowChoice,
       operation: { ...operation, operationId: 'operation-same-time', createdInThisCall: true } });
@@ -255,6 +265,9 @@ async function main(): Promise<void> {
       assert.equal(decision.enforcementMode, 'review_required', name);
       assert.equal(decision.policy.reason, 'hard_safety', name);
       assert.equal(grantLookups, before, `${name} must not reach the grant resolver`);
+      assert.equal((await service.resolveForOperationPolicy({ access: ownerAccess,
+        lineageId: 'lineage-a', evaluation: allowChoice, operation: unsafeOperation })).effectiveMode,
+      'review_required', `${name} must not bypass operation freshness in MCP policy`);
     }
 
     for (const [name, evaluation] of [

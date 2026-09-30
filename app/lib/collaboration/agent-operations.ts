@@ -40,10 +40,14 @@ import type {
 } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
 import {
   authorizeNewAgentDirectApply,
+  authorizeNewMcpDirectApply,
+  assertCurrentMcpDirectPolicy,
   readAgentReviewPolicySnapshot,
   type AgentReviewPolicySnapshot,
 } from '@/app/lib/file-version-center/agent-review-policy-adapter';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { DirectMcpEditAuthorityError, isDirectMcpEditAuthority,
+  type DirectMcpEditAuthority } from '@/app/lib/mcp/server/direct-edit-authority';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import {
   AgentDirectConnectionAuthorizationError,
@@ -2222,6 +2226,8 @@ async function applyStoredOperation(input: {
   actorDisplayName: string;
   approval?: { row: AgentOperationRow; userId: string; proposalVersion: string; actionKeysJson: string };
   directGrant?: { id: string; expiresAt: number };
+  mcpAuthority?: DirectMcpEditAuthority;
+  mcpPolicyFence?: (workspace: WorkspaceContext) => Promise<void>;
 }): Promise<PersistedAgentApplyResult> {
   let row = input.row;
   if (row.result_json && !['needs_review', 'partially_applied'].includes(row.status)) return parseResult(row);
@@ -2355,6 +2361,8 @@ async function applyStoredOperation(input: {
       initiatedByUserId: row.initiated_by_user_id,
       operationId: row.operation_id,
       actorSessionId: row.actor_session_id || undefined,
+      mcpAuthority: input.mcpAuthority,
+      mcpPolicyFence: input.mcpPolicyFence,
       agentTurnId: row.requested_mode === 'direct_apply' && row.operation_type === 'apply' ? row.agent_run_id || undefined : undefined,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
@@ -2365,6 +2373,7 @@ async function applyStoredOperation(input: {
       if (input.directGrant && (input.directGrant.id !== row.direct_edit_grant_id || input.directGrant.expiresAt <= Date.now())) {
         throw new AgentDirectConnectionAuthorizationError('The direct editing permission has expired.');
       }
+      input.mcpAuthority?.assertUnexpired();
       // The row claim and the direct-connection authorization can await I/O.
       // Recheck the exact displayed proposal in this room, then mutate without yielding.
       if (input.approval && !matchesProposalVersion(
@@ -2636,6 +2645,7 @@ export async function applyPersistedAgentTextOperation(input: {
   operationType?: 'apply' | 'revert';
   agentRunId?: string;
   actorSessionId?: string;
+  mcpAuthority?: DirectMcpEditAuthority;
   supersedesOperationId?: string;
   correlationId?: string;
   causationId?: string;
@@ -2652,6 +2662,16 @@ export async function applyPersistedAgentTextOperation(input: {
   disallowLegacyReview?: boolean;
 }): Promise<PersistedAgentApplyResult> {
   if (!input.workspace.permissions.canWrite) throw new Error('Workspace write permission is required.');
+  if (input.mcpAuthority && (!isDirectMcpEditAuthority(input.mcpAuthority)
+    || input.mcpAuthority.scope.userId !== input.initiatedByUserId
+    || input.mcpAuthority.scope.actorId !== input.actorId
+    || input.mcpAuthority.scope.sessionId !== input.actorSessionId
+    || input.mcpAuthority.scope.workspaceId !== input.workspace.workspaceId
+    || input.mcpAuthority.scope.documentId !== input.documentId
+    || input.mcpAuthority.scope.path !== input.documentPath
+    || input.mcpAuthority.scope.lifecycleGeneration !== input.documentLifecycleGeneration)) {
+    throw new DirectMcpEditAuthorityError();
+  }
   const trustedRevert = input.operationType === 'revert' && input[USER_REVERT_AUTHORITY] === true;
   const reviewEnabledAtAdmission = readDocumentReviewAvailability().documentReviewEnabled;
   let directScope: AgentDirectEditGrantScope | null = null;
@@ -2726,6 +2746,7 @@ export async function applyPersistedAgentTextOperation(input: {
         directEditGrantId: null,
       });
       if (!created.created) {
+        await input.mcpAuthority?.verifyCurrent();
         const previous = parseResult(await reconcileAgentOperationDurability(database, created.row, input.workspace));
         if (!reviewAvailable() && ['needs_review', 'partially_applied', 'semantic_conflict'].includes(previous.operationStatus)) {
           throw new AgentFileReviewDisabledConflictError(
@@ -2742,6 +2763,32 @@ export async function applyPersistedAgentTextOperation(input: {
         backpressureReview ? 'backpressure_review_required' : 'user_review_required');
       if (trustedRevert) return applyStoredOperation({ database, row: created.row,
         workspace: input.workspace, actorDisplayName: input.actorDisplayName });
+      if (input.mcpAuthority) {
+        const permitted = await authorizeNewMcpDirectApply({
+          operationId: created.row.operation_id,
+          snapshot: policySnapshot!,
+          grantScope: directScope!,
+          authority: input.mcpAuthority,
+          hardSafetyRequiresReview: hardSafetyReview,
+          operationExplicitlyRequiresReview: false,
+          createdInThisCall: created.created,
+        });
+        if (!permitted) {
+          await cancelUnappliedReviewFallback(database, created.row.operation_id);
+          throw new DirectMcpEditAuthorityError();
+        }
+        const mcpPolicyFence = (workspace: WorkspaceContext) => assertCurrentMcpDirectPolicy({
+          snapshot: policySnapshot!, workspace, authority: input.mcpAuthority!,
+        });
+        const result = await applyStoredOperation({ database, row: created.row,
+          workspace: input.workspace, actorDisplayName: input.actorDisplayName,
+          mcpAuthority: input.mcpAuthority, mcpPolicyFence });
+        if (result.operationStatus === 'needs_review' && result.appliedTargetIds.length === 0) {
+          await cancelUnappliedReviewFallback(database, result.operationId);
+          throw new DirectMcpEditAuthorityError();
+        }
+        return result;
+      }
       const authorization = await authorizeNewAgentDirectApply({
         operationId: created.row.operation_id,
         workspace: input.workspace,

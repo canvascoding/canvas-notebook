@@ -36,6 +36,7 @@ export async function confirmCollaborativeFileCheckpoint(input: {
   workspace: WorkspaceContext;
   snapshot: CollaborationTextSnapshot;
   actorSessionId?: string;
+  beforeMaterialize?: () => Promise<void>;
   onConfirmed?: (checkpoint: ConfirmedCollaborationFileCheckpoint) => Promise<void>;
 }): Promise<ConfirmedCollaborationFileCheckpoint> {
   const deadline = Date.now() + 15_000;
@@ -70,13 +71,16 @@ export async function confirmCollaborativeFileCheckpoint(input: {
       }
       if (state.checkpointSequence < state.documentSequence) {
         try {
+          await input.beforeMaterialize?.();
           await materializeCollaborationCheckpoint({ state, workspace: input.workspace,
             actorType: 'agent', sourceSessionId: input.actorSessionId });
         } catch (error) {
           if (!(error instanceof CollaborationCheckpointSupersededError)) throw error;
         }
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && 'code' in error
+        && error.code === 'MCP_DIRECT_EDIT_AUTHORITY_CHANGED') throw error;
       // A durable Yjs operation does not imply a readable, matching physical file.
     }
     await new Promise((resolve) => setTimeout(resolve, 50));

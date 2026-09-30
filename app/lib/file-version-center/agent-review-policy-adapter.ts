@@ -7,6 +7,8 @@ import {
   type AgentDirectEditGrantScope,
 } from '@/app/lib/collaboration/agent-direct-edit-grants';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { DirectMcpEditAuthorityError, isDirectMcpEditAuthority,
+  type DirectMcpEditAuthority } from '@/app/lib/mcp/server/direct-edit-authority';
 
 import type { FileReviewPolicyV1 } from './contracts/v1';
 import {
@@ -178,5 +180,73 @@ export async function authorizeNewAgentDirectApply(input: {
       revision: input.snapshot.policy.revision,
     });
     return { enforcementMode: 'review_required', grant: null };
+  }
+}
+
+/** OAuth-backed direct edits reuse the exact operation freshness and policy fences without minting a Pi grant. */
+export async function authorizeNewMcpDirectApply(input: {
+  operationId: string;
+  snapshot: AgentReviewPolicySnapshot;
+  grantScope: AgentDirectEditGrantScope;
+  authority: DirectMcpEditAuthority;
+  hardSafetyRequiresReview: boolean;
+  operationExplicitlyRequiresReview: boolean;
+  createdInThisCall: boolean;
+}): Promise<boolean> {
+  if (!isDirectMcpEditAuthority(input.authority)
+    || input.authority.scope.userId !== input.grantScope.userId
+    || input.authority.scope.workspaceId !== input.grantScope.workspaceId
+    || input.authority.scope.documentId !== input.grantScope.documentId
+    || input.authority.scope.actorId !== input.grantScope.agentId
+    || input.authority.scope.sessionId !== input.grantScope.actorSessionId
+    || input.authority.scope.lifecycleGeneration !== input.grantScope.lifecycleGeneration
+    || input.snapshot.policy.effectiveMode !== 'safe_direct' || input.snapshot.policy.locked
+    || input.hardSafetyRequiresReview || input.operationExplicitlyRequiresReview) return false;
+  try {
+    const workspace = await input.authority.verifyCurrent();
+    const policy = await fileReviewPolicyService.resolveForOperationPolicy({
+      access: accessFor({ userId: input.grantScope.userId, workspace }),
+      lineageId: input.snapshot.lineageId,
+      evaluation: {
+        hardSafetyRequiresReview: input.hardSafetyRequiresReview,
+        workspacePolicy: 'allow_user_choice',
+        operationExplicitlyRequiresReview: input.operationExplicitlyRequiresReview,
+      },
+      operation: {
+        operationId: input.operationId,
+        observedPolicyRevision: input.snapshot.policy.revision,
+        observedPolicyAt: input.snapshot.observedAt,
+        createdInThisCall: input.createdInThisCall,
+        grantScope: input.grantScope,
+      },
+    });
+    return policy.effectiveMode === 'safe_direct' && !policy.locked;
+  } catch {
+    return false;
+  }
+}
+
+/** Called again after the workspace and Yjs room mutation locks are owned. */
+export async function assertCurrentMcpDirectPolicy(input: {
+  snapshot: AgentReviewPolicySnapshot;
+  workspace: WorkspaceContext;
+  authority: DirectMcpEditAuthority;
+}): Promise<void> {
+  if (!isDirectMcpEditAuthority(input.authority)
+    || input.workspace.workspaceId !== input.authority.scope.workspaceId
+    || !input.workspace.permissions.canWrite || !input.workspace.permissions.canRunAgent) {
+    throw new DirectMcpEditAuthorityError();
+  }
+  try {
+    const policy = await fileReviewPolicyService.readAuthorized({
+      access: accessFor({ userId: input.authority.scope.userId, workspace: input.workspace }),
+      lineageId: input.snapshot.lineageId,
+      evaluation: { hardSafetyRequiresReview: false, workspacePolicy: 'allow_user_choice',
+        operationExplicitlyRequiresReview: false },
+    });
+    if (policy.effectiveMode !== 'safe_direct' || policy.locked
+      || policy.revision !== input.snapshot.policy.revision) throw new DirectMcpEditAuthorityError();
+  } catch {
+    throw new DirectMcpEditAuthorityError();
   }
 }

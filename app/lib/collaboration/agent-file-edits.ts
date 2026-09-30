@@ -12,6 +12,7 @@ import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { applyAgentMarkdownEdit, type AgentMarkdownEdit } from '@/app/lib/markdown/agent-markdown-edit';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { DirectMcpEditAuthority } from '@/app/lib/mcp/server/direct-edit-authority';
 import {
   applyAgentTextTargets,
   applyPersistedAgentTextOperation,
@@ -37,6 +38,7 @@ export type CollaborationAgentIdentity = {
   actorId: string;
   actorDisplayName: string;
   actorSessionId?: string;
+  mcpAuthority?: DirectMcpEditAuthority;
   agentRunId?: string;
 };
 
@@ -529,6 +531,7 @@ export async function executePreparedCollaborationTextEdit(input: {
     targets: input.prepared.targets,
     requestedMode: input.prepared.requestedMode,
     actorSessionId: input.identity.actorSessionId,
+    mcpAuthority: input.identity.mcpAuthority,
     agentRunId: input.identity.agentRunId,
     documentPath: input.prepared.path,
     documentRepresentation: input.prepared.representation,

@@ -88,6 +88,7 @@ import {
   parseDirectMcpEditIdempotencyKey,
 } from '@/app/lib/mcp/server/document-edit-contract';
 import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
+import { createDirectMcpEditAuthority, DirectMcpEditAuthorityError } from '@/app/lib/mcp/server/direct-edit-authority';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import {
   isDirectMcpReadableWorkspace,
@@ -1391,6 +1392,10 @@ async function executeUploadKnowledgeAsset(
 }
 
 function editErrorResult(error: unknown): CallToolResult {
+  if (error instanceof DirectMcpEditAuthorityError
+    || (error instanceof Error && 'code' in error && error.code === 'MCP_DIRECT_EDIT_AUTHORITY_CHANGED')) {
+    return errorResult(`MCP_DIRECT_EDIT_AUTHORITY_CHANGED: ${error.message}`);
+  }
   if (error instanceof AgentFileReviewDisabledConflictError
     || error instanceof CollaborationFileCheckpointUnavailableError
     || error instanceof ProposalGraphContractError) {
@@ -1458,6 +1463,20 @@ async function executeEditKnowledgeSource(
       buffer,
       principal: authorization.principal,
     });
+    const authorityForSnapshot = (snapshot: { documentId: string; lifecycleGeneration: number }) =>
+      createDirectMcpEditAuthority({
+        token: authInfo!.token,
+        scope: {
+          userId: authorization.principal.userId,
+          clientId: authorization.principal.clientId,
+          sessionId: authorization.principal.sessionId,
+          actorId: editIdentity.actorId,
+          workspaceId: workspace.workspaceId,
+          documentId: snapshot.documentId,
+          path: filePath,
+          lifecycleGeneration: snapshot.lifecycleGeneration,
+        },
+      });
     if (Buffer.byteLength(current.content, 'utf8') > MAX_READ_FILE_BYTES) {
       return errorResult(`The requested file is larger than the ${MAX_READ_FILE_BYTES / 1024} KB MCP edit limit.`);
     }
@@ -1616,6 +1635,7 @@ async function executeEditKnowledgeSource(
           || after.schemaVersion !== found.identity.schemaVersion || after.representation !== found.identity.representation) {
           return errorResult(`COLLABORATION_OPERATION_OUTCOME_UNAVAILABLE: Recorded operation ${operation.operationId} belongs to an old document lifecycle. Inspect it before retrying.`);
         }
+        const mcpAuthority = await authorityForSnapshot(after);
         if (persisted) await confirmCollaborativeFileCheckpoint({
           path: filePath,
           fullPath: validatePath(filePath, { workspace }),
@@ -1623,6 +1643,7 @@ async function executeEditKnowledgeSource(
           workspace,
           snapshot: after,
           actorSessionId: authorization.principal.sessionId,
+          beforeMaterialize: () => mcpAuthority.verifyCurrent().then(() => undefined),
           onConfirmed: async checkpoint => {
             await linkStandaloneAgentCheckpoint({ operationId: operation.operationId,
               documentId: current.documentId!, workspace, userId: authorization.principal.userId,
@@ -1684,6 +1705,7 @@ async function executeEditKnowledgeSource(
         if (unchanged.sha256 !== current.sha256) {
           return errorResult('The live document changed during this edit. Read its current content and retry.');
         }
+        const mcpAuthority = await authorityForSnapshot(unchanged);
         await confirmCollaborativeFileCheckpoint({
           path: filePath,
           fullPath: validatePath(filePath, { workspace }),
@@ -1691,6 +1713,7 @@ async function executeEditKnowledgeSource(
           workspace,
           snapshot: unchanged,
           actorSessionId: authorization.principal.sessionId,
+          beforeMaterialize: () => mcpAuthority.verifyCurrent().then(() => undefined),
         });
       }
       const message = `No change was needed for ${filePath}.`;
@@ -1750,6 +1773,7 @@ async function executeEditKnowledgeSource(
         const structuralProposal = await createReviewProposal!({ forceReview: true });
         if (structuralProposal) return reviewResult(structuralProposal);
       }
+      const mcpAuthority = await authorityForSnapshot(prepared);
       let operation;
       try {
         operation = await executePreparedCollaborationTextEdit({
@@ -1760,6 +1784,7 @@ async function executeEditKnowledgeSource(
             actorId: editIdentity.actorId,
             actorDisplayName: 'External MCP client',
             actorSessionId: authorization.principal.sessionId,
+            mcpAuthority,
           },
           idempotencyKey: editIdentity.operationIdempotencyKey,
           fileEditRequest: {
@@ -1801,6 +1826,7 @@ async function executeEditKnowledgeSource(
         workspace,
         snapshot: after,
         actorSessionId: authorization.principal.sessionId,
+        beforeMaterialize: () => mcpAuthority.verifyCurrent().then(() => undefined),
         onConfirmed: async checkpoint => {
           await linkStandaloneAgentCheckpoint({ operationId: operation.operationId,
             documentId: prepared.documentId, workspace, userId: authorization.principal.userId,

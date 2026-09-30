@@ -210,6 +210,23 @@ function rejectCollaborationUpdate(connection: Connection<CollaborationContext>,
 }
 
 async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInput): Promise<WorkspaceContext> {
+  if (input.mcpAuthority) {
+    const { isDirectMcpEditAuthority } = await import('../app/lib/mcp/server/direct-edit-authority');
+    if ((input.actorType ?? 'agent') !== 'agent' || !isDirectMcpEditAuthority(input.mcpAuthority)
+      || !input.mcpPolicyFence) {
+      throw new AgentDirectConnectionAuthorizationError('MCP editing authority is unavailable.');
+    }
+    const scope = input.mcpAuthority.scope;
+    if (scope.userId !== input.initiatedByUserId
+      || scope.actorId !== input.actorId || scope.sessionId !== input.actorSessionId
+      || scope.workspaceId !== input.workspace.workspaceId || scope.documentId !== input.documentId
+      || scope.path !== input.documentPath || scope.lifecycleGeneration !== input.documentLifecycleGeneration) {
+      throw new AgentDirectConnectionAuthorizationError('MCP editing authority does not match this document operation.');
+    }
+    const workspace = await input.mcpAuthority.verifyCurrent();
+    await input.mcpPolicyFence(workspace);
+    return workspace;
+  }
   if ((input.actorType ?? 'agent') === 'agent') {
     if (!input.actorSessionId) {
       throw new AgentDirectConnectionAuthorizationError('Agent collaboration operations require their originating session.');

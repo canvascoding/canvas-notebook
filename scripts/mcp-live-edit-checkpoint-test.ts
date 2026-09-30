@@ -6,7 +6,7 @@ import ts from 'typescript';
 
 type EditResponse = { isError?: boolean; content: Array<{ text: string }>; structuredContent?: Record<string, unknown> };
 
-function compileEdit(dependencies: Record<string, unknown>): (args: unknown) => Promise<EditResponse> {
+function compileEdit(dependencies: Record<string, unknown>): (args: unknown, authInfo: { token: string }) => Promise<EditResponse> {
   const source = ts.createSourceFile('workspace-tools.ts',
     readFileSync('app/lib/mcp/server/workspace-tools.ts', 'utf8'),
     ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -21,7 +21,7 @@ function compileEdit(dependencies: Record<string, unknown>): (args: unknown) => 
   }).outputText;
   const names = Object.keys(dependencies);
   return new Function(...names, `${javascript}\nreturn executeEditKnowledgeSource;`)(...Object.values(dependencies)) as
-    (args: unknown) => Promise<EditResponse>;
+    (args: unknown, authInfo: { token: string }) => Promise<EditResponse>;
 }
 
 function sha256(content: string): string {
@@ -51,6 +51,7 @@ function harness() {
   class RevisionConflict extends Error {}
   class ExactTextConflict extends Error {}
   class GraphContract extends Error { readonly code = 'PROPOSAL_UPGRADE_REQUIRED'; }
+  class AuthorityChanged extends Error { readonly code = 'MCP_DIRECT_EDIT_AUTHORITY_CHANGED'; }
   const errorResult = (message: string): EditResponse => ({ isError: true, content: [{ text: message }] });
   const result = (structuredContent: Record<string, unknown>, message: string): EditResponse =>
     ({ content: [{ text: message }], structuredContent });
@@ -88,6 +89,18 @@ function harness() {
     createOrdinaryAgentProposal: async () => null,
     Y: { Doc: class {} },
     ProposalGraphContractError: GraphContract,
+    DirectMcpEditAuthorityError: AuthorityChanged,
+    createDirectMcpEditAuthority: async (input: { token: string; scope: {
+      userId: string; sessionId: string; workspaceId: string; documentId: string; lifecycleGeneration: number;
+    } }) => {
+      assert.equal(input.token, 'test-token');
+      assert.equal(input.scope.userId, 'user');
+      assert.equal(input.scope.sessionId, 'session');
+      assert.equal(input.scope.workspaceId, 'workspace');
+      assert.equal(input.scope.documentId, 'document');
+      assert.equal(input.scope.lifecycleGeneration, 1);
+      return { verifyCurrent: async () => workspace };
+    },
     readDocumentReviewAvailability: () => ({ documentReviewEnabled: false }),
     AgentFileReviewDisabledConflictError: ReviewDisabled,
     CollaborationFileCheckpointUnavailableError: CheckpointUnavailable,
@@ -104,7 +117,9 @@ function harness() {
     },
     executePreparedCollaborationTextEdit: async (input: {
       prepared: { proposedContent: string; sha256: string; proposedSha256: string };
+      identity: { mcpAuthority: { verifyCurrent: () => Promise<unknown> } };
     }) => {
+      assert.equal(typeof input.identity.mcpAuthority.verifyCurrent, 'function');
       executionCount++;
       content = input.prepared.proposedContent;
       sequence++;
@@ -126,11 +141,13 @@ function harness() {
       return true;
     },
     confirmCollaborativeFileCheckpoint: async (input: { snapshot: { documentSequence: number }; path: string;
+      beforeMaterialize?: () => Promise<void>;
       onConfirmed?: (checkpoint: { revisionId: string; contentHash: string; sizeBytes: number;
         documentSequence: number; lifecycleGeneration: number }) => Promise<void> }) => {
       checkpointCount++;
       assert.equal(input.path, 'document.md');
       assert.equal(input.snapshot.documentSequence, sequence);
+      await input.beforeMaterialize?.();
       if (checkpointFailure) throw new CheckpointUnavailable('Physical Markdown checkpoint unavailable');
       const checkpoint = { revisionId: 'checkpoint-1', contentHash: sha256('different physical bytes'), sizeBytes: 777,
         documentSequence: sequence, lifecycleGeneration: 1 };
@@ -146,7 +163,7 @@ function harness() {
   const edit = compileEdit(dependencies);
   const call = (oldText: string, newText: string, expectedSha256: string) => edit({ workspace_id: 'workspace',
     path: 'document.md', old_text: oldText, new_text: newText, expected_sha256: expectedSha256,
-    idempotency_key: 'stable-request' });
+    idempotency_key: 'stable-request' }, { token: 'test-token' });
   return { call, currentSha: () => sha256(content), initialSha: sha256(content),
     executionCount: () => executionCount, checkpointCount: () => checkpointCount,
     checkpointLinkCount: () => checkpointLinkCount,

@@ -40,6 +40,19 @@ export type FileReviewPolicyOperationDecision = {
   grant: AgentDirectEditGrant | null;
 };
 
+type FileReviewPolicyOperationInput = {
+  access: FileReviewPolicyAccess;
+  lineageId: string;
+  evaluation: FileReviewPolicyEvaluation;
+  operation: {
+    operationId: string;
+    observedPolicyRevision: number | null;
+    observedPolicyAt?: number;
+    createdInThisCall?: boolean;
+    grantScope: AgentDirectEditGrantScope;
+  };
+};
+
 export class FileReviewPolicyServiceError extends Error {
   constructor(
     readonly code: 'invalid_input' | 'access_denied' | 'target_invalid' | 'policy_conflict' | 'policy_inconsistent',
@@ -304,6 +317,36 @@ export function createFileReviewPolicyService(options: {
   const audit = options.audit ?? recordAuditEvent;
   const resolveDirectEditGrant = options.resolveDirectEditGrant ?? resolveExistingDirectEditGrant;
   const reviewEnabled = options.reviewEnabled ?? (() => readDocumentReviewAvailability().documentReviewEnabled);
+  const currentOperationPolicy = async (input: FileReviewPolicyOperationInput): Promise<FileReviewPolicyV1> => {
+    assertAccess(input.access, true);
+    assertLineageId(input.lineageId);
+    assertEvaluation(input.evaluation);
+    const loaded = await database.transaction(async (transaction) => {
+      const stored = await loadPolicy(transaction, {
+        userId: input.access.userId,
+        workspaceId: input.access.requestedWorkspaceId,
+        lineageId: input.lineageId,
+      });
+      const storedOperation = await loadMatchingOperation(transaction, {
+        operationId: input.operation.operationId,
+        userId: input.access.userId,
+        workspaceId: input.access.requestedWorkspaceId,
+        lineageId: input.lineageId,
+        grantScope: input.operation.grantScope,
+      });
+      return { stored, storedOperation };
+    });
+    const futureAndOwned = operationIsFutureAndOwned({
+      access: input.access,
+      stored: loaded.stored,
+      operation: input.operation,
+      storedOperation: loaded.storedOperation,
+    });
+    return policyFromRecord(loaded.stored, {
+      ...input.evaluation,
+      hardSafetyRequiresReview: input.evaluation.hardSafetyRequiresReview || !futureAndOwned,
+    }, reviewEnabled());
+  };
 
   return {
     async readAuthorized(input: {
@@ -423,47 +466,17 @@ export function createFileReviewPolicyService(options: {
       }, reviewEnabled());
     },
 
-    async resolveForOperation(input: {
-      access: FileReviewPolicyAccess;
-      lineageId: string;
-      evaluation: FileReviewPolicyEvaluation;
-      operation: {
-        operationId: string;
-        observedPolicyRevision: number | null;
-        observedPolicyAt?: number;
-        createdInThisCall?: boolean;
-        grantScope: AgentDirectEditGrantScope;
-      };
-    }): Promise<FileReviewPolicyOperationDecision> {
+    async resolveForOperationPolicy(input: FileReviewPolicyOperationInput): Promise<FileReviewPolicyV1> {
       try {
-        assertAccess(input.access, true);
-        assertLineageId(input.lineageId);
-        assertEvaluation(input.evaluation);
-        const loaded = await database.transaction(async (transaction) => {
-          const stored = await loadPolicy(transaction, {
-            userId: input.access.userId,
-            workspaceId: input.access.requestedWorkspaceId,
-            lineageId: input.lineageId,
-          });
-          const storedOperation = await loadMatchingOperation(transaction, {
-            operationId: input.operation.operationId,
-            userId: input.access.userId,
-            workspaceId: input.access.requestedWorkspaceId,
-            lineageId: input.lineageId,
-            grantScope: input.operation.grantScope,
-          });
-          return { stored, storedOperation };
-        });
-        const futureAndOwned = operationIsFutureAndOwned({
-          access: input.access,
-          stored: loaded.stored,
-          operation: input.operation,
-          storedOperation: loaded.storedOperation,
-        });
-        const policy = policyFromRecord(loaded.stored, {
-          ...input.evaluation,
-          hardSafetyRequiresReview: input.evaluation.hardSafetyRequiresReview || !futureAndOwned,
-        }, reviewEnabled());
+        return await currentOperationPolicy(input);
+      } catch {
+        return failClosedPolicy();
+      }
+    },
+
+    async resolveForOperation(input: FileReviewPolicyOperationInput): Promise<FileReviewPolicyOperationDecision> {
+      try {
+        const policy = await currentOperationPolicy(input);
         if (policy.effectiveMode !== 'safe_direct') {
           return { policy, enforcementMode: 'review_required', grant: null };
         }
