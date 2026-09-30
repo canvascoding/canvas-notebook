@@ -77,6 +77,8 @@ async function main() {
     await mutateUnifiedSecretValue('CANVAS_CREDENTIAL_TEST', async () => '{"token":"fixture"}', user);
     await assert.rejects(() => patchUnifiedEnvEntries([{ key: 'CANVAS_PROFILE_OWNERS__CUSTOM', value: 'agents' }], user), /Protected/);
     state = await readUnifiedEnvState(user);
+    await mutateUnifiedSecretValue('CANVAS_CREDENTIAL_TEST', async current => current, user);
+    assert.equal((await readUnifiedEnvState(user)).revision, state.revision, 'read-only typed transaction retains exact revision');
     assert.equal((await readScopedEnvState('integrations', user)).entries.some(entry => entry.key.startsWith('CANVAS_CREDENTIAL_')), false);
     await replaceUnifiedEnvRaw('# expert\nCUSTOM=changed\n', state.revision, user);
     assert.equal(readUnifiedSecretValue('CANVAS_CREDENTIAL_TEST', user), '{"token":"fixture"}');
@@ -139,6 +141,10 @@ async function main() {
     assert.equal(state.entries.find(entry => entry.key === 'SECURE')?.value, 'media-plain');
     assert.equal((await readScopedEnvState('agents', secure)).entries.find(entry => entry.key === 'SECURE')?.value, 'agent-plain');
     const disk = await fs.readFile(state.path, 'utf8'); assert.equal(disk.includes('media-plain'), false); assert.match(disk, /enc:v1:/);
+    await mutateUnifiedSecretValue('CANVAS_CREDENTIAL_ENCRYPTED_READ', async () => '{"fixture":true}', secure);
+    const encryptedRevision = (await readUnifiedEnvState(secure)).revision;
+    await mutateUnifiedSecretValue('CANVAS_CREDENTIAL_ENCRYPTED_READ', async current => current, secure);
+    assert.equal((await readUnifiedEnvState(secure)).revision, encryptedRevision, 'encrypted typed reads do not re-encrypt unrelated values');
     process.env.CANVAS_SECRETS_MASTER_KEY = 'wrong-master';
     assert.equal((await readUnifiedEnvState(secure)).readable, false);
     await assert.rejects(() => patchUnifiedEnvEntries([{ key: 'ANY', value: 'x' }], secure), /cannot be read safely/);

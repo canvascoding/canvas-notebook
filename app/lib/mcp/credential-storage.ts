@@ -4,7 +4,8 @@ import path from 'node:path';
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { hashMcpAuthConfig } from '@/app/lib/mcp/connection-identity';
 import { openMcpSecret, sealMcpSecret, type McpSecretBinding } from '@/app/lib/mcp/secret-store';
-import { requireMcpCredentialScope, type McpScope } from '@/app/lib/mcp/scope';
+import { requireMcpCredentialScope, resolveMcpSecretEnvScope, type McpScope } from '@/app/lib/mcp/scope';
+import { mutateUnifiedSecretValue, readUnifiedSecretValue, withUnifiedEnvLock } from '@/app/lib/secrets/unified-env-store';
 import { readMcpTextFileIfExists, removeMcpStoragePath, writeMcpTextFileAtomic } from '@/app/lib/mcp/storage';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 
@@ -59,13 +60,22 @@ export async function writeMcpCredentialJson(relativePath: string, payload: unkn
   const binding = bindingFor(relativePath, { ...ownedScope, organizationId }, connectionId);
   const sealed = await sealMcpSecret(payload, binding);
   // Clear routing fields are bound into the secret's AAD and cannot change its authority.
-  await writeMcpTextFileAtomic(relativePath, JSON.stringify({ connectionId: binding.connectionId, organizationId, sealed }), ownedScope);
+  const content = JSON.stringify({ connectionId: binding.connectionId, organizationId, sealed });
+  if (relativePath.startsWith('connections/')) {
+    await mutateUnifiedSecretValue(credentialEnvKey(relativePath), async () => content, resolveMcpSecretEnvScope(ownedScope));
+  } else {
+    // PKCE state is short-lived and remains in the existing sealed state store.
+    await writeMcpTextFileAtomic(relativePath, content, ownedScope);
+  }
 }
 
-export async function readMcpCredentialJson<T>(relativePath: string, scope?: McpScope | null): Promise<T | null> {
-  const ownedScope = requireMcpCredentialScope(scope);
-  const { content } = await readMcpTextFileIfExists(relativePath, ownedScope);
-  if (content === null) return null;
+function credentialEnvKey(relativePath: string): string {
+  if (!/^connections\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.json$/.test(relativePath)
+    || ['.', '..'].includes(relativePath.split('/')[1])) throw new Error('Invalid persistent MCP credential path.');
+  return `CANVAS_CREDENTIAL_MCP_${crypto.createHash('sha256').update(relativePath).digest('hex')}`;
+}
+
+async function decodeCredential<T>(content: string, relativePath: string, ownedScope: McpScope): Promise<T> {
   let envelope: { connectionId?: string; organizationId?: string | null; sealed?: string };
   try { envelope = JSON.parse(content); } catch { throw new Error('Invalid MCP credential storage envelope.'); }
   if (typeof envelope.connectionId !== 'string' || typeof envelope.sealed !== 'string') throw new Error('Invalid MCP credential storage envelope.');
@@ -79,6 +89,35 @@ export async function readMcpCredentialJson<T>(relativePath: string, scope?: Mcp
   const binding = bindingFor(relativePath, { ...ownedScope, organizationId: envelope.organizationId === undefined ? ownedScope.organizationId || null : envelope.organizationId }, envelope.connectionId);
   if (binding.connectionId !== envelope.connectionId) throw new Error('MCP credential connection binding does not match.');
   return openMcpSecret<T>(envelope.sealed, binding);
+}
+
+export async function readMcpCredentialJson<T>(relativePath: string, scope?: McpScope | null): Promise<T | null> {
+  const ownedScope = requireMcpCredentialScope(scope);
+  if (!relativePath.startsWith('connections/')) {
+    const { content } = await readMcpTextFileIfExists(relativePath, ownedScope);
+    return content === null ? null : decodeCredential<T>(content, relativePath, ownedScope);
+  }
+  const envScope = resolveMcpSecretEnvScope(ownedScope);
+  const key = credentialEnvKey(relativePath);
+  return withUnifiedEnvLock(envScope, async () => {
+    const current = readUnifiedSecretValue(key, envScope);
+    if (current !== null) return current === 'null' ? null : decodeCredential<T>(current, relativePath, ownedScope);
+    const { content } = await readMcpTextFileIfExists(relativePath, ownedScope);
+    if (content === null) return null;
+    // Validate the original envelope and authority before importing it once.
+    const value = await decodeCredential<T>(content, relativePath, ownedScope);
+    await mutateUnifiedSecretValue(key, async () => content, envScope);
+    return value;
+  });
+}
+
+export async function removeMcpCredentialJson(relativePath: string, scope?: McpScope | null): Promise<void> {
+  const ownedScope = requireMcpCredentialScope(scope);
+  if (relativePath.startsWith('connections/')) {
+    await mutateUnifiedSecretValue(credentialEnvKey(relativePath), async () => null, resolveMcpSecretEnvScope(ownedScope));
+  } else {
+    await removeMcpStoragePath(relativePath, ownedScope);
+  }
 }
 
 /** Copy only unambiguous, config-bound legacy credentials; resume safely after interruption. */
@@ -102,14 +141,19 @@ export async function migrateMcpConnectionCredentials(serverName: string, scope?
       if (valid) {
         for (const filename of ['tokens.json', 'client.json', 'scope-challenge.json']) {
           const target = `${directory}/${filename}`;
-          if ((await readMcpTextFileIfExists(target, credentialScope)).content !== null) continue;
-          const source = await readMcpTextFileIfExists(`${oldDirectory}/${filename}`, credentialScope);
-          if (!source.content) continue;
-          const payload = JSON.parse(source.content) as Record<string, unknown>;
-          await writeMcpCredentialJson(target, {
-            ...payload, configHash: hashMcpAuthConfig(connection), connectionId: connection.connectionId,
-            ownerUserId: credentialScope.userId, organizationId: credentialScope.organizationId || null, authVersion: connection.authVersion || 1,
-          }, credentialScope);
+          await withUnifiedEnvLock(resolveMcpSecretEnvScope(credentialScope), async () => {
+            // Check and publish under the same lock as refresh/reconnect writes.
+            // A tombstone is authoritative too: migration must not revive logout.
+            if (readUnifiedSecretValue(credentialEnvKey(target), resolveMcpSecretEnvScope(credentialScope)) !== null
+              || (await readMcpTextFileIfExists(target, credentialScope)).content !== null) return;
+            const source = await readMcpTextFileIfExists(`${oldDirectory}/${filename}`, credentialScope);
+            if (!source.content) return;
+            const payload = JSON.parse(source.content) as Record<string, unknown>;
+            await writeMcpCredentialJson(target, {
+              ...payload, configHash: hashMcpAuthConfig(connection), connectionId: connection.connectionId,
+              ownerUserId: credentialScope.userId, organizationId: credentialScope.organizationId || null, authVersion: connection.authVersion || 1,
+            }, credentialScope);
+          });
         }
       }
       // Publish the marker only after every encrypted write succeeds. Missing keys

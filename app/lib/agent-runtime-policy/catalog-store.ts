@@ -8,6 +8,7 @@ import type {
   AiRuntimeSelection,
 } from '@/app/lib/agent-runtime-policy/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { sanitizeSafeProviderConfig } from '@/app/lib/agent-runtime-policy/safe-provider-config';
 
 type CatalogDefaultsRow = {
   provider_installation_id: string | null;
@@ -140,8 +141,7 @@ function parseStoredProviderConfig(value: string | null): AiProviderInstallation
   if (!value) return {};
   try {
     const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid provider config');
-    return parsed as AiProviderInstallation['config'];
+    return sanitizeSafeProviderConfig(parsed);
   } catch {
     throw new Error('Stored AI runtime provider configuration is invalid.');
   }

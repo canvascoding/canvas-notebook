@@ -694,6 +694,7 @@ export async function ensureLocalWebhookSubscription(options: { forceRefresh?: b
   if (!subscriptionId || !secret) {
     throw new Error('Composio webhook subscription response missing subscription ID or secret.');
   }
+  const encryptedSecret = await encryptWebhookSecret(secret);
   const now = new Date();
   if (existing) {
     await db
@@ -707,7 +708,7 @@ export async function ensureLocalWebhookSubscription(options: { forceRefresh?: b
       id: `comp-sub-${randomUUID()}`,
       subscriptionId,
       webhookUrl: returnedUrl || webhookUrl,
-      encryptedSecret: await encryptWebhookSecret(secret),
+      encryptedSecret,
       secretPreview: previewWebhookSecret(secret),
       eventTypes: JSON.stringify(eventTypes),
       status: 'active',
@@ -719,7 +720,7 @@ export async function ensureLocalWebhookSubscription(options: { forceRefresh?: b
       target: composioWebhookSubscriptions.subscriptionId,
       set: {
         webhookUrl: returnedUrl || webhookUrl,
-        encryptedSecret: await encryptWebhookSecret(secret),
+        encryptedSecret,
         secretPreview: previewWebhookSecret(secret),
         eventTypes: JSON.stringify(eventTypes),
         status: 'active',

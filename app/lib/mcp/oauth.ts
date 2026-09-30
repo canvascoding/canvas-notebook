@@ -5,7 +5,8 @@ import { promises as fs } from 'node:fs';
 import { type McpServerConfig } from '@/app/lib/mcp/config';
 import { assertMcpConnectionAccess } from '@/app/lib/mcp/access';
 import { hashMcpAuthConfig, hashMcpLegacyConfig } from '@/app/lib/mcp/connection-identity';
-import { migrateMcpConnectionCredentials, readMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
+import { migrateMcpConnectionCredentials, readMcpCredentialJson, removeMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
+import { getUnifiedEnvFilePath } from '@/app/lib/secrets/unified-env-store';
 import { commitMcpOAuthLifecycle, fencedMcpOAuthWrite, invalidateMcpOAuthLifecycle, readMcpOAuthLifecycle, withMcpOAuthLifecycleLock } from '@/app/lib/mcp/oauth-lifecycle';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import { classifyMcpConnectionFailure, recordMcpConnectionObservation } from '@/app/lib/mcp/connection-health';
@@ -13,6 +14,7 @@ import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import {
   normalizeMcpScope,
   requireMcpCredentialScope,
+  resolveMcpSecretEnvScope,
   type McpScope,
 } from '@/app/lib/mcp/scope';
 import {
@@ -178,7 +180,8 @@ async function getOAuthTokenRelativePath(serverName: string, scope?: McpScope | 
 }
 
 export async function getOAuthTokenPath(serverName: string, scope?: McpScope | null): Promise<string> {
-  return resolveMcpStoragePath(await getOAuthTokenRelativePath(serverName, scope), scope);
+  await getOAuthTokenRelativePath(serverName, scope);
+  return getUnifiedEnvFilePath(resolveMcpSecretEnvScope(scope));
 }
 
 async function getOAuthClientRelativePath(serverName: string, scope?: McpScope | null): Promise<string> {
@@ -912,7 +915,7 @@ export async function completeMcpOAuthCallback(
       await commitMcpOAuthLifecycle(stored.connectionId, stored.lifecycleGeneration, state, credentialScope, async () => {
         await writeJsonPrivate(callbackTokenPath, token, credentialScope);
       });
-      await removeMcpStoragePath(callbackChallengePath, credentialScope).catch(() => undefined);
+      await removeMcpCredentialJson(callbackChallengePath, credentialScope).catch(() => undefined);
     });
   } catch (error) {
     await revokeOAuthTokens(token, stored.clientSecret);
@@ -953,7 +956,7 @@ export async function clearMcpOAuth(
         continue;
       }
       if (file === 'tokens.json') tokenToRevoke = artifact as OAuthTokenRecord | null;
-      await removeMcpStoragePath(relativePath, credentialScope);
+      await removeMcpCredentialJson(relativePath, credentialScope);
     }
     if (connection.legacyOAuthName && !connection.legacyOAuthAmbiguous) {
       await removeMcpStoragePath(`mcp-oauth/${sanitizeServerName(connection.legacyOAuthName)}`, credentialScope, { recursive: true });
@@ -1053,7 +1056,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
         refreshed = await exchangeToken(params, endpoints.tokenUrl, clientSecret);
       } catch (error) {
         if (error instanceof McpOAuthError && (error.code === 'invalid_grant' || error.code === 'invalid_token')) {
-          await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, credentialScope, () => removeMcpStoragePath(tokenRelativePath, credentialScope));
+          await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, credentialScope, () => removeMcpCredentialJson(tokenRelativePath, credentialScope));
           await recordMcpConnectionObservation(connection, credentialScope, { kind: 'failure', code: 'reauth_required' }, { generation: lifecycle.generation });
           throw new McpOAuthError(`OAuth token for MCP server "${serverName}" could not be refreshed. Reauthorize in Settings > Integrations.`, 401, 'reauth_required');
         }

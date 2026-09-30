@@ -114,16 +114,12 @@ async function main() {
     assert.equal(oauth.getProviderCredentials(provider)?.access, 'global-token');
     assert.equal(oauth.getProviderCredentials(provider, userC), null);
 
-    assert.deepEqual(
-      await fs.readFile(path.join(dataRoot, 'users', 'oauth_user_a', 'settings', 'auth.json'), 'utf8')
-        .then((content) => JSON.parse(content)[provider]),
-      {
-        type: 'oauth',
-        access: 'user-a-token',
-        refresh: 'refresh-a',
-        expires,
-      },
-    );
+    const { readUnifiedSecretValue } = await import('../app/lib/integrations/env-config');
+    assert.deepEqual(JSON.parse(readUnifiedSecretValue('CANVAS_CREDENTIAL_PI_OAUTH', userA)!)[provider], {
+      type: 'oauth', access: 'user-a-token', refresh: 'refresh-a', expires,
+    });
+    assert.equal(oauth.getAuthFilePath(userA), path.join(dataRoot, 'users', 'oauth_user_a', 'secrets', 'Canvas-Secrets.env'));
+    assert.equal(await fs.stat(path.join(dataRoot, 'users', 'oauth_user_a', 'settings', 'auth.json')).catch(() => null), null);
     assert.equal(
       resolveScopedPiOAuthStatesDir(userA),
       path.join(dataRoot, 'users', 'oauth_user_a', 'settings', 'pi-oauth-states'),

@@ -310,7 +310,8 @@ export async function mutateUnifiedSecretValue(key: string, operation: (value: s
     const current = state.entries.find(entry => entry.key === key)?.value ?? null;
     const value = await operation(current);
     // Null deletes a typed value durably instead of reviving its legacy fallback.
-    await applyUnifiedPatches([{ key, value: value === null ? 'null' : value }], scope, undefined, true);
+    const encoded = value === null ? 'null' : value;
+    if (encoded !== current) await applyUnifiedPatches([{ key, value: encoded }], scope, undefined, true);
     return value;
   });
 }

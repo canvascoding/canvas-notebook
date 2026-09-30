@@ -138,7 +138,7 @@ async function main() {
     const { decryptWebhookSecret, encryptWebhookSecret } = await import('../app/lib/composio/composio-webhook-secret');
     await replaceScopedEnvEntries('integrations', [{ key: 'KEEP_DURING_WEBHOOK_KEY_SETUP', value: 'fixture' }]);
     const encryptedWebhookSecrets = await Promise.all(Array.from({ length: 12 }, () => encryptWebhookSecret('webhook-fixture')));
-    assert.ok(encryptedWebhookSecrets.every((value) => value.startsWith('enc:v1:')));
+    assert.ok(encryptedWebhookSecrets.every((value) => value.startsWith('canvas:env:v1:')));
     assert.deepEqual(await Promise.all(encryptedWebhookSecrets.map(decryptWebhookSecret)), Array(12).fill('webhook-fixture'));
     const systemState = await readScopedEnvState('integrations');
     assert.equal(systemState.entries.find((entry) => entry.key === 'KEEP_DURING_WEBHOOK_KEY_SETUP')?.value, 'fixture');

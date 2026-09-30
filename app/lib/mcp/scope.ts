@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-import { normalizeDataScopeId, resolveUserMcpDir } from '@/app/lib/runtime-data-paths';
+import { normalizeDataScopeId, resolveUserMcpDir, type SecretDataStorageScope } from '@/app/lib/runtime-data-paths';
 
 export type McpScope = {
   userId?: string | null;
@@ -9,6 +9,11 @@ export type McpScope = {
 };
 
 export const MCP_SYSTEM_SCOPE: McpScope = Object.freeze({ legacy: true });
+
+export function resolveMcpSecretEnvScope(scope?: McpScope | null): SecretDataStorageScope {
+  const owned = requireMcpCredentialScope(scope);
+  return owned.userId ? { secretScope: 'user', userId: owned.userId } : { secretScope: 'system' };
+}
 
 export function normalizeMcpScope(scope?: McpScope | null): McpScope | null {
   const userId = scope?.userId?.trim();

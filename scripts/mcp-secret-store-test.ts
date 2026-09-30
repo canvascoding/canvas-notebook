@@ -31,6 +31,7 @@ async function main() {
 
   try {
     const { openMcpSecret, sealMcpSecret } = await import('../app/lib/mcp/secret-store');
+    const { mutateScopedEnvEntries, replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
     const payload = { accessToken: 'secret-token', refreshToken: 'refresh-token' };
     const first = await sealMcpSecret(payload, binding);
     const second = await sealMcpSecret(payload, binding);
@@ -77,13 +78,15 @@ async function main() {
     const centrallyConfigured = await sealMcpSecret(payload, binding);
     assert.deepEqual(await openMcpSecret<typeof payload>(centrallyConfigured, binding), payload);
     const rotatedConfiguredKey = key();
-    await writeFile(
-      path.join(integrationsDir, 'Canvas-Integrations.env'),
-      `MCP_CREDENTIAL_KEY=${rotatedConfiguredKey}\nMCP_CREDENTIAL_PREVIOUS_KEYS=${JSON.stringify([configuredKey])}\n`,
-    );
+    await mutateScopedEnvEntries('integrations', entries => [
+      ...entries.filter(entry => !['MCP_CREDENTIAL_KEY', 'MCP_CREDENTIAL_PREVIOUS_KEYS'].includes(entry.key)),
+      { key: 'MCP_CREDENTIAL_KEY', value: rotatedConfiguredKey },
+      { key: 'MCP_CREDENTIAL_PREVIOUS_KEYS', value: JSON.stringify([configuredKey]) },
+    ]);
     assert.deepEqual(await openMcpSecret<typeof payload>(centrallyConfigured, binding), payload);
 
     await rm(integrationsDir, { recursive: true, force: true });
+    await replaceScopedEnvEntries('integrations', []);
     await expectRejects(() => sealMcpSecret(payload, binding), /settings\?tab=integrations/i);
     await expectRejects(() => openMcpSecret(first, binding), /settings\?tab=integrations/i);
 

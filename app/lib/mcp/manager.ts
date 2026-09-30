@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { expandMcpEnvValue, mcpConfigUsesChangedEnv } from '@/app/lib/mcp/env-references';
 import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
 import { resolveMcpCredentialScope } from './credential-storage';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
@@ -231,14 +232,7 @@ async function readAvailableEnv(scope?: McpScope | null): Promise<Record<string,
 }
 
 function expandEnvValue(value: string, availableEnv: Record<string, string>, missing: Set<string>): string {
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, key: string) => {
-    const replacement = availableEnv[key];
-    if (replacement === undefined) {
-      missing.add(key);
-      return '';
-    }
-    return replacement;
-  });
+  return expandMcpEnvValue(value, availableEnv, missing);
 }
 
 async function resolveServerEnv(config: McpServerConfig, scope?: McpScope | null): Promise<Record<string, string>> {
@@ -794,15 +788,8 @@ function matchesManagedOwner(entry: ManagedConnection, scope: McpScope | null): 
     && (!scope.organizationId || entry.config.organizationId === scope.organizationId);
 }
 
-function configReferencesAnyEnvKey(config: McpServerConfig, changedEnvKeys: Set<string>): boolean {
-  const referencesChangedKey = (value: unknown): boolean => typeof value === 'string'
-    && Array.from(value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/gu)).some((match) => changedEnvKeys.has(match[1]));
-
-  return (config.envPassthrough || []).some((key) => changedEnvKeys.has(key.trim()))
-    || Object.values(config.env || {}).some(referencesChangedKey)
-    || Object.values(config.headers || {}).some(referencesChangedKey)
-    || Object.values(config.headersFromEnv || {}).some((key) => changedEnvKeys.has(key.trim()))
-    || Boolean(config.bearerTokenEnv && changedEnvKeys.has(config.bearerTokenEnv));
+function configReferencesAnyEnvKey(config: McpServerConfig, changedEnvKeys: Set<string>, availableEnv: Record<string, string>): boolean {
+  return mcpConfigUsesChangedEnv(config, changedEnvKeys, availableEnv);
 }
 
 export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
@@ -822,10 +809,11 @@ export async function closeMcpServer(serverName: string, scope?: McpScope | null
 export async function closeMcpServersForScope(scope?: McpScope | null, changedEnvKeys?: string[]): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
   const changedKeys = changedEnvKeys === undefined ? null : new Set(changedEnvKeys);
+  const availableEnv = changedKeys ? await readAvailableEnv(normalizedScope) : {};
   const store = getStore();
   for (const [key, entry] of store.entries) {
     if (!matchesManagedOwner(entry, normalizedScope)) continue;
-    if (changedKeys && !configReferencesAnyEnvKey(entry.config, changedKeys)) continue;
+    if (changedKeys && !configReferencesAnyEnvKey(entry.config, changedKeys, availableEnv)) continue;
     logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     store.entries.delete(key);
     entry.closed = true;

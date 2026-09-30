@@ -7,7 +7,7 @@ const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u;
 const NON_AUTH_FIELDS = new Set([
   'schemaVersion', 'connectionId', 'ownerUserId', 'organizationId', 'displayName',
   'enabled', 'icon', 'iconUrl', 'timeoutMs', 'directTools', 'authVersion',
-  'legacyOAuthName', 'legacyOAuthAmbiguous', 'legacyConfigHash',
+  'legacyOAuthName', 'legacyOAuthAmbiguous', 'legacyConfigHash', 'envMigrationBinding',
 ]);
 
 function stableStringify(value: unknown): string {
@@ -23,8 +23,31 @@ export function hashMcpLegacyConfig(config: McpServerConfig): string {
   return crypto.createHash('sha256').update(stableStringify(config)).digest('hex');
 }
 
-export function hashMcpAuthConfig(config: McpServerConfig): string {
+export function hashMcpReferencedAuthConfig(config: McpServerConfig): string {
   return hashMcpLegacyConfig(Object.fromEntries(Object.entries(config).filter(([key]) => !NON_AUTH_FIELDS.has(key))));
+}
+
+export function hashMcpAuthConfig(config: McpServerConfig): string {
+  const currentHash = hashMcpReferencedAuthConfig(config);
+  const binding = config.envMigrationBinding;
+  if (binding?.version === 1 && /^[a-f0-9]{64}$/.test(binding.priorAuthHash)
+    && binding.referencedConfigHash === currentHash) return binding.priorAuthHash;
+  return currentHash;
+}
+
+/** Caller metadata cannot manufacture a credential-binding exemption. */
+function restoreTrustedEnvBindings(config: McpConfig, previous: McpConfig): McpConfig {
+  const priorById = new Map(Object.values(previous.mcpServers).map(server => [server.connectionId, server]));
+  let changed = false;
+  const mcpServers = Object.fromEntries(Object.entries(config.mcpServers).map(([name, server]) => {
+    const prior = server.connectionId ? priorById.get(server.connectionId) : previous.mcpServers[name];
+    const trusted = prior?.envMigrationBinding;
+    if (JSON.stringify(server.envMigrationBinding) === JSON.stringify(trusted)) return [name, server];
+    changed = true;
+    const { envMigrationBinding: _supplied, ...clean } = server;
+    return [name, trusted ? { ...clean, envMigrationBinding: trusted } : clean];
+  }));
+  return changed ? { ...config, mcpServers } : config;
 }
 
 export function validateMcpConnectionId(value: unknown): asserts value is string {
@@ -33,6 +56,7 @@ export function validateMcpConnectionId(value: unknown): asserts value is string
 
 /** Only the authenticated storage scope can assign ownership or new identities. */
 export function hydrateMcpConnectionIdentities(config: McpConfig, scope: McpScope | null | undefined, previous?: McpConfig): McpConfig {
+  if (previous) config = restoreTrustedEnvBindings(config, previous);
   const normalized = normalizeMcpScope(scope);
   if (!normalized?.userId) return config; // Explicit system configuration is migrated separately.
   const seen = new Set<string>();

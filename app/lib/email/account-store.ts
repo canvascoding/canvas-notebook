@@ -361,6 +361,10 @@ export async function readStoredEmailAccountSecret(account: StoredEmailAccount):
 
 export async function saveStoredEmailAccountOAuthSecret(account: StoredEmailAccount, secret: EmailAccountOAuthSecret): Promise<void> {
   await writeEmailAccountSecret(account.secretRef, secret);
+  await touchStoredEmailAccountOAuthSecretMetadata(account);
+}
+
+export async function touchStoredEmailAccountOAuthSecretMetadata(account: StoredEmailAccount): Promise<void> {
   await db.update(emailAccounts)
     .set({ updatedAt: new Date() })
     .where(and(eq(emailAccounts.userId, account.userId), eq(emailAccounts.id, account.id)));

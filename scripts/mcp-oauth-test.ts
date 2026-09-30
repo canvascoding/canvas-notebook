@@ -161,6 +161,7 @@ async function main() {
     const { hashMcpServerConfig } = await import('../app/lib/mcp/manager');
     const { createMcpProxyTool } = await import('../app/lib/mcp/proxy-tool');
     const { assertMcpConnectionAccess } = await import('../app/lib/mcp/access');
+    const { readMcpCredentialJson } = await import('../app/lib/mcp/credential-storage');
 
     const serverConfig = {
       url: 'https://example.test/mcp',
@@ -240,7 +241,7 @@ async function main() {
     assert.equal(token.issuer, baseUrl);
     assert.equal(token.resource, 'https://example.test/mcp');
     const tokenPath = await getOAuthTokenPath('remote', MCP_SYSTEM_SCOPE);
-    assert.equal(tokenPath, path.join(tempRoot, 'settings', 'connections', systemConnectionId, 'tokens.json'));
+    assert.equal(tokenPath, path.join(tempRoot, 'system', 'secrets', 'Canvas-Secrets.env'));
     assert.equal(await modeOf(tokenPath), 0o600);
 
     status = await getMcpOAuthStatus('remote', undefined, MCP_SYSTEM_SCOPE);
@@ -339,7 +340,8 @@ async function main() {
     assert.match(status.reason || '', /does not match/);
 
     await clearMcpOAuth('remote', MCP_SYSTEM_SCOPE);
-    await assert.rejects(async () => fs.stat(await getOAuthTokenPath('remote', MCP_SYSTEM_SCOPE)));
+    assert.equal(await readMcpCredentialJson(`connections/${systemConnectionId}/tokens.json`, MCP_SYSTEM_SCOPE), null);
+    assert.equal(await modeOf(await getOAuthTokenPath('remote', MCP_SYSTEM_SCOPE)), 0o600);
 
     console.log('mcp-oauth-test: ok');
   } finally {
