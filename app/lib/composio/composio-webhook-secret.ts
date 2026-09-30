@@ -1,7 +1,7 @@
 import 'server-only';
 
 import crypto from 'crypto';
-import { readIntegrationsEnvState, replaceIntegrationsEntries } from '../integrations/env-config';
+import { mutateScopedEnvEntries, readIntegrationsEnvState } from '../integrations/env-config';
 
 const ENCRYPTED_PREFIX = 'enc:v1';
 const MASTER_KEY_ENV = 'INTEGRATIONS_ENV_MASTER_KEY';
@@ -11,18 +11,22 @@ async function getMasterSecret(): Promise<string> {
   const value = process.env[MASTER_KEY_ENV]?.trim();
   if (value) return value;
 
-  const state = await readIntegrationsEnvState();
+  const state = await readIntegrationsEnvState({ secretScope: 'legacy' });
   const existing = state.entries.find((entry) => entry.key === FALLBACK_KEY)?.value.trim();
   if (existing && !existing.startsWith(`${ENCRYPTED_PREFIX}:`)) return existing;
 
-  const generated = crypto.randomBytes(32).toString('base64url');
-  await replaceIntegrationsEntries([
-    ...state.entries
-      .filter((entry) => entry.key !== FALLBACK_KEY)
-      .map((entry) => ({ key: entry.key, value: entry.value })),
-    { key: FALLBACK_KEY, value: generated },
-  ]);
-  return generated;
+  let generated = crypto.randomBytes(32).toString('base64url');
+  const updated = await mutateScopedEnvEntries('integrations', (entries) => {
+    const current = entries.find((entry) => entry.key === FALLBACK_KEY)?.value.trim();
+    if (current && !current.startsWith(`${ENCRYPTED_PREFIX}:`)) {
+      generated = current;
+      return entries;
+    }
+    return current
+      ? entries.map((entry) => entry.key === FALLBACK_KEY ? { key: FALLBACK_KEY, value: generated } : entry)
+      : [...entries, { key: FALLBACK_KEY, value: generated }];
+  }, { secretScope: 'legacy' });
+  return updated.entries.find((entry) => entry.key === FALLBACK_KEY)?.value.trim() || generated;
 }
 
 function deriveEncryptionKey(secret: string): Buffer {

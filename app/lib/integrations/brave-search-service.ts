@@ -124,7 +124,7 @@ export async function getLocalBraveApiKey(storageScope?: EnvStorageScope | null)
     if (!isManagedBraveSearchAvailable()) return process.env.BRAVE_API_KEY?.trim() || null;
     return null;
   } catch {
-    return !isManagedBraveSearchAvailable() ? process.env.BRAVE_API_KEY?.trim() || null : null;
+    throw new Error('Unable to read the configured Brave API key safely.');
   }
 }
 
@@ -134,7 +134,7 @@ export async function getLocalOllamaApiKey(storageScope?: EnvStorageScope | null
     const envKey = new Map(state.entries.map((entry) => [entry.key, entry.value])).get('OLLAMA_API_KEY')?.trim();
     return envKey || process.env.OLLAMA_API_KEY?.trim() || null;
   } catch {
-    return process.env.OLLAMA_API_KEY?.trim() || null;
+    throw new Error('Unable to read the configured Ollama API key safely.');
   }
 }
 

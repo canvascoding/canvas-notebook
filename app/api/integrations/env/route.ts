@@ -5,10 +5,17 @@ import { auth } from '@/app/lib/auth';
 import {
   type EnvScope,
   mutateScopedEnvEntries,
-  mutateScopedEnvRaw,
   readScopedEnvState,
+  writeScopedEnvRaw,
+  readUnifiedEnvState,
+  patchUnifiedEnvEntries,
+  replaceUnifiedEnvRaw,
+  SecretRevisionConflictError,
   type EnvStorageScope,
 } from '@/app/lib/integrations/env-config';
+import { projectEnvView, withUnifiedEnvLock, type UnifiedEnvState } from '@/app/lib/secrets/unified-env-store';
+import { isEnvKey, parseEnvDocument, updateEnvDocument } from '@/app/lib/secrets/env-document';
+import { getSecretCategories, isHiddenSecretEnvKey, isReservedSecretEnvKey } from '@/app/lib/secrets/env-registry';
 import { closeMcpServersForScope } from '@/app/lib/mcp/manager';
 import { migrateLegacyAgentEnvIfNeeded } from '@/app/lib/agents/storage';
 import {
@@ -24,37 +31,33 @@ interface KeyValueEntry {
 }
 
 interface PutPayload {
-  scope?: EnvScope;
+  scope?: EnvScope | 'all';
   secretScope?: SecretScope;
-  mode?: 'kv' | 'raw';
+  mode?: 'kv' | 'raw' | 'patch';
   entries?: KeyValueEntry[];
+  patches?: Array<{ key: string; value: string | null }>;
   rawContent?: string;
+  baseRevision?: string;
 }
 
 type SecretScope = 'user' | 'organization' | 'system';
 
-function redactSystemEmailEntries<T extends { key: string; value: string }>(entries: T[]): T[] {
-  return entries.map((entry) => isSystemEmailEnvKey(entry.key)
-    ? { ...entry, value: '' }
-    : entry);
-}
-
-function redactSystemEmailRaw(rawContent: string): string {
-  return rawContent.split(/\r?\n/u)
-    .filter((line) => !isSystemEmailEnvKey(line.trim().replace(/^export\s+/u, '').split('=', 1)[0] || ''))
-    .join('\n');
-}
-
 function clientEnvState<T extends { entries: Array<{ key: string; value: string }>; rawContent: string }>(state: T): T {
+  const tokens = parseEnvDocument(state.rawContent);
   return {
     ...state,
-    entries: redactSystemEmailEntries(state.entries),
-    rawContent: redactSystemEmailRaw(state.rawContent),
+    entries: state.entries.filter(entry => !isHiddenSecretEnvKey(entry.key)).map(entry => ({
+      ...entry,
+      value: isSystemEmailEnvKey(entry.key) ? '' : entry.value,
+      categories: getSecretCategories(entry.key),
+      reserved: isReservedSecretEnvKey(entry.key),
+    })),
+    rawContent: updateEnvDocument(tokens, new Map(tokens.filter(token => token.key && isReservedSecretEnvKey(token.key)).map(token => [token.key!, null]))),
   };
 }
 
-function parseScope(value: string | null | undefined): EnvScope {
-  return value === 'agents' ? 'agents' : 'integrations';
+function parseScope(value: string | null | undefined): EnvScope | 'all' {
+  return value === 'all' ? 'all' : value === 'agents' ? 'agents' : 'integrations';
 }
 
 function parseSecretScope(value: unknown): SecretScope | null {
@@ -162,7 +165,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (secretScope === 'system') await migrateLegacyAgentEnvIfNeeded();
-    const state = clientEnvState(await readScopedEnvState(scope, storageScope));
+    const state = clientEnvState(scope === 'all' ? await readUnifiedEnvState(storageScope) : await readScopedEnvState(scope, storageScope));
     const requestedKey = request.nextUrl.searchParams.get('key')?.trim() || null;
     if (requestedKey && !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(requestedKey)) {
       return NextResponse.json({ success: false, error: 'Invalid environment variable key.' }, { status: 400 });
@@ -184,106 +187,109 @@ export async function GET(request: NextRequest) {
   }
 }
 
+function validateEntries(entries: unknown, allowDeletion: boolean): entries is Array<{ key: string; value: string | null }> {
+  if (!Array.isArray(entries)) return false;
+  const keys = new Set<string>();
+  return entries.every(entry => {
+    if (!entry || typeof entry !== 'object' || typeof entry.key !== 'string' || !isEnvKey(entry.key) || keys.has(entry.key)) return false;
+    keys.add(entry.key);
+    return typeof entry.value === 'string' || (allowDeletion && entry.value === null);
+  });
+}
+
+function effectiveMcpEnv(state: UnifiedEnvState): Map<string, string> {
+  return new Map(['integrations', 'agents'].flatMap(view => projectEnvView(state, view as EnvScope).entries.map(entry => [entry.key, entry.value] as [string, string])));
+}
+
 export async function PUT(request: NextRequest) {
   const authResult = await requireSession(request);
-  if (!authResult.ok) {
-    return authResult.response;
-  }
-
+  if (!authResult.ok) return authResult.response;
   try {
-    const requestScope = parseScope(request.nextUrl.searchParams.get('scope'));
-    const payload = (await request.json().catch(() => null)) as PutPayload | null;
+    const payload = await request.json().catch(() => null) as PutPayload | null;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return NextResponse.json({ success: false, error: 'Invalid request body.' }, { status: 400 });
     }
     const secretScope = parseSecretScope(payload.secretScope ?? request.nextUrl.searchParams.get('secretScope'));
-    if (!secretScope) {
-      return NextResponse.json({ success: false, error: 'Unsupported secret scope.' }, { status: 400 });
-    }
+    if (!secretScope) return NextResponse.json({ success: false, error: 'Unsupported secret scope.' }, { status: 400 });
     const authorization = await resolveAuthorizedStorageScope(authResult.session, secretScope);
     if (!authorization.ok) return authorization.response;
     const { storageScope, organizationId } = authorization;
-    const limited = rateLimit(request, {
-      limit: 30,
-      windowMs: 60_000,
-      keyPrefix: `integrations-env-put:${secretScope}:${requestScope}:${authResult.session.user.id}`,
-    });
-    if (!limited.ok) {
-      return limited.response;
+    const scope = parseScope(payload.scope ?? request.nextUrl.searchParams.get('scope'));
+    const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: `integrations-env-put:${secretScope}:${scope}:${authResult.session.user.id}` });
+    if (!limited.ok) return limited.response;
+    const mode = request.method === 'PATCH' ? 'patch' : payload.mode || 'kv';
+    if (!['kv', 'patch', 'raw'].includes(mode)) return NextResponse.json({ success: false, error: 'Unsupported save mode.' }, { status: 400 });
+    if (payload.baseRevision !== undefined && typeof payload.baseRevision !== 'string') {
+      return NextResponse.json({ success: false, error: 'Invalid revision.' }, { status: 400 });
     }
-
-    const scope = parseScope(payload.scope ?? requestScope);
-    const mode = payload.mode || 'kv';
-
-    if (secretScope === 'system') await migrateLegacyAgentEnvIfNeeded();
-
-    if (mode === 'raw') {
-      const rawIncludesSystemEmailSetting = typeof payload.rawContent === 'string'
-        && payload.rawContent.split(/\r?\n/u).some((line) => isSystemEmailEnvKey(line.trim().replace(/^export\s+/u, '').split('=', 1)[0] || ''));
-      if (rawIncludesSystemEmailSetting) {
-        return NextResponse.json({ success: false, code: 'SYSTEM_EMAIL_SETTINGS_RESERVED', error: 'System email settings must be changed in System Email settings.' }, { status: 400 });
-      }
-      const updated = await mutateScopedEnvRaw(scope, (existing) => {
-        if (existing.entries.some((entry) => isSystemEmailEnvKey(entry.key))) {
-          throw new Error('SYSTEM_EMAIL_SETTINGS_RESERVED');
+    if (mode === 'raw' && (typeof payload.rawContent !== 'string' || typeof payload.baseRevision !== 'string')) {
+      return NextResponse.json({ success: false, error: 'Raw editing requires text and its original revision.' }, { status: 400 });
+    }
+    const entries = mode === 'patch' ? payload.patches : payload.entries;
+    if (mode !== 'raw' && !validateEntries(entries, mode === 'patch')) {
+      return NextResponse.json({ success: false, error: 'Invalid or duplicate environment variable entries.' }, { status: 400 });
+    }
+    if (mode === 'patch' && entries!.some(entry => isReservedSecretEnvKey(entry.key))) {
+      return NextResponse.json({ success: false, code: 'SECRET_SETTINGS_RESERVED', error: 'Use the connection or System Email settings for protected credentials.' }, { status: 400 });
+    }
+    if (mode === 'kv' && scope === 'all') {
+      return NextResponse.json({ success: false, error: 'Use targeted patches or revision-checked raw editing for the unified store.' }, { status: 400 });
+    }
+    const { updated, changedKeys } = await withUnifiedEnvLock(storageScope, async () => {
+      const current = await readUnifiedEnvState(storageScope);
+      if (payload.baseRevision !== undefined && payload.baseRevision !== current.revision) throw new SecretRevisionConflictError();
+      const updated = await (async () => {
+        if (mode === 'raw') {
+          const tokens = parseEnvDocument(payload.rawContent!);
+          if (tokens.some(token => token.key && isReservedSecretEnvKey(token.key))) throw new Error('SECRET_SETTINGS_RESERVED');
+          if (scope === 'all') {
+            const preserved = new Map(current.entries.filter(entry => isReservedSecretEnvKey(entry.key)).map(entry => [entry.key, entry.value]));
+            return replaceUnifiedEnvRaw(updateEnvDocument(tokens, preserved), payload.baseRevision!, storageScope);
+          }
+          const existing = await readScopedEnvState(scope, storageScope);
+          const preserved = new Map(existing.entries.filter(entry => isReservedSecretEnvKey(entry.key)).map(entry => [entry.key, entry.value]));
+          await writeScopedEnvRaw(scope, updateEnvDocument(tokens, preserved), storageScope);
+          return readScopedEnvState(scope, storageScope);
         }
-        return typeof payload.rawContent === 'string' ? payload.rawContent : '';
-      }, storageScope);
-      await closeMcpServersForScope(storageScope);
-      await recordAuditEvent({
-        organizationId,
-        userId: authResult.session.user.id,
-        source: 'integrations',
-        eventType: 'secret',
-        entityType: 'env_scope',
-        entityId: scope,
-        action: 'env.update_raw',
-        status: 'success',
-        summary: `${scope} environment variables updated in raw mode.`,
-        metadata: {
-          scope,
-          secretScope,
-          mode,
-          rawContentLength: payload.rawContent?.length ?? 0,
-          keys: updated.entries.map((entry) => entry.key),
-        },
-      });
-      return NextResponse.json({ success: true, data: clientEnvState(updated) });
+        if (scope === 'all') return patchUnifiedEnvEntries(payload.patches!, storageScope, payload.baseRevision);
+        return mutateScopedEnvEntries(scope, existing => {
+          const reserved = existing.filter(entry => isReservedSecretEnvKey(entry.key));
+          if (mode === 'kv') return [...payload.entries!.filter(entry => !isReservedSecretEnvKey(entry.key)), ...reserved];
+          const values = new Map(existing.map(entry => [entry.key, entry.value]));
+          for (const patch of payload.patches!) {
+            if (patch.value === null) values.delete(patch.key);
+            else values.set(patch.key, patch.value);
+          }
+          return [...values].map(([key, value]) => ({ key, value }));
+        }, storageScope);
+      })();
+      const before = effectiveMcpEnv(current);
+      const after = effectiveMcpEnv(await readUnifiedEnvState(storageScope));
+      const changedKeys = [...new Set([...before.keys(), ...after.keys()])].filter(key => before.get(key) !== after.get(key));
+      return { updated, changedKeys };
+    });
+    // MCP ENV resolution currently uses personal or system files. An
+    // organization-only ENV scope is not an MCP owner scope.
+    if (secretScope !== 'organization') {
+      await closeMcpServersForScope(secretScope === 'user' ? { userId: authResult.session.user.id } : null, changedKeys);
     }
-
-    const requestedEntries = Array.isArray(payload.entries) ? payload.entries : [];
-    const updated = await mutateScopedEnvEntries(scope, (existingEntries) => [
-      ...requestedEntries.filter((entry) => !isSystemEmailEnvKey(entry.key)),
-      ...existingEntries
-        .filter((entry) => isSystemEmailEnvKey(entry.key))
-        .map((entry) => ({ key: entry.key, value: entry.value })),
-    ], storageScope);
-    await closeMcpServersForScope(storageScope);
     await recordAuditEvent({
-      organizationId,
-      userId: authResult.session.user.id,
-      source: 'integrations',
-      eventType: 'secret',
-      entityType: 'env_scope',
-      entityId: scope,
-      action: 'env.update',
-      status: 'success',
+      organizationId, userId: authResult.session.user.id, source: 'integrations', eventType: 'secret',
+      entityType: 'env_scope', entityId: scope, action: mode === 'raw' ? 'env.update_raw' : 'env.update', status: 'success',
       summary: `${scope} environment variables updated.`,
-      metadata: {
-        scope,
-        secretScope,
-        mode,
-        keys: updated.entries.map((entry) => entry.key),
-        entryCount: updated.entries.length,
-      },
+      metadata: { scope, secretScope, mode, keys: clientEnvState(updated).entries.map(entry => entry.key), entryCount: updated.entries.length },
     });
     return NextResponse.json({ success: true, data: clientEnvState(updated) });
   } catch (error) {
-    if (error instanceof Error && error.message === 'SYSTEM_EMAIL_SETTINGS_RESERVED') {
-      return NextResponse.json({ success: false, code: 'SYSTEM_EMAIL_SETTINGS_RESERVED', error: 'System email settings must be changed in System Email settings.' }, { status: 400 });
-    }
-    console.error('[API] integrations/env PUT error:', error);
+    if (error instanceof SecretRevisionConflictError) return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: 409 });
     const message = error instanceof Error ? error.message : 'Failed to update env file';
+    if (message === 'SECRET_SETTINGS_RESERVED') return NextResponse.json({ success: false, code: message, error: 'Use the connection or System Email settings for protected credentials.' }, { status: 400 });
+    if (/^(Invalid ENV|Duplicate ENV|Unterminated|Unexpected text|Invalid, protected)/.test(message)) return NextResponse.json({ success: false, error: message }, { status: 400 });
+    console.error('[API] integrations/env PUT error:', error);
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
+}
+
+export async function PATCH(request: NextRequest) {
+  return PUT(request);
 }

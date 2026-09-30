@@ -24,25 +24,21 @@ export function isManagedComposioConfigured(): boolean {
 
 export async function getLocalComposioApiKey(storageScope?: EnvStorageScope | null): Promise<string | null> {
   const managedAvailable = isManagedComposioAvailable();
-  try {
-    const centralState = await readScopedEnvState('integrations', { secretScope: 'legacy' });
-    const centralKey = centralState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
-    if (centralKey) return centralKey;
+  const centralState = await readScopedEnvState('integrations', { secretScope: 'legacy' });
+  const centralKey = centralState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
+  if (centralKey) return centralKey;
 
-    // Transitional fallback for installations that stored the project key in a
-    // user-scoped env file before Composio profiles existed. New UI writes the
-    // single project key to the system/legacy integration store.
-    if (storageScope?.userId?.trim() || storageScope?.organizationId?.trim()) {
-      const scopedState = await readScopedEnvState('integrations', storageScope);
-      const scopedKey = scopedState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
-      if (scopedKey) return scopedKey;
-    }
-
-    if (!managedAvailable && process.env.COMPOSIO_API_KEY) return process.env.COMPOSIO_API_KEY.trim() || null;
-    return null;
-  } catch {
-    return !managedAvailable ? process.env.COMPOSIO_API_KEY?.trim() || null : null;
+  // Transitional fallback for installations that stored the project key in a
+  // user-scoped env file before Composio profiles existed. New UI writes the
+  // single project key to the system/legacy integration store.
+  if (storageScope?.userId?.trim() || storageScope?.organizationId?.trim()) {
+    const scopedState = await readScopedEnvState('integrations', storageScope);
+    const scopedKey = scopedState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
+    if (scopedKey) return scopedKey;
   }
+
+  if (!managedAvailable && process.env.COMPOSIO_API_KEY) return process.env.COMPOSIO_API_KEY.trim() || null;
+  return null;
 }
 
 export async function getComposioMode(storageScope?: EnvStorageScope | null): Promise<ComposioMode> {

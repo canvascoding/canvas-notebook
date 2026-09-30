@@ -113,7 +113,7 @@ export async function getGeminiApiKeyFromIntegrations(storageScope?: EnvStorageS
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading GEMINI_API_KEY:', error);
-    return process.env.GEMINI_API_KEY || null;
+    throw error;
   }
 }
 
@@ -138,7 +138,7 @@ export async function getOpenAIApiKeyFromIntegrations(storageScope?: EnvStorageS
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading OPENAI_API_KEY:', error);
-    return process.env.OPENAI_API_KEY || null;
+    throw error;
   }
 }
 
@@ -163,7 +163,7 @@ export async function getGroqApiKeyFromIntegrations(storageScope?: EnvStorageSco
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading GROQ_API_KEY:', error);
-    return process.env.GROQ_API_KEY || null;
+    throw error;
   }
 }
 
@@ -188,7 +188,7 @@ export async function getKieApiKeyFromIntegrations(storageScope?: EnvStorageScop
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading KIE_API_KEY:', error);
-    return process.env.KIE_API_KEY || null;
+    throw error;
   }
 }
 

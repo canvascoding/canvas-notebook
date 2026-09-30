@@ -794,6 +794,17 @@ function matchesManagedOwner(entry: ManagedConnection, scope: McpScope | null): 
     && (!scope.organizationId || entry.config.organizationId === scope.organizationId);
 }
 
+function configReferencesAnyEnvKey(config: McpServerConfig, changedEnvKeys: Set<string>): boolean {
+  const referencesChangedKey = (value: unknown): boolean => typeof value === 'string'
+    && Array.from(value.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/gu)).some((match) => changedEnvKeys.has(match[1]));
+
+  return (config.envPassthrough || []).some((key) => changedEnvKeys.has(key.trim()))
+    || Object.values(config.env || {}).some(referencesChangedKey)
+    || Object.values(config.headers || {}).some(referencesChangedKey)
+    || Object.values(config.headersFromEnv || {}).some((key) => changedEnvKeys.has(key.trim()))
+    || Boolean(config.bearerTokenEnv && changedEnvKeys.has(config.bearerTokenEnv));
+}
+
 export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
   const store = getStore();
@@ -808,11 +819,13 @@ export async function closeMcpServer(serverName: string, scope?: McpScope | null
   }
 }
 
-export async function closeMcpServersForScope(scope?: McpScope | null): Promise<void> {
+export async function closeMcpServersForScope(scope?: McpScope | null, changedEnvKeys?: string[]): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
+  const changedKeys = changedEnvKeys === undefined ? null : new Set(changedEnvKeys);
   const store = getStore();
   for (const [key, entry] of store.entries) {
     if (!matchesManagedOwner(entry, normalizedScope)) continue;
+    if (changedKeys && !configReferencesAnyEnvKey(entry.config, changedKeys)) continue;
     logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     store.entries.delete(key);
     entry.closed = true;
