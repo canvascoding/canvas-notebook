@@ -4,8 +4,8 @@ import { create } from 'zustand';
 import type { MemoryReviewDecision, MemoryReviewEntry, MemoryReviewTarget } from '@/app/lib/memory/contract';
 import { decideMemoryReviewClient, loadMemoryReview, MemoryReviewClientError } from '@/app/lib/memory/review-client';
 
-type State = { open: boolean; queue: MemoryReviewTarget[]; activeIndex: number; activeEntry: MemoryReviewEntry | null; loading: boolean; deciding: MemoryReviewDecision | null; error: string | null; completed: boolean };
-export const useMemoryReviewStore = create<State>(() => ({ open: false, queue: [], activeIndex: 0, activeEntry: null, loading: false, deciding: null, error: null, completed: false }));
+type State = { open: boolean; queue: MemoryReviewTarget[]; totalCount: number; activeIndex: number; activeEntry: MemoryReviewEntry | null; loading: boolean; deciding: MemoryReviewDecision | null; error: string | null; completed: boolean };
+export const useMemoryReviewStore = create<State>(() => ({ open: false, queue: [], totalCount: 0, activeIndex: 0, activeEntry: null, loading: false, deciding: null, error: null, completed: false }));
 
 let loadGeneration = 0;
 
@@ -33,7 +33,7 @@ async function loadAt(index: number, queue: MemoryReviewTarget[]) {
 
 export async function openMemoryReview(target: MemoryReviewTarget, available: MemoryReviewTarget[] = []) {
   const queue = uniqueQueue([target, ...available]);
-  useMemoryReviewStore.setState({ open: true, queue, activeIndex: 0, activeEntry: null, completed: false, error: null });
+  useMemoryReviewStore.setState({ open: true, queue, totalCount: queue.length, activeIndex: 0, activeEntry: null, completed: false, error: null });
   await loadAt(0, queue);
 }
 export function closeMemoryReview() {
@@ -50,16 +50,24 @@ export async function retryActiveMemory() {
 export async function decideActiveMemory(decision: MemoryReviewDecision) {
   const state = useMemoryReviewStore.getState();
   if (!state.activeEntry || state.deciding) return;
+  const generation = loadGeneration;
   useMemoryReviewStore.setState({ deciding: decision, error: null });
   try {
     await decideMemoryReviewClient(state.activeEntry, decision);
-    const queue = state.queue.filter((_, index) => index !== state.activeIndex);
     window.dispatchEvent(new CustomEvent('memory_review_updated'));
     window.dispatchEvent(new CustomEvent('notification_summary_updated'));
-    if (!queue.length) { useMemoryReviewStore.setState({ queue: [], activeEntry: null, deciding: null, completed: true }); return; }
+    if (generation !== loadGeneration) return;
+    const queue = state.queue.filter((_, index) => index !== state.activeIndex);
+    if (!queue.length) {
+      useMemoryReviewStore.setState({ queue: [], completed: true });
+      closeMemoryReview();
+      return;
+    }
     useMemoryReviewStore.setState({ queue, deciding: null });
     await loadAt(Math.min(state.activeIndex, queue.length - 1), queue);
-  } catch (error) { useMemoryReviewStore.setState({ deciding: null, error: error instanceof Error ? error.message : 'Unable to save decision.' }); }
+  } catch (error) {
+    if (generation === loadGeneration) useMemoryReviewStore.setState({ deciding: null, error: error instanceof Error ? error.message : 'Unable to save decision.' });
+  }
 }
 
 export const approveActiveMemory = () => decideActiveMemory('approve');

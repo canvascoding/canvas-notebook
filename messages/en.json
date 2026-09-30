@@ -8937,6 +8937,7 @@
     "title": "Review memory",
     "loading": "Loading memory…",
     "progress": "Memory {current} of {total}",
+    "progressLabel": "Reviewed memories",
     "completed": "All memory suggestions have been reviewed.",
     "approve": "Save",
     "reject": "Don't save",
