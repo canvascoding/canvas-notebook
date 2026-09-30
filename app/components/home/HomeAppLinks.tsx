@@ -6,6 +6,8 @@ import { useFormatter, useTranslations } from 'next-intl';
 import { useRef, useState, type ReactNode } from 'react';
 
 import { Link } from '@/i18n/navigation';
+import { buildTodoPopupHref, isUnmodifiedPrimaryClick } from '@/app/lib/todos/navigation';
+import { openTodoDetail } from '@/app/store/todo-detail-store';
 import type { HomeWidgetAutomation, HomeWidgetEmail, HomeWidgetStudio, HomeWidgetTodo } from '@/app/lib/home/workspace-widget-data';
 import type { HomeWidgetState } from './useHomeWorkspaceWidgets';
 import { useHomeWorkspaceWidgets } from './useHomeWorkspaceWidgets';
@@ -154,7 +156,11 @@ function TodoWidget({ state, workspaceId, onRetry }: { state: HomeWidgetState<Ho
   const t = useTranslations('home.workspaceWidgets.todos');
   const format = useFormatter();
   return <WidgetCard id="todos" title={t('title')} description={t('description')} href={`/todos?workspaceId=${encodeURIComponent(workspaceId)}`} icon={ListTodo} footer={t('openAll')} freezeEnabled={state.status === 'ready'}
-    preview={stateSummary({ state, onRetry, ready: data => <ListPreview countLabel={t('count', { count: data.length })}>{data.length ? <div className="divide-y divide-border/60">{data.slice(0, 2).map(todo => <Link key={todo.id} href={`/todos?todo=${encodeURIComponent(todo.id)}&workspaceId=${encodeURIComponent(workspaceId)}`} className="flex h-11 min-w-0 items-center gap-3 px-2 transition-colors hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><span className={`h-2.5 w-2.5 shrink-0 rounded-full border ${todo.priority === 'high' ? 'border-destructive bg-destructive/15' : 'border-muted-foreground/50'}`} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-4">{todo.title}</span><span className={`mt-0.5 block truncate text-xs leading-4 ${todo.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`}>{todo.priority === 'high' ? t('highPriority') : todo.dueAt ? t('due', { time: relativeTime(format, todo.dueAt) }) : t('open')}</span></span></Link>)}</div> : <p className="px-2 py-5 text-sm text-muted-foreground">{t('empty')}</p>}</ListPreview> })}
+    preview={stateSummary({ state, onRetry, ready: data => <ListPreview countLabel={t('count', { count: data.length })}>{data.length ? <div className="divide-y divide-border/60">{data.slice(0, 2).map(todo => <Link key={todo.id} href={buildTodoPopupHref(todo.id)} onClick={(event) => {
+      if (!isUnmodifiedPrimaryClick(event)) return;
+      event.preventDefault();
+      openTodoDetail(todo.id);
+    }} className="flex h-11 min-w-0 items-center gap-3 px-2 transition-colors hover:bg-muted/70 focus-visible:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"><span className={`h-2.5 w-2.5 shrink-0 rounded-full border ${todo.priority === 'high' ? 'border-destructive bg-destructive/15' : 'border-muted-foreground/50'}`} /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium leading-4">{todo.title}</span><span className={`mt-0.5 block truncate text-xs leading-4 ${todo.priority === 'high' ? 'text-destructive' : 'text-muted-foreground'}`}>{todo.priority === 'high' ? t('highPriority') : todo.dueAt ? t('due', { time: relativeTime(format, todo.dueAt) }) : t('open')}</span></span></Link>)}</div> : <p className="px-2 py-5 text-sm text-muted-foreground">{t('empty')}</p>}</ListPreview> })}
   />;
 }
 

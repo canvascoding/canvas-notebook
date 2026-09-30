@@ -6,9 +6,14 @@ import { TodoChatProvider } from '@/app/apps/todos/context/todo-chat-context';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { isOnboardingHintsEnabled } from '@/app/lib/onboarding/status';
 
-export default async function TodosPage() {
+export default async function TodosPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const t = await getTranslations('todos');
-  await requirePageSession();
+  const params = await searchParams;
+  const returnParams = new URLSearchParams();
+  if (typeof params.todo === 'string') returnParams.set('todo', params.todo);
+  if (params.todoView === 'page') returnParams.set('todoView', 'page');
+  if (typeof params.workspaceId === 'string') returnParams.set('workspaceId', params.workspaceId);
+  await requirePageSession({ returnTo: returnParams.has('todo') ? `/todos?${returnParams}` : undefined });
 
   return (
     <TodoChatProvider>

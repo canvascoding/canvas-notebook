@@ -44,11 +44,11 @@ Die eigens erzeugte isolierte UI-Datenbank, private ENV-/DATA-Kopie und der temp
 
 ## Erneute Prüfung vor Übernahme auf main
 
-Nach ausdrücklicher Push-Freigabe wurde der inzwischen fortgeschrittene Remote-Stand `1e9b7a6c3` konfliktfrei integriert. Die automatisch zusammengeführte `package.json` enthält sowohl die neuen Main-Testskripte als auch alle Secrets-Prüfgruppen. Auf diesem gemeinsamen Stand bestanden erneut `test:secrets`, `test:secrets:regression`, der Typecheck und `npm run build`. Zusätzlich bestanden die Managed-Runtime-/Auth-Verträge und die beiden neuen Link-Diagnostik-Tests aus Main.
+Nach ausdrücklicher Push-Freigabe wurde zunächst der Remote-Stand `1e9b7a6c3`, anschließend der parallel veröffentlichte Todo-/Login-Stand `d7553c1c5` konfliktfrei integriert. Die automatisch zusammengeführte `package.json` enthält sowohl die neuen Main-Testskripte als auch alle Secrets-Prüfgruppen. Auf dem abschließenden gemeinsamen Stand bestanden erneut `test:secrets`, `test:secrets:regression` und `npm run build` einschließlich TypeScript. Zusätzlich bestanden die Managed-Runtime-/Auth-Verträge, die beiden neuen Link-Diagnostik-Tests sowie Todo-Detail-/Avatar-/E-Mail-Verträge aus Main. Der Todo-API-Test verwendete eine eigene, anschließend entfernte PostgreSQL-Datenbank.
 
 Die autorisierte Browser-Abnahme wurde gegen einen frisch gestarteten Host mit eigener PostgreSQL-/DATA-Kopie wiederholt: tatsächliche Anmeldung, API und Dateispeicherung, alle Bereiche, Berechtigungen, Kategorien, Formular/Text, Konflikte, DE/EN und Mobilansicht. Beide verdeckten Screenshots wurden visuell geprüft. Host und private DB-/ENV-/DATA-Kopie wurden anschließend entfernt; der verwaltete Stack blieb unverändert. Ergebnis und Bilder liegen lokal unter `/tmp/canvas-secrets-a2cd-main-ui-evidence`.
 
-Der GitNexus-Abgleich gegen den aktuellen Remote-Main weist ausschließlich die erwarteten Secrets-Änderungen aus: 85 Dateien, 600 Symbole, drei Abläufe, Risiko MEDIUM. Die separat übernommenen Main-Änderungen haben einen größeren als CRITICAL eingestuften Umfang; sie wurden durch Build/Typecheck, die erneuten Secrets-/Regressionstests und die ergänzenden Integrationsverträge geprüft.
+Der GitNexus-Abgleich gegen den abschließenden Remote-Main `d7553c1c5` weist ausschließlich die erwarteten Secrets-Änderungen aus: 85 Dateien, 601 Symbole, drei Abläufe, Risiko MEDIUM. Die separat übernommenen Main-Änderungen haben einen größeren als CRITICAL eingestuften Umfang; sie wurden durch Build/Typecheck, die erneuten Secrets-/Regressionstests und die ergänzenden Integrationsverträge geprüft.
 
 ## Bereits bestehende, separat reproduzierte Einschränkung
 

@@ -3377,7 +3377,8 @@
       "categories": "Kategorien",
       "files": "Dateien",
       "session": "Session",
-      "emailNotification": "E-Mail-Benachrichtigung"
+      "emailNotification": "E-Mail-Benachrichtigung",
+      "details": "Weitere Details"
     },
     "scope": {
       "personal": "Persönlich",
@@ -3453,7 +3454,7 @@
       "restore": "Wiederherstellen",
       "edit": "Bearbeiten",
       "markSeen": "Als gelesen markieren",
-      "archiveTodo": "Löschen",
+      "archiveTodo": "Archivieren",
       "reopen": "Wieder öffnen",
       "complete": "Abhaken",
       "completeQuick": "Schnell abhaken",
@@ -3484,7 +3485,12 @@
       "followUpComment": "Kommentar für den Agenten",
       "followUpCommentPlaceholder": "Optionaler Kontext, was erledigt wurde oder wie der Agent weitermachen soll",
       "categoryName": "Name",
-      "categoryColor": "Farbe"
+      "categoryColor": "Farbe",
+      "createdBy": "Erstellt von",
+      "createdAt": "Erstellt am",
+      "updatedAt": "Zuletzt geändert",
+      "completedAt": "Erledigt am",
+      "completionComment": "Abschlusskommentar"
     },
     "states": {
       "loading": "To-dos werden geladen...",
@@ -3504,7 +3510,8 @@
       "unassigned": "Nicht zugewiesen",
       "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}",
       "emailNotificationSentAt": "E-Mail-Benachrichtigung gesendet: {date}",
-      "emailNotificationBlocked": "E-Mail-Benachrichtigung nicht gesendet"
+      "emailNotificationBlocked": "E-Mail-Benachrichtigung nicht gesendet",
+      "overdue": "Überfällig"
     },
     "detail": {
       "dialogTitle": "To-do prüfen"
@@ -3543,6 +3550,21 @@
       "titleRequired": "Bitte gib einen Titel ein.",
       "categoryNameRequired": "Bitte gib einen Kategorienamen ein.",
       "categorySaveFailed": "Kategorie konnte nicht gespeichert werden."
+    },
+    "popup": {
+      "description": "Details ansehen und bearbeiten, ohne die aktuelle Seite zu verlassen.",
+      "openPage": "Auf der To-do-Seite öffnen",
+      "close": "Schließen",
+      "retry": "Erneut versuchen",
+      "reload": "Aktuellen Stand laden",
+      "loadingOptions": "Kategorien und Personen werden geladen…",
+      "readOnly": "Du kannst dieses To-do ansehen. Zum Bearbeiten benötigst du Schreibrechte.",
+      "unavailable": "Dieses To-do ist nicht mehr verfügbar oder du hast keinen Zugriff.",
+      "conflict": "Dieses To-do wurde inzwischen geändert. Dein Entwurf bleibt erhalten. Lade den aktuellen Stand, bevor du weiterbearbeitest.",
+      "discardTitle": "Ungespeicherte Änderungen verwerfen?",
+      "discardDescription": "Deine Änderungen wurden noch nicht gespeichert. Du kannst weiterbearbeiten oder sie verwerfen.",
+      "keepEditing": "Weiter bearbeiten",
+      "discard": "Verwerfen"
     }
   },
   "invitationAcceptance": {

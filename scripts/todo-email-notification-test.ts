@@ -236,8 +236,9 @@ async function main() {
   assert.match(sentMessages[1].body, /Open to-do/);
   assert.match(
     sentMessages[1].body,
-    /\/en\/todos\?todo=todo-email-english&amp;session=sess-email&amp;chat=open/,
+    /\/en\/\?todo=todo-email-english/,
   );
+  assert.doesNotMatch(sentMessages[1].body, /[?&](?:amp;)?(?:session|chat|workspaceId)=/);
 
   const assigneeUserId = 'todo-email-assignee';
   await db.insert(user).values({
