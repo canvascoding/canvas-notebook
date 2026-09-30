@@ -8,6 +8,7 @@ import type {
 } from './team-seat-outbox';
 import type { TeamSeatHealth, TeamSeatHealthState } from './team-seat-health-types';
 import type { LicenseStatus } from './types';
+import type { ManagedTeamSyncStatus } from './managed-team-sync-status';
 
 const DEFAULT_STALE_TOLERANCE_MS = 60_000;
 const DEFAULT_STALE_WITHOUT_SCHEDULE_MS = 10 * 60_000;
@@ -99,6 +100,9 @@ export function buildTeamSeatHealth(input: {
   claim: CommunityLicenseClaimPublicStatus;
   licenseStatus: LicenseStatus;
   now?: number;
+  mode?: 'community' | 'managed-team';
+  managedStatus?: ManagedTeamSyncStatus | null;
+  managedConfigured?: boolean;
 }): TeamSeatHealth {
   const now = input.now ?? Date.now();
   const organizationReady = input.organizationReady !== false;
@@ -124,7 +128,8 @@ export function buildTeamSeatHealth(input: {
     : null;
   const claim = claimSummary(input.claim);
 
-  return {
+  const health: TeamSeatHealth = {
+    mode: input.mode ?? 'community',
     organizationId: input.organizationId,
     generatedAt: new Date(now).toISOString(),
     license: licenseSummary(input.licenseStatus),
@@ -177,4 +182,60 @@ export function buildTeamSeatHealth(input: {
       costConfirmationRequired: false,
     },
   };
+  if (input.mode !== 'managed-team') return health;
+  const managed = input.managedStatus?.organizationId === input.organizationId
+    ? input.managedStatus : null;
+  const managedStaleAt = managed?.lastSuccessAt
+    ? Math.min(managed.lastSuccessAt + DEFAULT_STALE_WITHOUT_SCHEDULE_MS,
+      (managed.nextAttemptAt ?? managed.lastSuccessAt + 60_000) + DEFAULT_STALE_TOLERANCE_MS)
+    : null;
+  const stale = managedStaleAt !== null && managedStaleAt <= now;
+  const managedState = managed?.state === 'current' && stale ? 'stale' : managed?.state ?? 'never';
+  health.license.termEndsAt = managed?.termEndsAt ?? null;
+  health.managedAccessPolicy = managed?.accessPolicyState ? {
+    state: managed.accessPolicyState, reason: managed.accessPolicyReason ?? null,
+    graceEndsAt: managed.graceEndsAt ?? null,
+  } : null;
+  health.claim = {
+    state: managedState === 'current' && organizationReady && input.managedConfigured === true
+      && input.licenseStatus.licensed ? 'connected' : 'idle',
+    connectionExpiresAt: null, reconnectReason: null,
+  };
+  health.historicalCommunity = {
+    pendingOperations: health.sync.pendingOperations,
+    failedOperations: health.sync.failedOperations,
+  };
+  health.sync = {
+    ...health.sync,
+    state: !organizationReady || input.managedConfigured !== true || !input.licenseStatus.licensed
+      || (managed?.accessPolicyState != null && managed.accessPolicyState !== 'active')
+      || managedState === 'error' || managedState === 'pending'
+      || managedState === 'adoption_required' ? 'attention'
+      : managedState === 'stale' ? 'stale' : managedState === 'never' ? 'never' : 'healthy',
+    managedState,
+    lastAttemptAt: isoTimestamp(managed?.lastAttemptAt ?? null),
+    lastError: managed?.lastError ?? null,
+    membershipRevision: managed?.membershipRevision ?? null,
+    entitlementsVersion: managed?.entitlementsVersion ?? null,
+    lastSyncAt: isoTimestamp(managed?.lastSuccessAt ?? null),
+    nextReportAt: isoTimestamp(managed?.nextAttemptAt ?? null),
+    staleAfterAt: isoTimestamp(managedStaleAt),
+    observedQuantity: managed?.observedMemberCount ?? null,
+    approvedQuantity: managed?.approvedMemberCount ?? null,
+    billedQuantity: null,
+    licensedQuantity: input.licenseStatus.seatLimit ?? managed?.seatLimit ?? null,
+    reconciliationStatus: managedState === 'current' ? 'in_sync' : managedState,
+    reconciliationAction: null, reconciliationReason: managed?.lastError?.code ?? null,
+    reconciliationSeatLimit: managed?.seatLimit ?? null,
+    supportRequired: managedState === 'error',
+    driftStatus: null, pendingOperations: 0, failedOperations: 0, oldestPendingAt: null,
+  };
+  health.grace.refreshPhase = null;
+  health.grace.nextRefreshAt = isoTimestamp(managed?.nextAttemptAt ?? null);
+  health.grace.lastRefreshErrorCode = managed?.lastError?.code ?? null;
+  health.recovery = {
+    canSyncSnapshot: input.managedConfigured === true && organizationReady,
+    canRefreshLicense: false, reconnectRequired: false, costConfirmationRequired: false,
+  };
+  return health;
 }

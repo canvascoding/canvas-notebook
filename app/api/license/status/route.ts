@@ -12,6 +12,8 @@ import { buildTeamSeatHealth } from '@/app/lib/license/team-seat-health';
 import { readTeamLicenseEmailOutboxDiagnostics } from '@/app/lib/license/team-license-email-outbox';
 import { readTeamSeatSyncDiagnostics } from '@/app/lib/license/team-seat-outbox';
 import { resolveTeamSeatRolloutStatus } from '@/app/lib/license/team-seat-rollout';
+import { readManagedTeamSyncStatus } from '@/app/lib/license/managed-team-sync-status';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 import {
   isOrganizationBillingApprover,
   readOrganizationPermissionForUser,
@@ -42,10 +44,13 @@ export async function GET(request: NextRequest) {
       ) {
         const database = await openDb();
         try {
-          const [diagnostics, claim, emailDelivery] = await Promise.all([
+          const [diagnostics, claim, emailDelivery, managedStatus] = await Promise.all([
             readTeamSeatSyncDiagnostics(database, organization.organizationId),
-            getCommunityLicenseClaimStatus(),
+            getDeploymentMode() === 'managed-team'
+              ? Promise.resolve({ state: 'idle' as const, claimId: null }) : getCommunityLicenseClaimStatus(),
             readTeamLicenseEmailOutboxDiagnostics(database, organization.organizationId),
+            getDeploymentMode() === 'managed-team'
+              ? readManagedTeamSyncStatus(status.instanceId) : Promise.resolve(null),
           ]);
           const organizationRows = await database.all(`
             SELECT organization_id
@@ -57,7 +62,13 @@ export async function GET(request: NextRequest) {
             teamSeatHealth: {
               ...buildTeamSeatHealth({
                 organizationId: organization.organizationId,
-                organizationReady: status.hostingMode !== 'community'
+                mode: getDeploymentMode() === 'managed-team' ? 'managed-team' : 'community',
+                managedStatus,
+                managedConfigured: Boolean(process.env.CANVAS_INSTANCE_TOKEN?.trim()),
+                organizationReady: getDeploymentMode() === 'managed-team'
+                  ? organizationRows.length === 1
+                    && organizationRows[0].organization_id === organization.organizationId
+                  : status.hostingMode !== 'community'
                   || status.edition !== 'team'
                   || (organizationRows.length === 1
                     && organizationRows[0].organization_id === organization.organizationId),

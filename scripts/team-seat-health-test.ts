@@ -106,6 +106,39 @@ function diagnostics(overrides: Partial<TeamSeatSyncDiagnostics['state']> = {}):
 }
 
 function main(): void {
+  const managedStatus = {
+    version: 1 as const, instanceId: 'self_team_seat_health_test', organizationId: 'organization-health',
+    state: 'current' as const, lastAttemptAt: now - 10_000, lastSuccessAt: now - 10_000,
+    nextAttemptAt: now + 50_000, membershipRevision: 8, entitlementsVersion: 10,
+    approvedMemberCount: 2, observedMemberCount: 2, seatLimit: 10,
+    termEndsAt: '2027-09-30T00:00:00.000Z', lastError: null,
+  };
+  const managedInput = {
+    organizationId: 'organization-health', diagnostics: { ...diagnostics(), outbox: { ...diagnostics().outbox, failed: 6 } },
+    claim: { state: 'idle' as const, claimId: null }, licenseStatus: licenseStatus({ licenseClass: 'manual', seatLimit: 10 }),
+    mode: 'managed-team' as const, managedConfigured: true, now,
+  };
+  const managed = buildTeamSeatHealth({ ...managedInput, managedStatus });
+  assert.equal(managed.sync.state, 'healthy');
+  assert.equal(managed.claim.state, 'connected');
+  assert.equal(managed.sync.approvedQuantity, 2);
+  assert.equal(managed.sync.failedOperations, 0);
+  assert.equal(managed.historicalCommunity?.failedOperations, 6);
+  assert.equal(managed.license.termEndsAt, managedStatus.termEndsAt);
+  assert.equal(managed.recovery.canRefreshLicense, false);
+  for (const accessPolicyState of ['grace', 'restricted'] as const) {
+    const policyHealth = buildTeamSeatHealth({ ...managedInput, managedStatus: {
+      ...managedStatus, accessPolicyState, accessPolicyReason: 'grant_expired', graceEndsAt: '2026-08-08T00:00:00.000Z',
+    } });
+    assert.equal(policyHealth.sync.state, 'attention');
+    assert.equal(policyHealth.sync.managedState, 'current');
+    assert.equal(policyHealth.claim.state, 'connected');
+    assert.equal(policyHealth.managedAccessPolicy?.state, accessPolicyState);
+  }
+  assert.equal(buildTeamSeatHealth({ ...managedInput, managedStatus: { ...managedStatus, state: 'error', lastError: { code: 'ACK_FAILED', endpoint: '/v1/managed/team/sync/ack', httpStatus: 503 } } }).sync.state, 'attention');
+  assert.equal(buildTeamSeatHealth({ ...managedInput, managedStatus, now: now + 700_000 }).sync.state, 'stale');
+  assert.equal(buildTeamSeatHealth({ ...managedInput, managedStatus: { ...managedStatus, organizationId: 'other' } }).sync.lastSyncAt, null);
+  assert.equal(buildTeamSeatHealth({ ...managedInput, managedStatus: { ...managedStatus, state: 'adoption_required', lastSuccessAt: null } }).claim.state, 'idle');
   const healthy = buildTeamSeatHealth({
     organizationId: 'organization-health',
     diagnostics: diagnostics(),
