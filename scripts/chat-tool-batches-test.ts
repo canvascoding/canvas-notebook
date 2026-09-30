@@ -161,7 +161,7 @@ function toolResult(id: string, toolCallId: string, toolName: string, timestamp:
     'a new run cannot keep an earlier orphaned call active');
   const earlierAnswer = message({ id: 'earlier-answer', role: 'assistant', piMessage: {
     role: 'assistant', content: [], stopReason: 'stop', timestamp: 5500,
-  } as ChatMessage['piMessage'] });
+  } as unknown as ChatMessage['piMessage'] });
   assert.equal(buildToolBatchProjection([earlierAnswer, unfinished], true).batchesByAnchorId.get(unfinished.id)?.calls[0].message, undefined,
     'a continued run keeps new calls active after an earlier final answer');
 }
