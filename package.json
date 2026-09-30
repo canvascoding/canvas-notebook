@@ -294,6 +294,7 @@
     "test:markdown:navigation-client": "tsx scripts/workspace-markdown-navigation-client-test.ts",
     "test:markdown:obsidian": "tsx scripts/obsidian-flavored-markdown-test.ts",
     "test:markdown:links": "tsx scripts/workspace-link-index-test.ts",
+    "test:agent:link-diagnostics": "tsx scripts/workspace-link-diagnostics-test.ts && tsx --conditions react-server scripts/agent-file-link-diagnostics-test.ts",
     "test:markdown:link-contract": "tsx scripts/workspace-link-contract-v1-test.ts",
     "test:markdown:file-operation-planner": "tsx scripts/workspace-file-operation-planner-test.ts",
     "test:knowledge-graph": "tsx scripts/knowledge-graph-model-test.ts",

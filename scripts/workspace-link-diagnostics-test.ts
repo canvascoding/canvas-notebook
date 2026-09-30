@@ -97,6 +97,45 @@ const removedAlias = diagnoseWorkspaceLinks({ index: afterAliasIndex, beforeInde
   path: sourcePath, content: removedAliasContent, contentSha256: sha256(removedAliasContent), basis: 'applied' });
 assert.equal(removedAlias.issues[0].status, 'missing');
 assert.equal(removedAlias.issues[0].change, 'introduced');
+
+const unavailableBeforeSource = buildWorkspaceLinkIndexFromDocuments([], new Date(), [sourcePath],
+  [{ path: sourcePath, reason: 'too-large' }]);
+const unknownBeforeSource = diagnoseWorkspaceLinks({ index: afterAliasIndex, beforeIndex: unavailableBeforeSource,
+  path: sourcePath, content: removedAliasContent, contentSha256: sha256(removedAliasContent), basis: 'applied' });
+assert.equal(unknownBeforeSource.status, 'complete', 'current check is complete even when prior classification is unknown');
+assert.equal(unknownBeforeSource.issues[0].change, 'unknown');
+
+const missingBeforeAliases = buildWorkspaceLinkIndexFromDocuments([
+  { path: sourcePath, content: removedAliasContent },
+], new Date(), [sourcePath, 'sales/a.md'], [{ path: 'sales/a.md', reason: 'too-large' }]);
+const unknownBeforeAlias = diagnoseWorkspaceLinks({ index: afterAliasIndex, beforeIndex: missingBeforeAliases,
+  path: sourcePath, content: removedAliasContent, contentSha256: sha256(removedAliasContent), basis: 'applied' });
+assert.equal(unknownBeforeAlias.issues[0].change, 'unknown', 'omitted aliases cannot prove prior missing status');
+assert.ok(unknownBeforeAlias.notices.some((notice) => notice.includes('Prior link state')));
+
+const exactBeforeContent = '[[guide]]';
+const beforeExactWiki = buildWorkspaceLinkIndexFromDocuments([{ path: sourcePath, content: exactBeforeContent }],
+  new Date(), [sourcePath, 'guide.md'], [{ path: 'guide.md', reason: 'too-large' }]);
+const afterExactWiki = buildWorkspaceLinkIndexFromDocuments([{ path: sourcePath, content: exactBeforeContent }]);
+const omittedExactTarget = diagnoseWorkspaceLinks({ index: beforeExactWiki, path: sourcePath, content: exactBeforeContent,
+  contentSha256: sha256(exactBeforeContent), basis: 'current' });
+assert.equal(omittedExactTarget.status, 'partial');
+assert.equal(omittedExactTarget.counts.unverified, 1, 'unresolved extensionless Wiki links with omitted metadata remain unverified');
+const knownBeforeExactWiki = diagnoseWorkspaceLinks({ index: afterExactWiki, beforeIndex: beforeExactWiki,
+  path: sourcePath, content: exactBeforeContent, contentSha256: sha256(exactBeforeContent), basis: 'applied' });
+assert.equal(knownBeforeExactWiki.issues[0].change, 'unknown', 'an inferred extension cannot override an unresolved prior index edge');
+
+const explicitBeforeContent = '[[guide.md]]';
+const explicitBeforeIndex = buildWorkspaceLinkIndexFromDocuments([{ path: sourcePath, content: explicitBeforeContent }],
+  new Date(), [sourcePath, 'guide.md'], [{ path: 'guide.md', reason: 'too-large' }]);
+const explicitBefore = diagnoseWorkspaceLinks({ index: explicitBeforeIndex, path: sourcePath, content: explicitBeforeContent,
+  contentSha256: sha256(explicitBeforeContent), basis: 'current' });
+assert.equal(explicitBefore.status, 'complete');
+assert.equal(explicitBefore.counts.resolved, 1, 'explicit Wiki file path agrees with the shared resolver despite omitted body');
+const explicitAfterIndex = buildWorkspaceLinkIndexFromDocuments([{ path: sourcePath, content: explicitBeforeContent }]);
+const explicitAfter = diagnoseWorkspaceLinks({ index: explicitAfterIndex, beforeIndex: explicitBeforeIndex,
+  path: sourcePath, content: explicitBeforeContent, contentSha256: sha256(explicitBeforeContent), basis: 'applied' });
+assert.equal(explicitAfter.issues[0].change, 'introduced', 'explicit prior target resolution does not require alias metadata');
 const sourceOmission = buildWorkspaceLinkIndexFromDocuments([], new Date(), [sourcePath],
   [{ path: sourcePath, reason: 'too-large' }]);
 const omitted = diagnoseWorkspaceLinks({ index: sourceOmission, path: sourcePath, content,

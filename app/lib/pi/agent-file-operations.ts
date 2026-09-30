@@ -96,6 +96,8 @@ import { createRuntimeProposalAgentService, assertProposalToolsEnabled,
 import { proposalReviewWritesEnabled } from '@/app/lib/file-version-center/proposal-review-capability';
 import { createOrdinaryAgentProposal } from '@/app/lib/file-version-center/ordinary-agent-proposal';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import { captureAgentFileLinkSource } from './agent-file-link-sources';
+import type { WorkspaceLinkDiagnostics } from '@/app/lib/markdown/workspace-link-diagnostics';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -122,6 +124,7 @@ export type AgentFileSnapshotMetadata = {
 };
 
 export type AgentFileChangeResult = {
+  linkDiagnostics?: WorkspaceLinkDiagnostics;
   proposal?: ProposalToolCreationResultV1;
   path: string;
   resolvedPath: string;
@@ -1383,7 +1386,7 @@ async function commitTextChange(params: {
   }
 
   if (params.beforeExisted && beforeContent === params.nextContent) {
-    return {
+    return captureAgentFileLinkSource({
       path: params.inputPath,
       resolvedPath: params.fullPath,
       changed: false,
@@ -1393,7 +1396,7 @@ async function commitTextChange(params: {
       size: Buffer.byteLength(params.nextContent, 'utf8'),
       diff: '(no textual changes)',
       validation,
-    };
+    }, { beforeContent, content: params.nextContent, basis: 'current' });
   }
 
   await assertAgentWritablePathAllowed(params.fullPath);
@@ -1491,7 +1494,7 @@ async function commitTextChange(params: {
   };
   publishAgentWorkspaceMutation(params.fullPath, params.beforeExisted ? 'change' : 'add');
   await recordAgentFileChangeAudit(result, params.operation);
-  return result;
+  return captureAgentFileLinkSource(result, { beforeContent, content: readBackText, basis: 'applied' });
 }
 
 export async function writeAgentTextFile(params: {
@@ -1549,10 +1552,10 @@ export async function writeAgentTextFile(params: {
         await confirmCollaborativeFileCheckpoint({ inputPath: params.path, fullPath,
           documentId: collaboration.documentId, workspace: collaboration.workspace,
           snapshot: current, actorSessionId: collaboration.executionContext.sessionId });
-        return { path: params.path, resolvedPath: fullPath, changed: false, snapshot: null,
+        return captureAgentFileLinkSource({ path: params.path, resolvedPath: fullPath, changed: false, snapshot: null,
           beforeSha256: current.sha256, afterSha256: current.sha256,
           size: Buffer.byteLength(current.content, 'utf8'), diff: '',
-          validation };
+          validation }, { beforeContent: current.content, content: current.content, basis: 'current' });
       }
       const preparation = await prepareOrReuseCollaborativeFileEdit({
         retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
@@ -1836,7 +1839,7 @@ async function reusedCollaborativeFileEdit(input: {
       documentId, workspace, snapshot: current, operation,
       actorSessionId: executionContext.sessionId });
   }
-  return {
+  return captureAgentFileLinkSource({
     path: input.inputPath, resolvedPath: input.fullPath,
     changed: persisted && operation.appliedTargetIds.length > 0 && request.beforeSha256 !== request.proposedSha256,
     snapshot: null, beforeSha256: request.beforeSha256, afterSha256: current.sha256,
@@ -1845,7 +1848,7 @@ async function reusedCollaborativeFileEdit(input: {
     validation: validateAgentFileContent(input.inputPath, current.content),
     collaboration: { operationId: operation.operationId, operationStatus: operation.operationStatus,
       durability: operation.durability, reviewRequired, proposedSha256: request.proposedSha256 },
-  };
+  }, { content: current.content, basis: 'current' });
 }
 
 /** A direct agent tool succeeds only after its durable Yjs sequence reaches the physical file. */
@@ -2007,7 +2010,11 @@ async function applyPreparedCollaborativeFileEdit(input: {
     },
   };
   if (changed) await recordAgentFileChangeAudit(result, input.auditOperation);
-  return result;
+  return captureAgentFileLinkSource(result, {
+    beforeContent: input.prepared.content,
+    content: reviewRequired && !changed ? input.prepared.proposedContent : current.content,
+    basis: reviewRequired && !changed ? 'proposed' : changed ? 'applied' : 'current',
+  });
 }
 
 type AgentEditFileCommonInput = {
@@ -2065,13 +2072,14 @@ function graphFileChangeResult(input: { inputPath: string; fullPath: string }, r
   authoringPreview: { beforeContent: string; proposedContent: string; beforeSha256: string; proposedSha256: string };
 }): AgentFileChangeResult {
   const { beforeContent, proposedContent, beforeSha256, proposedSha256 } = result.authoringPreview;
-  return { path: input.inputPath, resolvedPath: input.fullPath, changed: false, snapshot: null,
+  return captureAgentFileLinkSource({ path: input.inputPath, resolvedPath: input.fullPath, changed: false, snapshot: null,
     beforeSha256, afterSha256: beforeSha256, size: Buffer.byteLength(beforeContent),
     diff: createUnifiedDiff(beforeContent, proposedContent, `${input.inputPath} (proposal source)`, `${input.inputPath} (proposal)`),
     validation: validateAgentFileContent(input.inputPath, proposedContent), proposal: result.proposal,
     collaboration: { operationId: result.node.operationId,
       operationStatus: result.node.lifecycle === 'open' ? 'needs_review' : result.node.lifecycle,
-      durability: 'not_applied', reviewRequired: result.node.lifecycle === 'open', proposedSha256 } };
+      durability: 'not_applied', reviewRequired: result.node.lifecycle === 'open', proposedSha256 } },
+    { beforeContent, content: proposedContent, basis: 'proposed' });
 }
 
 /** Explicit proposal writes never enter the file-projection or Safe-Direct path. */

@@ -85,6 +85,8 @@ export function diagnoseWorkspaceLinks(input: {
   }
 
   const beforeCounts = new Map<string, number>();
+  const beforeUncertainKeys = new Set<string>();
+  let beforeIndex: WorkspaceLinkIndex | undefined;
   const linkKey = (syntax: string, target: string): string => JSON.stringify([syntax, target]);
   if (input.beforeContent !== undefined || input.beforeIndex) {
     // The resolver uses target paths and aliases, so minimal target documents
@@ -96,9 +98,13 @@ export function diagnoseWorkspaceLinks(input: {
         content: `---\naliases: ${JSON.stringify(document.aliases)}\n---\n`,
       })),
     ], new Date(input.index.generatedAt), input.index.targetPaths);
+    beforeIndex = before;
+    const priorAliasesOmitted = before.omittedDocuments.some((entry) => entry.path !== input.path)
+      || before.coverage.omittedSources.some((entry) => entry.path !== input.path);
     for (const link of before.edges.filter((edge) => edge.sourcePath === input.path && edge.status !== 'resolved'
       && edge.status !== 'external' && edge.status !== 'anchor-only')) {
       const key = linkKey(link.syntax, link.targetLiteral);
+      if (link.kind === 'wiki' && priorAliasesOmitted) beforeUncertainKeys.add(key);
       beforeCounts.set(key, (beforeCounts.get(key) ?? 0) + 1);
     }
     for (const link of before.unevaluatedLinks.filter((entry) => entry.sourcePath === input.path)) {
@@ -106,8 +112,20 @@ export function diagnoseWorkspaceLinks(input: {
       beforeCounts.set(key, (beforeCounts.get(key) ?? 0) + 1);
     }
   }
-  const changeFor = (key: string): WorkspaceLinkDiagnostics['issues'][number]['change'] => {
+  const beforeSourceUnknown = beforeIndex && (beforeIndex.omittedDocuments.some((entry) => entry.path === input.path)
+    || beforeIndex.coverage.omittedSources.some((entry) => entry.path === input.path)
+    || !beforeIndex.documents.some((entry) => entry.path === input.path));
+  const beforeAliasMetadataIncomplete = beforeIndex && (beforeIndex.omittedDocuments.some((entry) => entry.path !== input.path)
+    || beforeIndex.coverage.omittedSources.some((entry) => entry.path !== input.path));
+  const beforeTargetPaths = new Set(beforeIndex?.targetPaths);
+  const changeFor = (key: string, wikiLink?: ParsedWorkspaceLocalLink): WorkspaceLinkDiagnostics['issues'][number]['change'] => {
     if (input.beforeContent === undefined && !input.beforeIndex) return 'unknown';
+    if (beforeSourceUnknown || beforeUncertainKeys.has(key) || (beforeAliasMetadataIncomplete && wikiLink
+      && !hasUniqueExactWikiTarget(wikiLink, beforeTargetPaths))) {
+      const notice = 'Prior link state was not fully inspected; affected change classifications are unknown.';
+      if (!result.notices.includes(notice)) result.notices.push(notice);
+      return 'unknown';
+    }
     const remaining = beforeCounts.get(key) ?? 0;
     if (!remaining) return 'introduced';
     beforeCounts.set(key, remaining - 1);
@@ -136,18 +154,17 @@ export function diagnoseWorkspaceLinks(input: {
   const edges = input.index.edges.filter((edge) => edge.sourcePath === input.path);
   const incompleteAliasMetadata = input.index.omittedDocuments.some((entry) => entry.path !== input.path)
     || input.index.coverage.omittedSources.some((entry) => entry.path !== input.path);
-  const parsedWikiLinks = incompleteAliasMetadata
+  const parsedWikiLinks = incompleteAliasMetadata || beforeAliasMetadataIncomplete
     ? new Map(parseWorkspaceLocalLinks(input.content, input.path).links.filter((link) => link.kind === 'wiki')
       .map((link) => [link.start, link]))
     : new Map<number, ParsedWorkspaceLocalLink>();
   const targetPaths = new Set(input.index.targetPaths);
   for (const edge of edges) {
     if (edge.status === 'external' || edge.status === 'anchor-only') continue;
-    const change = changeFor(linkKey(edge.syntax, edge.targetLiteral));
     result.counts.checked += 1;
     const wikiLink = parsedWikiLinks.get(edge.start);
     if (edge.kind === 'wiki' && incompleteAliasMetadata
-      && (!wikiLink || !hasUniqueExactWikiTarget(wikiLink, targetPaths))) {
+      && (edge.status !== 'resolved' || !wikiLink || !hasUniqueExactWikiTarget(wikiLink, targetPaths))) {
       result.counts.unverified += 1;
       addIssue(edge.targetRange.startUtf16, edge.targetLiteral, 'not-evaluated', edge.candidates, 'unknown');
       const notice = 'Wiki name and alias lookup is incomplete because target document metadata was omitted.';
@@ -155,6 +172,7 @@ export function diagnoseWorkspaceLinks(input: {
       continue;
     }
     if (edge.status === 'resolved') { result.counts.resolved += 1; continue; }
+    const change = changeFor(linkKey(edge.syntax, edge.targetLiteral), wikiLink);
     if (edge.status === 'missing' || edge.status === 'ambiguous') {
       result.counts[edge.status] += 1;
       addIssue(edge.targetRange.startUtf16, edge.targetLiteral, edge.status, edge.candidates, change);
