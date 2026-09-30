@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { Api, Model } from '@earendil-works/pi-ai';
 import { createHash } from 'node:crypto';
+import { runWithAbortSignal } from '../concurrency/run-with-abort-signal';
 
 import { getManagedControlPlaneBaseUrl } from './control-plane-url';
 
@@ -26,6 +27,8 @@ export type ManagedControlPlaneModel = Model<Api> & {
 export type ManagedControlPlaneCatalog = {
   status: 'ready' | 'invalid' | 'unavailable';
   errorCode: string | null;
+  httpStatus?: number;
+  retryable?: boolean;
   catalogRevision: string | null;
   defaultModelId: string | null;
   defaultThinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -34,6 +37,9 @@ export type ManagedControlPlaneCatalog = {
 
 export const FALLBACK_CANVAS_CONTROL_PLANE_MODELS: ManagedControlPlaneModel[] = [];
 export const MANAGED_CATALOG_WARM_CACHE_MS = 30_000;
+export const MANAGED_CATALOG_REQUEST_TIMEOUT_MS = 5_000;
+export const MANAGED_CATALOG_RETRY_DELAY_MS = 250;
+const RETRYABLE_CATALOG_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 type ManagedCatalogCacheEntry = {
   key: string;
@@ -184,10 +190,14 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
   } as ManagedControlPlaneModel;
 }
 
-function unavailableCatalog(errorCode: string): ManagedControlPlaneCatalog {
+function unavailableCatalog(
+  errorCode: string,
+  details: Pick<ManagedControlPlaneCatalog, 'httpStatus' | 'retryable'> = {},
+): ManagedControlPlaneCatalog {
   return {
     status: 'unavailable',
     errorCode,
+    ...details,
     catalogRevision: null,
     defaultModelId: null,
     defaultThinkingLevel: 'off',
@@ -205,17 +215,17 @@ function managedCatalogCacheKey(controlPlaneUrl: string, token: string): string 
   return createHash('sha256').update(`${controlPlaneUrl}\0${token}`).digest('hex');
 }
 
-async function fetchCanvasControlPlaneCatalog(
+async function fetchCanvasControlPlaneCatalogAttempt(
   controlPlaneUrl: string,
   token: string,
 ): Promise<ManagedControlPlaneCatalog> {
   const startedAt = Date.now();
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+  const timeout = setTimeout(() => controller.abort(), MANAGED_CATALOG_REQUEST_TIMEOUT_MS);
   try {
     console.log('[Canvas Control Plane] Loading managed models.', {
       endpoint: `${controlPlaneUrlForLog(controlPlaneUrl)}/v1/managed/models`,
-      timeoutMs: 5000,
+      timeoutMs: MANAGED_CATALOG_REQUEST_TIMEOUT_MS,
     });
     const response = await fetch(`${controlPlaneUrl}/v1/managed/models`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -229,7 +239,13 @@ async function fetchCanvasControlPlaneCatalog(
         durationMs: Date.now() - startedAt,
         body: body ? truncateLogText(body, 500) : undefined,
       });
-      return unavailableCatalog('MANAGED_CATALOG_REQUEST_FAILED');
+      const retryable = RETRYABLE_CATALOG_HTTP_STATUSES.has(response.status);
+      const errorCode = response.status === 401
+        ? 'MANAGED_CATALOG_AUTH_FAILED'
+        : response.status === 403
+          ? 'MANAGED_CATALOG_FORBIDDEN'
+          : retryable ? 'MANAGED_CATALOG_TEMPORARILY_UNAVAILABLE' : 'MANAGED_CATALOG_HTTP_ERROR';
+      return unavailableCatalog(errorCode, { httpStatus: response.status, retryable });
     }
     const payload = await response.json();
     const rawModels = isRecord(payload) && Array.isArray(payload.models) ? payload.models : [];
@@ -279,15 +295,39 @@ async function fetchCanvasControlPlaneCatalog(
       durationMs: Date.now() - startedAt,
       error: summarizeError(error),
     });
-    return unavailableCatalog(controller.signal.aborted ? 'MANAGED_CATALOG_TIMEOUT' : 'MANAGED_CATALOG_REQUEST_FAILED');
+    if (!controller.signal.aborted && error instanceof SyntaxError) {
+      return { ...unavailableCatalog('MANAGED_CATALOG_INVALID_RESPONSE'), status: 'invalid' };
+    }
+    return unavailableCatalog(
+      controller.signal.aborted ? 'MANAGED_CATALOG_TIMEOUT' : 'MANAGED_CATALOG_REQUEST_FAILED',
+      { retryable: true },
+    );
   } finally {
     clearTimeout(timeout);
   }
 }
 
-export async function getCanvasControlPlaneCatalog(
-  options: { maxAgeMs?: number } = {},
+async function fetchCanvasControlPlaneCatalog(
+  controlPlaneUrl: string,
+  token: string,
 ): Promise<ManagedControlPlaneCatalog> {
+  const first = await fetchCanvasControlPlaneCatalogAttempt(controlPlaneUrl, token);
+  if (!first.retryable) return first;
+  console.warn('[Canvas Control Plane] Retrying managed model discovery.', {
+    errorCode: first.errorCode,
+    httpStatus: first.httpStatus,
+    delayMs: MANAGED_CATALOG_RETRY_DELAY_MS,
+  });
+  // Only the read-only catalog GET is retried. Each attempt has a five-second
+  // deadline, bounding the shared discovery to 10.25 seconds in total.
+  await new Promise((resolve) => setTimeout(resolve, MANAGED_CATALOG_RETRY_DELAY_MS));
+  return fetchCanvasControlPlaneCatalogAttempt(controlPlaneUrl, token);
+}
+
+export async function getCanvasControlPlaneCatalog(
+  options: { maxAgeMs?: number; signal?: AbortSignal } = {},
+): Promise<ManagedControlPlaneCatalog> {
+  options.signal?.throwIfAborted();
   const controlPlaneUrl = getManagedControlPlaneBaseUrl();
   const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
   if (!controlPlaneUrl || !token) {
@@ -317,7 +357,8 @@ export async function getCanvasControlPlaneCatalog(
 
   if (managedCatalogRequest?.key === key) {
     console.log('[Canvas Control Plane] Joining in-flight managed model request.');
-    return managedCatalogRequest.promise;
+    const joined = managedCatalogRequest.promise;
+    return runWithAbortSignal(options.signal, () => joined);
   }
 
   const promise = fetchCanvasControlPlaneCatalog(controlPlaneUrl, token).then((catalog) => {
@@ -330,7 +371,9 @@ export async function getCanvasControlPlaneCatalog(
   void promise.finally(() => {
     if (managedCatalogRequest?.promise === promise) managedCatalogRequest = null;
   });
-  return promise;
+  // Cancel this caller's wait without cancelling discovery shared by other
+  // sessions. No provider call can follow an aborted runtime request.
+  return runWithAbortSignal(options.signal, () => promise);
 }
 
 export function primeCanvasControlPlaneCatalog(): Promise<ManagedControlPlaneCatalog> {

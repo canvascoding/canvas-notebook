@@ -54,6 +54,7 @@
     "test:pi:sdk-contract": "tsx scripts/pi-sdk-contract-test.mts",
     "test:pi:metadata-contract": "tsx scripts/pi-metadata-projection-test.ts && tsx scripts/pi-message-projection-test.ts && tsx --conditions react-server scripts/chat-session-fork-test.ts",
     "test:pi:auth-contract": "tsx --conditions react-server scripts/pi-runtime-auth-contract-test.mts",
+    "test:pi:managed-recovery": "tsx --conditions react-server scripts/control-plane-catalog-cache-test.ts && tsx --conditions react-server scripts/control-plane-catalog-recovery-test.ts && tsx --conditions react-server scripts/pi-managed-catalog-recovery-test.mts",
     "test:pi:provider-contract": "tsx scripts/pi-provider-payload-contract-test.mts",
     "test:pi:thinking-filter": "tsx scripts/pi-thinking-filter-test.ts && tsx scripts/chat-projection-display-test.ts",
     "test:pi:server-import": "tsx --conditions react-server scripts/pi-server-import-test.mts",

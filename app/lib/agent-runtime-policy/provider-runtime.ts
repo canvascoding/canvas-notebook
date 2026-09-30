@@ -71,6 +71,12 @@ const RUNTIME_RECREATION_ERROR_CODES = new Set([
   'RUNTIME_POLICY_CHANGED',
   'RUNTIME_PROVIDER_CHANGED',
   'RUNTIME_MANAGED_CATALOG_CHANGED',
+  'RUNTIME_MANAGED_CATALOG_UNAVAILABLE',
+  'RUNTIME_MANAGED_CATALOG_AUTH_FAILED',
+  'RUNTIME_MANAGED_CATALOG_FORBIDDEN',
+  'RUNTIME_MANAGED_CONNECTION_INCOMPLETE',
+  'RUNTIME_MANAGED_CATALOG_HTTP_ERROR',
+  'RUNTIME_MANAGED_CATALOG_INVALID',
 ]);
 
 export function isRuntimeRecreationRequiredError(error: unknown): boolean {
@@ -207,6 +213,49 @@ function managedCatalogChangedError(message = 'The selected managed model change
   return new AiRuntimeExecutionError('RUNTIME_MANAGED_CATALOG_CHANGED', message);
 }
 
+function managedCatalogValidationError(catalog: ManagedControlPlaneCatalog | null): AiRuntimeExecutionError {
+  console.warn('[AI Runtime] Managed catalog validation failed.', {
+    status: catalog?.status,
+    errorCode: catalog?.errorCode,
+    httpStatus: catalog?.httpStatus,
+  });
+  switch (catalog?.errorCode) {
+    case 'MANAGED_CONNECTION_INCOMPLETE':
+      return new AiRuntimeExecutionError(
+        'RUNTIME_MANAGED_CONNECTION_INCOMPLETE',
+        'The Control Plane connection is not configured completely. Ask an administrator to check the Control Plane URL and instance credentials.',
+      );
+    case 'MANAGED_CATALOG_AUTH_FAILED':
+      return new AiRuntimeExecutionError(
+        'RUNTIME_MANAGED_CATALOG_AUTH_FAILED',
+        'The Control Plane rejected the instance credentials (HTTP 401). Ask an administrator to check the instance connection before trying again.',
+      );
+    case 'MANAGED_CATALOG_FORBIDDEN':
+      return new AiRuntimeExecutionError(
+        'RUNTIME_MANAGED_CATALOG_FORBIDDEN',
+        'The Control Plane denied access to the AI catalog (HTTP 403). Ask an administrator to check the instance permissions before trying again.',
+      );
+    case 'MANAGED_CATALOG_HTTP_ERROR':
+      return new AiRuntimeExecutionError(
+        'RUNTIME_MANAGED_CATALOG_HTTP_ERROR',
+        `The Control Plane AI catalog request failed${catalog?.httpStatus ? ` (HTTP ${catalog.httpStatus})` : ''}. Ask an administrator to check the Control Plane endpoint.`,
+      );
+  }
+  if (catalog?.status === 'invalid' || catalog?.status === 'ready') {
+    return new AiRuntimeExecutionError(
+      'RUNTIME_MANAGED_CATALOG_INVALID',
+      'The Control Plane returned an invalid AI catalog. Ask an administrator to review the model catalog in the Control Plane before synchronizing the app catalog.',
+    );
+  }
+  const reason = catalog?.errorCode === 'MANAGED_CATALOG_TIMEOUT'
+    ? 'The Control Plane AI catalog request timed out.'
+    : 'The Control Plane is temporarily unreachable or unable to serve the AI catalog.';
+  return new AiRuntimeExecutionError(
+    'RUNTIME_MANAGED_CATALOG_UNAVAILABLE',
+    `${reason} Model validation could not be completed. Wait briefly, then send a new message to try again. A catalog sync is not required for a temporary connection failure.`,
+  );
+}
+
 function sameModelInput(left: Model<Api>, right: Model<Api>): boolean {
   return left.input.length === right.input.length
     && left.input.every((input) => right.input.includes(input));
@@ -241,15 +290,10 @@ async function resolveManagedCatalogModel(input: {
   managedCatalog: ManagedControlPlaneCatalog;
 }): Promise<Model<Api>> {
   const { provider, model, managedCatalog } = input;
-  if (
-    managedCatalog.status !== 'ready'
-    || !managedCatalog.catalogRevision
-    || !provider.sourceRevision
-  ) {
-    throw managedCatalogChangedError(
-      'The managed AI catalog could not be validated. Sync and review the app model catalog before trying again.',
-    );
+  if (managedCatalog.status !== 'ready' || !managedCatalog.catalogRevision) {
+    throw managedCatalogValidationError(managedCatalog);
   }
+  if (!provider.sourceRevision) throw managedCatalogChangedError();
 
   let resolved: Model<Api>;
   try {
@@ -455,7 +499,8 @@ async function materializeResolution(
   const assertRuntimeExecutionState = async (expectedRevisions?: {
     catalogRevision: number;
     policyRevision: number;
-  }, options: { validateManagedCatalog?: boolean } = {}): Promise<AiProviderInstallation> => {
+  }, options: { validateManagedCatalog?: boolean; signal?: AbortSignal } = {}): Promise<AiProviderInstallation> => {
+    options.signal?.throwIfAborted();
     // The pre-credential pass validates local policy without network work. The
     // final pass fetches the remote managed model first, then re-reads local
     // policy so revocations remain fail-closed and close to the provider call.
@@ -465,12 +510,10 @@ async function materializeResolution(
       && providerInstallation.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
     ) {
       try {
-        managedCatalog = await getCanvasControlPlaneCatalog();
+        managedCatalog = await getCanvasControlPlaneCatalog({ signal: options.signal });
       } catch {
-        throw new AiRuntimeExecutionError(
-          'RUNTIME_MANAGED_CATALOG_CHANGED',
-          'The managed AI catalog could not be validated. Sync and review the app model catalog before trying again.',
-        );
+        options.signal?.throwIfAborted();
+        throw managedCatalogValidationError(null);
       }
     }
 
@@ -583,9 +626,7 @@ async function materializeResolution(
       && latestProvider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
     ) {
       if (!managedCatalog) {
-        throw managedCatalogChangedError(
-          'The managed AI catalog could not be validated. Sync and review the app model catalog before trying again.',
-        );
+        throw managedCatalogValidationError(null);
       }
       const latestManagedModel = await resolveManagedCatalogModel({
         provider: latestProvider,
@@ -627,6 +668,7 @@ async function materializeResolution(
     };
     const latestProvider = await assertRuntimeExecutionState(requestRevisions, {
       validateManagedCatalog: false,
+      signal,
     });
     const auth = await runtimeAuth({
       provider: latestProvider,
@@ -640,6 +682,7 @@ async function materializeResolution(
     // model after it completes so revocations during that window fail closed.
     await assertRuntimeExecutionState(requestRevisions, {
       validateManagedCatalog: true,
+      signal,
     });
     signal?.throwIfAborted();
     return auth;
@@ -684,6 +727,12 @@ async function materializeResolution(
         && requestedProviderId !== providerInstallation.providerId
       ) {
         return undefined;
+      }
+      if (providerInstallation.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+        // The SDK calls getApiKey without an abort signal. Managed request
+        // auth and the fresh catalog/policy checks belong to streamFn above,
+        // where the request signal can stop waiting before provider dispatch.
+        return '<authenticated>';
       }
       try {
         const auth = await resolveRequestAuth();
