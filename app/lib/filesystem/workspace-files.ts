@@ -94,6 +94,7 @@ export async function assertWorkspaceOfficePathMutationAllowed(
 }
 
 const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache', '.canvas-brand', '.canvas-copy-backups']);
+const CANVAS_SKILL_DRAFTS_DIR = '.canvas-skill-drafts';
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
@@ -172,8 +173,13 @@ export async function listDirectory(
   const fullPath = await resolveExistingWorkspacePath(dirPath, options);
   const entries = await fs.readdir(fullPath, {withFileTypes: true});
   const includeMetadata = options?.includeMetadata ?? true;
+  const workspaceRoot = await fs.realpath(getWorkspace(options).rootPath).catch(() => path.resolve(getWorkspace(options).rootPath));
+  const isWorkspaceRoot = fullPath === workspaceRoot;
 
   const visibleEntries = entries.filter((entry) => {
+    if (isWorkspaceRoot && entry.isDirectory() && entry.name === CANVAS_SKILL_DRAFTS_DIR) {
+      return false;
+    }
     if (options?.includeSymlinks === false && entry.isSymbolicLink()) {
       return false;
     }

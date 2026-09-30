@@ -49,6 +49,7 @@ async function main() {
       installCanvasSkillFromWorkspace,
       updateCanvasSkillFromWorkspace,
     } = await import('../app/lib/skills/agent-skill-workspace');
+    const { buildFileTree, listDirectory, readFile } = await import('../app/lib/filesystem/workspace-files');
     const {
       readCanvasSkillRegistry,
       writeCanvasSkillRegistry,
@@ -66,6 +67,39 @@ async function main() {
     assert.equal(createdDraft.packagePath.startsWith('.canvas-skill-drafts/'), true);
     assert.equal(await pathExists(path.join(workspaceRoot, createdDraft.packagePath, 'SKILL.md')), true);
 
+    const siblingDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'sibling-draft-skill',
+      draftId: createdDraft.draftId,
+    });
+    const workspace = {
+      workspaceId: 'agent-skill-workspace-test',
+      workspaceType: 'personal' as const,
+      rootPath: workspaceRoot,
+      organizationId: null,
+      ownerUserId: null,
+      permissions: {
+        canRead: true,
+        canWrite: true,
+        canDelete: true,
+        canCreatePublicLinks: true,
+        canManageWorkspace: true,
+        canRunAgent: true,
+      },
+      legacy: false,
+    };
+    await fs.mkdir(path.join(workspaceRoot, '.user-hidden-folder'));
+    const workspaceOptions = { workspace };
+    const rootEntries = await listDirectory('.', workspaceOptions);
+    assert.equal(rootEntries.some((entry) => entry.name === '.canvas-skill-drafts'), false);
+    assert.equal(rootEntries.some((entry) => entry.name === '.user-hidden-folder'), true, 'other user dot-directories stay visible');
+    const packageEntries = await listDirectory(siblingDraft.draftPath, workspaceOptions);
+    assert.equal(packageEntries.some((entry) => entry.name === siblingDraft.skillName), true, 'direct package listing stays available to agent tools');
+    assert.equal((await readFile(`${siblingDraft.packagePath}/SKILL.md`, workspaceOptions)).length > 0, true);
+    const fileTree = await buildFileTree('.', 2, 0, workspaceOptions);
+    assert.equal(fileTree.some((entry) => entry.name === '.canvas-skill-drafts'), false);
+
     const install = await installCanvasSkillFromWorkspace({
       workspaceRoot,
       scope,
@@ -75,7 +109,16 @@ async function main() {
     assert.equal(install.name, 'agent-draft-skill');
     assert.equal(install.version, '1.0.0');
     assert.equal(install.draftCleaned, true);
+    assert.equal(await pathExists(path.join(workspaceRoot, createdDraft.packagePath)), false);
+    assert.equal(await pathExists(path.join(workspaceRoot, siblingDraft.packagePath)), true);
+
+    const discardedDraftId = await discardCanvasSkillDraft({
+      workspaceRoot,
+      draftPath: createdDraft.draftPath,
+    });
+    assert.equal(discardedDraftId.deleted, true);
     assert.equal(await pathExists(path.join(workspaceRoot, createdDraft.draftPath)), false);
+    assert.equal(await pathExists(path.join(workspaceRoot, '.canvas-skill-drafts')), false);
 
     let registry = await readCanvasSkillRegistry(scope);
     assert.equal(registry.skills['agent-draft-skill'].version, '1.0.0');
@@ -169,6 +212,7 @@ async function main() {
       updatedBy: 'agent-skill-user',
     });
     assert.equal(forkInstall.name, 'agent-draft-skill-fork');
+    assert.equal(await pathExists(path.join(workspaceRoot, '.canvas-skill-drafts')), false, 'successful install should remove empty draft parents');
     assert.equal(
       (await inspectCanvasSkillForAgent({ scope, skillName: 'agent-draft-skill' })).checksum,
       sourceBeforeFork.checksum,
@@ -257,6 +301,7 @@ async function main() {
       }),
       /Organization skills are read-only/,
     );
+    assert.equal(await pathExists(path.join(workspaceRoot, '.canvas-skill-drafts')), false, 'failed draft creation should remove its empty managed directories');
     const organizationForkDraft = await createCanvasSkillDraft({
       workspaceRoot,
       scope: organizationAgentScope,
@@ -298,6 +343,67 @@ async function main() {
       /blocked secret-bearing file: \.env/,
     );
     assert.equal(await pathExists(path.join(workspaceRoot, secretDraft.packagePath)), true);
+
+    const retainedDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'retained-draft-skill',
+    });
+    const retainedInstall = await installCanvasSkillFromWorkspace({
+      workspaceRoot,
+      scope,
+      draftPath: retainedDraft.packagePath,
+      cleanupDraft: false,
+    });
+    assert.equal(retainedInstall.draftCleaned, false);
+    assert.equal(retainedInstall.cleanupSkippedReason, 'cleanupDraft=false');
+    assert.equal(await pathExists(path.join(workspaceRoot, retainedDraft.packagePath)), true);
+    await discardCanvasSkillDraft({ workspaceRoot, draftPath: retainedDraft.draftPath });
+
+    const cleanupFailureDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'cleanup-failure-draft',
+    });
+    const originalRm = fs.rm;
+    Object.defineProperty(fs, 'rm', {
+      configurable: true,
+      writable: true,
+      value: async (target: Parameters<typeof fs.rm>[0], ...args: Parameters<typeof fs.rm> extends [unknown, ...infer Rest] ? Rest : never) => {
+        if (String(target).startsWith(path.join(workspaceRoot, '.canvas-skill-drafts'))) {
+          throw new Error('simulated cleanup failure');
+        }
+        return originalRm.call(fs, target, ...args);
+      },
+    });
+    let cleanupFailureInstall;
+    try {
+      cleanupFailureInstall = await installCanvasSkillFromWorkspace({
+        workspaceRoot,
+        scope,
+        draftPath: cleanupFailureDraft.packagePath,
+      });
+    } finally {
+      Object.defineProperty(fs, 'rm', { configurable: true, writable: true, value: originalRm });
+    }
+    assert.equal(cleanupFailureInstall?.success, true, 'a cleanup failure must not turn a committed install into a failure');
+    assert.equal(cleanupFailureInstall?.draftCleaned, false);
+    assert.match(cleanupFailureInstall?.cleanupSkippedReason || '', /simulated cleanup failure/);
+    assert.equal(await pathExists(path.join(workspaceRoot, cleanupFailureDraft.packagePath)), true);
+    await discardCanvasSkillDraft({ workspaceRoot, draftPath: cleanupFailureDraft.draftPath });
+
+    const authoredPackage = path.join(workspaceRoot, 'authored-skill-package');
+    await fs.mkdir(path.join(authoredPackage, 'agents'), { recursive: true });
+    await fs.writeFile(path.join(authoredPackage, 'SKILL.md'), '---\nname: authored-skill-package\ndescription: Authored package.\n---\n\n# Authored\n', 'utf-8');
+    await fs.writeFile(path.join(authoredPackage, 'agents', 'canvas.yaml'), 'skill:\n  version: "1.0.0"\n', 'utf-8');
+    const authoredInstall = await installCanvasSkillFromWorkspace({
+      workspaceRoot,
+      scope,
+      draftPath: 'authored-skill-package',
+    });
+    assert.equal(authoredInstall.draftCleaned, false);
+    assert.match(authoredInstall.cleanupSkippedReason || '', /not under \.canvas-skill-drafts/);
+    assert.equal(await pathExists(authoredPackage), true, 'arbitrary workspace package folders must be preserved');
 
     const discardDraft = await createCanvasSkillDraft({
       workspaceRoot,
