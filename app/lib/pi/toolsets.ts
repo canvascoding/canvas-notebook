@@ -152,6 +152,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
     'create_automation_job',
     'delete_automation_job',
     'inspect_automation_job',
+    'inspect_automation_job_options',
     'list_automation_jobs',
     'trigger_automation_job',
     'update_automation_job',

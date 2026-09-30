@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { triggerManagedTeamSync } from '@/app/lib/license/managed-team-sync';
 import {
   getCommunityLicenseClaimStatus,
 } from '@/app/lib/license/control-plane';
@@ -115,6 +117,61 @@ export async function POST(request: NextRequest) {
     );
   }
   try {
+    if (getDeploymentMode() === 'managed-team') {
+      const organizations = await database.all(`
+        SELECT organization_id FROM canvas_organization_settings
+        ORDER BY organization_id ASC LIMIT 2
+      `) as Array<{ organization_id: string }>;
+      if (organizations.length !== 1 || organizations[0].organization_id !== organization.organizationId) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'MANAGED_TEAM_RECOVERY_ORGANIZATION_CONFLICT',
+            error: 'Managed Team recovery requires the owner of the single local organization.',
+          },
+          { status: 409, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+      if (payload.action !== 'sync_snapshot') {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'MANAGED_TEAM_RECOVERY_ACTION_INVALID',
+            error: 'Managed Team licenses are refreshed by the Managed synchronization runtime.',
+          },
+          { status: 409, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+      if (!triggerManagedTeamSync()) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'MANAGED_TEAM_SYNC_RUNTIME_UNAVAILABLE',
+            error: 'The Managed Team synchronization runtime is not ready.',
+            retryable: true,
+          },
+          { status: 503, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+      await database.run(`
+        INSERT INTO audit_events (
+          id, organization_id, user_id, source, event_type, entity_type,
+          entity_id, action, status, summary, metadata_json, created_at
+        ) VALUES ($1, $2, $3, 'license', 'team_seat_recovery', 'organization', $2,
+          'team.managed_recovery.sync', 'accepted', $4, $5, $6)
+      `, [
+        `audit-${randomUUID()}`,
+        organization.organizationId,
+        session.user.id,
+        'Managed Team synchronization was requested.',
+        JSON.stringify({ automaticPurchaseAttempted: false, costConfirmationRequired: false }),
+        now,
+      ]);
+      return NextResponse.json(
+        { success: true, action: payload.action, scheduled: true, costConfirmationRequired: false },
+        { status: 202, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
     const communityOrganizationId = await assertSingleCommunityTeamOrganization(database);
     if (communityOrganizationId !== organization.organizationId) {
       throw new CommunityTeamOrganizationError();

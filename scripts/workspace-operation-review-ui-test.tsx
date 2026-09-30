@@ -171,6 +171,8 @@ test('workspace operation review shows all decisions against the displayed plan 
     await act(async () => root.render(<ui.WorkspaceOperationReviewPanel key="blocked" request={{ mode: 'detail', reviewId, workspaceId }} />));
     assert.equal(findButton(translate('accept')), undefined, 'blocked review cannot be applied');
     assert.ok(findButton(translate('dismiss')), 'blocked review can be dismissed');
+    assert.match(document.body.textContent ?? '', /This action has not been executed/u);
+    assert.match(document.body.textContent ?? '', /Close keeps it available in the notification center/u);
     await act(async () => findButton(translate('dismiss'))?.click());
     assert.deepEqual(controls.decisions.at(-1), {
       reviewId, workspaceId, planId: 'plan-sha-123', action: 'reject',

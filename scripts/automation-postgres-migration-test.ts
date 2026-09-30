@@ -49,11 +49,71 @@ async function assertCanonicalMillisecondsAreNeverGuessed(): Promise<void> {
   }
 }
 
+async function assertAutomationContinuityMigration(): Promise<void> {
+  const postgres = new PGlite();
+  try {
+    const migrationTarget = postgres as unknown as PgQueryable;
+    await runPostgresMigrations(migrationTarget);
+    await postgres.exec(`
+      INSERT INTO "user" (id, name, email, email_verified, created_at, updated_at)
+      VALUES ('state-owner', 'State Owner', 'state-owner@example.test', 1, 1, 1);
+      INSERT INTO automation_jobs (
+        id, name, status, prompt, preferred_skill, workspace_context_paths_json,
+        schedule_kind, schedule_config_json, time_zone, created_by_user_id, created_at, updated_at
+      ) VALUES (
+        'state-job', 'State Job', 'paused', 'Prompt', 'auto', '[]',
+        'daily', '{"kind":"daily","times":["09:00"],"timeZone":"UTC"}', 'UTC', 'state-owner', 1, 1
+      );
+      ALTER TABLE automation_jobs DROP COLUMN continuity_mode;
+      ALTER TABLE automation_jobs DROP COLUMN source_job_ids_json;
+      ALTER TABLE automation_jobs DROP COLUMN context_cutoff_at;
+    `);
+    await runPostgresMigrations(migrationTarget);
+    await runPostgresMigrations(migrationTarget);
+    const jobs = await postgres.query<{ continuity_mode: string; source_job_ids_json: string; context_cutoff_at: number | null }>(
+      "SELECT continuity_mode, source_job_ids_json, context_cutoff_at FROM automation_jobs WHERE id = 'state-job'",
+    );
+    assert.equal(jobs.rows[0]?.continuity_mode, 'off');
+    assert.equal(jobs.rows[0]?.source_job_ids_json, '[]');
+    assert.equal(jobs.rows[0]?.context_cutoff_at, null);
+    await assert.rejects(postgres.exec("UPDATE automation_jobs SET continuity_mode = 'invalid' WHERE id = 'state-job'"));
+    await assert.rejects(postgres.exec("UPDATE automation_jobs SET source_job_ids_json = '[1,2,3,4]' WHERE id = 'state-job'"));
+
+    await postgres.exec(`
+      INSERT INTO automation_job_state (job_id, job_scope, key, value, revision, updated_at)
+      VALUES ('state-job', 'personal:state-owner:personal', 'cursor', 'a', 1, 1);
+      INSERT INTO automation_job_state_mutations (job_id, job_scope, mutation_id, request_hash, result_json, created_at)
+      VALUES ('state-job', 'personal:state-owner:personal', 'mutation-1', 'hash', '{}', 1);
+    `);
+    await assert.rejects(postgres.exec(`
+      INSERT INTO automation_job_state (job_id, job_scope, key, value, updated_at)
+      VALUES ('missing-job', 'missing', 'cursor', 'value', 1)
+    `));
+    await assert.rejects(postgres.exec(`
+      INSERT INTO automation_job_state (job_id, job_scope, key, value, updated_at)
+      VALUES ('state-job', 'personal:state-owner:personal', 'oversize', repeat('x', 16385), 1)
+    `));
+    await assert.rejects(postgres.exec(`
+      INSERT INTO automation_job_state_mutations (job_id, job_scope, mutation_id, run_id, request_hash, result_json, created_at)
+      VALUES ('state-job', 'personal:state-owner:personal', 'mutation-2', 'missing-run', 'hash', '{}', 1)
+    `));
+    await postgres.exec("DELETE FROM automation_jobs WHERE id = 'state-job'");
+    const rows = await postgres.query<{ state_count: number; receipt_count: number }>(`
+      SELECT (SELECT COUNT(*)::integer FROM automation_job_state) AS state_count,
+             (SELECT COUNT(*)::integer FROM automation_job_state_mutations) AS receipt_count
+    `);
+    assert.deepEqual(rows.rows[0], { state_count: 0, receipt_count: 0 });
+  } finally {
+    await postgres.close();
+  }
+}
+
 async function main(): Promise<void> {
   const previousLegacyTimestampUnit = process.env[LEGACY_TIMESTAMP_UNIT_ENV];
   delete process.env[LEGACY_TIMESTAMP_UNIT_ENV];
   try {
     await assertCanonicalMillisecondsAreNeverGuessed();
+    await assertAutomationContinuityMigration();
 
     const postgres = new PGlite();
     try {

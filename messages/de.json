@@ -1311,6 +1311,7 @@
       }
     },
     "refreshPreview": "Vorschau aktualisieren",
+    "htmlPreviewBackToFile": "Zurück zur HTML-Datei",
     "refreshingPreview": "Aktualisiert...",
     "marpPreviewTitle": "Marp-Vorschau von {fileName}",
     "marpPreviewFailed": "Marp-Vorschau konnte nicht gerendert werden",
@@ -1592,7 +1593,7 @@
     "model": "Modell",
     "language": "Sprache",
     "automatic": "Automatisch erkennen",
-    "localNote": "Lokale Transkription läuft auf diesem Server. Für das Modell base sind etwa 4 CPU-Kerne und 8 GB RAM ein sinnvoller Ausgangspunkt; größere Modelle brauchen deutlich mehr Ressourcen. Das Modell wird bei der ersten Nutzung heruntergeladen.",
+    "localNote": "Lokale Transkription läuft auf diesem Server. Benötigt werden Python 3.10 oder neuer mit pip und Internetzugang für Runtime und Modell. Für das Modell base sind etwa 4 CPU-Kerne und 8 GB RAM ein sinnvoller Ausgangspunkt; größere Modelle brauchen deutlich mehr Ressourcen und Speicherplatz. Das Modell wird bei der ersten Nutzung heruntergeladen.",
     "localInstallDisclosure": "Die optionale Python-Runtime wird erst auf diesem Server heruntergeladen, wenn ein Instanz-Admin sie installiert. Das PyAV-Wheel enthält FFmpeg mit GPL-Codec-Bibliotheken. Prüfe die Bedingungen für deinen Einsatz:",
     "localLicenseLink": "FFmpeg-Lizenzinformationen",
     "installLocal": "Lokale Transkription installieren",
@@ -1601,7 +1602,13 @@
     "localUnavailable": "Lokale Transkription ist erst nach der Installation der optionalen Runtime verfügbar.",
     "localDisabled": "Lokale Transkription ist in dieser Docker-Version nicht verfügbar. Wähle OpenAI oder Groq für Cloud-Diktat.",
     "installError": "Die lokale Transkriptions-Runtime konnte nicht installiert werden.",
-    "cloudNote": "Cloud-Transkription sendet die Aufnahme an den gewählten Anbieter. Den API-Schlüssel unter Einstellungen → Secrets/Integrationen hinterlegen.",
+    "cloudNote": "Cloud-Transkription sendet die Aufnahme an den gewählten Anbieter. Hinterlege hier einen Systemschlüssel für alle Benutzer; persönliche Schlüssel aus Secrets werden für Diktat nicht verwendet.",
+    "credentialPlaceholder": "Neuen API-Schlüssel eingeben",
+    "credentialConfigured": "Systemschlüssel vorhanden. Aus Sicherheitsgründen wird der Wert nicht angezeigt.",
+    "credentialMissing": "Kein Systemschlüssel vorhanden.",
+    "saveCredential": "API-Schlüssel speichern",
+    "credentialSaved": "Systemschlüssel gespeichert.",
+    "credentialSaveError": "Der API-Schlüssel konnte nicht gespeichert werden.",
     "available": "Dienst verfügbar. Bei lokaler Transkription wird das Modell erst bei der ersten Aufnahme geladen.",
     "unavailable": "Dienst nicht verfügbar:",
     "save": "Speichern",
@@ -1630,6 +1637,7 @@
     "stopping": "Wird gestoppt",
     "ready": "Bereit",
     "noOutputYet": "Noch keine Ausgabe",
+    "toolExecutionInterrupted": "Der Lauf wurde beendet, bevor dieses Tool ein Ergebnis zurückgab. Ob die Aktion abgeschlossen wurde, konnte nicht bestätigt werden.",
     "toolStatusRunning": "Läuft",
     "toolStatusPending": "Wartet",
     "toolStatusAborting": "Wird gestoppt",
@@ -3249,9 +3257,37 @@
       "studio": "Studio-Ergebnis bereit",
       "automation": "Automation benötigt Aufmerksamkeit",
       "file_change": "Dateiänderung",
+      "file_operation": "Dateiaktion prüfen",
       "memory": "Memory-Freigabe erforderlich",
       "mcp": "MCP-Verbindung benötigt Aufmerksamkeit",
       "license": "Team-Lizenzereignis"
+    },
+    "fileOperations": {
+      "openFailed": "Die Dateiaktion konnte nicht geöffnet werden.",
+      "kind_copy": "Kopieren",
+      "kind_move": "Verschieben",
+      "kind_rename": "Umbenennen",
+      "kind_delete": "Löschen",
+      "pending": {
+        "title": "{action}: Freigabe nötig",
+        "detail": "Pfade und Links prüfen, dann annehmen oder ablehnen."
+      },
+      "blocked": {
+        "title": "{action}: Aktion blockiert",
+        "detail": "Probleme beheben und einen neuen Vorschlag anfordern oder diesen verwerfen."
+      },
+      "stale": {
+        "title": "{action}: Vorschlag veraltet",
+        "detail": "Einen neuen Vorschlag anfordern oder diesen verwerfen."
+      },
+      "failed": {
+        "title": "{action}: Aktion fehlgeschlagen",
+        "detail": "Fehler und Wiederherstellungsstatus prüfen."
+      },
+      "needs_recovery": {
+        "title": "{action}: Wiederherstellung nötig",
+        "detail": "Wiederherstellung prüfen, bevor weitere Aktionen ausgeführt werden."
+      }
     },
     "fileChanges": {
       "openFailed": "Die Dateiänderung konnte nicht geöffnet werden.",
@@ -7523,6 +7559,74 @@
         "record_only": "Ergebnisse bleiben ausschließlich in der Automationshistorie."
       }
     },
+    "continuity": {
+      "title": "Kontinuität & Quellen",
+      "modeLabel": "Frühere Ergebnisse verwenden",
+      "mode": {
+        "off": "Aus",
+        "last_relevant": "Letztes relevantes Ergebnis"
+      },
+      "description": {
+        "off": "Jeder Lauf startet ohne ein früheres Ergebnis dieser Automation.",
+        "last_relevant": "Ein kurzer Auszug aus dem letzten relevanten erfolgreichen Lauf wird bei ausreichendem Kontextplatz hinzugefügt."
+      },
+      "sourcesTitle": "Andere Automationen",
+      "sourcesDescription": "Optional das letzte relevante Ergebnis von bis zu drei aktiven Automationen desselben Workspaces einbeziehen. Zur Laufzeit werden nur lesbare Quellen verwendet.",
+      "noSources": "In diesem Workspace ist keine weitere aktive Automation verfügbar.",
+      "sourceUnavailable": "Eine konfigurierte Quelle ({id}) ist hier nicht mehr verfügbar. Entferne sie, um diese Automation zu aktualisieren.",
+      "removeSource": "Entfernen",
+      "sourceCount": "{count} von 3 ausgewählt",
+      "misfireHint": "Geplante Läufe mit mehr als 90 Sekunden Verspätung werden nach einem Ausfall übersprungen. Der nächste Termin bleibt bestehen.",
+      "state": {
+        "title": "Wissen der Automation",
+        "summary": "Gespeicherter Zustand",
+        "description": "Hier siehst du Schlüssel und Revisionen. Ein Wert wird erst nach Klick auf Wert anzeigen geladen.",
+        "refresh": "Zustand aktualisieren",
+        "loading": "Lade Zustand…",
+        "empty": "Noch kein Zustand gespeichert.",
+        "revision": "Revision {revision}",
+        "reveal": "Wert anzeigen",
+        "reset": "Schlüssel zurücksetzen",
+        "resetReadOnly": "Zum Zurücksetzen ist Schreibzugriff auf den Workspace erforderlich.",
+        "resetSuccess": "Schlüssel zurückgesetzt.",
+        "loadError": "Der Zustand der Automation konnte nicht geladen werden.",
+        "readError": "Der Wert konnte nicht geladen werden.",
+        "resetError": "Der Schlüssel konnte nicht zurückgesetzt werden. Aktualisiere die Revision."
+      },
+      "run": {
+        "title": "Kontext dieses Laufs",
+        "description": "Zeigt, welche früheren Ergebnisse verfügbar waren und was in den Laufkontext passte.",
+        "previous": "Früheres Ergebnis",
+        "sources": "Andere Automationen",
+        "contextSize": "Zusätzlicher Kontext",
+        "tokens": "Etwa {count} Token",
+        "truncated": "Auszug passend gekürzt",
+        "omitted": "Weggelassen",
+        "removedSource": "Nicht verfügbare Quelle"
+      },
+      "reasons": {
+        "included": "Einbezogen",
+        "included_truncated": "Gekürzt einbezogen",
+        "already_in_session": "Bereits im gewählten Chat vorhanden",
+        "disabled": "Deaktiviert",
+        "no_relevant_run": "Kein relevantes früheres Ergebnis",
+        "budget_exhausted": "Nicht genug Kontextplatz",
+        "final_budget_exceeded": "Wegen des Modellkontexts weggelassen",
+        "context_unavailable": "Kontext konnte nicht geladen werden",
+        "scope_changed": "Workspace-Geltungsbereich geändert",
+        "target_scope_changed": "Workspace-Geltungsbereich geändert",
+        "source_missing": "Quelle existiert nicht mehr",
+        "source_scope_changed": "Quelle hat ihren Workspace-Geltungsbereich geändert",
+        "source_unavailable": "Quelle ist nicht verfügbar",
+        "source_access_denied": "Quelle ist nicht mehr lesbar",
+        "source_unconfigured": "Quelle wurde aus dieser Automation entfernt",
+        "source_run_missing": "Früherer Quelllauf ist nicht verfügbar",
+        "source_run_scope_changed": "Früherer Quelllauf hat den Geltungsbereich geändert",
+        "source_scope_reset": "Frühere Ergebnisse wurden zurückgesetzt",
+        "source_not_relevant": "Früherer Quelllauf war nicht relevant",
+        "other": "Nicht einbezogen"
+      }
+    },
     "trigger": {
       "label": "Auslöser",
       "schedule": "Nach Zeitplan",
@@ -7688,6 +7792,11 @@
       "description": "Status, Ergebnisse und Logs der ausgewählten Automation.",
       "loading": "Lade Läufe...",
       "empty": "Noch keine Läufe vorhanden.",
+      "misfireTitle": "Geplanter Termin übersprungen",
+      "misfireReason": "Der Scheduler wurde nach einem Ausfall wieder aktiv, als dieser Termin mehr als 90 Sekunden zurücklag. Es wurde kein Lauf gestartet.",
+      "misfireObserved": "Erkannt",
+      "misfireNext": "Nächster geplanter Termin",
+      "misfireNoNext": "Kein weiterer Termin",
       "attempt": "Versuch {count}",
       "triggeredBy": "Ausgelöst",
       "scheduledFor": "Geplant für",
@@ -8863,6 +8972,7 @@
     "title": "Memory prüfen",
     "loading": "Memory wird geladen …",
     "progress": "Memory {current} von {total}",
+    "progressLabel": "Geprüfte Memories",
     "completed": "Alle Memory-Vorschläge wurden geprüft.",
     "approve": "Speichern",
     "reject": "Nicht speichern",
@@ -8981,6 +9091,11 @@
     "reasonCodes": "Prüfgründe",
     "stale": "Der Plan ist veraltet. Diese Freigabe kann nicht mehr angewendet werden; starte eine neue Vorschau.",
     "blocked": "Die Aktion ist blockiert und kann nicht angenommen werden.",
+    "nextSteps": "So gehst du weiter vor",
+    "blockedNoChanges": "Diese Aktion wurde nicht ausgeführt. Bei einer Löschaktion bleibt die Datei erhalten.",
+    "incompleteIndexHelp": "Die Linkprüfung ist unvollständig. Korrigiere die aufgeführten fehlenden Ziele und Links außerhalb des Workspaces und prüfe ausgelassene Markdown-Dateien. Bitte den Agenten danach, die gewünschte Dateiaktion mit einer neuen Vorschau erneut vorzuschlagen.",
+    "blockedHelp": "Behebe die aufgeführten offenen Punkte und Zielkonflikte. Bitte den Agenten danach um einen neuen Vorschlag für die Dateiaktion.",
+    "dismissHelp": "„Verwerfen“ schließt diesen Vorschlag ohne Dateiänderung. „Schließen“ lässt ihn zur späteren Bearbeitung im Notification-Zentrum offen.",
     "failed": "Die Aktion ist fehlgeschlagen. Prüfe den Fehler und den Wiederherstellungsstatus.",
     "needsRecovery": "Die Aktion benötigt Wiederherstellung. Keine weitere automatische Ausführung starten.",
     "requestFailed": "Dateiaktion konnte nicht geladen werden.",

@@ -32,6 +32,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `23-composio-user-workspace-profiles.md`: persoenliche Composio-Standard-/Zusatzprofile, per-user Workspace-Overrides, Effective-Profile-Resolver, UI-, OAuth-, Cache- und Automation-Regeln.
 - `24-multi-participant-conversations-and-agent-collaboration.md`: Zielmodell fuer Einzel-/Gruppenchats mit mehreren Menschen und Agents, Agent-Mentions, Agent-zu-Agent-Tools, Conversation ACL, Runtime-Trennung, KI-Mitarbeiterverwaltung und Legacy-Session-Migration.
 - `25-office-document-runtime-and-autosave.md`: DOCX-Autosave, sessiongebundene Bearbeitungsrechte, gemeinsame sichere Dateiveroeffentlichung, isolierte Agent-Arbeitskopien und Wiederherstellung.
+- `26-agent-tool-contract-and-discovery.md`: korrigierte Tool-Laufzeitstatus und Automationsfelder sowie Folgeplan fuer vollstaendige Agent-/Skill-/Plugin-Konfigurationsdiscovery.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln

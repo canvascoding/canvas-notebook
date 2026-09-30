@@ -10,6 +10,7 @@ import {
   notificationHref,
   emailReviewTargetFromNotification,
   openFileChangeReviewNotification,
+  openWorkspaceOperationNotificationTarget,
   shouldMarkNotificationReadOnOpen,
 } from '@/app/components/notifications/notification-actions';
 import { openEmailReview } from '@/app/store/email-review-store';
@@ -26,6 +27,7 @@ const ICONS = {
   mcp: PlugZap,
   license: KeyRound,
   file_change: FileClock,
+  file_operation: FileClock,
 };
 
 export function HomeNotificationItem({
@@ -56,9 +58,13 @@ export function HomeNotificationItem({
   const dismissible = item.target.kind === 'studio' || item.target.kind === 'automation';
   const title = item.target.kind === 'file_change'
     ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.title`)
+    : item.target.kind === 'file_operation'
+      ? t(`fileOperations.${item.target.status}.title`, { action: t(`fileOperations.kind_${item.target.operationKind}`) })
     : item.title;
   const typeLabel = item.target.kind === 'file_change'
     ? `${t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
+    : item.target.kind === 'file_operation'
+      ? `${t(`fileOperations.${item.target.status}.detail`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`
     : `${t(`types.${item.target.kind}`)}${item.workspaceName ? ` · ${item.workspaceName}` : ''}`;
   const emailTarget = emailReviewTargetFromNotification(item);
   const isMemory = item.target.kind === 'memory';
@@ -78,6 +84,15 @@ export function HomeNotificationItem({
           onOpenFileChange?.();
           void openFileChangeReviewNotification(item).then((opened) => {
             if (!opened) toast.error(t('fileChanges.openFailed'));
+          });
+          return;
+        }
+        if (item.target.kind === 'file_operation') {
+          event.preventDefault();
+          onOpenFileChange?.();
+          if (item.workspaceId !== item.target.workspaceId) { toast.error(t('fileOperations.openFailed')); return; }
+          void openWorkspaceOperationNotificationTarget(item.target).then((opened) => {
+            if (!opened) toast.error(t('fileOperations.openFailed'));
           });
           return;
         }

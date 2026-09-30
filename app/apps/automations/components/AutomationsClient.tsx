@@ -2,7 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useEffectEvent, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   AlertTriangle,
   ArrowUpDown,
@@ -41,6 +41,7 @@ import { AutomationDisclosure } from './AutomationDisclosure';
 import { AutomationTaskFields } from './AutomationTaskFields';
 import { AutomationSummary } from './AutomationSummary';
 import { AutomationChatPicker } from './AutomationChatPicker';
+import { selectEligibleAutomationSources, toggleAutomationSourceSelection } from './automation-continuity-ui';
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { WorkspaceBadge } from '@/app/components/workspaces/WorkspaceBadge';
 import { MAIN_AGENT_DISPLAY_NAME, MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
@@ -52,6 +53,7 @@ import type {
   AutomationJobRecord,
   AutomationDeliveryMode,
   AutomationDeliverySessionMode,
+  AutomationContinuityMode,
   AutomationRunRecord,
   AutomationRunStatus,
   AutomationResultPolicy,
@@ -108,6 +110,8 @@ type JobDraft = {
   deliverySessionId: string;
   deliveryChannelSessionKey: string;
   resultPolicy: AutomationResultPolicy;
+  continuityMode: AutomationContinuityMode;
+  sourceJobIds: string[];
   triggerKind: 'schedule' | 'event';
   emailMailboxId: string;
 };
@@ -187,6 +191,8 @@ type TriggerComposerDraft = {
   deliverySessionMode: AutomationDeliverySessionMode;
   deliverySessionId: string;
   deliveryChannelSessionKey: string;
+  continuityMode: AutomationContinuityMode;
+  sourceJobIds: string[];
 };
 
 type CustomWebhookDraft = {
@@ -200,6 +206,30 @@ type CustomWebhookDraft = {
   deliverySessionMode: AutomationDeliverySessionMode;
   deliverySessionId: string;
   deliveryChannelSessionKey: string;
+  continuityMode: AutomationContinuityMode;
+  sourceJobIds: string[];
+};
+
+type AutomationJobStateMetadata = { key: string; revision: number; updatedAt: string };
+type AutomationJobStateValue = AutomationJobStateMetadata & { value: string };
+type AutomationRunDiagnostic = {
+  kind: 'schedule_misfire';
+  scheduledFor: string;
+  observedAt: string;
+  nextRunAt: string | null;
+  reason: 'scheduler_downtime';
+};
+type AutomationTimelineEntry =
+  | { kind: 'run'; run: AutomationRunRecord; timestamp: string }
+  | { kind: 'misfire'; diagnostic: AutomationRunDiagnostic; timestamp: string };
+
+type AutomationContextProvenance = {
+  reason?: string;
+  sourceFinishedAt?: string | null;
+  estimatedTokens?: number;
+  truncated?: boolean;
+  omittedBlocks?: string[];
+  sources?: Array<{ sourceJobId: string; reason: string; estimatedTokens: number; truncated: boolean }>;
 };
 
 type ComposioStatus = {
@@ -364,6 +394,8 @@ function defaultDraft(defaultTimeZone?: string, workspaceId = ''): JobDraft {
     deliverySessionId: '',
     deliveryChannelSessionKey: '',
     resultPolicy: 'deliver_all',
+    continuityMode: 'off',
+    sourceJobIds: [],
     triggerKind: 'schedule',
     emailMailboxId: '',
   };
@@ -384,6 +416,8 @@ function defaultTriggerDraft(workspaceId = ''): TriggerComposerDraft {
     deliverySessionMode: 'new_session',
     deliverySessionId: '',
     deliveryChannelSessionKey: '',
+    continuityMode: 'off',
+    sourceJobIds: [],
   };
 }
 
@@ -399,6 +433,8 @@ function defaultCustomWebhookDraft(workspaceId = ''): CustomWebhookDraft {
     deliverySessionMode: 'new_session',
     deliverySessionId: '',
     deliveryChannelSessionKey: '',
+    continuityMode: 'off',
+    sourceJobIds: [],
   };
 }
 
@@ -786,6 +822,8 @@ function buildPayload(draft: JobDraft, workspace: Pick<ClientWorkspaceSummary, '
       draft.deliveryChannelSessionKey,
     ),
     resultPolicy: draft.resultPolicy,
+    continuityMode: draft.continuityMode,
+    sourceJobIds: draft.sourceJobIds,
     triggerKind: draft.triggerKind,
     eventConfig:
       draft.triggerKind === 'event'
@@ -911,6 +949,26 @@ function getWebhookMetadata(run: AutomationRunRecord | null): Record<string, unk
     : null;
 }
 
+function getAutomationContextProvenance(run: AutomationRunRecord | null): AutomationContextProvenance | null {
+  const value = run?.metadataJson?.automationContext;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const context = value as Record<string, unknown>;
+  return {
+    reason: typeof context.reason === 'string' ? context.reason : undefined,
+    sourceFinishedAt: typeof context.sourceFinishedAt === 'string' ? context.sourceFinishedAt : null,
+    estimatedTokens: typeof context.estimatedTokens === 'number' ? context.estimatedTokens : undefined,
+    truncated: context.truncated === true,
+    omittedBlocks: Array.isArray(context.omittedBlocks)
+      ? context.omittedBlocks.filter((item): item is string => typeof item === 'string')
+      : [],
+    sources: Array.isArray(context.sources)
+      ? context.sources.filter((item): item is NonNullable<AutomationContextProvenance['sources']>[number] =>
+          Boolean(item && typeof item === 'object' && !Array.isArray(item)
+            && typeof item.sourceJobId === 'string' && typeof item.reason === 'string'))
+      : [],
+  };
+}
+
 function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   const jobTimeZone = normalizeTimeZone(job.schedule.timeZone || job.timeZone);
   const draft = defaultDraft(jobTimeZone);
@@ -931,6 +989,8 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.deliverySessionId = job.deliverySessionId || '';
   draft.deliveryChannelSessionKey = job.deliveryChannelSessionKey || '';
   draft.resultPolicy = job.resultPolicy;
+  draft.continuityMode = job.continuityMode === 'last_relevant' ? 'last_relevant' : 'off';
+  draft.sourceJobIds = Array.isArray(job.sourceJobIds) ? [...job.sourceJobIds] : [];
   draft.triggerKind = job.triggerKind === 'event' ? 'event' : 'schedule';
   draft.emailMailboxId = typeof job.eventConfig?.mailboxId === 'string' ? job.eventConfig.mailboxId : '';
   draft.originalSchedule = job.schedule;
@@ -990,6 +1050,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
   }, [activeWorkspace, automationWorkspaces]);
   const [jobs, setJobs] = useState<AutomationJobView[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const selectedJobIdRef = useRef<string | null>(null);
   const [automationSearch, setAutomationSearch] = useState('');
   const [automationFilter, setAutomationFilter] = useState<AutomationListFilter>('all');
   const [automationSort, setAutomationSort] = useState<AutomationListSort>('statusWorkspace');
@@ -1003,6 +1064,12 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     defaultCustomWebhookDraft(defaultAutomationWorkspaceId),
   );
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
+  const [runDiagnostics, setRunDiagnostics] = useState<AutomationRunDiagnostic[]>([]);
+  const [jobStateMetadata, setJobStateMetadata] = useState<AutomationJobStateMetadata[]>([]);
+  const [jobStateJobId, setJobStateJobId] = useState<string | null>(null);
+  const [jobStateValues, setJobStateValues] = useState<Record<string, AutomationJobStateValue>>({});
+  const [isLoadingJobState, setIsLoadingJobState] = useState(false);
+  const [jobStateBusyKey, setJobStateBusyKey] = useState<string | null>(null);
   const [runDetailsById, setRunDetailsById] = useState<Record<string, AutomationRunRecord>>({});
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
@@ -1084,10 +1151,17 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     () => runs.find((run) => run.id === selectedRunId) || null,
     [runs, selectedRunId],
   );
+  const runTimeline = useMemo<AutomationTimelineEntry[]>(() => [
+    ...runs.map((run): AutomationTimelineEntry => ({ kind: 'run', run,
+      timestamp: run.scheduledFor || run.finishedAt || run.createdAt })),
+    ...runDiagnostics.map((diagnostic): AutomationTimelineEntry => ({ kind: 'misfire', diagnostic,
+      timestamp: diagnostic.scheduledFor })),
+  ].sort((left, right) => Date.parse(right.timestamp) - Date.parse(left.timestamp)), [runs, runDiagnostics]);
   const selectedRun = useMemo(
     () => (selectedRunId ? runDetailsById[selectedRunId] || selectedRunSummary : null),
     [runDetailsById, selectedRunId, selectedRunSummary],
   );
+  const selectedRunContext = getAutomationContextProvenance(selectedRun);
   const templates = useMemo(() => getAutomationTemplates(locale), [locale]);
   const enabledSkills = useMemo(() => skills.filter((skill) => skill.enabled !== false), [skills]);
   const agentOptions =
@@ -1264,9 +1338,12 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadRuns'));
+      if (selectedJobIdRef.current !== jobId) return;
 
       const nextRuns = payload.data as AutomationRunRecord[];
       setRuns(nextRuns);
+      setRunDiagnostics(Array.isArray(payload.diagnostics)
+        ? payload.diagnostics as AutomationRunDiagnostic[] : []);
       setRunDetailsById((current) => {
         const nextIds = new Set(nextRuns.map((run) => run.id));
         return Object.fromEntries(Object.entries(current).filter(([runId]) => nextIds.has(runId)));
@@ -1274,12 +1351,87 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
       const runToSelect = nextRuns.find((run) => run.id === preferredRunId) || nextRuns[0] || null;
       setSelectedRunId(runToSelect?.id || null);
     } catch (error) {
+      if (selectedJobIdRef.current !== jobId) return;
       setRuns([]);
+      setRunDiagnostics([]);
       setRunDetailsById({});
       setSelectedRunId(null);
       toast.error(error instanceof Error ? error.message : t('errors.loadRuns'));
     } finally {
-      setIsRefreshingRuns(false);
+      if (selectedJobIdRef.current === jobId) setIsRefreshingRuns(false);
+    }
+  }
+
+  async function loadJobState(jobId: string) {
+    if (selectedJobIdRef.current !== jobId) return;
+    setIsLoadingJobState(true);
+    setJobStateValues({});
+    try {
+      const response = await fetch(`/api/automations/jobs/${encodeURIComponent(jobId)}/state`, {
+        credentials: 'include', cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success || !Array.isArray(payload.data))
+        throw new Error(payload.error || t('continuity.state.loadError'));
+      if (selectedJobIdRef.current === jobId) {
+        setJobStateJobId(jobId);
+        setJobStateMetadata(payload.data as AutomationJobStateMetadata[]);
+      }
+    } catch (error) {
+      if (selectedJobIdRef.current === jobId) {
+        toast.error(error instanceof Error ? error.message : t('continuity.state.loadError'));
+        setJobStateJobId(jobId);
+        setJobStateMetadata([]);
+      }
+    } finally {
+      if (selectedJobIdRef.current === jobId) setIsLoadingJobState(false);
+    }
+  }
+
+  async function revealJobStateValue(jobId: string, key: string) {
+    setJobStateBusyKey(key);
+    try {
+      const response = await fetch(
+        `/api/automations/jobs/${encodeURIComponent(jobId)}/state?key=${encodeURIComponent(key)}`,
+        { credentials: 'include', cache: 'no-store' },
+      );
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('continuity.state.readError'));
+      if (selectedJobIdRef.current === jobId) {
+        setJobStateValues((current) => ({ ...current, [key]: payload.data as AutomationJobStateValue }));
+      }
+    } catch (error) {
+      if (selectedJobIdRef.current === jobId)
+        toast.error(error instanceof Error ? error.message : t('continuity.state.readError'));
+    } finally {
+      setJobStateBusyKey(null);
+    }
+  }
+
+  async function resetJobStateKey(jobId: string, entry: AutomationJobStateMetadata) {
+    setJobStateBusyKey(entry.key);
+    try {
+      const response = await fetch(`/api/automations/jobs/${encodeURIComponent(jobId)}/state`, {
+        method: 'DELETE', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: entry.key, expectedRevision: entry.revision, mutationId: crypto.randomUUID() }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('continuity.state.resetError'));
+      if (selectedJobIdRef.current === jobId) {
+        setJobStateValues((current) => {
+          const next = { ...current };
+          delete next[entry.key];
+          return next;
+        });
+        toast.success(t('continuity.state.resetSuccess'));
+      }
+    } catch (error) {
+      if (selectedJobIdRef.current === jobId)
+        toast.error(error instanceof Error ? error.message : t('continuity.state.resetError'));
+    } finally {
+      setJobStateBusyKey(null);
+      await loadJobState(jobId);
     }
   }
 
@@ -1549,6 +1701,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     if (!selectedJobId) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setRuns([]);
+      setRunDiagnostics([]);
       setRunDetailsById({});
       setSelectedRunId(null);
       /* eslint-enable react-hooks/set-state-in-effect */
@@ -1556,6 +1709,18 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     }
     void loadRuns(selectedJobId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadRuns takes selectedJobId as argument
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    selectedJobIdRef.current = selectedJobId;
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    if (!selectedJobId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- clear revealed values when switching jobs
+    setJobStateValues({});
+    void loadJobState(selectedJobId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- job state is loaded when the selection changes
   }, [selectedJobId]);
 
   useEffect(() => {
@@ -1735,6 +1900,8 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                   deliveryChannelId,
                   effectiveDraft.deliveryChannelSessionKey,
                 ),
+                continuityMode: effectiveDraft.continuityMode,
+                sourceJobIds: effectiveDraft.sourceJobIds,
               };
             })()
           : buildPayload(effectiveDraft, selectedDraftWorkspace);
@@ -1788,6 +1955,8 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
           scope: automationScopeForWorkspace(selectedTriggerWorkspace),
           workspaceId: triggerWorkspaceId || null,
           preferredSkill: triggerDraft.preferredSkill || 'auto',
+          continuityMode: triggerDraft.continuityMode,
+          sourceJobIds: triggerDraft.sourceJobIds,
           toolkitSlug: selectedTriggerApp.slug,
           triggerSlug: selectedTriggerType.slug,
           connectedAccountId: selectedTriggerApp.connectedAccountId || undefined,
@@ -1842,6 +2011,8 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
           scope: automationScopeForWorkspace(selectedCustomWebhookWorkspace),
           workspaceId: customWebhookWorkspaceId || null,
           preferredSkill: customWebhookDraft.preferredSkill || 'auto',
+          continuityMode: customWebhookDraft.continuityMode,
+          sourceJobIds: customWebhookDraft.sourceJobIds,
           agentId: customWebhookDraft.agentId,
           deliveryMode: customWebhookDraft.deliveryMode,
           deliveryChannelId,
@@ -2063,6 +2234,92 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
     );
   }
 
+  function renderContinuityControl(target: 'scheduled' | 'trigger' | 'customWebhook') {
+    const state = target === 'scheduled' ? draft : target === 'trigger' ? triggerDraft : customWebhookDraft;
+    const workspace = workspaceById.get(state.workspaceId || defaultAutomationWorkspaceId);
+    const targetJobId = target === 'scheduled' ? draft.id : null;
+    const sourceCandidates = selectEligibleAutomationSources(jobs, workspace, targetJobId);
+    const candidateIds = new Set(sourceCandidates.map((job) => job.id));
+    const unavailableSources = state.sourceJobIds.filter((id) => !candidateIds.has(id));
+    const toggleSource = (sourceJobId: string) => {
+      updateTaskDraft(target, {
+        sourceJobIds: toggleAutomationSourceSelection(state.sourceJobIds, sourceJobId),
+      });
+    };
+    return (
+      <AutomationDisclosure title={t('continuity.title')} summary={t(`continuity.mode.${state.continuityMode}`)}>
+        <div className="min-w-0 space-y-4" data-testid={`automation-${target}-continuity`}>
+          <label className="flex min-w-0 flex-col gap-1 text-sm">
+            <span className="text-xs text-muted-foreground">{t('continuity.modeLabel')}</span>
+            <select
+              className={AUTOMATION_FIELD_CLASS}
+              value={state.continuityMode}
+              onChange={(event) => updateTaskDraft(target, {
+                continuityMode: event.target.value as AutomationContinuityMode,
+              })}
+              data-testid={`automation-${target}-continuity-mode`}
+            >
+              <option value="off">{t('continuity.mode.off')}</option>
+              <option value="last_relevant">{t('continuity.mode.last_relevant')}</option>
+            </select>
+            <span className="text-xs leading-5 text-muted-foreground">
+              {t(`continuity.description.${state.continuityMode}`)}
+            </span>
+          </label>
+          <div className="space-y-2">
+            <div>
+              <p className="text-xs font-medium">{t('continuity.sourcesTitle')}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('continuity.sourcesDescription')}</p>
+            </div>
+            {sourceCandidates.length === 0 ? (
+              <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                {t('continuity.noSources')}
+              </p>
+            ) : (
+              <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border p-2">
+                {sourceCandidates.map((job) => {
+                  const checked = state.sourceJobIds.includes(job.id);
+                  return (
+                    <label key={job.id} className="flex min-w-0 items-center gap-2 rounded px-2 py-2 text-sm hover:bg-muted/50">
+                      <input type="checkbox" checked={checked}
+                        disabled={!checked && state.sourceJobIds.length >= 3}
+                        onChange={() => toggleSource(job.id)} />
+                      <span className="min-w-0 truncate">{job.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {unavailableSources.map((sourceId) => (
+              <div key={sourceId} className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-xs">
+                <span className="min-w-0 break-words text-amber-900 dark:text-amber-200">
+                  {t('continuity.sourceUnavailable', { id: sourceId })}
+                </span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => toggleSource(sourceId)}>
+                  {t('continuity.removeSource')}
+                </Button>
+              </div>
+            ))}
+            <p className="text-xs text-muted-foreground">
+              {t('continuity.sourceCount', { count: state.sourceJobIds.length })}
+            </p>
+          </div>
+        </div>
+      </AutomationDisclosure>
+    );
+  }
+
+  function contextReasonLabel(reason: string | undefined) {
+    const known = new Set([
+      'included', 'included_truncated', 'already_in_session', 'disabled', 'no_relevant_run',
+      'budget_exhausted', 'final_budget_exceeded', 'context_unavailable', 'scope_changed',
+      'target_scope_changed', 'source_missing', 'source_scope_changed', 'source_unavailable',
+      'source_access_denied', 'source_unconfigured', 'source_run_missing', 'source_run_scope_changed',
+      'source_scope_reset', 'source_not_relevant',
+    ]);
+    return reason && known.has(reason) ? t(`continuity.reasons.${reason}`) : t('continuity.reasons.other');
+  }
+
   function renderAutomationTriggerControl() {
     return (
       <div className="space-y-3 rounded-md border bg-muted/20 p-3">
@@ -2160,6 +2417,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
         setTriggerDraft((current) => ({
           ...current,
           workspaceId,
+          sourceJobIds: [],
           deliverySessionId: '',
           deliverySessionMode:
             current.deliverySessionMode === 'fixed_session' ? 'new_session' : current.deliverySessionMode,
@@ -2172,6 +2430,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
         setCustomWebhookDraft((current) => ({
           ...current,
           workspaceId,
+          sourceJobIds: [],
           deliverySessionId: '',
           deliverySessionMode:
             current.deliverySessionMode === 'fixed_session' ? 'new_session' : current.deliverySessionMode,
@@ -2180,6 +2439,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
         setDraft((current) => ({
           ...current,
           workspaceId,
+          sourceJobIds: [],
           deliverySessionId: '',
           deliverySessionMode:
             current.deliverySessionMode === 'fixed_session' ? 'new_session' : current.deliverySessionMode,
@@ -2364,6 +2624,9 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
             compact
           />
         ) : null}
+        {draft.triggerKind === 'schedule' ? (
+          <p className="text-xs leading-5 text-muted-foreground">{t('continuity.misfireHint')}</p>
+        ) : null}
       </AutomationDisclosure>
     );
   }
@@ -2508,6 +2771,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                       {renderTaskFields('scheduled')}
                       {selectedJob.jobType !== 'webhook' ? renderScheduledSettings() : null}
                       {renderAgentDeliveryControls('scheduled')}
+                      {renderContinuityControl('scheduled')}
                       <AutomationDisclosure
                         title={t('ux.moreSettings')}
                         summary={draft.preferredSkill === 'auto' ? t('skills.auto') : draft.preferredSkill}
@@ -2533,6 +2797,65 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                       }}
                     />
                   )}
+                  {!isEditing ? (
+                    <AutomationDisclosure title={t('continuity.state.title')} summary={t('continuity.state.summary')}>
+                      <div className="min-w-0 space-y-3" data-testid="automation-job-state">
+                        <p className="text-xs leading-5 text-muted-foreground">{t('continuity.state.description')}</p>
+                        <Button type="button" variant="outline" size="sm"
+                          disabled={isLoadingJobState}
+                          onClick={() => void loadJobState(selectedJob.id)}>
+                          <RefreshCw className={cn('mr-2 h-3.5 w-3.5', isLoadingJobState && 'animate-spin')} />
+                          {t('continuity.state.refresh')}
+                        </Button>
+                        {jobStateJobId !== selectedJob.id || isLoadingJobState ? (
+                          <p className="text-xs text-muted-foreground">{t('continuity.state.loading')}</p>
+                        ) : jobStateMetadata.length === 0 ? (
+                          <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
+                            {t('continuity.state.empty')}
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {jobStateMetadata.map((entry) => (
+                              <div key={entry.key} className="min-w-0 rounded-md border bg-muted/20 p-3 text-sm">
+                                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="min-w-0">
+                                    <p className="break-all font-mono text-xs font-medium">{entry.key}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground">
+                                      {t('continuity.state.revision', { revision: entry.revision })} ·{' '}
+                                      {formatDateTime(entry.updatedAt, locale, t('noneYet'))}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button type="button" variant="outline" size="sm"
+                                      disabled={jobStateBusyKey === entry.key}
+                                      onClick={() => void revealJobStateValue(selectedJob.id, entry.key)}>
+                                      {t('continuity.state.reveal')}
+                                    </Button>
+                                    {selectedJobWorkspace?.permissions.canWrite ? (
+                                      <Button type="button" variant="outline" size="sm"
+                                        disabled={jobStateBusyKey === entry.key}
+                                        onClick={() => void resetJobStateKey(selectedJob.id, entry)}>
+                                        {t('continuity.state.reset')}
+                                      </Button>
+                                    ) : (
+                                      <span className="self-center text-xs text-muted-foreground">
+                                        {t('continuity.state.resetReadOnly')}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {jobStateValues[entry.key] ? (
+                                  <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-md border bg-background p-2 text-xs">
+                                    {jobStateValues[entry.key].value}
+                                  </pre>
+                                ) : null}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </AutomationDisclosure>
+                  ) : null}
                   {selectedJob.jobType === 'webhook' ? (
                     <AutomationDisclosure
                       title={t('ux.integrationDetails')}
@@ -2685,47 +3008,67 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                 </CardHeader>
                 <CardContent className="space-y-4 p-4">
                   <div className="space-y-2" data-testid="automation-run-list">
-                    {isRefreshingRuns && runs.length === 0 ? (
+                    {isRefreshingRuns && runTimeline.length === 0 ? (
                       <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         {t('runs.loading')}
                       </div>
-                    ) : runs.length === 0 ? (
+                    ) : runTimeline.length === 0 ? (
                       <div className="rounded-md border border-dashed px-3 py-6 text-sm text-muted-foreground">
                         {t('runs.empty')}
                       </div>
                     ) : (
-                      runs.slice(0, visibleRunCount).map((run) => (
+                      runTimeline.slice(0, visibleRunCount).map((entry) => entry.kind === 'misfire' ? (
+                        <div key={`misfire-${entry.diagnostic.scheduledFor}`} role="status"
+                          className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3"
+                          data-testid="automation-schedule-misfire">
+                          <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                            <span className="text-sm font-medium">{t('runs.misfireTitle')}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDateTime(entry.diagnostic.scheduledFor, locale, t('scheduleSummary.notScheduled'))}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-xs text-muted-foreground">{t('runs.misfireReason')}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('runs.misfireObserved')}: {formatDateTime(entry.diagnostic.observedAt, locale, t('scheduleSummary.notScheduled'))}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t('runs.misfireNext')}: {entry.diagnostic.nextRunAt
+                              ? formatDateTime(entry.diagnostic.nextRunAt, locale, t('scheduleSummary.notScheduled'))
+                              : t('runs.misfireNoNext')}
+                          </p>
+                        </div>
+                      ) : (
                         <button
-                          key={run.id}
+                          key={entry.run.id}
                           type="button"
-                          className={`w-full min-w-0 rounded-md border p-3 text-left transition ${selectedRunId === run.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
+                          className={`w-full min-w-0 rounded-md border p-3 text-left transition ${selectedRunId === entry.run.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
                           onClick={() => {
-                            setSelectedRunId(run.id);
+                            setSelectedRunId(entry.run.id);
                             setIsRunSheetOpen(true);
                           }}
-                          data-testid={`automation-run-${run.id}`}
+                          data-testid={`automation-run-${entry.run.id}`}
                         >
                           <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                            <span className="text-sm font-medium">{formatRunStatus(run.status, t)}</span>
+                            <span className="text-sm font-medium">{formatRunStatus(entry.run.status, t)}</span>
                             <span className="text-xs text-muted-foreground">
                               {formatDateTime(
-                                run.finishedAt || run.scheduledFor,
+                                entry.run.finishedAt || entry.run.scheduledFor,
                                 locale,
                                 t('scheduleSummary.notScheduled'),
                               )}
                             </span>
                           </div>
-                          {run.errorMessage ? (
+                          {entry.run.errorMessage ? (
                             <p className="mt-2 line-clamp-2 break-words text-xs text-destructive">
-                              {run.errorMessage}
+                              {entry.run.errorMessage}
                             </p>
                           ) : null}
                         </button>
                       ))
                     )}
                   </div>
-                  {runs.length > visibleRunCount ? (
+                  {runTimeline.length > visibleRunCount ? (
                     <Button
                       variant="ghost"
                       className="w-full"
@@ -2943,6 +3286,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                   {renderTaskFields('scheduled')}
                   {renderScheduledSettings()}
                   {renderAgentDeliveryControls('scheduled')}
+                  {renderContinuityControl('scheduled')}
                   <AutomationDisclosure title={t('ux.moreSettings')}>
                     {renderSkillSelect('automation-composer-preferred-skill')}
                   </AutomationDisclosure>
@@ -3014,6 +3358,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                     <>
                       {renderTaskFields('customWebhook')}
                       {renderAgentDeliveryControls('customWebhook')}
+                      {renderContinuityControl('customWebhook')}
                       <AutomationDisclosure title={t('ux.moreSettings')}>
                         {renderCustomWebhookSkillSelect('automation-custom-webhook-preferred-skill')}
                       </AutomationDisclosure>
@@ -3250,6 +3595,7 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                         emptyLabel={t('triggers.noConfig')}
                       />
                       {renderAgentDeliveryControls('trigger')}
+                      {renderContinuityControl('trigger')}
                       <AutomationDisclosure title={t('ux.moreSettings')}>
                         {renderTriggerSkillSelect('automation-trigger-preferred-skill')}
                       </AutomationDisclosure>
@@ -3366,6 +3712,55 @@ export function AutomationsClient({ initialJobId = null, initialEdit = false, in
                 <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                   {selectedRun.errorMessage}
                 </p>
+              ) : null}
+              {selectedRunContext ? (
+                <div className="min-w-0 space-y-3 rounded-md border bg-muted/20 p-3 text-sm" data-testid="automation-run-context">
+                  <div>
+                    <p className="font-medium">{t('continuity.run.title')}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{t('continuity.run.description')}</p>
+                  </div>
+                  <div className="grid gap-2 text-xs sm:grid-cols-2">
+                    <div className="rounded-md border bg-background p-2">
+                      <p className="text-muted-foreground">{t('continuity.run.previous')}</p>
+                      <p className="mt-1 font-medium">{contextReasonLabel(selectedRunContext.reason)}</p>
+                      {selectedRunContext.sourceFinishedAt ? (
+                        <p className="mt-1 text-muted-foreground">
+                          {formatDateTime(selectedRunContext.sourceFinishedAt, locale, t('noneYet'))}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="rounded-md border bg-background p-2">
+                      <p className="text-muted-foreground">{t('continuity.run.contextSize')}</p>
+                      <p className="mt-1 font-medium">
+                        {t('continuity.run.tokens', { count: selectedRunContext.estimatedTokens || 0 })}
+                      </p>
+                      {selectedRunContext.truncated ? (
+                        <p className="mt-1 text-muted-foreground">{t('continuity.run.truncated')}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                  {selectedRunContext.sources?.length ? (
+                    <div className="space-y-1">
+                      <p className="text-xs font-medium">{t('continuity.run.sources')}</p>
+                      {selectedRunContext.sources.map((source) => (
+                        <div key={source.sourceJobId} className="flex min-w-0 flex-col gap-1 rounded-md border bg-background p-2 text-xs sm:flex-row sm:justify-between">
+                          <span className="min-w-0 break-words font-medium">
+                            {jobs.find((job) => job.id === source.sourceJobId)?.name || t('continuity.run.removedSource')}
+                          </span>
+                          <span className="text-muted-foreground">{contextReasonLabel(source.reason)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {selectedRunContext.omittedBlocks?.length ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t('continuity.run.omitted')}: {selectedRunContext.omittedBlocks.map((block) =>
+                        block === 'previous_result' ? t('continuity.run.previous')
+                          : block === 'source_results' ? t('continuity.run.sources') : block,
+                      ).join(', ')}
+                    </p>
+                  ) : null}
+                </div>
               ) : null}
               <AutomationDisclosure title={t('ux.technicalDetails')}>
                 {selectedRun ? (

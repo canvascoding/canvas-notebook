@@ -18,6 +18,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'qmd',
   'list_automation_jobs',
   'inspect_automation_job',
+  'inspect_automation_job_options',
   'list_agents',
   'inspect_agent',
   'list_human_todos',

@@ -10,6 +10,9 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { decideMemoryReviewClient, loadMemoryReview } from '@/app/lib/memory/review-client';
 import type { MemoryReviewDecision, MemoryReviewTarget } from '@/app/lib/memory/contract';
 import type { NotificationItem, NotificationSummary } from './notification-summary';
+import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, workspaceOperationReviewHref,
+  type WorkspaceOperationNotificationTarget } from '@/app/lib/files/workspace-operation-notification-contract';
+import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
 
 export type NotificationMutation = {
   action: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -79,6 +82,8 @@ export function notificationHref(item: NotificationItem): string {
       return item.workspaceId === item.target.workspaceId
         ? buildFileChangeReviewCenterHref(item.target)
         : `/notebook?workspaceId=${encodeURIComponent(item.workspaceId)}`;
+    case 'file_operation':
+      return workspaceOperationReviewHref({ workspaceId: item.workspaceId, reviewId: item.target.reviewId });
   }
   return '/notebook';
 }
@@ -114,6 +119,32 @@ export async function openFileChangeReviewNotification(item: NotificationItem): 
   }
 }
 
+export async function openWorkspaceOperationNotificationTarget(
+  target: Pick<WorkspaceOperationNotificationTarget, 'workspaceId' | 'reviewId'>,
+): Promise<boolean> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(target.workspaceId)
+    || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(target.reviewId)) return false;
+  const generation = ++fileChangeOpenGeneration;
+  const releaseNavigation = beginExternalWorkspaceNavigation();
+  try {
+    await useWorkspaceStore.getState().hydrateWorkspaces();
+    if (generation !== fileChangeOpenGeneration) return true;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== target.workspaceId) {
+      await useWorkspaceStore.getState().setActiveWorkspace(target.workspaceId, 'system');
+    }
+    if (generation !== fileChangeOpenGeneration) return true;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== target.workspaceId) return false;
+    openWorkspaceOperationReview(target.reviewId, target.workspaceId);
+    void updateNotification({ action: 'mark_item_read', workspaceId: target.workspaceId,
+      itemId: `${WORKSPACE_OPERATION_NOTIFICATION_PREFIX}${target.reviewId}` }).catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    releaseNavigation();
+  }
+}
+
 export async function updateNotification(payload: NotificationMutation): Promise<void> {
   const response = await fetch('/api/notifications/summary', {
     method: 'PATCH',
@@ -134,6 +165,6 @@ export function homeNotificationItems(summary: NotificationSummary | null): Noti
   for (const item of [...summary.items, ...summary.sections.notifications, ...summary.sections.todoAttention, ...summary.sections.emailAttention]) {
     unique.set(`${item.workspaceId}:${item.id}`, item);
   }
-  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo' || item.target.kind === 'memory' || item.target.kind === 'email')
+  return [...unique.values()].filter((item) => item.unread || item.priority === 'high' || item.target.kind === 'todo' || item.target.kind === 'memory' || item.target.kind === 'email' || item.target.kind === 'file_operation')
     .sort((a, b) => Number(b.priority === 'high') - Number(a.priority === 'high') || Date.parse(b.occurredAt) - Date.parse(a.occurredAt));
 }

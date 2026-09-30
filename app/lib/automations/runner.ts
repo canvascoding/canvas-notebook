@@ -63,6 +63,7 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 
 import { prepareAutomationHistoryWithCompaction } from './history-compaction';
+import { composeAutomationPreviousResult, composeAutomationSourceResults, getAutomationContextTokenBudget, getAutomationTotalContextTokenBudget } from './context-composer';
 import { recoverAutomationRuntimePayload } from './runtime-compaction';
 import { buildAutomationPrompt } from './prompt';
 import { classifyAutomationResult, NO_ACTION_TOKEN } from './result-policy';
@@ -83,11 +84,14 @@ import {
 import {
   getAutomationJob,
   getAutomationRun,
+  getAutomationPreviousRelevantResult,
+  getAutomationSourceResults,
   markAutomationRunFinished,
   markAutomationRunRetryScheduled,
   markAutomationRunStarted,
   migrateLegacyHeartbeatJobs,
   revalidateAutomationRunClaim,
+  recordAutomationRunContextProvenance,
   updateAutomationJob,
 } from './store';
 import { resolveAutomationRunWorkspace } from './policy';
@@ -382,6 +386,9 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       console.warn(`[Automationen] Run ${runId} could not be marked as started (already running or completed), aborting`);
       return;
     }
+    const pinnedContinuityMode = (startedRun.metadataJson?.automationContinuity as { mode?: unknown } | undefined)?.mode;
+    const pinnedSources = (startedRun.metadataJson?.automationSources as { sources?: unknown } | undefined)?.sources;
+    const pinnedSourceCount = Array.isArray(pinnedSources) ? pinnedSources.length : 0;
     runTransitionExpectation = {
       status: 'running',
       attemptNumber: startedRun.attemptNumber,
@@ -427,7 +434,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         ? await getWorkspaceEmailAttentionSummary(automationWorkspace.workspaceId)
         : null;
       assertAutomationExecutionActive(executionSignal);
-      const promptText = buildAutomationPrompt({
+      const promptInput = {
         name: job.name,
         prompt: jobPrompt,
         preferredSkill: job.preferredSkill,
@@ -435,7 +442,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
         emailInboxEventContext,
         workspaceEmailAttention,
-      });
+      };
+      const promptText = buildAutomationPrompt(promptInput);
 
       const events: string[] = [];
       let finalMessages: AgentMessage[] = [];
@@ -504,6 +512,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       // read-only workspace tools and human-review email operations survive.
       const tools = await getPiTools(automationUserId, job.agentId, piSessionId, {
         automationExecution: true,
+        automationJobState: { jobId: job.id, runId: run.id },
         workspaceEmailAutomation: emailInboxEventContext
           ? {
               ...emailInboxEventContext,
@@ -653,8 +662,138 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         }
         assertAutomationExecutionActive(executionSignal);
 
-        const preparedHistory = await prepareHistoryForRuntime(executableRuntime);
+        let preparedHistory = await prepareHistoryForRuntime(executableRuntime);
         automationSummary = preparedHistory.summary;
+        if (pinnedContinuityMode === 'last_relevant' || pinnedSourceCount > 0) {
+          assertAutomationExecutionActive(executionSignal);
+          const basePreparedHistory = preparedHistory;
+          let provenance: Record<string, unknown> = {
+            version: 1,
+            sourceRunId: null,
+            reason: 'context_unavailable',
+            estimatedTokens: 0,
+            truncated: false,
+            omittedBlocks: ['previous_result'],
+          };
+          try {
+            const previous = pinnedContinuityMode === 'last_relevant' ? await getAutomationPreviousRelevantResult({
+              runId: run.id,
+              jobId: job.id,
+              workspaceId: automationWorkspace.workspaceId,
+              workspaceType: automationWorkspace.workspaceType,
+              organizationId: automationWorkspace.organizationId,
+            }) : { sourceRunId: null, finishedAt: null, piSessionId: null, resultText: null, reason: 'disabled' };
+            const sourceResults = pinnedSourceCount ? await getAutomationSourceResults({
+              runId: run.id,
+              jobId: job.id,
+              actorUserId: automationUserId,
+              workspaceId: automationWorkspace.workspaceId,
+              workspaceType: automationWorkspace.workspaceType,
+              organizationId: automationWorkspace.organizationId,
+            }) : [];
+            const outputTokenCap = getPiRequestOutputTokenCap(executableRuntime.model);
+            const baseline = await preparePiFinalPayload({
+              messages: preparedHistory.composition.llmMessages,
+              model: executableRuntime.model,
+              effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
+              effectiveTools: tools || [],
+              requestOutputTokenCap: outputTokenCap,
+              runtimeContractRevision: 'canvas-pi-automation-v1',
+            }, automationImageNormalizationOptions);
+            const budget = baseline.budgetSnapshot;
+            const availableTokens = budget.contextBudgetExceeded || budget.payloadBudgetExceeded
+              ? 0
+              : Math.max(0, budget.contextWindowTokens - budget.estimatedTotalTokens);
+            const totalTokenBudget = getAutomationTotalContextTokenBudget({
+              contextWindowTokens: budget.contextWindowTokens, availableTokens,
+            });
+            const maxContextBytes = Math.max(0, MAX_LLM_HISTORY_BYTES - budget.serializedMessageBytes - 4_096);
+            const composition = composeAutomationPreviousResult({
+              previous,
+              maxTokens: getAutomationContextTokenBudget({
+                contextWindowTokens: budget.contextWindowTokens,
+                availableTokens,
+              }),
+              maxBytes: maxContextBytes,
+              currentSessionId: piSessionId,
+              hasPersistedSession: Boolean(persistedSession),
+            });
+            const sourceComposition = composeAutomationSourceResults({
+              sources: sourceResults,
+              maxTokens: Math.min(1_024, Math.max(0, totalTokenBudget - composition.estimatedTokens - 8)),
+              maxBytes: Math.max(0, maxContextBytes - Buffer.byteLength(composition.block, 'utf8') - 8),
+              currentSessionId: piSessionId,
+              hasPersistedSession: Boolean(persistedSession),
+            });
+            provenance = {
+              version: 1,
+              sourceRunId: composition.sourceRunId,
+              sourceFinishedAt: previous.finishedAt,
+              sourceStatus: previous.resultText ? 'success' : null,
+              reason: composition.reason,
+              estimatedTokens: composition.estimatedTokens + sourceComposition.estimatedTokens,
+              truncated: composition.truncated,
+              sources: sourceComposition.details,
+              omittedBlocks: [
+                ...(!composition.block && pinnedContinuityMode === 'last_relevant' ? ['previous_result'] : []),
+                ...(sourceComposition.details.some((source) => source.reason !== 'included' && source.reason !== 'included_truncated') ? ['source_results'] : []),
+              ],
+            };
+            if (composition.block || sourceComposition.block) {
+              promptMessage.content = buildAutomationPrompt({
+                ...promptInput,
+                previousResultContext: [composition.block, sourceComposition.block].filter(Boolean).join('\n\n'),
+              });
+              const checkEnrichedPayload = () => preparePiFinalPayload({
+                messages: basePreparedHistory.composition.llmMessages,
+                model: executableRuntime.model,
+                effectiveInstructions: [{ role: 'system' as const, content: currentSystemPrompt }],
+                effectiveTools: tools || [],
+                requestOutputTokenCap: outputTokenCap,
+                runtimeContractRevision: 'canvas-pi-automation-v1',
+              }, automationImageNormalizationOptions);
+              let enrichedPayload = await checkEnrichedPayload();
+              if ((enrichedPayload.budgetSnapshot.contextBudgetExceeded
+                || enrichedPayload.budgetSnapshot.payloadBudgetExceeded) && sourceComposition.block) {
+                promptMessage.content = composition.block
+                  ? buildAutomationPrompt({ ...promptInput, previousResultContext: composition.block })
+                  : promptText;
+                provenance = { ...provenance, estimatedTokens: composition.estimatedTokens,
+                  sources: sourceComposition.details.map((source) => source.reason === 'included' || source.reason === 'included_truncated'
+                    ? { ...source, reason: 'final_budget_exceeded', estimatedTokens: 0, truncated: false }
+                    : source),
+                  omittedBlocks: [...(provenance.omittedBlocks as string[]), 'source_results'] };
+                enrichedPayload = await checkEnrichedPayload();
+              }
+              if (enrichedPayload.budgetSnapshot.contextBudgetExceeded
+                || enrichedPayload.budgetSnapshot.payloadBudgetExceeded) {
+                promptMessage.content = promptText;
+                preparedHistory = basePreparedHistory;
+                automationSummary = basePreparedHistory.summary;
+                provenance = { ...provenance, reason: 'final_budget_exceeded', estimatedTokens: 0,
+                  truncated: false, omittedBlocks: ['previous_result', 'source_results'] };
+              }
+            }
+          } catch (error) {
+            if (executionSignal.aborted) throw error;
+            promptMessage.content = promptText;
+            preparedHistory = basePreparedHistory;
+            automationSummary = basePreparedHistory.summary;
+            provenance = { ...provenance, reason: 'context_unavailable', estimatedTokens: 0,
+              truncated: false, omittedBlocks: ['previous_result', 'source_results'] };
+            console.warn('[Automationen] Automation context omitted:', error);
+          }
+          try {
+            await recordAutomationRunContextProvenance({
+              runId: run.id,
+              expectedAttemptNumber: startedRun.attemptNumber,
+              provenance,
+            });
+          } catch (error) {
+            if (executionSignal.aborted) throw error;
+            console.warn('[Automationen] Could not record automation context provenance:', error);
+          }
+        }
         let transientAutomationSummary = automationSummary;
         assertAutomationExecutionActive(executionSignal);
         const preparedMessages = preparedHistory.composition.llmMessages;

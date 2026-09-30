@@ -1,10 +1,11 @@
 'use client';
 
 import type { FileChangeReviewNotificationReason, FileChangeReviewNotificationTarget } from '@/app/lib/file-version-center/notification-contract';
+import type { WorkspaceOperationNotificationTarget } from '@/app/lib/files/workspace-operation-notification-contract';
 
 export type NotificationItem = {
   id: string;
-  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required' | 'license.team_access_changed' | 'license.team_grant_expiring';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required' | 'file.operation_review_required' | 'license.team_access_changed' | 'license.team_grant_expiring';
   title: string;
   detail: string | null;
   occurredAt: string;
@@ -25,6 +26,7 @@ export type NotificationItem = {
     | { kind: 'mcp'; connectionId: string }
     | { kind: 'license' }
     | FileChangeReviewNotificationTarget
+    | WorkspaceOperationNotificationTarget
     | { kind: 'memory'; scope: 'workspace' | 'organization'; entryId: string; collectionId: string; workspaceId?: string; organizationId?: string };
 };
 

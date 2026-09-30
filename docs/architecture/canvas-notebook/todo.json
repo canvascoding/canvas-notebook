@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-15",
+  "updatedAt": "2026-09-30",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -1648,6 +1648,55 @@
         "npm run lint",
         "npm run build",
         "Browser-E2E nach expliziter Freigabe"
+      ]
+    },
+    {
+      "id": 54,
+      "title": "Unterbrochene Agent-Tools abschliessen und Automations-Runtime-/Session-Felder im KI-Tool anbieten",
+      "status": "completed",
+      "repo": "canvasstudios-notebook",
+      "artifact": "docs/architecture/canvas-notebook/team-workspace/26-agent-tool-contract-and-discovery.md",
+      "implementationArtifacts": [
+        "app/lib/chat/tool-lifecycle.ts",
+        "app/lib/chat/run-collapse.ts",
+        "app/components/canvas-agent-chat/useChatRuntimeEvents.ts",
+        "app/lib/pi/tool-display.ts",
+        "app/lib/pi/scoped-tools.ts"
+      ],
+      "acceptanceCriteria": [
+        "Terminale Modell-Turns und Runtime-Idle hinterlassen keine laufenden Tool-Anzeigen; spaetere echte Ergebnisse ersetzen Unterbrechungen",
+        "Agent-Management zeigt passende Icons und lokalisierte Aktionsnamen",
+        "Erstellen und Bearbeiten reichen agentId, preferredSkill und Delivery-/Session-Einstellungen an den gemeinsamen Automationsstore weiter",
+        "new_session, channel_active und fixed_session sind im Schema beschrieben und explizit waehlbar",
+        "Read-only Discovery liefert zugreifbare Agenten und gueltige feste Chat-Ziele im passenden Workspace",
+        "Fremde, archivierte und zum falschen Agenten oder Workspace gehoerende Chat-Ziele werden abgewiesen",
+        "Unbekannte Tool-Argumente werden abgewiesen und ausgelassene Update-Felder bleiben erhalten"
+      ],
+      "verification": [
+        "npx tsx scripts/chat-tool-batches-test.ts",
+        "npx tsx scripts/agent-tool-display-test.ts",
+        "npx tsx --conditions react-server scripts/pi-tool-registry-test.ts",
+        "npx tsx --conditions react-server scripts/automation-delivery-test.ts",
+        "npx tsx --conditions react-server scripts/automation-runner-tool-context-test.ts",
+        "E2E_EXTERNAL_SERVER=1 npx playwright test tests/agent-tool-lifecycle.spec.ts --workers=1",
+        "Focused ESLint and TypeScript checks",
+        "npm run build"
+      ]
+    },
+    {
+      "id": 55,
+      "title": "Scope-aware Konfigurationskatalog fuer Agent-Erstellung und Automations-Skill-/Plugin-Auswahl bereitstellen",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "artifact": "docs/architecture/canvas-notebook/team-workspace/26-agent-tool-contract-and-discovery.md",
+      "acceptanceCriteria": [
+        "UI und KI-Tools verwenden denselben lesenden Katalogservice mit Actor-, Workspace-, Projekt- und Organization-Kontext",
+        "Agenten werden mit Runtime-Eignung und Rechten des verantwortlichen Automationsnutzers ausgegeben",
+        "Skills und Plugins besitzen stabile Referenzen, Scope, Policy, Aktivierung, Konflikte und Connection-Readiness",
+        "Agent-Erstellung erfaehrt erlaubte Modelle, Thinking-Werte, Provider-Installationen, Operationsnamen, Icons, Dateien, Capabilities und Grant-Ziele",
+        "Skill-Hinweise werden von wirksamen Agent-Bindings und Runtime-Rechten unterschieden; ein Plugin-Jobfeld setzt definierte Speicher-/Runner-Semantik voraus",
+        "Ungueltige Referenzen und fehlende Secrets erzeugen klare Fehler mit Korrekturpfad, ohne fremde Ressourcen oder Secrets offenzulegen",
+        "Discovery, Gateway-Mutationen, Speicherung und Runtime werden fuer Personal-/Organization-Scope einschliesslich negativer Rechtefaelle getestet"
       ]
     }
   ]

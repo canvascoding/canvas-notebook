@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
-import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
+import { assertCanAccessAutomationJob, assertCanAccessAutomationRun } from '@/app/lib/automations/policy';
+import { projectAutomationRunForApi } from '@/app/lib/automations/public-run';
 import { getAutomationJob, getAutomationRun } from '@/app/lib/automations/store';
 
 type RouteContext = {
@@ -30,9 +31,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
   try {
     await assertCanAccessAutomationJob(session.user.id, job);
+    await assertCanAccessAutomationRun(session.user.id, run);
   } catch {
     return NextResponse.json({ success: false, error: 'Automation run not found.' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, data: run });
+  return NextResponse.json({ success: true, data: projectAutomationRunForApi(run) });
 }

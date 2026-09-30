@@ -16,6 +16,9 @@ import { decodeLicenseJwt, verifyLicenseJwtDetailed } from './jwt';
 import { loadStoredLicenseCert } from './storage';
 import { recordManagedTeamAccessPolicy } from './managed-team-access-policy';
 import { recordTeamLicenseTermWarning } from './team-license-term-warning';
+import { managedTeamSyncError, recordManagedTeamSyncStatus } from './managed-team-sync-status';
+import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
+import { retireManagedCommunitySnapshotOperations } from './managed-community-outbox';
 
 const SYNC_PATH = '/v1/managed/team/sync';
 const ADOPTION_PATH = '/v1/managed/team/adoption-report';
@@ -216,20 +219,28 @@ async function managedRequest(
 ): Promise<Record<string, unknown>> {
   const token = instanceToken();
   if (!token) throw new Error('MANAGED_TEAM_INSTANCE_TOKEN_MISSING');
-  const { response, payload } = await requestTeamControlPlane({
-    baseUrl: getLicenseControlPlaneUrl(),
-    path,
-    method,
-    body,
-    instanceToken: token,
-    fetchImpl,
-    maxAttempts: 2,
-  });
-  if (!response.ok) {
-    const code = typeof payload.code === 'string' ? payload.code : 'MANAGED_TEAM_CONTROL_PLANE_ERROR';
-    throw new Error(code);
+  try {
+    const { response, payload } = await requestTeamControlPlane({
+      baseUrl: getLicenseControlPlaneUrl(),
+      path,
+      method,
+      body,
+      instanceToken: token,
+      fetchImpl,
+      maxAttempts: 2,
+    });
+    if (!response.ok) {
+      const code = typeof payload.code === 'string' ? payload.code : 'MANAGED_TEAM_CONTROL_PLANE_ERROR';
+      throw Object.assign(new Error(code), { endpoint: path, httpStatus: response.status });
+    }
+    return payload;
+  } catch (error) {
+    if (error instanceof Error) {
+      if (!('endpoint' in error)) Object.assign(error, { endpoint: path });
+      throw error;
+    }
+    throw Object.assign(new Error('MANAGED_TEAM_CONTROL_PLANE_ERROR'), { endpoint: path });
   }
-  return payload;
 }
 
 async function sendAdoptionReport(
@@ -535,7 +546,7 @@ async function applyManagedMembership(
   }
 }
 
-export async function runManagedTeamSyncCycle(options: {
+async function performManagedTeamSyncCycle(options: {
   database?: Pick<SqlConnection, 'all' | 'get' | 'run' | 'close'>;
   fetchImpl?: typeof fetch;
   activateCertificate?: typeof activateLicenseCert;
@@ -548,13 +559,16 @@ export async function runManagedTeamSyncCycle(options: {
     || process.env.NEXT_PHASE === 'phase-production-build') return 'unconfigured';
   const instanceId = getLicenseInstanceId();
   const database = options.database ?? await openDb();
+  await persistManagedSync(instanceId, { lastAttemptAt: Date.now(), nextAttemptAt: null, state: 'pending' });
   try {
     const local = await localMembers(database);
+    await persistManagedSync(instanceId, { organizationId: local.organizationId, observedMemberCount: local.members.filter((member) => member.status === 'active').length });
     const payload = await managedRequest(SYNC_PATH, 'GET', undefined, options.fetchImpl);
     const sync = parseSync(payload, instanceId);
     if (sync.status === 'adoption_required') {
       await sendAdoptionReport(instanceId, local.members, options.fetchImpl,
         options.loadLegacyCertificate, options.verifyLegacyCertificate);
+      await persistManagedSync(instanceId, { state: 'adoption_required', lastError: null });
       return 'adoption_required';
     }
     const license = sync.license!;
@@ -650,6 +664,20 @@ export async function runManagedTeamSyncCycle(options: {
       ...(humanActivityAt ? { lastHumanActivityAt: humanActivityAt } : {}),
       ...(error ? { error } : {}),
     }, options.fetchImpl);
+    await persistManagedSync(instanceId, error ? { state: 'pending', lastError: managedTeamSyncError(new Error(error)) } : {
+      state: 'current', lastSuccessAt: Date.now(), lastError: null,
+      membershipRevision: sync.membershipRevision, entitlementsVersion: license.entitlementsVersion,
+      approvedMemberCount: appliedMemberCount, observedMemberCount: appliedMemberCount, seatLimit: license.seatLimit,
+      termEndsAt: sync.accessPolicy?.termEndsAt ?? null,
+      accessPolicyState: sync.accessPolicy?.state ?? 'active',
+      accessPolicyReason: sync.accessPolicy?.reason ?? null,
+      graceEndsAt: sync.accessPolicy?.graceEndsAt ?? null,
+    });
+    if (!error) {
+      await retireManagedCommunitySnapshotOperations(database, {
+        organizationId: local.organizationId, adoptionApproved: true, acknowledgedAt: Date.now(),
+      }).catch(() => console.warn('[license/managed-sync] historical outbox cleanup deferred'));
+    }
     if (!error && warningGrantId && sync.accessPolicy) {
       await (options.recordTermWarning ?? recordTeamLicenseTermWarning)({
         database,
@@ -667,12 +695,39 @@ export async function runManagedTeamSyncCycle(options: {
       });
     }
     return error ? 'pending' : 'applied';
+  } catch (error) {
+    await persistManagedSync(instanceId, { state: 'error', lastError: managedTeamSyncError(error) });
+    throw error;
   } finally {
     if (!options.database) await database.close();
   }
 }
 
-export function initializeManagedTeamSyncRuntime(): { started: boolean; stop: () => void } {
+async function persistManagedSync(instanceId: string, patch: Parameters<typeof recordManagedTeamSyncStatus>[1]): Promise<void> {
+  await recordManagedTeamSyncStatus(instanceId, patch).catch(() => {
+    console.warn('[license/managed-sync] diagnostics persistence failed');
+  });
+}
+
+export function runManagedTeamSyncCycle(options: Parameters<typeof performManagedTeamSyncCycle>[0] = {}): ReturnType<typeof performManagedTeamSyncCycle> {
+  return withKeyedOperationLock('managed-team-sync-cycle', getLicenseInstanceId(), () => performManagedTeamSyncCycle(options));
+}
+
+export function triggerManagedTeamSync(): boolean {
+  if (!instanceToken() || getDeploymentMode() !== 'managed-team'
+    || process.env.NEXT_PHASE === 'phase-production-build') return false;
+  const runtime = (globalThis as ManagedRuntimeGlobal).__canvasManagedTeamSyncRuntime;
+  if (runtime && !runtime.stopped) {
+    if (runtime.running) return true;
+    if (runtime.timer) clearTimeout(runtime.timer);
+    runtime.timer = null;
+    runtime.stopped = true;
+  }
+  initializeManagedTeamSyncRuntime(0);
+  return true;
+}
+
+export function initializeManagedTeamSyncRuntime(initialDelayMs = 5_000): { started: boolean; stop: () => void } {
   if (!instanceToken() || getDeploymentMode() !== 'managed-team'
     || process.env.NEXT_PHASE === 'phase-production-build') {
     return { started: false, stop: () => {} };
@@ -689,6 +744,7 @@ export function initializeManagedTeamSyncRuntime(): { started: boolean; stop: ()
   globalRuntime.__canvasManagedTeamSyncRuntime = runtime;
   const schedule = (delayMs: number) => {
     if (runtime.stopped) return;
+    void persistManagedSync(getLicenseInstanceId(), { nextAttemptAt: Date.now() + delayMs });
     runtime.timer = setTimeout(() => {
       runtime.timer = null;
       if (runtime.running || runtime.stopped) return;
@@ -704,7 +760,7 @@ export function initializeManagedTeamSyncRuntime(): { started: boolean; stop: ()
     }, delayMs);
     runtime.timer.unref?.();
   };
-  schedule(5_000);
+  schedule(initialDelayMs);
   return { started: true, stop: () => {
     runtime.stopped = true;
     if (runtime.timer) clearTimeout(runtime.timer);

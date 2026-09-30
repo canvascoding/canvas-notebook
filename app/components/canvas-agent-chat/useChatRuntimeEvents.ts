@@ -36,6 +36,7 @@ import {
   getHistoryRuntimePhase,
 } from '@/app/lib/chat/runtime-message-utils';
 import { isRuntimeStatusStale, type RuntimeStatus } from '@/app/lib/chat/runtime-status';
+import { settleInterruptedToolMessages } from '@/app/lib/chat/tool-lifecycle';
 import type {
   AISession,
   Attachment,
@@ -264,7 +265,10 @@ export function useChatRuntimeEvents({
     setRuntimeStatus(status);
     applyRuntimeStatusToHistory(status);
     reconcileQueuedMessages(status);
-  }, [applyRuntimeStatusToHistory, reconcileQueuedMessages]);
+    if (status.phase === 'idle') {
+      setMessages((prev) => settleInterruptedToolMessages(prev, t('toolExecutionInterrupted')));
+    }
+  }, [applyRuntimeStatusToHistory, reconcileQueuedMessages, setMessages, t]);
 
   const setOptimisticRuntimePhase = useCallback((phase: RuntimeStatus['phase'], sessionIdOverride?: string | null) => {
     setRuntimeStatus((current) => {
@@ -715,7 +719,7 @@ export function useChatRuntimeEvents({
               toolCallId,
               toolName,
               content: text,
-              status: 'sent',
+              status: finalMessage.isError ? 'error' : 'sent',
               type: 'tool_result',
               piMessage: finalMessage,
               attachments: resultAttachments.length > 0 ? resultAttachments : undefined,
@@ -724,7 +728,7 @@ export function useChatRuntimeEvents({
         }
       }
 
-      setMessages((prev) => prev.map((message) => (
+      setMessages((prev) => settleInterruptedToolMessages(prev, t('toolExecutionInterrupted')).map((message) => (
         message.optimistic ? { ...message, optimistic: false } : message
       )));
       return;

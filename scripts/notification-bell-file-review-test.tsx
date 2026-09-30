@@ -33,6 +33,7 @@ async function main() {
   const { NotificationBell } = await import('../app/components/notifications/NotificationBell');
   const { useFileVersionCenterStore, closeVersionCenter } = await import('../app/store/file-version-center-store');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
+  const { useWorkspaceOperationReviewStore } = await import('../app/store/workspace-operation-review-store');
 
   const fileChange = {
     id: 'file-change:operation-one', type: 'file.change_review_required' as const,
@@ -47,12 +48,21 @@ async function main() {
     workspaceId: 'workspace-one', workspaceName: 'Review Workspace',
     target: { kind: 'chat' as const, sessionId: 'session-one' },
   };
-  const summary = {
+  const summary: NotificationSummary = {
     unreadCount: 2,
     counts: { unread: 2, chat: 1, todos: 0, todoUnread: 0, todoAttention: 0, emailAttention: 0, studio: 0, automation: 0, memoryApprovals: 0 },
     items: [fileChange, chat],
     sections: { notifications: [fileChange, chat], todos: [], todoUnread: [], todoAttention: [], emailAttention: [] },
   } satisfies NotificationSummary;
+  const fileOperation = {
+    id: 'file-operation:review-copy', type: 'file.operation_review_required' as const,
+    title: 'Server fallback', detail: 'Skills/skill.md', occurredAt: '2026-09-15T10:00:00.000Z', unread: true,
+    priority: 'high' as const, workspaceId: 'workspace-one', workspaceName: 'Review Workspace',
+    target: { kind: 'file_operation' as const, workspaceId: 'workspace-one', reviewId: 'review-copy',
+      operationKind: 'copy' as const, status: 'blocked' as const },
+  };
+  summary.items.push(fileOperation);
+  summary.sections.notifications.push(fileOperation);
   const mutations: unknown[] = [];
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), window.location.origin);
@@ -110,6 +120,15 @@ async function main() {
   assert.deepEqual(mutations, [{ action: 'mark_item_read', itemId: 'chat:session-one', workspaceId: 'workspace-one' }],
     'legacy Bell navigation still marks eligible notifications before opening them');
   assert.equal(new URL(window.location.href).searchParams.get('session'), 'session-one');
+  fireEvent.click(screen.getByTestId('notification-bell'));
+  await settle();
+  const operationButton = screen.getByRole('button', { name: /Copy: action blocked/u });
+  fireEvent.click(operationButton);
+  await settle();
+  assert.deepEqual(useWorkspaceOperationReviewStore.getState().request,
+    { mode: 'detail', reviewId: 'review-copy', workspaceId: 'workspace-one' });
+  assert.equal(useFileVersionCenterStore.getState().request, null, 'path review opens its own lane');
+  assert.deepEqual(mutations.at(-1), { action: 'mark_item_read', workspaceId: 'workspace-one', itemId: 'file-operation:review-copy' });
   screen.unmount();
   console.log('notification-bell-file-review-test: ok');
 }

@@ -8,6 +8,8 @@ const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
+const runtimeRefreshes: string[] = [];
+let failNextRuntimeRefresh = false;
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
     return {};
@@ -29,6 +31,17 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === '@earendil-works/pi-ai/oauth') {
     return {};
   }
+  if (request === '@/app/lib/capabilities/activation-actions' || request.endsWith('/capabilities/activation-actions.ts')) {
+    return {
+      refreshPersonalCapabilityRuntime: async (userId: string) => {
+        runtimeRefreshes.push(userId);
+        if (failNextRuntimeRefresh) {
+          failNextRuntimeRefresh = false;
+          throw new Error('simulated runtime refresh failure');
+        }
+      },
+    };
+  }
   return originalLoad(request, parent, isMain);
 };
 
@@ -49,6 +62,7 @@ async function main() {
       installCanvasSkillFromWorkspace,
       updateCanvasSkillFromWorkspace,
     } = await import('../app/lib/skills/agent-skill-workspace');
+    const { buildFileTree, listDirectory, readFile } = await import('../app/lib/filesystem/workspace-files');
     const {
       readCanvasSkillRegistry,
       writeCanvasSkillRegistry,
@@ -65,6 +79,40 @@ async function main() {
     });
     assert.equal(createdDraft.packagePath.startsWith('.canvas-skill-drafts/'), true);
     assert.equal(await pathExists(path.join(workspaceRoot, createdDraft.packagePath, 'SKILL.md')), true);
+    assert.deepEqual(runtimeRefreshes, [], 'draft creation must not refresh the runtime');
+
+    const siblingDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'sibling-draft-skill',
+      draftId: createdDraft.draftId,
+    });
+    const workspace = {
+      workspaceId: 'agent-skill-workspace-test',
+      workspaceType: 'personal' as const,
+      rootPath: workspaceRoot,
+      organizationId: null,
+      ownerUserId: null,
+      permissions: {
+        canRead: true,
+        canWrite: true,
+        canDelete: true,
+        canCreatePublicLinks: true,
+        canManageWorkspace: true,
+        canRunAgent: true,
+      },
+      legacy: false,
+    };
+    await fs.mkdir(path.join(workspaceRoot, '.user-hidden-folder'));
+    const workspaceOptions = { workspace };
+    const rootEntries = await listDirectory('.', workspaceOptions);
+    assert.equal(rootEntries.some((entry) => entry.name === '.canvas-skill-drafts'), false);
+    assert.equal(rootEntries.some((entry) => entry.name === '.user-hidden-folder'), true, 'other user dot-directories stay visible');
+    const packageEntries = await listDirectory(siblingDraft.draftPath, workspaceOptions);
+    assert.equal(packageEntries.some((entry) => entry.name === siblingDraft.skillName), true, 'direct package listing stays available to agent tools');
+    assert.equal((await readFile(`${siblingDraft.packagePath}/SKILL.md`, workspaceOptions)).length > 0, true);
+    const fileTree = await buildFileTree('.', 2, 0, workspaceOptions);
+    assert.equal(fileTree.some((entry) => entry.name === '.canvas-skill-drafts'), false);
 
     const install = await installCanvasSkillFromWorkspace({
       workspaceRoot,
@@ -75,7 +123,17 @@ async function main() {
     assert.equal(install.name, 'agent-draft-skill');
     assert.equal(install.version, '1.0.0');
     assert.equal(install.draftCleaned, true);
+    assert.equal(await pathExists(path.join(workspaceRoot, createdDraft.packagePath)), false);
+    assert.equal(await pathExists(path.join(workspaceRoot, siblingDraft.packagePath)), true);
+    assert.deepEqual(runtimeRefreshes, [scope.userId], 'successful install refreshes the installing user once');
+
+    const discardedDraftId = await discardCanvasSkillDraft({
+      workspaceRoot,
+      draftPath: createdDraft.draftPath,
+    });
+    assert.equal(discardedDraftId.deleted, true);
     assert.equal(await pathExists(path.join(workspaceRoot, createdDraft.draftPath)), false);
+    assert.equal(await pathExists(path.join(workspaceRoot, '.canvas-skill-drafts')), false);
 
     let registry = await readCanvasSkillRegistry(scope);
     assert.equal(registry.skills['agent-draft-skill'].version, '1.0.0');
@@ -99,20 +157,20 @@ async function main() {
     assert.equal(editDraft.expectedChecksum, inspection.checksum);
 
     const editPackageRoot = path.join(workspaceRoot, editDraft.packagePath);
-    await fs.writeFile(
-      path.join(editPackageRoot, 'agents', 'canvas.yaml'),
-      [
-        'skill:',
-        '  version: "1.1.0"',
-        'interface:',
-        '  display_name: Agent Draft Skill',
-        '',
-      ].join('\n'),
-      'utf-8',
-    );
+    await fs.rm(path.join(editPackageRoot, 'agents', 'canvas.yaml'));
     await fs.mkdir(path.join(editPackageRoot, 'scripts'), { recursive: true });
     await fs.writeFile(path.join(editPackageRoot, 'scripts', 'helper.js'), 'export const ok = true;\n', 'utf-8');
-    await fs.appendFile(path.join(editPackageRoot, 'SKILL.md'), '\nUpdated instructions.\n', 'utf-8');
+    await fs.writeFile(path.join(editPackageRoot, 'SKILL.md'), [
+      '---',
+      'name: agent-draft-skill',
+      'description: Updated personal skill.',
+      'metadata:',
+      '  version: "1.1.0"',
+      '---',
+      '',
+      '# Updated instructions',
+      '',
+    ].join('\n'), 'utf-8');
 
     await assert.rejects(
       updateCanvasSkillFromWorkspace({
@@ -126,6 +184,43 @@ async function main() {
       /Skill version changed since inspection/,
     );
     assert.equal(await pathExists(path.join(workspaceRoot, editDraft.packagePath)), true);
+    assert.deepEqual(runtimeRefreshes, [scope.userId], 'stale update must not refresh the runtime');
+
+    await fs.writeFile(path.join(editPackageRoot, 'SKILL.md'), [
+      '---',
+      'name: agent-draft-skill',
+      'description: Updated personal skill.',
+      'metadata:',
+      '  version: 1.1',
+      '---',
+      '',
+    ].join('\n'), 'utf-8');
+    await assert.rejects(
+      updateCanvasSkillFromWorkspace({
+        workspaceRoot,
+        scope,
+        skillName: 'agent-draft-skill',
+        draftPath: editDraft.packagePath,
+        expectedVersion: inspection.version || '',
+        expectedChecksum: inspection.checksum || '',
+      }),
+      /metadata: Value for key "version" must be a string/,
+    );
+    assert.equal(await pathExists(path.join(workspaceRoot, editDraft.packagePath)), true);
+    assert.equal((await readCanvasSkillRegistry(scope)).skills['agent-draft-skill'].version, '1.0.0');
+    assert.deepEqual(runtimeRefreshes, [scope.userId], 'invalid update must not refresh the runtime');
+
+    await fs.writeFile(path.join(editPackageRoot, 'SKILL.md'), [
+      '---',
+      'name: agent-draft-skill',
+      'description: Updated personal skill.',
+      'metadata:',
+      '  version: "1.1.0"',
+      '---',
+      '',
+      '# Updated instructions',
+      '',
+    ].join('\n'), 'utf-8');
 
     const update = await updateCanvasSkillFromWorkspace({
       workspaceRoot,
@@ -134,12 +229,14 @@ async function main() {
       draftPath: editDraft.packagePath,
       expectedVersion: inspection.version || '',
       expectedChecksum: inspection.checksum || '',
+      enable: false,
       updatedBy: 'agent-skill-user',
     });
     assert.equal(update.previousVersion, '1.0.0');
     assert.equal(update.version, '1.1.0');
     assert.equal(update.draftCleaned, true);
     assert.equal(await pathExists(path.join(workspaceRoot, editDraft.draftPath)), false);
+    assert.deepEqual(runtimeRefreshes, [scope.userId, scope.userId], 'successful content update refreshes once even when enable is false');
 
     registry = await readCanvasSkillRegistry(scope);
     const installed = registry.skills['agent-draft-skill'];
@@ -169,6 +266,7 @@ async function main() {
       updatedBy: 'agent-skill-user',
     });
     assert.equal(forkInstall.name, 'agent-draft-skill-fork');
+    assert.equal(await pathExists(path.join(workspaceRoot, '.canvas-skill-drafts')), false, 'successful install should remove empty draft parents');
     assert.equal(
       (await inspectCanvasSkillForAgent({ scope, skillName: 'agent-draft-skill' })).checksum,
       sourceBeforeFork.checksum,
@@ -257,6 +355,7 @@ async function main() {
       }),
       /Organization skills are read-only/,
     );
+    assert.equal(await pathExists(path.join(workspaceRoot, '.canvas-skill-drafts')), false, 'failed draft creation should remove its empty managed directories');
     const organizationForkDraft = await createCanvasSkillDraft({
       workspaceRoot,
       scope: organizationAgentScope,
@@ -273,6 +372,7 @@ async function main() {
       updatedBy: scope.userId,
     });
     assert.equal(organizationForkInstall.name, 'personal-organization-writing');
+    assert.equal(runtimeRefreshes.filter((userId) => userId === scope.userId).length, 4, 'install, update, personal fork, and organization fork refresh the same personal user');
     assert.equal(
       (await readCanvasSkillRegistry(organizationScope)).skills['organization-writing'].checksum,
       organizationChecksum,
@@ -299,6 +399,92 @@ async function main() {
     );
     assert.equal(await pathExists(path.join(workspaceRoot, secretDraft.packagePath)), true);
 
+    const retainedDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'retained-draft-skill',
+    });
+    const retainedInstall = await installCanvasSkillFromWorkspace({
+      workspaceRoot,
+      scope,
+      draftPath: retainedDraft.packagePath,
+      cleanupDraft: false,
+    });
+    assert.equal(retainedInstall.draftCleaned, false);
+    assert.equal(retainedInstall.cleanupSkippedReason, 'cleanupDraft=false');
+    assert.equal(await pathExists(path.join(workspaceRoot, retainedDraft.packagePath)), true);
+    await discardCanvasSkillDraft({ workspaceRoot, draftPath: retainedDraft.draftPath });
+
+    const cleanupFailureDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'cleanup-failure-draft',
+    });
+    const originalRm = fs.rm;
+    Object.defineProperty(fs, 'rm', {
+      configurable: true,
+      writable: true,
+      value: async (target: Parameters<typeof fs.rm>[0], ...args: Parameters<typeof fs.rm> extends [unknown, ...infer Rest] ? Rest : never) => {
+        if (String(target).startsWith(path.join(workspaceRoot, '.canvas-skill-drafts'))) {
+          throw new Error('simulated cleanup failure');
+        }
+        return originalRm.call(fs, target, ...args);
+      },
+    });
+    let cleanupFailureInstall;
+    try {
+      cleanupFailureInstall = await installCanvasSkillFromWorkspace({
+        workspaceRoot,
+        scope,
+        draftPath: cleanupFailureDraft.packagePath,
+      });
+    } finally {
+      Object.defineProperty(fs, 'rm', { configurable: true, writable: true, value: originalRm });
+    }
+    assert.equal(cleanupFailureInstall?.success, true, 'a cleanup failure must not turn a committed install into a failure');
+    assert.equal(cleanupFailureInstall?.draftCleaned, false);
+    assert.match(cleanupFailureInstall?.cleanupSkippedReason || '', /simulated cleanup failure/);
+    assert.equal(await pathExists(path.join(workspaceRoot, cleanupFailureDraft.packagePath)), true);
+    await discardCanvasSkillDraft({ workspaceRoot, draftPath: cleanupFailureDraft.draftPath });
+
+    const authoredPackage = path.join(workspaceRoot, 'authored-skill-package');
+    failNextRuntimeRefresh = true;
+    await fs.mkdir(path.join(authoredPackage, 'agents'), { recursive: true });
+    await fs.rm(path.join(authoredPackage, 'agents'), { recursive: true, force: true });
+    await fs.writeFile(path.join(authoredPackage, 'SKILL.md'), '---\nname: authored-skill-package\ndescription: Authored package.\nmetadata:\n  version: "1.0.0"\n---\n\n# Authored\n', 'utf-8');
+    await fs.mkdir(path.join(authoredPackage, 'resources'));
+    await fs.writeFile(path.join(authoredPackage, 'resources', 'reference.txt'), 'Preserved full package resources.\n', 'utf-8');
+    const authoredInstall = await installCanvasSkillFromWorkspace({
+      workspaceRoot,
+      scope,
+      draftPath: 'authored-skill-package',
+    });
+    assert.equal(authoredInstall.draftCleaned, false);
+    assert.match(authoredInstall.cleanupSkippedReason || '', /not under \.canvas-skill-drafts/);
+    assert.equal(await pathExists(authoredPackage), true, 'arbitrary workspace package folders must be preserved');
+    const authoredRecord = (await readCanvasSkillRegistry(scope)).skills['authored-skill-package'];
+    assert.equal(authoredRecord.version, '1.0.0', 'SKILL.md metadata.version is sufficient without agents/canvas.yaml');
+    assert.equal(await fs.readFile(path.join(path.dirname(authoredRecord.skillPath), 'resources', 'reference.txt'), 'utf-8'), 'Preserved full package resources.\n');
+    assert.equal(runtimeRefreshes.at(-1), scope.userId);
+
+    const invalidDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'invalid-draft-skill',
+      version: '1.0.0',
+    });
+    await fs.writeFile(
+      path.join(workspaceRoot, invalidDraft.packagePath, 'SKILL.md'),
+      '---\ndescription: Missing skill name.\nmetadata:\n  version: "1.0.0"\n---\n',
+      'utf-8',
+    );
+    await assert.rejects(
+      installCanvasSkillFromWorkspace({ workspaceRoot, scope, draftPath: invalidDraft.packagePath }),
+      /Missing required field: name/,
+    );
+    assert.equal(await pathExists(path.join(workspaceRoot, invalidDraft.packagePath)), true, 'failed validation must retain the draft');
+    assert.equal((await readCanvasSkillRegistry(scope)).skills['invalid-draft-skill'], undefined);
+
     const discardDraft = await createCanvasSkillDraft({
       workspaceRoot,
       scope,
@@ -312,6 +498,10 @@ async function main() {
     });
     assert.equal(discard.deleted, true);
     assert.equal(await pathExists(path.join(workspaceRoot, discardDraft.draftPath)), false);
+    const refreshesBeforeDiscard = runtimeRefreshes.length;
+    assert.equal(runtimeRefreshes.length, 7, 'only committed installs and updates refresh the runtime');
+    await discardCanvasSkillDraft({ workspaceRoot, draftPath: invalidDraft.draftPath });
+    assert.equal(runtimeRefreshes.length, refreshesBeforeDiscard, 'discarding a draft must not refresh the runtime');
 
     const symlinkDraft = await createCanvasSkillDraft({
       workspaceRoot,

@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lte, ne, notInArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
+import { auditEvents, automationJobs, automationJobState, automationJobStateMutations, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
 import {
   DEFAULT_MANAGED_AGENT_ID,
   readLegacyHeartbeatInstructions,
@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/agents/storage';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { requireActiveWorkspaceMailboxForAutomation } from '@/app/lib/email/account-store';
 
 import { assertAutomationChatTarget, AutomationChatTargetError } from './chat-targets';
@@ -18,6 +19,7 @@ import { inlineLegacyAutomationPaths } from './legacy-paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
 import { AutomationMutationError } from './mutation-errors';
+import { NO_ACTION_TOKEN } from './result-policy';
 import {
   assertCanAccessAutomationJob,
   assertEmailAutomationAgentCompatible,
@@ -39,6 +41,7 @@ import {
   type AutomationRunRecord,
   type AutomationRunStatus,
   type AutomationResultPolicy,
+  type AutomationContinuityMode,
   type AutomationScope,
   type AutomationWorkspaceType,
   type CreateCustomWebhookAutomationJobInput,
@@ -56,12 +59,16 @@ export const SCHEDULED_RUN_MISFIRE_GRACE_MS = 90_000;
 const DEFAULT_DELIVERY_MODE: AutomationDeliveryMode = 'web';
 const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_session';
 const DEFAULT_AUTOMATION_RESULT_POLICY: AutomationResultPolicy = 'deliver_all';
+const DEFAULT_AUTOMATION_CONTINUITY_MODE: AutomationContinuityMode = 'off';
 const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'last_active', 'silent']);
 const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_session', 'channel_active', 'fixed_session']);
 const AUTOMATION_JOB_TRIGGER_KINDS = new Set<AutomationJobTriggerKind>(['schedule', 'event', 'webhook', 'manual']);
 const AUTOMATION_RESULT_POLICIES = new Set<AutomationResultPolicy>(['deliver_all', 'deliver_relevant_only', 'record_only']);
+const AUTOMATION_CONTINUITY_MODES = new Set<AutomationContinuityMode>(['off', 'last_relevant']);
 const AUTOMATION_RUN_RESULT_PREVIEW_LENGTH = 1000;
 const AUTOMATION_RUN_LOG_MAX_JSON_LENGTH = 250_000;
+const LEGACY_HEARTBEAT_NO_UPDATES_TEXT = 'Heartbeat completed without relevant updates.';
+const LEGACY_HEARTBEAT_ACKNOWLEDGEMENT = 'HEARTBEAT_OK';
 
 type AutomationRunCreateOptions = {
   metadataJson?: Record<string, unknown>;
@@ -71,6 +78,20 @@ type AutomationRunCreateOptions = {
 export type AutomationStoreTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type AutomationJobRow = typeof automationJobs.$inferSelect;
 type AutomationRunRow = typeof automationRuns.$inferSelect;
+type AutomationSourceScope = Pick<AutomationJobRow, 'id' | 'scope' | 'organizationId' | 'workspaceId' | 'workspaceType' | 'ownerUserId' | 'createdByUserId' | 'responsibleUserId' | 'deletedAt'>;
+export type AutomationSourceReference = {
+  sourceJobId: string;
+  sourceRunId: string | null;
+  reason: string | null;
+};
+type AutomationSourcePin = { version: 1; selectedAt: string; sources: AutomationSourceReference[] };
+export type AutomationContinuityReference = {
+  version: 1;
+  mode: AutomationContinuityMode;
+  sourceRunId: string | null;
+  selectedAt: string;
+  reason: string | null;
+};
 export type AutomationRunTransitionExpectation = {
   status: AutomationRunStatus;
   attemptNumber: number;
@@ -240,6 +261,160 @@ function mergeAutomationRunMetadata(current: AutomationRunRow, metadataJson: Rec
   });
 }
 
+function readAutomationContinuityReference(metadataJson: string | null): AutomationContinuityReference | null {
+  if (!metadataJson) return null;
+  const value = (JSON.parse(metadataJson) as Record<string, unknown>).automationContinuity;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1 || (record.mode !== 'off' && record.mode !== 'last_relevant')) return null;
+  if (record.sourceRunId !== null && typeof record.sourceRunId !== 'string') return null;
+  if (typeof record.selectedAt !== 'string') return null;
+  return {
+    version: 1,
+    mode: record.mode,
+    sourceRunId: record.sourceRunId,
+    selectedAt: record.selectedAt,
+    reason: typeof record.reason === 'string' ? record.reason : null,
+  };
+}
+
+function normalizeAutomationSourceJobIds(value: unknown): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > 3 || value.some((id) => typeof id !== 'string' || !id.trim() || id !== id.trim() || id.length > 200)) {
+    throw new AutomationMutationError('Automation source jobs must be a list of at most three job IDs.', 400, 'INVALID_AUTOMATION_SOURCES');
+  }
+  if (new Set(value).size !== value.length) {
+    throw new AutomationMutationError('Automation source jobs must be unique.', 400, 'INVALID_AUTOMATION_SOURCES');
+  }
+  return value as string[];
+}
+
+function readStoredSourceJobIds(value: string): string[] {
+  try {
+    return normalizeAutomationSourceJobIds(JSON.parse(value));
+  } catch {
+    console.warn('[Automationen] Ignoring invalid stored source job IDs.');
+    return [];
+  }
+}
+
+function readAutomationSourcePin(metadataJson: string | null): AutomationSourcePin | null {
+  if (!metadataJson) return null;
+  const value = (JSON.parse(metadataJson) as Record<string, unknown>).automationSources;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const pin = value as Record<string, unknown>;
+  if (pin.version !== 1 || typeof pin.selectedAt !== 'string' || !Array.isArray(pin.sources)) return null;
+  if (pin.sources.some((item) => !item || typeof item !== 'object' || Array.isArray(item)
+    || typeof item.sourceJobId !== 'string'
+    || (item.sourceRunId !== null && typeof item.sourceRunId !== 'string')
+    || (item.reason !== null && typeof item.reason !== 'string'))) return null;
+  return pin as AutomationSourcePin;
+}
+
+function sameAutomationSourceScope(target: AutomationSourceScope, source: AutomationSourceScope): boolean {
+  return target.scope === source.scope
+    && target.organizationId === source.organizationId
+    && target.workspaceId === source.workspaceId
+    && target.workspaceType === source.workspaceType
+    && (target.scope !== 'personal'
+      || (target.ownerUserId || target.createdByUserId) === (source.ownerUserId || source.createdByUserId));
+}
+
+async function canReadAutomationSource(userId: string, source: AutomationJobRow): Promise<boolean> {
+  if (!(await canAccessAutomationJob(userId, source)) || !source.workspaceId) return false;
+  try {
+    await resolveAgentSessionWorkspaceForUser({
+      userId,
+      workspaceId: source.workspaceId,
+      permissions: ['canRead'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function lockAutomationSourceGraph(tx: AutomationStoreTransaction): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(648934821)`);
+}
+
+async function assertAutomationSourceConfiguration(input: {
+  tx: AutomationStoreTransaction;
+  target: AutomationSourceScope;
+  sourceJobIds: string[];
+  actorUserId: string;
+}): Promise<void> {
+  const executorId = input.target.responsibleUserId || input.target.ownerUserId || input.target.createdByUserId;
+  const visited = new Set<string>();
+  const reachesTarget = async (jobId: string): Promise<boolean> => {
+    if (jobId === input.target.id) return true;
+    if (visited.has(jobId)) return false;
+    visited.add(jobId);
+    const [row] = await input.tx.select().from(automationJobs).where(eq(automationJobs.id, jobId)).limit(1);
+    if (!row) return false;
+    for (const next of readStoredSourceJobIds(row.sourceJobIdsJson)) {
+      if (await reachesTarget(next)) return true;
+    }
+    return false;
+  };
+  for (const id of input.sourceJobIds) {
+    if (id === input.target.id || await reachesTarget(id)) {
+      throw new AutomationMutationError('Automation source jobs cannot contain a cycle or self-reference.', 400, 'AUTOMATION_SOURCE_CYCLE');
+    }
+    const [source] = await input.tx.select().from(automationJobs).where(eq(automationJobs.id, id)).limit(1);
+    if (!source || source.deletedAt || source.status !== 'active' || source.integrityStatus !== 'valid'
+      || !sameAutomationSourceScope(input.target, source)
+      || !(await canReadAutomationSource(input.actorUserId, source))
+      || !(await canReadAutomationSource(executorId, source))) {
+      throw new AutomationMutationError('Automation source job is unavailable or not accessible in this workspace.', 404, 'AUTOMATION_SOURCE_UNAVAILABLE');
+    }
+  }
+}
+
+async function removeIncomingAutomationSourceEdges(tx: AutomationStoreTransaction, sourceJobId: string): Promise<void> {
+  const rows = await tx.select({
+    id: automationJobs.id,
+    sourceJobIdsJson: automationJobs.sourceJobIdsJson,
+  }).from(automationJobs).where(sql`${automationJobs.sourceJobIdsJson}::jsonb ? ${sourceJobId}`);
+  for (const row of rows) {
+    const next = readStoredSourceJobIds(row.sourceJobIdsJson).filter((id) => id !== sourceJobId);
+    await tx.update(automationJobs).set({
+      sourceJobIdsJson: JSON.stringify(next),
+      revision: sql`${automationJobs.revision} + 1`,
+      updatedAt: new Date(),
+    }).where(eq(automationJobs.id, row.id));
+  }
+}
+
+function sameAutomationRunWorkspace(
+  source: Pick<AutomationRunRow, 'jobScope' | 'scope' | 'organizationId' | 'workspaceId' | 'workspaceType'>,
+  target: Pick<AutomationRunRow, 'jobScope' | 'scope' | 'organizationId' | 'workspaceId' | 'workspaceType'>,
+): boolean {
+  return source.jobScope === target.jobScope
+    && source.scope === target.scope
+    && source.organizationId === target.organizationId
+    && source.workspaceId === target.workspaceId
+    && source.workspaceType === target.workspaceType;
+}
+
+function isRelevantAutomationResult(row: Pick<AutomationRunRow, 'status' | 'finishedAt' | 'resultText' | 'metadataJson'>): boolean {
+  const text = row.resultText?.trim();
+  if (row.status !== 'success' || !row.finishedAt || !text
+    || text === NO_ACTION_TOKEN || text === LEGACY_HEARTBEAT_ACKNOWLEDGEMENT
+    || text === LEGACY_HEARTBEAT_NO_UPDATES_TEXT) return false;
+  const metadata = row.metadataJson ? JSON.parse(row.metadataJson) as Record<string, unknown> : null;
+  const automation = metadata?.automation;
+  const outcome = automation && typeof automation === 'object' && !Array.isArray(automation)
+    ? (automation as Record<string, unknown>).outcome
+    : null;
+  const heartbeat = metadata?.heartbeat;
+  const legacyHeartbeat = heartbeat && typeof heartbeat === 'object' && !Array.isArray(heartbeat)
+    ? heartbeat as Record<string, unknown>
+    : null;
+  if (legacyHeartbeat?.outcome === 'no_updates' || legacyHeartbeat?.deliverySuppressed === true) return false;
+  return outcome === null || outcome === undefined || outcome === 'message';
+}
+
 function stripLeadingPathDecorators(value: string): string {
   let next = value;
   while (next.startsWith('/')) {
@@ -386,6 +561,15 @@ function normalizeAutomationResultPolicy(value: unknown): AutomationResultPolicy
     throw new Error('Automation result policy is invalid.');
   }
   return normalized as AutomationResultPolicy;
+}
+
+function normalizeAutomationContinuityMode(value: unknown): AutomationContinuityMode {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return DEFAULT_AUTOMATION_CONTINUITY_MODE;
+  if (!AUTOMATION_CONTINUITY_MODES.has(normalized as AutomationContinuityMode)) {
+    throw new Error('Automation continuity mode is invalid.');
+  }
+  return normalized as AutomationContinuityMode;
 }
 
 function normalizeWorkspaceContextPaths(value: unknown): string[] {
@@ -554,6 +738,8 @@ function mapJobRow(
     jobType: (row.jobType as AutomationJobType) || 'default',
     triggerKind: normalizeAutomationJobTriggerKind(row.triggerKind, row.scheduleKind === 'webhook' ? 'webhook' : 'schedule'),
     resultPolicy: normalizeAutomationResultPolicy(row.resultPolicy),
+    continuityMode: normalizeAutomationContinuityMode(row.continuityMode),
+    sourceJobIds: readStoredSourceJobIds(row.sourceJobIdsJson),
     eventConfig: parseOptionalJsonObject(row.eventConfigJson),
     channelId: row.channelId ?? null,
     composioTriggerId: row.composioTriggerId ?? null,
@@ -810,6 +996,61 @@ export async function listAutomationRuns(jobId: string): Promise<AutomationRunRe
   return mapRunRows(rows);
 }
 
+export type AutomationScheduleSkipDiagnostic = {
+  kind: 'schedule_misfire';
+  scheduledFor: string;
+  observedAt: string;
+  nextRunAt: string | null;
+  reason: 'scheduler_downtime';
+};
+
+/** Missed ticks are diagnostics, not runs: they never entered the execution queue. */
+export async function listAutomationScheduleSkipDiagnostics(
+  authorizedJob: Pick<AutomationJobRecord, 'id' | 'scope' | 'jobScope' | 'organizationId' | 'workspaceId'
+    | 'workspaceType' | 'ownerUserId' | 'createdByUserId'>,
+): Promise<AutomationScheduleSkipDiagnostic[]> {
+  return db.transaction(async (tx) => {
+    const [job] = await tx.select().from(automationJobs)
+      .where(eq(automationJobs.id, authorizedJob.id)).limit(1).for('update');
+    if (!job || job.deletedAt || job.scope !== authorizedJob.scope
+      || resolveStoredJobScope(job) !== authorizedJob.jobScope
+      || job.organizationId !== authorizedJob.organizationId
+      || job.workspaceId !== authorizedJob.workspaceId
+      || job.workspaceType !== authorizedJob.workspaceType
+      || job.ownerUserId !== authorizedJob.ownerUserId
+      || job.createdByUserId !== authorizedJob.createdByUserId) return [];
+    const rows = await tx.select({ createdAt: auditEvents.createdAt, metadataJson: auditEvents.metadataJson })
+      .from(auditEvents)
+      .where(and(
+        eq(auditEvents.source, 'automations'),
+        eq(auditEvents.entityType, 'automation_job'),
+        eq(auditEvents.entityId, job.id),
+        eq(auditEvents.action, 'schedule_misfire'),
+        sql`${auditEvents.organizationId} IS NOT DISTINCT FROM ${job.organizationId}`,
+        sql`${auditEvents.workspaceId} IS NOT DISTINCT FROM ${job.workspaceId}`,
+        ...(job.contextCutoffAt ? [gt(auditEvents.createdAt, job.contextCutoffAt)] : []),
+      ))
+      .orderBy(desc(auditEvents.createdAt), desc(auditEvents.id))
+      .limit(100);
+    return rows.flatMap((row): AutomationScheduleSkipDiagnostic[] => {
+      if (!row.metadataJson) return [];
+      try {
+        const metadata = JSON.parse(row.metadataJson) as Record<string, unknown>;
+        if (metadata.jobScope !== resolveStoredJobScope(job)
+          || metadata.workspaceType !== job.workspaceType
+          || metadata.reason !== 'scheduler_downtime'
+          || typeof metadata.scheduledFor !== 'string'
+          || (metadata.nextRunAt !== null && typeof metadata.nextRunAt !== 'string')) return [];
+        return [{ kind: 'schedule_misfire', scheduledFor: metadata.scheduledFor,
+          observedAt: row.createdAt.toISOString(), nextRunAt: metadata.nextRunAt,
+          reason: 'scheduler_downtime' }];
+      } catch {
+        return [];
+      }
+    });
+  });
+}
+
 export async function getAutomationRun(runId: string): Promise<AutomationRunRecord | null> {
   const [row] = await db
     .select({
@@ -910,6 +1151,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
   const resultPolicy = normalizeAutomationResultPolicy(input.resultPolicy);
+  const sourceJobIds = normalizeAutomationSourceJobIds(input.sourceJobIds);
   const triggerKind = normalizeAutomationJobTriggerKind(input.triggerKind, 'schedule');
   const preferredTimeZone = await getServerPreferredTimeZone();
   const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(input.schedule, preferredTimeZone));
@@ -947,7 +1189,12 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   const nextRunAt = input.status === 'paused' || triggerKind !== 'schedule' ? null : computeNextRunAt(schedule, { from: now });
   const id = `job-${randomUUID()}`;
 
-  const [inserted] = await db
+  const inserted = await runAutomationTransaction(async (tx) => {
+    if (sourceJobIds.length) {
+      await lockAutomationSourceGraph(tx);
+      await assertAutomationSourceConfiguration({ tx, target: { id, ...automationScope, createdByUserId: userId, deletedAt: null }, sourceJobIds, actorUserId: userId });
+    }
+    const [created] = await tx
     .insert(automationJobs)
     .values({
       id,
@@ -985,11 +1232,15 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
       triggerKind,
       resultPolicy,
+      continuityMode: normalizeAutomationContinuityMode(input.continuityMode),
+      sourceJobIdsJson: JSON.stringify(sourceJobIds),
       eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
       createdAt: now,
       updatedAt: now,
     })
     .returning();
+    return created;
+  });
 
   console.log(`[Automationen] Created job "${name}" (${id}, scope=${automationScope.scope}, workspace=${automationScope.workspaceId ?? 'legacy'}, schedule=${schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
   return mapJobRow(inserted, null);
@@ -1008,6 +1259,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const agentId = normalizeAgentId(input.agentId);
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
+  const sourceJobIds = normalizeAutomationSourceJobIds(input.sourceJobIds);
   const composioTriggerId = normalizeString(input.composioTriggerId, 'Composio trigger ID', 500);
   const composioTriggerSlug = normalizeString(input.composioTriggerSlug, 'Composio trigger slug', 500);
   const composioToolkitSlug = normalizeString(input.composioToolkitSlug, 'Composio toolkit slug', 120);
@@ -1029,7 +1281,12 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
     timeZone: preferredTimeZone,
   };
 
-  const [inserted] = await db
+  const inserted = await runAutomationTransaction(async (tx) => {
+    if (sourceJobIds.length) {
+      await lockAutomationSourceGraph(tx);
+      await assertAutomationSourceConfiguration({ tx, target: { id, ...automationScope, createdByUserId: userId, deletedAt: null }, sourceJobIds, actorUserId: userId });
+    }
+    const [created] = await tx
     .insert(automationJobs)
     .values({
       id,
@@ -1067,6 +1324,8 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
       triggerKind: 'webhook',
       resultPolicy: 'deliver_all',
+      continuityMode: normalizeAutomationContinuityMode(input.continuityMode),
+      sourceJobIdsJson: JSON.stringify(sourceJobIds),
       createdAt: now,
       updatedAt: now,
       jobType: 'webhook',
@@ -1079,6 +1338,8 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       webhookTriggerConfigJson: JSON.stringify(input.webhookTriggerConfig || {}),
     })
     .returning();
+    return created;
+  });
 
   console.log(`[Automationen] Created webhook job "${name}" (${id}, scope=${automationScope.scope}, workspace=${automationScope.workspaceId ?? 'legacy'}, trigger=${composioTriggerId})`);
   return mapJobRow(inserted, null);
@@ -1100,6 +1361,7 @@ export async function createCustomWebhookAutomationJob(
   const agentId = normalizeAgentId(input.agentId);
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
+  const sourceJobIds = normalizeAutomationSourceJobIds(input.sourceJobIds);
   const now = new Date();
   const id = `job-${randomUUID()}`;
   const webhookId = generateAutomationWebhookId();
@@ -1153,6 +1415,8 @@ export async function createCustomWebhookAutomationJob(
     deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
     triggerKind: 'webhook',
     resultPolicy: 'deliver_all',
+    continuityMode: normalizeAutomationContinuityMode(input.continuityMode),
+    sourceJobIdsJson: JSON.stringify(sourceJobIds),
     createdAt: now,
     updatedAt: now,
     jobType: 'webhook',
@@ -1178,6 +1442,10 @@ export async function createCustomWebhookAutomationJob(
   };
 
   return runAutomationTransaction(async (tx) => {
+      if (sourceJobIds.length) {
+        await lockAutomationSourceGraph(tx);
+        await assertAutomationSourceConfiguration({ tx, target: { id, ...automationScope, createdByUserId: userId, deletedAt: null }, sourceJobIds, actorUserId: userId });
+      }
       const [insertedJob] = await tx
         .insert(automationJobs)
         .values(jobValues)
@@ -1211,6 +1479,12 @@ export async function updateAutomationJob(
 
   const current = await mapJobRowWithWebhookTrigger(existing);
   await options.authorize?.(current);
+  const sourceJobIds = input.sourceJobIds === undefined
+    ? readStoredSourceJobIds(existing.sourceJobIdsJson)
+    : normalizeAutomationSourceJobIds(input.sourceJobIds);
+  if (input.sourceJobIds !== undefined && !options.actorUserId) {
+    throw new Error('Changing automation source jobs requires a user actor.');
+  }
   if ((options.expectedRevision !== undefined && options.expectedRevision !== existing.revision)
     || (options.expectedUpdatedAt !== undefined && options.expectedUpdatedAt !== current.updatedAt)) {
     throw new AutomationMutationError('Automation changed. Reload its current state before trying again.', 409, 'AUTOMATION_REVISION_CONFLICT');
@@ -1266,6 +1540,7 @@ export async function updateAutomationJob(
     : computeNextScheduledRunAt({ ...existing, status, triggerKind, scheduleConfigJson: JSON.stringify(schedule) }, scheduleNow);
 
   return runAutomationTransaction(async (tx) => {
+    if (input.sourceJobIds !== undefined) await lockAutomationSourceGraph(tx);
     const locked = await getAutomationJobRowAsync(tx, jobId);
     if (!locked) return null;
     // Fence every prepared update, including legacy callers without a revision.
@@ -1274,6 +1549,11 @@ export async function updateAutomationJob(
     }
     if (options.skipUnchangedStatus && input.status === existing.status
       && Object.entries(input).every(([key, value]) => key === 'status' || value === undefined)) return current;
+    if (input.sourceJobIds !== undefined) {
+      await assertAutomationSourceConfiguration({
+        tx, target: locked, sourceJobIds, actorUserId: options.actorUserId!,
+      });
+    }
     const updatedAt = new Date();
     const [updated] = await tx
       .update(automationJobs)
@@ -1308,6 +1588,10 @@ export async function updateAutomationJob(
         resultPolicy: input.resultPolicy === undefined
           ? normalizeAutomationResultPolicy(existing.resultPolicy)
           : normalizeAutomationResultPolicy(input.resultPolicy),
+        continuityMode: input.continuityMode === undefined
+          ? normalizeAutomationContinuityMode(existing.continuityMode)
+          : normalizeAutomationContinuityMode(input.continuityMode),
+        ...(input.sourceJobIds === undefined ? {} : { sourceJobIdsJson: JSON.stringify(sourceJobIds) }),
         triggerKind,
         eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
         status,
@@ -1370,6 +1654,7 @@ export async function moveAutomationJobToWorkspace(
 ): Promise<AutomationJobRecord> {
   const targetWorkspaceId = target.workspaceId || target.workspace.workspaceId;
   const updated = await runAutomationTransaction(async (tx) => {
+      await lockAutomationSourceGraph(tx);
       const existing = await getAutomationJobRowAsync(tx, jobId);
       if (!existing) throw new Error('Automation job not found.');
       if (existing.workspaceId === targetWorkspaceId) {
@@ -1413,11 +1698,18 @@ export async function moveAutomationJobToWorkspace(
           preferredSkill: options.resetPreferredSkill ? 'auto' : existing.preferredSkill,
           deliverySessionMode: options.resetFixedDeliverySession ? 'new_session' : existing.deliverySessionMode,
           deliverySessionId: options.resetFixedDeliverySession ? null : existing.deliverySessionId,
+          sourceJobIdsJson: '[]',
+          contextCutoffAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(automationJobs.id, jobId))
         .returning();
       if (!next) throw new Error('Automation job not found.');
+      // State belongs to the old workspace scope. Remove it in the same
+      // transaction so moving A -> B -> A cannot resurrect old keys.
+      await tx.delete(automationJobStateMutations).where(eq(automationJobStateMutations.jobId, jobId));
+      await tx.delete(automationJobState).where(eq(automationJobState.jobId, jobId));
+      await removeIncomingAutomationSourceEdges(tx, jobId);
       return next;
     });
 
@@ -1908,10 +2200,31 @@ export async function claimDueScheduledAutomationJobRun(
     const overdueBy = now.getTime() - scheduledFor.getTime();
     const nextRunAt = computeNextScheduledRunAt(job, now, overdueBy <= SCHEDULED_RUN_MISFIRE_GRACE_MS ? scheduledFor : now);
     if (overdueBy > SCHEDULED_RUN_MISFIRE_GRACE_MS) {
-      await tx
+      const [advanced] = await tx
         .update(automationJobs)
         .set({ nextRunAt, updatedAt: now })
-        .where(and(eq(automationJobs.id, jobId), eq(automationJobs.nextRunAt, scheduledFor)));
+        .where(and(eq(automationJobs.id, jobId), eq(automationJobs.nextRunAt, scheduledFor)))
+        .returning({ id: automationJobs.id });
+      if (advanced) {
+        await tx.insert(auditEvents).values({
+          id: `audit-${randomUUID()}`,
+          organizationId: job.organizationId,
+          workspaceId: job.workspaceId,
+          source: 'automations',
+          eventType: 'automation',
+          entityType: 'automation_job',
+          entityId: jobId,
+          action: 'schedule_misfire',
+          status: 'completed',
+          summary: 'Scheduled automation occurrence skipped after scheduler downtime.',
+          metadataJson: JSON.stringify({
+            jobScope: resolveStoredJobScope(job), workspaceType: job.workspaceType,
+            scheduledFor: scheduledFor.toISOString(), nextRunAt: nextRunAt?.toISOString() ?? null,
+            reason: 'scheduler_downtime',
+          }),
+          createdAt: now,
+        });
+      }
       return null;
     }
 
@@ -1968,6 +2281,89 @@ export async function markAutomationRunStarted(
     if (!run) return null;
     const job = await getAutomationJobRowAsync(tx, run.jobId);
     if (!job || !isAutomationJobExecutable(job)) return null;
+    let continuity = readAutomationContinuityReference(run.metadataJson);
+    if (!continuity) {
+      const mode = normalizeAutomationContinuityMode(job.continuityMode);
+      let sourceRunId: string | null = null;
+      let reason: string | null = mode === 'off' ? 'disabled' : 'no_relevant_run';
+      if (mode === 'last_relevant' && run.jobScope === resolveStoredJobScope(job)) {
+        const [source] = await tx
+          .select({ id: automationRuns.id })
+          .from(automationRuns)
+          .where(and(
+            eq(automationRuns.jobId, run.jobId),
+            ne(automationRuns.id, run.id),
+            eq(automationRuns.status, 'success'),
+            eq(automationRuns.jobScope, run.jobScope),
+            eq(automationRuns.scope, run.scope),
+            sql`${automationRuns.organizationId} IS NOT DISTINCT FROM ${run.organizationId}`,
+            sql`${automationRuns.workspaceId} IS NOT DISTINCT FROM ${run.workspaceId}`,
+            eq(automationRuns.workspaceType, run.workspaceType),
+            sql`${automationRuns.finishedAt} IS NOT NULL`,
+            ...(job.contextCutoffAt ? [gt(automationRuns.createdAt, job.contextCutoffAt)] : []),
+            sql`NULLIF(BTRIM(${automationRuns.resultText}), '') IS NOT NULL`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${NO_ACTION_TOKEN}`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${LEGACY_HEARTBEAT_ACKNOWLEDGEMENT}`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${LEGACY_HEARTBEAT_NO_UPDATES_TEXT}`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{automation,outcome}', 'message') = 'message'`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{heartbeat,outcome}', '') <> 'no_updates'`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{heartbeat,deliverySuppressed}', 'false') <> 'true'`,
+          ))
+          .orderBy(desc(automationRuns.finishedAt), desc(automationRuns.id))
+          .limit(1);
+        sourceRunId = source?.id ?? null;
+        reason = sourceRunId ? null : 'no_relevant_run';
+      } else if (mode === 'last_relevant') {
+        reason = 'scope_changed';
+      }
+      continuity = {
+        version: 1,
+        mode,
+        sourceRunId,
+        selectedAt: new Date().toISOString(),
+        reason,
+      };
+    }
+    let sourcesPin = readAutomationSourcePin(run.metadataJson);
+    if (!sourcesPin) {
+      const actorUserId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+      const sources: AutomationSourceReference[] = [];
+      for (const sourceJobId of readStoredSourceJobIds(job.sourceJobIdsJson)) {
+        const [sourceJob] = await tx.select().from(automationJobs).where(eq(automationJobs.id, sourceJobId)).limit(1);
+        let reason: string | null = null;
+        let sourceRunId: string | null = null;
+        if (!sourceJob || sourceJob.deletedAt) reason = 'source_missing';
+        else if (!sameAutomationSourceScope(job, sourceJob)
+          || run.workspaceId !== job.workspaceId || run.organizationId !== job.organizationId
+          || run.workspaceType !== job.workspaceType || run.scope !== job.scope) reason = 'source_scope_changed';
+        else if (sourceJob.status !== 'active' || sourceJob.integrityStatus !== 'valid') reason = 'source_unavailable';
+        else if (!(await canReadAutomationSource(actorUserId, sourceJob))) reason = 'source_access_denied';
+        else {
+          const [sourceRun] = await tx.select({ id: automationRuns.id }).from(automationRuns).where(and(
+            eq(automationRuns.jobId, sourceJobId),
+            eq(automationRuns.status, 'success'),
+            eq(automationRuns.jobScope, resolveStoredJobScope(sourceJob)),
+            eq(automationRuns.scope, run.scope),
+            sql`${automationRuns.organizationId} IS NOT DISTINCT FROM ${run.organizationId}`,
+            sql`${automationRuns.workspaceId} IS NOT DISTINCT FROM ${run.workspaceId}`,
+            eq(automationRuns.workspaceType, run.workspaceType),
+            sql`${automationRuns.finishedAt} IS NOT NULL`,
+            ...(sourceJob.contextCutoffAt ? [gt(automationRuns.createdAt, sourceJob.contextCutoffAt)] : []),
+            sql`NULLIF(BTRIM(${automationRuns.resultText}), '') IS NOT NULL`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${NO_ACTION_TOKEN}`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${LEGACY_HEARTBEAT_ACKNOWLEDGEMENT}`,
+            sql`BTRIM(${automationRuns.resultText}) <> ${LEGACY_HEARTBEAT_NO_UPDATES_TEXT}`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{automation,outcome}', 'message') = 'message'`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{heartbeat,outcome}', '') <> 'no_updates'`,
+            sql`COALESCE(${automationRuns.metadataJson}::jsonb #>> '{heartbeat,deliverySuppressed}', 'false') <> 'true'`,
+          )).orderBy(desc(automationRuns.finishedAt), desc(automationRuns.id)).limit(1);
+          sourceRunId = sourceRun?.id ?? null;
+          if (!sourceRunId) reason = 'no_relevant_run';
+        }
+        sources.push({ sourceJobId, sourceRunId, reason });
+      }
+      sourcesPin = { version: 1, selectedAt: new Date().toISOString(), sources };
+    }
     const [started] = await tx
       .update(automationRuns)
       .set({
@@ -1983,6 +2379,10 @@ export async function markAutomationRunStarted(
         piSessionId: values.piSessionId,
         resultText: null,
         eventsLog: JSON.stringify(values.eventsLog),
+        metadataJson: mergeAutomationRunMetadata(run, {
+          automationContinuity: continuity,
+          ...(sourcesPin ? { automationSources: sourcesPin } : {}),
+        }),
       })
       .where(
         and(
@@ -2002,6 +2402,152 @@ export async function markAutomationRunStarted(
   }
 
   return updated ? mapRunRow(updated, null) : null;
+}
+
+export type AutomationPreviousRelevantResult = {
+  sourceRunId: string | null;
+  finishedAt: string | null;
+  piSessionId: string | null;
+  resultText: string | null;
+  reason: string | null;
+};
+
+export type AutomationSourceResult = {
+  sourceJobId: string;
+  sourceJobName: string | null;
+  sourceRunId: string | null;
+  finishedAt: string | null;
+  piSessionId: string | null;
+  resultText: string | null;
+  reason: string | null;
+};
+
+export async function getAutomationSourceResults(input: {
+  runId: string;
+  jobId: string;
+  actorUserId: string;
+  workspaceId: string;
+  workspaceType: string;
+  organizationId: string | null;
+}): Promise<AutomationSourceResult[]> {
+  const [run, target] = await Promise.all([
+    db.query.automationRuns.findFirst({ where: eq(automationRuns.id, input.runId) }),
+    db.query.automationJobs.findFirst({ where: eq(automationJobs.id, input.jobId) }),
+  ]);
+  if (!run || !target || run.jobId !== target.id) return [];
+  const pin = readAutomationSourcePin(run.metadataJson);
+  if (!pin) return [];
+  const configured = new Set(readStoredSourceJobIds(target.sourceJobIdsJson));
+  const targetInScope = run.workspaceId === input.workspaceId && target.workspaceId === input.workspaceId
+    && run.workspaceType === input.workspaceType && target.workspaceType === input.workspaceType
+    && run.organizationId === input.organizationId && target.organizationId === input.organizationId
+    && run.scope === target.scope && run.jobScope === resolveStoredJobScope(target)
+    && input.actorUserId === (target.responsibleUserId || target.ownerUserId || target.createdByUserId);
+  const results: AutomationSourceResult[] = [];
+  for (const ref of pin.sources) {
+    const result: AutomationSourceResult = {
+      sourceJobId: ref.sourceJobId, sourceJobName: null, sourceRunId: ref.sourceRunId,
+      finishedAt: null, piSessionId: null, resultText: null, reason: ref.reason,
+    };
+    if (!targetInScope) result.reason = 'target_scope_changed';
+    else if (!configured.has(ref.sourceJobId)) result.reason = 'source_unconfigured';
+    else {
+      const sourceJob = await db.query.automationJobs.findFirst({ where: eq(automationJobs.id, ref.sourceJobId) });
+      if (!sourceJob || sourceJob.deletedAt) result.reason = 'source_missing';
+      else if (!sameAutomationSourceScope(target, sourceJob)) result.reason = 'source_scope_changed';
+      else if (sourceJob.status !== 'active' || sourceJob.integrityStatus !== 'valid') result.reason = 'source_unavailable';
+      else if (!(await canReadAutomationSource(input.actorUserId, sourceJob))) result.reason = 'source_access_denied';
+      else {
+        result.sourceJobName = sourceJob.name;
+        if (!ref.sourceRunId) result.reason = ref.reason || 'no_relevant_run';
+        else {
+          const sourceRun = await db.query.automationRuns.findFirst({ where: eq(automationRuns.id, ref.sourceRunId) });
+          if (!sourceRun || sourceRun.jobId !== sourceJob.id) result.reason = 'source_run_missing';
+          else if (!sameAutomationRunWorkspace(sourceRun, run)
+            || sourceRun.jobScope !== resolveStoredJobScope(sourceJob)) result.reason = 'source_run_scope_changed';
+          else if (sourceJob.contextCutoffAt && sourceRun.createdAt <= sourceJob.contextCutoffAt) result.reason = 'source_scope_reset';
+          else if (!isRelevantAutomationResult(sourceRun)) result.reason = 'source_not_relevant';
+          else {
+            result.finishedAt = sourceRun.finishedAt?.toISOString() ?? null;
+            result.piSessionId = sourceRun.piSessionId;
+            result.resultText = sourceRun.resultText;
+            result.reason = null;
+          }
+        }
+      }
+    }
+    if (result.reason) {
+      result.sourceRunId = null;
+      result.sourceJobName = null;
+    }
+    results.push(result);
+  }
+  return results;
+}
+
+export async function getAutomationPreviousRelevantResult(input: {
+  runId: string;
+  jobId: string;
+  workspaceId: string;
+  workspaceType: string;
+  organizationId: string | null;
+}): Promise<AutomationPreviousRelevantResult> {
+  const empty = (reason: string, sourceRunId: string | null = null): AutomationPreviousRelevantResult => ({
+    sourceRunId,
+    finishedAt: null,
+    piSessionId: null,
+    resultText: null,
+    reason,
+  });
+  const [run, job] = await Promise.all([
+    db.query.automationRuns.findFirst({ where: eq(automationRuns.id, input.runId) }),
+    db.query.automationJobs.findFirst({ where: eq(automationJobs.id, input.jobId) }),
+  ]);
+  if (!run || !job || run.jobId !== job.id) return empty('run_or_job_missing');
+  const pinned = readAutomationContinuityReference(run.metadataJson);
+  if (!pinned) return empty('reference_missing');
+  if (job.continuityMode !== 'last_relevant' || pinned.mode !== 'last_relevant') return empty('disabled');
+  if (run.jobScope !== resolveStoredJobScope(job)
+    || run.scope !== normalizeAutomationScope(job.scope)
+    || run.organizationId !== input.organizationId
+    || run.workspaceId !== input.workspaceId
+    || run.workspaceType !== input.workspaceType
+    || job.organizationId !== input.organizationId
+    || job.workspaceId !== input.workspaceId
+    || job.workspaceType !== input.workspaceType) {
+    return empty('scope_changed', pinned.sourceRunId);
+  }
+  if (!pinned.sourceRunId) return empty(pinned.reason || 'no_relevant_run');
+  const source = await db.query.automationRuns.findFirst({ where: eq(automationRuns.id, pinned.sourceRunId) });
+  if (!source || source.jobId !== job.id) return empty('source_missing', pinned.sourceRunId);
+  if (!sameAutomationRunWorkspace(source, run)) return empty('source_scope_changed', pinned.sourceRunId);
+  if (job.contextCutoffAt && source.createdAt <= job.contextCutoffAt) return empty('source_scope_reset', pinned.sourceRunId);
+  if (!isRelevantAutomationResult(source)) return empty('source_not_relevant', pinned.sourceRunId);
+  return {
+    sourceRunId: source.id,
+    finishedAt: source.finishedAt?.toISOString() ?? null,
+    piSessionId: source.piSessionId,
+    resultText: source.resultText,
+    reason: null,
+  };
+}
+
+export async function recordAutomationRunContextProvenance(input: {
+  runId: string;
+  expectedAttemptNumber: number;
+  provenance: Record<string, unknown>;
+}): Promise<void> {
+  await runAutomationTransaction(async (tx) => {
+    const run = await getAutomationRunRowAsync(tx, input.runId);
+    if (!run || run.status !== 'running' || run.attemptNumber !== input.expectedAttemptNumber) return;
+    await tx.update(automationRuns)
+      .set({ metadataJson: mergeAutomationRunMetadata(run, { automationContext: input.provenance }) })
+      .where(and(
+        eq(automationRuns.id, input.runId),
+        eq(automationRuns.status, 'running'),
+        eq(automationRuns.attemptNumber, input.expectedAttemptNumber),
+      ));
+  });
 }
 
 export async function revalidateAutomationRunClaim(
