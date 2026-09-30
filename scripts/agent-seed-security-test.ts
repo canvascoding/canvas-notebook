@@ -2,19 +2,20 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { AgentManagedFileName } from '../app/lib/agents/storage';
 
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-seed-security-'));
   const previousDataRoot = process.env.CANVAS_DATA_ROOT;
   try {
     process.env.CANVAS_DATA_ROOT = dataRoot;
-    const { resetManagedAgentFile, AGENT_MANAGED_FILE_NAMES } = await import('../app/lib/agents/storage');
+    const { resetManagedAgentFile } = await import('../app/lib/agents/storage');
     const scope = { userId: 'seed-security-fixture' };
     const seed = await fs.readFile(path.join(process.cwd(), 'seed_sys_prompts', 'SOUL.md'), 'utf8');
     assert.equal((await resetManagedAgentFile('SOUL.md', undefined, scope)).trim(), seed.trim());
     for (const invalid of ['../../outside.txt', '/etc/passwd', 'SOUL.md/../TOOLS.md', 'OTHER.md']) {
       await assert.rejects(() => resetManagedAgentFile(
-        invalid as typeof AGENT_MANAGED_FILE_NAMES[number], undefined, scope,
+        invalid as AgentManagedFileName, undefined, scope,
       ));
     }
     await assert.rejects(() => resetManagedAgentFile('SOUL.md', '../../outside', scope));
