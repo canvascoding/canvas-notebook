@@ -85,10 +85,32 @@ async function main(): Promise<void> {
     const mismatchingDir = path.join(tempRoot, 'wrong-directory');
     await fs.mkdir(mismatchingDir, { recursive: true });
     await fs.writeFile(path.join(mismatchingDir, 'SKILL.md'), manifest(), 'utf8');
-    assert.equal(
-      await parseSkillFile(path.join(mismatchingDir, 'SKILL.md'), { validateDirectoryName: true }),
-      null,
-    );
+    const legacyMismatch = await parseSkillFile(path.join(mismatchingDir, 'SKILL.md'), { validateDirectoryName: true });
+    assert.equal(legacyMismatch, null, 'callers without diagnostics retain the nullable parser contract');
+    const diagnostics: string[] = [];
+    const diagnosticMismatch = await parseSkillFile(path.join(mismatchingDir, 'SKILL.md'), {
+      validateDirectoryName: true,
+      onDiagnostic: (message) => diagnostics.push(message),
+    });
+    assert.equal(diagnosticMismatch, null);
+    assert.match(diagnostics.join('\n'), /Directory name "wrong-directory" must match skill name "example-skill"/);
+
+    const unreadableDiagnostics: string[] = [];
+    assert.equal(await parseSkillFile(path.join(tempRoot, 'missing-skill', 'SKILL.md'), {
+      onDiagnostic: (message) => unreadableDiagnostics.push(message),
+    }), null);
+    assert.match(unreadableDiagnostics.join('\n'), /SKILL.md could not be found/);
+
+    const versionMismatchDir = path.join(tempRoot, 'version-mismatch');
+    await fs.mkdir(path.join(versionMismatchDir, 'agents'), { recursive: true });
+    await fs.writeFile(path.join(versionMismatchDir, 'SKILL.md'), manifest({ metadata: { version: '1.0.0' } }), 'utf8');
+    await fs.writeFile(path.join(versionMismatchDir, 'agents', 'canvas.yaml'), 'skill:\n  version: "2.0.0"\n', 'utf8');
+    const versionDiagnostics: string[] = [];
+    assert.equal(await parseSkillFile(path.join(versionMismatchDir, 'SKILL.md'), {
+      validateDirectoryName: false,
+      onDiagnostic: (message) => versionDiagnostics.push(message),
+    }), null);
+    assert.match(versionDiagnostics.join('\n'), /SKILL.md metadata.version is "1.0.0" but agents\/canvas.yaml declares "2.0.0"/);
   } finally {
     await fs.rm(tempRoot, { recursive: true, force: true });
   }

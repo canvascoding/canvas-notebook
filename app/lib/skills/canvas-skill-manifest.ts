@@ -72,6 +72,12 @@ export interface SkillFrontmatterValidationOptions {
   expectedDirectoryName?: string;
 }
 
+export interface ParseSkillFileOptions {
+  validateDirectoryName?: boolean;
+  /** Receives actionable diagnostics while the parser keeps its nullable return contract. */
+  onDiagnostic?: (message: string) => void;
+}
+
 const AGENT_SKILL_FRONTMATTER_FIELDS = new Set([
   'name',
   'description',
@@ -307,8 +313,16 @@ export async function loadCanvasSkillInterface(skillDir: string): Promise<Canvas
 
 export async function parseSkillFile(
   skillPath: string,
-  options: { validateDirectoryName?: boolean } = { validateDirectoryName: true },
+  options: ParseSkillFileOptions = { validateDirectoryName: true },
 ): Promise<CanvasSkill | null> {
+  const report = (message: string) => {
+    try {
+      options.onDiagnostic?.(message);
+    } catch {
+      // Optional diagnostics must not change the parser's legacy behavior.
+    }
+  };
+
   try {
     const content = await fs.readFile(requirePathInside(path.dirname(skillPath), path.basename(skillPath)), 'utf-8');
     const { frontmatter, body } = parseFrontmatter(content);
@@ -318,6 +332,7 @@ export async function parseSkillFile(
 
     if (!validation.valid || !frontmatter) {
       console.warn('[CanvasSkillParser] Invalid skill.', { path: skillPath, errors: validation.errors });
+      validation.errors.forEach(report);
       return null;
     }
 
@@ -334,6 +349,7 @@ export async function parseSkillFile(
         frontmatterVersion,
         canvasVersion,
       });
+      report(`Skill version mismatch: SKILL.md metadata.version is "${frontmatterVersion}" but agents/canvas.yaml declares "${canvasVersion}".`);
       return null;
     }
 
@@ -353,6 +369,12 @@ export async function parseSkillFile(
     };
   } catch (error) {
     console.error('[CanvasSkillParser] Error parsing skill.', { path: skillPath, error });
+    const code = isRecord(error) && typeof error.code === 'string' ? error.code : undefined;
+    report(code === 'ENOENT'
+      ? 'SKILL.md could not be found.'
+      : code === 'EACCES' || code === 'EPERM'
+        ? 'SKILL.md could not be read because access was denied.'
+        : 'SKILL.md could not be read or parsed.');
     return null;
   }
 }

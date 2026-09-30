@@ -300,20 +300,33 @@ async function validateWorkspaceSkillPackage(
   options: { validateDirectoryName?: boolean } = {},
 ): Promise<CanvasSkill> {
   const skillPath = requirePathInside(packageRoot, 'SKILL.md');
+  const diagnostics: string[] = [];
   const skill = await parseSkillFile(skillPath, {
     validateDirectoryName: options.validateDirectoryName ?? true,
+    onDiagnostic: (message) => diagnostics.push(message),
   });
   if (!skill) {
-    throw new Error('Skill package contains an invalid SKILL.md.');
+    throw new Error(diagnostics.length > 0
+      ? diagnostics.join(' ')
+      : 'Skill package contains an invalid SKILL.md.');
   }
   if (expectedName && skill.name !== expectedName) {
     throw new Error(`Skill package name mismatch: expected "${expectedName}", got "${skill.name}".`);
   }
   if (!skill.version) {
-    throw new Error('Skill package must declare a version in agents/canvas.yaml skill.version or SKILL.md metadata.version.');
+    throw new Error('Skill package must declare a version in SKILL.md metadata.version or agents/canvas.yaml skill.version.');
   }
   assertValidSkillVersion(skill.version);
   return skill;
+}
+
+async function refreshPersonalSkillRuntime(userId: string): Promise<void> {
+  try {
+    const { refreshPersonalCapabilityRuntime } = await import('@/app/lib/capabilities/activation-actions');
+    await refreshPersonalCapabilityRuntime(userId);
+  } catch (error) {
+    console.warn('[AgentSkillWorkspace] Failed to refresh personal capability runtime after skill change:', error);
+  }
 }
 
 async function rewriteSkillPackageName(packageRoot: string, targetSkillName: string): Promise<void> {
@@ -783,6 +796,7 @@ export async function installCanvasSkillFromWorkspace(params: {
   const registry = await readCanvasSkillRegistry(scope);
   const record = registry.skills[importResult.name];
   const cleanup = await cleanupDraftIfManaged(params.workspaceRoot, workspacePackage.packageRoot, params.cleanupDraft !== false);
+  await refreshPersonalSkillRuntime(scope.userId);
 
   return {
     success: true,
@@ -871,6 +885,7 @@ export async function updateCanvasSkillFromWorkspace(params: {
   }
 
   const cleanup = await cleanupDraftIfManaged(params.workspaceRoot, workspacePackage.packageRoot, params.cleanupDraft !== false);
+  await refreshPersonalSkillRuntime(scope.userId);
   return {
     success: true,
     name: skillName,
