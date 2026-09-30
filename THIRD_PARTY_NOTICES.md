@@ -4,7 +4,7 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.9.29.2
-- Lockfile SHA-256: `740823ae06034a19df125623322ab2e1a1a2103cbf63a51230bf8d1ff063e2b1`
+- Lockfile SHA-256: `326dab9d46559733559f7530aebc9281be2ec4c5b725b792c1a234a0ed8ed75e`
 - Distributed components: 1445
 - Release gate: **approved**
 
@@ -798,7 +798,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | dom-serializer | 2.0.0 | runtime | MIT | allowed |
 | domelementtype | 2.3.0 | runtime | BSD-2-Clause | allowed |
 | domhandler | 5.0.3 | runtime | BSD-2-Clause | allowed |
-| dompurify | 3.4.13 | runtime | Apache-2.0 | allowed |
+| dompurify | 3.4.16 | runtime | Apache-2.0 | allowed |
 | domutils | 3.2.2 | runtime | BSD-2-Clause | allowed |
 | dotenv | 16.6.1 | runtime | BSD-2-Clause | allowed |
 | dotenv | 17.4.2 | runtime | BSD-2-Clause | allowed |
@@ -24871,7 +24871,7 @@ SOFTWARE.
 
 ### License text cfc7749b96f6
 
-Applies to @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@2.21.0, @xtuc/long@4.2.2, chevrotain@11.0.3, dompurify@3.4.13, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2, mj-context-menu@0.6.1.
+Applies to @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@2.21.0, @xtuc/long@4.2.2, chevrotain@11.0.3, dompurify@3.4.16, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2, mj-context-menu@0.6.1.
 
 Copyright notices:
 
