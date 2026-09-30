@@ -2,6 +2,18 @@
 
 Stand: 2026-09-30. Status: Architekturvorschlag und Grundlage für die Umsetzungsplanung. Untersuchte Codebasis: `634af5ca5`. Es wurden keine Secrets gelesen, Dienste angesprochen oder Funktionstests ausgeführt.
 
+## Umsetzungsstand
+
+Die Umsetzung wurde anschließend beauftragt. Der obige Stand beschreibt die ursprüngliche Analyse.
+
+- Phase 1 abgeschlossen: unveränderte Charakterisierungstests für zwei Benutzer, zwei Organisationen, System-/Prozess-Credentials und Managed-Identität.
+- Phase 2 implementiert: gemeinsamer ENV-Speicher, automatische einmalige Migration, Literalsyntax ohne Interpolation, Verschlüsselung, Revisionen, atomische Writes und wiederverwendete Kernel-Sperre. Speicher-, Cascade-, Studio-, Diktat- und Lock-Regressionstests bestehen; Typecheck und gezieltes Lint bestehen.
+- Die weiteren Phasen und die Browser-/Gesamtabnahme stehen noch aus. Browser-Tests sind inzwischen ausdrücklich freigegeben; Container-Builds wurden nicht beauftragt.
+
+Die aktive bisherige Systemquelle hat beim Import Vorrang: konfigurierter Legacy-Override, dann globale Legacy-Datei, danach der zuvor nicht kanonische explizite Systempfad. Unterschiedliche Werte bleiben als Profil-Einträge erhalten. Agent-Abweichungen verwenden `CANVAS_PROFILE_AGENTS__<KEY>`; interne Herkunftsmetadaten bewahren die bisherigen unabhängigen Ansichten. Neue ausdrücklich gemeinsame Keys werden von beiden Ansichten genutzt. OAuth-/Verbindungsadapter verwenden geschützte `CANVAS_CREDENTIAL_*`-Datensätze, die der allgemeine Texteditor nicht verändern darf.
+
+Neue Systempfad- und Verschlüsselungsparameter sind `CANVAS_SECRETS_ENV_PATH` und `CANVAS_SECRETS_MASTER_KEY`. Die beiden alten Pfad-Overrides sind nur Importquellen. Die alten Master-Keys entschlüsseln ihre jeweiligen Importdateien; der neue Schlüssel verschlüsselt den gemeinsamen Speicher (Fallback auf Integrations-, dann Agent-Master-Key). Bestehende Importdateien werden nicht verändert; nach Anlage der gemeinsamen Datei werden sie nicht erneut importiert.
+
 Ziel ist eine gemeinsame ENV-Verwaltung für Agent Runtime, Mediengenerierung und Integrationen. Technische Benutzer sollen dieselben Daten als Text mit `KEY=value` bearbeiten können, die nicht-technische Benutzer über verständliche Formulare konfigurieren. Kategorien bleiben im Frontend erhalten, bestimmen aber nicht mehr die physische Speicherung.
 
 ## Empfohlene Entscheidung zur Speicherung

@@ -43,19 +43,19 @@ async function main() {
 
     assert.equal(
       getEnvFilePath('integrations', userA),
-      path.join(dataRoot, 'users', 'user_a', 'secrets', 'Canvas-Integrations.env'),
+      path.join(dataRoot, 'users', 'user_a', 'secrets', 'Canvas-Secrets.env'),
     );
     assert.equal(
       getEnvFilePath('agents', userA),
-      path.join(dataRoot, 'users', 'user_a', 'secrets', 'Canvas-Agents.env'),
+      path.join(dataRoot, 'users', 'user_a', 'secrets', 'Canvas-Secrets.env'),
     );
     assert.equal(
       getEnvFilePath('integrations', organization),
-      path.join(dataRoot, 'organizations', 'org_1', 'secrets', 'Canvas-Integrations.env'),
+      path.join(dataRoot, 'organizations', 'org_1', 'secrets', 'Canvas-Secrets.env'),
     );
     assert.equal(
       getEnvFilePath('agents', system),
-      path.join(dataRoot, 'system', 'secrets', 'Canvas-Agents.env'),
+      path.join(dataRoot, 'system', 'secrets', 'Canvas-Secrets.env'),
     );
 
     await writeScopedEnvRaw('integrations', 'OPENAI_API_KEY=user-a-key\n', userA);
@@ -77,7 +77,8 @@ async function main() {
     assert.equal(userAAgents.entries.find((entry) => entry.key === 'OPENROUTER_API_KEY')?.value, 'user-a-router');
     assert.equal(orgIntegrations.entries.find((entry) => entry.key === 'ORG_API_KEY')?.value, 'org-key');
     assert.equal(systemIntegrations.entries.find((entry) => entry.key === 'SYSTEM_API_KEY')?.value, 'system-key');
-    assert.equal(legacyIntegrations.exists, false);
+    assert.equal(legacyIntegrations.path, systemIntegrations.path);
+    assert.equal(legacyIntegrations.exists, true);
     assert.equal(userAIntegrations.entries.some((entry) => entry.value === 'user-b-key'), false);
 
     await mutateScopedEnvEntries('integrations', (entries) => [
@@ -94,14 +95,14 @@ async function main() {
     const userAFileMode = (await fs.stat(userAIntegrations.path)).mode & 0o777;
     assert.equal(userAFileMode, 0o600);
 
-    const overridePath = path.join(dataRoot, 'custom', 'Canvas-Integrations.env');
-    process.env.INTEGRATIONS_ENV_PATH = overridePath;
+    const overridePath = path.join(dataRoot, 'custom', 'Canvas-Secrets.env');
+    process.env.CANVAS_SECRETS_ENV_PATH = overridePath;
     await writeScopedEnvRaw('integrations', 'LEGACY_KEY=legacy\n');
     assert.equal(getEnvFilePath('integrations'), overridePath);
     assert.equal(getEnvFilePath('integrations', { secretScope: 'legacy' }), overridePath);
     assert.equal(
       getEnvFilePath('integrations', userA),
-      path.join(dataRoot, 'users', 'user_a', 'secrets', 'Canvas-Integrations.env'),
+      path.join(dataRoot, 'users', 'user_a', 'secrets', 'Canvas-Secrets.env'),
     );
     const legacyOverride = await readScopedEnvState('integrations');
     const explicitLegacyOverride = await readScopedEnvState('integrations', { secretScope: 'legacy' });
@@ -112,6 +113,7 @@ async function main() {
   } finally {
     restoreEnv('CANVAS_DATA_ROOT', previousCanvasDataRoot);
     restoreEnv('INTEGRATIONS_ENV_PATH', previousIntegrationsPath);
+    delete process.env.CANVAS_SECRETS_ENV_PATH;
     restoreEnv('AGENTS_ENV_PATH', previousAgentsPath);
     restoreEnv('DATA', previousData);
     restoreEnv('OPENAI_API_KEY', previousOpenAiApiKey);
