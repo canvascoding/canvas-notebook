@@ -4,6 +4,7 @@ import type { AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { clipAutomationResultText } from '@/app/lib/automations/result-clipping';
 import {
   getAutomationJob,
   getAutomationPreviousRelevantResult,
@@ -18,7 +19,7 @@ import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-worksp
 
 const MAX_OUTPUT_BYTES = 8 * 1024;
 const MAX_OUTPUT_TOKENS = 2_048;
-const TRUNCATION_MARKER = '\n[Automation result truncated]';
+const TRUNCATION_MARKER = '\n[Automation result truncated]\n';
 
 type ResultRequest = { source: 'self' | 'configured'; sourceJobId?: string };
 type ResultErrorCode = 'INVALID_INPUT' | 'ACCESS_DENIED' | 'RUN_UNAVAILABLE' | 'SOURCE_UNAVAILABLE' | 'UNAVAILABLE';
@@ -87,38 +88,25 @@ async function assertBoundRun(
 }
 
 function boundedResult(source: 'self' | 'configured', reference: ResultReference) {
-  const characters: string[] = [];
-  let inputExceededLimit = false;
-  for (const character of reference.resultText.trim()) {
-    if (characters.length === MAX_OUTPUT_BYTES) {
-      inputExceededLimit = true;
-      break;
-    }
-    characters.push(character);
-  }
-  const render = (length: number, truncated: boolean) => ({
+  const render = (resultText: string, truncated: boolean) => ({
     source,
     sourceJobId: reference.sourceJobId,
     sourceRunId: reference.sourceRunId,
     finishedAt: reference.finishedAt,
     status: 'success' as const,
-    resultText: characters.slice(0, length).join('') + (truncated ? TRUNCATION_MARKER : ''),
+    resultText,
     truncated,
   });
   const fits = (value: ReturnType<typeof render>) => {
     const text = JSON.stringify(value);
     return Buffer.byteLength(text, 'utf8') <= MAX_OUTPUT_BYTES && estimateTextTokens(text) <= MAX_OUTPUT_TOKENS;
   };
-  if (!inputExceededLimit && fits(render(characters.length, false))) return render(characters.length, false);
-  let low = 0;
-  let high = characters.length;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (fits(render(middle, true))) low = middle;
-    else high = middle - 1;
-  }
-  if (!fits(render(low, true))) throw new AutomationRunResultError('UNAVAILABLE');
-  return render(low, true);
+  const clipped = clipAutomationResultText({
+    text: reference.resultText, maxCharacters: MAX_OUTPUT_BYTES, marker: TRUNCATION_MARKER,
+    fits: (text, truncated) => fits(render(text, truncated)),
+  });
+  if (!clipped) throw new AutomationRunResultError('UNAVAILABLE');
+  return render(clipped.text, clipped.truncated);
 }
 
 async function readPinnedReference(

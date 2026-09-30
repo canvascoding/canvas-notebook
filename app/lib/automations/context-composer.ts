@@ -1,6 +1,7 @@
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 
 import type { AutomationPreviousRelevantResult, AutomationSourceResult } from './store';
+import { clipAutomationResultText } from './result-clipping';
 
 export type AutomationContextComposition = {
   block: string;
@@ -71,34 +72,23 @@ export function composeAutomationSourceResults(input: {
         'Status: success',
         'Quoted result:',
       ].join('\n');
-      const text = Array.from(source.resultText.trim());
       const quote = (value: string) => value.split('\n').map((line) => `> ${line}`).join('\n');
-      const fit = (candidate: string, tokenCap: number) => estimateTextTokens(candidate) <= tokenCap
-        && Buffer.byteLength(candidate, 'utf8') <= remaining.bytes;
+      const separator = blocks.length ? '\n\n' : '';
+      const fit = (candidate: string, tokenCap: number) => estimateTextTokens(separator + candidate) <= tokenCap
+        && Buffer.byteLength(separator + candidate, 'utf8') <= remaining.bytes;
       const tokenCap = Math.floor(remaining.tokens / (input.sources.length - index));
-      const complete = `${prefix}\n${quote(text.join(''))}`;
-      let block = '';
-      if (fit(complete, tokenCap)) block = complete;
-      else {
-        const marker = '\n> [Source result truncated]';
-        let low = 0;
-        let high = text.length;
-        while (low < high) {
-          const middle = Math.ceil((low + high) / 2);
-          const candidate = `${prefix}\n${quote(text.slice(0, middle).join(''))}${marker}`;
-          if (fit(candidate, tokenCap)) low = middle;
-          else high = middle - 1;
-        }
-        if (low) {
-          block = `${prefix}\n${quote(text.slice(0, low).join(''))}${marker}`;
-          truncated = true;
-        }
-      }
+      const clipped = clipAutomationResultText({
+        text: source.resultText, maxCharacters: remaining.bytes,
+        marker: '\n[Source result truncated]\n',
+        fits: (text) => fit(`${prefix}\n${quote(text)}`, tokenCap),
+      });
+      const block = clipped ? `${prefix}\n${quote(clipped.text)}` : '';
+      truncated = clipped?.truncated ?? false;
       if (block) {
         blocks.push(block);
-        estimatedTokens = estimateTextTokens(block);
+        estimatedTokens = estimateTextTokens(separator + block);
         remaining.tokens -= estimatedTokens;
-        remaining.bytes -= Buffer.byteLength(block, 'utf8');
+        remaining.bytes -= Buffer.byteLength(separator + block, 'utf8');
         reason = truncated ? 'included_truncated' : 'included';
       } else reason = 'budget_exhausted';
     }
@@ -142,24 +132,15 @@ export function composeAutomationPreviousResult(input: {
     'Quoted result:',
   ].join('\n');
   const quote = (value: string) => value.split('\n').map((line) => `> ${line}`).join('\n');
-  const source = input.previous.resultText.trim();
-  const characters = Array.from(source);
   const fits = (block: string) => estimateTextTokens(block) <= maxTokens
     && Buffer.byteLength(block, 'utf8') <= maxBytes;
-  const complete = `${prefix}\n${quote(source)}`;
-  if (fits(complete)) {
-    return { block: complete, estimatedTokens: estimateTextTokens(complete), truncated: false, reason: 'included', sourceRunId };
-  }
-  const marker = '\n> [Previous result truncated]';
-  let low = 0;
-  let high = characters.length;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    const candidate = `${prefix}\n${quote(characters.slice(0, middle).join(''))}${marker}`;
-    if (fits(candidate)) low = middle;
-    else high = middle - 1;
-  }
-  if (!low) return empty('budget_exhausted');
-  const block = `${prefix}\n${quote(characters.slice(0, low).join(''))}${marker}`;
-  return { block, estimatedTokens: estimateTextTokens(block), truncated: true, reason: 'included_truncated', sourceRunId };
+  const clipped = clipAutomationResultText({
+    text: input.previous.resultText, maxCharacters: maxBytes,
+    marker: '\n[Previous result truncated]\n',
+    fits: (text) => fits(`${prefix}\n${quote(text)}`),
+  });
+  if (!clipped) return empty('budget_exhausted');
+  const block = `${prefix}\n${quote(clipped.text)}`;
+  return { block, estimatedTokens: estimateTextTokens(block), truncated: clipped.truncated,
+    reason: clipped.truncated ? 'included_truncated' : 'included', sourceRunId };
 }
