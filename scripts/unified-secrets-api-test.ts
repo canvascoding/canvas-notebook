@@ -198,6 +198,14 @@ async function main() {
     assert.equal(noOpPatch.status, 200); assert.equal((await responseBody(noOpPatch)).data?.revision, afterProvenance.revision); assert.deepEqual(await fs.readFile(afterProvenance.path), noOpBytes);
     const emptyPatch = await route.PATCH(request('http://canvas.test/api/integrations/env', 'admin-b', json('PATCH', { scope: 'all', patches: [] })));
     assert.equal(emptyPatch.status, 200); assert.equal((await responseBody(emptyPatch)).data?.revision, afterProvenance.revision);
+    for (const entry of ownedScopes) {
+      for (const patches of [[], [{ key: entry.key, value: `${entry.value}-updated` }], [{ key: 'ABSENT_NOOP_KEY', value: null }]]) {
+        const unchanged = await route.PATCH(request('http://canvas.test/api/integrations/env', 'admin-b', json('PATCH', { scope: entry.view, patches })));
+        assert.equal(unchanged.status, 200);
+        assert.equal((await responseBody(unchanged)).data?.revision, afterProvenance.revision, `${entry.view} no-op retains revision`);
+        assert.deepEqual(await fs.readFile(afterProvenance.path), noOpBytes, `${entry.view} no-op retains encrypted file bytes`);
+      }
+    }
 
     const revisionResponse = await route.GET(request('http://canvas.test/api/integrations/env?scope=all', 'member-a'));
     const revision = (await responseBody(revisionResponse)).data?.revision;

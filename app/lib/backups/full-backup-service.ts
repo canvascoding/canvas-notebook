@@ -8,6 +8,7 @@ import { promisify } from 'util';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
+import { isPortableCredentialPath } from '@/app/lib/migration/secret-export-policy';
 import { getDeploymentMode } from '@/app/lib/organization/config';
 import { resolveCanvasDataRoot, resolveSystemBackupsDir } from '@/app/lib/runtime-data-paths';
 import { withFileMutationLock } from '@/app/lib/secrets/file-mutation-lock';
@@ -417,13 +418,15 @@ async function createPostgresDump(backupDir: string): Promise<{
 async function addZipEntry(
   archive: ZipArchive,
   source: NodeJS.ReadableStream | Buffer | string | null,
-  data: { name: string; type?: 'file' | 'directory'; stats?: import('fs').Stats },
+  data: { name: string; type?: 'file' | 'directory'; stats?: import('fs').Stats; filePath?: string },
 ) {
   const canonicalSecretsEntry = /^data\/(?:users\/[^/]+|organizations\/[^/]+|system)\/secrets\/Canvas-Secrets\.env$/u.test(data.name);
+  const { filePath, ...archiveData } = data;
+  const managedCredentialEntry = filePath ? isPortableCredentialPath(filePath, resolveCanvasDataRoot()) : false;
   return new Promise<void>((resolve, reject) => {
     archive.entry(source, {
-      ...data,
-      mode: canonicalSecretsEntry ? 0o600 : data.stats ? data.stats.mode & 0o777 : 0o600,
+      ...archiveData,
+      mode: canonicalSecretsEntry || managedCredentialEntry ? 0o600 : data.stats ? data.stats.mode & 0o777 : 0o600,
     }, (error) => {
       if (error) reject(error);
       else resolve();
@@ -581,7 +584,7 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
         job.progress.bytesProcessed += bytes;
         void persist();
       });
-      await addZipEntry(zipArchive, stream, { name: entry.archivePath, stats });
+      await addZipEntry(zipArchive, stream, { name: entry.archivePath, stats, filePath: entry.filePath });
       job.progress.filesProcessed++;
       await persist();
     }

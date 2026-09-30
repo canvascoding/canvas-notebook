@@ -7,6 +7,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 const MARKER_POLL_MS = 20;
 const CHILD_TIMEOUT_MS = 30_000;
+const CREDENTIAL_OVERRIDE_KEYS = ['CANVAS_SECRETS_ENV_PATH', 'INTEGRATIONS_ENV_PATH', 'AGENTS_ENV_PATH', 'OAUTH_STORAGE_PATH'];
+
+function clearCredentialOverrides(): void {
+  for (const key of CREDENTIAL_OVERRIDE_KEYS) delete process.env[key];
+}
 
 function spawnWorker(mode: 'writer' | 'contender', fixtureRoot: string) {
   const tsxCli = path.resolve('node_modules/tsx/dist/cli.mjs');
@@ -52,7 +57,7 @@ async function runWorker(mode: 'writer' | 'contender'): Promise<void> {
   process.env.CANVAS_DATA_ROOT = process.env.DATA;
   process.env.DATABASE_URL = 'postgres://fixture:fixture@127.0.0.1:5432/backup';
   process.env.CANVAS_PG_DUMP_BIN = path.join(fixtureRoot, 'fake-pg-dump');
-  delete process.env.CANVAS_SECRETS_ENV_PATH;
+  clearCredentialOverrides();
 
   if (mode === 'writer') {
     const crypto = await import('node:crypto');
@@ -116,7 +121,7 @@ async function main(): Promise<void> {
     process.env.CANVAS_DATA_ROOT = dataRoot;
     process.env.DATABASE_URL = 'postgres://fixture:fixture@127.0.0.1:5432/backup';
     process.env.CANVAS_PG_DUMP_BIN = path.join(fixtureRoot, 'fake-pg-dump');
-    delete process.env.CANVAS_SECRETS_ENV_PATH;
+    clearCredentialOverrides();
     await fs.mkdir(dataRoot, { recursive: true });
 
     const fakePgDump = `#!/usr/bin/env node
@@ -128,17 +133,26 @@ function write() { fs.writeFileSync(args[args.indexOf('--file') + 1], 'fixture d
 `;
     await fs.writeFile(process.env.CANVAS_PG_DUMP_BIN, fakePgDump, { mode: 0o700 });
     await fs.chmod(process.env.CANVAS_PG_DUMP_BIN, 0o700);
-    const credentials = [
+    const canonicalCredentials = [
       'system/secrets/Canvas-Secrets.env',
       'users/alice/secrets/Canvas-Secrets.env',
       'organizations/org-a/secrets/Canvas-Secrets.env',
     ];
-    for (const relativePath of credentials) {
+    const managedLegacyCredentials = [
+      'secrets/Canvas-Integrations.env',
+      'secrets/Canvas-Agents.env',
+      'settings/connections/legacy/tokens.json',
+      'workspace/custom-integration-env.txt',
+    ];
+    const ordinarySecretLikeContent = 'workspaces/project/secrets/Canvas-Secrets.env';
+    const privateFiles = [...canonicalCredentials, ...managedLegacyCredentials, ordinarySecretLikeContent];
+    for (const relativePath of privateFiles) {
       const absolutePath = path.join(dataRoot, relativePath);
       await fs.mkdir(path.dirname(absolutePath), { recursive: true });
       await fs.writeFile(absolutePath, 'FIXTURE_SECRET=synthetic\n');
       await fs.chmod(absolutePath, 0o644);
     }
+    process.env.INTEGRATIONS_ENV_PATH = path.join(dataRoot, 'workspace/custom-integration-env.txt');
 
     const ownerPublish = path.join(fixtureRoot, 'owner-publish');
     const ownerRelease = path.join(fixtureRoot, 'owner-release');
@@ -172,16 +186,21 @@ function write() { fs.writeFileSync(args[args.indexOf('--file') + 1], 'fixture d
 
     const extracted = path.join(fixtureRoot, 'extracted');
     await fs.mkdir(extracted);
-    const unzip = spawn('unzip', ['-q', archivePath, ...credentials.map((entry) => `data/${entry}`), '-d', extracted]);
+    const archiveEntries = [...privateFiles.map((entry) => `data/${entry}`), 'database/postgres.dump'];
+    const unzip = spawn('unzip', ['-q', archivePath, ...archiveEntries, '-d', extracted]);
     const unzipExit = await new Promise<number>((resolve, reject) => {
       unzip.once('error', reject);
       unzip.once('exit', (code) => resolve(code ?? -1));
     });
     assert.equal(unzipExit, 0, 'fixture archive should extract canonical credential entries');
-    for (const relativePath of credentials) {
+    for (const relativePath of [...canonicalCredentials, ...managedLegacyCredentials]) {
       const restored = path.join(extracted, 'data', relativePath);
       assert.equal((await fs.stat(restored)).mode & 0o777, 0o600, `${relativePath} must be private in the archive`);
     }
+    assert.equal((await fs.stat(path.join(extracted, 'data', ordinarySecretLikeContent))).mode & 0o777, 0o644,
+      'secret-like ordinary project files keep their source mode');
+    assert.equal((await fs.stat(path.join(extracted, 'database/postgres.dump'))).mode & 0o777, 0o600,
+      'database dump contents stay private in the archive');
 
     const lockPath = path.join(dataRoot, 'system', 'backups', '.full-backup.lock');
     await fs.writeFile(lockPath, '{partial legacy lock');

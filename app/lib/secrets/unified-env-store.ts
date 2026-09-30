@@ -285,6 +285,7 @@ export async function replaceEnvView(view: EnvView, entries: Array<{ key: string
       const comments = parseEnvDocument(raw).flatMap(token => !token.key ? [token.raw] : token.suffix?.trim().startsWith('#') ? [`${token.suffix.trimEnd()}\n`] : []).filter(comment => comment.trim() && !content.includes(comment)).join('');
       content = comments + (comments && !comments.endsWith('\n') ? '\n' : '') + content;
     }
+    if (state.exists && content === state.rawContent) return old;
     await writePhysical(state.path, content);
     return projectEnvView(await currentState(scope), view);
   });
