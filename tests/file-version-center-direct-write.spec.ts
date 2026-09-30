@@ -78,3 +78,30 @@ test('three distant exact edits in one patch create one physical checkpoint and 
     expect(await revisionCount()).toBe(before + 1);
   }, { initialReviewRequired: false, bindToolSessionToFixture: true });
 });
+
+for (const reviewRequired of [false, true]) {
+  test(`agent Markdown edit without an open collaboration client honors review ${reviewRequired ? 'on' : 'off'}`, async ({ browser }) => {
+    test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the local collaboration stack.');
+    test.setTimeout(120_000);
+    const initial = '# Closed editor\n\nStatus: original\n';
+    const updated = '# Closed editor\n\nStatus: updated\n';
+    await withOrdinaryAgentDocument(browser, initial, async ({ page, filePath, agentContext, content, revisionCount }) => {
+      const before = await revisionCount();
+      await page.close();
+      const read = await runOrdinaryAgentTool({ toolName: 'read',
+        toolCallId: `ordinary-closed-editor-${randomUUID()}`,
+        params: { path: filePath }, context: agentContext }, { inProcess: true });
+      expect(read.isError).not.toBe(true);
+      const edit = await runOrdinaryAgentTool({ toolName: 'edit_file',
+        toolCallId: `ordinary-closed-editor-${randomUUID()}`,
+        params: { path: filePath, oldText: 'Status: original', newText: 'Status: updated',
+          expectedSha256: read.details!.sha256 }, context: agentContext }, { inProcess: true });
+      expect(edit.isError, edit.details?.code).not.toBe(true);
+      expect(edit.details?.collaboration?.reviewRequired).toBe(reviewRequired);
+      expect(await content()).toBe(reviewRequired ? initial : updated);
+      expect(await readFile(path.join(agentContext.workspaceRoot as string, filePath), 'utf8'))
+        .toBe(reviewRequired ? initial : updated);
+      expect(await revisionCount()).toBe(before + (reviewRequired ? 0 : 1));
+    }, { initialReviewRequired: reviewRequired, bindToolSessionToFixture: true });
+  });
+}
