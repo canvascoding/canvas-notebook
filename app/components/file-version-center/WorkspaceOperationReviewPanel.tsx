@@ -57,6 +57,14 @@ function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
       <span className="text-xs text-muted-foreground">{review.selections.length} {t('pathChanges').toLowerCase()}</span>
     </div>
 
+    {review.status === 'blocked' || review.status === 'pending' && preview.readiness === 'blocked'
+      ? <section className="space-y-2 rounded-lg border bg-muted/25 p-3 text-sm" aria-label={t('nextSteps')}>
+        <h3 className="font-semibold">{t('nextSteps')}</h3>
+        <p>{t('blockedNoChanges')}</p>
+        <p>{t(preview.issues.some((issue) => issue.code === 'incomplete-index') ? 'incompleteIndexHelp' : 'blockedHelp')}</p>
+        <p className="text-muted-foreground">{t('dismissHelp')}</p>
+      </section> : null}
+
     <dl className="grid gap-2 text-xs sm:grid-cols-2">
       <div className="min-w-0 rounded-lg border bg-muted/20 p-3">
         <dt className="text-muted-foreground">{t('planId')}</dt>
@@ -230,6 +238,7 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
         reviewId: review.reviewId, workspaceId: request.workspaceId, planId: review.planId, action: decision,
       });
       setData({ reviews: [], review: updated });
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
       if (updated.status === 'applied') void useFileStore.getState().refreshVisibleTree();
     } catch (decisionError) {
       const stale = decisionError instanceof WorkspaceOperationReviewClientError

@@ -55,6 +55,7 @@ import { WorkspaceOperationReviewPanel } from './WorkspaceOperationReviewPanel';
 import type { GraphReviewCardStatus } from './GraphReviewComparison';
 import { closeWorkspaceOperationReview, useWorkspaceOperationReviewStore } from '@/app/store/workspace-operation-review-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { useWorkspaceOperationReviewNavigation } from './useWorkspaceOperationReviewNavigation';
 
 type MobileReviewPane = 'timeline' | 'comparison';
 
@@ -77,6 +78,7 @@ export function FileVersionCenterHost() {
   const workspaceReviewRequest = useWorkspaceOperationReviewStore((state) => state.request);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const authScope = useSyncExternalStore(subscribeFileVersionAuth, openedDocumentAuthScope, () => null);
+  useWorkspaceOperationReviewNavigation(authScope);
   const workspaceReviewAuthScopeRef = useRef(authScope);
   const targetIdentity = request ? JSON.stringify([authScope, request.target]) : null;
   const [resolvedTimeline, setResolvedTimeline] = useState<{ identity: string;

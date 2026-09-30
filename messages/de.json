@@ -3256,9 +3256,37 @@
       "studio": "Studio-Ergebnis bereit",
       "automation": "Automation benötigt Aufmerksamkeit",
       "file_change": "Dateiänderung",
+      "file_operation": "Dateiaktion prüfen",
       "memory": "Memory-Freigabe erforderlich",
       "mcp": "MCP-Verbindung benötigt Aufmerksamkeit",
       "license": "Team-Lizenzereignis"
+    },
+    "fileOperations": {
+      "openFailed": "Die Dateiaktion konnte nicht geöffnet werden.",
+      "kind_copy": "Kopieren",
+      "kind_move": "Verschieben",
+      "kind_rename": "Umbenennen",
+      "kind_delete": "Löschen",
+      "pending": {
+        "title": "{action}: Freigabe nötig",
+        "detail": "Pfade und Links prüfen, dann annehmen oder ablehnen."
+      },
+      "blocked": {
+        "title": "{action}: Aktion blockiert",
+        "detail": "Probleme beheben und einen neuen Vorschlag anfordern oder diesen verwerfen."
+      },
+      "stale": {
+        "title": "{action}: Vorschlag veraltet",
+        "detail": "Einen neuen Vorschlag anfordern oder diesen verwerfen."
+      },
+      "failed": {
+        "title": "{action}: Aktion fehlgeschlagen",
+        "detail": "Fehler und Wiederherstellungsstatus prüfen."
+      },
+      "needs_recovery": {
+        "title": "{action}: Wiederherstellung nötig",
+        "detail": "Wiederherstellung prüfen, bevor weitere Aktionen ausgeführt werden."
+      }
     },
     "fileChanges": {
       "openFailed": "Die Dateiänderung konnte nicht geöffnet werden.",
@@ -9062,6 +9090,11 @@
     "reasonCodes": "Prüfgründe",
     "stale": "Der Plan ist veraltet. Diese Freigabe kann nicht mehr angewendet werden; starte eine neue Vorschau.",
     "blocked": "Die Aktion ist blockiert und kann nicht angenommen werden.",
+    "nextSteps": "So gehst du weiter vor",
+    "blockedNoChanges": "Diese Aktion wurde nicht ausgeführt. Bei einer Löschaktion bleibt die Datei erhalten.",
+    "incompleteIndexHelp": "Die Linkprüfung ist unvollständig. Korrigiere die aufgeführten fehlenden Ziele und Links außerhalb des Workspaces und prüfe ausgelassene Markdown-Dateien. Bitte den Agenten danach, die gewünschte Dateiaktion mit einer neuen Vorschau erneut vorzuschlagen.",
+    "blockedHelp": "Behebe die aufgeführten offenen Punkte und Zielkonflikte. Bitte den Agenten danach um einen neuen Vorschlag für die Dateiaktion.",
+    "dismissHelp": "„Verwerfen“ schließt diesen Vorschlag ohne Dateiänderung. „Schließen“ lässt ihn zur späteren Bearbeitung im Notification-Zentrum offen.",
     "failed": "Die Aktion ist fehlgeschlagen. Prüfe den Fehler und den Wiederherstellungsstatus.",
     "needsRecovery": "Die Aktion benötigt Wiederherstellung. Keine weitere automatische Ausführung starten.",
     "requestFailed": "Dateiaktion konnte nicht geladen werden.",

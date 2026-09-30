@@ -3257,9 +3257,37 @@
       "studio": "Studio result ready",
       "automation": "Automation needs attention",
       "file_change": "File change",
+      "file_operation": "File action review",
       "memory": "Memory approval required",
       "mcp": "MCP connection needs attention",
       "license": "Team license event"
+    },
+    "fileOperations": {
+      "openFailed": "The file action could not be opened.",
+      "kind_copy": "Copy",
+      "kind_move": "Move",
+      "kind_rename": "Rename",
+      "kind_delete": "Delete",
+      "pending": {
+        "title": "{action}: approval required",
+        "detail": "Review paths and links, then accept or reject."
+      },
+      "blocked": {
+        "title": "{action}: action blocked",
+        "detail": "Resolve the issues and request a fresh proposal, or dismiss this one."
+      },
+      "stale": {
+        "title": "{action}: proposal is stale",
+        "detail": "Request a fresh proposal or dismiss this one."
+      },
+      "failed": {
+        "title": "{action}: action failed",
+        "detail": "Check the error and recovery status."
+      },
+      "needs_recovery": {
+        "title": "{action}: recovery required",
+        "detail": "Check recovery before running further actions."
+      }
     },
     "fileChanges": {
       "openFailed": "The file change could not be opened.",
@@ -9063,6 +9091,11 @@
     "reasonCodes": "Review reasons",
     "stale": "The plan is stale. This approval can no longer be applied; create a new preview.",
     "blocked": "This action is blocked and cannot be accepted.",
+    "nextSteps": "What to do next",
+    "blockedNoChanges": "This action has not been executed. For a delete action, the file remains in place.",
+    "incompleteIndexHelp": "The link check is incomplete. Correct the listed missing targets and links outside the workspace, and check omitted Markdown files. Then ask the agent to propose the intended file action again with a fresh preview.",
+    "blockedHelp": "Resolve the listed issues and destination conflicts. Then ask the agent for a fresh file action proposal.",
+    "dismissHelp": "Dismiss closes this proposal without changing files. Close keeps it available in the notification center for later review.",
     "failed": "The action failed. Check the error and recovery status.",
     "needsRecovery": "The action needs recovery. Do not start another automatic execution.",
     "requestFailed": "Could not load file action.",
