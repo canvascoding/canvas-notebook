@@ -36,3 +36,26 @@ test('interrupted agent tools settle and late results replace the interruption',
   await page.screenshot({ path: testInfo.outputPath('agent-tool-mobile.png'), animations: 'disabled' });
   await expect(disclosure.locator('.animate-spin')).toHaveCount(0);
 });
+
+test('automation options show session modes and chat targets on desktop and mobile', async ({ page }, testInfo) => {
+  const bundle = await build({ entryPoints: ['tests/fixtures/automation-tool-options.tsx'], bundle: true, write: false,
+    platform: 'browser', format: 'iife', jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"', 'process.env': '{}' } });
+  const styles = await postcss([tailwindcss()]).process(await readFile('app/globals.css', 'utf8'), { from: 'app/globals.css' });
+  await page.route('http://automation-options-fixture.test/**', (route) => route.fulfill({ contentType: 'text/html',
+    body: `<html><head><style>${styles.css}</style></head><body><div id="root"></div><script>${bundle.outputFiles[0].text.replaceAll('</script', '<\\/script')}</script></body></html>` }));
+  await page.goto('http://automation-options-fixture.test/');
+  const pill = page.getByRole('button', { name: /Automationsoptionen prüfen/ });
+  await expect(pill).toBeVisible();
+  await expect(pill.locator('.lucide-calendar-clock')).toBeVisible();
+  await pill.click();
+  await expect(page.getByText(/fixed_session/)).toBeVisible();
+  await expect(page.getByText(/matthias-chat/)).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('automation-options-desktop.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await pill.click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.getByText(/channel_active/)).toBeVisible();
+  await expect(page.locator('.animate-spin')).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('automation-options-mobile.png'), animations: 'disabled' });
+});

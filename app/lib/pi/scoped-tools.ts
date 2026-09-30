@@ -24,6 +24,10 @@ import {
   scheduleAutomationJobRun,
 } from '@/app/lib/automations/store';
 import { updateAutomationJobForUser } from '@/app/lib/automations/job-actions';
+import { listAutomationChatTargets } from '@/app/lib/automations/chat-targets';
+import { listManagedAgents } from '@/app/lib/agents/management-actions';
+import { requireAgentAccessForWorkspace } from '@/app/lib/agents/access';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { automationToolApp, publicShareToolApps } from '@/app/lib/tool-apps/types';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import {
@@ -32,6 +36,7 @@ import {
   type AutomationJobStatus,
   type AutomationWeekday,
   type FriendlySchedule,
+  type CreateAutomationJobInput,
 } from '@/app/lib/automations/types';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
@@ -99,6 +104,28 @@ import { readPathList } from '@/app/lib/pi/tool-file-formatters';
 const VALID_AUTOMATION_DAYS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const VALID_AUTOMATION_INTERVAL_UNITS: AutomationIntervalUnit[] = ['minutes', 'hours', 'days'];
 
+const AUTOMATION_EXECUTION_PROPERTIES = {
+  agentId: Type.Optional(Type.String({ description: 'Runtime agent ID from inspect_automation_job_options. Defaults to Bradley when creating; unchanged when updating. This selects the actual runtime, not a prompt persona.' })),
+  preferredSkill: Type.Optional(Type.String({ description: 'Skill name, or auto. A prompt hint only; does not install skills, bind plugins, or grant tools. The selected agent must already have access to the skill.' })),
+  deliveryMode: Type.Optional(Type.Union(['web', 'origin', 'session', 'channel_home', 'last_active', 'silent'].map((mode) => Type.Literal(mode)), { description: 'Delivery route. Separate from deliverySessionMode. Use web for in-app results; last_active for the last available channel.' })),
+  deliveryChannelId: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: 'Delivery channel ID; defaults to web. Null clears the saved channel.' })),
+  deliverySessionMode: Type.Optional(Type.Union(['new_session', 'channel_active', 'fixed_session'].map((mode) => Type.Literal(mode)), { description: 'new_session: create a fresh chat for each run (default). channel_active: reuse the selected agent’s active channel chat; falls back to a new chat with a warning if unavailable. fixed_session: reuse deliverySessionId, which must belong to the responsible user, selected agent and automation workspace.' })),
+  deliverySessionId: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: 'Required for fixed_session. Select a sessionId from inspect_automation_job_options; null clears the saved target.' })),
+  deliveryChannelSessionKey: Type.Optional(Type.Union([Type.String(), Type.Null()], { description: 'Channel routing key for an existing linked channel. Web routing is inferred; never invent an external channel key. Null clears the saved key.' })),
+};
+
+type AutomationExecutionOptions = Pick<CreateAutomationJobInput, keyof typeof AUTOMATION_EXECUTION_PROPERTIES>;
+
+function automationExecutionOptions(params: Record<string, unknown>): AutomationExecutionOptions {
+  return Object.fromEntries(Object.keys(AUTOMATION_EXECUTION_PROPERTIES).map((key) => [key, params[key]])) as AutomationExecutionOptions;
+}
+
+async function assertAutomationToolAgentAccess(agentId: string | undefined, userId: string, workspaceId?: string | null): Promise<void> {
+  if (agentId === undefined) return;
+  const workspace = await resolveAgentSessionWorkspaceForUser({ userId, workspaceId });
+  await requireAgentAccessForWorkspace(userId, agentId, 'canUse', workspace);
+}
+
 function formatAutomationPromptPreview(prompt: string): string {
   const normalized = prompt.replace(/\s+/g, ' ').trim();
   if (normalized.length <= 240) {
@@ -127,6 +154,8 @@ function formatAutomationJob(job: AutomationJobRecord, options: { includeFullPro
     `Last run status: ${job.lastRunStatus || 'n/a'}`,
     `Agent ID: ${job.agentId}`,
     `Delivery: mode=${job.deliveryMode}, channel=${job.deliveryChannelId || 'none'}, sessionMode=${job.deliverySessionMode}`,
+    `Delivery session ID: ${job.deliverySessionId || 'none'}`,
+    `Delivery channel session key: ${job.deliveryChannelSessionKey || 'automatic'}`,
     `Updated at: ${job.updatedAt}`,
   ];
 
@@ -1311,6 +1340,53 @@ export function createUserScopedTools(
 
   tools.push(
     {
+      name: 'inspect_automation_job_options',
+      label: 'Inspecting automation options',
+      description: 'Lists accessible runtime agents and valid conversation IDs in the current workspace before creating or updating an automation. Select agentId and deliverySessionMode from this response; use a returned sessionId for fixed_session. For existing jobs pass jobId to use their workspace and agent. Skills/plugins are configured on the agent; preferredSkill is only a prompt hint, not a plugin assignment.',
+      parameters: Type.Object({
+        jobId: Type.Optional(Type.String({ description: 'Existing job to configure; omit when creating.' })),
+        agentId: Type.Optional(Type.String({ description: 'Agent whose valid chat targets to list; defaults to the job agent or Bradley.' })),
+        query: Type.Optional(Type.String({ description: 'Filter chat titles.' })),
+        cursor: Type.Optional(Type.String({ description: 'nextCursor from an earlier response.' })),
+      }, { additionalProperties: false }),
+      execute: async (_toolCallId, params) => {
+        try {
+          const scopedUserId = requireToolUserId(userId, 'automation tools');
+          const input = params as { jobId?: string; agentId?: string; query?: string; cursor?: string };
+          const job = input.jobId ? await getUserOwnedAutomationJob(scopedUserId, input.jobId) : null;
+          const context = getAgentExecutionContext();
+          const workspace = await resolveAgentSessionWorkspaceForUser({
+            userId: scopedUserId, workspaceId: job ? job.workspaceId : context?.workspaceId,
+          });
+          const actor = {
+            userId: scopedUserId, workspaceId: workspace.workspaceId,
+            organizationId: workspace.organizationId, projectId: workspace.projectId,
+          };
+          const visibleAgents = await listManagedAgents(actor);
+          const responsibleUserId = job?.responsibleUserId || job?.ownerUserId || job?.createdByUserId || scopedUserId;
+          const executorAgents = responsibleUserId === scopedUserId ? visibleAgents : await listManagedAgents({ ...actor, userId: responsibleUserId });
+          const agents = visibleAgents.filter((agent) => executorAgents.some((executorAgent) => executorAgent.agentId === agent.agentId));
+          const selectedAgentId = input.agentId ?? job?.agentId ?? DEFAULT_AGENT_ID;
+          const canSelectChat = !job || (job.responsibleUserId || job.ownerUserId || job.createdByUserId) === scopedUserId;
+          const targets = canSelectChat
+            ? await listAutomationChatTargets({ userId: scopedUserId, agentId: selectedAgentId, workspaceId: workspace.workspaceId, query: input.query, cursor: input.cursor })
+            : { chats: [], nextCursor: null };
+          const details = {
+            workspaceId: workspace.workspaceId,
+            agentId: selectedAgentId,
+            agents: agents.map((agent) => ({ agentId: agent.agentId, name: agent.name })),
+            deliverySessionModes: ['new_session', 'channel_active', 'fixed_session'],
+            fixedSessionUnavailableReason: canSelectChat ? null : 'Only the responsible user can select their own chats for this automation.',
+            ...targets,
+          };
+          return { content: [{ type: 'text', text: JSON.stringify(details, null, 2) }], details };
+        } catch (error: unknown) {
+          const message = getErrorMessage(error);
+          return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };
+        }
+      },
+    },
+    {
       name: 'list_automation_jobs',
       label: 'Listing automation jobs',
       description: 'Lists all automation jobs with status, schedule, and a short prompt preview. Use inspect_automation_job to read the full prompt before editing an existing automation.',
@@ -1363,8 +1439,9 @@ export function createUserScopedTools(
     {
       name: 'create_automation_job',
       label: 'Creating automation job',
-      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), monthly (dayOfMonth+time), interval (every+unit). Use monthly directly for monthly requests; do not emulate it with a weekly or daily schedule and a prompt guard. Mention any relevant files or required file deliverables in the prompt. Run results and logs are stored in the database. Optional: status (active/paused).',
+      description: 'Creates a scheduled automation. Required: name, prompt, schedule. Use inspect_automation_job_options to discover eligible agent IDs and fixed chat targets. Set agentId to select the runtime and deliverySessionMode to choose new_session, channel_active or fixed_session. Defaults: Bradley, new_session. Schedule types: once, daily, weekly, monthly (dayOfMonth+time), interval. Use monthly directly for monthly requests. Mention relevant files and required deliverables in the prompt. Optional status: active/paused. Plugins and tool permissions come from the selected agent, not from preferredSkill.',
       parameters: Type.Object({
+        ...AUTOMATION_EXECUTION_PROPERTIES,
         name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
         prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
         schedule: Type.Object({
@@ -1378,7 +1455,7 @@ export function createUserScopedTools(
           timeZone: Type.Optional(Type.String({ description: 'Timezone (default: user preference, initially Europe/Berlin)' })),
         }),
         status: Type.Optional(Type.String({ description: 'Job status: active (default) or paused' })),
-      }),
+      }, { additionalProperties: false }),
       execute: async (toolCallId, params) => {
         const { name, prompt, schedule, status } = params as {
           name: string;
@@ -1398,9 +1475,12 @@ export function createUserScopedTools(
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
           const executionContext = getAgentExecutionContext();
+          const executionOptions = automationExecutionOptions(params as Record<string, unknown>);
+          await assertAutomationToolAgentAccess(executionOptions.agentId, scopedUserId, executionContext?.workspaceId);
           const preferredTimeZone = await getServerPreferredTimeZone();
           const job = await createAutomationJob(
             {
+              ...executionOptions,
               name: name.trim().slice(0, 120),
               prompt: prompt.trim().slice(0, 12000),
               scope: executionContext?.workspaceType === 'organization' || executionContext?.workspaceType === 'team' ? 'organization' : 'personal',
@@ -1426,8 +1506,9 @@ export function createUserScopedTools(
     {
       name: 'update_automation_job',
       label: 'Updating automation job',
-      description: 'Updates an existing automation job. Required: jobId. Optional: name, prompt, schedule, status (active/paused). Mention relevant paths and required file deliverables in the prompt. Schedule types include monthly (dayOfMonth+time); use it directly instead of adding date guards to daily or weekly prompts. Before changing prompt, call inspect_automation_job, preserve the existing prompt text, edit only the requested parts, and pass expectedPrompt or expectedUpdatedAt to avoid overwriting a newer version.',
+      description: 'Updates an automation, including agentId, preferredSkill and delivery/session settings. Omitted fields remain unchanged. Inspect the job first; use inspect_automation_job_options with jobId to find valid agents/chats. deliverySessionMode accepts new_session, channel_active or fixed_session (requires deliverySessionId). When changing the agent for a fixed chat, select a chat for the new agent or switch session mode. Before editing prompt, preserve the existing text and pass expectedPrompt or expectedUpdatedAt to avoid overwriting a newer version. Schedule types include monthly (dayOfMonth+time).',
       parameters: Type.Object({
+        ...AUTOMATION_EXECUTION_PROPERTIES,
         jobId: Type.String({ description: 'ID of the job to update' }),
         name: Type.Optional(Type.String({ description: 'New name for the job' })),
         prompt: Type.Optional(Type.String({ description: 'New prompt/script' })),
@@ -1444,7 +1525,7 @@ export function createUserScopedTools(
           timeZone: Type.Optional(Type.String({ description: 'Timezone' })),
         })),
         status: Type.Optional(Type.String({ description: 'active or paused' })),
-      }),
+      }, { additionalProperties: false }),
       execute: async (toolCallId, params) => {
         const { jobId, name, prompt, expectedPrompt, expectedUpdatedAt, schedule, status } = params as {
           jobId: string;
@@ -1467,6 +1548,10 @@ export function createUserScopedTools(
         try {
           const scopedUserId = requireToolUserId(userId, 'automation tools');
           const existingJob = await getUserOwnedAutomationJob(scopedUserId, jobId);
+          const executionOptions = automationExecutionOptions(params as Record<string, unknown>);
+          await assertAutomationToolAgentAccess(executionOptions.agentId,
+            existingJob.responsibleUserId || existingJob.ownerUserId || existingJob.createdByUserId,
+            existingJob.workspaceId);
           const normalizedPrompt = normalizeOptionalString(prompt)?.slice(0, 32000);
           if (normalizedPrompt !== undefined && expectedPrompt === undefined && expectedUpdatedAt === undefined) {
             throw new Error('Prompt updates require expectedPrompt or expectedUpdatedAt from inspect_automation_job. Inspect the automation first, then submit the complete revised prompt.');
@@ -1479,6 +1564,7 @@ export function createUserScopedTools(
           }
           const preferredTimeZone = await getServerPreferredTimeZone();
           const updatedJob = await updateAutomationJobForUser(jobId, {
+            ...executionOptions,
             name: normalizeOptionalString(name)?.slice(0, 120),
             prompt: normalizedPrompt,
             status: normalizeAutomationStatus(status),

@@ -78,6 +78,7 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   studio_list_presets: { label: 'Loaded presets', labelDe: 'Presets geladen', tone: 'list' },
   list_automation_jobs: { label: 'Loaded automations', labelDe: 'Automationen geladen', tone: 'automationList' },
   inspect_automation_job: { label: 'Inspected automation', labelDe: 'Automation geprüft', tone: 'automationList' },
+  inspect_automation_job_options: { label: 'Inspect automation options', labelDe: 'Automationsoptionen prüfen', tone: 'automationList' },
   create_automation_job: { label: 'Created automation', labelDe: 'Automation erstellt', tone: 'automationCreate' },
   update_automation_job: { label: 'Updated automation', labelDe: 'Automation aktualisiert', tone: 'automationUpdate' },
   delete_automation_job: { label: 'Deleted automation', labelDe: 'Automation gelöscht', tone: 'automationDelete' },
