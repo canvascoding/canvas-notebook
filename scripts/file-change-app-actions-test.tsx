@@ -102,6 +102,14 @@ async function main() {
   assert.deepEqual(legacy?.selectedEntry, { kind: 'revision', id: 'revision-1' });
   assert.equal(legacy?.initialView, 'history', 'legacy revision navigation is unchanged');
 
+  await act(async () => { closeVersionCenter(); });
+  await render({ ...graphData, status: 'applied', entries: [{ ...legacyRevision,
+    state: 'applied', operationId: 'operation-applied', revisionId: null }] });
+  await act(async () => { button(/View changes/iu).click(); });
+  assert.equal(useFileVersionCenterStore.getState().request?.selectedEntry, undefined,
+    'a pending turn opens current history without selecting an unavailable review operation');
+  assert.equal(useFileVersionCenterStore.getState().request?.initialView, 'history');
+
   await act(async () => root.unmount());
   console.log('File-change chat actions preserve exact graph/legacy review targets and explicit successor choice.');
 }

@@ -88,15 +88,17 @@ export function wrapToolWithExecutionContext(
   const execute = scopedTool.execute;
   return {
     ...scopedTool,
-    execute: (toolCallId, params, signal, onUpdate) => runWithAgentExecutionContext(
-      context,
-      async () => {
-        await maybeCleanupToolOutputOrphans(context);
+    execute: (toolCallId, params, signal, onUpdate) => {
+      // The runtime rotates agentTurnId between user messages. An in-flight tool
+      // must retain the turn that started it, including across its awaits.
+      const invocationContext = { ...context };
+      return runWithAgentExecutionContext(invocationContext, async () => {
+        await maybeCleanupToolOutputOrphans(invocationContext);
         const result = await execute(toolCallId, params, signal, onUpdate);
-        return prepareToolOutput({ result: attachChatFileReferences(result, scopedTool.name, toolCallId, context),
-          identity: context, toolCallId, toolName: scopedTool.name });
-      },
-    ),
+        return prepareToolOutput({ result: attachChatFileReferences(result, scopedTool.name, toolCallId, invocationContext),
+          identity: invocationContext, toolCallId, toolName: scopedTool.name });
+      });
+    },
   };
 }
 

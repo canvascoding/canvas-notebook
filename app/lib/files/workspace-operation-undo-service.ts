@@ -6,6 +6,7 @@ import { assertInverseLinks, assertUnchangedMovedPath, operationUndoId, Workspac
 import { executeWorkspaceFileOperationService } from './workspace-file-operation-service';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-preview';
+import { isWorkspaceFileOperationLinkSafe } from '@/app/lib/markdown/workspace-file-operation-link-safety';
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
@@ -109,8 +110,8 @@ async function prepareUndo(input: {
       selections: [{ sourcePath: destinationPath, destinationPath: sourcePath }],
     });
   } catch { return conflict('Workspace contents changed; a safe inverse plan cannot be built.'); }
-  if (inverse.readiness !== 'ready' || inverse.issues.length > 0 || !inverse.coverage.complete) {
-    conflict('The inverse move has a collision or incomplete link coverage.');
+  if (inverse.readiness !== 'ready' || inverse.issues.length > 0 || !isWorkspaceFileOperationLinkSafe(inverse)) {
+    conflict('The inverse move has a collision or unsafe link changes.');
   }
   assertInverseLinks(original, inverse);
   return { original, kind, sourcePath, destinationPath, undoOperationId,

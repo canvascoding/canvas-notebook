@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
+import { isWorkspaceFileOperationLinkSafe } from '@/app/lib/markdown/workspace-file-operation-link-safety';
 import type { WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { groupWorkspaceLinkWrites, type WorkspaceLinkWriteGroup } from '@/app/lib/markdown/workspace-link-write-groups';
 import type {
@@ -369,7 +370,8 @@ export function createWorkspaceFileOperationExecutor(input: {
       try {
         const rebuilt = await adapters.rebuildPlan({ request: operation.request, preview: operation.preview,
           sourceWorkspaceId: operation.sourceWorkspaceId, destinationWorkspaceId: operation.destinationWorkspaceId });
-        if (rebuilt.planId !== operation.preview.planId || rebuilt.readiness !== 'ready') {
+        if (rebuilt.planId !== operation.preview.planId || rebuilt.readiness !== 'ready'
+          || !isWorkspaceFileOperationLinkSafe(rebuilt)) {
           throw new WorkspaceOperationExecutorConflictError('PLAN_STALE', 'Workspace operation plan changed before apply.');
         }
         const unstaged: WorkspaceOperationStage = { identity, preview: rebuilt,

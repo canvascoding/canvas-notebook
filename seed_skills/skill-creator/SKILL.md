@@ -3,13 +3,37 @@ name: skill-creator
 description: "Create new skills, modify and improve existing skills, and measure skill performance. Use when users want to create a skill from scratch, edit, or optimize an existing skill, run evals to test a skill, benchmark skill performance with variance analysis, or optimize a skill's description for better triggering accuracy. Triggers: create a skill, new skill, build a skill, skill creation, write a SKILL.md, evaluate skill, test skill, skill eval, benchmark skill, optimize skill description."
 compatibility: Requires Python 3 and PyYAML for bundled validation and evaluation scripts
 metadata:
-  version: "1.0"
+  version: "1.1.0"
   author: canvas-studios
 ---
 
 # Skill Creator
 
 A skill for creating new skills and iteratively improving them.
+
+## Canvas skill workflow
+
+When this skill runs inside Canvas, Canvas's extension tools are the authoritative way to create, edit, fork, and install skills. Do not follow the external Claude packaging workflow below for Canvas skills.
+
+1. Call `canvas_extensions` with `action: "search"` to discover permitted skill operations, then `action: "describe"` for each operation you need. Use the exact input schema returned by `describe`, then call the operation through `canvas_extensions` with `action: "call"`, its exact `operation` name, and an `arguments` object matching that schema. For example:
+
+   ```json
+   {"action":"call","operation":"create_canvas_skill_draft","arguments":{"skillName":"reel-skript-writer","description":"Creates German reel scripts from a product brief."}}
+   ```
+
+   Use the exact `packagePath` returned by the tool for later file edits and installation.
+2. For a new skill, call `create_canvas_skill_draft` with `skillName`, `description`, and optional `version`. Edit the complete package at the returned `packagePath`, then call `install_canvas_skill_from_workspace` with `draftPath` set to that package path.
+3. For an existing skill, call `inspect_canvas_skill` with `skillName` and, when needed, `sourceScope`. Continue only when the result permits the requested action. If `editable` is true, call `create_canvas_skill_draft` with the same target `skillName`, plus `sourceSkillName` and the inspected `sourceScope`. Edit the complete package at the returned `packagePath`, then call `update_canvas_skill_from_workspace` with `draftPath` set to that exact `packagePath` and the returned `expectedVersion` and `expectedChecksum`.
+4. If the inspected skill is not editable but `forkable` is true, create a personal fork by calling `create_canvas_skill_draft` with a different `skillName`, `sourceSkillName`, and the inspected `sourceScope`. Edit the complete copied package, then install it with `install_canvas_skill_from_workspace`. This is the supported path for core, organization, and plugin-managed skills; a same-name draft cannot replace them.
+5. If inspection reports `forkable: false`, do not create a draft. Explain the returned reason and stop that operation. After a successful install or update, the skill is available to newly built prompts when enabled by the agent configuration. Managed drafts under `.canvas-skill-drafts/` are hidden from the file browser and search, and are cleaned up after success by default; failed validation or updates leave the draft recoverable. Use `discard_canvas_skill_draft` to abandon a draft. Pass `cleanupDraft: false` only when the user deliberately wants to retain the managed draft. Cleanup applies only to managed drafts, never arbitrary user folders.
+
+Canvas treats the full package folder as the unit. Preserve and edit `SKILL.md`, `agents/canvas.yaml`, `scripts/`, `references/`, `assets/`, examples, and other package files together. Do not create `.canvas/skills` or user-content `_skill-packages` copies. Every package needs a version: `SKILL.md` frontmatter at `metadata.version` is sufficient, and Canvas also accepts `agents/canvas.yaml` at `skill.version`. The Canvas YAML file is optional when the frontmatter has a version; if both files declare one, they must match. The required form is a string, for example `metadata: { version: "1.0.0" }`.
+
+For Canvas integration secrets, tell the user to manage values through Settings → Integrations. Skills must retrieve configured variables through `/api/integrations/env`; do not read or copy secret values into a skill package.
+
+## External Claude skill workflow
+
+The external Claude CLI and its `/tmp/.skill` packaging workflow are specific to that environment and must not be used for Canvas skills. The general writing, resource-organization, and evaluation guidance below also applies to Canvas unless this Canvas workflow says otherwise.
 
 At a high level, the process of creating a skill goes like this:
 
@@ -114,11 +138,10 @@ cloud-deploy/
 ```
 Claude reads only the relevant reference file.
 
-#### Secrets and Environment Variables
+#### Secrets and Environment Variables (external workflow)
 
-- If a skill needs API keys or other environment variables, tell the user to store them in `/data/secrets/Canvas-Integrations.env` via Settings → Integrations.
-- New skills must read integration secrets from `/data/secrets/Canvas-Integrations.env`.
-- Do not create per-skill secret files inside `/data/skills`, `/data/workspace`, or other ad-hoc locations.
+- In Canvas, follow the Canvas skill workflow above: users manage API keys in Settings → Integrations, and skills retrieve them through `/api/integrations/env`.
+- For external environments, follow that environment's secret-management rules. Never copy secret values into a skill package.
 
 #### Principle of Lack of Surprise
 

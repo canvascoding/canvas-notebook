@@ -300,20 +300,33 @@ async function validateWorkspaceSkillPackage(
   options: { validateDirectoryName?: boolean } = {},
 ): Promise<CanvasSkill> {
   const skillPath = requirePathInside(packageRoot, 'SKILL.md');
+  const diagnostics: string[] = [];
   const skill = await parseSkillFile(skillPath, {
     validateDirectoryName: options.validateDirectoryName ?? true,
+    onDiagnostic: (message) => diagnostics.push(message),
   });
   if (!skill) {
-    throw new Error('Skill package contains an invalid SKILL.md.');
+    throw new Error(diagnostics.length > 0
+      ? diagnostics.join(' ')
+      : 'Skill package contains an invalid SKILL.md.');
   }
   if (expectedName && skill.name !== expectedName) {
     throw new Error(`Skill package name mismatch: expected "${expectedName}", got "${skill.name}".`);
   }
   if (!skill.version) {
-    throw new Error('Skill package must declare a version in agents/canvas.yaml skill.version or SKILL.md metadata.version.');
+    throw new Error('Skill package must declare a version in SKILL.md metadata.version or agents/canvas.yaml skill.version.');
   }
   assertValidSkillVersion(skill.version);
   return skill;
+}
+
+async function refreshPersonalSkillRuntime(userId: string): Promise<void> {
+  try {
+    const { refreshPersonalCapabilityRuntime } = await import('@/app/lib/capabilities/activation-actions');
+    await refreshPersonalCapabilityRuntime(userId);
+  } catch (error) {
+    console.warn('[AgentSkillWorkspace] Failed to refresh personal capability runtime after skill change:', error);
+  }
 }
 
 async function rewriteSkillPackageName(packageRoot: string, targetSkillName: string): Promise<void> {
@@ -463,11 +476,23 @@ function managedDraftCleanupPath(workspaceRoot: string, packageRoot: string): { 
     return { reason: 'Draft path is not under .canvas-skill-drafts.' };
   }
 
-  const [draftId] = relative.split(path.sep);
-  if (!draftId) {
-    return { reason: 'Draft id could not be resolved.' };
+  const parts = relative.split(path.sep);
+  if (parts.length !== 2 || parts.some((part) => !part || part === '.' || part === '..')) {
+    return { reason: 'Draft path must identify one managed skill package.' };
   }
-  return { cleanupPath: requirePathInside(root, draftId) };
+  return { cleanupPath: requirePathInside(root, ...parts) };
+}
+
+async function removeEmptyDraftDirectories(workspaceRoot: string, draftIdPath: string): Promise<void> {
+  const root = draftRoot(path.resolve(workspaceRoot));
+  for (const directory of [draftIdPath, root]) {
+    try {
+      await fs.rmdir(directory);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTEMPTY' && code !== 'EEXIST') throw error;
+    }
+  }
 }
 
 async function cleanupDraftIfManaged(workspaceRoot: string, packageRoot: string, cleanupDraft = true): Promise<{
@@ -481,8 +506,23 @@ async function cleanupDraftIfManaged(workspaceRoot: string, packageRoot: string,
   if (!cleanup.cleanupPath) {
     return { cleaned: false, reason: cleanup.reason };
   }
-  await fs.rm(cleanup.cleanupPath, { recursive: true, force: true });
-  return { cleaned: true };
+  try {
+    const root = draftRoot(path.resolve(workspaceRoot));
+    for (const directory of [root, path.dirname(cleanup.cleanupPath)]) {
+      const stats = await fs.lstat(directory).catch(() => null);
+      if (stats?.isSymbolicLink() || stats && !stats.isDirectory()) {
+        return { cleaned: false, reason: 'Managed draft directory is not a real directory.' };
+      }
+    }
+    await fs.rm(cleanup.cleanupPath, { recursive: true, force: true });
+    await removeEmptyDraftDirectories(workspaceRoot, path.dirname(cleanup.cleanupPath));
+    return { cleaned: true };
+  } catch (error) {
+    return {
+      cleaned: false,
+      reason: `Draft cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
 }
 
 async function replaceSkillPackageAtomically(
@@ -645,79 +685,90 @@ export async function createCanvasSkillDraft(params: {
     throw new Error(`Draft already exists: ${workspaceRelativePath(params.workspaceRoot, packageRoot)}`);
   }
 
-  await fs.rm(packageRoot, { recursive: true, force: true });
-  await fs.mkdir(path.dirname(packageRoot), { recursive: true });
+  try {
+    for (const directory of [root, path.dirname(packageRoot)]) {
+      const stats = await fs.lstat(directory).catch(() => null);
+      if (stats?.isSymbolicLink() || stats && !stats.isDirectory()) {
+        throw new Error('Managed draft directory is not a real directory.');
+      }
+    }
+    await fs.rm(packageRoot, { recursive: true, force: true });
+    await fs.mkdir(path.dirname(packageRoot), { recursive: true });
 
-  if (params.sourceSkillName) {
-    const sourceSkillName = params.sourceSkillName.trim();
-    const sourceScope = isCoreSkillName(sourceSkillName) ? 'core' : (params.sourceScope || 'personal');
-    const source = await getExistingSkillPackage(sourceSkillName, scope, sourceScope);
-    const isFork = source.skill.name !== skillName || !source.editable;
-    if (!source.editable && source.skill.name === skillName) {
-      throw new Error(`${source.sourceScope === 'organization' ? 'Organization' : 'Managed'} skills are read-only. Use a different personal skill name for the fork.`);
+    if (params.sourceSkillName) {
+      const sourceSkillName = params.sourceSkillName.trim();
+      const sourceScope = isCoreSkillName(sourceSkillName) ? 'core' : (params.sourceScope || 'personal');
+      const source = await getExistingSkillPackage(sourceSkillName, scope, sourceScope);
+      const isFork = source.skill.name !== skillName || !source.editable;
+      if (!source.editable && source.skill.name === skillName) {
+        throw new Error(`${source.sourceScope === 'organization' ? 'Organization' : 'Managed'} skills are read-only. Use a different personal skill name for the fork.`);
+      }
+      await assertPackageContainsNoSymlinks(source.installDir);
+      await fs.cp(source.installDir, packageRoot, {
+        recursive: true,
+        preserveTimestamps: true,
+        filter: (sourcePath) => !isIgnoredPackagePath(toPosixPath(path.relative(source.installDir, sourcePath))),
+      });
+      if (source.skill.name !== skillName) {
+        await rewriteSkillPackageName(packageRoot, skillName);
+      }
+      return {
+        draftId: id,
+        draftPath: workspaceRelativePath(params.workspaceRoot, path.dirname(packageRoot)),
+        packagePath: workspaceRelativePath(params.workspaceRoot, packageRoot),
+        sourceSkillName,
+        sourceScope: source.sourceScope,
+        forked: isFork,
+        skillName,
+        expectedVersion: source.version,
+        expectedChecksum: source.checksum,
+        files: await listSkillFiles(packageRoot),
+      };
     }
-    await assertPackageContainsNoSymlinks(source.installDir);
-    await fs.cp(source.installDir, packageRoot, {
-      recursive: true,
-      preserveTimestamps: true,
-      filter: (sourcePath) => !isIgnoredPackagePath(toPosixPath(path.relative(source.installDir, sourcePath))),
-    });
-    if (source.skill.name !== skillName) {
-      await rewriteSkillPackageName(packageRoot, skillName);
-    }
+
+    const version = params.version?.trim() || '1.0.0';
+    assertValidSkillVersion(version);
+    const description = params.description?.trim() || `Personal Canvas skill ${skillName}.`;
+    await fs.mkdir(path.join(packageRoot, 'agents'), { recursive: true });
+    await fs.writeFile(
+      path.join(packageRoot, 'SKILL.md'),
+      [
+        '---',
+        `name: ${skillName}`,
+        `description: ${JSON.stringify(description)}`,
+        '---',
+        '',
+        `# ${skillName}`,
+        '',
+        description,
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    await fs.writeFile(
+      path.join(packageRoot, CANVAS_SKILL_INTERFACE_PATH),
+      [
+        'skill:',
+        `  version: ${JSON.stringify(version)}`,
+        'interface:',
+        `  display_name: ${JSON.stringify(skillName)}`,
+        `  short_description: ${JSON.stringify(description)}`,
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+
     return {
       draftId: id,
       draftPath: workspaceRelativePath(params.workspaceRoot, path.dirname(packageRoot)),
       packagePath: workspaceRelativePath(params.workspaceRoot, packageRoot),
-      sourceSkillName,
-      sourceScope: source.sourceScope,
-      forked: isFork,
       skillName,
-      expectedVersion: source.version,
-      expectedChecksum: source.checksum,
       files: await listSkillFiles(packageRoot),
     };
+  } catch (error) {
+    await cleanupDraftIfManaged(params.workspaceRoot, packageRoot);
+    throw error;
   }
-
-  const version = params.version?.trim() || '1.0.0';
-  assertValidSkillVersion(version);
-  const description = params.description?.trim() || `Personal Canvas skill ${skillName}.`;
-  await fs.mkdir(path.join(packageRoot, 'agents'), { recursive: true });
-  await fs.writeFile(
-    path.join(packageRoot, 'SKILL.md'),
-    [
-      '---',
-      `name: ${skillName}`,
-      `description: ${JSON.stringify(description)}`,
-      '---',
-      '',
-      `# ${skillName}`,
-      '',
-      description,
-      '',
-    ].join('\n'),
-    'utf-8',
-  );
-  await fs.writeFile(
-    path.join(packageRoot, CANVAS_SKILL_INTERFACE_PATH),
-    [
-      'skill:',
-      `  version: ${JSON.stringify(version)}`,
-      'interface:',
-      `  display_name: ${JSON.stringify(skillName)}`,
-      `  short_description: ${JSON.stringify(description)}`,
-      '',
-    ].join('\n'),
-    'utf-8',
-  );
-
-  return {
-    draftId: id,
-    draftPath: workspaceRelativePath(params.workspaceRoot, path.dirname(packageRoot)),
-    packagePath: workspaceRelativePath(params.workspaceRoot, packageRoot),
-    skillName,
-    files: await listSkillFiles(packageRoot),
-  };
 }
 
 export async function installCanvasSkillFromWorkspace(params: {
@@ -745,6 +796,7 @@ export async function installCanvasSkillFromWorkspace(params: {
   const registry = await readCanvasSkillRegistry(scope);
   const record = registry.skills[importResult.name];
   const cleanup = await cleanupDraftIfManaged(params.workspaceRoot, workspacePackage.packageRoot, params.cleanupDraft !== false);
+  await refreshPersonalSkillRuntime(scope.userId);
 
   return {
     success: true,
@@ -833,6 +885,7 @@ export async function updateCanvasSkillFromWorkspace(params: {
   }
 
   const cleanup = await cleanupDraftIfManaged(params.workspaceRoot, workspacePackage.packageRoot, params.cleanupDraft !== false);
+  await refreshPersonalSkillRuntime(scope.userId);
   return {
     success: true,
     name: skillName,
@@ -853,15 +906,30 @@ export async function discardCanvasSkillDraft(params: {
   draftPath: string;
 }): Promise<AgentSkillDiscardDraftResult> {
   const candidate = resolveWorkspacePath(params.workspaceRoot, params.draftPath);
-  const cleanup = managedDraftCleanupPath(params.workspaceRoot, candidate);
-  if (!cleanup.cleanupPath) {
-    throw new Error(cleanup.reason || 'Only drafts under .canvas-skill-drafts can be discarded.');
+  const root = draftRoot(path.resolve(params.workspaceRoot));
+  const relative = path.relative(root, candidate);
+  const parts = relative.split(path.sep);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)
+    || parts.length < 1 || parts.length > 2 || parts.some((part) => !part || part === '.' || part === '..')) {
+    throw new Error('Only a managed draft id or skill package under .canvas-skill-drafts can be discarded.');
   }
-  const existed = await fs.stat(cleanup.cleanupPath).then((stat) => stat.isDirectory()).catch(() => false);
-  await fs.rm(cleanup.cleanupPath, { recursive: true, force: true });
+  const target = requirePathInside(root, ...parts);
+  for (const directory of [root, path.dirname(target)]) {
+    const stats = await fs.lstat(directory).catch(() => null);
+    if (stats?.isSymbolicLink() || stats && !stats.isDirectory()) {
+      throw new Error('Managed draft directory is not a real directory.');
+    }
+  }
+  const existed = await fs.lstat(target).then((stat) => stat.isDirectory() && !stat.isSymbolicLink()).catch(() => false);
+  await fs.rm(target, { recursive: true, force: true });
+  if (parts.length === 1) {
+    await removeEmptyDraftDirectories(params.workspaceRoot, target);
+  } else {
+    await removeEmptyDraftDirectories(params.workspaceRoot, path.dirname(target));
+  }
   return {
     success: true,
-    draftPath: workspaceRelativePath(params.workspaceRoot, cleanup.cleanupPath),
+    draftPath: workspaceRelativePath(params.workspaceRoot, target),
     deleted: existed,
   };
 }

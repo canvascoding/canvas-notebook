@@ -252,20 +252,23 @@ function operationIsFutureAndOwned(input: {
   operation: {
     observedPolicyRevision: number | null;
     observedPolicyAt?: number;
+    createdInThisCall?: boolean;
     grantScope: AgentDirectEditGrantScope;
   };
   storedOperation: { createdAt: number } | null;
 }): boolean {
   const { access, stored, operation } = input;
-  // An implicit default has no preference-row timestamp. Only a newly created
-  // operation after the server's snapshot can use revision zero; a later toggle
-  // switches back to the stored revision boundary and invalidates that snapshot.
+  // An implicit default has no preference-row timestamp. A same-millisecond
+  // operation needs the trusted insertion result because timestamps alone
+  // cannot distinguish a new operation from a replay. A later toggle changes
+  // the stored revision and invalidates the snapshot.
   const boundary = stored?.updatedAt ?? operation.observedPolicyAt;
   return input.storedOperation !== null
     && operation.grantScope.userId === access.userId
     && operation.grantScope.workspaceId === access.requestedWorkspaceId
     && typeof boundary === 'number' && Number.isSafeInteger(boundary) && boundary >= 0
-    && input.storedOperation.createdAt > boundary
+    && (input.storedOperation.createdAt > boundary
+      || (input.storedOperation.createdAt === boundary && operation.createdInThisCall === true))
     && operation.observedPolicyRevision === (stored?.revision ?? 0);
 }
 
@@ -415,6 +418,7 @@ export function createFileReviewPolicyService(options: {
         operationId: string;
         observedPolicyRevision: number | null;
         observedPolicyAt?: number;
+        createdInThisCall?: boolean;
         grantScope: AgentDirectEditGrantScope;
       };
     }): Promise<FileReviewPolicyOperationDecision> {

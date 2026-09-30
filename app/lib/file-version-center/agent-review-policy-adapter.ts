@@ -120,6 +120,8 @@ export async function authorizeNewAgentDirectApply(input: {
   grantScope: AgentDirectEditGrantScope;
   hardSafetyRequiresReview: boolean;
   operationExplicitlyRequiresReview: boolean;
+  /** Trusted admission result; never inferred from a tool-provided idempotency key. */
+  createdInThisCall: boolean;
 }): Promise<{
   enforcementMode: 'review_required' | 'safe_direct';
   grant: AgentDirectEditGrant | null;
@@ -153,6 +155,7 @@ export async function authorizeNewAgentDirectApply(input: {
         operationId: input.operationId,
         observedPolicyRevision: input.snapshot.policy.revision,
         observedPolicyAt: input.snapshot.observedAt,
+        createdInThisCall: input.createdInThisCall,
         grantScope: input.grantScope,
       },
     });

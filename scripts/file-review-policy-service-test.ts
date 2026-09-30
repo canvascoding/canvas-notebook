@@ -139,12 +139,19 @@ async function main(): Promise<void> {
     assert.equal(defaultDirect.policy.reason, 'default_safe_direct');
     assert.equal(defaultDirect.grant?.id, 'grant-a');
     assert.equal(grantLookups, lookupsBeforeDefault + 1, 'a valid, post-snapshot default operation reaches the active grant resolver');
+    const sameTickDefault = await service.resolveForOperation({ access: ownerAccess,
+      lineageId: 'lineage-a', evaluation: allowChoice,
+      operation: { ...defaultOperation, operationId: 'operation-same-time', createdInThisCall: true } });
+    assert.equal(sameTickDefault.enforcementMode, 'safe_direct',
+      'a server-proven new operation may share the snapshot millisecond');
     assert.deepEqual((await postgres.query<{ count: string }>(
       `SELECT count(*)::text AS count FROM file_agent_review_policies`)).rows[0]?.count, '0',
     'the first ordinary edit does not create a preference row');
     assert.equal(audits.length, 0, 'the default direct edit emits no policy-write audit event');
     for (const [name, unsafeOperation] of [
       ['pre-snapshot operation', { ...defaultOperation, operationId: 'operation-old' }],
+      ['pre-snapshot operation with false freshness claim', { ...defaultOperation,
+        operationId: 'operation-old', createdInThisCall: true }],
       ['same-time operation', { ...defaultOperation, operationId: 'operation-same-time' }],
       ['nonzero revision without a policy row', { ...defaultOperation, observedPolicyRevision: 1 }],
       ['missing server timestamp', { ...defaultOperation, observedPolicyAt: undefined }],
@@ -220,6 +227,10 @@ async function main(): Promise<void> {
     });
     assert.equal(direct.enforcementMode, 'safe_direct');
     assert.equal(direct.grant?.id, 'grant-a');
+    const sameTickStored = await service.resolveForOperation({ access: ownerAccess,
+      lineageId: 'lineage-a', evaluation: allowChoice,
+      operation: { ...operation, operationId: 'operation-same-time', createdInThisCall: true } });
+    assert.equal(sameTickStored.enforcementMode, 'safe_direct');
 
     for (const [name, unsafeOperation] of [
       ['existing operation', { ...operation, operationId: 'operation-existing' }],

@@ -20,6 +20,7 @@ const IGNORED_PATTERNS = [
   '.DS_Store',
   'Thumbs.db',
 ];
+const CANVAS_SKILL_DRAFTS_DIR = '.canvas-skill-drafts';
 
 export type FileEventType = WorkspaceFileEventType;
 
@@ -66,6 +67,10 @@ function getParentDirectory(relativePath: string): string {
 
 function subscriptionKey(workspaceId: string, dirPath: string): string {
   return `${workspaceId}\0${dirPath}`;
+}
+
+function isCanvasSkillDraftPath(filePath: string): boolean {
+  return normalizeRelativePath(filePath).split('/')[0] === CANVAS_SKILL_DRAFTS_DIR;
 }
 
 export class FileWatcherService {
@@ -194,6 +199,7 @@ export class FileWatcherService {
   }
 
   public publishMutation(mutation: WorkspaceFileMutation): void {
+    if (isCanvasSkillDraftPath(mutation.relativePath)) return;
     const event = this.createEvent(mutation);
     this.invalidateAndBroadcast(event, mutation.workspace);
   }
@@ -218,15 +224,27 @@ export class FileWatcherService {
     try {
       const result = await operation();
       pending.committed = true;
-      remapWorkspacePresencePaths(workspace.workspaceId, mutation.oldPath, mutation.newPath);
+      const oldHidden = isCanvasSkillDraftPath(mutation.oldPath);
+      const newHidden = isCanvasSkillDraftPath(mutation.newPath);
+      remapWorkspacePresencePaths(workspace.workspaceId, mutation.oldPath, mutation.newPath, { hideDestination: newHidden });
       this.pendingEvents = this.pendingEvents.filter((event) => this.findManagedRename(event.workspaceId, event.relativePath) !== pending);
       clearSubtreeCache(getParentDirectory(mutation.oldPath), workspace.workspaceId);
-      this.invalidateAndBroadcast({
-        type: 'rename', workspaceId: workspace.workspaceId,
-        path: this.toFullPath(mutation.newPath, workspace),
-        relativePath: mutation.newPath, dir: getParentDirectory(mutation.newPath),
-        timestamp: Date.now(), mutation,
-      }, workspace);
+      if (oldHidden || newHidden) {
+        // A boundary move changes only the visible side of the tree. Never
+        // include the private source/destination in a rename payload.
+        const visiblePath = oldHidden ? (newHidden ? null : mutation.newPath) : mutation.oldPath;
+        if (visiblePath) {
+          const event = await this.determineEventType('rename', visiblePath, this.toFullPath(visiblePath, workspace), workspace);
+          if (event) this.invalidateAndBroadcast(event, workspace);
+        }
+      } else {
+        this.invalidateAndBroadcast({
+          type: 'rename', workspaceId: workspace.workspaceId,
+          path: this.toFullPath(mutation.newPath, workspace),
+          relativePath: mutation.newPath, dir: getParentDirectory(mutation.newPath),
+          timestamp: Date.now(), mutation,
+        }, workspace);
+      }
       return result;
     } finally {
       this.managedRenames.delete(mutation.operationId);
@@ -255,6 +273,7 @@ export class FileWatcherService {
   }
 
   private async startWatchingDir(workspace: WorkspaceContext, relativeDir: string): Promise<void> {
+    if (isCanvasSkillDraftPath(relativeDir)) return;
     const key = subscriptionKey(workspace.workspaceId, relativeDir);
     if (this.watchers.has(key)) return;
     const subscription = this.subscriptions.get(key);
@@ -278,6 +297,7 @@ export class FileWatcherService {
         const relativeFilePath = relativeDir === '.'
           ? filename.toString()
           : path.posix.join(relativeDir, filename.toString());
+        if (isCanvasSkillDraftPath(relativeFilePath)) return;
         // Atomic writes publish the final filename separately. The staging
         // file's rename/unlink must never become a document deletion event.
         if (isInternalWorkspaceStagingPath(relativeFilePath)) return;
@@ -302,6 +322,7 @@ export class FileWatcherService {
     workspace: WorkspaceContext,
   ): Promise<FileEvent | null> {
     const normalizedPath = normalizeRelativePath(relativePath);
+    if (isCanvasSkillDraftPath(normalizedPath)) return null;
     const dir = getParentDirectory(normalizedPath);
 
     try {
@@ -339,10 +360,12 @@ export class FileWatcherService {
   }
 
   private shouldIgnore(filePath: string): boolean {
-    return filePath.split(/[\\/]/).some((part) => IGNORED_PATTERNS.includes(part));
+    return isCanvasSkillDraftPath(filePath)
+      || filePath.split(/[\\/]/).some((part) => IGNORED_PATTERNS.includes(part));
   }
 
   private queueEvent(event: FileEvent): void {
+    if (isCanvasSkillDraftPath(event.relativePath)) return;
     const managedRename = this.findManagedRename(event.workspaceId, event.relativePath);
     if (managedRename) {
       return;
@@ -479,6 +502,7 @@ export function withWorkspacePathRenameEvent<T>(
 
 export function publishWorkspaceFileMutation(mutation: WorkspaceFileMutation): void {
   const relativePath = normalizeRelativePath(mutation.relativePath);
+  if (isCanvasSkillDraftPath(relativePath)) return;
   if (watcherRuntime.__canvasFileWatcherService) {
     watcherRuntime.__canvasFileWatcherService.publishMutation({ ...mutation, relativePath });
     return;

@@ -63,6 +63,7 @@ export async function presentFileChangeAppData(
       FROM file_revisions revision
       WHERE revision.workspace_id = entry.workspace_id
         AND revision.lineage_id = entry.lineage_id
+        AND revision.history_only = false
       ORDER BY revision.revision_number DESC, revision.created_at DESC, revision.id DESC
       LIMIT 1
     ) latest_revision ON TRUE

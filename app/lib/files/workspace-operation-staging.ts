@@ -11,6 +11,7 @@ import {
   type WorkspaceFileOperationPreview,
 } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-write-groups';
+import { isWorkspaceFileOperationLinkSafe } from '@/app/lib/markdown/workspace-file-operation-link-safety';
 import type { WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { WorkspaceOperationJournal, type WorkspaceOperationRecord } from './workspace-operation-journal';
 
@@ -161,9 +162,9 @@ function validateCoverage(
 ): void {
   if (!preview || !Array.isArray(preview.issues) || !Array.isArray(preview.linkEdits)
     || !Array.isArray(preview.previewContents) || !preview.coverage
-    || preview.readiness !== 'ready' || preview.issues.length !== 0 || !preview.coverage.complete
+    || preview.readiness !== 'ready' || preview.issues.length !== 0 || !isWorkspaceFileOperationLinkSafe(preview)
     || !['rename', 'move', 'copy'].includes(preview.kind)) {
-    fail('STAGE_CONFLICT', 'Only complete, ready Rename/Move/Copy previews may be staged.');
+    fail('STAGE_CONFLICT', 'Only link-safe, ready Rename/Move/Copy previews may be staged.');
   }
   if (computeWorkspaceFileOperationPlanId(preview) !== preview.planId) {
     fail('STAGE_CONFLICT', 'Preview body does not match its plan ID.');

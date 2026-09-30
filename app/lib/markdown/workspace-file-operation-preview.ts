@@ -17,6 +17,7 @@ import {
   type WorkspacePlannerSnapshot,
 } from './workspace-file-operation-planner';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
+import { isWorkspaceFileOperationLinkSafe } from './workspace-file-operation-link-safety';
 
 export class WorkspacePreviewStaleError extends Error {
   constructor() {
@@ -44,7 +45,9 @@ export function assertFreshWorkspaceFileOperationPlan(
   expectedPlanId: string,
 ): void {
   if (plan.planId !== expectedPlanId) throw new WorkspacePreviewStaleError();
-  if (plan.readiness !== 'ready') throw new WorkspacePreviewBlockedError();
+  if (plan.readiness !== 'ready' || plan.issues.length !== 0 || !isWorkspaceFileOperationLinkSafe(plan)) {
+    throw new WorkspacePreviewBlockedError();
+  }
 }
 
 async function workspaceRootVersion(options: WorkspaceFileOperationOptions): Promise<string> {

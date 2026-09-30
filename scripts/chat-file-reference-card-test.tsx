@@ -37,7 +37,7 @@ async function main() {
   const button = (testId: string) => document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
   const click = async (element: HTMLElement) => { await act(async () => element.click()); };
   await render();
-  assert.equal(items().length, 3);
+  assert.equal(items().length, 5);
   assert.match(document.body.textContent!, /Change proposed/);
   assert.equal(button('chat-file-references-expand').getAttribute('aria-expanded'), 'false');
   assert.equal(button('chat-read-references-toggle').getAttribute('aria-expanded'), 'false');

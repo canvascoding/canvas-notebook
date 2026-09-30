@@ -9,6 +9,7 @@ const execFileAsync = promisify(execFile);
 
 export type OrdinaryAgentToolDetails = {
   sha256?: string;
+  afterSha256?: string;
   code?: string;
   outcome?: string;
   editIndex?: number;

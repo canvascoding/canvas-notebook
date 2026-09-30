@@ -49,6 +49,8 @@ function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
   })) : preview.pathMappings;
   const linkEdits = deleting ? [] : preview.linkEdits;
   const collisions = deleting ? [] : preview.collisions;
+  const linkAssessment = deleting ? undefined : preview.linkAssessment;
+  const blocked = review.status === 'blocked' || review.status === 'pending' && preview.readiness === 'blocked';
 
   return <div className="space-y-5 px-4 py-4 sm:px-6" data-testid="workspace-operation-review-details">
     <div className="flex flex-wrap items-center gap-2">
@@ -56,6 +58,46 @@ function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
       <ReviewStatus review={review} />
       <span className="text-xs text-muted-foreground">{review.selections.length} {t('pathChanges').toLowerCase()}</span>
     </div>
+
+    {review.status === 'pending' && preview.readiness === 'ready'
+      ? <section className="space-y-1 rounded-lg border border-emerald-500/30 bg-emerald-500/[0.05] p-3 text-sm"
+        aria-label={t('operationReadiness')} data-testid="workspace-operation-readiness">
+        <h3 className="font-semibold">{t('operationReady')}</h3>
+        {linkAssessment ? <p className="text-muted-foreground">{t('operationReadyHelp')}</p> : null}
+      </section> : null}
+
+    {blocked
+      ? <section className="space-y-2 rounded-lg border border-destructive/30 bg-destructive/[0.05] p-3 text-sm"
+        aria-label={t('nextSteps')} data-testid="workspace-operation-readiness">
+        <p className="font-semibold">{t('operationBlocked')}</p>
+        <h3 className="font-semibold">{t('nextSteps')}</h3>
+        <p>{t('blockedNoChanges')}</p>
+        <p>{t(linkAssessment?.blockers.length ? 'affectedLinkHelp'
+          : preview.issues.some((issue) => issue.code === 'incomplete-index') ? 'incompleteIndexHelp' : 'blockedHelp')}</p>
+        <p className="text-muted-foreground">{t('dismissHelp')}</p>
+      </section> : null}
+
+    {linkAssessment?.blockers.length ? <section aria-label={t('linkBlockers')} data-testid="workspace-operation-link-blockers">
+      <h3 className="mb-2 text-sm font-semibold">{t('linkBlockers')} ({linkAssessment.blockers.length})</h3>
+      <ul className="max-h-64 space-y-3 overflow-y-auto rounded-lg border border-destructive/30 p-3 text-xs">
+        {linkAssessment.blockers.map((item, index) => <li key={`${item.sourcePath}:${index}`} className="space-y-1">
+          <p className="break-all font-mono font-semibold">{item.sourcePath}</p>
+          {item.targetLiteral ? <p className="break-all font-mono">→ {item.targetLiteral} ({item.status})</p> : null}
+          <p className="text-muted-foreground">{t(`linkBlocker_${item.reason}`)}</p>
+        </li>)}
+      </ul>
+    </section> : null}
+
+    {linkAssessment?.warnings.length ? <details className="rounded-lg border border-amber-500/30 bg-amber-500/[0.04] p-3 text-sm"
+      data-testid="workspace-operation-link-warnings">
+      <summary className="cursor-pointer font-semibold">{t('linkWarnings')} ({linkAssessment.warnings.length})</summary>
+      <p className="mt-2 text-xs text-muted-foreground">{t('linkWarningsHelp')}</p>
+      <ul className="mt-2 max-h-48 space-y-2 overflow-y-auto font-mono text-xs">
+        {linkAssessment.warnings.map((item, index) => <li key={`${item.sourcePath}:${index}`} className="break-all">
+          {item.sourcePath}: {item.targetLiteral} ({item.status})
+        </li>)}
+      </ul>
+    </details> : null}
 
     <dl className="grid gap-2 text-xs sm:grid-cols-2">
       <div className="min-w-0 rounded-lg border bg-muted/20 p-3">
@@ -102,8 +144,9 @@ function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
       </div> : <p className="text-sm text-muted-foreground">{t('noLinkChanges')}</p>}
     </section>}
 
-    <section aria-label={t('coverage')} className="space-y-2">
-      <h3 className="text-sm font-semibold">{t('coverage')}: {t(preview.coverage.complete ? 'coverageComplete' : 'coverageIncomplete')}</h3>
+    <details aria-label={t('coverage')} className="space-y-2 rounded-lg border p-3" data-testid="workspace-operation-link-coverage">
+      <summary className="cursor-pointer text-sm font-semibold">{t('coverage')}: {t(preview.coverage.complete ? 'coverageComplete' : 'coverageIncomplete')}</summary>
+      {linkAssessment ? <p className="text-xs text-muted-foreground">{t('globalCoverageHelp')}</p> : null}
       <p className="text-xs text-muted-foreground">{t('omittedSources')}: {preview.coverage.omittedSources.length} · {t('unresolvedLinks')}: {preview.coverage.unresolvedLinks.length}</p>
       {preview.coverage.omittedSources.length > 0 ? <ul className="space-y-1 rounded-lg border p-3 font-mono text-xs">
         {preview.coverage.omittedSources.map((item, index) => <li key={`${item.path}:${index}`} className="break-all">{item.path}: {item.reason}</li>)}
@@ -113,7 +156,7 @@ function ReviewDetails({ review }: { review: WorkspaceOperationReviewPublic }) {
           {item.sourcePath}: {item.targetLiteral} ({item.status})
         </li>)}
       </ul> : null}
-    </section>
+    </details>
 
     {collisions.length > 0 ? <section aria-label={t('collisions')}>
       <h3 className="mb-2 text-sm font-semibold">{t('collisions')} ({collisions.length})</h3>
@@ -230,6 +273,7 @@ export function WorkspaceOperationReviewPanel({ request }: { request: WorkspaceO
         reviewId: review.reviewId, workspaceId: request.workspaceId, planId: review.planId, action: decision,
       });
       setData({ reviews: [], review: updated });
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
       if (updated.status === 'applied') void useFileStore.getState().refreshVisibleTree();
     } catch (decisionError) {
       const stale = decisionError instanceof WorkspaceOperationReviewClientError

@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 
 import type { SqlConnection } from '@/app/lib/db';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 import {
   createTeamSeatSnapshotRequest,
   parseTeamSeatSnapshotResponse,
@@ -453,6 +454,14 @@ export async function enqueueTeamSeatOutboxOperation(
     now?: number;
   },
 ): Promise<{ operation: TeamSeatOutboxOperation; replayed: boolean }> {
+  if (getDeploymentMode() === 'managed-team'
+    && (input.operationKind === 'membership_snapshot' || input.operationKind === 'license_refresh')) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_CONFLICT',
+      'Managed Team synchronization does not use the Community outbox.',
+      409,
+    );
+  }
   const operationId = input.operationId ?? randomUUID();
   if (!UUID_PATTERN.test(operationId)) {
     throw new TeamSeatOutboxError(

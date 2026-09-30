@@ -971,7 +971,7 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'studio_edit_image'), false);
 
   const { db } = await import('../app/lib/db');
-  const { user, piDelegations } = await import('../app/lib/db/schema');
+  const { user, piDelegations, piSessions } = await import('../app/lib/db/schema');
   const { createAutomationJob: createAutomationJobInStore, getAutomationJob } = await import('../app/lib/automations/store');
   const now = new Date();
   await db.insert(user).values([
@@ -997,9 +997,11 @@ async function main() {
   const automationGateway = ownerAutomationTools.find((tool) => tool.name === 'automation_manage');
   const listAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'list_automation_jobs');
   const inspectAutomationTool = ownerAutomationTools.find((tool) => tool.name === 'inspect_automation_job');
+  const automationOptionsTool = ownerAutomationTools.find((tool) => tool.name === 'inspect_automation_job_options');
   assert.ok(automationGateway);
   assert.ok(listAutomationTool);
   assert.ok(inspectAutomationTool);
+  assert.ok(automationOptionsTool);
   const callAutomation = (operation: string, arguments_: Record<string, unknown>) => automationGateway.execute('automation-gateway', {
     action: 'call',
     operation,
@@ -1014,8 +1016,6 @@ async function main() {
     name: 'Prompt Editor Automation',
     prompt: originalAutomationPrompt,
     schedule: { kind: 'daily', time: '09:00', timeZone: 'UTC' },
-    targetOutputPath: 'reports/daily',
-    workspaceContextPaths: ['README.md'],
     status: 'active',
   });
   assert.match(getText(createAutomationResult), /Automation job created successfully/);
@@ -1055,8 +1055,6 @@ async function main() {
     jobId: createdAutomationJob.id,
     prompt: revisedAutomationPrompt,
     expectedPrompt: inspectedAutomationJob.prompt,
-    workspaceContextPaths: [],
-    targetOutputPath: '',
   });
   assert.match(getText(updateAutomationResult), /Automation job updated successfully/);
   assert.match(getText(updateAutomationResult), /Sende danach eine knappe Zusammenfassung/);
@@ -1108,6 +1106,85 @@ async function main() {
   });
   assert.match(getText(rejectedMonthlyAutomationResult), /dayOfMonth|31|invalid/i);
 
+  const { createAgentProfile } = await import('../app/lib/agents/registry');
+  await createAgentProfile({ name: 'Matthias', agentId: 'matthias', scopeType: 'user', ownerUserId: 'automation-owner', createdByUserId: 'automation-owner', accessPolicy: 'restricted' });
+  await createAgentProfile({ name: 'Private Agent', agentId: 'private-agent', scopeType: 'user', ownerUserId: 'automation-other', createdByUserId: 'automation-other', accessPolicy: 'restricted' });
+  await db.insert(piSessions).values([
+    { sessionId: 'matthias-chat', userId: 'automation-owner', agentId: 'matthias', title: 'Report discussion', provider: 'test', model: 'test', createdAt: now, updatedAt: now },
+    { sessionId: 'bradley-chat', userId: 'automation-owner', agentId: 'canvas-agent', title: 'Other agent chat', provider: 'test', model: 'test', createdAt: now, updatedAt: now },
+    { sessionId: 'other-user-chat', userId: 'automation-other', agentId: 'matthias', title: 'Private chat', provider: 'test', model: 'test', createdAt: now, updatedAt: now },
+    { sessionId: 'archived-chat', userId: 'automation-owner', agentId: 'matthias', title: 'Archived', provider: 'test', model: 'test', archivedAt: now, createdAt: now, updatedAt: now },
+    { sessionId: 'wrong-workspace-chat', userId: 'automation-owner', agentId: 'matthias', title: 'Other workspace', provider: 'test', model: 'test', workspaceId: 'workspace-other', workspaceType: 'organization', createdAt: now, updatedAt: now },
+  ]);
+  const optionsResult = await automationOptionsTool.execute('options', { agentId: 'matthias' });
+  const availableOptions = optionsResult.details as { agents: Array<{ agentId: string }>; chats: Array<{ sessionId: string }>; deliverySessionModes: string[] };
+  assert.ok(availableOptions.agents.some((agent) => agent.agentId === 'matthias'));
+  assert.equal(availableOptions.agents.some((agent) => agent.agentId === 'private-agent'), false);
+  assert.deepEqual(availableOptions.chats.map((chat) => chat.sessionId), ['matthias-chat']);
+  assert.deepEqual(availableOptions.deliverySessionModes, ['new_session', 'channel_active', 'fixed_session']);
+  const describedAutomation = await automationGateway.execute('describe-modes', { action: 'describe', operation: 'create_automation_job' });
+  assert.match(getText(describedAutomation), /deliverySessionMode/);
+  assert.match(getText(describedAutomation), /channel_active/);
+  assert.match(getText(describedAutomation), /fixed_session/);
+
+  const createFixedResult = await callAutomation('create_automation_job', {
+    name: 'Matthias fixed chat', prompt: 'Report the result.', schedule: { kind: 'daily', time: '12:00', timeZone: 'UTC' },
+    agentId: 'matthias', preferredSkill: 'reporting', deliverySessionMode: 'fixed_session', deliverySessionId: 'matthias-chat',
+  });
+  assert.match(getText(createFixedResult), /Automation job created successfully/);
+  const fixedJob = (createFixedResult.details as { job: { id: string } }).job;
+  const storedFixedJob = await getAutomationJob(fixedJob.id);
+  assert.ok(storedFixedJob);
+  assert.equal(storedFixedJob.agentId, 'matthias');
+  assert.equal(storedFixedJob.preferredSkill, 'reporting');
+  assert.equal(storedFixedJob.deliverySessionMode, 'fixed_session');
+  assert.equal(storedFixedJob.deliverySessionId, 'matthias-chat');
+  assert.match(getText(createFixedResult), /Delivery session ID: matthias-chat/);
+  assert.match(getText(await callAutomation('update_automation_job', { jobId: fixedJob.id, name: 'Keep execution settings' })), /successfully/);
+  assert.equal((await getAutomationJob(fixedJob.id))?.deliverySessionMode, 'fixed_session');
+  for (const sessionId of ['bradley-chat', 'other-user-chat', 'archived-chat', 'wrong-workspace-chat']) {
+    assert.match(getText(await callAutomation('update_automation_job', { jobId: fixedJob.id, deliverySessionId: sessionId })), /selected chat is no longer available/);
+    assert.equal((await getAutomationJob(fixedJob.id))?.deliverySessionId, 'matthias-chat');
+  }
+  assert.match(getText(await callAutomation('update_automation_job', { jobId: fixedJob.id, agentId: 'canvas-agent' })), /selected chat is no longer available/);
+  assert.match(getText(await callAutomation('update_automation_job', {
+    jobId: fixedJob.id, deliverySessionMode: 'channel_active', deliverySessionId: null,
+    deliveryMode: 'channel_home', deliveryChannelId: 'telegram', deliveryChannelSessionKey: 'telegram:42', preferredSkill: 'auto',
+  })), /successfully/);
+  const storedActiveJob = await getAutomationJob(fixedJob.id);
+  assert.ok(storedActiveJob);
+  assert.equal(storedActiveJob.deliverySessionMode, 'channel_active');
+  assert.equal(storedActiveJob.deliverySessionId, null);
+  assert.equal(storedActiveJob.deliveryMode, 'channel_home');
+  assert.equal(storedActiveJob.deliveryChannelId, 'telegram');
+  assert.equal(storedActiveJob.deliveryChannelSessionKey, 'telegram:42');
+  assert.equal(storedActiveJob.preferredSkill, 'auto');
+  assert.match(getText(await callAutomation('update_automation_job', {
+    jobId: fixedJob.id, agentId: 'canvas-agent', deliverySessionMode: 'new_session', deliveryChannelId: null, deliveryChannelSessionKey: null,
+  })), /successfully/);
+  assert.equal((await getAutomationJob(fixedJob.id))?.agentId, 'canvas-agent');
+  assert.equal((await getAutomationJob(fixedJob.id))?.deliverySessionMode, 'new_session');
+  assert.equal((await getAutomationJob(fixedJob.id))?.deliveryChannelSessionKey, null);
+  assert.match(getText(await callAutomation('create_automation_job', {
+    name: 'No access', prompt: 'Do not run', schedule: { kind: 'daily', time: '12:00' }, agentId: 'private-agent',
+  })), /access|available|permission/i);
+  assert.match(getText(await callAutomation('update_automation_job', { jobId: fixedJob.id, deliverySessionMode: 'invalid' })), /Invalid arguments/);
+  assert.match(getText(await callAutomation('update_automation_job', { jobId: fixedJob.id, sessionMode: 'fixed_session' })), /Invalid arguments/);
+  const { createManagedAgent } = await import('../app/lib/agents/management-actions');
+  const managementActor = { userId: 'automation-owner', source: 'tool' as const };
+  await assert.rejects(createManagedAgent(managementActor, {
+    name: 'Invalid gateway selection', enabledTools: ['automation_manage'],
+  }), /Unknown agent tools/);
+  await createManagedAgent(managementActor, {
+    name: 'Automation Specialist', agentId: 'automation-specialist',
+    enabledTools: ['create_automation_job', 'update_automation_job', 'inspect_automation_job_options'],
+  });
+  const specialistTools = await getPiTools('automation-owner', 'automation-specialist');
+  assert.ok(specialistTools.some((tool) => tool.name === 'automation_manage'));
+  assert.ok(specialistTools.some((tool) => tool.name === 'inspect_automation_job_options'));
+  assert.equal(filterAutomationExecutionTools(specialistTools).some((tool) => tool.name === 'automation_manage'), false);
+  assert.equal(filterAutomationExecutionTools(specialistTools).some((tool) => tool.name === 'inspect_automation_job_options'), false);
+
   const otherAutomationJob = await createAutomationJobInStore(
     {
       name: 'Other User Automation',
@@ -1118,6 +1195,7 @@ async function main() {
     'automation-other',
   );
   assert.match(getText(await inspectAutomationTool.execute('inspect-other-automation', { jobId: otherAutomationJob.id })), /not found/);
+  assert.match(getText(await automationOptionsTool.execute('options-other-automation', { jobId: otherAutomationJob.id })), /not found/);
   assert.match(getText(await callAutomation('update_automation_job', {
     jobId: otherAutomationJob.id,
     name: 'Cross-user update attempt',
@@ -1152,6 +1230,11 @@ async function main() {
   assert.equal(inspectAutomationMetadata.group, 'Automation');
   assert.deepEqual(inspectAutomationMetadata.toolsets, ['automation']);
   assert.equal(inspectAutomationMetadata.planningModeAllowed, true);
+  const automationOptionsMetadata = metadata.find((tool) => tool.name === 'inspect_automation_job_options');
+  assert.ok(automationOptionsMetadata);
+  assert.equal(automationOptionsMetadata.group, 'Automation');
+  assert.deepEqual(automationOptionsMetadata.toolsets, ['automation']);
+  assert.equal(automationOptionsMetadata.planningModeAllowed, true);
   const delegateTaskMetadata = metadata.find((tool) => tool.name === 'delegate_task');
   assert.ok(delegateTaskMetadata);
   assert.equal(delegateTaskMetadata.group, 'Delegation');
@@ -1281,8 +1364,12 @@ async function main() {
   } }, false, 'inbox event remains on its narrower tool ceiling');
   await db.insert(piDelegations).values({ id: 'state-worker', userId: stateContext.userId,
     sourceSessionId: 'source-session', sourceAgentId: stateContext.agentId,
-    workerSessionId: stateContext.sessionId, workerType: 'managed', goal: 'test worker tool ceiling',
+    workerSessionId: stateContext.sessionId, workerType: 'managed', targetAgentId: stateContext.agentId,
+    status: 'running', goal: 'test worker tool ceiling',
     toolsetsJson: '["automation"]', createdAt: now, updatedAt: now });
+  await db.insert(piSessions).values({ sessionId: stateContext.sessionId, userId: stateContext.userId,
+    agentId: stateContext.agentId, sessionKind: 'delegation_worker', parentSessionId: 'source-session',
+    provider: 'test', model: 'test', createdAt: now, updatedAt: now });
   await assertAutomationBoundTools(stateOptions, false, 'delegated worker cannot receive bound automation tools');
 
   console.log('pi-tool-registry-test: ok');

@@ -207,7 +207,7 @@ const TARGET_PROJECTION_SQL = `
     AND document.status = 'active' AND document.provider = 'yjs'
   LEFT JOIN LATERAL (
     SELECT item.id, item.content_hash, item.size_bytes
-    FROM file_revisions item WHERE item.lineage_id = lineage.id
+    FROM file_revisions item WHERE item.lineage_id = lineage.id AND item.history_only = false
     ORDER BY item.revision_number DESC, item.id DESC LIMIT 1
   ) revision ON TRUE
 `;
@@ -601,6 +601,10 @@ export function createFileVersionCenterQueryService(options: {
             ON blob.blob_id = contents.blob_id AND blob.workspace_id = contents.workspace_id
           LEFT JOIN "user" actor ON actor.id = revision.created_by_user_id
           WHERE revision.workspace_id = $1 AND revision.lineage_id = $2
+            AND (contents.revision_id IS NOT NULL OR NOT EXISTS (
+              SELECT 1 FROM file_agent_turn_checkpoints checkpoint
+              WHERE checkpoint.revision_id=revision.id AND checkpoint.workspace_id=revision.workspace_id
+            ))
             AND ($3::bigint IS NULL OR (revision.created_at, revision.revision_number, revision.id) < ($3, $4, $5))
           ORDER BY revision.created_at DESC, revision.revision_number DESC, revision.id DESC
           LIMIT $6

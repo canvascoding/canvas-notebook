@@ -86,6 +86,7 @@ import {
   asAgentFileToolError,
 } from '@/app/lib/pi/agent-file-tool-results';
 import { asAgentFilePatchToolAppSuccess, asAgentFileToolAppSuccess } from '@/app/lib/pi/file-change-tool-result';
+import { addAgentFileLinkDiagnostics } from '@/app/lib/pi/agent-file-link-diagnostics';
 
 function formatAgentStructureReadResult(
   snapshot: NonNullable<Awaited<ReturnType<typeof readAgentCollaborativeTextFile>>> & { proposal?: ProposalToolReadResultV1 },
@@ -454,7 +455,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use for new files or an intentional full rewrite; use edit_file or apply_patch for existing-file edits when possible. Existing shared workspace files require expectedSha256 from a current read. A revision conflict requires a new read and is never auto-retried.',
+    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use for new files or an intentional full rewrite; use edit_file or apply_patch for existing-file edits when possible. Existing shared workspace files require expectedSha256 from a current read. A revision conflict requires a new read and is never auto-retried. After success, inspect local link diagnostics and repair missing or ambiguous targets within the task. Link warnings never require replaying the mutation or inventing missing files.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
@@ -465,14 +466,14 @@ export const piTools: AgentTool[] = [
       const { path: filePath, content, expectedSha256 } = params as { path: string; content: string; expectedSha256?: string };
       try {
         const proposal = parseOptionalProposalToolEditV1(params as Record<string, unknown>);
-        const result = await writeAgentTextFile({
+        const [result] = await addAgentFileLinkDiagnostics([await writeAgentTextFile({
           path: filePath,
           content,
           expectedSha256,
           operation: 'write',
           idempotencyKey: toolCallId,
           ...(proposal ? { proposal } : {}),
-        });
+        })]);
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
           details: await asAgentFileToolAppSuccess(result, 'write', toolCallId),
@@ -490,7 +491,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Results report applied or review required; never assume a review was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    description: 'Safely edits an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Results report applied or review required; never assume a review was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects. Inspect local link diagnostics after editing; their basis identifies applied, proposed, or current content. Link warnings are informational and do not authorize inventing missing files.',
     parameters: agentEditFileParameters,
     prepareArguments: (params) => {
       if (params && typeof params === 'object' && !Array.isArray(params)) parseOptionalProposalToolEditV1(params as Record<string, unknown>);
@@ -504,10 +505,10 @@ export const piTools: AgentTool[] = [
         if (!Value.Check(agentEditFileParameters, params)) {
           throw new Error(formatAgentEditFileValidationError(params));
         }
-        const result = await editAgentFile({
+        const [result] = await addAgentFileLinkDiagnostics([await editAgentFile({
           ...(params as AgentEditFileInput),
           idempotencyKey: toolCallId,
-        });
+        })]);
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],
           details: await asAgentFileToolAppSuccess(result, 'edit_file', toolCallId),
@@ -525,7 +526,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'apply_patch',
     label: 'Applying safe patch',
-    description: 'Safely applies multiple already-known exact text replacements across one or more existing files using files[].edits[]. Put all replacements for one path in that entry; each canonical path may appear once. All replacements are preflighted before any write, then revalidated at commit. Active live-collaboration documents use live Yjs transactions or persisted structural review operations instead of whole-file writes. Existing shared workspace files require expectedSha256 from a current read. On a conflict, read and re-plan; never auto-retry.',
+    description: 'Safely applies multiple already-known exact text replacements across one or more existing files using files[].edits[]. Put all replacements for one path in that entry; each canonical path may appear once. All replacements are preflighted before any write, then revalidated at commit. Active live-collaboration documents use live Yjs transactions or persisted structural review operations instead of whole-file writes. Existing shared workspace files require expectedSha256 from a current read. On a conflict, read and re-plan; never auto-retry. Results include local link diagnostics identifying applied, proposed, or current content; inspect warnings without replaying the patch or inventing missing files.',
     parameters: Type.Object({
       files: Type.Array(Type.Object({
         path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
@@ -550,10 +551,10 @@ export const piTools: AgentTool[] = [
           }
           if (proposalCount && files.length !== 1) throw new ProposalGraphContractError(ProposalCodes.invalidRequest, 'Proposal apply_patch supports exactly one document per request.');
         }
-        const results = await applyAgentFilePatch({
+        const results = await addAgentFileLinkDiagnostics(await applyAgentFilePatch({
           ...(params as { files: Parameters<typeof applyAgentFilePatch>[0]['files'] }),
           idempotencyKeyPrefix: toolCallId,
-        });
+        }));
         return {
           content: [{ type: 'text', text: formatFileChangeResults(results) }],
           details: await asAgentFilePatchToolAppSuccess(results, toolCallId),

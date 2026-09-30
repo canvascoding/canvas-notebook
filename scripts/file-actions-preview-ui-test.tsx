@@ -247,11 +247,22 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.deepEqual(renameCalls, [[file.path, 'Docs/renamed.txt', workspaceId]]);
     assert.match(status()?.textContent ?? '', /Preview readiness: blocked/u);
     assert.match(status()?.textContent ?? '', /Planned: 1 path\(s\), 1 link edit\(s\)/u);
-    assert.match(status()?.textContent ?? '', /Not fully checked: 1 Markdown file\(s\), 1 link\(s\)/u);
+    assert.match(status()?.textContent ?? '', /Workspace link scan: incomplete\. Omitted files: 1; unresolved links: 1/u);
     assert.match(status()?.textContent ?? '', /Docs\/report\.txt → Docs\/renamed\.txt/u);
     assert.match(status()?.textContent ?? '', /Docs\/index\.md: report\.txt → renamed\.txt/u);
     assert.match(status()?.textContent ?? '', /Docs\/large\.md: Not all Markdown files or links could be checked/u);
     assert.match(status()?.textContent ?? '', /checked again under a workspace lock/u);
+
+    const affectedPreview = preview('rename', 'blocked');
+    affectedPreview.plan.linkAssessment = { version: 1, complete: false, warnings: [], blockers: [
+      { sourcePath: 'Docs/index.md', targetLiteral: 'unknown.md', status: 'missing', reason: 'affected-unresolved-link' },
+    ] };
+    resolveRename = async () => affectedPreview;
+    await act(async () => dialogButton(translate('fileOperationPreview'))?.click());
+    const blockers = document.querySelector('[data-testid="file-operation-link-blockers"]');
+    assert.match(blockers?.textContent ?? '', /Docs\/index\.md → unknown\.md/u);
+    assert.match(blockers?.textContent ?? '', /Correct its target or create the missing file/u);
+    assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="file-operation-link-coverage"]')?.open, false);
 
     await act(async () => fireEvent.change(document.querySelector('#newName')!, { target: { value: 'again.txt' } }));
     assert.equal(status(), null, 'editing the name clears the old plan and warning');
@@ -271,7 +282,7 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.match(status()?.textContent ?? '', /Preview readiness: ready/u);
     assert.match(status()?.textContent ?? '', /Docs\/report\.txt → Archive\/report\.txt/u);
     assert.match(status()?.textContent ?? '', /Docs\/index\.md: report\.txt → \.\.\/Archive\/report\.txt/u);
-    assert.match(status()?.textContent ?? '', /Not fully checked: 1 Markdown file\(s\), 1 link\(s\)/u);
+    assert.match(status()?.textContent ?? '', /Workspace link scan: incomplete\. Omitted files: 1; unresolved links: 1/u);
     assert.match(status()?.textContent ?? '', /Docs\/large\.md: Not all Markdown files or links could be checked/u);
     assert.match(status()?.textContent ?? '', /checked again under a workspace lock/u);
 
@@ -283,8 +294,21 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.deepEqual(errors, ['Copy preview unavailable']);
     assert.deepEqual(mutations, [], 'preview does not apply the copy');
 
-    resolveCopy = async () => preview('copy', 'ready');
+    const warningOnlyPreview = preview('copy', 'ready');
+    warningOnlyPreview.plan.issues = [];
+    warningOnlyPreview.plan.coverage = { complete: false, omittedSources: [], unresolvedLinks: [
+      { sourcePath: 'Archive/old.md', targetLiteral: 'missing.md', status: 'missing' },
+    ] };
+    warningOnlyPreview.plan.linkAssessment = { version: 1, complete: true, blockers: [], warnings: [
+      { sourcePath: 'Archive/old.md', targetLiteral: 'missing.md', status: 'missing', reason: 'unaffected-existing-link' },
+    ] };
+    resolveCopy = async () => warningOnlyPreview;
     await act(async () => dialogButton(translate('fileOperationPreview'))?.click());
+    const warnings = document.querySelector<HTMLDetailsElement>('[data-testid="file-operation-link-warnings"]');
+    assert.equal(warnings?.open, false, 'unrelated links start collapsed');
+    assert.match(warnings?.textContent ?? '', /Archive\/old\.md → missing\.md/u);
+    assert.match(status()?.textContent ?? '', /Preview readiness: ready/u);
+    assert.equal(document.querySelector('[data-testid="file-operation-link-blockers"]'), null);
     await act(async () => dialogButton(translate('copyToWorkspaceConfirm'))?.click());
     assert.equal(copyApplyCalls[0]?.planId, 'copy-preview');
     resolveRename = async () => preview('rename', 'ready');

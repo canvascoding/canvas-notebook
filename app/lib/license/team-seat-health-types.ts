@@ -1,6 +1,13 @@
 export type TeamSeatHealthState = 'healthy' | 'stale' | 'attention' | 'never';
 
 export type TeamSeatHealth = {
+  mode?: 'community' | 'managed-team';
+  managedAccessPolicy?: {
+    state: 'active' | 'grace' | 'restricted';
+    reason: 'grant_expired' | 'grant_revoked' | null;
+    graceEndsAt: string | null;
+  } | null;
+  historicalCommunity?: { pendingOperations: number; failedOperations: number };
   organizationId: string;
   generatedAt: string;
   emailDelivery?: {
@@ -12,6 +19,7 @@ export type TeamSeatHealth = {
     environment: 'development' | 'test' | 'staging' | 'production' | null;
     seatLimit: number | null;
     expiresAt: string | null;
+    termEndsAt?: string | null;
     nonBillable: boolean;
     billingMode: 'commercial' | 'manual_grant' | 'test_grant' | 'unlicensed';
   };
@@ -22,6 +30,11 @@ export type TeamSeatHealth = {
   };
   sync: {
     state: TeamSeatHealthState;
+    managedState?: 'current' | 'adoption_required' | 'pending' | 'error' | 'stale' | 'never' | null;
+    lastAttemptAt?: string | null;
+    lastError?: { code: string; endpoint: string | null; httpStatus: number | null } | null;
+    membershipRevision?: number | null;
+    entitlementsVersion?: number | null;
     blocker: 'TEAM_SEAT_SUBJECT_CONFLICT' | null;
     observedQuantity: number | null;
     approvedQuantity: number | null;

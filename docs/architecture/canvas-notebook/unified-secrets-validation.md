@@ -42,6 +42,14 @@ Es wurde kein Container gebaut und kein Produktionssystem verändert. Die Implem
 
 Die eigens erzeugte isolierte UI-Datenbank, private ENV-/DATA-Kopie und der temporäre Baseline-Checkout wurden nach der Abnahme entfernt. Der verwaltete lokale Stack blieb bestehen; verdeckte Browserbilder und der Ergebnisreport sind lokal unter `/tmp/canvas-secrets-a2cd-ui-evidence` erhalten.
 
+## Erneute Prüfung vor Übernahme auf main
+
+Nach ausdrücklicher Push-Freigabe wurde der inzwischen fortgeschrittene Remote-Stand `1e9b7a6c3` konfliktfrei integriert. Die automatisch zusammengeführte `package.json` enthält sowohl die neuen Main-Testskripte als auch alle Secrets-Prüfgruppen. Auf diesem gemeinsamen Stand bestanden erneut `test:secrets`, `test:secrets:regression`, der Typecheck und `npm run build`. Zusätzlich bestanden die Managed-Runtime-/Auth-Verträge und die beiden neuen Link-Diagnostik-Tests aus Main.
+
+Die autorisierte Browser-Abnahme wurde gegen einen frisch gestarteten Host mit eigener PostgreSQL-/DATA-Kopie wiederholt: tatsächliche Anmeldung, API und Dateispeicherung, alle Bereiche, Berechtigungen, Kategorien, Formular/Text, Konflikte, DE/EN und Mobilansicht. Beide verdeckten Screenshots wurden visuell geprüft. Host und private DB-/ENV-/DATA-Kopie wurden anschließend entfernt; der verwaltete Stack blieb unverändert. Ergebnis und Bilder liegen lokal unter `/tmp/canvas-secrets-a2cd-main-ui-evidence`.
+
+Der GitNexus-Abgleich gegen den aktuellen Remote-Main weist ausschließlich die erwarteten Secrets-Änderungen aus: 85 Dateien, 600 Symbole, drei Abläufe, Risiko MEDIUM. Die separat übernommenen Main-Änderungen haben einen größeren als CRITICAL eingestuften Umfang; sie wurden durch Build/Typecheck, die erneuten Secrets-/Regressionstests und die ergänzenden Integrationsverträge geprüft.
+
 ## Bereits bestehende, separat reproduzierte Einschränkung
 
 `npm run test:pi:tools` scheitert an `automation_job_state: delegated worker cannot receive bound automation tools` (erwartet false, erhält true). Der identische Fehler wurde mit dem vollständigen unveränderten Ausgangsstand `634af5ca5` in einem separaten temporären Checkout reproduziert. Diese breite Automationsprüfung wird deshalb nicht als erfolgreich ausgewiesen. Die gezielten Secrets-/PI-/Provider-Verifikationsverträge laufen unabhängig davon.

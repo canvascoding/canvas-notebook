@@ -184,6 +184,7 @@ async function crashBoundaryScenario() {
   const dataDir = await mkdtemp(join(tmpdir(), 'canvas-managed-sync-crash-'));
   process.env.DATA = dataDir;
   const { runManagedTeamSyncCycle } = await import('../app/lib/license/managed-team-sync');
+  const { readManagedTeamSyncStatus } = await import('../app/lib/license/managed-team-sync-status');
   const fixture = await setupDatabase(dataDir);
   const { database } = fixture;
   const certificatePath = join(dataDir, 'activated-certificate.txt');
@@ -273,6 +274,8 @@ async function crashBoundaryScenario() {
     await fixture.reopen();
     loseAck = true;
     await assert.rejects(runManagedTeamSyncCycle(options), /ACK_RESPONSE_LOST/);
+    assert.equal((await readManagedTeamSyncStatus(process.env.CANVAS_INSTANCE_ID!))?.lastSuccessAt, null);
+    assert.equal((await readManagedTeamSyncStatus(process.env.CANVAS_INSTANCE_ID!))?.state, 'error');
     assert.equal(acknowledgements.at(-1)?.error, undefined);
     assert.equal((await fixture.pg.query<{ status: string }>(`SELECT status FROM team_memberships WHERE id = 'member-new'`)).rows[0].status, 'active');
     assert.equal((await fixture.pg.query<{ banned: number }>(`SELECT banned FROM "user" WHERE id = 'user-new'`)).rows[0].banned, 0);
@@ -280,6 +283,11 @@ async function crashBoundaryScenario() {
     await fixture.reopen();
     loseAck = false;
     assert.equal(await runManagedTeamSyncCycle(options), 'applied');
+    const confirmedHealth = await readManagedTeamSyncStatus(process.env.CANVAS_INSTANCE_ID!);
+    assert.equal(confirmedHealth?.state, 'current');
+    assert.equal(confirmedHealth?.organizationId, organizationId);
+    assert.equal(confirmedHealth?.approvedMemberCount, 2);
+    assert.ok(confirmedHealth?.lastSuccessAt);
     assert.equal(acknowledgements.at(-1)?.error, undefined);
     assert.equal(fixture.mutationCount, mutationsAfterApply);
     assert.equal((await fixture.pg.query(`SELECT id FROM "session" WHERE user_id = 'user-revoked'`)).rows.length, 0);

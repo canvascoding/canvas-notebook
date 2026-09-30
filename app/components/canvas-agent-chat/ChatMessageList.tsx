@@ -8,7 +8,8 @@ import { useTranslations } from 'next-intl';
 
 import type { ToolOutputScope } from './StoredToolOutputPreview';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
-import { DEFAULT_FILE_REFERENCE_VIEW_STATE, FileReferenceCard, type FileReferenceViewState } from '@/app/components/canvas-agent-chat/FileReferenceCard';
+import { DEFAULT_FILE_REFERENCE_VIEW_STATE, type FileReferenceViewState } from '@/app/components/canvas-agent-chat/FileReferenceCard';
+import { RunFileReferenceCard } from '@/app/components/canvas-agent-chat/RunFileReferenceCard';
 import { ChatMessageIdentity } from '@/app/components/canvas-agent-chat/ChatMessageIdentity';
 import { InlineDelegationCard } from '@/app/components/canvas-agent-chat/InlineDelegationCard';
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
@@ -443,7 +444,9 @@ export function ChatMessageList({
   const referenceScope = `${toolOutputScope?.workspaceId}:${toolOutputScope?.sessionId}`;
   // Live and persisted message wrappers may remount; disclosure belongs to the run.
   const [referenceViews, setReferenceViews] = useState<{ scope: string; states: Record<string, FileReferenceViewState> }>({ scope: referenceScope, states: {} });
-  const toolBatchProjection = useMemo(() => buildToolBatchProjection(messages), [messages]);
+  const toolBatchProjection = useMemo(() => buildToolBatchProjection(
+    messages, runtimePhase == null ? undefined : runtimePhase !== 'idle', t('toolExecutionInterrupted'),
+  ), [messages, runtimePhase, t]);
   const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
   const runtimeChanges = useMemo(() => indexChatRuntimeChanges(messages), [messages]);
   const hiddenToolMessageIds = toolBatchProjection.hiddenToolMessageIds;
@@ -468,10 +471,12 @@ export function ChatMessageList({
         const toolImagePreviewGroup = isTool ? toolImagePreviewGroups.get(message.id) : undefined;
         const rawBodyContent = isUser ? contentToString(message.content) : stripInternalProjectionNotices(contentToString(message.content));
         const referenceGroup = fileReferenceGroups.get(message.id);
-        const fileReferences = referenceGroup ? <FileReferenceCard
+        const fileReferences = referenceGroup ? <RunFileReferenceCard
           key={`${toolOutputScope?.sessionId}:${referenceGroup.key}`}
           references={referenceGroup.references}
           omittedCount={referenceGroup.omittedCount}
+          changeApps={referenceGroup.changeApps}
+          changeReferences={referenceGroup.changeReferences}
           viewState={referenceViews.scope === referenceScope ? referenceViews.states[referenceGroup.key] ?? DEFAULT_FILE_REFERENCE_VIEW_STATE : DEFAULT_FILE_REFERENCE_VIEW_STATE}
           onViewStateChange={(state) => setReferenceViews((previous) => ({
             scope: referenceScope,

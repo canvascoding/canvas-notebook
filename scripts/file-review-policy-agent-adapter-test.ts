@@ -114,6 +114,7 @@ test('only the new operation receives a revision-bound grant before final policy
   const decision = await h.module.authorizeNewAgentDirectApply({
     operationId: 'operation-new', workspace: workspace as never, initiatedByUserId: 'user-one',
     snapshot, grantScope, hardSafetyRequiresReview: false, operationExplicitlyRequiresReview: false,
+    createdInThisCall: true,
   });
   assert.deepEqual(decision, {
     enforcementMode: 'safe_direct', grant: { id: 'grant-seven', expiresAt: 99_999 },
@@ -127,6 +128,7 @@ test('only the new operation receives a revision-bound grant before final policy
   assert.equal(operation.observedPolicyRevision, 7);
   assert.equal(operation.observedPolicyAt, snapshot.observedAt,
     'the server captured time travels with the operation into final policy resolution');
+  assert.equal(operation.createdInThisCall, true);
   assert.deepEqual(operation.grantScope, grantScope);
 });
 
@@ -143,6 +145,7 @@ test('replay, foreign scope, policy race and storage failures all revoke or avoi
     },
     hardSafetyRequiresReview: false,
     operationExplicitlyRequiresReview: false,
+    createdInThisCall: false,
   };
   h.controls.decision = 'review_required';
   assert.deepEqual(await h.module.authorizeNewAgentDirectApply(input), {

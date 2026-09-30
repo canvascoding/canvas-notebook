@@ -3,6 +3,7 @@ import 'server-only';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 import {
   createTeamSeatSnapshotRequest,
   TEAM_SEAT_PROTOCOL_VERSION,
@@ -262,7 +263,7 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
     deferred: 0,
     failed: 0,
   };
-  if (licenseStatus.edition !== 'team' || licenseStatus.hostingMode !== 'community') return result;
+  if (getDeploymentMode() === 'managed-team' || licenseStatus.edition !== 'team' || licenseStatus.hostingMode !== 'community') return result;
 
   const database = options.database ?? await openDb();
   const closeDatabase = options.database === undefined;

@@ -41,9 +41,13 @@ async function harness() {
   const context: AgentExecutionContext = { userId: 'user', sessionId: 'session', agentId: 'agent', workspaceId: 'workspace',
     workspaceType: 'team', workspaceName: null, organizationId: 'organization', customerId: null, projectId: null,
     workspaceRoot: root, workspaceRootRelativePath: null, canWrite: true, canDelete: false, canShare: false, legacy: false };
-  const metadata = { id: 'document', workspaceId: context.workspaceId, path: 'document.md', provider: 'yjs', status: 'active' };
+  const metadata = { id: 'document', workspaceId: context.workspaceId, path: 'document.md', provider: 'yjs', status: 'active',
+    stateVersion: 2, snapshotRevisionId: null as string | null };
+  let latestRevision: { id: string; contentHash: string } | null = null;
   const state = { documentId: 'document', workspaceId: context.workspaceId, organizationId: context.organizationId,
-    path: 'document.md', status: 'active', representation: 'plain_text', lifecycleGeneration: 2 };
+    path: 'document.md', status: 'active', representation: 'plain_text', lifecycleGeneration: 2,
+    schemaVersion: 1, documentSequence: 8, checkpointSequence: 2 };
+  doc.on('update', () => { state.documentSequence++; });
   const controls = { eligible: true, metadataPresent: true, persistedPresent: true, unreadable: true,
     durability: 'persisted_yjs', operationStatus: 'applied_to_ydoc', executeError: null as Error | null,
     readFailsAfterApply: false, reads: 0, revisions: 0, initialized: 0, executed: 0, afterPrepare: null as (() => void) | null,
@@ -68,11 +72,13 @@ async function harness() {
     if (controls.readFailsAfterApply && controls.executed) throw new Error('Room disconnected after confirmed operation');
     const content = doc.getText('content').toString();
     return { documentId: state.documentId, path: state.path, representation: 'plain_text', lifecycleGeneration: state.lifecycleGeneration,
-      schemaVersion: 1, documentSequence: 8, checkpointSequence: 2, content, sha256: operations.sha256Text(content),
+      schemaVersion: state.schemaVersion, documentSequence: state.documentSequence, checkpointSequence: state.checkpointSequence,
+      content, sha256: operations.sha256Text(content),
       stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64') };
   };
   const policy = {
-    readFileCollaborationState: async () => ({ crdtCapable: controls.eligible, document: controls.metadataPresent ? metadata : null }),
+    readFileCollaborationState: async () => ({ crdtCapable: controls.eligible,
+      document: controls.metadataPresent ? metadata : null, latestRevision }),
     getFileCollaborationState: async (input: { ensureDocument?: boolean }) => {
       if (input.ensureDocument) controls.metadataPresent = true;
       return { crdtCapable: controls.eligible, document: controls.metadataPresent ? metadata : null };
@@ -85,7 +91,23 @@ async function harness() {
     '@/app/lib/agents/storage': { DEFAULT_MANAGED_AGENT_ID: 'agent' },
     '@/app/lib/logging': { logger: { module: () => ({ warn() {} }) } },
     '@/app/lib/files/collaboration-policy': policy,
-    '@/app/lib/collaboration/persistence': { loadCollaborationStateIncludingArchived: async () => controls.persistedPresent ? state : null },
+    '@/app/lib/collaboration/persistence': {
+      loadCollaborationStateIncludingArchived: async () => controls.persistedPresent ? state : null,
+      loadCollaborationState: async () => controls.persistedPresent ? state : null,
+    },
+    '@/app/lib/collaboration/checkpoint': {
+      CollaborationCheckpointSupersededError: class extends Error {},
+      materializeCollaborationCheckpoint: async () => {
+        const content = doc.getText('content').toString();
+        await fs.writeFile(filePath, content);
+        controls.unreadable = false;
+        state.checkpointSequence = state.documentSequence;
+        metadata.stateVersion = state.documentSequence;
+        metadata.snapshotRevisionId = `checkpoint-${state.documentSequence}`;
+        latestRevision = { id: metadata.snapshotRevisionId, contentHash: operations.sha256Text(content) };
+      },
+    },
+    '@/app/lib/file-version-center/agent-turn-history': { agentTurnHistoryService: { linkCheckpoint: async () => undefined } },
     '@/app/lib/collaboration/agent-operations': {
       AgentFileEditOperationScopeError: OperationScopeError,
       findAgentFileEditOperation: async (input: { idempotencyKey: string; fingerprint: string; documentId: string;
@@ -107,6 +129,12 @@ async function harness() {
     '@/app/lib/file-version-center/proposal-agent-runtime': {
       hasPotentialProposalAgentRetryKey: async () => { controls.graphProbes++; return false; },
       createRuntimeProposalAgentService: async () => { controls.graphFactoryCalls++; throw new Error('A Graph-off no-hit must not create a Graph runtime.'); },
+    },
+    '@/app/lib/file-version-center/ordinary-agent-proposal': {
+      createOrdinaryAgentProposal: async (input: { retryRequested: boolean }) => {
+        if (input.retryRequested) controls.graphProbes++;
+        return null;
+      },
     },
     '@/app/lib/collaboration/document-state-service': {
       CollaborationDocumentStateError: class extends Error { constructor(message: string, readonly code: string) { super(message); } },
@@ -131,6 +159,7 @@ async function harness() {
       },
       executePreparedCollaborationTextEdit: async (input: { prepared: PreparedCollaborationTextEdit; idempotencyKey?: string;
         fileEditRequest?: AgentFileEditRequestReceipt }) => {
+        assert.equal(controls.reads, 0, 'the stale projection is not read before the live mutation');
         controls.executed++; controls.idempotencyKeys.push(input.idempotencyKey);
         if (controls.executeError) throw controls.executeError;
         if (controls.operationStatus !== 'needs_review') {
@@ -196,10 +225,12 @@ test('live read/edit/patch do not read or register a stale/unreadable Markdown p
         assert.ok(h.controls.graphProbes > 0, 'a stable retry key receives a read-only Graph-key probe');
         assert.equal(h.controls.graphFactoryCalls, 0, 'Graph-off no-hit keeps the existing Legacy path');
       }
-      assert.equal(h.controls.reads, 0);
+      if (method === 'read') assert.equal(h.controls.reads, 0);
+      else assert.ok(h.controls.reads > 0, 'success verifies the projected file after its checkpoint');
       assert.equal(h.controls.revisions, 0);
       assert.equal(h.controls.initialized, 0);
-      assert.equal(await fs.readFile(h.filePath, 'utf8'), h.projected, 'the tool never falls back to direct file overwrite');
+      assert.equal(await fs.readFile(h.filePath, 'utf8'), method === 'read' ? h.projected : h.current().content,
+        'the mutation is projected only through the confirmed checkpoint');
     } finally { await h.close(); }
   });
 });
@@ -238,8 +269,9 @@ test('operation receipts preserve uncertain, partial and post-commit-read outcom
         if (scenario === 'needs-review') assert.match(h.current().content, /^Live sentence/u, 'an unapproved proposal does not mutate the live document');
       }
       assert.equal(h.controls.executed, 1, 'uncertainty never triggers an automatic second mutation');
-      assert.equal(h.controls.reads, 0);
-      assert.equal(await fs.readFile(h.filePath, 'utf8'), h.projected);
+      const checkpointed = scenario === 'checkpointed' || scenario === 'partial';
+      assert.equal(h.controls.reads > 0, checkpointed);
+      assert.equal(await fs.readFile(h.filePath, 'utf8'), checkpointed ? h.current().content : h.projected);
     } finally { await h.close(); }
   });
 });
@@ -275,7 +307,7 @@ test('identical edit/patch delivery reuses its receipt before deleted oldText is
       }
       assert.equal(h.controls.executed, 1);
       assert.equal(h.controls.prepared.length, 1, 'payload mismatch fails before preparation');
-      assert.equal(h.controls.reads, 0);
+      assert.ok(h.controls.reads > 0, 'both deliveries confirm the latest physical checkpoint');
     } finally { await h.close(); }
   });
 });
@@ -300,7 +332,7 @@ test('receipt reuse retains the operation ID when the current room is unavailabl
       });
       assert.equal(h.controls.executed, 1);
       assert.equal(h.controls.prepared.length, 1);
-      assert.equal(h.controls.reads, 0);
+      assert.ok(h.controls.reads > 0, 'the first delivery confirmed its physical checkpoint');
     } finally { await h.close(); }
   });
 });

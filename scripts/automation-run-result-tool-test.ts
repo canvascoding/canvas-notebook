@@ -117,12 +117,23 @@ async function main(): Promise<void> {
       'source revocation during the call must prevent disclosure');
     sources[0].reason = null;
 
-    previous.resultText = '🧭 Long result '.repeat(5_000);
+    previous.resultText = 'OPENING 🧭\n' + '🧭 Long result '.repeat(5_000) + '\nFINAL cursor=4321 ✅';
     const large = await invoke({ source: 'self' });
     assert.equal(large.data.truncated, true);
-    assert.ok(String(large.data.resultText).endsWith('[Automation result truncated]'));
+    assert.ok(String(large.data.resultText).startsWith('OPENING 🧭'));
+    assert.ok(String(large.data.resultText).includes('[Automation result truncated]'));
+    assert.ok(String(large.data.resultText).endsWith('FINAL cursor=4321 ✅'));
     assert.ok(Buffer.byteLength(large.raw, 'utf8') <= 8 * 1024);
     assert.ok(estimateTextTokens(large.raw) <= 2_048);
+    for (const character of String(large.data.resultText)) {
+      assert.ok(character.length !== 1 || !/[\uD800-\uDFFF]/u.test(character));
+    }
+    sources[0].resultText = previous.resultText;
+    const largeSource = await invoke({ source: 'configured', sourceJobId: 'source' });
+    assert.equal(largeSource.data.truncated, true);
+    assert.ok(String(largeSource.data.resultText).endsWith('FINAL cursor=4321 ✅'));
+    assert.ok(Buffer.byteLength(largeSource.raw, 'utf8') <= 8 * 1024);
+    assert.ok(estimateTextTokens(largeSource.raw) <= 2_048);
 
     // Organization runs may use a persisted null service actor, or an explicit
     // user actor. Both remain bound to the runner's responsible user.

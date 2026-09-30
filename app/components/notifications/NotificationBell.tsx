@@ -34,6 +34,7 @@ import {
   decideMemoryNotification,
   memoryReviewTargetFromNotification,
   openFileChangeReviewNotification,
+  openWorkspaceOperationNotificationTarget,
   shouldMarkNotificationReadOnOpen,
   updateNotification,
   type NotificationMutation,
@@ -67,7 +68,7 @@ function notificationIcon(item: NotificationItem) {
   if (item.target.kind === 'memory') return BrainCircuit;
   if (item.target.kind === 'mcp') return PlugZap;
   if (item.target.kind === 'license') return KeyRound;
-  if (item.target.kind === 'file_change') return FileClock;
+  if (item.target.kind === 'file_change' || item.target.kind === 'file_operation') return FileClock;
   return Workflow;
 }
 
@@ -312,6 +313,12 @@ export function NotificationBell() {
       }
       return;
     }
+    if (item.target.kind === 'file_operation') {
+      if (item.workspaceId !== item.target.workspaceId || !await openWorkspaceOperationNotificationTarget(item.target)) {
+        toast.error(t('fileOperations.openFailed'));
+      }
+      return;
+    }
     if (shouldMarkNotificationReadOnOpen(item)) {
       try {
         await markItemRead(item);
@@ -358,9 +365,13 @@ export function NotificationBell() {
     const isTodo = item.target.kind === 'todo';
     const title = item.target.kind === 'file_change'
       ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.title`)
+      : item.target.kind === 'file_operation'
+        ? t(`fileOperations.${item.target.status}.title`, { action: t(`fileOperations.kind_${item.target.operationKind}`) })
       : item.title;
     const detail = item.target.kind === 'file_change'
       ? t(`fileChanges.${item.fileChangeReason ?? 'needs_review'}.detail`)
+      : item.target.kind === 'file_operation'
+        ? `${t(`fileOperations.${item.target.status}.detail`)}${item.detail ? ` · ${item.detail}` : ''}`
       : item.detail || t(`types.${item.target.kind}`);
     return (
       <div key={`${item.workspaceId}:${item.id}`} className="group flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">

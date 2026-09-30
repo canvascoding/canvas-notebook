@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -89,6 +90,7 @@ async function loadHost(options: {
   };
 
   const dependencies: Record<string, unknown> = {
+    'node:crypto': { randomUUID },
     '../app/lib/db': {
       async openDb() {
         state.dbOpens += 1;
@@ -118,7 +120,7 @@ async function loadHost(options: {
       },
     },
     '../app/lib/pi/core-tools': {
-      piTools: ['read', 'edit_file', 'shell', 'write_file'].map((name) => ({
+      piTools: ['read', 'write', 'edit_file', 'apply_patch', 'shell', 'write_file'].map((name) => ({
         name,
         async execute(callId: string, params: unknown) {
           state.toolExecutions.push({ name, callId, params });
@@ -201,12 +203,16 @@ test('occupied application port is refused before temporary files or server impo
   assert.equal(state.tempDirectoryCreates, 0);
 });
 
-test('fixture validation allows only read/edit_file and rejects invalid tool names and traversal paths', async () => {
+test('fixture validation allows scoped file tools and rejects invalid tool names and traversal paths', async () => {
   for (const value of [
     fixtureInput({ toolName: 'shell' }),
     fixtureInput({ toolName: 'write_file' }),
     fixtureInput({ params: { path: '../../etc/passwd' } }),
     fixtureInput({ params: { path: '/tmp/fvrc-1008-ordinary-00000000-0000-4000-8000-000000000001.md' } }),
+    fixtureInput({ toolName: 'apply_patch', params: { files: [{ path: '../../etc/passwd', edits: [] }] } }),
+    fixtureInput({ toolName: 'apply_patch', params: { files: [
+      { path: FIXTURE_PATH, edits: [] }, { path: FIXTURE_PATH, edits: [] },
+    ] } }),
   ]) {
     const { host, state } = await loadHost();
     await assert.rejects(host.__test.executeFixtureTool(value));
@@ -232,7 +238,7 @@ test('stored session query requires exact fixture title and excludes archived se
 });
 
 test('execution authority is freshly resolved from stored session and caller permissions/paths are ignored', async () => {
-  for (const toolName of ['read', 'edit_file']) {
+  for (const toolName of ['read', 'write', 'edit_file']) {
     const authority = { userId: USER_ID, sessionId: SESSION_ID, agentId: AGENT_ID,
       workspaceId: WORKSPACE_ID, rootPath: '/server-current-root', legacy: false,
       permissions: { canRead: true, canWrite: false, canRunAgent: false } };
@@ -251,6 +257,11 @@ test('execution authority is freshly resolved from stored session and caller per
     assert.deepEqual(state.toolExecutions, [{ name: toolName, callId: TOOL_CALL_ID, params: { path: FIXTURE_PATH } }]);
     assert.deepEqual(result, { name: toolName, callId: TOOL_CALL_ID, params: { path: FIXTURE_PATH } });
   }
+  const { host, state } = await loadHost();
+  const patchParams = { files: [{ path: FIXTURE_PATH, edits: [{ oldText: 'a', newText: 'b' }] }] };
+  const patch = await host.__test.executeFixtureTool(fixtureInput({ toolName: 'apply_patch', params: patchParams }));
+  assert.deepEqual(state.toolExecutions, [{ name: 'apply_patch', callId: TOOL_CALL_ID, params: patchParams }]);
+  assert.deepEqual(patch, { name: 'apply_patch', callId: TOOL_CALL_ID, params: patchParams });
 });
 
 test('missing stored session and legacy or wrong-workspace authority fail closed before a tool executes', async () => {
@@ -263,4 +274,29 @@ test('missing stored session and legacy or wrong-workspace authority fail closed
     await assert.rejects(host.__test.executeFixtureTool(fixtureInput()));
     assert.equal(state.toolExecutions.length, 0);
   }
+});
+
+test('the host issues turn IDs and carries them only across the scoped fixture lifecycle', async () => {
+  const events: Array<{ action: string; identity: Record<string, unknown> }> = [];
+  const service = Object.fromEntries(['begin', 'touch', 'finish'].map(action => [action,
+    async (identity: Record<string, unknown>) => { events.push({ action, identity }); },
+  ]));
+  const { host, state } = await loadHost({ dependencies: {
+    '../app/lib/file-version-center/agent-turn-history': { agentTurnHistoryService: service },
+  } });
+  const control = (turnAction: string) => host.__test.executeFixtureTool(fixtureInput({ turnAction }));
+  await assert.rejects(control('finish'), /lifecycle/u);
+  const begin = await control('begin') as { details: { agentTurnId: string } };
+  const firstTurn = begin.details.agentTurnId;
+  await assert.rejects(control('begin'), /lifecycle/u);
+  await host.__test.executeFixtureTool(fixtureInput({ context: {
+    sessionId: SESSION_ID, userId: USER_ID, agentId: AGENT_ID, workspaceId: WORKSPACE_ID,
+    agentTurnId: 'caller-controlled-turn',
+  } }));
+  assert.equal((state.executionAuthorities[0] as Record<string, unknown>).agentTurnId, firstTurn);
+  await control('finish');
+  const next = await control('begin') as { details: { agentTurnId: string } };
+  assert.notEqual(next.details.agentTurnId, firstTurn);
+  assert.deepEqual(events.map(event => event.action), ['begin', 'touch', 'finish', 'begin']);
+  assert.deepEqual(events[0].identity, { turnId: firstTurn, workspaceId: WORKSPACE_ID, userId: USER_ID, sessionId: SESSION_ID });
 });

@@ -381,6 +381,7 @@ type BlockCommandMenuState = {
   target: EditorRangeTarget;
   position: {
     left: number;
+    maxHeight: number;
     top: number;
     width: number;
   };
@@ -2204,12 +2205,13 @@ function MarkdownBlockCommandMenu({
     return () => window.removeEventListener('pointerdown', handlePointerDown, true);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div
       ref={menuRef}
       className="tiptap-slash-menu"
       style={{
         left: menu.position.left,
+        maxHeight: menu.position.maxHeight,
         position: 'fixed',
         top: menu.position.top,
         width: menu.position.width,
@@ -2221,7 +2223,8 @@ function MarkdownBlockCommandMenu({
         items={items}
         labels={{ empty: labels.empty, group: labels.group }}
       />
-    </div>
+    </div>,
+    getSlashCommandMountElement(editor),
   );
 }
 

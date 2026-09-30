@@ -8,22 +8,27 @@ import { unlinkSync, rmdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { createConnection, createServer } from 'node:net';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 const requireFromHere = createRequire(__filename);
 const MAX_REQUEST = 256 * 1024;
 const MAX_RESPONSE = 2 * 1024 * 1024;
 // pi_sessions.created_at uses the repository's bigint epoch-millisecond format.
 const hostStartedAt = Date.now();
+const fixtureTurns = new Map<string, string>();
 
 async function executeFixtureTool(value: unknown): Promise<unknown> {
   if (!value || typeof value !== 'object') throw new Error('Invalid fixture request.');
   const input = value as Record<string, unknown>;
   const context = input.context as Record<string, unknown> | undefined;
   const params = input.params as Record<string, unknown> | undefined;
-  if (!['read', 'edit_file'].includes(String(input.toolName))
+  const patchFiles = input.toolName === 'apply_patch' && Array.isArray(params?.files) ? params.files : null;
+  const fixturePath = patchFiles?.length === 1 && patchFiles[0] && typeof patchFiles[0] === 'object'
+    ? (patchFiles[0] as Record<string, unknown>).path : params?.path;
+  if (!['read', 'write', 'edit_file', 'apply_patch'].includes(String(input.toolName))
     || typeof input.toolCallId !== 'string' || !/^ordinary-[a-z-]+[a-f0-9-]{36}$/u.test(input.toolCallId)
-    || !params || typeof params.path !== 'string'
-    || !/^fvrc-1008-ordinary-[a-f0-9-]{36}\.md$/u.test(params.path)
+    || !params || (input.toolName === 'apply_patch' ? patchFiles?.length !== 1 : typeof params.path !== 'string')
+    || typeof fixturePath !== 'string' || !/^fvrc-1008-ordinary-[a-f0-9-]{36}\.md$/u.test(fixturePath)
     || !context || !['sessionId', 'userId', 'agentId', 'workspaceId'].every(key =>
       typeof context[key] === 'string' && context[key].length > 0 && context[key].length <= 256)) {
     throw new Error('Invalid fixture request.');
@@ -37,7 +42,7 @@ async function executeFixtureTool(value: unknown): Promise<unknown> {
       WHERE session_id = $1 AND user_id = $2 AND agent_id = $3 AND workspace_id = $4
         AND title = $5 AND archived_at IS NULL AND created_at >= $6 LIMIT 1`,
     [context.sessionId, context.userId, context.agentId, context.workspaceId,
-      `FVRC ordinary graph tool acceptance:${params.path}`, hostStartedAt]);
+      `FVRC ordinary graph tool acceptance:${fixturePath}`, hostStartedAt]);
     if (!session) throw new Error('Unavailable fixture session.');
   } finally { await database.close(); }
   const { resolveAgentExecutionContextForStoredSession } = requireFromHere('../app/lib/pi/session-workspace-context');
@@ -46,6 +51,29 @@ async function executeFixtureTool(value: unknown): Promise<unknown> {
     permissions: ['canRead', 'canWrite', 'canRunAgent'],
   });
   if (authority.workspaceId !== context.workspaceId || authority.legacy) throw new Error('Invalid fixture scope.');
+  const turnKey = JSON.stringify([authority.workspaceId, authority.userId, authority.sessionId]);
+  if (input.turnAction !== undefined) {
+    if (!['begin', 'finish'].includes(String(input.turnAction))) throw new Error('Invalid fixture turn action.');
+    const { agentTurnHistoryService } = requireFromHere('../app/lib/file-version-center/agent-turn-history');
+    const turnId = input.turnAction === 'begin' ? randomUUID() : fixtureTurns.get(turnKey);
+    if (!turnId || (input.turnAction === 'begin' && fixtureTurns.has(turnKey))) throw new Error('Invalid fixture turn lifecycle.');
+    const identity = { turnId, workspaceId: authority.workspaceId, userId: authority.userId, sessionId: authority.sessionId };
+    if (input.turnAction === 'begin') {
+      await agentTurnHistoryService.begin(identity);
+      fixtureTurns.set(turnKey, turnId);
+    } else {
+      await agentTurnHistoryService.finish(identity, 'completed');
+      fixtureTurns.delete(turnKey);
+    }
+    return { details: { agentTurnId: turnId } };
+  }
+  const turnId = fixtureTurns.get(turnKey);
+  if (turnId) {
+    // The launcher, like the live runtime, issues the ID. Caller context is ignored.
+    authority.agentTurnId = turnId;
+    const { agentTurnHistoryService } = requireFromHere('../app/lib/file-version-center/agent-turn-history');
+    await agentTurnHistoryService.touch({ turnId, workspaceId: authority.workspaceId, userId: authority.userId, sessionId: authority.sessionId });
+  }
   // Ignore all caller-supplied paths and permissions: derive current authority.
   const { runWithAgentExecutionContext } = requireFromHere('../app/lib/pi/agent-execution-context');
   const { piTools } = requireFromHere('../app/lib/pi/core-tools');

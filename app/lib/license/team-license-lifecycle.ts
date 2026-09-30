@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 import {
   getActiveTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
@@ -610,7 +611,7 @@ async function reconcileWithinTransaction(
         ]) as { id?: string } | undefined)?.id
       : undefined);
   let membershipRevision: number | null = null;
-  if ((suspendedMemberships > 0 || restoredMemberships > 0) && changedMembershipId) {
+  if (getDeploymentMode() !== 'managed-team' && (suspendedMemberships > 0 || restoredMemberships > 0) && changedMembershipId) {
     const projectionChange = await recordTeamMembershipProjectionChange(database, {
       organizationId: organization.organization_id,
       membershipId: changedMembershipId,

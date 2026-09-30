@@ -61,6 +61,35 @@ async function main() {
       const response=await send(base+'/api/files/write',{method:'POST',headers:{host:'app.example.test',...headers}});
       assert.equal(response.status,403);await response.arrayBuffer();
     }
+    // OAuth redirects carry the app's SameSite=Lax cookie even though the
+    // navigation started at the provider (or the managed Control Plane).
+    const callback='/api/composio/callback?flow='+'a'.repeat(43);
+    const callbackHeaders={host:'app.example.test',cookie:'fixture'};
+    for(const site of ['cross-site','same-site']) {
+      for(const metadata of [{},{'sec-fetch-mode':'navigate','sec-fetch-dest':'document'}]) {
+        const response=await send(base+callback,{headers:{...callbackHeaders,'sec-fetch-site':site,...metadata}});
+        assert.equal(response.status,200,'OAuth navigation must reach the flow-state validator');
+        await response.arrayBuffer();
+      }
+    }
+    for(const scenario of [
+      {method:'POST',path:callback,headers:{}},
+      {method:'HEAD',path:callback,headers:{}},
+      {path:callback,headers:{'sec-fetch-mode':'cors','sec-fetch-dest':'empty'}},
+      {path:callback,headers:{'sec-fetch-mode':'navigate','sec-fetch-dest':'iframe'}},
+      {path:callback,headers:{origin:'https://'+previewHost}},
+      {path:callback,headers:{origin:'null'}},
+      {path:'/api/composio/callback/extra?flow='+'a'.repeat(43),headers:{}},
+      {path:'/api/composio/connections',headers:{}},
+      {path:'/api/files/list',headers:{}},
+      {path:'/media/file',headers:{}},
+    ]) {
+      const response=await send(base+scenario.path,{method:scenario.method,headers:{...callbackHeaders,'sec-fetch-site':'cross-site',...scenario.headers}});
+      assert.equal(response.status,403,'only the OAuth document navigation may bypass the cookie boundary');
+      await response.arrayBuffer();
+    }
+    const previewCallback=await send(base+callback,{headers:{...callbackHeaders,host:previewHost,'sec-fetch-site':'cross-site','sec-fetch-mode':'navigate','sec-fetch-dest':'document'}});
+    assert.equal(previewCallback.status,404);await previewCallback.arrayBuffer();
     for(const configured of ['https://app.example.test','http://192.0.2.1']) {
       process.env.BETTER_AUTH_BASE_URL=configured;
       const response=await send(base+'/api/health',{headers:{host:'app.example.test'}});

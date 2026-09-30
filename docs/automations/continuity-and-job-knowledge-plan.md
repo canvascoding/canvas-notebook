@@ -1,6 +1,6 @@
 # Automation-Kontinuität und Job-Wissen: Umsetzungsplan
 
-Stand: 2026-09-28
+Stand: 2026-09-30
 
 Status: Pakete A–E implementiert und lokal abgenommen (einschließlich Browser-E2E im verwalteten Test-Stack)
 
@@ -22,6 +22,17 @@ Bestehende Jobs behalten `off` und eine leere Quellliste. Die automatischen Kont
 Der Zustand ist über `GET /api/automations/jobs/:jobId/state` als Metadatenliste und über `GET .../state?key=...` für einen einzelnen Wert erreichbar. `DELETE .../state` setzt einen Schlüssel mit `expectedRevision` und `mutationId` zurück. Die Mobile-v1-Routen spiegeln den Vertrag. Run-APIs entfernen interne Retry-Pins und redigieren Quell-Run-IDs; Detailzugriffe prüfen den historischen Run-Workspace. Übersprungene, nie eingereihte Termine werden atomar als Audit-Ereignis gespeichert und getrennt von Runs im Verlauf gezeigt; die 90-Sekunden-Regel und das Ausbleiben eines Runs bleiben erhalten. Das Agent-Tool `automation_run_result` liest auf Anforderung nur das an den laufenden Run gepinnte eigene oder konfigurierte Quell-Ergebnis und begrenzt jede Antwort auf 8 KiB sowie 2.048 geschätzte Tokens.
 
 Verifiziert wurden der Produktionsbuild, TypeScript, ESLint ohne Fehler, die gezielten Migration-/Store-/Runner-/API-/Mobile-/UI-Tests sowie Scheduler-Recovery und Delivery. `test:automation:workspace-scope` läuft mit einem eigenen PGlite-Integrationstest. Zusätzlich sind die Registry-Gates und die Größen-/Rechteprüfung des Run-Lesers getestet. Nach ausdrücklicher Freigabe wurde das aktuelle Notebook-Image im verwalteten lokalen Stack gebaut und der Container neu erstellt; Notebook, Control Plane und PostgreSQL waren gesund. `tests/automation-continuity.spec.ts` bestand gegen `http://127.0.0.1:3100` mit 2/2 Playwright-Tests: Persistenz von `last_relevant` und einer erlaubten Quelle nach Reload sowie Anzeige/Abruf/Reset von Job-Wissen und getrennte Misfire-Diagnose ohne Run. Die zweite Browserprüfung verwendet gezielte API-Fixtures für State und Misfire; die echte Scheduler-Persistenz wurde separat mit `test:automation:scheduler-recovery` geprüft. Danach liefen `test:automation:workspace-scope`, `test:automation:scheduler-recovery`, `test:automation:ui`, `test:automation:runner` und `test:automation:history-compaction` erneut erfolgreich.
+
+## Gezielte Nachprüfung am 2026-09-30
+
+Der erneute Vergleich mit demselben Hermes-Referenzstand ergab eine konkrete Verbesserung für lange Ergebnistexte:
+
+> “Clip oversized context head+tail; conclusions and summaries sit at the end.”
+> — Hermes, `cron/scheduler_prompt.py`, `_clip_to_context_budget`
+
+Canvas behält bei gekürzten eigenen und konfigurierten Quell-Ergebnissen nun Anfang und Ende mit einem sichtbaren Auslassungsmarker in der Mitte. Dieselbe reine Kürzungsfunktion wird vom Tool `automation_run_result` verwendet. Die Token-/Byte-Grenzen gelten einschließlich Quellenangaben, JSON-Serialisierung und Trennzeichen zwischen Quellblöcken. Kurze Ergebnisse bleiben vollständig; ohne Platz für beide Enden entfällt der Kontext. Regressionstests prüfen das abschließende Fazit, Unicode-Zeichen, mehrere Quellen, winzige Budgets und die Tool-Antwortgrenzen.
+
+Die übrigen Unterschiede bleiben bewusst bestehen: Canvas lädt Job-Werte gezielt über ein gebundenes Tool, während Hermes seinen ganzen Notizblock in den Prompt setzt. Wiederverwendete Canvas-Sessions erhalten die vorhandene Session-Kompaktierung; Hermes erzeugt für reguläre Cron-Läufe jeweils eine neue Session. Aus diesem Vergleich folgt kein weiterer akuter Umbau.
 
 ## Ziel und Abgrenzung
 

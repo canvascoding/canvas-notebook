@@ -7,6 +7,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { listMemoryApprovalAttention, type MemoryApprovalAttentionItem } from '@/app/lib/memory/approval-attention';
 import { listMcpConnectionAttention, type McpConnectionAttentionItem } from '@/app/lib/mcp/connection-attention';
 import { listTeamLicenseAttention, type TeamLicenseAttentionItem } from '@/app/lib/license/team-license-attention';
+import { workspaceOperationNotificationSource, type WorkspaceOperationNotificationItem } from '@/app/lib/files/workspace-operation-notification-source';
 
 import { selectTodoAttention, type TodoAttentionReason } from './attention-policy';
 import { settleNotificationSource } from './source-resilience';
@@ -14,7 +15,7 @@ import { settleNotificationSource } from './source-resilience';
 export type NotificationAttentionItem = (MobileAggregateInboxItem & {
   workspaceName: string | null;
   todoAttentionReason?: TodoAttentionReason;
-}) | MemoryApprovalAttentionItem | McpConnectionAttentionItem | TeamLicenseAttentionItem;
+}) | MemoryApprovalAttentionItem | McpConnectionAttentionItem | TeamLicenseAttentionItem | WorkspaceOperationNotificationItem;
 
 function workspaceNameById(workspaces: WorkspaceContext[]) {
   return new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace.displayName || workspace.workspaceType]));
@@ -36,7 +37,7 @@ export async function readNotificationAttention(input: {
   const defaultPersonalWorkspace = input.workspaces.find((workspace) => workspace.workspaceType === 'personal' && workspace.isDefault)
     ?? input.workspaces.find((workspace) => workspace.workspaceType === 'personal')
     ?? null;
-  const [eventsResult, todosResult, emailResult, unreadResult, memoryResult, mcpResult, licenseResult] = await Promise.all([
+  const [eventsResult, todosResult, emailResult, unreadResult, memoryResult, mcpResult, licenseResult, fileOperationsResult] = await Promise.all([
     settleNotificationSource(listMobileAggregateInbox({
       userId: input.userId,
       workspaces: input.workspaces,
@@ -70,6 +71,8 @@ export async function readNotificationAttention(input: {
     settleNotificationSource(listMemoryApprovalAttention({ userId: input.userId, workspaces: input.workspaces }), []),
     settleNotificationSource(listMcpConnectionAttention({ userId: input.userId, now: now.getTime() }), []),
     settleNotificationSource(listTeamLicenseAttention({ userId: input.userId }), []),
+    settleNotificationSource(Promise.all(input.workspaces.map((workspace) =>
+      workspaceOperationNotificationSource.list({ userId: input.userId, workspace }))), []),
   ]);
   const events = eventsResult.value;
   const todos = todosResult.value;
@@ -84,6 +87,7 @@ export async function readNotificationAttention(input: {
     memoryApprovals: memoryResult.status,
     mcpConnections: mcpResult.status,
     license: licenseResult.status,
+    fileOperations: fileOperationsResult.status,
   };
   for (const [source, status] of Object.entries(sources)) {
     if (!status.available) console.warn('[Notifications] Source unavailable.', { source, userId: input.userId });
@@ -131,17 +135,19 @@ export async function readNotificationAttention(input: {
     ...item,
     workspaceName: names.get(item.workspaceId) ?? null,
   }));
-  const notificationItems: NotificationAttentionItem[] = [...memoryApprovals, ...mcpResult.value, ...licenseResult.value, ...eventItems]
+  const fileOperations = fileOperationsResult.value.flatMap((result) => result.items);
+  const notificationItems: NotificationAttentionItem[] = [...memoryApprovals, ...mcpResult.value, ...licenseResult.value, ...fileOperations, ...eventItems]
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id));
   const memoryApprovalUnread = memoryApprovals.filter((item) => item.unread).length;
   const unreadCount = mobileUnreadCount + memoryApprovalUnread
     + mcpResult.value.filter((item) => item.unread).length
     + licenseResult.value.filter((item) => item.unread).length;
+  const fileOperationUnread = fileOperationsResult.value.reduce((total, result) => total + result.unreadCount, 0);
   return {
     sources,
-    unreadCount,
+    unreadCount: unreadCount + fileOperationUnread,
     counts: {
-      unread: unreadCount,
+      unread: unreadCount + fileOperationUnread,
       todoAttention: todoAttention.length,
       emailAttention: emailAttention.length,
       chat: events.counts.chat,

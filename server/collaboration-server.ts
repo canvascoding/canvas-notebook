@@ -82,6 +82,7 @@ import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
+import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 
 const COLLABORATION_PATH = '/ws/collaboration';
 const MAX_UPDATE_BYTES = 1024 * 1024;
@@ -137,6 +138,7 @@ type CollaborationContext = {
   versionSource: 'automatic_checkpoint' | 'agent_apply' | 'restore';
   versionBaseRevisionId: string | null;
   versionSourceSessionId: string | null;
+  agentTurnId?: string;
   initiatedByUserId: string | null;
   operationId: string | null;
   observedDocumentSequence: number | null;
@@ -713,6 +715,11 @@ export function createCollaborationServer(server: http.Server, options: {
       if (context?.claims) lastRoomContexts.set(document, { context, origin: transactionOrigin });
       if (context.actorType !== 'user') return;
       try {
+        await agentTurnHistoryService.boundary({ workspaceId: context.workspace.workspaceId, path: context.claims.path }).catch(error => {
+          // The mutable snapshot remains durable for recovery. Hocuspocus does
+          // not await this hook, so history failures must not kill the process.
+          console.error('[Collaboration] Agent history boundary failed:', error);
+        });
         await withRoomActivity(documentName, async () => {
           roomOwners?.fence(document);
           await detectLateAgentSemanticConflicts({
@@ -812,7 +819,8 @@ export function createCollaborationServer(server: http.Server, options: {
           lastContext.claims,
           roomOwners?.fence(document),
         );
-        if (state.persistenceDisposition !== 'unchanged') try {
+        if (state.persistenceDisposition !== 'unchanged'
+          && !(lastContext.agentTurnId && lastContext.actorType === 'agent' && !state.incomingNeedsReconcile)) try {
           await fileVersionHistoryService.capturePersistedCollaboration({
             workspace: lastContext.workspace,
             state,
@@ -1195,7 +1203,7 @@ export function createCollaborationServer(server: http.Server, options: {
       doc.destroy();
     }
   }));
-  void recoverCollaborationAgentOperations().catch((error) => {
+  void recoverCollaborationAgentOperations().then(() => agentTurnHistoryService.recoverExpired()).catch((error) => {
     console.error('[Collaboration] Agent operation recovery failed:', error);
   });
   void recoverProposalGraphActions().catch((error) => {
@@ -1237,6 +1245,7 @@ export function createCollaborationServer(server: http.Server, options: {
       versionSource: actorType === 'agent' ? 'agent_apply' : input.versionSource ?? 'automatic_checkpoint',
       versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
       versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
+      agentTurnId: input.agentTurnId,
       initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
       operationId: actorType === 'agent' ? input.operationId : null,
       observedDocumentSequence: state.documentSequence,
@@ -1288,6 +1297,11 @@ export function createCollaborationServer(server: http.Server, options: {
     return result as never;
   }));
   const wss = new WebSocketServer({ noServer: true });
+  const turnRecovery = setInterval(() => {
+    void agentTurnHistoryService.recoverExpired().catch(error => console.error('[Collaboration] Agent turn history recovery failed:', error));
+  }, 30_000);
+  turnRecovery.unref();
+  wss.once('close', () => clearInterval(turnRecovery));
   wss.once('close', () => accessMonitor.dispose());
   server.on('upgrade', (request, socket, head) => {
     const nextUrl = normalizedPath(request.url);

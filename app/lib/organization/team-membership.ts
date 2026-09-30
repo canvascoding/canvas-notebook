@@ -461,7 +461,7 @@ export async function adoptActiveTeamMembership(
     if (!membership) {
       throw new TeamMembershipError('MEMBERSHIP_CONFLICT', 'Membership was not persisted.', 409);
     }
-    const revision = input.seatOperationType
+    const revision = input.seatOperationType && getDeploymentMode() !== 'managed-team'
       ? (await recordTeamMembershipProjectionChange(database, {
           organizationId: input.organizationId,
           membershipId: id,
@@ -657,7 +657,7 @@ export async function transitionTeamMembership(
     const projection = affectsActiveSeatProjection
       ? await getActiveTeamMembershipProjection(database, input.organizationId)
       : null;
-    const projectionChange = projection
+    const projectionChange = projection && getDeploymentMode() !== 'managed-team'
       ? await recordTeamMembershipProjectionChange(database, {
           organizationId: input.organizationId,
           membershipId: membership.id,
@@ -668,7 +668,7 @@ export async function transitionTeamMembership(
         })
       : null;
     const revision = projectionChange?.revision ?? null;
-    if (input.enqueueSeatReduction) {
+    if (input.enqueueSeatReduction && getDeploymentMode() !== 'managed-team') {
       if (
         membership.status !== 'active'
         || (input.toStatus !== 'suspended' && input.toStatus !== 'removed')
@@ -841,7 +841,7 @@ export async function updateTeamMembershipRole(
         'The Team membership role changed concurrently.',
       );
     }
-    const projectionChange = membership.status === 'active'
+    const projectionChange = membership.status === 'active' && getDeploymentMode() !== 'managed-team'
       ? await recordTeamMembershipProjectionChange(database, {
         organizationId: input.organizationId,
         membershipId: membership.id,

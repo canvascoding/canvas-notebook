@@ -27,11 +27,13 @@ import {
   resolveTextCollaborationState,
   selectInitialTextCollaborationRepresentation,
 } from '@/app/lib/collaboration/document-state-service';
-import { loadCollaborationStateIncludingArchived, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
+import { loadCollaborationState, loadCollaborationStateIncludingArchived, type PersistedCollaborationState } from '@/app/lib/collaboration/persistence';
+import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
 import { AgentFileEditOperationScopeError, findAgentFileEditOperation, type AgentTextTarget, type PersistedAgentApplyResult } from '@/app/lib/collaboration/agent-operations';
 import {
   executePreparedCollaborationTextEdit,
   prepareCollaborationMarkdownEdit,
+  prepareCollaborationWrite,
   prepareCollaborationTextEdit,
   prepareCollaborationBlockEdit,
   prepareCollaborationBlockEditInDocument,
@@ -63,6 +65,7 @@ import {
 import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 import { getToolOutputRoot, getToolOutputSessionDirectory } from '@/app/lib/pi/tool-output-store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import {
@@ -93,6 +96,8 @@ import { createRuntimeProposalAgentService, assertProposalToolsEnabled,
 import { proposalReviewWritesEnabled } from '@/app/lib/file-version-center/proposal-review-capability';
 import { createOrdinaryAgentProposal } from '@/app/lib/file-version-center/ordinary-agent-proposal';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import { captureAgentFileLinkSource } from './agent-file-link-sources';
+import type { WorkspaceLinkDiagnostics } from '@/app/lib/markdown/workspace-link-diagnostics';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -119,6 +124,7 @@ export type AgentFileSnapshotMetadata = {
 };
 
 export type AgentFileChangeResult = {
+  linkDiagnostics?: WorkspaceLinkDiagnostics;
   proposal?: ProposalToolCreationResultV1;
   path: string;
   resolvedPath: string;
@@ -708,6 +714,7 @@ function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
     actorId: executionContext.agentId || DEFAULT_MANAGED_AGENT_ID,
     actorDisplayName: getAgentDisplayName(executionContext.agentId),
     actorSessionId: executionContext.sessionId,
+    agentRunId: executionContext.agentTurnId,
   };
 }
 
@@ -1379,7 +1386,7 @@ async function commitTextChange(params: {
   }
 
   if (params.beforeExisted && beforeContent === params.nextContent) {
-    return {
+    return captureAgentFileLinkSource({
       path: params.inputPath,
       resolvedPath: params.fullPath,
       changed: false,
@@ -1389,7 +1396,7 @@ async function commitTextChange(params: {
       size: Buffer.byteLength(params.nextContent, 'utf8'),
       diff: '(no textual changes)',
       validation,
-    };
+    }, { beforeContent, content: params.nextContent, basis: 'current' });
   }
 
   await assertAgentWritablePathAllowed(params.fullPath);
@@ -1487,7 +1494,7 @@ async function commitTextChange(params: {
   };
   publishAgentWorkspaceMutation(params.fullPath, params.beforeExisted ? 'change' : 'add');
   await recordAgentFileChangeAudit(result, params.operation);
-  return result;
+  return captureAgentFileLinkSource(result, { beforeContent, content: readBackText, basis: 'applied' });
 }
 
 export async function writeAgentTextFile(params: {
@@ -1520,13 +1527,56 @@ export async function writeAgentTextFile(params: {
   if (before.existed) {
     const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer ?? undefined);
     if (collaboration) {
-      const contentAlreadyMatches = before.buffer?.toString('utf8') === params.content;
+      const fingerprint = hashAgentBlockJson({ version: 1, operation: 'write', path: collaboration.relativePath,
+        expectedSha256, content: params.content });
+      const reused = await reusedCollaborativeFileEdit({ inputPath: params.path, fullPath, collaboration,
+        idempotencyKey: params.idempotencyKey, fingerprint });
+      if (reused) return reused;
+      const current = await readCurrentCollaborationTextSnapshot({
+        documentId: collaboration.documentId, workspace: collaboration.workspace,
+      });
+      const contentAlreadyMatches = current.content === params.content;
       const graph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
         idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
         mutation: { operation: 'write', path: params.path, content: params.content,
           expectedSha256: params.expectedSha256 ?? null }, content: params.content,
         lookupOnly: contentAlreadyMatches });
       if (graph) return graph;
+      if (expectedSha256 && expectedSha256 !== current.sha256) {
+        throwAgentFileRevisionConflict({ operation: 'write', path: params.path,
+          expectedSha256, currentSha256: current.sha256 });
+      }
+      if (contentAlreadyMatches) {
+        const validation = validateAgentFileContent(params.path, current.content);
+        if (!validation.ok) throw new Error(`Refusing to write ${params.path}: validation failed.`);
+        await confirmCollaborativeFileCheckpoint({ inputPath: params.path, fullPath,
+          documentId: collaboration.documentId, workspace: collaboration.workspace,
+          snapshot: current, actorSessionId: collaboration.executionContext.sessionId });
+        return captureAgentFileLinkSource({ path: params.path, resolvedPath: fullPath, changed: false, snapshot: null,
+          beforeSha256: current.sha256, afterSha256: current.sha256,
+          size: Buffer.byteLength(current.content, 'utf8'), diff: '',
+          validation }, { beforeContent: current.content, content: current.content, basis: 'current' });
+      }
+      const preparation = await prepareOrReuseCollaborativeFileEdit({
+        retry: { inputPath: params.path, fullPath, collaboration, idempotencyKey: params.idempotencyKey, fingerprint },
+        prepare: () => prepareCollaborationWrite({ documentId: collaboration.documentId,
+          workspace: collaboration.workspace, path: collaboration.relativePath,
+          content: params.content, expectedSha256, groupId: 'write' }),
+      });
+      if ('reused' in preparation) return preparation.reused;
+      if (preparation.prepared.requestedMode === 'review') {
+        const structuralGraph = await createOrdinaryGraphFileChange({ inputPath: params.path, fullPath, collaboration,
+          idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
+          mutation: { operation: 'write', path: params.path, content: params.content,
+            expectedSha256: params.expectedSha256 ?? null }, content: params.content, forceReview: true });
+        if (structuralGraph) return structuralGraph;
+      }
+      return applyPreparedCollaborativeFileEdit({ inputPath: params.path, fullPath,
+        prepared: preparation.prepared, workspace: collaboration.workspace,
+        executionContext: collaboration.executionContext,
+        idempotencyKey: params.idempotencyKey || `write:${randomUUID()}`,
+        auditOperation: 'collaboration_write', fingerprint,
+        disallowLegacyReview: proposalReviewWritesEnabled({ workspaceId: collaboration.workspace.workspaceId }) });
     }
   }
   if (before.existed && before.buffer?.toString('utf8') === params.content) {
@@ -1784,7 +1834,12 @@ async function reusedCollaborativeFileEdit(input: {
   } catch {
     throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
   }
-  return {
+  if (persisted) {
+    await confirmCollaborativeFileCheckpoint({ inputPath: input.inputPath, fullPath: input.fullPath,
+      documentId, workspace, snapshot: current, operation,
+      actorSessionId: executionContext.sessionId });
+  }
+  return captureAgentFileLinkSource({
     path: input.inputPath, resolvedPath: input.fullPath,
     changed: persisted && operation.appliedTargetIds.length > 0 && request.beforeSha256 !== request.proposedSha256,
     snapshot: null, beforeSha256: request.beforeSha256, afterSha256: current.sha256,
@@ -1793,7 +1848,63 @@ async function reusedCollaborativeFileEdit(input: {
     validation: validateAgentFileContent(input.inputPath, current.content),
     collaboration: { operationId: operation.operationId, operationStatus: operation.operationStatus,
       durability: operation.durability, reviewRequired, proposedSha256: request.proposedSha256 },
-  };
+  }, { content: current.content, basis: 'current' });
+}
+
+/** A direct agent tool succeeds only after its durable Yjs sequence reaches the physical file. */
+async function confirmCollaborativeFileCheckpoint(input: {
+  inputPath: string;
+  fullPath: string;
+  documentId: string;
+  workspace: WorkspaceContext;
+  snapshot: CollaborationTextSnapshot;
+  operation?: PersistedAgentApplyResult;
+  actorSessionId?: string;
+}): Promise<void> {
+  const deadline = Date.now() + 15_000;
+  do {
+    try {
+      const state = await loadCollaborationState(input.documentId);
+      if (!state || state.status !== 'active' || state.workspaceId !== input.workspace.workspaceId
+        || state.path !== input.snapshot.path
+        || state.lifecycleGeneration !== input.snapshot.lifecycleGeneration
+        || state.schemaVersion !== input.snapshot.schemaVersion
+        || state.representation !== input.snapshot.representation
+        || state.documentSequence < input.snapshot.documentSequence) break;
+      if (state.checkpointSequence >= input.snapshot.documentSequence) {
+        const projection = await readFileCollaborationState({ workspace: input.workspace, path: state.path });
+        if (projection.document?.id === input.documentId
+          && projection.document.stateVersion >= input.snapshot.documentSequence
+          && projection.document.snapshotRevisionId
+          && projection.latestRevision?.id === projection.document.snapshotRevisionId) {
+          const file = await fs.readFile(input.fullPath);
+          if (sha256Buffer(file) === projection.latestRevision.contentHash) {
+            const turnId = getAgentExecutionContext()?.agentTurnId;
+            if (turnId && input.operation?.operationId) {
+              await agentTurnHistoryService.linkCheckpoint({ turnId, workspaceId: input.workspace.workspaceId,
+                operationId: input.operation.operationId, revisionId: projection.latestRevision.id,
+                documentSequence: projection.document.stateVersion,
+                lifecycleGeneration: state.lifecycleGeneration });
+            }
+            return;
+          }
+        }
+      }
+      if (state.checkpointSequence < state.documentSequence) {
+        try {
+          await materializeCollaborationCheckpoint({ state, workspace: input.workspace,
+            actorType: 'agent', sourceSessionId: input.actorSessionId });
+        } catch (error) {
+          if (!(error instanceof CollaborationCheckpointSupersededError)) throw error;
+        }
+      }
+    } catch {
+      // The operation is already durable in Yjs. A failed projection cannot become tool success.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } while (Date.now() < deadline);
+  if (input.operation) throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, input.operation);
+  throw new Error(`The live content of ${input.inputPath} is saved, but its file checkpoint could not be confirmed.`);
 }
 
 async function prepareOrReuseCollaborativeFileEdit(input: {
@@ -1870,6 +1981,9 @@ async function applyPreparedCollaborativeFileEdit(input: {
     } catch {
       throw new AgentFileOperationOutcomeUnavailableError(input.inputPath, operation);
     }
+    await confirmCollaborativeFileCheckpoint({ inputPath: input.inputPath, fullPath: input.fullPath,
+      documentId: input.prepared.documentId, workspace: input.workspace,
+      snapshot: current, operation, actorSessionId: input.executionContext.sessionId });
   }
   const changed = input.prepared.content !== current.content;
   const result: AgentFileChangeResult = {
@@ -1896,7 +2010,11 @@ async function applyPreparedCollaborativeFileEdit(input: {
     },
   };
   if (changed) await recordAgentFileChangeAudit(result, input.auditOperation);
-  return result;
+  return captureAgentFileLinkSource(result, {
+    beforeContent: input.prepared.content,
+    content: reviewRequired && !changed ? input.prepared.proposedContent : current.content,
+    basis: reviewRequired && !changed ? 'proposed' : changed ? 'applied' : 'current',
+  });
 }
 
 type AgentEditFileCommonInput = {
@@ -1954,13 +2072,14 @@ function graphFileChangeResult(input: { inputPath: string; fullPath: string }, r
   authoringPreview: { beforeContent: string; proposedContent: string; beforeSha256: string; proposedSha256: string };
 }): AgentFileChangeResult {
   const { beforeContent, proposedContent, beforeSha256, proposedSha256 } = result.authoringPreview;
-  return { path: input.inputPath, resolvedPath: input.fullPath, changed: false, snapshot: null,
+  return captureAgentFileLinkSource({ path: input.inputPath, resolvedPath: input.fullPath, changed: false, snapshot: null,
     beforeSha256, afterSha256: beforeSha256, size: Buffer.byteLength(beforeContent),
     diff: createUnifiedDiff(beforeContent, proposedContent, `${input.inputPath} (proposal source)`, `${input.inputPath} (proposal)`),
     validation: validateAgentFileContent(input.inputPath, proposedContent), proposal: result.proposal,
     collaboration: { operationId: result.node.operationId,
       operationStatus: result.node.lifecycle === 'open' ? 'needs_review' : result.node.lifecycle,
-      durability: 'not_applied', reviewRequired: result.node.lifecycle === 'open', proposedSha256 } };
+      durability: 'not_applied', reviewRequired: result.node.lifecycle === 'open', proposedSha256 } },
+    { beforeContent, content: proposedContent, basis: 'proposed' });
 }
 
 /** Explicit proposal writes never enter the file-projection or Safe-Direct path. */
