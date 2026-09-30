@@ -16,6 +16,7 @@ import { createInitialSystemMessage, normalizeContext, toToolDeclaration, type A
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
+import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 import {
   resolveAndPinSessionRuntime,
   resolveCompactionSummaryRuntime,
@@ -161,6 +162,21 @@ const CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_RUNTIME_INSTANCES = 20;
 const MAX_MESSAGE_CONTEXT_SNAPSHOTS = 64;
 const RUNTIME_CONTEXT_VALUE_MAX_CHARS = 2_000;
+const AGENT_TURN_HEARTBEAT_INTERVAL_MS = 30_000;
+
+type AgentTurnHistoryIdentity = {
+  turnId: string;
+  workspaceId: string;
+  userId: string;
+  sessionId: string;
+};
+
+type ActiveAgentTurn = {
+  identity: AgentTurnHistoryIdentity;
+  begun: boolean;
+};
+
+type AgentTurnOutcome = 'completed' | 'failed' | 'cancelled' | 'interrupted';
 
 function runtimeExecutionModeForSession(session: Pick<typeof piSessions.$inferSelect, 'sessionKind' | 'channelId'>) {
   if (session.sessionKind === 'delegation_worker') {
@@ -593,6 +609,10 @@ export class LivePiRuntime {
   private statusRevision = 0;
   private currentUserPromptText = '';
   private currentUserPromptSignature: string | null = null;
+  private activeAgentTurn: ActiveAgentTurn | null = null;
+  private agentTurnTransition: Promise<void> = Promise.resolve();
+  private agentTurnHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private pendingAgentTurnTouch: Promise<void> | null = null;
   private syntheticContinuationCount = 0;
   private lastContinuationReason: RuntimeContinuationReason | null = null;
   private pendingInitialToolTailContinuation = false;
@@ -2075,6 +2095,68 @@ export class LivePiRuntime {
     this.lastTurnDiagnostics = null;
   }
 
+  private stopAgentTurnHeartbeat(): void {
+    if (this.agentTurnHeartbeatTimer) clearInterval(this.agentTurnHeartbeatTimer);
+    this.agentTurnHeartbeatTimer = null;
+  }
+
+  private startAgentTurnHeartbeat(turn: ActiveAgentTurn): void {
+    this.stopAgentTurnHeartbeat();
+    this.agentTurnHeartbeatTimer = setInterval(() => {
+      if (this.disposed || this.activeAgentTurn !== turn || this.pendingAgentTurnTouch) return;
+      const pending = agentTurnHistoryService.touch(turn.identity)
+        .catch((error: unknown) => { this.publishError(error); })
+        .then(() => {
+          if (this.pendingAgentTurnTouch === pending) this.pendingAgentTurnTouch = null;
+        });
+      this.pendingAgentTurnTouch = pending;
+    }, AGENT_TURN_HEARTBEAT_INTERVAL_MS);
+    this.agentTurnHeartbeatTimer.unref?.();
+  }
+
+  private async finishAgentTurnRecord(turn: ActiveAgentTurn, outcome: AgentTurnOutcome): Promise<void> {
+    this.stopAgentTurnHeartbeat();
+    if (this.pendingAgentTurnTouch) await this.pendingAgentTurnTouch;
+    if (!turn.begun) return;
+    await agentTurnHistoryService.finish(turn.identity, outcome);
+    turn.begun = false;
+  }
+
+  private beginAgentTurnForUserMessage(): Promise<void> {
+    const previous = this.activeAgentTurn;
+    const previousHasPendingTools = this.agent.state.pendingToolCalls.size > 0 || this.activeTool !== null;
+    this.stopAgentTurnHeartbeat();
+    const turn: ActiveAgentTurn = {
+      identity: {
+        turnId: this.executionContext.agentTurnId!,
+        workspaceId: this.executionContext.workspaceId,
+        userId: this.userId,
+        sessionId: this.sessionId,
+      },
+      begun: false,
+    };
+    this.activeAgentTurn = turn;
+    const transition = this.agentTurnTransition.catch(() => undefined).then(async () => {
+      if (previous && !previousHasPendingTools) {
+        await this.finishAgentTurnRecord(previous, 'interrupted');
+      }
+      // A still-running tool retains its original turn ID. Its lease provides recovery.
+      await agentTurnHistoryService.begin(turn.identity);
+      turn.begun = true;
+      if (!this.disposed && this.activeAgentTurn === turn) this.startAgentTurnHeartbeat(turn);
+    });
+    this.agentTurnTransition = transition;
+    return transition;
+  }
+
+  private async finishAgentTurn(turn: ActiveAgentTurn | null, outcome: AgentTurnOutcome): Promise<void> {
+    if (!turn || this.activeAgentTurn !== turn) return;
+    await this.agentTurnTransition.catch(() => undefined);
+    if (this.activeAgentTurn !== turn) return;
+    await this.finishAgentTurnRecord(turn, outcome);
+    if (this.activeAgentTurn === turn) this.activeAgentTurn = null;
+  }
+
   private buildTurnDiagnostics(event: RuntimeTurnEndEvent): RuntimeTurnDiagnostics {
     const message = event.message;
     const isAssistant = message.role === 'assistant';
@@ -2190,10 +2272,19 @@ export class LivePiRuntime {
     const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
     if (this.agent.state.systemPrompt !== effectiveSystemPrompt) this.updateAgentSystemPrompt();
 
+    const turnReady = this.beginAgentTurnForUserMessage();
+    const turn = this.activeAgentTurn;
     const prompts = initialContinuation ? [initialContinuation, sanitized] : sanitized;
-    void this.agent.prompt(prompts).catch(async (error) => {
+    void turnReady.then(() => this.agent.prompt(prompts)).catch(async (error) => {
+      if (turn && this.executionContext.agentTurnId !== turn.identity.turnId) {
+        console.warn('[LiveRuntime] Ignoring late error from a superseded agent turn:', {
+          sessionId: this.sessionId,
+          turnId: turn.identity.turnId,
+        });
+        return;
+      }
       this.publishError(error);
-      await this.persistMessagesOnError();
+      await this.persistMessagesOnError(turn);
     });
   }
 
@@ -2219,7 +2310,13 @@ export class LivePiRuntime {
       this.consumeQueuedMessage(event.message);
       const signature = getMessageSignature(event.message);
       if (signature !== this.currentUserPromptSignature) {
-        this.resetRunSupervisorForUserMessage(event.message);
+        try {
+          this.resetRunSupervisorForUserMessage(event.message);
+          await this.beginAgentTurnForUserMessage();
+        } catch (error) {
+          this.publishError(error);
+          throw error;
+        }
       }
     }
 
@@ -2317,7 +2414,7 @@ export class LivePiRuntime {
     }
 
     if (event.type === 'agent_end') {
-      await this.handleAgentEnd();
+      await this.handleAgentEnd(event);
     }
 
     if (event.type !== 'agent_end') {
@@ -2554,7 +2651,15 @@ export class LivePiRuntime {
     }
   }
 
-  private async handleAgentEnd() {
+  private async handleAgentEnd(event: Extract<AgentEvent, { type: 'agent_end' }>) {
+    const turn = this.activeAgentTurn;
+    const hadPendingTools = this.agent.state.pendingToolCalls.size > 0 || this.activeTool !== null;
+    const wasAborted = this.abortRequested;
+    const wasReplaced = this.pendingReplace !== null;
+    const finalAssistant = [...event.messages].reverse().find((message) => message.role === 'assistant');
+    const outcome: AgentTurnOutcome = wasReplaced ? 'interrupted'
+      : wasAborted || finalAssistant?.stopReason === 'aborted' ? 'cancelled'
+        : finalAssistant?.stopReason === 'error' ? 'failed' : 'completed';
     this.activeTool = null;
     this.abortRequested = false;
     this.isRunning = false;
@@ -2569,6 +2674,21 @@ export class LivePiRuntime {
       this.publishError(error);
     }
 
+    let turnFinishError: unknown = null;
+    const hasPendingTools = hadPendingTools || this.agent.state.pendingToolCalls.size > 0;
+    if (hasPendingTools) {
+      // An unfinished tool may still write. Let the persisted lease expire and recover it.
+      this.stopAgentTurnHeartbeat();
+      if (this.activeAgentTurn === turn) this.activeAgentTurn = null;
+    } else {
+      try {
+        await this.finishAgentTurn(turn, persistError ? 'failed' : outcome);
+      } catch (error) {
+        turnFinishError = error;
+        this.publishError(error);
+      }
+    }
+
     this.lastComposition = null;
     this.publishStatus();
     
@@ -2576,7 +2696,8 @@ export class LivePiRuntime {
     // This allows notification system to read from DB without race conditions
     const allMessages = this.agent.state.messages.slice();
     const lastPersistedMessage = allMessages[allMessages.length - 1];
-    if (!persistError && lastPersistedMessage && lastPersistedMessage.role === 'assistant') {
+    if (!persistError && !turnFinishError && !hasPendingTools
+      && lastPersistedMessage && lastPersistedMessage.role === 'assistant') {
       try {
         const { getPiRuntimeEventEmitter } = await import('./runtime-event-emitter');
         const emitter = getPiRuntimeEventEmitter();
@@ -2591,7 +2712,7 @@ export class LivePiRuntime {
       }
     }
 
-    if (!persistError) {
+    if (!persistError && !turnFinishError && !hasPendingTools) {
       this.scheduleInitialSessionTitle(allMessages);
     }
 
@@ -2633,7 +2754,7 @@ export class LivePiRuntime {
       return;
     }
 
-    this.scheduleIdleCompaction();
+    if (!hasPendingTools) this.scheduleIdleCompaction();
   }
 
   private scheduleIdleCompaction(): void {
@@ -2740,7 +2861,9 @@ export class LivePiRuntime {
     this.invalidateContextMeasurement();
   }
 
-  private async persistMessagesOnError() {
+  private async persistMessagesOnError(turn: ActiveAgentTurn | null) {
+    if (!turn || this.executionContext.agentTurnId !== turn.identity.turnId) return;
+    const hadPendingTools = this.agent.state.pendingToolCalls.size > 0 || this.activeTool !== null;
     this.invalidateContextMeasurement();
     try {
       const persistedCount = await this.persistMessages('error');
@@ -2749,7 +2872,21 @@ export class LivePiRuntime {
       }
     } catch (saveError) {
       console.error('[LiveRuntime] Failed to persist messages after error:', saveError);
+      if (this.executionContext.agentTurnId === turn.identity.turnId) this.publishError(saveError);
     }
+    if (this.executionContext.agentTurnId !== turn.identity.turnId) return;
+    if (hadPendingTools || this.agent.state.pendingToolCalls.size > 0) {
+      // A tool may still stage a snapshot after this error path. Keep its lease recoverable.
+      this.stopAgentTurnHeartbeat();
+      if (this.activeAgentTurn === turn) this.activeAgentTurn = null;
+    } else {
+      try {
+        await this.finishAgentTurn(turn, 'failed');
+      } catch (finishError) {
+        this.publishError(finishError);
+      }
+    }
+    if (this.executionContext.agentTurnId !== turn.identity.turnId) return;
     this.isRunning = false;
     this.activeTool = null;
     this.abortRequested = false;
@@ -2795,6 +2932,7 @@ export class LivePiRuntime {
 
   dispose(): void {
     this.disposed = true;
+    this.stopAgentTurnHeartbeat();
     this.contextMeasurementCache?.dispose();
     if (this.idleCompactionTimer) clearTimeout(this.idleCompactionTimer);
     this.idleCompactionTimer = null;

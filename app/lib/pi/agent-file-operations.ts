@@ -65,6 +65,7 @@ import {
 import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 import { getToolOutputRoot, getToolOutputSessionDirectory } from '@/app/lib/pi/tool-output-store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import {
@@ -710,6 +711,7 @@ function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
     actorId: executionContext.agentId || DEFAULT_MANAGED_AGENT_ID,
     actorDisplayName: getAgentDisplayName(executionContext.agentId),
     actorSessionId: executionContext.sessionId,
+    agentRunId: executionContext.agentTurnId,
   };
 }
 
@@ -1873,7 +1875,16 @@ async function confirmCollaborativeFileCheckpoint(input: {
           && projection.document.snapshotRevisionId
           && projection.latestRevision?.id === projection.document.snapshotRevisionId) {
           const file = await fs.readFile(input.fullPath);
-          if (sha256Buffer(file) === projection.latestRevision.contentHash) return;
+          if (sha256Buffer(file) === projection.latestRevision.contentHash) {
+            const turnId = getAgentExecutionContext()?.agentTurnId;
+            if (turnId && input.operation?.operationId) {
+              await agentTurnHistoryService.linkCheckpoint({ turnId, workspaceId: input.workspace.workspaceId,
+                operationId: input.operation.operationId, revisionId: projection.latestRevision.id,
+                documentSequence: projection.document.stateVersion,
+                lifecycleGeneration: state.lifecycleGeneration });
+            }
+            return;
+          }
         }
       }
       if (state.checkpointSequence < state.documentSequence) {

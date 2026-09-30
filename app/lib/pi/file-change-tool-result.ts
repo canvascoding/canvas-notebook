@@ -143,6 +143,9 @@ async function collaborationTarget(input: {
     ...countDiff(input.result.diff),
   };
   if (outcome !== 'applied') return common;
+  // The durable operation and lineage navigate to current while the turn's
+  // single content version is still being assembled.
+  if (input.context.agentTurnId) return common;
   const persisted = await input.dependencies.loadCollaboration(document.id);
   if (!persisted || persisted.status !== 'active' || persisted.workspaceId !== input.context.workspaceId
     || persisted.path !== input.pathHint || persisted.documentId !== document.id) return null;
@@ -181,7 +184,11 @@ async function durableEntry(
     actorUserId: context.userId,
     actorType: 'agent',
     sourceSessionId: context.sessionId,
+    agentTurnId: context.agentTurnId,
   });
+  if (capture.outcome === 'deferred_agent_turn' && capture.revision?.lineageId) {
+    return { lineageId: capture.revision.lineageId, pathHint, outcome: 'applied', ...countDiff(result.diff) };
+  }
   const reference = captureReference(capture, result.afterSha256);
   return reference ? { ...reference, pathHint, outcome: 'applied', ...countDiff(result.diff) } : null;
 }

@@ -2,6 +2,7 @@ import 'server-only';
 
 import crypto, { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { gunzipSync } from 'node:zlib';
 import type * as YTypes from 'yjs';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
@@ -13,6 +14,9 @@ import {
 } from '@/app/lib/files/exact-text-patch';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { fileVersionHistoryService } from '@/app/lib/file-version-center/history-service';
+import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
+import { prepareFileVersionContent } from '@/app/lib/file-version-center/version-content-store';
+import { authoritativeCollaborationSnapshot } from './checkpoint';
 import { createRuntimeFileVersionCenterDatabase, type FileVersionCenterTransaction } from '@/app/lib/file-version-center/database';
 import {
   ProposalActionDefinitelyUnappliedError,
@@ -275,6 +279,7 @@ type AgentOperationRow = {
   base_document_sequence: number;
   resulting_state_vector_hash: string | null;
   resulting_state_snapshot: Buffer | Uint8Array | null;
+  version_content_snapshot?: Buffer | Uint8Array | null;
   file_edit_request_json: string | null;
   checkpoint_revision_id: string | null;
   /** Immutable history revision for a graph-composed candidate, not the mutable file checkpoint. */
@@ -696,6 +701,7 @@ export function applyRichMarkdownPatchTargets(input: {
   doc: YTypes.Doc;
   targets: AgentTextTarget[];
   origin: { actorType: 'agent'; actorId: string; initiatedByUserId: string; operationId: string };
+  beforeApply?: (markdown: string) => void;
 }): AgentApplyExecutionResult {
   const target = input.targets.length === 1 ? input.targets[0] : null;
   if (!target || !isRichMarkdownPatchTarget(target)) {
@@ -742,6 +748,7 @@ export function applyRichMarkdownPatchTargets(input: {
     validationDoc.destroy();
   }
 
+  input.beforeApply?.(nextMarkdown);
   const replaceConflict = replaceRichMarkdownDocument(input.doc, nextMarkdown, input.origin);
   if (replaceConflict) {
     const result = richPatchConflict(target, replaceConflict);
@@ -1212,6 +1219,7 @@ async function assertMatchingAgentFileRequest(row: AgentOperationRow, input: Par
     || row.organization_id !== (input.workspace.organizationId ?? null)
     || row.initiated_by_user_id !== input.initiatedByUserId || row.actor_id !== input.actorId
     || (row.actor_session_id ?? null) !== (input.actorSessionId || null)
+    || (row.agent_run_id ?? null) !== (input.agentRunId || null)
     || row.document_path !== input.documentPath || row.document_representation !== input.documentRepresentation
     || Number(row.document_lifecycle_generation) !== input.documentLifecycleGeneration
     || Number(row.schema_version) !== input.documentSchemaVersion
@@ -2012,20 +2020,64 @@ async function confirmedAgentFileRevision(row: AgentOperationRow, state: Persist
   return { checkpointed: false, revisionId: null };
 }
 
-async function waitForDurableState(input: { row: AgentOperationRow; workspace: WorkspaceContext }) {
+async function captureDurableOperationHistory(input: {
+  database: SqlConnection; row: AgentOperationRow; state: PersistedCollaborationState;
+  workspace?: WorkspaceContext; recovering?: boolean;
+}) {
+  const { row, state } = input;
+  const grouped = row.agent_run_id && row.actor_session_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply';
+  if (grouped && await agentTurnHistoryService.hasOperation({ operationId: row.operation_id,
+    turnId: row.agent_run_id!, workspaceId: row.workspace_id })) {
+    await input.database.run('UPDATE collaboration_agent_operations SET version_content_snapshot=NULL WHERE operation_id=$1', [row.operation_id]);
+    return;
+  }
+  let workspace = input.workspace;
+  if (!workspace && grouped && row.version_content_snapshot) {
+    const stored = await input.database.get('SELECT * FROM canvas_workspaces WHERE id=$1', [row.workspace_id]) as {
+      type: WorkspaceContext['workspaceType']; root_relative_path: string; organization_id: string | null;
+      customer_id: string | null; project_id: string | null;
+    } | undefined;
+    if (!stored) throw new Error('The agent snapshot workspace no longer exists.');
+    // Recovery stores history only. It grants no filesystem or agent authority.
+    workspace = { workspaceId: row.workspace_id, workspaceType: stored.type,
+      rootPath: workspaceAbsoluteRoot(stored.root_relative_path), organizationId: stored.organization_id,
+      customerId: stored.customer_id, projectId: stored.project_id, legacy: false,
+      permissions: { canRead: true, canWrite: false, canDelete: false, canCreatePublicLinks: false,
+        canManageWorkspace: false, canRunAgent: false } };
+  }
+  if (!workspace) return;
+  if (grouped && row.version_content_snapshot) {
+    const content = gunzipSync(row.version_content_snapshot, { maxOutputLength: MAX_COLLABORATIVE_TEXT_BYTES });
+    let historical = true;
+    try {
+      const current = authoritativeCollaborationSnapshot(state);
+      historical = !content.equals(Buffer.from(current.canonicalContent, 'utf8'));
+    } catch { /* A later invalid document cannot invalidate the exact durable agent snapshot. */ }
+    const document = historical ? await input.database.get(`SELECT lineage_id FROM collaboration_documents
+      WHERE id=$1 AND workspace_id=$2`, [row.document_id,row.workspace_id]) as { lineage_id: string } | undefined : null;
+    if (historical && !document?.lineage_id) throw new Error('The historical agent snapshot has no lineage.');
+    await fileVersionHistoryService.capture({ workspace, path: state.path, content, source: 'agent_apply',
+      actorUserId: row.initiated_by_user_id, actorType: 'agent', sourceSessionId: row.actor_session_id,
+      agentTurnId: row.agent_run_id, agentOperationId: row.operation_id,
+      agentBaseDocumentSequence: Number(row.base_document_sequence), documentSequence: state.documentSequence,
+      lifecycleGeneration: state.lifecycleGeneration, stateVector: parseResult(row).stateVector,
+      ...(historical ? { historicalLineageId: document!.lineage_id } : {}),
+      agentCapturedAt: Number(row.applied_at || state.persistedAt), agentRecovered: input.recovering || historical });
+    // The exact content is now in the durable mutable slot or immutable history.
+    await input.database.run('UPDATE collaboration_agent_operations SET version_content_snapshot=NULL WHERE operation_id=$1', [row.operation_id]);
+    return;
+  }
+  await fileVersionHistoryService.capturePersistedCollaboration({ workspace, state, source: 'agent_apply',
+    actorUserId: row.initiated_by_user_id, actorType: 'agent', sourceSessionId: row.actor_session_id,
+    baseRevisionId: row.checkpoint_revision_id });
+}
+
+async function waitForDurableState(input: { database: SqlConnection; row: AgentOperationRow; workspace: WorkspaceContext }) {
   const deadline = Date.now() + PERSISTENCE_CONFIRMATION_TIMEOUT_MS;
   do {
     const state = await loadCollaborationState(input.row.document_id);
     if (stateConfirmsAgentOperation(input.row, state)) {
-      await fileVersionHistoryService.capturePersistedCollaboration({
-        workspace: input.workspace,
-        state,
-        source: 'agent_apply',
-        actorUserId: input.row.initiated_by_user_id,
-        actorType: 'agent',
-        sourceSessionId: input.row.actor_session_id,
-        baseRevisionId: input.row.checkpoint_revision_id,
-      });
+      await captureDurableOperationHistory({ ...input, state });
       return { state, ...await confirmedAgentFileRevision(input.row, state, input.workspace) };
     }
     await new Promise((resolve) => setTimeout(resolve, 25));
@@ -2077,15 +2129,7 @@ async function reconcileAgentOperationDurability(database: SqlConnection, row: A
   if (!stateConfirmsAgentOperation(row, state)) return row;
   if (workspace) {
     try {
-      await fileVersionHistoryService.capturePersistedCollaboration({
-        workspace,
-        state,
-        source: 'agent_apply',
-        actorUserId: row.initiated_by_user_id,
-        actorType: 'agent',
-        sourceSessionId: row.actor_session_id,
-        baseRevisionId: row.checkpoint_revision_id,
-      });
+      await captureDurableOperationHistory({ database, row, state, workspace });
     } catch {
       return row;
     }
@@ -2234,6 +2278,7 @@ async function applyStoredOperation(input: {
 
   let execution: AgentApplyExecutionResult;
   let resultingSnapshot: Uint8Array | null = null;
+  let versionContentSnapshot: Buffer | null = null;
   const appliedExecution = { value: null as AgentApplyExecutionResult | null };
   const combinedFor = (result: AgentApplyExecutionResult) => {
     const changeWindow = recentAgentChangeWindows.get(row.document_id)?.get(row.operation_id);
@@ -2265,6 +2310,7 @@ async function applyStoredOperation(input: {
       initiatedByUserId: row.initiated_by_user_id,
       operationId: row.operation_id,
       actorSessionId: row.actor_session_id || undefined,
+      agentTurnId: row.requested_mode === 'direct_apply' && row.operation_type === 'apply' ? row.agent_run_id || undefined : undefined,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
       if (input.directGrant && (input.directGrant.id !== row.direct_edit_grant_id || input.directGrant.expiresAt <= Date.now())) {
@@ -2304,12 +2350,29 @@ async function applyStoredOperation(input: {
         operationId: row.operation_id,
       };
       const structuralPatch = targets.some(isRichMarkdownPatchTarget);
+      const captureVersionContent = (content: string) => {
+        if (row.agent_run_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply') {
+          // Admission and compression must succeed before touching the shared room.
+          versionContentSnapshot = prepareFileVersionContent(content).compressedContent;
+        }
+      };
+      const validateForApply = (clone: YTypes.Doc) => {
+        const invalid = validateOperationClone(state.representation, row.expected_canonical_hash, clone);
+        if (invalid) return invalid;
+        if (row.agent_run_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply') {
+          try {
+            captureVersionContent(isRichTextCollaborationRepresentation(state.representation)
+              ? richMarkdownFromYDoc(clone) : textValue(clone.getText('content')));
+          } catch { return 'schema_invalid' as const; }
+        }
+        return null;
+      };
       const result = targets.some((target) => target.kind === 'block_edit')
         ? applyAgentBlockTargets({ doc, targets, origin,
-            validateClone: (clone) => validateOperationClone(state.representation, row.expected_canonical_hash, clone) })
+            validateClone: validateForApply })
         : structuralPatch
         ? isRichTextCollaborationRepresentation(state.representation) && targets.every(isRichMarkdownPatchTarget)
-          ? applyRichMarkdownPatchTargets({ doc, targets, origin })
+          ? applyRichMarkdownPatchTargets({ doc, targets, origin, beforeApply: captureVersionContent })
           : {
               status: 'needs_review' as const,
               appliedTargetIds: [],
@@ -2325,14 +2388,13 @@ async function applyStoredOperation(input: {
             doc,
             targets,
             independentGroups: !input.approval && row.atomicity === 'independent',
-            validateClone: (clone) => validateOperationClone(
-              state.representation,
-              row.expected_canonical_hash,
-              clone,
-            ),
+            compositionRanges: activeCompositionRanges(doc),
+            validateClone: validateForApply,
             origin,
           });
-      if (result.appliedTargetIds.length > 0) resultingSnapshot = captureAgentStateSnapshot(doc, Y);
+      if (result.appliedTargetIds.length > 0) {
+        resultingSnapshot = captureAgentStateSnapshot(doc, Y);
+      }
       if (result.conflicts.length > 0) logCollaborationDiagnostic('info', { event: 'agent_target_conflict',
         operationId: row.operation_id, documentId: row.document_id, workspaceId: row.workspace_id,
         generation: state.lifecycleGeneration, code: result.conflicts[0].code });
@@ -2355,6 +2417,7 @@ async function applyStoredOperation(input: {
           reverse_payload: sealPayload(combined.combinedReverse),
           resulting_state_vector_hash: stateVectorHash(result.stateVector),
           resulting_state_snapshot: resultingSnapshot ? Buffer.from(resultingSnapshot) : null,
+          version_content_snapshot: versionContentSnapshot,
           applied_at: Date.now(),
         },
       });
@@ -2437,7 +2500,7 @@ async function applyStoredOperation(input: {
 
   let durable: Awaited<ReturnType<typeof waitForDurableState>>;
   try {
-    durable = await waitForDurableState({ row, workspace: input.workspace });
+    durable = await waitForDurableState({ database: input.database, row, workspace: input.workspace });
   } catch {
     logCollaborationDiagnostic('warn', { event: 'agent_durability_unconfirmed', operationId: row.operation_id,
       documentId: row.document_id, workspaceId: row.workspace_id, generation: state.lifecycleGeneration,
@@ -3382,6 +3445,7 @@ export async function recoverCollaborationAgentOperations(now = Date.now()): Pro
       }
       const state = await loadCollaborationState(row.document_id);
       if (row.result_json && stateConfirmsAgentOperation(row, state)) {
+        await captureDurableOperationHistory({ database, row, state, recovering: true });
         await confirmDurableAgentOperation({ database, row, state }).catch(() => undefined);
         continue;
       }

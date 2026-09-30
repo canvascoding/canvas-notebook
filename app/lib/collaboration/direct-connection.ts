@@ -24,6 +24,8 @@ export interface AgentDirectConnectionInput {
   versionSource?: 'automatic_checkpoint' | 'restore' | 'agent_apply';
   versionBaseRevisionId?: string | null;
   versionSourceSessionId?: string | null;
+  /** Grouped direct tools capture their exact operation snapshot after persistence. */
+  agentTurnId?: string;
 }
 
 type DirectConnectionHandler = <T>(

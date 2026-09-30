@@ -35,6 +35,7 @@ export type CollaborationAgentIdentity = {
   actorId: string;
   actorDisplayName: string;
   actorSessionId?: string;
+  agentRunId?: string;
 };
 
 export type CollaborationTextSnapshot = {
@@ -510,6 +511,7 @@ export async function executePreparedCollaborationTextEdit(input: {
     targets: input.prepared.targets,
     requestedMode: input.prepared.requestedMode,
     actorSessionId: input.identity.actorSessionId,
+    agentRunId: input.identity.agentRunId,
     documentPath: input.prepared.path,
     documentRepresentation: input.prepared.representation,
     documentLifecycleGeneration: input.prepared.lifecycleGeneration,

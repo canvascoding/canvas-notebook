@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -89,6 +90,7 @@ async function loadHost(options: {
   };
 
   const dependencies: Record<string, unknown> = {
+    'node:crypto': { randomUUID },
     '../app/lib/db': {
       async openDb() {
         state.dbOpens += 1;
@@ -272,4 +274,29 @@ test('missing stored session and legacy or wrong-workspace authority fail closed
     await assert.rejects(host.__test.executeFixtureTool(fixtureInput()));
     assert.equal(state.toolExecutions.length, 0);
   }
+});
+
+test('the host issues turn IDs and carries them only across the scoped fixture lifecycle', async () => {
+  const events: Array<{ action: string; identity: Record<string, unknown> }> = [];
+  const service = Object.fromEntries(['begin', 'touch', 'finish'].map(action => [action,
+    async (identity: Record<string, unknown>) => { events.push({ action, identity }); },
+  ]));
+  const { host, state } = await loadHost({ dependencies: {
+    '../app/lib/file-version-center/agent-turn-history': { agentTurnHistoryService: service },
+  } });
+  const control = (turnAction: string) => host.__test.executeFixtureTool(fixtureInput({ turnAction }));
+  await assert.rejects(control('finish'), /lifecycle/u);
+  const begin = await control('begin') as { details: { agentTurnId: string } };
+  const firstTurn = begin.details.agentTurnId;
+  await assert.rejects(control('begin'), /lifecycle/u);
+  await host.__test.executeFixtureTool(fixtureInput({ context: {
+    sessionId: SESSION_ID, userId: USER_ID, agentId: AGENT_ID, workspaceId: WORKSPACE_ID,
+    agentTurnId: 'caller-controlled-turn',
+  } }));
+  assert.equal((state.executionAuthorities[0] as Record<string, unknown>).agentTurnId, firstTurn);
+  await control('finish');
+  const next = await control('begin') as { details: { agentTurnId: string } };
+  assert.notEqual(next.details.agentTurnId, firstTurn);
+  assert.deepEqual(events.map(event => event.action), ['begin', 'touch', 'finish', 'begin']);
+  assert.deepEqual(events[0].identity, { turnId: firstTurn, workspaceId: WORKSPACE_ID, userId: USER_ID, sessionId: SESSION_ID });
 });

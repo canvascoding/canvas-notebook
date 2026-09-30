@@ -75,6 +75,7 @@
     "test:pi:compaction-settings": "tsx --conditions react-server scripts/pi-compaction-settings-contract-test.ts && tsx --conditions react-server scripts/pi-compaction-settings-store-test.ts && tsx --conditions react-server scripts/pi-compaction-settings-route-test.ts",
     "eval:pi:compaction-v2": "tsx --conditions react-server scripts/session-compaction-v2-shadow-evaluation.ts",
     "test:file-version-center:rollout": "tsx --conditions react-server scripts/file-version-center-rollout-test.ts && FILE_VERSION_CENTER_MODE=off tsx --conditions react-server scripts/collaboration-agent-approval-route-test.ts",
+    "test:file-version-center:agent-turns": "tsx --conditions react-server scripts/agent-turn-history-test.ts && tsx scripts/pi-agent-turn-context-test.ts && tsx scripts/pi-delegate-agent-turn-test.ts && tsx scripts/agent-turn-operation-snapshot-test.ts && tsx --conditions react-server scripts/local-agent-tool-host-test.ts",
     "test:file-version-center:notifications": "tsx --conditions react-server scripts/file-change-review-notification-source-test.ts && tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-bootstrap-test.ts && tsx scripts/home-notifications-test.ts && tsx scripts/notification-bell-file-review-test.tsx",
     "test:file-version-center:notifications:integration": "node scripts/file-change-review-notification-api-smoke.mjs",
     "test:file-version-center:shadow-smoke": "node scripts/file-version-center-shadow-smoke.mjs",

@@ -75,6 +75,67 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
   CREATE INDEX IF NOT EXISTS idx_file_revision_contents_blob
     ON file_revision_contents (blob_id);
 
+  -- Recovered snapshots are history, never a new physical-file fence.
+  ALTER TABLE file_revisions ADD COLUMN IF NOT EXISTS history_only boolean NOT NULL DEFAULT false;
+  ALTER TABLE collaboration_agent_operations ADD COLUMN IF NOT EXISTS version_content_snapshot bytea;
+
+  CREATE TABLE IF NOT EXISTS file_agent_turns (
+    turn_id text PRIMARY KEY,
+    workspace_id text NOT NULL REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+    user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    source_session_id text NOT NULL,
+    outcome text,
+    lease_expires_at bigint NOT NULL,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    UNIQUE (turn_id, workspace_id),
+    CHECK (outcome IS NULL OR outcome IN ('completed', 'failed', 'cancelled', 'interrupted', 'recovered'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_file_agent_turns_recovery
+    ON file_agent_turns (lease_expires_at) WHERE outcome IS NULL;
+
+  CREATE TABLE IF NOT EXISTS file_agent_turn_segments (
+    segment_id text PRIMARY KEY,
+    turn_id text NOT NULL,
+    workspace_id text NOT NULL,
+    lineage_id text NOT NULL,
+    revision_id text NOT NULL,
+    path_hint text NOT NULL,
+    content_format text NOT NULL CHECK (content_format IN ('markdown', 'text')),
+    content_sha256 text NOT NULL,
+    raw_size_bytes bigint NOT NULL,
+    stored_size_bytes bigint NOT NULL,
+    pending_content bytea,
+    state_vector_hash text,
+    document_sequence bigint,
+    lifecycle_generation bigint,
+    finalized_at bigint,
+    created_at bigint NOT NULL,
+    updated_at bigint NOT NULL,
+    UNIQUE (segment_id, workspace_id, lineage_id),
+    FOREIGN KEY (turn_id, workspace_id) REFERENCES file_agent_turns(turn_id, workspace_id) ON DELETE CASCADE,
+    FOREIGN KEY (revision_id, workspace_id, lineage_id) REFERENCES file_revisions(id, workspace_id, lineage_id) ON DELETE RESTRICT,
+    CHECK (content_sha256 ~ '^[a-f0-9]{64}$'),
+    CHECK (raw_size_bytes >= 0 AND raw_size_bytes <= 1048576),
+    CHECK (stored_size_bytes > 0 AND stored_size_bytes <= 1114112),
+    CHECK ((finalized_at IS NULL AND pending_content IS NOT NULL AND octet_length(pending_content) = stored_size_bytes)
+      OR (finalized_at IS NOT NULL AND pending_content IS NULL))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_file_agent_turn_segments_open
+    ON file_agent_turn_segments (workspace_id, lineage_id) WHERE finalized_at IS NULL;
+
+  CREATE TABLE IF NOT EXISTS file_agent_turn_checkpoints (
+    revision_id text PRIMARY KEY,
+    workspace_id text NOT NULL,
+    lineage_id text NOT NULL,
+    segment_id text NOT NULL,
+    operation_id text UNIQUE,
+    FOREIGN KEY (revision_id, workspace_id, lineage_id) REFERENCES file_revisions(id, workspace_id, lineage_id) ON DELETE CASCADE,
+    FOREIGN KEY (segment_id, workspace_id, lineage_id) REFERENCES file_agent_turn_segments(segment_id, workspace_id, lineage_id) ON DELETE CASCADE,
+    FOREIGN KEY (operation_id, workspace_id) REFERENCES collaboration_agent_operations(operation_id, workspace_id) ON DELETE RESTRICT
+  );
+  CREATE INDEX IF NOT EXISTS idx_file_agent_turn_checkpoints_segment ON file_agent_turn_checkpoints(segment_id);
+
   CREATE TABLE IF NOT EXISTS file_change_groups (
     group_id text PRIMARY KEY,
     workspace_id text NOT NULL REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
@@ -243,6 +304,9 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
 `;
 
 export const FILE_VERSION_CENTER_STORAGE_DOWN_SQL = `
+  DROP TABLE IF EXISTS file_agent_turn_checkpoints;
+  DROP TABLE IF EXISTS file_agent_turn_segments;
+  DROP TABLE IF EXISTS file_agent_turns;
   DROP TABLE IF EXISTS file_version_restore_receipts;
   DROP TABLE IF EXISTS file_agent_review_policies;
   DROP TABLE IF EXISTS file_change_group_entries;

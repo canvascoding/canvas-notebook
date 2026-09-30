@@ -16,6 +16,9 @@ import { Button } from '@/components/ui/button';
 import { useOpenChatFileReference } from './useOpenChatFileReference';
 
 function selectionFor(entry: FileChangeAppEntryData) {
+  if (!entry.proposal && entry.state === 'applied') {
+    return entry.revisionId ? { kind: 'revision' as const, id: entry.revisionId } : undefined;
+  }
   if (entry.operationId) return { kind: 'agent_operation' as const, id: entry.operationId };
   if (entry.revisionId) return { kind: 'revision' as const, id: entry.revisionId };
   return undefined;

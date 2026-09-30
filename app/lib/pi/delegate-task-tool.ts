@@ -55,6 +55,7 @@ import { runPiSessionCompaction } from '@/app/lib/pi/session-compaction-coordina
 import { appendPiDelegationProgress } from '@/app/lib/pi/delegation-progress';
 import { attachManagedProgressBridge } from '@/app/lib/pi/delegation-managed-progress';
 import { observePiDelegation } from '@/app/lib/pi/delegation-observability';
+import { agentTurnHistoryService, type AgentTurnIdentity, type AgentTurnOutcome } from '@/app/lib/file-version-center/agent-turn-history';
 
 type DelegateTaskArgs = {
   action?: 'spawn' | 'list' | 'steer' | 'stop';
@@ -392,6 +393,53 @@ async function resolveEphemeralTools(
   return filterToolsToAllowedNames(allTools, allowedToolNames);
 }
 
+type EphemeralAgentTurn = {
+  identity: AgentTurnIdentity;
+  stop: () => void;
+  finish: (outcome: AgentTurnOutcome) => Promise<void>;
+};
+
+async function beginEphemeralAgentTurn(identity: AgentTurnIdentity): Promise<EphemeralAgentTurn> {
+  await agentTurnHistoryService.begin(identity);
+  let pendingTouch: Promise<void> | null = null;
+  let finished = false;
+  const heartbeat = setInterval(() => {
+    if (pendingTouch) return;
+    pendingTouch = agentTurnHistoryService.touch(identity)
+      .catch((error) => {
+        console.error('[delegate_task] Failed to renew worker file history lease:', error);
+      }).finally(() => { pendingTouch = null; });
+  }, 30_000);
+  heartbeat.unref?.();
+  const stop = () => clearInterval(heartbeat);
+  return {
+    identity,
+    stop,
+    async finish(outcome) {
+      if (finished) return;
+      stop();
+      await pendingTouch;
+      await agentTurnHistoryService.finish(identity, outcome);
+      finished = true;
+    },
+  };
+}
+
+function hasUnresolvedEphemeralTools(messages: AgentMessage[], pendingCalls: Set<string>): boolean {
+  if (pendingCalls.size > 0) return true;
+  const calls = new Map<string, number>();
+  for (const message of messages) {
+    if (message.role === 'assistant') {
+      for (const part of message.content) {
+        if (part.type === 'toolCall') calls.set(part.id, (calls.get(part.id) ?? 0) + 1);
+      }
+    } else if (message.role === 'toolResult') {
+      calls.set(message.toolCallId, (calls.get(message.toolCallId) ?? 0) - 1);
+    }
+  }
+  return [...calls.values()].some(count => count > 0);
+}
+
 export async function runEphemeralWorker(params: {
   request: DelegateTaskRequest;
   sessionId: string;
@@ -402,7 +450,11 @@ export async function runEphemeralWorker(params: {
   systemPrompt: string;
   tools: AgentTool[];
   signal: AbortSignal;
+  agentTurn?: EphemeralAgentTurn;
 }): Promise<DelegateTaskResult> {
+  let agentTurn = params.agentTurn;
+  const pendingToolCalls = new Set<string>();
+  let terminalOutcome: AgentTurnOutcome = 'failed';
   let finalMessages: AgentMessage[] = [params.promptMessage];
   // message_end can precede execution of every tool in an assistant batch.
   // Only turn_end proves the batch has all of its result messages.
@@ -466,6 +518,17 @@ export async function runEphemeralWorker(params: {
   };
 
   try {
+    if (!agentTurn) {
+      // Production dispatch assigns this before constructing the child tools.
+      params.executionContext.agentTurnId = randomUUID();
+      agentTurn = await beginEphemeralAgentTurn({
+        turnId: params.executionContext.agentTurnId,
+        workspaceId: params.executionContext.workspaceId,
+        userId: params.request.userId,
+        sessionId: params.sessionId,
+      });
+    }
+    throwIfDelegationAborted(params.signal);
     const effectivePolicy = params.executionContext.organizationId
       ? await loadPiEffectiveCompactionPolicy(params.executionContext.organizationId)
       : resolvePiEffectiveCompactionPolicy();
@@ -704,7 +767,11 @@ export async function runEphemeralWorker(params: {
           injectedSteeringIds.clear();
         }
         if (event.type === 'tool_execution_start') {
+          pendingToolCalls.add(event.toolCallId);
           await appendProgress('tool_start', toolEventKey('tool_start', event.toolCallId), event.toolName);
+        }
+        if (event.type === 'tool_execution_end') {
+          pendingToolCalls.delete(event.toolCallId);
         }
         if (event.type === 'turn_end') {
           const expectedToolCallIds = event.message.role === 'assistant'
@@ -715,6 +782,7 @@ export async function runEphemeralWorker(params: {
             || expectedToolCallIds.some((id, index) => id !== completedToolCallIds[index])) {
             throw new Error('Delegated worker tool batch was interrupted before every result completed.');
           }
+          for (const id of completedToolCallIds) pendingToolCalls.delete(id);
           await checkpointMessages(observedMessages);
           for (const result of event.toolResults) {
             await appendProgress(
@@ -734,11 +802,16 @@ export async function runEphemeralWorker(params: {
     throwIfDelegationAborted(params.signal);
     const terminalAssistant = [...finalMessages].reverse().find((message) => message.role === 'assistant');
     if (terminalAssistant?.role === 'assistant' && terminalAssistant.stopReason === 'aborted') {
+      terminalOutcome = 'cancelled';
       throw new Error('Delegated worker model request was aborted.');
     }
     if (terminalAssistant?.role === 'assistant' && terminalAssistant.stopReason === 'error') {
       throw new Error('Delegated worker model request failed.');
     }
+    if (hasUnresolvedEphemeralTools(finalMessages, pendingToolCalls)) {
+      throw new Error('Delegated worker ended with incomplete tool results.');
+    }
+    await agentTurn.finish('completed');
 
     return {
       delegation_id: params.request.delegationId,
@@ -757,6 +830,14 @@ export async function runEphemeralWorker(params: {
     await checkpointMessages(finalMessages).catch((persistError) => {
       console.error('[delegate_task] Failed to persist ephemeral worker error state:', persistError);
     });
+    // A still-running SDK tool can publish another durable file checkpoint.
+    // Leave its turn open and let expiry recovery finish the captured state.
+    const latestMessages = finalMessages.length >= observedMessages.length ? finalMessages : observedMessages;
+    if (agentTurn && !hasUnresolvedEphemeralTools(latestMessages, pendingToolCalls)) {
+      await agentTurn.finish(params.signal.aborted ? 'cancelled' : terminalOutcome).catch((finishError) => {
+        console.error('[delegate_task] Failed to finish worker file history:', finishError);
+      });
+    }
     return {
       delegation_id: params.request.delegationId,
       status: 'error',
@@ -769,6 +850,8 @@ export async function runEphemeralWorker(params: {
       timeout_seconds: params.request.timeoutSeconds,
       error: message,
     };
+  } finally {
+    agentTurn?.stop();
   }
 }
 
@@ -828,8 +911,11 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
   throwIfDelegationAborted(request.abortSignal);
   const execution = createLinkedExecutionController(request.abortSignal);
   const sessionId = request.workerSessionId?.trim() || buildDelegatedSessionId();
+  const agentTurnId = randomUUID();
   const promptMessage = buildDelegationPrompt(request);
   let runPromise: Promise<DelegateTaskResult> | null = null;
+  let agentTurn: EphemeralAgentTurn | undefined;
+  let workerStarted = false;
 
   try {
     const prepared = await withPiSessionOperationLock(sessionId, request.userId, async () => {
@@ -846,6 +932,12 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         throw new Error('Generated delegated session ID already exists. Try the task again.');
       }
       const initialScope = await resolveDelegationSourceScope(request);
+      agentTurn = await beginEphemeralAgentTurn({
+        turnId: agentTurnId,
+        workspaceId: initialScope.executionContext.workspaceId,
+        userId: request.userId,
+        sessionId,
+      });
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const sourceRuntime = await resolveAndPinSessionRuntime({
           organizationId: initialScope.executionContext.organizationId!,
@@ -862,6 +954,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           ...authorizedScope.executionContext,
           sessionId,
           agentId: request.sourceAgentId,
+          agentTurnId,
         };
         let tools = await resolveEphemeralTools(request, sessionId, childExecutionContext);
         const finalScope = await resolveDelegationSourceScope(request);
@@ -871,6 +964,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
             ...finalScope.executionContext,
             sessionId,
             agentId: request.sourceAgentId,
+            agentTurnId,
           };
           tools = await resolveEphemeralTools(request, sessionId, childExecutionContext);
         } else {
@@ -878,6 +972,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
             ...finalScope.executionContext,
             sessionId,
             agentId: request.sourceAgentId,
+            agentTurnId,
           };
         }
         const { systemPrompt: managedSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
@@ -1047,6 +1142,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         }
       },
       operation: (reservation) => reservation.runReserved(execution.controller.signal, async () => {
+        workerStarted = true;
         markReservationStarted();
         return runEphemeralWorker({
           request,
@@ -1058,8 +1154,14 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           systemPrompt: prepared.systemPrompt,
           tools: prepared.tools,
           signal: execution.controller.signal,
+          agentTurn,
         });
       }),
+    }).catch(async (error) => {
+      if (!workerStarted) {
+        await agentTurn?.finish(execution.controller.signal.aborted ? 'cancelled' : 'failed');
+      }
+      throw error;
     });
     void runPromise.then(execution.dispose, execution.dispose);
     if (request.onCompletion) {
@@ -1110,7 +1212,11 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
   } catch (error) {
     if (!runPromise) {
       execution.dispose();
+      await agentTurn?.finish(execution.controller.signal.aborted ? 'cancelled' : 'failed').catch((finishError) => {
+        console.error('[delegate_task] Failed to finish worker setup file history:', finishError);
+      });
     }
+    if (!workerStarted) agentTurn?.stop();
     throw error;
   }
 }

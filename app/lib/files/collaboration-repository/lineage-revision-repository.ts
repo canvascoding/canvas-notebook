@@ -141,7 +141,7 @@ export async function getLatestFileRevisionForLineage(
   const row = await getRow<RevisionRow>(transaction, `
     SELECT *
     FROM file_revisions
-    WHERE lineage_id = $1
+    WHERE lineage_id = $1 AND history_only = false
     ORDER BY revision_number DESC, id DESC
     LIMIT 1
   `, [lineageId]);
@@ -159,7 +159,7 @@ export async function getLatestFileRevision(
   const row = await getRow<RevisionRow>(transaction, `
     SELECT *
     FROM file_revisions
-    WHERE workspace_id = $1 AND path = $2 AND lineage_id IS NULL
+    WHERE workspace_id = $1 AND path = $2 AND lineage_id IS NULL AND history_only = false
     ORDER BY revision_number DESC, id DESC
     LIMIT 1
   `, [workspaceId, filePath]);
