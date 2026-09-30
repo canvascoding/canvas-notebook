@@ -87,6 +87,7 @@ async function main() {
     const { migrateMcpConnectionCredentials, readMcpCredentialJson } = await import('../app/lib/mcp/credential-storage');
     const { getMcpOAuthStatus } = await import('../app/lib/mcp/oauth');
     const { resolveMcpStoragePath } = await import('../app/lib/mcp/storage');
+    const { getUnifiedEnvFilePath } = await import('../app/lib/secrets/unified-env-store');
 
     const scope = { userId: 'migration-user', organizationId: 'migration-org' };
     const rawServer = legacyServer();
@@ -112,8 +113,9 @@ async function main() {
     assert.equal(migratedToken?.configHash, hashMcpAuthConfig(migratedServer));
     assert.equal(migratedClient?.clientSecret, 'client-secret-legacy');
 
-    const storedTokenPath = resolveMcpStoragePath(`${directory}/tokens.json`, scope);
-    assert.equal((await fs.readFile(storedTokenPath, 'utf8')).includes('access-legacy'), false, 'new credential file must be sealed');
+    const storedTokenPath = getUnifiedEnvFilePath({ secretScope: 'user', userId: scope.userId });
+    assert.equal((await fs.readFile(storedTokenPath, 'utf8')).includes('access-legacy'), false, 'new credential ENV record must be sealed');
+    assert.equal(await exists(resolveMcpStoragePath(`${directory}/tokens.json`, scope)), false);
     assert.equal(await exists(resolveMcpStoragePath(legacyDirectory('legacy'), scope)), false);
     assert.equal(await exists(resolveMcpStoragePath('mcp-oauth/.state', scope)), false);
     assert.equal(await migrateMcpConnectionCredentials('legacy', scope), directory, 'migration must be idempotent');

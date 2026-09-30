@@ -14,6 +14,7 @@ interface EnvVarState {
   scope: 'agents' | 'integrations';
   required: boolean;
   value: string;
+  originalValue: string;
   isVisible: boolean;
   isDirty: boolean;
   exists: boolean;
@@ -100,6 +101,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
               scope: envVar.scope,
               required: envVar.required,
               value: existingEntry?.value || '',
+              originalValue: existingEntry?.value || '',
               isVisible: false,
               isDirty: false,
               exists: !!existingEntry,
@@ -111,6 +113,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
               scope: envVar.scope,
               required: envVar.required,
               value: '',
+              originalValue: '',
               isVisible: false,
               isDirty: false,
               exists: false,
@@ -149,7 +152,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
     setEnvStates((current) =>
       current.map((state, i) =>
         i === index
-          ? { ...state, value: newValue, isDirty: newValue !== state.value }
+          ? { ...state, value: newValue, isDirty: newValue !== state.originalValue }
           : state
       )
     );
@@ -171,34 +174,14 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
 
     setSaving(true);
     try {
-      // Load all current entries for this scope
-      const response = await fetch(`/api/integrations/env?scope=${state.scope}&secretScope=${credentialScope}`, {
-        credentials: 'include',
-      });
-      const data = await response.json();
-
-      if (!data.success) {
-        throw new Error(data.error || t('providerEnv.errors.loadCurrentEntries'));
-      }
-
-      // Filter out the entry to delete
-      const currentEntries = data.data.entries.filter(
-        (e: { key: string }) => e.key !== state.name
-      );
-
-      // Save filtered entries
       const saveResponse = await fetch('/api/integrations/env', {
-        method: 'PUT',
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           scope: state.scope,
           secretScope: credentialScope,
-          mode: 'kv',
-          entries: currentEntries.map((e: { key: string; value: string }) => ({
-            key: e.key,
-            value: e.value,
-          })),
+          patches: [{ key: state.name, value: null }],
         }),
       });
 
@@ -207,10 +190,11 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
       if (!saveData.success) {
         throw new Error(saveData.error || t('providerEnv.errors.delete'));
       }
+      window.dispatchEvent(new CustomEvent('canvas_secrets_updated', { detail: { secretScope: credentialScope } }));
 
       setEnvStates((current) =>
         current.map((s, i) =>
-          i === index ? { ...s, value: '', exists: false, isDirty: false } : s
+          i === index ? { ...s, value: '', originalValue: '', exists: false, isDirty: false } : s
         )
       );
 
@@ -258,60 +242,30 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
         await onProviderActivate();
       }
 
-      // Group by scope
-      const byScope: Record<string, EnvVarState[]> = {};
+      // Group targeted key changes by scope so concurrent settings survive.
+      const byScope: Record<string, Array<{ key: string; value: string | null }>> = {};
 
       envStates.forEach((state) => {
-        if (state.value || state.exists) {
-          // Only include if value is set or existed before
+        if (state.isDirty) {
           if (!byScope[state.scope]) {
             byScope[state.scope] = [];
           }
-          byScope[state.scope].push(state);
+          byScope[state.scope].push({
+            key: state.name,
+            value: state.value || null,
+          });
         }
       });
 
-      // Save each scope
-      for (const [scope, states] of Object.entries(byScope)) {
-        // Load current entries
-        const response = await fetch(`/api/integrations/env?scope=${scope}&secretScope=${credentialScope}`, {
-          credentials: 'include',
-        });
-        const data = await response.json();
-
-        if (!data.success) {
-          throw new Error(data.error || t('providerEnv.errors.loadEntriesForScope', { scope }));
-        }
-
-        // Build updated entries map
-        const entriesMap = new Map<string, string>();
-        data.data.entries.forEach((e: { key: string; value: string }) => {
-          entriesMap.set(e.key, e.value);
-        });
-
-        // Update with new values
-        states.forEach((state) => {
-          if (state.value) {
-            entriesMap.set(state.name, state.value);
-          } else if (state.exists && !state.value) {
-            // Remove if value is empty but existed before
-            entriesMap.delete(state.name);
-          }
-        });
-
-        // Save
+      for (const [scope, patches] of Object.entries(byScope)) {
         const saveResponse = await fetch('/api/integrations/env', {
-          method: 'PUT',
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
             scope,
             secretScope: credentialScope,
-            mode: 'kv',
-            entries: Array.from(entriesMap.entries()).map(([key, value]) => ({
-              key,
-              value,
-            })),
+            patches,
           }),
         });
 
@@ -320,6 +274,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
         if (!saveData.success) {
           throw new Error(saveData.error || t('providerEnv.errors.saveScope', { scope }));
         }
+        window.dispatchEvent(new CustomEvent('canvas_secrets_updated', { detail: { secretScope: credentialScope } }));
       }
 
       // Update local state
@@ -327,6 +282,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
         current.map((state) => ({
           ...state,
           exists: !!state.value,
+          originalValue: state.value,
           isDirty: false,
         }))
       );

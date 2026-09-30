@@ -88,6 +88,49 @@ const previewIssueKeys = {
   'unsupported-target-format': 'fileOperationIssueUnsupportedTargetFormat',
 } as const satisfies Record<WorkspacePlannerIssue['code'], string>;
 
+function FileOperationLinkAssessment({ plan }: { plan: WorkspaceFileOperationDryRun['plan'] }) {
+  const t = useTranslations('notebook');
+  const assessment = plan.linkAssessment;
+  return <div className="my-2 space-y-2">
+    {assessment?.blockers.length ? <section className="rounded border border-destructive/30 p-2"
+      aria-label={t('fileOperationLinkBlockers')} data-testid="file-operation-link-blockers">
+      <h3 className="font-semibold">{t('fileOperationLinkBlockers')} ({assessment.blockers.length})</h3>
+      <p className="mt-1 text-muted-foreground">{t('fileOperationAffectedLinkHelp')}</p>
+      <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto">
+        {assessment.blockers.map((item, index) => <li key={`${item.sourcePath}:${index}`}>
+          <p className="break-all font-mono">{item.sourcePath}{item.targetLiteral ? ` → ${item.targetLiteral}` : ''}</p>
+          <p className="text-muted-foreground">{t(`fileOperationLinkBlocker_${item.reason}`)}</p>
+        </li>)}
+      </ul>
+    </section> : null}
+    {assessment?.warnings.length ? <details className="rounded border border-amber-500/30 p-2"
+      data-testid="file-operation-link-warnings">
+      <summary className="cursor-pointer font-semibold">{t('fileOperationLinkWarnings')} ({assessment.warnings.length})</summary>
+      <p className="mt-1 text-muted-foreground">{t('fileOperationLinkWarningsHelp')}</p>
+      <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto font-mono">
+        {assessment.warnings.map((item, index) => <li key={`${item.sourcePath}:${index}`} className="break-all">
+          {item.sourcePath} → {item.targetLiteral} ({item.status})
+        </li>)}
+      </ul>
+    </details> : null}
+    <details className="rounded border p-2" data-testid="file-operation-link-coverage">
+      <summary className="cursor-pointer">{t('fileOperationPreviewCoverage', {
+        coverage: t(plan.coverage.complete ? 'fileOperationPreviewCoverageComplete' : 'fileOperationPreviewCoverageIncomplete'),
+        omitted: plan.coverage.omittedSources.length, unresolved: plan.coverage.unresolvedLinks.length,
+      })}</summary>
+      {assessment ? <p className="mt-1 text-muted-foreground">{t('fileOperationGlobalCoverageHelp')}</p> : null}
+      <ul className="mt-2 max-h-40 space-y-2 overflow-y-auto font-mono">
+        {plan.coverage.omittedSources.map((item, index) => <li key={`omitted:${item.path}:${index}`} className="break-all">
+          {item.path}: {item.reason}
+        </li>)}
+        {plan.coverage.unresolvedLinks.map((item, index) => <li key={`unresolved:${item.sourcePath}:${index}`} className="break-all">
+          {item.sourcePath} → {item.targetLiteral} ({item.status})
+        </li>)}
+      </ul>
+    </details>
+  </div>;
+}
+
 interface FileActionsDropdownProps {
   node: FileNode | null;
   children: ReactNode;
@@ -820,16 +863,13 @@ export function FileActionsDropdown({
             {renameError && <p className="mt-1.5 text-xs text-destructive" role="alert">{renameError}</p>}
             {renamePreview && (
               <div className="mt-3 rounded-md border p-3 text-xs" role="status">
-                <p>{t('fileOperationPreviewReadiness', { readiness: t(renamePreview.plan.readiness === 'ready'
+                <p className="font-semibold">{t('fileOperationPreviewReadiness', { readiness: t(renamePreview.plan.readiness === 'ready'
                   ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}</p>
                 <p>{t('fileOperationPreviewSummary', {
                   paths: renamePreview.plan.pathMappings.length,
                   links: renamePreview.plan.linkEdits.length,
                 })}</p>
-                <p>{t('fileOperationPreviewCoverage', {
-                  omitted: renamePreview.plan.coverage.omittedSources.length,
-                  unresolved: renamePreview.plan.coverage.unresolvedLinks.length,
-                })}</p>
+                <FileOperationLinkAssessment plan={renamePreview.plan} />
                 {renamePreview.plan.pathMappings.slice(0, 5).map((mapping) => (
                   <p key={mapping.sourcePath}>{mapping.sourcePath} → {mapping.destinationPath}</p>
                 ))}
@@ -941,15 +981,12 @@ export function FileActionsDropdown({
           />
           {copyPreview && (
             <div className="max-h-48 overflow-auto rounded-md border p-3 text-xs" role="status">
-              <p>{t('fileOperationPreviewReadiness', { readiness: t(copyPreview.plan.readiness === 'ready'
+              <p className="font-semibold">{t('fileOperationPreviewReadiness', { readiness: t(copyPreview.plan.readiness === 'ready'
                 ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}</p>
               <p>{t('fileOperationPreviewSummary', {
                 paths: copyPreview.plan.pathMappings.length, links: copyPreview.plan.linkEdits.length,
               })}</p>
-              <p>{t('fileOperationPreviewCoverage', {
-                omitted: copyPreview.plan.coverage.omittedSources.length,
-                unresolved: copyPreview.plan.coverage.unresolvedLinks.length,
-              })}</p>
+              <FileOperationLinkAssessment plan={copyPreview.plan} />
               {copyPreview.plan.pathMappings.slice(0, 5).map((mapping) => (
                 <p key={mapping.sourcePath}>{mapping.sourcePath} → {mapping.destinationPath}</p>
               ))}

@@ -2,7 +2,7 @@ import 'server-only';
 
 import crypto from 'crypto';
 
-import { readScopedEnvState, replaceScopedEnvEntries, type EnvStorageScope } from '../integrations/env-config';
+import { mutateScopedEnvEntries, readScopedEnvState, type EnvStorageScope } from '../integrations/env-config';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 
 const COMPOSIO_USER_ID_KEY = 'COMPOSIO_USER_ID';
@@ -40,13 +40,24 @@ function isManagedInstance(): boolean {
   );
 }
 
-async function persistComposioUserId(value: string, storageScope?: EnvStorageScope | null): Promise<void> {
-  const state = await readScopedEnvState('integrations', storageScope);
-  const entries = state.entries
-    .filter((entry) => entry.key !== COMPOSIO_USER_ID_KEY)
-    .map((entry) => ({ key: entry.key, value: entry.value }));
-  entries.push({ key: COMPOSIO_USER_ID_KEY, value });
-  await replaceScopedEnvEntries('integrations', entries, storageScope);
+async function persistComposioUserId(
+  value: string,
+  storageScope?: EnvStorageScope | null,
+  preserveExisting = false,
+): Promise<string> {
+  let persisted = value;
+  const state = await mutateScopedEnvEntries('integrations', (entries) => {
+    const existing = entries.find((entry) => entry.key === COMPOSIO_USER_ID_KEY)?.value.trim();
+    if (preserveExisting && existing) {
+      persisted = existing;
+      return entries;
+    }
+    persisted = value;
+    return existing
+      ? entries.map((entry) => entry.key === COMPOSIO_USER_ID_KEY ? { key: COMPOSIO_USER_ID_KEY, value } : entry)
+      : [...entries, { key: COMPOSIO_USER_ID_KEY, value }];
+  }, storageScope);
+  return state.entries.find((entry) => entry.key === COMPOSIO_USER_ID_KEY)?.value.trim() || persisted;
 }
 
 export async function getComposioUserId(storageScope?: EnvStorageScope | null): Promise<string> {
@@ -54,36 +65,25 @@ export async function getComposioUserId(storageScope?: EnvStorageScope | null): 
   const cachedUserId = cachedUserIds.get(cacheKey);
   if (cachedUserId) return cachedUserId;
 
-  try {
-    const state = await readScopedEnvState('integrations', storageScope);
-    const envValue = state.entries.find((entry) => entry.key === COMPOSIO_USER_ID_KEY)?.value.trim();
-    const hasLocalComposioKey = Boolean(state.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim());
-    const managedUserId = !hasLocalComposioKey && isManagedInstance() ? composioUserIdFromInstance(storageScope) : null;
-    if (managedUserId && envValue !== managedUserId) {
-      try {
-        await persistComposioUserId(managedUserId, storageScope);
-      } catch (error) {
-        console.warn('[Composio] Failed to persist managed COMPOSIO_USER_ID:', error);
-      }
-      cachedUserIds.set(cacheKey, managedUserId);
-      return managedUserId;
-    }
-    if (envValue) {
-      cachedUserIds.set(cacheKey, envValue);
-      return envValue;
-    }
-  } catch {
+  const state = await readScopedEnvState('integrations', storageScope);
+  const envValue = state.entries.find((entry) => entry.key === COMPOSIO_USER_ID_KEY)?.value.trim();
+  const hasLocalComposioKey = Boolean(state.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim());
+  const managedUserId = !hasLocalComposioKey && isManagedInstance() ? composioUserIdFromInstance(storageScope) : null;
+  if (managedUserId && envValue !== managedUserId) {
+    const persisted = await persistComposioUserId(managedUserId, storageScope);
+    cachedUserIds.set(cacheKey, persisted);
+    return persisted;
+  }
+  if (envValue) {
+    cachedUserIds.set(cacheKey, envValue);
+    return envValue;
   }
 
-  const managedUserId = isManagedInstance() ? composioUserIdFromInstance(storageScope) : null;
-  if (managedUserId) {
-    try {
-      await persistComposioUserId(managedUserId, storageScope);
-    } catch (error) {
-      console.warn('[Composio] Failed to persist managed COMPOSIO_USER_ID:', error);
-    }
-    cachedUserIds.set(cacheKey, managedUserId);
-    return managedUserId;
+  const generatedManagedUserId = isManagedInstance() ? composioUserIdFromInstance(storageScope) : null;
+  if (generatedManagedUserId) {
+    const persisted = await persistComposioUserId(generatedManagedUserId, storageScope);
+    cachedUserIds.set(cacheKey, persisted);
+    return persisted;
   }
 
   const processValue = process.env.COMPOSIO_USER_ID?.trim();
@@ -93,12 +93,7 @@ export async function getComposioUserId(storageScope?: EnvStorageScope | null): 
   }
 
   const generated = composioUserIdFromInstance(storageScope) || `${COMPOSIO_USER_ID_PREFIX}${crypto.randomUUID()}`;
-  try {
-    await persistComposioUserId(generated, storageScope);
-  } catch (error) {
-    console.warn('[Composio] Failed to persist COMPOSIO_USER_ID:', error);
-  }
-  const userId = generated || 'local-user';
+  const userId = await persistComposioUserId(generated, storageScope, true);
   cachedUserIds.set(cacheKey, userId);
   return userId;
 }

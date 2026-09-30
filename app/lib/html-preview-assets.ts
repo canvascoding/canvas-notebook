@@ -188,7 +188,10 @@ export function rewriteHtmlPreviewScript(script: string, routePrefix: string, fi
 }
 
 function opaqueWorkerBootstrap(routePrefix: string) {
-  const ticketRoot=JSON.stringify(routePrefix.replace(/\/+$/u,'')+'/');
+  // JSON quoting alone does not prevent an HTML parser from closing an inline script.
+  const ticketRoot=JSON.stringify(routePrefix.replace(/\/+$/u,'')+'/')
+    .replace(/</gu,'\\u003c').replace(/>/gu,'\\u003e')
+    .replace(/\u2028/gu,'\\u2028').replace(/\u2029/gu,'\\u2029');
   return `(function(){const NativeWorker=window.Worker;if(!NativeWorker)return;const ticketRoot=${ticketRoot};function OpaqueWorker(url,options){const target=new URL(String(url),document.baseURI);if(target.origin!==location.origin||!target.pathname.startsWith(ticketRoot))return new NativeWorker(url,options);try{const request=new XMLHttpRequest();request.open('GET',target.href,false);request.send();if(request.status!==200)throw new Error('Preview worker unavailable');const source=request.responseText.replace(/((?:importScripts|fetch|Worker|SharedWorker)\\(\\s*['"])\\/([^'"]+)/g,(_match,start,path)=>start+location.origin+'/'+path);const blobUrl=URL.createObjectURL(new Blob([source+'\\n//# sourceURL='+target.href],{type:'text/javascript'}));const worker=new NativeWorker(blobUrl,options);const revoke=()=>URL.revokeObjectURL(blobUrl);worker.addEventListener('error',revoke,{once:true});worker.addEventListener('message',revoke,{once:true});return worker;}catch{return new NativeWorker(url,options);}}OpaqueWorker.prototype=NativeWorker.prototype;Object.setPrototypeOf(OpaqueWorker,NativeWorker);window.Worker=OpaqueWorker;})();`;
 }
 

@@ -11,7 +11,8 @@ import type { CanvasCliConfig, CommandResult, CommandRunner, RunOptions, Runtime
 
 const previewConfig = renderCaddyfile('notebook.example.com', 3456, undefined, 'https://documents.example.net');
 const defaultConfig = renderCaddyfile('notebook.example.com', 3456);
-assert.ok(!defaultConfig.includes('preview.notebook.example.com'), 'workspace HTML previews must not require a sibling preview hostname');
+assert.deepEqual(Array.from(defaultConfig.matchAll(/^(\S+) \{$/gmu), (match) => match[1]),
+  ['notebook.example.com'], 'workspace HTML previews must expose only the app hostname by default');
 assert.ok(!defaultConfig.includes('path /__preview/*'), 'the default proxy should expose only the app host');
 assert.ok(previewConfig.includes('https://documents.example.net {'));
 assert.ok(previewConfig.includes('method GET HEAD'));

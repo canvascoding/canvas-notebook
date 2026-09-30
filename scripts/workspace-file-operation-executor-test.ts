@@ -390,3 +390,39 @@ test('legacy whole-batch copy journal remains readable without replay', async ()
   assert.equal(state.applyCounts['first.md'], 1);
   assert.equal(state.applyCounts['second.md'], 1);
 });
+
+test('a warning-only operation keeps its fenced executor and recovery lifecycle', async () => {
+  const state = fixture();
+  const unresolved = { sourcePath: 'archive.md', targetLiteral: 'missing.md', status: 'missing' as const };
+  state.input.preview.coverage = { complete: false, omittedSources: [], unresolvedLinks: [unresolved] };
+  state.input.preview.linkAssessment = { version: 1, complete: true, blockers: [],
+    warnings: [{ ...unresolved, reason: 'unaffected-existing-link' }] };
+  state.throwAfterPathFinish = true;
+  assert.equal((await state.create().execute(state.input)).status, 'needs_recovery');
+  assert.equal((await state.create().recover(state.identity)).status, 'complete');
+  assert.equal(state.pathApplyCount, 1, 'warning classification does not allow replaying a receipted path');
+  assert.equal(state.linkApplyCount, 1);
+});
+
+test('a legacy incomplete plan cannot execute even when marked ready', async () => {
+  const state = fixture();
+  state.input.preview.coverage.complete = false;
+  const result = await state.create().execute(state.input);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.errorCode, 'Workspace operation plan changed before apply.');
+  assert.equal(state.pathApplyCount, 0);
+  assert.equal(state.linkApplyCount, 0);
+  assert.deepEqual(state.events, ['rebuild'], 'unsafe plans cannot reach preflight, staging, or journal preparation');
+});
+
+test('an affected link blocker cannot execute under warning-only coverage', async () => {
+  const state = fixture();
+  const unresolved = { sourcePath: 'old.md', targetLiteral: 'missing.md', status: 'missing' as const };
+  state.input.preview.coverage = { complete: false, omittedSources: [], unresolvedLinks: [unresolved] };
+  state.input.preview.linkAssessment = { version: 1, complete: true, warnings: [],
+    blockers: [{ ...unresolved, reason: 'affected-unresolved-link' }] };
+  assert.equal((await state.create().execute(state.input)).status, 'failed');
+  assert.equal(state.pathApplyCount, 0);
+  assert.equal(state.linkApplyCount, 0);
+  assert.deepEqual(state.events, ['rebuild']);
+});

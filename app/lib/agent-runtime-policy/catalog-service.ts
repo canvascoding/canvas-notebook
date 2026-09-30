@@ -18,6 +18,7 @@ import type {
   AiProviderSafeConfig,
   AiRuntimeSelection,
 } from '@/app/lib/agent-runtime-policy/types';
+import { SAFE_PROVIDER_CONFIG_KEYS } from '@/app/lib/agent-runtime-policy/safe-provider-config';
 import { AI_CREDENTIAL_SCOPES, AI_THINKING_LEVELS } from '@/app/lib/agent-runtime-policy/types';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from '@/app/lib/managed/control-plane-models';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
@@ -28,17 +29,6 @@ const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
 const MAX_PROVIDERS = 64;
 const MAX_MODELS_PER_PROVIDER = 512;
 const SECRET_FIELD_PATTERN = /(secret|token|password|credential|authorization|cookie|api[_-]?key)/iu;
-const SAFE_CONFIG_KEYS = new Set<keyof AiProviderSafeConfig>([
-  'authMethod',
-  'ollamaMode',
-  'ollamaHost',
-  'ollamaModelSource',
-  'ollamaCustomModel',
-  'ollamaAdditionalModels',
-  'openaiCompatibleBaseUrl',
-  'openaiCompatibleModelSource',
-  'openaiCompatibleCustomModel',
-]);
 
 export class AiCatalogValidationError extends Error {
   constructor(
@@ -142,7 +132,7 @@ function parseSafeConfig(value: unknown): AiProviderSafeConfig {
     throw new AiCatalogValidationError('INVALID_PROVIDER_CONFIG', 'Provider config must be an object.');
   }
   for (const key of Object.keys(value)) {
-    if (!SAFE_CONFIG_KEYS.has(key as keyof AiProviderSafeConfig)) {
+    if (!SAFE_PROVIDER_CONFIG_KEYS.has(key as keyof AiProviderSafeConfig)) {
       const secretLike = SECRET_FIELD_PATTERN.test(key);
       throw new AiCatalogValidationError(
         secretLike ? 'SECRET_VALUE_NOT_ALLOWED' : 'INVALID_PROVIDER_CONFIG',

@@ -1,384 +1,65 @@
 import crypto from 'crypto';
-import path from 'path';
-import { promises as fs } from 'fs';
+import { resolveDefaultAgentsEnvPath, resolveDefaultIntegrationsEnvPath, type SecretDataStorageScope } from '../runtime-data-paths';
+import { parseEnvDocument } from '../secrets/env-document';
 import {
-  createAtomicTempPath,
-  resolveDefaultAgentsEnvPath,
-  resolveDefaultIntegrationsEnvPath,
-  resolveScopedAgentsEnvPath,
-  resolveScopedIntegrationsEnvPath,
-  type SecretDataStorageScope,
-} from '../runtime-data-paths';
-
-const ENCRYPTED_PREFIX = 'enc:v1';
+  getUnifiedEnvFilePath, readUnifiedEnvState, projectEnvView, replaceEnvView, withUnifiedEnvLock,
+  type UnifiedEnvState, type SecretEnvEntry,
+} from '../secrets/unified-env-store';
+export {
+  getUnifiedEnvFilePath, readUnifiedEnvState, patchUnifiedEnvEntries, replaceUnifiedEnvRaw,
+  readUnifiedSecretValue, mutateUnifiedSecretValue, SecretRevisionConflictError,
+} from '../secrets/unified-env-store';
+export type { UnifiedEnvState, EnvPatch } from '../secrets/unified-env-store';
 
 export const DEFAULT_INTEGRATIONS_ENV_PATH = resolveDefaultIntegrationsEnvPath();
 export const DEFAULT_AGENTS_ENV_PATH = resolveDefaultAgentsEnvPath();
-
 export type EnvScope = 'integrations' | 'agents';
 export type EnvStorageScope = SecretDataStorageScope;
+export type IntegrationEnvEntry = SecretEnvEntry;
+export type IntegrationEnvState = UnifiedEnvState & { scope: EnvScope };
 
-type EnvScopeConfig = {
-  defaultPath: string;
-  pathEnvName: 'INTEGRATIONS_ENV_PATH' | 'AGENTS_ENV_PATH';
-  masterKeyEnvName: 'INTEGRATIONS_ENV_MASTER_KEY' | 'AGENTS_ENV_MASTER_KEY';
-};
-
-const ENV_SCOPE_CONFIG: Record<EnvScope, EnvScopeConfig> = {
-  integrations: {
-    defaultPath: DEFAULT_INTEGRATIONS_ENV_PATH,
-    pathEnvName: 'INTEGRATIONS_ENV_PATH',
-    masterKeyEnvName: 'INTEGRATIONS_ENV_MASTER_KEY',
-  },
-  agents: {
-    defaultPath: DEFAULT_AGENTS_ENV_PATH,
-    pathEnvName: 'AGENTS_ENV_PATH',
-    masterKeyEnvName: 'AGENTS_ENV_MASTER_KEY',
-  },
-};
-
-export interface IntegrationEnvEntry {
-  key: string;
-  value: string;
-  encrypted: boolean;
-  readable: boolean;
+export function getEnvFilePath(_scope: EnvScope, storageScope?: EnvStorageScope | null): string {
+  return getUnifiedEnvFilePath(storageScope);
 }
-
-export interface IntegrationEnvState {
-  scope: EnvScope;
-  path: string;
-  exists: boolean;
-  rawContent: string;
-  entries: IntegrationEnvEntry[];
-  encryptionEnabled: boolean;
+export async function writeScopedEnvRaw(scope: EnvScope, rawContent: string, storageScope?: EnvStorageScope | null): Promise<void> {
+  const entries = parseEnvDocument(rawContent).filter(token => token.key).map(token => ({ key: token.key!, value: token.value! }));
+  await replaceEnvView(scope, entries, storageScope, rawContent);
 }
-
-interface ParsedEnvEntry {
-  key: string;
-  value: string;
-  encrypted: boolean;
+export async function readScopedEnvState(scope: EnvScope, storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {
+  const state = await readUnifiedEnvState(storageScope);
+  if (!state.readable) throw new Error('Encrypted secrets cannot be read safely. Configure the secret master key.');
+  return projectEnvView(state, scope);
 }
-
-const pendingMutations = new Map<string, Promise<void>>();
-
-function getScopeConfig(scope: EnvScope): EnvScopeConfig {
-  return ENV_SCOPE_CONFIG[scope];
+export async function replaceScopedEnvEntries(scope: EnvScope, entries: Array<{ key: string; value: string }>, storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {
+  return replaceEnvView(scope, entries, storageScope);
 }
-
-function hasExplicitStorageScope(storageScope?: EnvStorageScope | null): boolean {
-  return Boolean(
-    (storageScope?.secretScope && storageScope.secretScope !== 'legacy') ||
-    storageScope?.userId?.trim() ||
-    storageScope?.organizationId?.trim(),
-  );
-}
-
-export function getEnvFilePath(scope: EnvScope, storageScope?: EnvStorageScope | null): string {
-  if (hasExplicitStorageScope(storageScope)) {
-    return scope === 'agents'
-      ? resolveScopedAgentsEnvPath(storageScope)
-      : resolveScopedIntegrationsEnvPath(storageScope);
-  }
-
-  const { defaultPath, pathEnvName } = getScopeConfig(scope);
-  const configuredPath = process.env[pathEnvName]?.trim();
-  return configuredPath || defaultPath;
-}
-
-function getMasterSecret(scope: EnvScope): string | null {
-  const { masterKeyEnvName } = getScopeConfig(scope);
-  const value = process.env[masterKeyEnvName]?.trim();
-  return value || null;
-}
-
-function deriveEncryptionKey(secret: string): Buffer {
-  return crypto.createHash('sha256').update(secret).digest();
-}
-
-function isEncryptedValue(value: string): boolean {
-  return value.startsWith(`${ENCRYPTED_PREFIX}:`);
-}
-
-function encryptValue(value: string, secret: string): string {
-  const iv = crypto.randomBytes(12);
-  const key = deriveEncryptionKey(secret);
-  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
-  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-  const tag = cipher.getAuthTag();
-  return `${ENCRYPTED_PREFIX}:${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
-}
-
-function decryptValue(value: string, secret: string): string {
-  if (!isEncryptedValue(value)) {
-    return value;
-  }
-
-  const parts = value.split(':');
-  if (parts.length !== 5) {
-    throw new Error('Invalid encrypted value format');
-  }
-
-  const [, version, ivHex, tagHex, encryptedHex] = parts;
-  if (version !== 'v1') {
-    throw new Error(`Unsupported encrypted value version: ${version}`);
-  }
-
-  const iv = Buffer.from(ivHex, 'hex');
-  const tag = Buffer.from(tagHex, 'hex');
-  const encrypted = Buffer.from(encryptedHex, 'hex');
-  const key = deriveEncryptionKey(secret);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-  decipher.setAuthTag(tag);
-  const plain = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return plain.toString('utf8');
-}
-
-function parseEnv(content: string): ParsedEnvEntry[] {
-  const lines = content.split(/\r?\n/);
-  const entries: ParsedEnvEntry[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-
-    const normalized = trimmed.startsWith('export ') ? trimmed.slice(7).trim() : trimmed;
-    const equalsIndex = normalized.indexOf('=');
-    if (equalsIndex <= 0) {
-      continue;
-    }
-
-    const key = normalized.slice(0, equalsIndex).trim();
-    if (!key) {
-      continue;
-    }
-
-    let rawValue = normalized.slice(equalsIndex + 1).trim();
-    if (
-      (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
-      (rawValue.startsWith("'") && rawValue.endsWith("'"))
-    ) {
-      rawValue = rawValue.slice(1, -1);
-    }
-
-    entries.push({
-      key,
-      value: rawValue,
-      encrypted: isEncryptedValue(rawValue),
-    });
-  }
-
-  return entries;
-}
-
-function formatEnvValue(value: string): string {
-  if (!value) {
-    return '';
-  }
-  if (/^[A-Za-z0-9_./:-]+$/.test(value)) {
-    return value;
-  }
-
-  const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-  return `"${escaped}"`;
-}
-
-function isValidEnvKey(key: string): boolean {
-  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
-}
-
-function serializeEntries(entries: ParsedEnvEntry[]): string {
-  const lines = entries
-    .filter((entry) => entry.key && isValidEnvKey(entry.key))
-    .map((entry) => `${entry.key}=${formatEnvValue(entry.value)}`);
-
-  return lines.length > 0 ? `${lines.join('\n')}\n` : '';
-}
-
-async function ensureParentDirectory(filePath: string): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-}
-
-export async function writeScopedEnvRaw(
-  scope: EnvScope,
-  rawContent: string,
-  storageScope?: EnvStorageScope | null,
-): Promise<void> {
-  const filePath = getEnvFilePath(scope, storageScope);
-  await ensureParentDirectory(filePath);
-
-  const tmpPath = createAtomicTempPath(filePath);
-  const content = rawContent.endsWith('\n') || rawContent.length === 0 ? rawContent : `${rawContent}\n`;
-  await fs.writeFile(tmpPath, content, { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(tmpPath, 0o600);
-  await fs.rename(tmpPath, filePath);
-}
-
-export async function readScopedEnvState(
-  scope: EnvScope,
-  storageScope?: EnvStorageScope | null,
-): Promise<IntegrationEnvState> {
-  const filePath = getEnvFilePath(scope, storageScope);
-  let rawContent = '';
-  let exists = true;
-
-  try {
-    rawContent = await fs.readFile(filePath, 'utf8');
-  } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
-      exists = false;
-      rawContent = '';
-    } else {
-      throw error;
-    }
-  }
-
-  const parsed = parseEnv(rawContent);
-  const secret = getMasterSecret(scope);
-
-  const entries: IntegrationEnvEntry[] = parsed.map((entry) => {
-    if (entry.encrypted && secret) {
-      try {
-        return {
-          key: entry.key,
-          value: decryptValue(entry.value, secret),
-          encrypted: true,
-          readable: true,
-        };
-      } catch {
-        return {
-          key: entry.key,
-          value: '',
-          encrypted: true,
-          readable: false,
-        };
-      }
-    }
-
-    return {
-      key: entry.key,
-      value: entry.value,
-      encrypted: entry.encrypted,
-      readable: !entry.encrypted || Boolean(secret),
-    };
+export async function mutateScopedEnvEntries(scope: EnvScope, mutate: (entries: Array<{ key: string; value: string }>) => Array<{ key: string; value: string }>, storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {
+  return withUnifiedEnvLock(storageScope, async () => {
+    const state = await readScopedEnvState(scope, storageScope);
+    return replaceScopedEnvEntries(scope, mutate(state.entries.map(({ key, value }) => ({ key, value }))), storageScope);
   });
-
-  return {
-    scope,
-    path: filePath,
-    exists,
-    rawContent,
-    entries,
-    encryptionEnabled: Boolean(secret),
-  };
 }
-
-export async function replaceScopedEnvEntries(
-  scope: EnvScope,
-  entries: Array<{ key: string; value: string }>,
-  storageScope?: EnvStorageScope | null,
-): Promise<IntegrationEnvState> {
-  const secret = getMasterSecret(scope);
-  const normalized: ParsedEnvEntry[] = [];
-
-  for (const entry of entries) {
-    const key = entry.key.trim();
-    if (!key || !isValidEnvKey(key)) {
-      continue;
-    }
-
-    const plainValue = entry.value ?? '';
-    normalized.push({
-      key,
-      value: secret && plainValue ? encryptValue(plainValue, secret) : plainValue,
-      encrypted: Boolean(secret && plainValue),
-    });
-  }
-
-  const byKey = new Map<string, ParsedEnvEntry>();
-  for (const entry of normalized) {
-    byKey.set(entry.key, entry);
-  }
-
-  const sorted = Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
-  await writeScopedEnvRaw(scope, serializeEntries(sorted), storageScope);
-  return readScopedEnvState(scope, storageScope);
-}
-
-export async function mutateScopedEnvEntries(
-  scope: EnvScope,
-  mutate: (entries: Array<{ key: string; value: string }>) => Array<{ key: string; value: string }>,
-  storageScope?: EnvStorageScope | null,
-): Promise<IntegrationEnvState> {
-  const filePath = getEnvFilePath(scope, storageScope);
-  const previous = pendingMutations.get(filePath) || Promise.resolve();
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  const queued = previous.then(() => current);
-  pendingMutations.set(filePath, queued);
-  await previous;
-  try {
+export async function mutateScopedEnvRaw(scope: EnvScope, mutate: (state: IntegrationEnvState) => string, storageScope?: EnvStorageScope | null): Promise<IntegrationEnvState> {
+  return withUnifiedEnvLock(storageScope, async () => {
     const state = await readScopedEnvState(scope, storageScope);
-    if (state.entries.some((entry) => entry.encrypted && !entry.readable)) {
-      throw new Error('Encrypted integration settings cannot be read safely. Configure the integration master key before saving.');
-    }
-    return await replaceScopedEnvEntries(scope, mutate(state.entries.map(({ key, value }) => ({ key, value }))), storageScope);
-  } finally {
-    release?.();
-    if (pendingMutations.get(filePath) === queued) pendingMutations.delete(filePath);
-  }
-}
-
-/** Serializes a raw edit with structured writers for the same secret file. */
-export async function mutateScopedEnvRaw(
-  scope: EnvScope,
-  mutate: (state: IntegrationEnvState) => string,
-  storageScope?: EnvStorageScope | null,
-): Promise<IntegrationEnvState> {
-  const filePath = getEnvFilePath(scope, storageScope);
-  const previous = pendingMutations.get(filePath) || Promise.resolve();
-  let release: (() => void) | undefined;
-  const current = new Promise<void>((resolve) => { release = resolve; });
-  const queued = previous.then(() => current);
-  pendingMutations.set(filePath, queued);
-  await previous;
-  try {
-    const state = await readScopedEnvState(scope, storageScope);
-    if (state.entries.some((entry) => entry.encrypted && !entry.readable)) {
-      throw new Error('Encrypted integration settings cannot be read safely. Configure the integration master key before saving.');
-    }
     await writeScopedEnvRaw(scope, mutate(state), storageScope);
     return readScopedEnvState(scope, storageScope);
-  } finally {
-    release?.();
-    if (pendingMutations.get(filePath) === queued) pendingMutations.delete(filePath);
-  }
+  });
 }
-
 function generateNumericFallback(length = 24): string {
   return Array.from({ length }, () => crypto.randomInt(0, 10)).join('');
 }
-
-export async function ensureGeneratedScopedEnvEntry(
-  scope: EnvScope,
-  key: string,
-  options?: { length?: number; storageScope?: EnvStorageScope | null },
-): Promise<string> {
-  const state = await readScopedEnvState(scope, options?.storageScope);
-  const existing = state.entries.find((entry) => entry.key === key)?.value.trim();
-  if (existing) {
-    return existing;
-  }
-
-  const generatedValue = generateNumericFallback(options?.length ?? 24);
-  const nextEntries = state.entries
-    .filter((entry) => entry.key !== key)
-    .map((entry) => ({ key: entry.key, value: entry.value }));
-  nextEntries.push({ key, value: generatedValue });
-
-  await replaceScopedEnvEntries(scope, nextEntries, options?.storageScope);
-  return generatedValue;
+export async function ensureGeneratedScopedEnvEntry(scope: EnvScope, key: string, options?: { length?: number; storageScope?: EnvStorageScope | null }): Promise<string> {
+  return withUnifiedEnvLock(options?.storageScope, async () => {
+    const state = await readScopedEnvState(scope, options?.storageScope);
+    const entry = state.entries.find(entry => entry.key === key);
+    if (entry && !entry.readable) throw new Error('Cannot regenerate an unreadable encrypted secret.');
+    const existing = entry?.value.trim();
+    if (existing) return existing;
+    const value = generateNumericFallback(options?.length ?? 24);
+    await replaceScopedEnvEntries(scope, [...state.entries.filter(entry => entry.key !== key).map(({ key, value }) => ({ key, value })), { key, value }], options?.storageScope);
+    return value;
+  });
 }
 
 export async function writeIntegrationsRaw(rawContent: string, storageScope?: EnvStorageScope | null): Promise<void> {
@@ -432,7 +113,7 @@ export async function getGeminiApiKeyFromIntegrations(storageScope?: EnvStorageS
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading GEMINI_API_KEY:', error);
-    return process.env.GEMINI_API_KEY || null;
+    throw error;
   }
 }
 
@@ -457,7 +138,7 @@ export async function getOpenAIApiKeyFromIntegrations(storageScope?: EnvStorageS
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading OPENAI_API_KEY:', error);
-    return process.env.OPENAI_API_KEY || null;
+    throw error;
   }
 }
 
@@ -482,7 +163,7 @@ export async function getGroqApiKeyFromIntegrations(storageScope?: EnvStorageSco
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading GROQ_API_KEY:', error);
-    return process.env.GROQ_API_KEY || null;
+    throw error;
   }
 }
 
@@ -507,7 +188,7 @@ export async function getKieApiKeyFromIntegrations(storageScope?: EnvStorageScop
     return null;
   } catch (error) {
     console.error('[EnvConfig] Error loading KIE_API_KEY:', error);
-    return process.env.KIE_API_KEY || null;
+    throw error;
   }
 }
 

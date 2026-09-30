@@ -8,8 +8,10 @@ import { promisify } from 'util';
 import ZipStream from 'zip-stream';
 
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
+import { isPortableCredentialPath } from '@/app/lib/migration/secret-export-policy';
 import { getDeploymentMode } from '@/app/lib/organization/config';
 import { resolveCanvasDataRoot, resolveSystemBackupsDir } from '@/app/lib/runtime-data-paths';
+import { withFileMutationLock } from '@/app/lib/secrets/file-mutation-lock';
 import {
   FULL_BACKUP_SCHEMA_VERSION,
   type CanvasFullBackupManifest,
@@ -146,49 +148,64 @@ async function markStaleLockedJobFailed(lock: FullBackupLock): Promise<void> {
 
 async function hasActiveBackupLock(): Promise<boolean> {
   const lockPath = getBackupLockPath();
-  const lock = await readBackupLock(lockPath);
-  if (!lock) {
-    if (await pathExists(lockPath)) {
-      await fs.unlink(lockPath).catch(() => undefined);
+  return withFileMutationLock(lockPath, async () => {
+    const lock = await readBackupLock(lockPath);
+    if (!lock) {
+      if (await pathExists(lockPath)) {
+        await fs.unlink(lockPath).catch(() => undefined);
+      }
+      return false;
     }
+
+    if (isProcessAlive(lock.pid)) return true;
+
+    await markStaleLockedJobFailed(lock);
+    await fs.unlink(lockPath).catch(() => undefined);
     return false;
-  }
-
-  if (isProcessAlive(lock.pid)) return true;
-
-  await markStaleLockedJobFailed(lock);
-  await fs.unlink(lockPath).catch(() => undefined);
-  return false;
+  });
 }
 
 async function acquireBackupLock(job: FullBackupJob): Promise<() => Promise<void>> {
   await ensurePrivateDir(getBackupsRoot());
   const lockPath = getBackupLockPath();
-  let handle: Awaited<ReturnType<typeof fs.open>>;
-  try {
-    handle = await fs.open(lockPath, 'wx', 0o600);
-  } catch (error) {
-    if (getErrorCode(error) === 'EEXIST') {
+  const owner: FullBackupLock = {
+    backupId: job.id,
+    createdAt: new Date().toISOString(),
+    pid: process.pid,
+  };
+
+  await withFileMutationLock(lockPath, async () => {
+    const existing = await readBackupLock(lockPath);
+    if (existing && isProcessAlive(existing.pid)) {
       throw new Error('Another full backup is already running.');
     }
-    throw error;
-  }
+    if (existing) await markStaleLockedJobFailed(existing);
+    if (await pathExists(lockPath)) await fs.unlink(lockPath).catch(() => undefined);
 
-  try {
-    await handle.writeFile(`${JSON.stringify({
-      backupId: job.id,
-      createdAt: new Date().toISOString(),
-      pid: process.pid,
-    }, null, 2)}\n`);
-  } catch (error) {
-    await handle.close().catch(() => undefined);
-    await fs.unlink(lockPath).catch(() => undefined);
-    throw error;
-  }
+    const temporaryPath = `${lockPath}.${job.id}.tmp`;
+    try {
+      await fs.writeFile(temporaryPath, `${JSON.stringify(owner, null, 2)}\n`, { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+      await fs.chmod(temporaryPath, 0o600).catch(() => undefined);
+      // Linking publishes the complete record atomically and fails if a non-cooperating
+      // older writer creates the lock path while this process is preparing its record.
+      await fs.link(temporaryPath, lockPath);
+    } catch (error) {
+      if (getErrorCode(error) === 'EEXIST') {
+        throw new Error('Another full backup is already running.');
+      }
+      throw error;
+    } finally {
+      await fs.unlink(temporaryPath).catch(() => undefined);
+    }
+  });
 
   return async () => {
-    await handle.close().catch(() => undefined);
-    await fs.unlink(lockPath).catch(() => undefined);
+    await withFileMutationLock(lockPath, async () => {
+      const current = await readBackupLock(lockPath);
+      if (current?.backupId === owner.backupId && current.pid === owner.pid && current.createdAt === owner.createdAt) {
+        await fs.unlink(lockPath).catch(() => undefined);
+      }
+    });
   };
 }
 
@@ -230,6 +247,9 @@ async function collectDataFiles(dataRoot: string): Promise<Array<FullBackupFileE
       const absolutePath = path.join(currentPath, dirent.name);
       const relativePath = path.relative(dataRoot, absolutePath);
       if (shouldSkipDataPath(relativePath)) continue;
+      // Kernel lock sidecars are recreated privately on the target; their inodes are runtime state.
+      const override = process.env.CANVAS_SECRETS_ENV_PATH?.trim();
+      if (dirent.name === 'Canvas-Secrets.env.lock' || (override && absolutePath === `${path.resolve(override)}.lock`)) continue;
       if (dirent.isSymbolicLink()) continue;
       if (dirent.isDirectory()) {
         await walk(absolutePath);
@@ -250,6 +270,21 @@ async function collectDataFiles(dataRoot: string): Promise<Array<FullBackupFileE
   }
 
   await walk(dataRoot);
+  const override = process.env.CANVAS_SECRETS_ENV_PATH?.trim();
+  if (override) {
+    const filePath = path.resolve(override);
+    const stats = await fs.lstat(filePath).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    });
+    if (stats) {
+      if (!stats.isFile() || stats.isSymbolicLink()) throw new Error('Canonical secrets backup source must be a regular file.');
+      const archivePath = 'data/system/secrets/Canvas-Secrets.env';
+      const oldEntry = entries.findIndex(entry => entry.archivePath === archivePath);
+      if (oldEntry >= 0) entries.splice(oldEntry, 1);
+      entries.push({ kind: 'data', filePath, archivePath, size: stats.size, modifiedAt: stats.mtime.toISOString(), sha256: await sha256File(filePath) });
+    }
+  }
   return entries.sort((a, b) => a.archivePath.localeCompare(b.archivePath));
 }
 
@@ -383,10 +418,16 @@ async function createPostgresDump(backupDir: string): Promise<{
 async function addZipEntry(
   archive: ZipArchive,
   source: NodeJS.ReadableStream | Buffer | string | null,
-  data: { name: string; type?: 'file' | 'directory'; stats?: import('fs').Stats },
+  data: { name: string; type?: 'file' | 'directory'; stats?: import('fs').Stats; filePath?: string },
 ) {
+  const canonicalSecretsEntry = /^data\/(?:users\/[^/]+|organizations\/[^/]+|system)\/secrets\/Canvas-Secrets\.env$/u.test(data.name);
+  const { filePath, ...archiveData } = data;
+  const managedCredentialEntry = filePath ? isPortableCredentialPath(filePath, resolveCanvasDataRoot()) : false;
   return new Promise<void>((resolve, reject) => {
-    archive.entry(source, data, (error) => {
+    archive.entry(source, {
+      ...archiveData,
+      mode: canonicalSecretsEntry || managedCredentialEntry ? 0o600 : data.stats ? data.stats.mode & 0o777 : 0o600,
+    }, (error) => {
       if (error) reject(error);
       else resolve();
     });
@@ -543,7 +584,7 @@ async function runFullBackup(job: FullBackupJob, releaseLock: () => Promise<void
         job.progress.bytesProcessed += bytes;
         void persist();
       });
-      await addZipEntry(zipArchive, stream, { name: entry.archivePath, stats });
+      await addZipEntry(zipArchive, stream, { name: entry.archivePath, stats, filePath: entry.filePath });
       job.progress.filesProcessed++;
       await persist();
     }

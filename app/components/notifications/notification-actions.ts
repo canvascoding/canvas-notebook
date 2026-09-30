@@ -13,6 +13,7 @@ import type { NotificationItem, NotificationSummary } from './notification-summa
 import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, workspaceOperationReviewHref,
   type WorkspaceOperationNotificationTarget } from '@/app/lib/files/workspace-operation-notification-contract';
 import { openWorkspaceOperationReview } from '@/app/store/workspace-operation-review-store';
+import { buildTodoPopupHref } from '@/app/lib/todos/navigation';
 
 export type NotificationMutation = {
   action: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -52,7 +53,7 @@ export function notificationHref(item: NotificationItem): string {
     case 'chat':
       return buildChatSessionHref('/notebook', item.target.sessionId, item.workspaceId);
     case 'todo':
-      return `/todos?todo=${encodeURIComponent(item.target.todoId)}&workspaceId=${encodeURIComponent(item.workspaceId)}`;
+      return buildTodoPopupHref(item.target.todoId);
     case 'email':
       return item.target.draftId
         ? `/emails?outboxDraft=${encodeURIComponent(item.target.draftId)}${item.target.scope === 'workspace' ? `&workspaceId=${encodeURIComponent(item.workspaceId)}` : ''}`

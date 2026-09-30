@@ -45,7 +45,7 @@ export interface WebSearchResponse {
 
 const BRAVE_SEARCH_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
 const OLLAMA_WEB_SEARCH_ENDPOINT = 'https://ollama.com/api/web_search';
-const SETTINGS_LINK = '/settings?tab=integrations';
+const SETTINGS_LINK = '/settings?tab=secrets';
 const DEFAULT_COUNT = 5;
 const MAX_COUNT = 20;
 const DEFAULT_COUNTRY = 'US';
@@ -124,7 +124,7 @@ export async function getLocalBraveApiKey(storageScope?: EnvStorageScope | null)
     if (!isManagedBraveSearchAvailable()) return process.env.BRAVE_API_KEY?.trim() || null;
     return null;
   } catch {
-    return !isManagedBraveSearchAvailable() ? process.env.BRAVE_API_KEY?.trim() || null : null;
+    throw new Error('Unable to read the configured Brave API key safely.');
   }
 }
 
@@ -134,7 +134,7 @@ export async function getLocalOllamaApiKey(storageScope?: EnvStorageScope | null
     const envKey = new Map(state.entries.map((entry) => [entry.key, entry.value])).get('OLLAMA_API_KEY')?.trim();
     return envKey || process.env.OLLAMA_API_KEY?.trim() || null;
   } catch {
-    return process.env.OLLAMA_API_KEY?.trim() || null;
+    throw new Error('Unable to read the configured Ollama API key safely.');
   }
 }
 

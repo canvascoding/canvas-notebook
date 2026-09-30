@@ -29,6 +29,7 @@ async function main(): Promise<void> {
     await fs.mkdir(path.dirname(envPath), { recursive: true });
     await fs.writeFile(envPath, 'GROQ_API_KEY=test-groq-key\nGROQ_TRANSCRIPTION_MODEL=whisper-large-v3\n', 'utf8');
 
+    const { patchUnifiedEnvEntries } = await import('../app/lib/integrations/env-config');
     const { transcribeAudio } = await import('../app/lib/integrations/audio-transcription-service');
 
     let capturedUrl = '';
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
     assert.equal(formData.get('prompt'), 'Canvas vocabulary');
     assert.ok(formData.get('file') instanceof Blob);
 
-    await fs.writeFile(envPath, '', 'utf8');
+    await patchUnifiedEnvEntries([{ key: 'GROQ_API_KEY', value: null }]);
     await assert.rejects(
       () => transcribeAudio({
         buffer: Buffer.from('fake audio bytes'),

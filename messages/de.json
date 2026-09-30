@@ -845,8 +845,19 @@
     "fileOperationPreviewReady": "bereit",
     "fileOperationPreviewBlocked": "blockiert",
     "fileOperationPreviewSummary": "Geplant: {paths} Pfadänderung(en), {links} Link-Änderung(en).",
-    "fileOperationPreviewCoverage": "Nicht vollständig geprüft: {omitted} Markdown-Datei(en), {unresolved} Link(s).",
-    "fileOperationPreviewRevalidate": "Vor der Ausführung wird der Plan unter einer Workspace-Sperre erneut geprüft. Linkänderungen können noch unvollständig sein.",
+    "fileOperationPreviewCoverage": "Workspace-Linkprüfung: {coverage}. Ausgelassene Dateien: {omitted}; ungelöste Links: {unresolved}.",
+    "fileOperationPreviewCoverageComplete": "vollständig",
+    "fileOperationPreviewCoverageIncomplete": "unvollständig",
+    "fileOperationGlobalCoverageHelp": "Diese Prüfung umfasst den gesamten Workspace. Für den Aktionsstatus zählen die betroffenen Links und Dateien; bestehende, unbetroffene Linkprobleme sind Warnungen.",
+    "fileOperationLinkBlockers": "Links, die diese Aktion blockieren",
+    "fileOperationAffectedLinkHelp": "Behebe diese betroffenen Links oder mache ihre Dateien für die Prüfung zugänglich. Fordere danach eine neue Vorschau an.",
+    "fileOperationLinkBlocker_affected-unresolved-link": "Die Aktion betrifft diesen ungelösten Link. Korrigiere sein Ziel oder lege die fehlende Datei an. Fordere danach eine neue Vorschau an.",
+    "fileOperationLinkBlocker_uninspected-source": "Diese Markdown-Datei konnte nicht geprüft werden und könnte betroffene Links enthalten. Mache sie lesbar oder verkleinere sie. Fordere danach eine neue Vorschau an.",
+    "fileOperationLinkBlocker_unevaluated-link": "Dieser Link konnte nicht sicher ausgewertet werden. Verwende einen unterstützten Markdown-Link mit eindeutigem Ziel. Fordere danach eine neue Vorschau an.",
+    "fileOperationLinkBlocker_resolution-changed": "Die Aktion würde das Linkziel ändern oder mehrdeutig machen. Verwende einen eindeutigen Pfad zur gewünschten Datei. Fordere danach eine neue Vorschau an.",
+    "fileOperationLinkWarnings": "Bestehende Links, die von dieser Aktion unberührt bleiben",
+    "fileOperationLinkWarningsHelp": "Diese Links bleiben unverändert. Sie benötigen eine separate Korrektur und blockieren diese Aktion nicht.",
+    "fileOperationPreviewRevalidate": "Vor der Ausführung werden der Plan und die betroffenen Links unter einer Workspace-Sperre erneut geprüft.",
     "fileOperationPreviewStale": "Die Dateien haben sich seit der Vorschau geändert. Prüfe die Links erneut.",
     "fileOperationPreviewBlockedApply": "Die Vorschau enthält offene Konflikte. Prüfe die Links erneut, bevor du fortfährst.",
     "fileOperationIssueUnsupportedOperation": "Diese Operation wird in der Vorschau noch nicht unterstützt.",
@@ -2098,6 +2109,13 @@
     "forkUnavailableTitleGenerating": "Warte auf den Chat-Titel, bevor du forkst",
     "fileReferences": "Dateien",
     "referenceList": {
+      "changedTitle": "Dateien · {count}",
+      "viewChanges": "Änderungen ansehen",
+      "operations": "{count, plural, one {# Änderung} other {# Änderungen}}",
+      "operation": "Änderung {count}",
+      "refresh": "Änderungen neu laden",
+      "loadingStatus": "Status wird geladen…",
+      "loadError": "Einige aktuelle Änderungsstatus konnten nicht geladen werden. Versuche es durch Neuladen erneut.",
       "title": "Dateien",
       "created": "Erstellt",
       "changed": "Geändert",
@@ -3359,7 +3377,8 @@
       "categories": "Kategorien",
       "files": "Dateien",
       "session": "Session",
-      "emailNotification": "E-Mail-Benachrichtigung"
+      "emailNotification": "E-Mail-Benachrichtigung",
+      "details": "Weitere Details"
     },
     "scope": {
       "personal": "Persönlich",
@@ -3435,7 +3454,7 @@
       "restore": "Wiederherstellen",
       "edit": "Bearbeiten",
       "markSeen": "Als gelesen markieren",
-      "archiveTodo": "Löschen",
+      "archiveTodo": "Archivieren",
       "reopen": "Wieder öffnen",
       "complete": "Abhaken",
       "completeQuick": "Schnell abhaken",
@@ -3466,7 +3485,12 @@
       "followUpComment": "Kommentar für den Agenten",
       "followUpCommentPlaceholder": "Optionaler Kontext, was erledigt wurde oder wie der Agent weitermachen soll",
       "categoryName": "Name",
-      "categoryColor": "Farbe"
+      "categoryColor": "Farbe",
+      "createdBy": "Erstellt von",
+      "createdAt": "Erstellt am",
+      "updatedAt": "Zuletzt geändert",
+      "completedAt": "Erledigt am",
+      "completionComment": "Abschlusskommentar"
     },
     "states": {
       "loading": "To-dos werden geladen...",
@@ -3486,7 +3510,8 @@
       "unassigned": "Nicht zugewiesen",
       "followUpSentAt": "Zuletzt an den Agenten gesendet: {date}",
       "emailNotificationSentAt": "E-Mail-Benachrichtigung gesendet: {date}",
-      "emailNotificationBlocked": "E-Mail-Benachrichtigung nicht gesendet"
+      "emailNotificationBlocked": "E-Mail-Benachrichtigung nicht gesendet",
+      "overdue": "Überfällig"
     },
     "detail": {
       "dialogTitle": "To-do prüfen"
@@ -3525,6 +3550,21 @@
       "titleRequired": "Bitte gib einen Titel ein.",
       "categoryNameRequired": "Bitte gib einen Kategorienamen ein.",
       "categorySaveFailed": "Kategorie konnte nicht gespeichert werden."
+    },
+    "popup": {
+      "description": "Details ansehen und bearbeiten, ohne die aktuelle Seite zu verlassen.",
+      "openPage": "Auf der To-do-Seite öffnen",
+      "close": "Schließen",
+      "retry": "Erneut versuchen",
+      "reload": "Aktuellen Stand laden",
+      "loadingOptions": "Kategorien und Personen werden geladen…",
+      "readOnly": "Du kannst dieses To-do ansehen. Zum Bearbeiten benötigst du Schreibrechte.",
+      "unavailable": "Dieses To-do ist nicht mehr verfügbar oder du hast keinen Zugriff.",
+      "conflict": "Dieses To-do wurde inzwischen geändert. Dein Entwurf bleibt erhalten. Lade den aktuellen Stand, bevor du weiterbearbeitest.",
+      "discardTitle": "Ungespeicherte Änderungen verwerfen?",
+      "discardDescription": "Deine Änderungen wurden noch nicht gespeichert. Du kannst weiterbearbeiten oder sie verwerfen.",
+      "keepEditing": "Weiter bearbeiten",
+      "discard": "Verwerfen"
     }
   },
   "invitationAcceptance": {
@@ -9094,6 +9134,19 @@
     "coverage": "Linkprüfung",
     "coverageComplete": "Vollständig",
     "coverageIncomplete": "Unvollständig",
+    "operationReadiness": "Aktionsstatus",
+    "operationReady": "Bereit zur Freigabe",
+    "operationReadyHelp": "Die betroffenen Links wurden geprüft. Die Diagnose für den gesamten Workspace ist separat aufgeführt.",
+    "operationBlocked": "Aktion blockiert — behebe die folgenden Punkte",
+    "linkBlockers": "Links, die diese Aktion blockieren",
+    "affectedLinkHelp": "Behebe die blockierenden Links unten: Korrigiere den Link oder lege sein fehlendes Ziel an und mache nicht lesbare Dateien für die Prüfung zugänglich. Bitte den Agenten danach um eine neue Vorschau.",
+    "linkBlocker_affected-unresolved-link": "Die Aktion betrifft diesen ungelösten Link. Korrigiere sein Ziel oder lege die fehlende Datei an. Fordere danach eine neue Vorschau an.",
+    "linkBlocker_uninspected-source": "Diese Markdown-Datei konnte nicht geprüft werden und könnte betroffene Links enthalten. Mache sie lesbar oder verkleinere sie. Fordere danach eine neue Vorschau an.",
+    "linkBlocker_unevaluated-link": "Dieser Link konnte nicht sicher ausgewertet werden. Verwende einen unterstützten Markdown-Link mit eindeutigem Ziel. Fordere danach eine neue Vorschau an.",
+    "linkBlocker_resolution-changed": "Die Aktion würde das Linkziel ändern oder mehrdeutig machen. Verwende einen eindeutigen Pfad zur gewünschten Datei. Fordere danach eine neue Vorschau an.",
+    "linkWarnings": "Bestehende Links, die von dieser Aktion unberührt bleiben",
+    "linkWarningsHelp": "Diese Links bleiben unverändert. Sie benötigen eine separate Korrektur und blockieren diese Aktion nicht.",
+    "globalCoverageHelp": "Diese Prüfung umfasst den gesamten Workspace. Für den Aktionsstatus zählen die betroffenen Links und Dateien; bestehende, unbetroffene Linkprobleme sind Warnungen.",
     "omittedSources": "Ausgelassene Markdown-Dateien",
     "unresolvedLinks": "Ungelöste Links",
     "collisions": "Zielkonflikte",

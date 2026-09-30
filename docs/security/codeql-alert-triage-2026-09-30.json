@@ -1,0 +1,80 @@
+{
+  "reviewedAt": "2026-09-30",
+  "baseCommit": "e9a36e6db41d578390f0e1870f7bf7e939443148",
+  "fixedAlerts": [
+    190,
+    185,
+    184,
+    191,
+    189,
+    188,
+    187,
+    181,
+    180,
+    174,
+    173,
+    169,
+    159
+  ],
+  "falsePositives": [
+    {
+      "number": 193,
+      "url": "https://github.com/canvascoding/canvas-notebook/security/code-scanning/193",
+      "evidence": "The test hashes a non-secret account reference into an environment variable name. It does not hash an SMTP password or OAuth token.",
+      "regressionTest": "scripts/email-unified-secrets-test.ts"
+    },
+    {
+      "number": 192,
+      "url": "https://github.com/canvascoding/canvas-notebook/security/code-scanning/192",
+      "evidence": "credentialKeyForSecretRef hashes the validated owner/account reference, not credential material. Credentials are separately encrypted using authenticated encryption. Changing this stable identifier would break existing secret lookup.",
+      "regressionTest": "scripts/email-unified-secrets-test.ts"
+    },
+    {
+      "number": 179,
+      "url": "https://github.com/canvascoding/canvas-notebook/security/code-scanning/179",
+      "evidence": "readOfficeVersion rejects any contentHash that is not exactly 64 lowercase hexadecimal characters before readBlob constructs the filename. Scope directories are hashes. The private file reader additionally rejects symlinks, hardlinks, unsafe permissions and oversized files.",
+      "regressionTest": "scripts/office-document-journal-test.ts"
+    },
+    {
+      "number": 177,
+      "url": "https://github.com/canvascoding/canvas-notebook/security/code-scanning/177",
+      "evidence": "Profile paths normalize userId and reject dot segments, slash, backslash and NUL before joining a fixed users root and constant profile filename. Encoded separators stay literal filesystem characters.",
+      "regressionTest": "scripts/codeql-security-boundaries-test.ts"
+    },
+    {
+      "number": 176,
+      "url": "https://github.com/canvascoding/canvas-notebook/security/code-scanning/176",
+      "evidence": "Profile paths normalize userId and reject dot segments, slash, backslash and NUL before joining a fixed users root and constant profile filename. Encoded separators stay literal filesystem characters.",
+      "regressionTest": "scripts/codeql-security-boundaries-test.ts"
+    },
+    {
+      "number": 163,
+      "url": "https://github.com/canvascoding/canvas-notebook/security/code-scanning/163",
+      "evidence": "The reported environment value is CANVAS_SYSTEMD_TEST_ROOT, a local test override. It becomes a path argument to cat; spawn explicitly uses shell:false and separate argv. It is never interpolated into shell source.",
+      "regressionTest": "scripts/codeql-security-boundaries-test.ts"
+    },
+    {
+      "number": 143,
+      "url": "https://github.com/canvascoding/canvas-notebook/security/code-scanning/143",
+      "evidence": "resolveAllowedFilePath first restricts paths to the workspace or studio reference upload root. Both the root and candidate are canonicalized with realpath; isPathInside checks the real target before any bytes are read. Traversal and symlinks outside either root are rejected.",
+      "regressionTest": "scripts/studio-import-files-test.ts"
+    }
+  ],
+  "limitations": [
+    "These decisions address the exact CodeQL source-to-sink traces. They are not a claim that all filesystem race conditions or local privileged threats have been audited."
+  ],
+  "mitigatedFindingsStillReported": {
+    "alerts": [
+      184,
+      185
+    ],
+    "mitigationCommit": "a53b3736cf8526190c5aa93ee5542470b3c88fd8",
+    "mitigation": "The entire release workflow declares cache-mode: none. No job overrides it. GitHub cache service scoped tokens deny both cache restore and save operations, even if checked-out code attempts direct cache API calls.",
+    "remainingScannerLimitation": "CodeQL CachePoisoningQuery.qll determines default-branch cache write access from trigger names alone. It does not test the workflow or job cache-mode. Thus the main Actions analysis 1868484886 still reports these two paths after the mitigation.",
+    "verificationSources": [
+      "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#cache-mode",
+      "https://raw.githubusercontent.com/github/codeql/main/actions/ql/lib/codeql/actions/security/CachePoisoningQuery.qll"
+    ],
+    "resolution": "Dismiss as false positives only after verifying the mitigation exists on main. The original vulnerable capability has been removed; this is not acceptance of an unmitigated cache risk."
+  }
+}

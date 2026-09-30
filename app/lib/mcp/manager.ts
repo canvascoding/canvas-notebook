@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { expandMcpEnvValue, mcpConfigUsesChangedEnv } from '@/app/lib/mcp/env-references';
 import { assertMcpConnectionAccess, requireMcpUserAccess } from './access';
 import { resolveMcpCredentialScope } from './credential-storage';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
@@ -25,7 +26,7 @@ import {
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
-import { readScopedEnvState } from '@/app/lib/integrations/env-config';
+import { readMcpAvailableEnv as readAvailableEnv, resolveMcpTransportValues } from '@/app/lib/mcp/env-runtime';
 import { isMcpServerEnabled, readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import {
   getValidMcpAccessToken,
@@ -213,32 +214,8 @@ function getSafeStdioBaseEnv(): Record<string, string> {
   return safe;
 }
 
-async function readAvailableEnv(scope?: McpScope | null): Promise<Record<string, string>> {
-  const normalizedScope = normalizeMcpScope(scope);
-  const storageScope = normalizedScope?.userId
-    ? { userId: normalizedScope.userId }
-    : { secretScope: 'legacy' as const };
-  const [integrations, agents] = await Promise.all([
-    readScopedEnvState('integrations', storageScope),
-    readScopedEnvState('agents', storageScope),
-  ]);
-
-  const env: Record<string, string> = {};
-  for (const entry of [...integrations.entries, ...agents.entries]) {
-    if (entry.key && entry.value !== undefined) env[entry.key] = entry.value;
-  }
-  return env;
-}
-
 function expandEnvValue(value: string, availableEnv: Record<string, string>, missing: Set<string>): string {
-  return value.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_match, key: string) => {
-    const replacement = availableEnv[key];
-    if (replacement === undefined) {
-      missing.add(key);
-      return '';
-    }
-    return replacement;
-  });
+  return expandMcpEnvValue(value, availableEnv, missing);
 }
 
 async function resolveServerEnv(config: McpServerConfig, scope?: McpScope | null): Promise<Record<string, string>> {
@@ -260,7 +237,7 @@ async function resolveServerEnv(config: McpServerConfig, scope?: McpScope | null
     }
   }
   if (missing.size > 0) {
-    throw new Error(`Missing MCP environment variable(s): ${Array.from(missing).sort().join(', ')}. Configure them in /settings?tab=integrations.`);
+    throw new Error(`Missing MCP environment variable(s): ${Array.from(missing).sort().join(', ')}. Configure them in /settings?tab=secrets.`);
   }
   return resolved;
 }
@@ -296,7 +273,7 @@ async function resolveHttpHeaders(config: McpServerConfig, accessToken: string |
     headers.Authorization = `Bearer ${accessToken}`;
   }
   if (missing.size > 0) {
-    throw new Error(`Missing MCP environment variable(s): ${Array.from(missing).sort().join(', ')}. Configure them in /settings?tab=integrations.`);
+    throw new Error(`Missing MCP environment variable(s): ${Array.from(missing).sort().join(', ')}. Configure them in /settings?tab=secrets.`);
   }
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
@@ -336,7 +313,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     });
     const transport = new StdioClientTransport({
       command,
-      args: Array.isArray(entry.config.args) ? entry.config.args.filter((arg): arg is string => typeof arg === 'string') : [],
+      args: (await resolveMcpTransportValues({ args: entry.config.args }, entry.scope)).args,
       env: await resolveServerEnv(entry.config, entry.scope),
       cwd: typeof entry.config.cwd === 'string' && entry.config.cwd.trim() ? entry.config.cwd : undefined,
       stderr: 'pipe',
@@ -365,10 +342,10 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
   }
 
   if (entry.transport === 'http') {
-    const url = entry.config.url?.trim();
+    const url = (await resolveMcpTransportValues({ url: entry.config.url }, entry.scope)).url?.trim();
     if (!url) throw new Error(`MCP server "${entry.serverName}" is missing url.`);
     const validatedUrl = await assertMcpHttpUrlAllowed(url, `MCP server "${entry.serverName}" URL`);
-    logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url, timeoutMs });
+    logMcp('info', 'Connecting HTTP server', { server: entry.serverName, url: entry.config.url, timeoutMs });
     try {
       await withTimeout(client.connect(new StreamableHTTPClientTransport(validatedUrl, {
         fetch: (input, init) => fetchManagedMcpRequest(entry, input, init),
@@ -381,7 +358,7 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     }
     logMcp('info', 'Connected HTTP server', {
       server: entry.serverName,
-      url,
+      url: entry.config.url,
       protocolVersion: client.getNegotiatedProtocolVersion(),
     });
     return client;
@@ -794,6 +771,10 @@ function matchesManagedOwner(entry: ManagedConnection, scope: McpScope | null): 
     && (!scope.organizationId || entry.config.organizationId === scope.organizationId);
 }
 
+function configReferencesAnyEnvKey(config: McpServerConfig, changedEnvKeys: Set<string>, availableEnv: Record<string, string>): boolean {
+  return mcpConfigUsesChangedEnv(config, changedEnvKeys, availableEnv);
+}
+
 export async function closeMcpServer(serverName: string, scope?: McpScope | null): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
   const store = getStore();
@@ -808,11 +789,14 @@ export async function closeMcpServer(serverName: string, scope?: McpScope | null
   }
 }
 
-export async function closeMcpServersForScope(scope?: McpScope | null): Promise<void> {
+export async function closeMcpServersForScope(scope?: McpScope | null, changedEnvKeys?: string[]): Promise<void> {
   const normalizedScope = normalizeMcpScope(scope);
+  const changedKeys = changedEnvKeys === undefined ? null : new Set(changedEnvKeys);
+  const availableEnv = changedKeys ? await readAvailableEnv(normalizedScope) : {};
   const store = getStore();
   for (const [key, entry] of store.entries) {
     if (!matchesManagedOwner(entry, normalizedScope)) continue;
+    if (changedKeys && !configReferencesAnyEnvKey(entry.config, changedKeys, availableEnv)) continue;
     logMcp('info', 'Closing scoped server', { server: entry.serverName, transport: entry.transport, pid: entry.processPid });
     store.entries.delete(key);
     entry.closed = true;

@@ -4,6 +4,7 @@ import { Marked, Renderer, type Tokens } from 'canvas-markdown-parser';
 
 import type { TodoWithRelations } from '@/app/lib/todos/store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
+import { buildTodoPopupHref } from '@/app/lib/todos/navigation';
 
 import { escapeHtml, renderAppEmailTemplate } from './base';
 
@@ -156,16 +157,7 @@ function formatDate(value: Date | string | null, copy: TodoNotificationCopy): st
 }
 
 function todoHref(todo: TodoWithRelations, locale: TodoNotificationLocale): string {
-  const url = new URL(locale === 'en' ? '/en/todos' : '/todos', appBaseUrl());
-  url.searchParams.set('todo', todo.id);
-  if (todo.sourceSessionId) {
-    url.searchParams.set('session', todo.sourceSessionId);
-    url.searchParams.set('chat', 'open');
-  }
-  if (todo.workspaceId) {
-    url.searchParams.set('workspaceId', todo.workspaceId);
-  }
-  return url.toString();
+  return new URL(buildTodoPopupHref(todo.id, locale), appBaseUrl()).toString();
 }
 
 export function renderTodoNotificationEmail(

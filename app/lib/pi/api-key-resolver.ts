@@ -31,25 +31,17 @@ export async function resolvePiApiKey(
 
   // If provider supports both, check config for preferred method
   if (supportsBoth) {
+    let authMethod: string | undefined;
     try {
       const piConfig = await readPiRuntimeConfig();
       const providerConfig = piConfig.providers[providerId];
-      const authMethod = providerConfig?.authMethod;
-      console.log(`[api-key-resolver] ${providerId}: supportsBoth=true, authMethod=${authMethod ?? 'not set'}`);
-
-      // If OAuth is explicitly selected, use OAuth
-      if (authMethod === 'oauth' && isOAuth) {
-        const result = await getProviderApiKey(providerId as OAuthProviderId, storageScope);
-        console.log(`[api-key-resolver] ${providerId}: using OAuth token, found=${!!result?.apiKey}`);
-        return result?.apiKey;
-      }
-
-      // If API Key is selected or no method set, fall through to API key lookup below
-      if (authMethod === 'api-key' || !authMethod) {
-        // Fall through to API key lookup below
-      }
+      authMethod = providerConfig?.authMethod;
     } catch {
       // Config read failed, continue with default behavior
+    }
+    if (authMethod === 'oauth' && isOAuth) {
+      const result = await getProviderApiKey(providerId as OAuthProviderId, storageScope);
+      return result?.apiKey;
     }
   }
   
@@ -69,7 +61,9 @@ export async function resolvePiApiKey(
   const allEntries = new Map<string, string>([
     ...(integrationsState.entries.map(e => [e.key, e.value]) as [string, string][]),
     ...(agentsState.entries.map(e => [e.key, e.value]) as [string, string][]),
-    ...Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][],
+    // Personal runtimes must not borrow instance credentials. The established
+    // process-over-files priority remains available to the system runtime.
+    ...(scopedUserId ? [] : Object.entries(process.env).filter(([, v]) => v !== undefined) as [string, string][]),
   ]);
 
   switch (providerId) {

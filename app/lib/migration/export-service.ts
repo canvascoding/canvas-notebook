@@ -38,6 +38,8 @@ import {
 } from '@/app/lib/migration/component-paths';
 import { getDeploymentMode } from '@/app/lib/organization/config';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
+import { isPortableCredentialPath, isPortableRuntimeConfigPath, redactPortableRuntimeConfig } from '@/app/lib/migration/secret-export-policy';
+import { parseEnvDocument } from '@/app/lib/secrets/env-document';
 
 const EXPORT_STATUS_FILE = 'status.json';
 const EXPORT_WRITE_THROTTLE_MS = 750;
@@ -119,7 +121,7 @@ async function readJobStatus(exportId: string): Promise<MigrationExportJob | nul
 
 function shouldSkipPath(filePath: string): boolean {
   const parts = filePath.split(path.sep);
-  return parts.includes('.migration') ||
+  return isPortableCredentialPath(filePath, getMigrationDataRoot()) || parts.includes('.migration') ||
     parts.includes('.restore-backups') ||
     parts.includes('cache') ||
     parts.includes('logs') ||
@@ -206,12 +208,7 @@ async function maybeStat(pathname: string): Promise<import('fs').Stats | null> {
 }
 
 function extractEnvKeys(raw: string): string[] {
-  const keys = new Set<string>();
-  for (const line of raw.split(/\r?\n/u)) {
-    const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/u.exec(line);
-    if (match?.[1]) keys.add(match[1]);
-  }
-  return [...keys].sort((a, b) => a.localeCompare(b));
+  return [...new Set(parseEnvDocument(raw).flatMap(token => token.key ? [token.key] : []))].sort((a, b) => a.localeCompare(b));
 }
 
 async function readRedactedEnvKeys(filePath: string): Promise<string[]> {
@@ -238,8 +235,8 @@ async function buildReconnectManifest(params: {
     requiresReconnect: true;
   }> = [];
 
-  const addEnvFile = async (scope: 'legacy' | 'system', relativePath: string) => {
-    const filePath = path.join(params.dataRoot, ...relativePath.split('/'));
+  const addEnvFile = async (scope: 'legacy' | 'system' | 'user' | 'organization', relativePath: string, configuredPath?: string) => {
+    const filePath = configuredPath || path.join(params.dataRoot, ...relativePath.split('/'));
     const secretNames = await readRedactedEnvKeys(filePath);
     const stat = await maybeStat(filePath);
     if (secretNames.length === 0 && !stat) return;
@@ -256,6 +253,23 @@ async function buildReconnectManifest(params: {
     entries.push({ kind, scope, path: relativePath, requiresReconnect: true });
   };
 
+  await addEnvFile('system', 'system/secrets/Canvas-Secrets.env');
+  for (const [variable, label] of [['CANVAS_SECRETS_ENV_PATH', 'configured/Canvas-Secrets.env'], ['INTEGRATIONS_ENV_PATH', 'configured/Canvas-Integrations.env'], ['AGENTS_ENV_PATH', 'configured/Canvas-Agents.env']] as const) {
+    const configured = process.env[variable]?.trim();
+    if (configured) await addEnvFile('system', label, path.resolve(configured));
+  }
+  const configuredOAuth = process.env.OAUTH_STORAGE_PATH?.trim();
+  if (configuredOAuth && await maybeStat(path.resolve(configuredOAuth))) entries.push({ kind: 'oauth_store', scope: 'system', path: 'configured/pi-auth.json', requiresReconnect: true });
+  for (const [directory, scope] of [['users', 'user'], ['organizations', 'organization']] as const) {
+    const owners = await fs.readdir(path.join(params.dataRoot, directory), { withFileTypes: true }).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    });
+    for (const owner of owners) {
+      if (!owner.isDirectory() || owner.isSymbolicLink()) continue;
+      for (const name of ['Canvas-Secrets.env', 'Canvas-Integrations.env', 'Canvas-Agents.env']) await addEnvFile(scope, `${directory}/${owner.name}/secrets/${name}`);
+    }
+  }
   await addEnvFile('legacy', 'secrets/Canvas-Integrations.env');
   await addEnvFile('legacy', 'secrets/Canvas-Agents.env');
   await addDirectory('oauth_store', 'legacy', 'settings/mcp-oauth');
@@ -489,12 +503,16 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     for (const root of componentRoots) {
       job.phase = `Scanning ${root.component}`;
       await persist(true);
-      files.push(...await collectFiles(
-        root.component,
-        root.sourcePath,
-        root.archiveRoot,
-        root.includeRelativePath,
-      ));
+      const collected = await collectFiles(root.component, root.sourcePath, root.archiveRoot, root.includeRelativePath);
+      for (const entry of collected) {
+        const sourcePath = path.join(root.sourcePath, path.posix.relative(root.archiveRoot, entry.archivePath));
+        if (isPortableRuntimeConfigPath(sourcePath, dataRoot)) {
+          const content = redactPortableRuntimeConfig(await fs.readFile(sourcePath, 'utf8'), sourcePath, dataRoot)!;
+          virtualFileContents.set(entry.archivePath, content);
+          entry.size = Buffer.byteLength(content);
+        }
+      }
+      files.push(...collected);
     }
 
     const reconnectManifest = await buildReconnectManifest({ dataRoot, job });

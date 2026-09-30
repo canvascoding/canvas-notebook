@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -41,6 +42,8 @@ let secretsDir = '';
 let integrationsEnvPath = '';
 let accountsPath = '';
 let stateDir = '';
+const previousSecretsMasterKey = process.env.CANVAS_SECRETS_MASTER_KEY;
+const previousIntegrationsMasterKey = process.env.INTEGRATIONS_ENV_MASTER_KEY;
 
 async function writeLegacyAccounts(accounts: unknown[]) {
   await fs.mkdir(path.dirname(accountsPath), { recursive: true });
@@ -96,13 +99,17 @@ async function main() {
   process.env.DATA = tmpRoot;
   process.env.CANVAS_DATA_ROOT = tmpRoot;
   process.env.INTEGRATIONS_ENV_PATH = integrationsEnvPath;
+  process.env.CANVAS_SECRETS_MASTER_KEY = 'email-accounts-test-store-key';
+  delete process.env.INTEGRATIONS_ENV_MASTER_KEY;
   await fs.mkdir(secretsDir, { recursive: true });
   await fs.writeFile(integrationsEnvPath, '', 'utf8');
 
   const { createEmailDraft, disconnectEmailAccount, getEmailOAuthStatus, listEmailAccounts, listEmailFolders, listEmailMessages, readEmailMessage, saveEmailSmtpAccount, searchEmail, sendEmailDraft, sendEmailMessage, setEmailMainAccount, startEmailOAuth, testEmailAccount, testEmailSmtpConnection } = await import('../app/lib/email/service');
   const { upsertOAuthEmailAccount } = await import('../app/lib/email/account-store');
   const { getManagedEmailUserId } = await import('../app/lib/email/managed-client');
-  const { emailAccountSecretRef, readEmailAccountSecret, writeEmailAccountSecret } = await import('../app/lib/email/secret-store');
+  const { emailAccountSecretRef, readEmailAccountSecret } = await import('../app/lib/email/secret-store');
+  const { readUnifiedEnvState } = await import('../app/lib/secrets/unified-env-store');
+  const { writeScopedEnvRaw } = await import('../app/lib/integrations/env-config');
   const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-service');
   const { parseImapMessageReference, setImapClientFactoryForTests } = await import('../app/lib/email/imap-service');
 
@@ -141,8 +148,17 @@ async function main() {
   const otherAccounts = await listEmailAccounts('other-user');
   assert.deepEqual(ownerAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['owner@example.test']);
   assert.deepEqual(otherAccounts.accounts.map((account) => (account as { emailAddress: string }).emailAddress), ['other@example.test']);
-  await fs.access(path.join(tmpRoot, 'users', 'owner-user', 'secrets', 'email-accounts', 'local_google_test.json.enc'));
-  await fs.access(path.join(tmpRoot, 'users', 'other-user', 'secrets', 'email-accounts', `${(otherAccounts.accounts[0] as { id: string }).id}.json.enc`));
+  const secretRefFor = (userId: string, accountId: string) => emailAccountSecretRef(userId, accountId);
+  const credentialKeyFor = (secretRef: string) => `CANVAS_CREDENTIAL_EMAIL_${crypto.createHash('sha256').update(secretRef).digest('hex').toUpperCase()}`;
+  const ownerEnv = await readUnifiedEnvState({ userId: 'owner-user' });
+  const otherAccountId = (otherAccounts.accounts[0] as { id: string }).id;
+  const ownerCredential = ownerEnv.entries.find((entry) => entry.key === credentialKeyFor(secretRefFor('owner-user', 'local_google_test')));
+  const otherEnv = await readUnifiedEnvState({ userId: 'other-user' });
+  const otherCredential = otherEnv.entries.find((entry) => entry.key === credentialKeyFor(secretRefFor('other-user', otherAccountId)));
+  assert.match(ownerCredential?.value || '', /^enc:v1:/u, JSON.stringify(ownerEnv.entries.map((entry) => entry.key)));
+  assert.match(otherCredential?.value || '', /^enc:v1:/u, JSON.stringify(otherEnv.entries.map((entry) => entry.key)));
+  await assert.rejects(() => fs.access(path.join(tmpRoot, 'users', 'owner-user', 'secrets', 'email-accounts', 'local_google_test.json.enc')));
+  await assert.rejects(() => fs.access(path.join(tmpRoot, 'users', 'other-user', 'secrets', 'email-accounts', `${otherAccountId}.json.enc`)));
   const otherPolicy = (otherAccounts.accounts[0] as { policy: { readFrom: string[]; sendTo: string[] } }).policy;
   assert.deepEqual(otherPolicy.readFrom, ['other@example.test']);
   assert.deepEqual(otherPolicy.sendTo, ['other@example.test']);
@@ -151,23 +167,24 @@ async function main() {
   const fallbackSecretRef = emailAccountSecretRef('owner-user', 'fallback-test');
   const fallbackPrimaryPath = path.join(tmpRoot, 'users', 'owner-user', 'secrets', 'email-accounts', 'fallback-test.json.enc');
   const fallbackLegacyPath = path.join(secretsDir, 'email-accounts', 'owner-user', 'fallback-test.json.enc');
-  await writeEmailAccountSecret(fallbackSecretRef, {
-    authType: 'oauth',
-    tokenType: 'Bearer',
-    accessToken: 'primary-access',
+  const legacyFallbackFixture = JSON.stringify({
+    authType: 'oauth', tokenType: 'Bearer', accessToken: 'legacy-access',
   });
+  await fs.mkdir(path.dirname(fallbackPrimaryPath), { recursive: true });
   await fs.mkdir(path.dirname(fallbackLegacyPath), { recursive: true });
-  await fs.writeFile(fallbackLegacyPath, JSON.stringify({
-    authType: 'oauth',
-    tokenType: 'Bearer',
-    accessToken: 'legacy-access',
-  }), 'utf8');
+  await fs.writeFile(fallbackLegacyPath, legacyFallbackFixture, 'utf8');
   await fs.writeFile(fallbackPrimaryPath, 'enc:v1:broken', 'utf8');
   await assert.rejects(() => readEmailAccountSecret(fallbackSecretRef), /Invalid email account secret format|Unable to decrypt|Unsupported email account secret|auth/i);
   await fs.rm(fallbackPrimaryPath, { force: true });
   const legacyFallbackSecret = await readEmailAccountSecret(fallbackSecretRef);
   assert.equal(legacyFallbackSecret.authType, 'oauth');
   assert.equal(legacyFallbackSecret.accessToken, 'legacy-access');
+  assert.equal(await fs.readFile(fallbackLegacyPath, 'utf8'), legacyFallbackFixture);
+  const migratedEmailEnv = await readUnifiedEnvState({ userId: 'owner-user' });
+  const migratedCredential = migratedEmailEnv.entries.find((entry) => entry.key === credentialKeyFor(fallbackSecretRef));
+  assert.match(migratedCredential?.value || '', /^enc:v1:/u);
+  assert.throws(() => emailAccountSecretRef('owner/escape', 'bad-id'), /Invalid email account secret reference segment/u);
+  await assert.rejects(() => readEmailAccountSecret('../escape/secret.json.enc'), /Invalid email account secret reference/u);
 
   await disconnectEmailAccount('owner-user', 'local_google_test');
   const ownerAfterDisconnect = await listEmailAccounts('owner-user');
@@ -179,7 +196,7 @@ async function main() {
   delete process.env.BASE_URL;
   delete process.env.APP_BASE_URL;
   delete process.env.BETTER_AUTH_BASE_URL;
-  await fs.writeFile(integrationsEnvPath, 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\n', 'utf8');
+  await writeScopedEnvRaw('integrations', 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\n');
   const oauthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'https://canvas.example.com' });
   assert.equal(oauthStart.provider, 'google');
   assert.match(oauthStart.authorizationUrl, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth/u);
@@ -197,7 +214,7 @@ async function main() {
   assert.equal(storedState.userId, 'owner-user');
   assert.equal(storedState.redirectUri, 'https://canvas.example.com/api/email/oauth/callback');
 
-  await fs.writeFile(integrationsEnvPath, 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\nMICROSOFT_OAUTH_CLIENT_ID=ms-client\nMICROSOFT_OAUTH_CLIENT_SECRET=ms-secret\n', 'utf8');
+  await writeScopedEnvRaw('integrations', 'GOOGLE_OAUTH_CLIENT_ID=local-client\nGOOGLE_OAUTH_CLIENT_SECRET=local-secret\nMICROSOFT_OAUTH_CLIENT_ID=ms-client\nMICROSOFT_OAUTH_CLIENT_SECRET=ms-secret\n');
   const microsoftOAuthStart = await startEmailOAuth('owner-user', { provider: 'microsoft', requestOrigin: 'https://canvas.example.com' });
   const microsoftOAuthStartUrl = new URL(microsoftOAuthStart.authorizationUrl);
   assert.equal(microsoftOAuthStartUrl.searchParams.get('prompt'), 'select_account');
@@ -743,6 +760,10 @@ async function main() {
         process.env[key] = previous;
       }
     }
+    if (previousSecretsMasterKey === undefined) delete process.env.CANVAS_SECRETS_MASTER_KEY;
+    else process.env.CANVAS_SECRETS_MASTER_KEY = previousSecretsMasterKey;
+    if (previousIntegrationsMasterKey === undefined) delete process.env.INTEGRATIONS_ENV_MASTER_KEY;
+    else process.env.INTEGRATIONS_ENV_MASTER_KEY = previousIntegrationsMasterKey;
   }
 
   await fs.rm(tmpRoot, { recursive: true, force: true });

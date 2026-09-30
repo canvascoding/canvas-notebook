@@ -5,11 +5,13 @@ import { db } from '@/app/lib/db';
 import { canvasProjectMembers, organizationUserPermissions, user } from '@/app/lib/db/schema';
 import { applyTodoRateLimit, requireTodoSession } from '@/app/lib/todos/api';
 import { requireSessionWorkspace } from '@/app/lib/workspaces/request';
+import { assigneeCandidateAvatarHref } from '@/app/lib/todos/avatar-href';
 
 type AssigneeCandidate = {
   id: string;
   name: string | null;
   email: string | null;
+  image: string | null;
   role: string | null;
 };
 
@@ -40,6 +42,7 @@ export async function GET(request: NextRequest) {
       id: session.user.id,
       name: session.user.name ?? null,
       email: session.user.email ?? null,
+      image: session.user.image ?? null,
       role: session.user.role ?? null,
     };
     return NextResponse.json({ success: true, data: [candidate] });
@@ -59,6 +62,7 @@ export async function GET(request: NextRequest) {
         id: user.id,
         name: user.name,
         email: user.email,
+        image: user.image,
         role: canvasProjectMembers.role,
       })
       .from(canvasProjectMembers)
@@ -81,6 +85,7 @@ export async function GET(request: NextRequest) {
         id: user.id,
         name: user.name,
         email: user.email,
+        image: user.image,
         role: organizationUserPermissions.role,
       })
       .from(organizationUserPermissions)
@@ -95,7 +100,7 @@ export async function GET(request: NextRequest) {
 
     const candidatesById = new Map<string, AssigneeCandidate>();
     for (const candidate of [...organizationAdmins, ...projectMembers]) {
-      candidatesById.set(candidate.id, candidate);
+      candidatesById.set(candidate.id, { ...candidate, image: assigneeCandidateAvatarHref(candidate.id, session.user.id, candidate.image) });
     }
 
     return NextResponse.json({ success: true, data: Array.from(candidatesById.values()) });
@@ -106,6 +111,7 @@ export async function GET(request: NextRequest) {
       id: user.id,
       name: user.name,
       email: user.email,
+      image: user.image,
       role: organizationUserPermissions.role,
     })
     .from(organizationUserPermissions)
@@ -118,5 +124,7 @@ export async function GET(request: NextRequest) {
     ))
     .orderBy(asc(user.name), asc(user.email));
 
-  return NextResponse.json({ success: true, data: candidates });
+  return NextResponse.json({ success: true, data: candidates.map(candidate => ({
+    ...candidate, image: assigneeCandidateAvatarHref(candidate.id, session.user.id, candidate.image),
+  })) });
 }

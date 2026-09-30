@@ -69,7 +69,7 @@ Für das lokale Dev-Setup den Skill `canvas-local-team-seat-dev` verwenden; er d
 Agent-managed files are persisted in `/data` for easy access and backup:
 - **System Prompt Files:** `/data/canvas-agent/` (AGENTS.md, MEMORY.md, SOUL.md, TOOLS.md)
 - **Runtime Config:** `/data/canvas-agent/pi-runtime-config.json`
-- **Secrets:** `/data/secrets/` (Canvas-Integrations.env, Canvas-Agents.env)
+- **Secrets:** je Berechtigungsbereich `Canvas-Secrets.env` unter `/data/users/<id>/secrets/`, `/data/organizations/<id>/secrets/` oder `/data/system/secrets/`. Alte Agent-/Integrations-Dateien sind nur Importquellen.
 
 These paths replace the legacy `/home/node/canvas-agent/` location. The bootstrap script automatically migrates existing files on container startup.
 
@@ -78,12 +78,12 @@ These paths replace the legacy `/home/node/canvas-agent/` location. The bootstra
 **WICHTIG:** Alle Environment-Variablen für Skills, Integrationen und API-Keys müssen zentral verwaltet werden.
 
 ### Speicherort
-- **Integrations-Env-Datei:** `/data/secrets/Canvas-Integrations.env`
-- Diese Datei wird über den Settings-Bereich unter dem Tab "Integrations" verwaltet
+- **Gemeinsame ENV-Datei:** `Canvas-Secrets.env` je User-, Organisations- oder Systembereich; alle Kategorien liegen in derselben Datei des Bereichs.
+- Diese Dateien werden über Settings → "Secrets" als Formular oder ENV-Text verwaltet. Fachliche Provider-/Integrationsformulare verwenden denselben Speicher.
 
 ### Regeln für Agent-Implementierungen
 1. **Keine Hardcoded Secrets:** API-Keys, Tokens oder sensible Daten dürfen niemals direkt im Code oder in Konfigurationsdateien hinterlegt werden
-2. **Zentrale Verwaltung:** Alle Env-Variablen müssen über den Integrations-Tab in `/data/secrets/Canvas-Integrations.env` gespeichert werden
+2. **Zentrale Verwaltung:** Alle Env-Variablen müssen im passenden Berechtigungsbereich über den gemeinsamen ENV-Service gespeichert werden. Gezielte Änderungen verwenden PATCH; Textänderungen benötigen die geladene Revision.
 3. **Zugriff über API:** Skills und Tools müssen Env-Variablen über die bereitgestellten API-Endpunkte (`/api/integrations/env`) abrufen
 4. **Beispiele für erforderliche Keys:**
    - `GEMINI_API_KEY` - Für Bildgenerierung, Video-Generierung und Ad-Localisierung
@@ -92,8 +92,8 @@ These paths replace the legacy `/home/node/canvas-agent/` location. The bootstra
 ### Fehlerbehandlung
 Wenn ein Skill oder Tool eine Env-Variable benötigt, die nicht gesetzt ist:
 - Zeige eine klare Fehlermeldung im UI an
-- Verlinke auf den Integrations-Tab in den Settings
-- Biete einen direkten Link: `/settings?tab=integrations`
+- Verlinke auf den Secrets-Tab in den Settings
+- Biete einen direkten Link: `/settings?tab=secrets`
 
 ---
 

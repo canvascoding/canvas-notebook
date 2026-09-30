@@ -846,8 +846,19 @@
     "fileOperationPreviewReady": "ready",
     "fileOperationPreviewBlocked": "blocked",
     "fileOperationPreviewSummary": "Planned: {paths} path(s), {links} link edit(s).",
-    "fileOperationPreviewCoverage": "Not fully checked: {omitted} Markdown file(s), {unresolved} link(s).",
-    "fileOperationPreviewRevalidate": "The plan is checked again under a workspace lock before applying it. Link updates may still be incomplete.",
+    "fileOperationPreviewCoverage": "Workspace link scan: {coverage}. Omitted files: {omitted}; unresolved links: {unresolved}.",
+    "fileOperationPreviewCoverageComplete": "complete",
+    "fileOperationPreviewCoverageIncomplete": "incomplete",
+    "fileOperationGlobalCoverageHelp": "This scans the whole workspace. The action's readiness is based on its affected links and files; unrelated existing link problems are warnings.",
+    "fileOperationLinkBlockers": "Links blocking this action",
+    "fileOperationAffectedLinkHelp": "Resolve these affected links or make their files available for checking, then request a fresh preview.",
+    "fileOperationLinkBlocker_affected-unresolved-link": "The action affects this unresolved link. Correct its target or create the missing file before requesting a new preview.",
+    "fileOperationLinkBlocker_uninspected-source": "This Markdown file could not be inspected and may contain affected links. Make it readable or reduce its size, then request a new preview.",
+    "fileOperationLinkBlocker_unevaluated-link": "This link could not be evaluated safely. Use a supported, explicit Markdown link, then request a new preview.",
+    "fileOperationLinkBlocker_resolution-changed": "This action would change or make the link's target ambiguous. Use an explicit path to the intended file, then request a new preview.",
+    "fileOperationLinkWarnings": "Existing links unaffected by this action",
+    "fileOperationLinkWarningsHelp": "These links remain unchanged. They need separate attention and do not block this action.",
+    "fileOperationPreviewRevalidate": "The plan and affected links are checked again under a workspace lock before applying it.",
     "fileOperationPreviewStale": "Files changed since the preview. Check the links again.",
     "fileOperationPreviewBlockedApply": "The preview has unresolved conflicts. Check the links again before continuing.",
     "fileOperationIssueUnsupportedOperation": "This operation is not yet supported in the preview.",
@@ -2099,6 +2110,13 @@
     "forkUnavailableTitleGenerating": "Wait for the chat title before forking",
     "fileReferences": "Files",
     "referenceList": {
+      "changedTitle": "Files · {count}",
+      "viewChanges": "View changes",
+      "operations": "{count, plural, one {# change} other {# changes}}",
+      "operation": "Change {count}",
+      "refresh": "Reload changes",
+      "loadingStatus": "Loading status…",
+      "loadError": "Some current change statuses could not be loaded. Reload to try again.",
       "title": "Files",
       "created": "Created",
       "changed": "Changed",
@@ -3360,7 +3378,8 @@
       "categories": "Categories",
       "files": "Files",
       "session": "Session",
-      "emailNotification": "Email notification"
+      "emailNotification": "Email notification",
+      "details": "More details"
     },
     "scope": {
       "personal": "Personal",
@@ -3436,7 +3455,7 @@
       "restore": "Restore",
       "edit": "Edit",
       "markSeen": "Mark as read",
-      "archiveTodo": "Delete",
+      "archiveTodo": "Archive",
       "reopen": "Reopen",
       "complete": "Complete",
       "completeQuick": "Quick complete",
@@ -3467,7 +3486,12 @@
       "followUpComment": "Comment for the agent",
       "followUpCommentPlaceholder": "Optional context about what was completed or how the agent should continue",
       "categoryName": "Name",
-      "categoryColor": "Color"
+      "categoryColor": "Color",
+      "createdBy": "Created by",
+      "createdAt": "Created",
+      "updatedAt": "Last updated",
+      "completedAt": "Completed",
+      "completionComment": "Completion comment"
     },
     "states": {
       "loading": "Loading to-dos...",
@@ -3487,7 +3511,8 @@
       "unassigned": "Unassigned",
       "followUpSentAt": "Last sent to the agent: {date}",
       "emailNotificationSentAt": "Email notification sent: {date}",
-      "emailNotificationBlocked": "Email notification not sent"
+      "emailNotificationBlocked": "Email notification not sent",
+      "overdue": "Overdue"
     },
     "detail": {
       "dialogTitle": "Review to-do"
@@ -3526,6 +3551,21 @@
       "titleRequired": "Please enter a title.",
       "categoryNameRequired": "Please enter a category name.",
       "categorySaveFailed": "Could not save category."
+    },
+    "popup": {
+      "description": "View and edit this to-do without leaving the current page.",
+      "openPage": "Open on the to-do page",
+      "close": "Close",
+      "retry": "Try again",
+      "reload": "Load current version",
+      "loadingOptions": "Loading categories and people…",
+      "readOnly": "You can view this to-do. Write access is required to edit it.",
+      "unavailable": "This to-do is no longer available or you do not have access.",
+      "conflict": "This to-do has changed. Your draft has been kept. Load the current version before continuing to edit.",
+      "discardTitle": "Discard unsaved changes?",
+      "discardDescription": "Your changes have not been saved. You can keep editing or discard them.",
+      "keepEditing": "Keep editing",
+      "discard": "Discard"
     }
   },
   "invitationAcceptance": {
@@ -9095,6 +9135,19 @@
     "coverage": "Link coverage",
     "coverageComplete": "Complete",
     "coverageIncomplete": "Incomplete",
+    "operationReadiness": "Action readiness",
+    "operationReady": "Ready for approval",
+    "operationReadyHelp": "The affected links have been checked. Workspace-wide diagnostics are listed separately.",
+    "operationBlocked": "Action blocked — resolve the items below",
+    "linkBlockers": "Links blocking this action",
+    "affectedLinkHelp": "Resolve the blocking links below: correct the link or create its missing target, and make unreadable files available for checking. Then ask the agent for a fresh preview.",
+    "linkBlocker_affected-unresolved-link": "The action affects this unresolved link. Correct its target or create the missing file before requesting a new preview.",
+    "linkBlocker_uninspected-source": "This Markdown file could not be inspected and may contain affected links. Make it readable or reduce its size, then request a new preview.",
+    "linkBlocker_unevaluated-link": "This link could not be evaluated safely. Use a supported, explicit Markdown link, then request a new preview.",
+    "linkBlocker_resolution-changed": "This action would change or make the link's target ambiguous. Use an explicit path to the intended file, then request a new preview.",
+    "linkWarnings": "Existing links unaffected by this action",
+    "linkWarningsHelp": "These links remain unchanged. They need separate attention and do not block this action.",
+    "globalCoverageHelp": "This scans the whole workspace. The action's readiness is based on its affected links and files; unrelated existing link problems are warnings.",
     "omittedSources": "Omitted Markdown files",
     "unresolvedLinks": "Unresolved links",
     "collisions": "Destination conflicts",

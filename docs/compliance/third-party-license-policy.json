@@ -721,6 +721,26 @@
       "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/df5b42b046bbab53b9b238c39208658b8732bf75",
       "verificationSource": "https://github.com/zone-eu/mailsplit/blob/df5b42b046bbab53b9b238c39208658b8732bf75/LICENSE.MIT",
       "reason": "Technical package review by Codex on 2026-09-08: npm gitHead and v5.4.16 both identify df5b42b046bbab53b9b238c39208658b8732bf75. The complete LICENSE.MIT is byte-identical to the already elected MIT alternative in 5.4.14 (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete text and copyright notice. No package modification or separate NOTICE file. This records source/license evidence, not a new legal or product release approval."
+    },
+    "@zone-eu/mailsplit@5.4.19": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/mailparser/node_modules/@zone-eu/mailsplit/LICENSE.MIT",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
+      ],
+      "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/69da215d9481ba56e17a9320cd2d481ac8b690bd",
+      "verificationSource": "https://github.com/zone-eu/mailsplit/blob/69da215d9481ba56e17a9320cd2d481ac8b690bd/LICENSE.MIT",
+      "reason": "Technical package review by Codex on 2026-09-30: npm gitHead and v5.4.19 both identify 69da215d9481ba56e17a9320cd2d481ac8b690bd. The installed and upstream LICENSE.MIT are byte-identical to the already elected MIT alternative in 5.4.16 (raw SHA-256 412ad6764b495ece74454c3b1d1816a4bf9b533f94158d23bfe4342559d8ca46). Canvas continues to use MIT and retains the complete text and copyright notice. This records source/license evidence, not a new legal or product release approval."
+    },
+    "dompurify@3.4.16": {
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextPath": "node_modules/dompurify/LICENSE",
+      "copyrightNotices": [
+        "(c) Cure53 and other contributors"
+      ],
+      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/b9b9d80f7e401771c2ccaef5f45def7eec8f27d7",
+      "verificationSource": "https://github.com/cure53/DOMPurify/blob/3.4.16/LICENSE",
+      "reason": "The exact npm release declares (MPL-2.0 OR Apache-2.0), and the matching 3.4.16 tag resolves to b9b9d80f7e401771c2ccaef5f45def7eec8f27d7. Canvas elects Apache-2.0, retains the complete Apache-2.0 text and DOMPurify license header, and does not modify the package. The exact npm tarball and source tree contain no separate NOTICE file."
     }
   },
   "additionalComponents": [
@@ -771,8 +791,8 @@
     },
     {
       "name": "electron-runtime",
-      "versionOrCommit": "42.6.1",
-      "sourceUrl": "https://github.com/electron/electron/tree/v42.6.1",
+      "versionOrCommit": "42.11.10",
+      "sourceUrl": "https://github.com/electron/electron/tree/v42.11.10",
       "packagePathOrArtifact": "Electron desktop runtime",
       "usage": "native",
       "distributedIn": [

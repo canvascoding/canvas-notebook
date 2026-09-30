@@ -3,9 +3,11 @@ import path from 'path';
 import { promises as fs } from 'node:fs';
 
 import { type McpServerConfig } from '@/app/lib/mcp/config';
+import { resolveMcpTransportValues } from '@/app/lib/mcp/env-runtime';
 import { assertMcpConnectionAccess } from '@/app/lib/mcp/access';
 import { hashMcpAuthConfig, hashMcpLegacyConfig } from '@/app/lib/mcp/connection-identity';
-import { migrateMcpConnectionCredentials, readMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
+import { migrateMcpConnectionCredentials, readMcpCredentialJson, removeMcpCredentialJson, resolveMcpCredentialConnection, resolveMcpCredentialScope, writeMcpCredentialJson } from '@/app/lib/mcp/credential-storage';
+import { getUnifiedEnvFilePath } from '@/app/lib/secrets/unified-env-store';
 import { commitMcpOAuthLifecycle, fencedMcpOAuthWrite, invalidateMcpOAuthLifecycle, readMcpOAuthLifecycle, withMcpOAuthLifecycleLock } from '@/app/lib/mcp/oauth-lifecycle';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import { classifyMcpConnectionFailure, recordMcpConnectionObservation } from '@/app/lib/mcp/connection-health';
@@ -13,6 +15,7 @@ import { fetchMcpHttp } from '@/app/lib/mcp/http';
 import {
   normalizeMcpScope,
   requireMcpCredentialScope,
+  resolveMcpSecretEnvScope,
   type McpScope,
 } from '@/app/lib/mcp/scope';
 import {
@@ -41,6 +44,7 @@ type AuthorizationServerMetadata = Required<Pick<OAuthServerConfig, 'authorizati
 };
 
 type OAuthResolution = AuthorizationServerMetadata & {
+  serverUrl?: string;
   resource: string;
   scopesSupported: string[];
 };
@@ -178,7 +182,8 @@ async function getOAuthTokenRelativePath(serverName: string, scope?: McpScope | 
 }
 
 export async function getOAuthTokenPath(serverName: string, scope?: McpScope | null): Promise<string> {
-  return resolveMcpStoragePath(await getOAuthTokenRelativePath(serverName, scope), scope);
+  await getOAuthTokenRelativePath(serverName, scope);
+  return getUnifiedEnvFilePath(resolveMcpSecretEnvScope(scope));
 }
 
 async function getOAuthClientRelativePath(serverName: string, scope?: McpScope | null): Promise<string> {
@@ -377,7 +382,7 @@ async function discoverProtectedResourceMetadata(serverUrl: string): Promise<Pro
   return null;
 }
 
-async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: McpServerConfig): Promise<OAuthResolution> {
+async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: McpServerConfig, scope?: McpScope | null): Promise<OAuthResolution> {
   const issuers: string[] = [];
   let protectedResourceMetadata: ProtectedResourceMetadata | null = null;
 
@@ -385,7 +390,7 @@ async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: Mc
     protectedResourceMetadata = await readProtectedResourceMetadataUrl(oauth.resourceMetadataUrl);
   }
 
-  const serverUrl = typeof serverConfig?.url === 'string' ? serverConfig.url.trim() : '';
+  const serverUrl = serverConfig?.url ? (await resolveMcpTransportValues({ url: serverConfig.url }, scope)).url?.trim() || '' : '';
   if (!protectedResourceMetadata && serverUrl) {
     protectedResourceMetadata = await discoverProtectedResourceMetadata(serverUrl).catch((error) => {
       if (oauth.issuer || (oauth.authorizationUrl && oauth.tokenUrl)) return null;
@@ -415,6 +420,7 @@ async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: Mc
         tokenUrl: oauth.tokenUrl || metadata.tokenUrl,
         registrationUrl: oauth.registrationUrl || metadata.registrationUrl,
         revocationUrl: oauth.revocationUrl || metadata.revocationUrl,
+        serverUrl: serverUrl || undefined,
         resource,
         scopesSupported: protectedResourceMetadata?.scopes_supported || [],
       };
@@ -554,8 +560,8 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
 
     const lifecycle = await readMcpOAuthLifecycle(serverConfig.connectionId, credentialScope);
     const token = await readJsonIfExists<OAuthTokenRecord>((await getOAuthTokenRelativePath(serverName, credentialScope)), credentialScope);
-    const bound = isBoundOAuthToken(token, serverConfig, lifecycle.generation);
-    const authorized = bound && (!isExpired(token) || Boolean(token.refreshToken));
+    const bound = await isBoundOAuthToken(token, serverConfig, lifecycle.generation, credentialScope);
+    const authorized = bound && token !== null && (!isExpired(token) || Boolean(token.refreshToken));
     const redirectUri = getRedirectUri(oauth, requestOrigin);
     return {
       serverName,
@@ -600,7 +606,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   return withMcpOAuthLifecycleLock(serverConfig.connectionId, credentialScope, async () => {
     await assertCurrentOAuthState(snapshot, credentialScope);
     const redirectUri = getRedirectUri(oauth, requestOrigin);
-    const endpoints = await resolveOAuthEndpoints(oauth, serverConfig);
+    const endpoints = await resolveOAuthEndpoints(oauth, serverConfig, credentialScope);
     const client = await resolveClient(
       serverName,
       oauth,
@@ -658,7 +664,8 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
       clientId: client.clientId,
       clientSecret: client.clientSecret,
       scope: oauthScope,
-      serverUrl: typeof serverConfig.url === 'string' ? serverConfig.url : undefined,
+      // Bind credentials to the actual target, even though config/hash retain the canonical reference.
+      serverUrl: endpoints.serverUrl,
       issuer: endpoints.issuer,
       resource: endpoints.resource,
       authorizationResponseIssParameterSupported: endpoints.authorizationResponseIssParameterSupported,
@@ -681,16 +688,18 @@ function isExpired(token: OAuthTokenRecord): boolean {
   return !Number.isFinite(expiry) || expiry <= Date.now() + 60_000;
 }
 
-function isBoundOAuthToken(token: OAuthTokenRecord | null, connection: McpServerConfig & { connectionId: string }, generation: number): token is OAuthTokenRecord {
-  return Boolean(token && typeof token.accessToken === 'string' && token.accessToken.length > 0
+async function isBoundOAuthToken(token: OAuthTokenRecord | null, connection: McpServerConfig & { connectionId: string }, generation: number, scope?: McpScope | null): Promise<boolean> {
+  const bound = Boolean(token && typeof token.accessToken === 'string' && token.accessToken.length > 0
     && typeof token.issuer === 'string' && token.issuer && typeof token.resource === 'string' && token.resource
     && typeof token.clientId === 'string' && token.clientId
     && typeof token.tokenType === 'string' && token.tokenType.toLowerCase() === 'bearer'
     && (token.connectionId === undefined || token.connectionId === connection.connectionId)
     && (token.authVersion ?? 1) === (connection.authVersion || 1)
     && (token.lifecycleGeneration ?? 0) === generation
-    && token.configHash === hashMcpAuthConfig(connection)
-    && (!connection.url || token.serverUrl === connection.url));
+    && token.configHash === hashMcpAuthConfig(connection));
+  if (!bound) return false;
+  return !connection.url || (typeof token!.serverUrl === 'string'
+    && token!.serverUrl.trim() === (await resolveMcpTransportValues({ url: connection.url }, scope)).url?.trim());
 }
 
 async function exchangeToken(params: URLSearchParams, tokenUrl: string, clientSecret?: string) {
@@ -806,7 +815,7 @@ export async function rejectMcpOAuthCallback(state: string, responseIssuer?: str
   await consumeOAuthState(state, responseIssuer, scope);
 }
 
-async function assertCurrentOAuthState(stored: OAuthConnectionSnapshot, scope?: McpScope | null): Promise<void> {
+async function assertCurrentOAuthState(stored: OAuthConnectionSnapshot & { serverUrl?: string }, scope?: McpScope | null): Promise<void> {
   await assertMcpConnectionAccess(stored.connectionId, scope);
   const current = await resolveMcpCredentialConnection(stored.connectionId, scope);
   const credentialScope = resolveMcpCredentialScope(current, scope);
@@ -817,6 +826,9 @@ async function assertCurrentOAuthState(stored: OAuthConnectionSnapshot, scope?: 
     || (current.authVersion || 1) !== stored.authVersion
     || hashMcpAuthConfig(current) !== stored.configHash
   ) throw new McpOAuthError('OAuth authorization state no longer matches the current MCP connection.');
+  if (stored.serverUrl !== undefined && stored.serverUrl.trim() !== (await resolveMcpTransportValues({ url: current.url }, credentialScope)).url?.trim()) {
+    throw new McpOAuthError('OAuth authorization target changed. Start authorization again.');
+  }
   const lifecycle = await readMcpOAuthLifecycle(stored.connectionId, credentialScope);
   if (lifecycle.generation !== stored.lifecycleGeneration) throw new McpOAuthError('OAuth authorization state was invalidated.');
 }
@@ -912,7 +924,7 @@ export async function completeMcpOAuthCallback(
       await commitMcpOAuthLifecycle(stored.connectionId, stored.lifecycleGeneration, state, credentialScope, async () => {
         await writeJsonPrivate(callbackTokenPath, token, credentialScope);
       });
-      await removeMcpStoragePath(callbackChallengePath, credentialScope).catch(() => undefined);
+      await removeMcpCredentialJson(callbackChallengePath, credentialScope).catch(() => undefined);
     });
   } catch (error) {
     await revokeOAuthTokens(token, stored.clientSecret);
@@ -953,7 +965,7 @@ export async function clearMcpOAuth(
         continue;
       }
       if (file === 'tokens.json') tokenToRevoke = artifact as OAuthTokenRecord | null;
-      await removeMcpStoragePath(relativePath, credentialScope);
+      await removeMcpCredentialJson(relativePath, credentialScope);
     }
     if (connection.legacyOAuthName && !connection.legacyOAuthAmbiguous) {
       await removeMcpStoragePath(`mcp-oauth/${sanitizeServerName(connection.legacyOAuthName)}`, credentialScope, { recursive: true });
@@ -1006,7 +1018,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
   const tokenRelativePath = await getOAuthTokenRelativePath(serverName, credentialScope);
   const lifecycle = await readMcpOAuthLifecycle(connection.connectionId, credentialScope);
   const token = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, credentialScope);
-  if (!isBoundOAuthToken(token, connection, lifecycle.generation)) {
+  if (!token || !await isBoundOAuthToken(token, connection, lifecycle.generation, credentialScope)) {
     throw new McpOAuthError(`MCP server "${serverName}" requires OAuth authorization. Use mcp auth_start.`, 401, 'reauth_required');
   }
   const assertAuthorizationState = (value: OAuthTokenRecord) => {
@@ -1023,13 +1035,14 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
   if (!needsRefresh(token)) return token.accessToken;
 
   return withMcpOAuthLifecycleLock(connection.connectionId, credentialScope, async () => {
-    const snapshot: OAuthConnectionSnapshot = {
+    const snapshot: OAuthConnectionSnapshot & { serverUrl?: string } = {
       connectionId: connection.connectionId, authVersion: connection.authVersion || 1,
       organizationId: credentialScope.organizationId || null, configHash, lifecycleGeneration: lifecycle.generation,
+      serverUrl: token.serverUrl,
     };
     await assertCurrentOAuthState(snapshot, credentialScope);
     const current = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, credentialScope);
-    if (!isBoundOAuthToken(current, connection, lifecycle.generation)) {
+    if (!current || !await isBoundOAuthToken(current, connection, lifecycle.generation, credentialScope)) {
       throw new McpOAuthError(`MCP server "${serverName}" requires OAuth authorization. Use mcp auth_start.`, 401, 'reauth_required');
     }
     assertAuthorizationState(current);
@@ -1041,7 +1054,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
     await recordMcpConnectionObservation(connection, credentialScope, { kind: 'refreshing' }, { generation: lifecycle.generation });
     try {
       const oauth = getOAuthConfig(connection);
-      const endpoints = await resolveOAuthEndpoints(oauth || {}, connection);
+      const endpoints = await resolveOAuthEndpoints(oauth || {}, connection, credentialScope);
       if (current.issuer !== endpoints.issuer || current.resource !== endpoints.resource) {
         throw new McpOAuthError(`OAuth credentials for MCP server "${serverName}" do not match the current authorization server or resource. Reauthorize in Settings > Integrations.`, 401, 'reauth_required');
       }
@@ -1053,7 +1066,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
         refreshed = await exchangeToken(params, endpoints.tokenUrl, clientSecret);
       } catch (error) {
         if (error instanceof McpOAuthError && (error.code === 'invalid_grant' || error.code === 'invalid_token')) {
-          await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, credentialScope, () => removeMcpStoragePath(tokenRelativePath, credentialScope));
+          await fencedMcpOAuthWrite(connection.connectionId, lifecycle.generation, credentialScope, () => removeMcpCredentialJson(tokenRelativePath, credentialScope));
           await recordMcpConnectionObservation(connection, credentialScope, { kind: 'failure', code: 'reauth_required' }, { generation: lifecycle.generation });
           throw new McpOAuthError(`OAuth token for MCP server "${serverName}" could not be refreshed. Reauthorize in Settings > Integrations.`, 401, 'reauth_required');
         }

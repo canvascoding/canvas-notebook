@@ -13,7 +13,7 @@ import {
   listPublicEmailAccountsForUser,
   publicStoredEmailAccount,
   readStoredEmailAccountSecret,
-  saveStoredEmailAccountOAuthSecret,
+  touchStoredEmailAccountOAuthSecretMetadata,
   setPrimaryStoredEmailAccount,
   setStoredEmailAccountStatus,
   updateStoredEmailPolicy,
@@ -77,6 +77,7 @@ import {
   type EmailFolder,
 } from '@/app/lib/email/imap-service';
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
+import { mutateEmailAccountSecret } from '@/app/lib/email/secret-store';
 import { resolveSecretsDir, resolveUserSecretsDir } from '@/app/lib/runtime-data-paths';
 import { normalizePublicOrigin } from '@/app/lib/utils/request-origin';
 
@@ -332,9 +333,9 @@ async function migrateLegacyEmailAccountsIfSafe(userId: string): Promise<void> {
 }
 
 async function integrationEnvMap(userId?: string | null): Promise<Map<string, string>> {
-  const legacyState = await readScopedEnvState('integrations', { secretScope: 'legacy' }).catch(() => ({ entries: [] }));
+  const legacyState = await readScopedEnvState('integrations', { secretScope: 'legacy' });
   const scopedState = userId?.trim()
-    ? await readScopedEnvState('integrations', { userId }).catch(() => ({ entries: [] }))
+    ? await readScopedEnvState('integrations', { userId })
     : { entries: [] };
   return new Map([
     ...legacyState.entries.map((entry) => [entry.key, entry.value] as const),
@@ -550,29 +551,40 @@ async function findLocalEmailAccount(userId: string, accountId?: string): Promis
 }
 
 async function validAccessToken(account: StoredEmailAccount): Promise<string> {
-  const secret = await readStoredEmailAccountSecret(account);
-  if (secret.authType !== 'oauth') throw new Error('Email account is not an OAuth account.');
-  if (!secret.expiresAt || Date.parse(secret.expiresAt) > Date.now() + 60_000) return secret.accessToken;
-  if (!secret.refreshToken) {
-    await setStoredEmailAccountStatus(account, 'expired');
-    throw new Error('Email account authorization expired. Reconnect the account.');
-  }
-  const config = await getOAuthConfig(account.provider as EmailProvider, account.userId);
-  if (!config) throw new Error('Email OAuth credentials are no longer configured.');
-  const params = new URLSearchParams();
-  params.set('grant_type', 'refresh_token');
-  params.set('refresh_token', secret.refreshToken);
-  const refreshed = await exchangeToken(config, params);
-  if (!refreshed.access_token) throw new Error('OAuth refresh response did not include an access token.');
-  await saveStoredEmailAccountOAuthSecret(account, {
-    authType: 'oauth',
-    accessToken: refreshed.access_token,
-    refreshToken: refreshed.refresh_token || secret.refreshToken,
-    tokenType: refreshed.token_type || secret.tokenType,
-    scope: refreshed.scope || secret.scope,
-    expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : secret.expiresAt,
+  const snapshot = await readStoredEmailAccountSecret(account);
+  const refreshConfig = snapshot.authType === 'oauth' && snapshot.refreshToken
+    ? await getOAuthConfig(account.provider as EmailProvider, account.userId)
+    : null;
+  const resolution = await mutateEmailAccountSecret(account.secretRef, async (secret) => {
+    if (!secret) throw new Error('Email account secret is missing or deleted.');
+    if (secret.authType !== 'oauth') throw new Error('Email account is not an OAuth account.');
+    if (!secret.expiresAt || Date.parse(secret.expiresAt) > Date.now() + 60_000) {
+      return { secret, result: { accessToken: secret.accessToken, refreshed: false } };
+    }
+    if (!secret.refreshToken) {
+      await setStoredEmailAccountStatus(account, 'expired');
+      throw new Error('Email account authorization expired. Reconnect the account.');
+    }
+    if (!refreshConfig) throw new Error('Email OAuth credentials are no longer configured.');
+    const params = new URLSearchParams();
+    params.set('grant_type', 'refresh_token');
+    params.set('refresh_token', secret.refreshToken);
+    const refreshed = await exchangeToken(refreshConfig, params);
+    if (!refreshed.access_token) throw new Error('OAuth refresh response did not include an access token.');
+    return {
+      secret: {
+        authType: 'oauth',
+        accessToken: refreshed.access_token,
+        refreshToken: refreshed.refresh_token || secret.refreshToken,
+        tokenType: refreshed.token_type || secret.tokenType,
+        scope: refreshed.scope || secret.scope,
+        expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : secret.expiresAt,
+      },
+      result: { accessToken: refreshed.access_token, refreshed: true },
+    };
   });
-  return refreshed.access_token;
+  if (resolution.refreshed) await touchStoredEmailAccountOAuthSecretMetadata(account);
+  return resolution.accessToken;
 }
 
 async function assertGoogleModifyScope(account: StoredEmailAccount): Promise<void> {

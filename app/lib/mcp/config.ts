@@ -1,5 +1,9 @@
-import { resolveScopedMcpDir, type McpScope } from '@/app/lib/mcp/scope';
-import { hashMcpAuthConfig, hydrateMcpConnectionIdentities, validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
+import { createHash } from 'node:crypto';
+import { readUnifiedEnvState, patchUnifiedEnvEntries, withUnifiedEnvLock } from '@/app/lib/secrets/unified-env-store';
+import { mcpLiteralEnvKey, mcpConfigUsesChangedEnv } from '@/app/lib/mcp/env-references';
+import { hasMcpCredentialUrl, mcpCredentialArgIndices } from '@/app/lib/mcp/credential-fields';
+import { resolveScopedMcpDir, resolveMcpSecretEnvScope, normalizeMcpScope, MCP_SYSTEM_SCOPE, type McpScope } from '@/app/lib/mcp/scope';
+import { hashMcpAuthConfig, hashMcpReferencedAuthConfig, hydrateMcpConnectionIdentities, validateMcpConnectionId } from '@/app/lib/mcp/connection-identity';
 import { withMcpStorageLock } from '@/app/lib/mcp/storage-lock';
 import {
   readMcpTextFileIfExists,
@@ -34,6 +38,7 @@ export type McpServerConfig = {
   legacyOAuthName?: string;
   legacyOAuthAmbiguous?: boolean;
   legacyConfigHash?: string;
+  envMigrationBinding?: { version: 1; priorAuthHash: string; referencedConfigHash: string };
   enabled?: boolean;
   command?: string;
   args?: string[];
@@ -101,6 +106,11 @@ function isEnvReference(value: unknown): boolean {
 }
 
 export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
+  return parseMcpConfig(rawContent, false);
+}
+
+/** Only existing storage may contain historical literal credentials. Incoming API edits stay strict. */
+function parseMcpConfig(rawContent: string, migrating: boolean): McpConfig {
   let parsed: unknown;
 
   try {
@@ -153,6 +163,12 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
     if (serverConfig.envPassthrough !== undefined && (!Array.isArray(serverConfig.envPassthrough) || !serverConfig.envPassthrough.every(isValidEnvKey))) {
       throw new McpConfigValidationError(`MCP server "${serverName}" field "envPassthrough" must contain environment variable names only.`);
     }
+    if (serverConfig.url !== undefined && typeof serverConfig.url !== 'string') {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "url" must be a string.`);
+    }
+    if (serverConfig.args !== undefined && (!Array.isArray(serverConfig.args) || serverConfig.args.some(value => typeof value !== 'string'))) {
+      throw new McpConfigValidationError(`MCP server "${serverName}" field "args" must contain strings only.`);
+    }
     if (serverConfig.bearerTokenEnv !== undefined && !isValidEnvKey(serverConfig.bearerTokenEnv)) {
       throw new McpConfigValidationError(`MCP server "${serverName}" field "bearerTokenEnv" must be an environment variable name.`);
     }
@@ -169,7 +185,7 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
         if (field === 'headersFromEnv' && !isValidEnvKey(value)) {
           throw new McpConfigValidationError(`MCP server "${serverName}" field "headersFromEnv.${key}" must reference an environment variable name.`);
         }
-        if (field !== 'headersFromEnv' && isSecretLikeKey(key) && !isEnvReference(value)) {
+        if (!migrating && field !== 'headersFromEnv' && isSecretLikeKey(key) && !isEnvReference(value)) {
           throw new McpConfigValidationError(`MCP server "${serverName}" must reference secret header or environment values via \${ENV_VAR}.`);
         }
       }
@@ -180,6 +196,63 @@ export function parseAndValidateMcpConfig(rawContent: string): McpConfig {
   }
 
   return parsed as McpConfig;
+}
+
+/** Called only while holding the MCP config lock; the lock order is always config -> ENV. */
+async function centralizeMcpLiterals(config: McpConfig, scope: McpScope | null | undefined, mode: 'migration' | 'write', changedKeys?: Set<string>): Promise<McpConfig> {
+  const normalizedScope = normalizeMcpScope(scope) || MCP_SYSTEM_SCOPE;
+  const pending: Array<{ key: string; value: string }> = [];
+  const mcpServers: Record<string, McpServerConfig> = {};
+  for (const [name, server] of Object.entries(config.mcpServers)) {
+    const updated: McpServerConfig = { ...server };
+    let changed = false;
+    const identity = server.connectionId || `system-${createHash('sha256').update(name).digest('hex')}`;
+    for (const field of ['env', 'headers'] as const) {
+      if (!server[field]) continue;
+      const values = { ...server[field] };
+      for (const [entryName, value] of Object.entries(values)) {
+        if (isEnvReference(value)) continue;
+        const key = mcpLiteralEnvKey(identity, field, entryName);
+        pending.push({ key, value });
+        values[entryName] = `\${${key}}`;
+        changed = true;
+      }
+      updated[field] = values;
+    }
+    if (server.url && hasMcpCredentialUrl(server.url)) {
+      const key = mcpLiteralEnvKey(identity, 'url', 'url');
+      pending.push({ key, value: server.url });
+      updated.url = `\${${key}}`;
+      changed = true;
+    }
+    if (server.args) {
+      const sensitive = mcpCredentialArgIndices(server.args);
+      updated.args = server.args.map((value, index) => {
+        if (!sensitive.has(index)) return value;
+        const key = mcpLiteralEnvKey(identity, 'args', String(index));
+        pending.push({ key, value });
+        changed = true;
+        return `\${${key}}`;
+      });
+    }
+    if (changed) updated.envMigrationBinding = {
+      version: 1, priorAuthHash: hashMcpAuthConfig(server), referencedConfigHash: hashMcpReferencedAuthConfig(updated),
+    };
+    mcpServers[name] = changed ? updated : server;
+  }
+  if (!pending.length) return config;
+  const envScope = resolveMcpSecretEnvScope(normalizedScope);
+  await withUnifiedEnvLock(envScope, async () => {
+    const state = await readUnifiedEnvState(envScope);
+    if (!state.readable) throw new Error('MCP settings cannot migrate unreadable encrypted values. Configure the secret master key.');
+    const existing = new Map(state.entries.map(entry => [entry.key, entry.value]));
+    const patches = pending.filter(entry => mode === 'migration' ? !existing.has(entry.key) : existing.get(entry.key) !== entry.value);
+    if (patches.length) {
+      await patchUnifiedEnvEntries(patches, envScope);
+      for (const patch of patches) changedKeys?.add(patch.key);
+    }
+  });
+  return { ...config, mcpServers };
 }
 
 export async function ensureMcpConfigExists(scope?: McpScope | null): Promise<{ filePath: string; created: boolean }> {
@@ -197,8 +270,9 @@ async function readMcpConfigStateUnlocked(scope?: McpScope | null): Promise<McpC
   const { created } = await ensureMcpConfigExists(scope);
   const state = await readMcpTextFileIfExists(getMcpConfigFile(scope), scope);
   let rawContent = state.content ?? formatDefaultConfig();
-  const parsed = parseAndValidateMcpConfig(rawContent);
-  const hydrated = hydrateMcpConnectionIdentities(parsed, scope);
+  const parsed = parseMcpConfig(rawContent, true);
+  const hydrated = await centralizeMcpLiterals(hydrateMcpConnectionIdentities(parsed, scope), scope, 'migration');
+  parseAndValidateMcpConfig(JSON.stringify(hydrated));
   if (JSON.stringify(hydrated) !== JSON.stringify(parsed)) {
     rawContent = `${JSON.stringify(hydrated, null, 2)}\n`;
     await writeMcpTextFileAtomic(getMcpConfigFile(scope), rawContent, scope);
@@ -228,12 +302,13 @@ export async function writeMcpConfigRaw(rawContent: string, scope?: McpScope | n
       throw Object.assign(new Error('MCP connections changed. Reload and try again.'), { status: 409, code: 'MCP_CONFIG_CONFLICT' });
     }
     const previous = parseAndValidateMcpConfig(previousState.rawContent);
-    const hydrated = hydrateMcpConnectionIdentities(incoming, scope, previous);
+    const changedEnvKeys = new Set<string>();
+    const hydrated = await centralizeMcpLiterals(hydrateMcpConnectionIdentities(incoming, scope, previous), scope, 'write', changedEnvKeys);
     const nextById = new Map(Object.values(hydrated.mcpServers).map((server) => [server.connectionId, server]));
     for (const server of Object.values(previous.mcpServers)) {
       if (!server.connectionId) continue;
       const next = nextById.get(server.connectionId);
-      if (next && JSON.stringify(next) === JSON.stringify(server)) continue;
+      if (next && JSON.stringify(next) === JSON.stringify(server) && !mcpConfigUsesChangedEnv(next, changedEnvKeys)) continue;
       const clearAuth = (!next || hashMcpAuthConfig(next) !== hashMcpAuthConfig(server)) && Boolean(server.auth === 'oauth' || server.oauth);
       let invalidatedGeneration: number | undefined;
       if (clearAuth) {

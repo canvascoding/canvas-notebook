@@ -29,6 +29,7 @@ async function main() {
 
   const originalFetch = globalThis.fetch;
   try {
+    const { patchUnifiedEnvEntries } = await import('../app/lib/integrations/env-config');
     const { formatWebSearchResults, getWebSearchStatus, searchWeb } = await import('../app/lib/integrations/brave-search-service');
 
     const disabledStatus = await getWebSearchStatus();
@@ -73,7 +74,7 @@ async function main() {
     assert.doesNotMatch(formatWebSearchResults(result), /test-local-key/);
 
     process.env.WEB_SEARCH_PROVIDER = 'ollama';
-    await fs.writeFile(path.join(secretsDir, 'Canvas-Integrations.env'), 'OLLAMA_API_KEY=test-ollama-key\n', 'utf8');
+    await patchUnifiedEnvEntries([{ key: 'OLLAMA_API_KEY', value: 'test-ollama-key' }]);
     let sawOllamaAuthorization = false;
     globalThis.fetch = async (input, init) => {
       assert.equal(String(input), 'https://ollama.com/api/web_search');
@@ -99,6 +100,7 @@ async function main() {
   } finally {
     globalThis.fetch = originalFetch;
     moduleInternals._load = originalLoad;
+    await fs.rm(dataDir, { recursive: true, force: true });
   }
 }
 

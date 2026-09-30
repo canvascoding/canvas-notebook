@@ -1,10 +1,10 @@
 /**
  * PI OAuth Credential Manager
- * Manages OAuth credentials for all PI providers in /data/settings/auth.json
+ * Manages provider OAuth credentials in the unified, owner-scoped secret store
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import type {
   AuthEvent,
   AuthPrompt,
@@ -26,7 +26,7 @@ import {
   resolveSettingsStorageDir,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
-import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
+import { getUnifiedEnvFilePath, readUnifiedSecretValue, mutateUnifiedSecretValue, type EnvStorageScope } from '@/app/lib/integrations/env-config';
 
 export type OAuthCredentials = PiOAuthCredentials;
 
@@ -44,8 +44,7 @@ export const PI_OAUTH_PROVIDERS = [
 export type OAuthProviderId = (typeof PI_OAUTH_PROVIDERS)[number];
 export type { OAuthPrompt };
 
-const DEFAULT_AUTH_FILE_PATH = join(resolveSettingsStorageDir(), 'auth.json');
-const LEGACY_AUTH_FILE_PATH = join(resolveAgentStorageDir(), 'auth.json');
+const PI_OAUTH_SECRET_KEY = 'CANVAS_CREDENTIAL_PI_OAUTH';
 
 export type OAuthStorageScope = UserScopedDataStorageScope;
 
@@ -104,37 +103,30 @@ function hasUserScope(scope?: OAuthStorageScope | null): boolean {
   return Boolean(scope?.userId?.trim());
 }
 
-function getAuthFilePath(scope?: OAuthStorageScope | null): string {
-  if (hasUserScope(scope)) {
-    return join(resolveScopedSettingsDir(scope), 'auth.json');
-  }
-
-  return process.env.OAUTH_STORAGE_PATH || DEFAULT_AUTH_FILE_PATH;
+function oauthSecretScope(scope?: OAuthStorageScope | null): EnvStorageScope {
+  return hasUserScope(scope) ? { userId: scope!.userId } : { secretScope: 'system' };
 }
 
-function ensureAuthDir(scope?: OAuthStorageScope | null): void {
-  const dir = dirname(getAuthFilePath(scope));
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+/** Canonical durable storage path; auth.json paths are read-only migration sources. */
+export function getAuthFilePath(scope?: OAuthStorageScope | null): string {
+  return getUnifiedEnvFilePath(oauthSecretScope(scope));
 }
 
-function migrateLegacyAuthFileIfNeeded(scope?: OAuthStorageScope | null): void {
-  if (hasUserScope(scope)) {
-    return;
+function readLegacyAuthFile(scope?: OAuthStorageScope | null): AuthFile {
+  const candidates = hasUserScope(scope)
+    ? [join(resolveScopedSettingsDir(scope), 'auth.json')]
+    : process.env.OAUTH_STORAGE_PATH
+      ? [process.env.OAUTH_STORAGE_PATH]
+      : [join(resolveSettingsStorageDir(), 'auth.json'), join(resolveAgentStorageDir(), 'auth.json')];
+  for (const filePath of candidates) {
+    let content: string;
+    try { content = readFileSync(filePath, 'utf8'); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      throw error;
+    }
+    return parseAuthFile(content);
   }
-
-  const authFilePath = getAuthFilePath(scope);
-  if (process.env.OAUTH_STORAGE_PATH || existsSync(authFilePath) || !existsSync(LEGACY_AUTH_FILE_PATH)) {
-    return;
-  }
-
-  try {
-    ensureAuthDir(scope);
-    copyFileSync(LEGACY_AUTH_FILE_PATH, authFilePath);
-  } catch {
-    // If /data/settings is unavailable, reads continue from the legacy path.
-  }
+  return Object.create(null) as AuthFile;
 }
 
 function normalizeOAuthCredential(value: unknown): OAuthCredential | null {
@@ -144,6 +136,8 @@ function normalizeOAuthCredential(value: unknown): OAuthCredential | null {
     typeof candidate.access !== 'string'
     || typeof candidate.refresh !== 'string'
     || typeof candidate.expires !== 'number'
+    || !Number.isFinite(candidate.expires)
+    || (candidate.type !== undefined && candidate.type !== 'oauth')
   ) {
     return null;
   }
@@ -157,113 +151,62 @@ function normalizeOAuthCredential(value: unknown): OAuthCredential | null {
 }
 
 function parseAuthFile(content: string): AuthFile {
-  const parsed = JSON.parse(content) as unknown;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
-  const auth: AuthFile = {};
+  let parsed: unknown;
+  try { parsed = JSON.parse(content); } catch { throw new Error('PI OAuth credential data is not valid JSON.'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('PI OAuth credential data must be a provider map.');
+  const auth = Object.create(null) as AuthFile;
   for (const [provider, value] of Object.entries(parsed)) {
     const credential = normalizeOAuthCredential(value);
-    if (credential) auth[provider] = credential;
+    if (!credential || ['__proto__', 'constructor', 'prototype'].includes(provider)) throw new Error('PI OAuth credential data contains an invalid provider credential.');
+    auth[provider] = credential;
   }
   return auth;
 }
 
-/**
- * Load auth data from file
- */
+/** Synchronous status lookups never write or borrow another user's credentials. */
 function loadAuthFile(scope?: OAuthStorageScope | null): AuthFile {
-  try {
-    migrateLegacyAuthFileIfNeeded(scope);
-    const authFilePath = getAuthFilePath(scope);
-    if (existsSync(authFilePath)) {
-      const content = readFileSync(authFilePath, 'utf-8');
-      return parseAuthFile(content);
-    }
-    if (!hasUserScope(scope) && !process.env.OAUTH_STORAGE_PATH && existsSync(LEGACY_AUTH_FILE_PATH)) {
-      const content = readFileSync(LEGACY_AUTH_FILE_PATH, 'utf-8');
-      return parseAuthFile(content);
-    }
-  } catch (error) {
-    console.error('Failed to load auth file:', error);
-  }
-  return {};
+  const encoded = readUnifiedSecretValue(PI_OAUTH_SECRET_KEY, oauthSecretScope(scope));
+  return encoded === null ? readLegacyAuthFile(scope) : parseAuthFile(encoded);
 }
 
-/**
- * Save auth data to file
- */
-function saveAuthFile(auth: AuthFile, scope?: OAuthStorageScope | null): void {
-  try {
-    migrateLegacyAuthFileIfNeeded(scope);
-    ensureAuthDir(scope);
-    const authFilePath = getAuthFilePath(scope);
-    const temporaryPath = `${authFilePath}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      writeFileSync(temporaryPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
-      renameSync(temporaryPath, authFilePath);
-    } finally {
-      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
-    }
-  } catch (error) {
-    if (process.env.OAUTH_STORAGE_PATH || hasUserScope(scope)) {
-      throw error;
-    }
-    const legacyDir = dirname(LEGACY_AUTH_FILE_PATH);
-    if (!existsSync(legacyDir)) {
-      mkdirSync(legacyDir, { recursive: true });
-    }
-    const temporaryPath = `${LEGACY_AUTH_FILE_PATH}.${process.pid}.${Date.now()}.tmp`;
-    try {
-      writeFileSync(temporaryPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
-      renameSync(temporaryPath, LEGACY_AUTH_FILE_PATH);
-    } finally {
-      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
-    }
-  }
+/** All import, refresh and edits serialize the whole provider map across processes. */
+async function mutateAuthFile<T>(scope: OAuthStorageScope | null | undefined, operation: (auth: AuthFile) => Promise<T>): Promise<T> {
+  let result!: T;
+  await mutateUnifiedSecretValue(PI_OAUTH_SECRET_KEY, async current => {
+    const auth = current === null ? readLegacyAuthFile(scope) : parseAuthFile(current);
+    const before = JSON.stringify(auth);
+    result = await operation(auth);
+    const after = JSON.stringify(auth);
+    return current !== null && before === after ? current : after;
+  }, oauthSecretScope(scope));
+  return result;
 }
 
 function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialStore {
-  const lockKey = getAuthFilePath(scope);
   return {
-    read: async (providerId, options) => {
+    read: async (providerId, options) => mutateAuthFile(scope, async auth => {
       options?.signal?.throwIfAborted();
-      return loadAuthFile(scope)[providerId];
-    },
-    list: async (options): Promise<readonly CredentialInfo[]> => {
+      return auth[providerId];
+    }),
+    list: async (options): Promise<readonly CredentialInfo[]> => mutateAuthFile(scope, async auth => {
       options?.signal?.throwIfAborted();
-      return Object.entries(loadAuthFile(scope)).map(([providerId, credential]) => ({
-        providerId,
-        type: credential.type,
-      }));
-    },
-    modify: async (providerId, operation, options) => withKeyedOperationLock(
-      'pi-oauth-credential',
-      JSON.stringify([lockKey, providerId]),
-      async () => {
-        options?.signal?.throwIfAborted();
-        const auth = loadAuthFile(scope);
-        const next = await operation(auth[providerId]);
-        options?.signal?.throwIfAborted();
-        if (next) {
-          if (next.type !== 'oauth') {
-            throw new Error(`Unsupported credential type for ${providerId}.`);
-          }
-          auth[providerId] = next;
-          saveAuthFile(auth, scope);
-        }
-        return auth[providerId];
-      },
-    ),
-    delete: async (providerId, options) => withKeyedOperationLock(
-      'pi-oauth-credential',
-      JSON.stringify([lockKey, providerId]),
-      async () => {
-        options?.signal?.throwIfAborted();
-        const auth = loadAuthFile(scope);
-        if (!(providerId in auth)) return;
-        delete auth[providerId];
-        saveAuthFile(auth, scope);
-      },
-    ),
+      return Object.entries(auth).map(([providerId, credential]) => ({ providerId, type: credential.type }));
+    }),
+    modify: async (providerId, operation, options) => mutateAuthFile(scope, async auth => {
+      options?.signal?.throwIfAborted();
+      const next = await operation(auth[providerId]);
+      options?.signal?.throwIfAborted();
+      if (next) {
+        const normalized = normalizeOAuthCredential(next);
+        if (!normalized || ['__proto__', 'constructor', 'prototype'].includes(providerId)) throw new Error('Invalid PI OAuth provider credential.');
+        auth[providerId] = normalized;
+      }
+      return auth[providerId];
+    }),
+    delete: async (providerId, options) => mutateAuthFile(scope, async auth => {
+      options?.signal?.throwIfAborted();
+      delete auth[providerId];
+    }),
   };
 }
 
@@ -442,7 +385,7 @@ export function getAllProviderStatus(
 
   return providers.map((provider) => {
     const creds = auth[provider];
-    const isConnected = hasProviderCredentials(provider, scope);
+    const isConnected = Boolean(creds?.refresh);
     
     return {
       provider,

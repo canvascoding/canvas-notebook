@@ -86,6 +86,27 @@ export type WorkspaceLinkCoverageV1 = {
   }>;
 };
 
+/** Operation safety is separate from the completeness of the workspace index. */
+export type WorkspaceFileOperationLinkAssessmentV1 = {
+  version: 1;
+  /** False if an omitted or unevaluated source prevents a safety assessment. */
+  complete: boolean;
+  warnings: Array<{
+    workspaceId?: string;
+    sourcePath: string;
+    targetLiteral: string;
+    status: Exclude<WorkspaceLinkResolveStatusV1, 'resolved'>;
+    reason: 'unaffected-existing-link';
+  }>;
+  blockers: Array<{
+    workspaceId?: string;
+    sourcePath: string;
+    targetLiteral: string;
+    status: WorkspaceLinkResolveStatusV1;
+    reason: 'affected-unresolved-link' | 'uninspected-source' | 'unevaluated-link' | 'resolution-changed';
+  }>;
+};
+
 export type WorkspaceFileOperationKindV1 =
   | 'rename'
   | 'move'
@@ -130,6 +151,8 @@ export type WorkspaceFileOperationPlanV1 = {
   pathMappings: WorkspaceFilePathMappingV1[];
   linkEdits: WorkspaceFileLinkEditV1[];
   coverage: WorkspaceLinkCoverageV1;
+  /** Absent on legacy plans, which continue to require complete coverage. */
+  linkAssessment?: WorkspaceFileOperationLinkAssessmentV1;
   /** Apply must verify every source and destination again under ordered locks. */
   expectedPathState: Array<{
     workspaceId: string;

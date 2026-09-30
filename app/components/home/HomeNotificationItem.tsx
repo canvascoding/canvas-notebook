@@ -16,6 +16,8 @@ import {
 import { openEmailReview } from '@/app/store/email-review-store';
 import { EmailReviewNotificationActions } from '@/app/components/email-review/EmailReviewNotificationActions';
 import { openMemoryReview } from '@/app/store/memory-review-store';
+import { openTodoDetail } from '@/app/store/todo-detail-store';
+import { isUnmodifiedPrimaryClick } from '@/app/lib/todos/navigation';
 
 const ICONS = {
   chat: MessageSquare,
@@ -71,6 +73,13 @@ export function HomeNotificationItem({
   return (
     <li className="border-b border-border/60 last:border-0">
       <Link href={notificationHref(item)} data-testid={emailTarget ? `home-email-open-${emailTarget.draftId}` : undefined} onClick={(event) => {
+        if (item.target.kind === 'todo') {
+          if (!isUnmodifiedPrimaryClick(event)) return;
+          event.preventDefault();
+          if (item.unread) onRead();
+          openTodoDetail(item.target.todoId);
+          return;
+        }
         if (emailTarget) { event.preventDefault(); void openEmailReview(emailTarget); return; }
         if (item.target.kind === 'memory') {
           event.preventDefault();

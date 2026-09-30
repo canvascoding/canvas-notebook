@@ -32,6 +32,13 @@ function resolveCanvasDataRoot(cwd = process.cwd()): string {
   if (configured) {
     return path.resolve(/*turbopackIgnore: true*/ configured);
   }
+  const configuredData = process.env.DATA?.trim();
+  const normalizedData = configuredData?.replace(/\\/gu, '/');
+  if (configuredData && normalizedData && path.posix.normalize(normalizedData).replace(/\/+$/u, '') !== 'data') {
+    return path.isAbsolute(configuredData)
+      ? configuredData
+      : path.resolve(/*turbopackIgnore: true*/ cwd, configuredData);
+  }
   if (directoryExists(CONTAINER_DATA_ROOT)) {
     return CONTAINER_DATA_ROOT;
   }
@@ -197,16 +204,6 @@ async function copyGlobalSettingsIfTargetMissing(sourceDir: string, label: strin
   }
 }
 
-function getIntegrationsEnvPath(): string {
-  const configured = process.env.INTEGRATIONS_ENV_PATH?.trim();
-  return configured || DEFAULT_INTEGRATIONS_ENV_PATH;
-}
-
-function getAgentsEnvPath(): string {
-  const configured = process.env.AGENTS_ENV_PATH?.trim();
-  return configured || DEFAULT_AGENTS_ENV_PATH;
-}
-
 async function migrateLegacyFiles(): Promise<void> {
   // Migrate managed markdown files into the canonical /data/agents/canvas-agent directory.
   await copyManagedFilesIfTargetMissing(LEGACY_AGENT_STORAGE_DIR, 'legacy /home/node/canvas-agent');
@@ -220,8 +217,8 @@ async function migrateLegacyFiles(): Promise<void> {
   await fs.mkdir(SECRETS_DIR, { recursive: true });
   
   const migrations = [
-    { legacy: LEGACY_INTEGRATIONS_ENV_PATH, current: getIntegrationsEnvPath(), label: 'Canvas-Integrations.env' },
-    { legacy: LEGACY_AGENTS_ENV_PATH, current: getAgentsEnvPath(), label: 'Canvas-Agents.env' },
+    { legacy: LEGACY_INTEGRATIONS_ENV_PATH, current: DEFAULT_INTEGRATIONS_ENV_PATH, label: 'Canvas-Integrations.env' },
+    { legacy: LEGACY_AGENTS_ENV_PATH, current: DEFAULT_AGENTS_ENV_PATH, label: 'Canvas-Agents.env' },
   ];
   
   for (const { legacy, current, label } of migrations) {
@@ -234,40 +231,15 @@ async function migrateLegacyFiles(): Promise<void> {
 }
 
 async function ensureIntegrationsEnvBootstrap(): Promise<void> {
-  // Ensure secrets directory exists
-  await fs.mkdir(SECRETS_DIR, { recursive: true });
-  
-  const envFiles = [
-    { label: 'integrations', filePath: getIntegrationsEnvPath() },
-    { label: 'agents', filePath: getAgentsEnvPath() },
-  ];
-
-  for (const envFile of envFiles) {
-    await fs.mkdir(path.dirname(envFile.filePath), { recursive: true });
-
-    try {
-      const handle = await fs.open(envFile.filePath, 'wx', 0o600);
-      await handle.close();
-      await fs.chmod(envFile.filePath, 0o600);
-      console.log(`[bootstrap-agent-runtime] Created ${envFile.label} env file: ${envFile.filePath}.`);
-      continue;
-    } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error) {
-        if (error.code === 'EEXIST') {
-          await fs.chmod(envFile.filePath, 0o600).catch(() => undefined);
-          console.log(`[bootstrap-agent-runtime] ${envFile.label} env file exists: ${envFile.filePath} (preserved).`);
-          continue;
-        }
-
-        if (error.code === 'EISDIR') {
-          console.warn(`[bootstrap-agent-runtime] WARNING: ${envFile.label} env path is a directory: ${envFile.filePath}.`);
-          continue;
-        }
-      }
-
-      throw error;
-    }
-  }
+  const { getUnifiedEnvFilePath, readUnifiedEnvState, replaceUnifiedEnvRaw, withUnifiedEnvLock } = await import('../app/lib/secrets/unified-env-store');
+  const systemScope = { secretScope: 'system' } as const;
+  await withUnifiedEnvLock(systemScope, async () => {
+    const state = await readUnifiedEnvState(systemScope);
+    if (!state.exists) await replaceUnifiedEnvRaw(state.rawContent, state.revision, systemScope);
+  });
+  const canonicalPath = getUnifiedEnvFilePath({ secretScope: 'system' });
+  await fs.chmod(canonicalPath, 0o600).catch(() => undefined);
+  console.log(`[bootstrap-agent-runtime] System secrets store ready: ${canonicalPath}.`);
 }
 
 function buildDefaultConfig() {

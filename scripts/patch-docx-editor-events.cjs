@@ -25,6 +25,10 @@ function exact(source, before, after) {
   return source.replace(before, after);
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
 for (const [file, hook, convert] of [
   ['dist/chunk-5SHALB3Z.mjs', '', 'kr'],
   ['dist/chunk-KO42TOIK.js', '_p.', 'kr'],
@@ -63,7 +67,7 @@ for (const [file, hook, convert] of [
   component = exact(component, 'Re&&(()=>{let l=co?', 'Re&&!Fe&&(()=>{let l=co?');
   component = exact(component, `Sm=${hook}useCallback((l,i)=>{`, `Sm=${hook}useCallback((l,i)=>{if(canvasReadonlyRef.current)return;`);
   for (const name of ['gi', 'Sm', 'Ts', 'wm', 'Gn', 'lm']) {
-    const match = new RegExp(`${name.replace('$', '\\$')}=${hook.replace('.', '\\.')}useCallback\\(`).exec(component);
+    const match = new RegExp(`${escapeRegex(name)}=${escapeRegex(hook)}useCallback\\(`).exec(component);
     if (!match) throw new Error(`Missing document mutation ${name}`);
     const begin = match.index;
     const next = component.indexOf(']),', begin) + 3;

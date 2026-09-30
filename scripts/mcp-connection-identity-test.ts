@@ -39,7 +39,6 @@ async function main() {
   } = await import('../app/lib/mcp/config');
   const { hashMcpAuthConfig } = await import('../app/lib/mcp/connection-identity');
   const { readMcpCredentialJson, resolveMcpCredentialConnection, writeMcpCredentialJson } = await import('../app/lib/mcp/credential-storage');
-  const { resolveMcpStoragePath } = await import('../app/lib/mcp/storage');
 
   const userA = { userId: 'identity-user-a', organizationId: 'org-a' };
   const userB = { userId: 'identity-user-b', organizationId: 'org-a' };
@@ -175,9 +174,11 @@ async function main() {
   assert.equal((await readMcpCredentialJson<{ value: string }>(credentialPath, mixedUserScope))?.value, 'test-only-credential');
   assert.equal((await readMcpCredentialJson<{ value: string }>(credentialPath, mixedOrgBScope))?.value, 'test-only-credential');
   await assert.rejects(() => readMcpCredentialJson(credentialPath, mixedOrgAScope), /organization/i);
-  const sealedPath = resolveMcpStoragePath(credentialPath, mixedUserScope);
-  const envelope = JSON.parse(await fs.readFile(sealedPath, 'utf8')) as { organizationId: string | null };
-  await fs.writeFile(sealedPath, JSON.stringify({ ...envelope, organizationId: 'org-a' }));
+  const { readUnifiedSecretValue, mutateUnifiedSecretValue } = await import('../app/lib/secrets/unified-env-store');
+  const credentialKey = `CANVAS_CREDENTIAL_MCP_${crypto.createHash('sha256').update(credentialPath).digest('hex')}`;
+  const envScope = { userId: mixedUserScope.userId };
+  const envelope = JSON.parse(readUnifiedSecretValue(credentialKey, envScope)!) as { organizationId: string | null };
+  await mutateUnifiedSecretValue(credentialKey, async () => JSON.stringify({ ...envelope, organizationId: 'org-a' }), envScope);
   await assert.rejects(() => readMcpCredentialJson(credentialPath, mixedUserScope), /decrypt|secret|authentication|invalid/i, 'clear organization routing is cryptographically bound to the encrypted credential');
 
   const oldRaw = JSON.stringify({ mcpServers: {

@@ -44,9 +44,9 @@ async function main() {
         const csp = response.headers.get('Content-Security-Policy');
         assert.ok(csp, 'Real proxy page/API responses must carry CSP');
         const sources = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('connect-src '))?.split(' ').slice(1);
-        assert.deepEqual(sources, origin ? [...baseSources, origin] : baseSources);
+        assert.deepEqual(sources, origin ? [...baseSources, origin] : baseSources,
+          'Request headers must not expand the exact connect-src allowlist');
         assert.ok(!csp.includes('fixture-only'), 'Instance token must not appear in a response header');
-        assert.ok(!csp.includes('attacker.example.com'), 'Request headers must not expand connect-src');
       }
     }
   } finally {

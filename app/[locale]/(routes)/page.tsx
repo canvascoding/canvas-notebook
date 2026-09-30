@@ -23,10 +23,12 @@ const releaseVersion = packageJson.version;
 const releaseTag = `v${releaseVersion}`;
 const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const tHome = await getTranslations('home');
   const onboardingHintsEnabled = isOnboardingHintsEnabled();
-  const session = await requirePageSession();
+  const params = await searchParams;
+  const todo = typeof params.todo === 'string' ? params.todo : null;
+  const session = await requirePageSession({ returnTo: todo ? `/?${new URLSearchParams({ todo })}` : undefined });
   if (!session) return null;
   const userOnboarding = await getUserOnboardingState(session.user.id);
   const userProfile = await resolveUserProfile({

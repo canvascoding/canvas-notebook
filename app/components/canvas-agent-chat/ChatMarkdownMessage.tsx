@@ -26,6 +26,8 @@ import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/use
 import { useChatFileReferenceValidation } from '@/app/components/canvas-agent-chat/useChatFileReferenceValidation';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
+import { isUnmodifiedPrimaryClick, todoIdFromHref } from '@/app/lib/todos/navigation';
+import { openTodoDetail } from '@/app/store/todo-detail-store';
 import {
   ObsidianCallout,
   ObsidianInlineFootnote,
@@ -456,6 +458,13 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
           target="_blank"
           rel="noopener noreferrer"
           className="underline underline-offset-2"
+          onClick={(event) => {
+            if (!href || !isUnmodifiedPrimaryClick(event)) return;
+            const todoId = todoIdFromHref(href, window.location.href);
+            if (!todoId) return;
+            event.preventDefault();
+            openTodoDetail(todoId);
+          }}
         >
           {children}
         </a>

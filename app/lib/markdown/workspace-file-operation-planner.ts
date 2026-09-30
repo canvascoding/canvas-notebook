@@ -16,6 +16,7 @@ import {
   type WorkspaceLinkEdge,
 } from './workspace-link-index-core';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
+import { assessWorkspaceFileOperationLinks } from './workspace-file-operation-link-assessment';
 
 export type WorkspacePlannerEntry = {
   /** A snapshot identity, such as a file ID; it must not be derived from the path. */
@@ -293,7 +294,6 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
     })),
     unresolvedLinks: [...sourceIndex.coverage.unresolvedLinks],
   };
-  if (!coverage.complete) issue('incomplete-index', request.sourceWorkspaceId, '', 'Some source links or Markdown documents were not fully evaluated.');
   const pending: PendingEdit[] = [];
   for (const edge of sourceIndex.edges) {
     if (edge.status !== 'resolved' || !edge.targetPath) continue;
@@ -351,6 +351,18 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
   }
   const linkEdits = [...pending]
     .sort((a, b) => a.sourcePathBefore.localeCompare(b.sourcePathBefore) || a.targetRange.startUtf16 - b.targetRange.startUtf16);
+  const { linkAssessment, destinationCoverage } = assessWorkspaceFileOperationLinks({
+    request, pathMappings, sourceIndex, previewContents,
+  });
+  if (destinationCoverage) {
+    coverage.complete &&= destinationCoverage.complete;
+    coverage.omittedSources.push(...destinationCoverage.omittedSources);
+    coverage.unresolvedLinks.push(...destinationCoverage.unresolvedLinks);
+  }
+  for (const blocker of linkAssessment.blockers) {
+    issue('incomplete-index', blocker.workspaceId ?? request.sourceWorkspaceId, blocker.sourcePath,
+      `${blocker.reason}: ${blocker.targetLiteral || blocker.sourcePath} (${blocker.status}).`);
+  }
   const expectedPathState = new Map<string, WorkspaceFileOperationPlanV1['expectedPathState'][number]>();
   const expect = (workspaceId: string, pathValue: string): void => {
     const key = `${workspaceId}\0${pathValue}`;
@@ -374,6 +386,7 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
     pathMappings,
     linkEdits,
     coverage,
+    linkAssessment,
     expectedPathState: Array.from(expectedPathState.values()).sort((a, b) =>
       a.workspaceId.localeCompare(b.workspaceId) || a.path.localeCompare(b.path)),
     collisions,

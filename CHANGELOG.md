@@ -11,6 +11,30 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.9.30.1] - 2026-09-30
+
+### Added
+
+- Added automation continuity with scoped job state, bounded previous-run context, run diagnostics, and controls for reading prior results.
+- Added shared, permission-scoped secrets storage and settings workflows for users, organizations, and system credentials.
+- Added global Todo detail popups, email deep links, and richer Todo assignment and avatar support.
+- Added durable history and safety checks for agent document edits, plus workspace-link diagnostics and file-change summaries.
+
+### Changed
+
+- Improved agent tool lifecycle, automation context handling, MCP credential resolution, OAuth binding, and managed license recovery.
+- Improved file review navigation, Markdown editing, HTML preview stability, and unified settings workflows.
+
+### Fixed
+
+- Patched security vulnerabilities in Next.js, DOMPurify, urllib3, and related dependencies.
+- Escaped HTML preview worker bootstrap data, restricted agent seed paths to an allowlist, and hardened shared Actions cache permissions.
+- Fixed Todo navigation and permissions, scoped credential handling, and several collaboration and file-review edge cases.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.29.2] - 2026-09-29
 
 ### Changed

@@ -18,6 +18,7 @@ import { WebSocketProvider } from '@/app/components/websocket-provider';
 import { FileVersionCenterHost } from '@/app/components/file-version-center/FileVersionCenterHost';
 import { EmailReviewHost } from '@/app/components/email-review/EmailReviewHost';
 import { MemoryReviewHost } from '@/app/components/memory-review/MemoryReviewHost';
+import { TodoDetailHost } from '@/app/components/todo-detail/TodoDetailHost';
 import { NotebookQueryProvider } from '@/app/components/NotebookQueryProvider';
 import { HumanActivityRecorder } from '@/app/components/HumanActivityRecorder';
 import {NextIntlClientProvider} from 'next-intl';
@@ -111,6 +112,9 @@ export default async function LocaleLayout({
                     {children}
                     <FileVersionCenterHost />
                     <MemoryReviewHost />
+                    <Suspense fallback={null}>
+                      <TodoDetailHost />
+                    </Suspense>
                     <Suspense fallback={null}>
                       <EmailReviewHost />
                     </Suspense>

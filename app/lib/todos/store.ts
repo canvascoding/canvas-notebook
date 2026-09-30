@@ -30,6 +30,7 @@ import { deriveTodoEffectiveReadState, todoLifecycleAllowsUnread } from './read-
 import type { TodoScopeKind } from './scope';
 import { isTodoIconKey, type TodoIconKey } from './icons';
 import { bulkActionAllowsStatus, TODO_BULK_LIMIT, TodoBulkError, type TodoBulkAction } from './bulk-policy';
+import { todoUserAvatarHref } from './avatar-href';
 
 export type { TodoScopeKind } from './scope';
 
@@ -179,6 +180,7 @@ export type TodoUserSummary = {
   id: string;
   name: string | null;
   email: string | null;
+  image?: string | null;
 };
 
 export type TodoWorkspaceSummary = {
@@ -866,7 +868,7 @@ async function hydrateTodos(rows: TodoItem[], userId: string): Promise<TodoWithR
     row.assigneeUserId,
   ]).filter(Boolean))) as string[];
   const users = userIds.length
-    ? await db.select({ id: user.id, name: user.name, email: user.email }).from(user).where(inArray(user.id, userIds))
+    ? await db.select({ id: user.id, name: user.name, email: user.email, image: user.image }).from(user).where(inArray(user.id, userIds))
     : [];
   const userById = new Map(users.map((entry) => [entry.id, entry]));
 
@@ -881,6 +883,8 @@ async function hydrateTodos(rows: TodoItem[], userId: string): Promise<TodoWithR
   const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
 
   return rows.map((row) => {
+    const createdBy = userById.get(row.createdByUserId || row.userId) ?? null;
+    const assignee = row.assigneeUserId ? userById.get(row.assigneeUserId) ?? null : null;
     const effectiveReadState = deriveTodoEffectiveReadState({
       status: row.status,
       persistedReadAt: readStateByTodoId.get(row.id) ?? null,
@@ -897,8 +901,8 @@ async function hydrateTodos(rows: TodoItem[], userId: string): Promise<TodoWithR
       readState: effectiveReadState.readState,
       category: row.categoryId ? categoryById.get(row.categoryId) ?? null : null,
       fileLinks: linksByTodoId.get(row.id) ?? [],
-      createdBy: userById.get(row.createdByUserId || row.userId) ?? null,
-      assignee: row.assigneeUserId ? userById.get(row.assigneeUserId) ?? null : null,
+      createdBy: createdBy ? { ...createdBy, image: todoUserAvatarHref(row.id, createdBy.id, createdBy.image) } : null,
+      assignee: assignee ? { ...assignee, image: todoUserAvatarHref(row.id, assignee.id, assignee.image) } : null,
       workspace: row.workspaceId
         ? (() => {
             const workspace = workspaceById.get(row.workspaceId);

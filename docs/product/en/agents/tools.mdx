@@ -6,7 +6,7 @@ sectionOrder: 4
 order: 5
 locale: en
 translationKey: agents.tools
-updatedAt: 2026-07-17
+updatedAt: 2026-09-30
 ---
 
 # Agent Tools and Capabilities
@@ -28,6 +28,14 @@ Common operations can be exposed directly. Larger capability catalogs, such as c
 File writes, terminal commands, browser interactions, email sends, public shares, and agent management have different consequences. Pair tool enablement with clear instructions and member permissions. Keep destructive or externally visible actions behind explicit user intent.
 
 Plan mode further restricts the active tool set to read-only inspection, regardless of the normal configuration.
+
+## Link feedback after file edits
+
+After `write`, `edit_file`, or `apply_patch` changes a workspace Markdown file, the agent receives local link diagnostics alongside the file result. Missing image or document targets and ambiguous wiki links include their source line and possible matching files. The same parser and resolver power the notebook's Cross-references panel.
+
+Link warnings are informational: the file can be saved successfully while some targets are missing. The agent should inspect the warnings and repair links within its task, without repeating a successful write or creating files merely to remove a warning. A review proposal is checked as proposed content; its diagnostics do not mean the document has already changed.
+
+The check covers `.md` and `.markdown` files in the active workspace. External URLs and heading or block anchors are not verified. Unsupported syntax, unreadable or oversized sources, incomplete alias metadata, and unavailable checks are reported explicitly. The returned issue list is bounded while its totals retain all evaluated link occurrences.
 
 ## Related guides
 
