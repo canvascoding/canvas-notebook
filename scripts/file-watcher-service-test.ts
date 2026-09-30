@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import {
   FileWatcherService,
@@ -119,6 +119,28 @@ async function main() {
     const references = await getCachedFileReferenceEntries(true, { workspace: workspaceA });
     assert.equal(references.some((entry) => entry.path.startsWith('.canvas-skill-drafts/')), false, 'file search references must omit draft resources');
     assert.equal(references.some((entry) => entry.path === 'visible.txt'), true, 'file search still returns normal workspace files');
+
+    const hiddenOld = '.canvas-skill-drafts/native-test/private-skill/SKILL.md';
+    const hiddenNew = '.canvas-skill-drafts/native-test/private-skill/renamed.md';
+    const mutation = { type: 'rename' as const, operationId: 'draft-rename', workspaceId: workspaceA.workspaceId,
+      oldPath: hiddenOld, newPath: hiddenNew };
+    const beforeRename = eventsA.length;
+    await service.withRename(workspaceA, mutation, () => rename(draftSkillFile, path.join(workspaceA.rootPath, hiddenNew)));
+    assert.equal(eventsA.length, beforeRename, 'managed renames within a draft must not broadcast');
+    await service.withRename(workspaceA, { ...mutation, operationId: 'draft-export', oldPath: hiddenNew, newPath: 'exported.md' },
+      () => rename(path.join(workspaceA.rootPath, hiddenNew), path.join(workspaceA.rootPath, 'exported.md')));
+    const exported = eventsA.at(-1)!;
+    assert.equal(exported.relativePath, 'exported.md');
+    assert.equal(exported.type, 'add');
+    assert.equal(exported.mutation, undefined, 'visible add must not expose its hidden source');
+    await service.withRename(workspaceA, { ...mutation, operationId: 'draft-import', oldPath: 'exported.md', newPath: hiddenNew },
+      () => rename(path.join(workspaceA.rootPath, 'exported.md'), path.join(workspaceA.rootPath, hiddenNew)));
+    const imported = eventsA.at(-1)!;
+    assert.equal(imported.relativePath, 'exported.md');
+    assert.equal(imported.type, 'unlink');
+    assert.equal(imported.mutation, undefined, 'visible unlink must not expose its hidden destination');
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(JSON.stringify(eventsA).includes('.canvas-skill-drafts'), false, 'no live mutation payload may contain a draft path');
 
     await rm(draftRoot, { recursive: true, force: true });
     await new Promise((resolve) => setTimeout(resolve, 300));

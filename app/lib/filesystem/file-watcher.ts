@@ -227,12 +227,24 @@ export class FileWatcherService {
       remapWorkspacePresencePaths(workspace.workspaceId, mutation.oldPath, mutation.newPath);
       this.pendingEvents = this.pendingEvents.filter((event) => this.findManagedRename(event.workspaceId, event.relativePath) !== pending);
       clearSubtreeCache(getParentDirectory(mutation.oldPath), workspace.workspaceId);
-      this.invalidateAndBroadcast({
-        type: 'rename', workspaceId: workspace.workspaceId,
-        path: this.toFullPath(mutation.newPath, workspace),
-        relativePath: mutation.newPath, dir: getParentDirectory(mutation.newPath),
-        timestamp: Date.now(), mutation,
-      }, workspace);
+      const oldHidden = isCanvasSkillDraftPath(mutation.oldPath);
+      const newHidden = isCanvasSkillDraftPath(mutation.newPath);
+      if (oldHidden || newHidden) {
+        // A boundary move changes only the visible side of the tree. Never
+        // include the private source/destination in a rename payload.
+        const visiblePath = oldHidden ? (newHidden ? null : mutation.newPath) : mutation.oldPath;
+        if (visiblePath) {
+          const event = await this.determineEventType('rename', visiblePath, this.toFullPath(visiblePath, workspace), workspace);
+          if (event) this.invalidateAndBroadcast(event, workspace);
+        }
+      } else {
+        this.invalidateAndBroadcast({
+          type: 'rename', workspaceId: workspace.workspaceId,
+          path: this.toFullPath(mutation.newPath, workspace),
+          relativePath: mutation.newPath, dir: getParentDirectory(mutation.newPath),
+          timestamp: Date.now(), mutation,
+        }, workspace);
+      }
       return result;
     } finally {
       this.managedRenames.delete(mutation.operationId);
