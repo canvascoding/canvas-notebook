@@ -20,7 +20,7 @@ async function executeFixtureTool(value: unknown): Promise<unknown> {
   const input = value as Record<string, unknown>;
   const context = input.context as Record<string, unknown> | undefined;
   const params = input.params as Record<string, unknown> | undefined;
-  if (!['read', 'edit_file'].includes(String(input.toolName))
+  if (!['read', 'write', 'edit_file'].includes(String(input.toolName))
     || typeof input.toolCallId !== 'string' || !/^ordinary-[a-z-]+[a-f0-9-]{36}$/u.test(input.toolCallId)
     || !params || typeof params.path !== 'string'
     || !/^fvrc-1008-ordinary-[a-f0-9-]{36}\.md$/u.test(params.path)

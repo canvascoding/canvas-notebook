@@ -1,0 +1,46 @@
+import { expect, test } from '@playwright/test';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { withOrdinaryAgentDocument } from './helpers/ordinary-agent-document';
+import { runOrdinaryAgentTool } from './helpers/ordinary-agent-tool';
+
+test('review off writes an existing Markdown document to Yjs and the file before tool success', async ({ browser }) => {
+  test.skip(process.env.COLLABORATION_E2E !== '1', 'Requires the local collaboration stack.');
+  test.setTimeout(120_000);
+  const initial = '# Plan\n\nEins\n\nZwei\n';
+  const updated = '# Plan\n\nEins geändert\n\nZwei\n';
+  await withOrdinaryAgentDocument(browser, initial, async ({ filePath, agentContext, content, revisionCount, page }) => {
+    await expect(page.locator('[data-file-review-policy]').getByRole('switch')).not.toBeChecked();
+    const before = await revisionCount();
+    const read = await runOrdinaryAgentTool({ toolName: 'read', toolCallId: `ordinary-direct-write-${randomUUID()}`,
+      params: { path: filePath }, context: agentContext }, { inProcess: true });
+    expect(read.isError).not.toBe(true);
+    const writeCallId = `ordinary-direct-write-${randomUUID()}`;
+    const writeParams = { path: filePath, content: updated, expectedSha256: read.details!.sha256 };
+    const written = await runOrdinaryAgentTool({ toolName: 'write', toolCallId: writeCallId,
+      params: writeParams,
+      context: agentContext }, { inProcess: true });
+    expect(written.isError, written.details?.code).not.toBe(true);
+    expect(written.details?.collaboration, JSON.stringify(written.details)).toMatchObject({ reviewRequired: false });
+    expect(await content()).toBe(updated);
+    const fullPath = path.join(agentContext.workspaceRoot as string, filePath);
+    expect(await readFile(fullPath, 'utf8')).toBe(updated);
+    expect(await revisionCount()).toBe(before + 1);
+    expect(written.details?.collaboration?.durability).toMatch(/^(?:persisted_yjs|checkpointed_file)$/u);
+    expect(createHash('sha256').update(updated).digest('hex')).toBe(written.details?.afterSha256);
+    const retry = await runOrdinaryAgentTool({ toolName: 'write', toolCallId: writeCallId,
+      params: writeParams, context: agentContext }, { inProcess: true });
+    expect(retry.isError).not.toBe(true);
+    expect(retry.details?.collaboration?.operationId).toBe(written.details?.collaboration?.operationId);
+    expect(await revisionCount()).toBe(before + 1);
+    const noOp = await runOrdinaryAgentTool({ toolName: 'write',
+      toolCallId: `ordinary-direct-write-${randomUUID()}`,
+      params: { path: filePath, content: updated, expectedSha256: written.details?.afterSha256 },
+      context: agentContext }, { inProcess: true });
+    expect(noOp.isError).not.toBe(true);
+    expect(await readFile(fullPath, 'utf8')).toBe(updated);
+    expect(await revisionCount()).toBe(before + 1);
+  }, { initialReviewRequired: false, bindToolSessionToFixture: true });
+});

@@ -472,6 +472,25 @@ export async function prepareCollaborationMarkdownEdit(input: {
   });
 }
 
+/** A whole-file write uses the same live Yjs state and structural validation as other Markdown edits. */
+export async function prepareCollaborationWrite(input: {
+  documentId: string;
+  workspace: WorkspaceContext;
+  path: string;
+  content: string;
+  expectedSha256?: string | null;
+  groupId: string;
+}): Promise<PreparedCollaborationTextEdit> {
+  return prepareCollaborationContentEdit({
+    ...input,
+    plan: (content) => ({
+      edits: [{ oldText: content, newText: input.content, expectedOccurrences: 1 }],
+      proposedContent: input.content,
+      richMode: 'markdown_structure',
+    }),
+  });
+}
+
 export async function executePreparedCollaborationTextEdit(input: {
   prepared: PreparedCollaborationTextEdit;
   workspace: WorkspaceContext;
