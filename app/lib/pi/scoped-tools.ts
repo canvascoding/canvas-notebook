@@ -705,6 +705,13 @@ function formatAgentSkillInspection(result: AgentSkillInspection): string {
   if (result.files?.length) {
     lines.push(`Files: ${result.files.length}`);
   }
+  if (result.editable) {
+    lines.push('Next: Create a draft with create_canvas_skill_draft using this skillName as both skillName and sourceSkillName; edit the complete package, then update it with the returned expectedVersion and expectedChecksum.');
+  } else if (result.forkable) {
+    lines.push('Next: Create a differently named personal fork with create_canvas_skill_draft using sourceSkillName and sourceScope; edit the complete package, then install it with install_canvas_skill_from_workspace.');
+  } else {
+    lines.push('Next: No draft action is available for this skill. Follow the reason above.');
+  }
   return lines.join('\n');
 }
 
@@ -719,6 +726,11 @@ function formatAgentSkillDraft(result: AgentSkillDraftResult): string {
     result.expectedVersion ? `Expected version: ${result.expectedVersion}` : null,
     result.expectedChecksum ? `Expected checksum: ${result.expectedChecksum}` : null,
     `Files: ${result.files.length}`,
+    result.sourceSkillName && result.forked
+      ? 'Next: Edit the complete copied package, then install it with install_canvas_skill_from_workspace using this packagePath as draftPath.'
+      : result.sourceSkillName
+        ? 'Next: Edit the complete package, then update this personal skill with update_canvas_skill_from_workspace using this packagePath as draftPath and the expected version and checksum above.'
+        : 'Next: Edit the complete package, then install it with install_canvas_skill_from_workspace using this packagePath as draftPath.',
   ].filter(Boolean).join('\n');
 }
 
@@ -731,6 +743,7 @@ function formatAgentSkillInstall(result: AgentSkillInstallFromWorkspaceResult): 
     `Draft path: ${result.draftPath}`,
     `Draft cleaned: ${result.draftCleaned ? 'yes' : 'no'}`,
     result.cleanupSkippedReason ? `Cleanup skipped: ${result.cleanupSkippedReason}` : null,
+    'New content is loaded when the runtime rebuilds a prompt; availability follows skill activation and agent configuration.',
   ].filter(Boolean).join('\n');
 }
 
@@ -745,6 +758,7 @@ function formatAgentSkillUpdate(result: AgentSkillUpdateFromWorkspaceResult): st
     `Draft path: ${result.draftPath}`,
     `Draft cleaned: ${result.draftCleaned ? 'yes' : 'no'}`,
     result.cleanupSkippedReason ? `Cleanup skipped: ${result.cleanupSkippedReason}` : null,
+    'New content is loaded when the runtime rebuilds a prompt; availability follows skill activation and agent configuration.',
   ].filter(Boolean).join('\n');
 }
 
@@ -753,7 +767,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'inspect_canvas_skill',
       label: 'Inspecting Canvas skill',
-      description: 'Inspects a personal, organization, or core Canvas skill before editing or forking. Organization and core skills are read-only and can only be copied to a differently named personal fork.',
+      description: 'Inspects a personal, organization, or core Canvas skill before editing or forking. Use skillName and optional sourceScope. Check editable and forkable before creating a draft; read-only skills require a differently named personal fork.',
       parameters: Type.Object({
         skillName: Type.String({ description: 'Skill name to inspect.' }),
         sourceScope: Type.Optional(Type.Union([
@@ -801,7 +815,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'create_canvas_skill_draft',
       label: 'Creating Canvas skill draft',
-      description: 'Creates a managed workspace draft under .canvas-skill-drafts. For new skills, provide skillName, description, and optional version. For editing a personal skill or creating a differently named personal fork from a personal, organization, plugin-managed, or core skill, provide sourceSkillName and sourceScope.',
+      description: 'Creates a complete managed workspace package under the hidden .canvas-skill-drafts path and returns its packagePath; managed drafts do not appear in file browser/search. For a new skill, provide skillName, description, and optional version. To edit an editable personal skill, use the same skillName and provide sourceSkillName and sourceScope. To copy a read-only or managed skill, use a different skillName and provide sourceSkillName and sourceScope; install the resulting personal fork.',
       parameters: Type.Object({
         skillName: Type.String({ description: 'Target skill name for the draft folder. For normal edits, use the same name as sourceSkillName.' }),
         description: Type.Optional(Type.String({ description: 'Description for a new skill draft.' })),
@@ -880,11 +894,11 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'install_canvas_skill_from_workspace',
       label: 'Installing Canvas skill from workspace',
-      description: 'Installs a new personal Canvas skill from a workspace folder containing one complete skill package. The package must include SKILL.md and a version in agents/canvas.yaml skill.version or SKILL.md metadata.version. Managed drafts under .canvas-skill-drafts are deleted after successful install by default.',
+      description: 'Installs a new personal Canvas skill or a differently named personal fork from a workspace folder containing one complete package. The package must include SKILL.md and a version in SKILL.md metadata.version or agents/canvas.yaml skill.version; agents/canvas.yaml is optional when SKILL.md declares a version, and versions must match if both declare one. Managed drafts under .canvas-skill-drafts are deleted after successful install by default; failed validation leaves them available for recovery. cleanupDraft=false deliberately retains a managed draft.',
       parameters: Type.Object({
         draftPath: Type.String({ description: 'Workspace-relative path to the skill package folder.' }),
         enable: Type.Optional(Type.Boolean({ description: 'Enable the skill after install. Defaults to true.' })),
-        cleanupDraft: Type.Optional(Type.Boolean({ description: 'Delete the managed .canvas-skill-drafts draft after success. Defaults to true.' })),
+        cleanupDraft: Type.Optional(Type.Boolean({ description: 'Delete the package only when it is under .canvas-skill-drafts after success. Defaults to true; false deliberately retains the managed draft. User folders are never cleaned up.' })),
       }),
       execute: async (_toolCallId, params) => {
         const p = params as { draftPath?: string; enable?: boolean; cleanupDraft?: boolean };
@@ -931,14 +945,14 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'update_canvas_skill_from_workspace',
       label: 'Updating Canvas skill from workspace',
-      description: 'Atomically replaces an existing personal Canvas skill with a complete workspace package folder. Requires expectedVersion and expectedChecksum from inspect_canvas_skill to prevent stale edits. Managed drafts under .canvas-skill-drafts are deleted after successful update by default.',
+      description: 'Atomically updates an existing editable personal Canvas skill from a complete workspace package folder. Requires expectedVersion and expectedChecksum from inspect_canvas_skill or create_canvas_skill_draft to prevent stale edits. The package version may come from SKILL.md metadata.version or agents/canvas.yaml skill.version; if both declare versions they must match. Managed drafts under .canvas-skill-drafts are deleted after success by default, while failed updates leave them available for recovery. cleanupDraft=false deliberately retains a managed draft.',
       parameters: Type.Object({
         skillName: Type.String({ description: 'Existing personal skill to update.' }),
         draftPath: Type.String({ description: 'Workspace-relative path to the edited complete skill package folder.' }),
-        expectedVersion: Type.String({ description: 'Version returned by inspect_canvas_skill before editing.' }),
-        expectedChecksum: Type.String({ description: 'Checksum returned by inspect_canvas_skill before editing.' }),
+        expectedVersion: Type.String({ description: 'Version returned by inspect_canvas_skill or create_canvas_skill_draft before editing.' }),
+        expectedChecksum: Type.String({ description: 'Checksum returned by inspect_canvas_skill or create_canvas_skill_draft before editing.' }),
         enable: Type.Optional(Type.Boolean({ description: 'Enable the skill after update. Defaults to true.' })),
-        cleanupDraft: Type.Optional(Type.Boolean({ description: 'Delete the managed .canvas-skill-drafts draft after success. Defaults to true.' })),
+        cleanupDraft: Type.Optional(Type.Boolean({ description: 'Delete the package only when it is under .canvas-skill-drafts after success. Defaults to true; false deliberately retains the managed draft. User folders are never cleaned up.' })),
       }),
       execute: async (_toolCallId, params) => {
         const p = params as {
