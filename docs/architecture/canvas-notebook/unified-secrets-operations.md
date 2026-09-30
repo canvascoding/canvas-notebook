@@ -28,6 +28,8 @@ Einzelfelder verwenden `PATCH` mit `patches: [{ key, value }]`; `value: null` l�
 
 Die Datei wird unter einer prozessübergreifenden Sperre atomisch ersetzt, mit Dateirechten `0600`. Verschiedene Kategorien und Refresh-Vorgänge können keine vollständigen veralteten Listen zurückschreiben. MCP-Verbindungen werden nur geschlossen, wenn eine von ihnen tatsächlich verwendete ENV-Referenz geändert wurde.
 
+Unveränderte öffentliche PATCH-Anfragen behalten auch in den kompatiblen Agent-/Integrationsansichten die vorhandenen Dateibytes und ihre Revision. Ein erstmaliger leerer Bootstrap erzeugt weiterhin die kanonische Datei.
+
 ## Verwendungsabhängige Reihenfolge
 
 Die Vereinheitlichung ersetzt die bisher unterschiedlichen Verbraucherregeln nicht durch eine pauschale User→Organisation→System-Kaskade:
@@ -50,15 +52,21 @@ Ein nicht lesbarer oder fehlerhaft entschlüsselbarer Speicher stoppt die betref
 
 Alte `Canvas-Integrations.env` / `Canvas-Agents.env`, inklusive alter Pfad-Overrides, sind Importquellen. Der erste Zugriff importiert sie unter derselben Sperre; danach gewinnt die kanonische Datei. Abweichende Agent-Werte bleiben als `CANVAS_PROFILE_AGENTS__<KEY>` erhalten; Herkunftskonflikte als weitere Profile. Interne Metadaten erhalten die früher unabhängig verwalteten Ansichten. Neue gemeinsame Keys werden in beiden Ansichten verwendet.
 
+Der Altimport erhält die bisherige Interpretation von Hashzeichen und Escape-Sequenzen. Der neue Texteditor unterstützt Kommentare und quoted Werte, interpretiert aber keine Shell-Ausdrücke. Ungültige oder doppelte Zuweisungen werden abgewiesen.
+
 `CANVAS_SECRETS_MASTER_KEY` verschlüsselt Werte mit AES-256-GCM. Ohne diesen Parameter gelten als kompatible Fallbacks zuerst `INTEGRATIONS_ENV_MASTER_KEY`, dann `AGENTS_ENV_MASTER_KEY`. Ohne einen Master-Key werden ENV-Werte nicht zusätzlich auf Dateiebene verschlüsselt. Der Master-Key gehört in die geschützte Deployment-Konfiguration und muss für Wiederherstellung separat verfügbar sein. Nicht durch einfaches Austauschen eines aktiven Master-Keys rotieren: Bestehende Werte müssen zuvor mit dem alten Schlüssel entschlüsselt und mit dem neuen neu verschlüsselt werden.
 
 Alte Master-Keys müssen für noch nicht importierte Legacy-Dateien verfügbar bleiben. Importdateien sind kein automatischer Rollback: Nach Rotation/Refresh dürfen sie keine veralteten Tokens erneut aktivieren. Logout schreibt leere Provider-Maps bzw. Tombstones, die Altimporte dauerhaft überstimmen.
 
 MCP-Konfiguration und ENV sind zwei Dateien. Der ENV-Write wird zuerst bestätigt, dann die Konfigurationsreferenz. Scheitert der zweite Write, kann Neuladen die Migration abschließen; auch ein fehlgeschlagener Save kann bereits neue ENV-Werte hinterlassen. Bei einer erstmalig erzeugten Verbindungs-ID kann ein Abbruch einen unreferenzierten ENV-Eintrag hinterlassen. Bestehende Werte gehen dabei nicht verloren. Diese Fehlerfälle sind gezielt getestet.
 
+MCP-ENV-/Header-Werte sowie bekannte Credentialfelder in URLs und Startargumenten werden durch verbindungsspezifische ENV-Referenzen ersetzt. Gewöhnliche URLs und Argumente bleiben Konfiguration. Die Auflösung verwendet ausschließlich den MCP-Owner und dessen bestehende Ansichtsreihenfolge. OAuth bleibt an die tatsächlich aufgelöste Server-URL gebunden; ein Wechsel dieser URL verlangt eine neue Autorisierung. URL-Benutzername/Passwort bleibt gemäß der vorhandenen Netzwerkregel als Transport unzulässig.
+
 ## Backup, Export und Rückkehr
 
 Vollständige Backups enthalten den DATA-Bestand einschließlich aller kanonischen Bereiche und einer gegebenenfalls externen System-ENV-Datei. Für eine Wiederherstellung sind die passende Deployment-Konfiguration und Schlüssel notwendig; diese werden durch das DATA-Archiv allein nicht ersetzt. Das Wiederherstellen der Dateien mit vorhandenen Fixture-Schlüsseln wird durch echte Credential-Leser geprüft. Eine vollständige automatische Wiederherstellung der gesamten Anwendung ist kein neu eingeführtes Feature.
+
+Kanonische und bekannte alte Credentialdateien sowie der Datenbank-Dump erhalten im Archiv private Dateirechte `0600`, auch wenn eine Altdatei vorher weitergehende Rechte hatte. Normale Projektdateien behalten ihre ursprünglichen Rechte. Sperrdateien des kanonischen ENV-Speichers werden nicht mitgesichert.
 
 Portable Migrationsexporte enthalten keine Secret-Dateien oder OAuth-Tokens. Ihr Reconnect-Manifest enthält nur Bereiche, Pfade/Key-Namen und Hinweise zum erneuten Verbinden; bestehende Inline-Credentials bekannter MCP-Konfigurationen werden in der exportierten Kopie entfernt. Die Quelldateien bleiben unverändert. Benutzerdateien werden nicht pauschal auf beliebige eingebettete Geheimnisse durchsucht.
 
