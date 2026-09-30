@@ -8863,6 +8863,7 @@
     "title": "Memory prüfen",
     "loading": "Memory wird geladen …",
     "progress": "Memory {current} von {total}",
+    "progressLabel": "Geprüfte Memories",
     "completed": "Alle Memory-Vorschläge wurden geprüft.",
     "approve": "Speichern",
     "reject": "Nicht speichern",
