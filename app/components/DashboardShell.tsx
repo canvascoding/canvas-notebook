@@ -50,6 +50,7 @@ import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 import { TerminalPanel } from '@/app/components/terminal/Terminal';
 import { NotebookDocumentMenu } from '@/app/components/notebook/NotebookDocumentMenu';
+import { NotebookDocumentTabActions } from '@/app/components/notebook/NotebookDocumentTabActions';
 import { NotebookChatControls } from '@/app/components/notebook/NotebookChatControls';
 import { notebookPanelToggleClassName } from '@/app/components/notebook/toolbar-styles';
 import { NotebookFocusContext } from '@/app/components/notebook/NotebookFocusContext';
@@ -1354,10 +1355,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       toast.error(result?.error || tNotebook('failedToLoadPreview'));
     }
   }, [openNotebookFile, tNotebook]);
-  const handleRevealCurrentDocument = useCallback(async () => {
-    const file = useFileStore.getState().currentFile;
-    if (!file) return;
-    const result = await useFileStore.getState().revealAndLoadFile(file.path, {
+  const handleRevealCurrentDocument = useCallback(async (path?: string) => {
+    const filePath = path ?? useFileStore.getState().currentFile?.path;
+    if (!filePath) return;
+    const result = await useFileStore.getState().revealAndLoadFile(filePath, {
       workspaceId: activeWorkspaceId,
       explorerBehavior: 'reveal',
     });
@@ -1404,7 +1405,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     ? <FileEditor
         key={activeWorkspaceId}
         onClosePreview={handleCloseDocument}
-        onRevealInExplorer={handleRevealCurrentDocument}
+        onRevealInExplorer={() => void handleRevealCurrentDocument()}
       />
     : (
       <NotebookEmptyDocumentState
@@ -1528,22 +1529,27 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 const index = documentTabs.openPaths.indexOf(path);
                 const label = notebookDocumentLabel(path, documentTabs.openPaths);
                 return (
-                  <SurfaceTab
+                  <NotebookDocumentTabActions
                     key={path}
-                    tabStop={keyboardWorkSurface === 'document' && documentTabs.activePath === path}
-                    title={path}
-                    active={
-                      state.mainSurface === 'document'
-                      && documentTabs.activePath === path
-                    }
-                    closeLabel={tNotebook('closeDocumentTab', { name: label })}
-                    controlsId={surfacePanelIds.document}
-                    icon={<FileText className="h-3.5 w-3.5 shrink-0" />}
-                    label={label}
-                    onClose={() => void handleCloseDocumentTab(path)}
-                    onSelect={() => void handleSelectDocumentTab(path)}
-                    testId={`notebook-document-${index}`}
-                  />
+                    path={path}
+                    onRevealInExplorer={() => void handleRevealCurrentDocument(path)}
+                  >
+                    <SurfaceTab
+                      tabStop={keyboardWorkSurface === 'document' && documentTabs.activePath === path}
+                      title={path}
+                      active={
+                        state.mainSurface === 'document'
+                        && documentTabs.activePath === path
+                      }
+                      closeLabel={tNotebook('closeDocumentTab', { name: label })}
+                      controlsId={surfacePanelIds.document}
+                      icon={<FileText className="h-3.5 w-3.5 shrink-0" />}
+                      label={label}
+                      onClose={() => void handleCloseDocumentTab(path)}
+                      onSelect={() => void handleSelectDocumentTab(path)}
+                      testId={`notebook-document-${index}`}
+                    />
+                  </NotebookDocumentTabActions>
                 );
               })}
               {state.emailAvailable ? (
