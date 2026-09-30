@@ -34,7 +34,16 @@ export function handleHtmlPreviewBoundary(request: IncomingMessage, response: Se
   try { previewOrigin=htmlPreviewOrigins().previewOrigin; } catch { /* Origin configuration is validated when issuing previews. */ }
   const apiPath=pathname.startsWith('/api/') || pathname.startsWith('/media/');
   const browserCrossOrigin=['cross-site','same-site'].includes(String(request.headers['sec-fetch-site'] || ''));
-  const crossOriginCookie=browserCrossOrigin && Boolean(request.headers.cookie) && !pathname.startsWith('/api/auth/');
+  // OAuth providers return by cross-origin document navigation, which carries
+  // SameSite=Lax cookies. This exact GET callback authenticates the flow with a
+  // single-use, expiring state token rather than the browser's session cookie.
+  // Keep subresource/iframe requests and untrusted preview origins blocked.
+  const composioCallbackNavigation = request.method === 'GET'
+    && pathname === '/api/composio/callback'
+    && (!request.headers['sec-fetch-mode'] || request.headers['sec-fetch-mode'] === 'navigate')
+    && (!request.headers['sec-fetch-dest'] || request.headers['sec-fetch-dest'] === 'document');
+  const crossOriginCookie=browserCrossOrigin && Boolean(request.headers.cookie)
+    && !pathname.startsWith('/api/auth/') && !composioCallbackNavigation;
   if(apiPath && ((previewOrigin !== undefined && origin === previewOrigin) || origin === 'null' || crossOriginCookie)) {
     response.writeHead(403,{'Cache-Control':'no-store','Content-Type':'application/json'});
     response.end(JSON.stringify({success:false,error:'Cross-origin app access is not allowed'}));return true;
