@@ -35,6 +35,7 @@ function harness() {
   let sequence = 1;
   let executionCount = 0;
   let checkpointCount = 0;
+  let checkpointLinkCount = 0;
   let checkpointFailure = false;
   let recorded: null | {
     operation: { operationId: string; operationStatus: string; durability: string; appliedTargetIds: string[] };
@@ -114,12 +115,27 @@ function harness() {
       return recorded.operation;
     },
     proposalReviewWritesEnabled: () => false,
-    confirmCollaborativeFileCheckpoint: async (input: { snapshot: { documentSequence: number }; path: string }) => {
+    linkStandaloneAgentCheckpoint: async (input: { operationId: string; documentId: string;
+      userId: string; actorSessionId: string; checkpoint: { revisionId: string } }) => {
+      assert.equal(input.operationId, 'operation-1');
+      assert.equal(input.documentId, 'document');
+      assert.equal(input.userId, 'user');
+      assert.equal(input.actorSessionId, 'session');
+      assert.equal(input.checkpoint.revisionId, 'checkpoint-1');
+      checkpointLinkCount++;
+      return true;
+    },
+    confirmCollaborativeFileCheckpoint: async (input: { snapshot: { documentSequence: number }; path: string;
+      onConfirmed?: (checkpoint: { revisionId: string; contentHash: string; sizeBytes: number;
+        documentSequence: number; lifecycleGeneration: number }) => Promise<void> }) => {
       checkpointCount++;
       assert.equal(input.path, 'document.md');
       assert.equal(input.snapshot.documentSequence, sequence);
       if (checkpointFailure) throw new CheckpointUnavailable('Physical Markdown checkpoint unavailable');
-      return { contentHash: sha256('different physical bytes'), sizeBytes: 777 };
+      const checkpoint = { revisionId: 'checkpoint-1', contentHash: sha256('different physical bytes'), sizeBytes: 777,
+        documentSequence: sequence, lifecycleGeneration: 1 };
+      await input.onConfirmed?.(checkpoint);
+      return checkpoint;
     },
     validatePath: () => '/workspace/document.md',
     toIsoDate: () => '1970-01-01T00:00:00.000Z',
@@ -133,6 +149,7 @@ function harness() {
     idempotency_key: 'stable-request' });
   return { call, currentSha: () => sha256(content), initialSha: sha256(content),
     executionCount: () => executionCount, checkpointCount: () => checkpointCount,
+    checkpointLinkCount: () => checkpointLinkCount,
     failCheckpoint: () => { checkpointFailure = true; } };
 }
 
@@ -158,6 +175,7 @@ test('MCP applied retry with old expected hash reuses the receipt and confirms t
   assert.equal(retry.structuredContent?.current_sha256, h.currentSha());
   assert.equal(h.executionCount(), 1);
   assert.equal(h.checkpointCount(), 2);
+  assert.equal(h.checkpointLinkCount(), 2);
 });
 
 test('MCP checkpoint failure never reports the already durable edit as success', async () => {
@@ -168,4 +186,5 @@ test('MCP checkpoint failure never reports the already durable edit as success',
   assert.match(response.content[0].text, /COLLABORATION_FILE_CHECKPOINT_UNAVAILABLE/u);
   assert.equal(h.executionCount(), 1);
   assert.equal(h.checkpointCount(), 1);
+  assert.equal(h.checkpointLinkCount(), 0);
 });

@@ -605,6 +605,27 @@ export function createFileVersionCenterQueryService(options: {
               SELECT 1 FROM file_agent_turn_checkpoints checkpoint
               WHERE checkpoint.revision_id=revision.id AND checkpoint.workspace_id=revision.workspace_id
             ))
+            AND NOT EXISTS (
+              SELECT 1 FROM collaboration_agent_operations operation
+              INNER JOIN file_revisions operation_version
+                ON operation_version.id=operation.version_revision_id
+                  AND operation_version.workspace_id=revision.workspace_id
+                  AND operation_version.lineage_id=revision.lineage_id
+                  AND operation_version.history_only=true
+              INNER JOIN file_revision_contents operation_content
+                ON operation_content.revision_id=operation_version.id
+                  AND operation_content.workspace_id=revision.workspace_id
+                  AND operation_content.lineage_id=revision.lineage_id
+                  AND operation_content.source='agent_apply'
+              WHERE operation.checkpoint_revision_id=revision.id
+                AND operation.workspace_id=revision.workspace_id
+                AND operation.agent_run_id IS NULL
+                AND operation.operation_type='apply' AND operation.requested_mode='direct_apply'
+                AND revision.history_only=false AND contents.revision_id IS NULL
+                AND revision.content_hash=operation_version.content_hash
+                AND revision.size_bytes=operation_version.size_bytes
+                AND revision.created_at >= operation.applied_at
+            )
             AND ($3::bigint IS NULL OR (revision.created_at, revision.revision_number, revision.id) < ($3, $4, $5))
           ORDER BY revision.created_at DESC, revision.revision_number DESC, revision.id DESC
           LIMIT $6

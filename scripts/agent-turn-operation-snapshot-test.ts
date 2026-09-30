@@ -39,7 +39,9 @@ function createScenario(options: {
   currentThrows?: boolean;
   mapped?: boolean;
   captureThrows?: boolean;
+  captureDisabled?: boolean;
   recovering?: boolean;
+  standalone?: boolean;
   workspace?: Record<string, unknown>;
 } = {}) {
   const receipt = options.receipt ?? '# Receipt\nAgent change';
@@ -47,8 +49,9 @@ function createScenario(options: {
   const captures: Array<Record<string, unknown>> = [];
   const row = {
     operation_id: 'operation-1', document_id: 'document-1', workspace_id: 'workspace-1',
-    agent_run_id: 'turn-1', actor_session_id: 'session-1', requested_mode: 'direct_apply',
-    operation_type: 'apply', version_content_snapshot: gzipSync(receipt),
+    agent_run_id: options.standalone ? null : 'turn-1', actor_session_id: 'session-1', requested_mode: 'direct_apply',
+    operation_type: 'apply', version_content_snapshot: gzipSync(receipt) as Buffer | null,
+    version_revision_id: null as string | null,
     initiated_by_user_id: 'user-1', base_document_sequence: 7, applied_at: 1_700_000_000_000,
   };
   const state = {
@@ -98,6 +101,8 @@ function createScenario(options: {
         events.push('capture');
         if (options.captureThrows) throw new Error('History store unavailable');
         captures.push(input);
+        if (options.captureDisabled) return { outcome: 'disabled', revision: null, binding: null };
+        return { revision: { id: 'revision-operation-1' }, binding: { source: 'agent_apply' } };
       },
       async capturePersistedCollaboration() { throw new Error('Grouped receipt must use exact snapshot capture'); },
     },
@@ -131,7 +136,7 @@ test('failed history capture retains the exact receipt for restart recovery', as
   await assert.rejects(capture(scenario.input), /History store unavailable/u);
   assert.equal(scenario.captures.length, 0);
   assert.equal(scenario.events.includes('clear-receipt'), false);
-  assert.deepEqual(gunzipSync(scenario.row.version_content_snapshot), Buffer.from('# Receipt\nAgent change'));
+  assert.deepEqual(gunzipSync(scenario.row.version_content_snapshot!), Buffer.from('# Receipt\nAgent change'));
 });
 
 test('already mapped operation does not stage a duplicate snapshot', async () => {
@@ -156,4 +161,69 @@ test('restart recovery constructs a read-only workspace from its database scope'
   });
   assert.equal(scenario.captures[0].agentRecovered, true);
   assert.ok(scenario.events.indexOf('read-workspace') < scenario.events.indexOf('capture'));
+});
+
+test('standalone MCP receipt survives a later human edit and binds exactly once during recovery', async () => {
+  const scenario = createScenario({ standalone: true, current: '# Human\nLater change', recovering: true });
+  scenario.database.run = async (sql, params) => {
+    assert.match(sql, /SET version_revision_id=\$2,version_content_snapshot=NULL/u);
+    assert.deepEqual(params, ['operation-1', 'revision-operation-1']);
+    scenario.row.version_revision_id = 'revision-operation-1';
+    scenario.row.version_content_snapshot = null;
+    scenario.events.push('clear-receipt');
+  };
+  const capture = await loadCapture(scenario.dependencies);
+  await capture(scenario.input);
+  assert.equal(scenario.captures.length, 1);
+  assert.deepEqual(scenario.captures[0].content, Buffer.from('# Receipt\nAgent change'));
+  assert.equal(scenario.captures[0].agentOperationId, 'operation-1');
+  assert.equal(scenario.captures[0].agentTurnId, undefined);
+  assert.equal(scenario.captures[0].historicalLineageId, 'lineage-1');
+  assert.deepEqual(scenario.events.filter(event => event === 'capture' || event === 'clear-receipt'),
+    ['capture', 'clear-receipt']);
+  await capture(scenario.input);
+  assert.equal(scenario.captures.length, 1, 'retry after the durable marker must not capture a second version');
+});
+
+test('failed standalone history capture retains the MCP receipt for restart recovery', async () => {
+  const scenario = createScenario({ standalone: true, current: '# Human\nLater change', captureThrows: true });
+  const capture = await loadCapture(scenario.dependencies);
+  await assert.rejects(capture(scenario.input), /History store unavailable/u);
+  assert.equal(scenario.events.includes('clear-receipt'), false);
+  assert.equal(scenario.row.version_revision_id, null);
+  assert.deepEqual(gunzipSync(scenario.row.version_content_snapshot!), Buffer.from('# Receipt\nAgent change'));
+});
+
+test('crash after MCP history binding retains the receipt until the operation marker is linked', async () => {
+  const scenario = createScenario({ standalone: true, current: '# Human\nLater change' });
+  let failMarker = true;
+  scenario.database.run = async (sql, params) => {
+    assert.match(sql, /SET version_revision_id=\$2,version_content_snapshot=NULL/u);
+    assert.deepEqual(params, ['operation-1', 'revision-operation-1']);
+    if (failMarker) {
+      failMarker = false;
+      throw new Error('Crash before operation marker');
+    }
+    scenario.row.version_revision_id = 'revision-operation-1';
+    scenario.row.version_content_snapshot = null;
+  };
+  const capture = await loadCapture(scenario.dependencies);
+  await assert.rejects(capture(scenario.input), /Crash before operation marker/u);
+  assert.equal(scenario.row.version_revision_id, null);
+  assert.ok(scenario.row.version_content_snapshot);
+  await capture(scenario.input);
+  assert.equal(scenario.row.version_revision_id, 'revision-operation-1');
+  assert.equal(scenario.row.version_content_snapshot, null);
+  assert.equal(scenario.captures.length, 2, 'the same scoped history capture is retried');
+  assert.deepEqual(scenario.captures[0].content, scenario.captures[1].content);
+});
+
+test('explicitly disabled version capture keeps standalone direct editing available', async () => {
+  const scenario = createScenario({ standalone: true, captureDisabled: true });
+  const capture = await loadCapture(scenario.dependencies);
+  await capture(scenario.input);
+  assert.equal(scenario.captures.length, 1);
+  assert.equal(scenario.row.version_revision_id, null);
+  assert.deepEqual(scenario.events.filter(event => event === 'capture' || event === 'clear-receipt'),
+    ['capture', 'clear-receipt']);
 });

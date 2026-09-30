@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
+import ts from 'typescript';
 
 import { runPostgresMigrations } from '../app/lib/db/postgres';
 import {
@@ -9,6 +11,7 @@ import {
   type FileVersionHistoryLedger,
 } from '../app/lib/file-version-center/history-service';
 import { createFileVersionContentStore } from '../app/lib/file-version-center/version-content-store';
+import { createFileVersionCenterQueryService } from '../app/lib/file-version-center/query-service';
 import type { FileVersionCenterDatabase } from '../app/lib/file-version-center/database';
 import type { FileRevisionRecord } from '../app/lib/files/collaboration-policy';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -43,6 +46,23 @@ function database(postgres: PGlite): FileVersionCenterDatabase {
       query: <Row>(sql: string, params?: unknown[]) => transaction.query<Row>(sql, params),
     })),
   };
+}
+
+function checkpointLink(database: FileVersionCenterDatabase) {
+  const source = ts.createSourceFile('agent-operations.ts',
+    readFileSync('app/lib/collaboration/agent-operations.ts', 'utf8'), ts.ScriptTarget.Latest, true);
+  const declaration = source.statements.find((node): node is ts.FunctionDeclaration =>
+    ts.isFunctionDeclaration(node) && node.name?.text === 'linkStandaloneAgentCheckpoint');
+  assert.ok(declaration);
+  const javascript = ts.transpileModule(declaration.getText(source), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  return new Function('exports', 'createRuntimeFileVersionCenterDatabase',
+    `${javascript}\nreturn linkStandaloneAgentCheckpoint;`)({}, () => database) as (input: {
+      operationId: string; documentId: string; workspace: WorkspaceContext;
+      userId: string; actorSessionId: string; checkpoint: { revisionId: string;
+        contentHash: string; sizeBytes: number; documentSequence: number; lifecycleGeneration: number };
+    }) => Promise<boolean>;
 }
 
 function mapRevision(row: {
@@ -259,6 +279,92 @@ async function main(): Promise<void> {
         (SELECT COUNT(*)::text FROM file_version_blobs) AS blobs
     `);
     assert.deepEqual(counts.rows[0], { revisions: '4', bindings: '4', blobs: '4' });
+
+    // An MCP operation can be captured after a human has already advanced the
+    // physical file. Its exact receipt remains visible without replacing that fence.
+    const human = await service.capture({ workspace, path: 'notes.md',
+      content: '# Human after MCP\n', source: 'manual', actorUserId: 'owner', actorType: 'user' });
+    assert.ok(human.revision?.id);
+    const operationInput = { workspace, path: 'notes.md', content: '# Exact MCP operation\n',
+      source: 'agent_apply' as const, actorUserId: 'owner', actorType: 'agent' as const,
+      sourceSessionId: 'mcp-session', agentOperationId: 'mcp-operation-1',
+      historicalLineageId: 'lineage', agentCapturedAt: now - 1 };
+    const operation = await service.capture(operationInput);
+    assert.equal(operation.outcome, 'captured');
+    assert.notEqual(operation.revision?.id, human.revision.id);
+    assert.equal((await service.capture(operationInput)).revision?.id, operation.revision?.id);
+    assert.equal((await postgres.query<{ count: string }>(
+      'SELECT COUNT(*)::text AS count FROM file_revision_contents WHERE revision_id=$1 AND source=$2',
+      [operation.revision!.id, 'agent_apply'])).rows[0]?.count, '1');
+    assert.equal((await postgres.query<{ history_only: boolean }>(
+      'SELECT history_only FROM file_revisions WHERE id=$1', [operation.revision!.id])).rows[0]?.history_only, true);
+    assert.equal((await postgres.query<{ id: string }>(`SELECT id FROM file_revisions
+      WHERE lineage_id='lineage' AND history_only=false ORDER BY revision_number DESC LIMIT 1`)).rows[0]?.id,
+    human.revision.id);
+    assert.equal((await createFileVersionContentStore({ database: db }).readRevisionContent({
+      revisionId: operation.revision!.id, workspaceId: 'workspace', lineageId: 'lineage',
+    }))?.content.toString(), '# Exact MCP operation\n');
+    await assert.rejects(service.capture({ ...operationInput, content: '# Changed retry\n' }),
+      /belongs to another snapshot/u);
+
+    const operationHash = createHash('sha256').update('# Exact MCP operation\n').digest('hex');
+    const humanRawHash = createHash('sha256').update('# Later human checkpoint\n').digest('hex');
+    await postgres.query(`INSERT INTO file_revisions
+      (id,organization_id,workspace_id,workspace_type,path,content_hash,size_bytes,
+        created_by_actor_type,lineage_id,revision_number,created_at)
+      VALUES ('mcp-physical','org','workspace','personal','notes.md',$1,$2,'system','lineage',
+        (SELECT MAX(revision_number)+1 FROM file_revisions WHERE lineage_id='lineage'),$3)`,
+    [operationHash, Buffer.byteLength('# Exact MCP operation\n'), now + 1]);
+    await postgres.query(`INSERT INTO file_revisions
+      (id,organization_id,workspace_id,workspace_type,path,content_hash,size_bytes,
+        created_by_actor_type,lineage_id,revision_number,created_at)
+      VALUES ('later-human-physical','org','workspace','personal','notes.md',$1,$2,'user','lineage',
+        (SELECT MAX(revision_number)+1 FROM file_revisions WHERE lineage_id='lineage'),$3)`,
+    [humanRawHash, Buffer.byteLength('# Later human checkpoint\n'), now + 2]);
+    await postgres.query(`INSERT INTO collaboration_agent_operations
+      (operation_id,document_id,document_path,workspace_id,organization_id,
+        initiated_by_user_id,actor_id,actor_session_id,idempotency_key,payload_hash,
+        status,base_state_vector,checkpoint_revision_id,version_revision_id,
+        applied_at,applied_document_sequence,created_at,updated_at)
+      VALUES ('mcp-operation-1','document','notes.md','workspace','org',
+        'owner','mcp-actor','mcp-session','mcp-key','mcp-hash',
+        'checkpointed_file',$1,'later-human-physical',$2,$3,5,$3,$3)`,
+    [Buffer.alloc(0), operation.revision!.id, now]);
+    const query = createFileVersionCenterQueryService({ database: db, rolloutMode: () => 'full',
+      current: async target => ({ fence: { revisionId: target.latestRevisionId,
+        sha256: target.latestRevisionHash! }, sizeBytes: target.latestRevisionSize, observedAt: now }),
+      readPolicy: async () => ({ contractVersion: 1, requestedMode: 'safe_direct',
+        effectiveMode: 'safe_direct', revision: 0, locked: false, reason: 'default_safe_direct' }),
+    });
+    const timelineIds = async () => (await query.timeline({
+      target: { kind: 'lineage', workspaceId: 'workspace', lineageId: 'lineage' },
+      access: { userId: 'owner', authenticatedWorkspaceId: 'workspace', requestedWorkspaceId: 'workspace',
+        membership: 'active', permissionsResolved: true, canRead: true, canWrite: true,
+        canRunAgent: true, canManageWorkspace: true }, workspace,
+    })).entries.filter(entry => entry.kind === 'revision').map(entry => entry.revisionId);
+    assert.ok((await timelineIds()).includes('later-human-physical'),
+      'a later human checkpoint with another hash must remain visible');
+    await postgres.query(`UPDATE collaboration_agent_operations
+      SET checkpoint_revision_id=NULL WHERE operation_id='mcp-operation-1'`);
+    const link = checkpointLink(db);
+    const linkInput = { operationId: 'mcp-operation-1', documentId: 'document', workspace,
+      userId: 'owner', actorSessionId: 'mcp-session', checkpoint: {
+        revisionId: 'mcp-physical', contentHash: operationHash,
+        sizeBytes: Buffer.byteLength('# Exact MCP operation\n'), documentSequence: 5,
+        lifecycleGeneration: 1 } };
+    assert.equal(await link({ ...linkInput, checkpoint: { ...linkInput.checkpoint,
+      revisionId: 'later-human-physical', contentHash: humanRawHash,
+      sizeBytes: Buffer.byteLength('# Later human checkpoint\n') } }), false);
+    assert.equal(await link(linkInput), true);
+    assert.equal(await link(linkInput), true, 'repeating the exact checkpoint link is idempotent');
+    assert.equal((await postgres.query<{ checkpoint_revision_id: string }>(
+      "SELECT checkpoint_revision_id FROM collaboration_agent_operations WHERE operation_id='mcp-operation-1'"
+    )).rows[0]?.checkpoint_revision_id, 'mcp-physical');
+    const visibleAfterLink = await timelineIds();
+    assert.equal(visibleAfterLink.includes('mcp-physical'), false,
+      'the exact unbound MCP physical checkpoint must not duplicate the content version');
+    assert.ok(visibleAfterLink.includes('later-human-physical'));
+    assert.ok(visibleAfterLink.includes(operation.revision!.id));
     console.log('file-version-history-service-test: ok');
   } finally {
     await postgres.close();

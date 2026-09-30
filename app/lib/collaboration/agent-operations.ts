@@ -2041,13 +2041,21 @@ async function captureDurableOperationHistory(input: {
 }) {
   const { row, state } = input;
   const grouped = row.agent_run_id && row.actor_session_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply';
+  const standalone = !row.agent_run_id && row.actor_session_id
+    && row.requested_mode === 'direct_apply' && row.operation_type === 'apply';
+  if (standalone && row.version_revision_id) {
+    if (row.version_content_snapshot) await input.database.run(
+      'UPDATE collaboration_agent_operations SET version_content_snapshot=NULL WHERE operation_id=$1 AND version_revision_id=$2',
+      [row.operation_id, row.version_revision_id]);
+    return;
+  }
   if (grouped && await agentTurnHistoryService.hasOperation({ operationId: row.operation_id,
     turnId: row.agent_run_id!, workspaceId: row.workspace_id })) {
     await input.database.run('UPDATE collaboration_agent_operations SET version_content_snapshot=NULL WHERE operation_id=$1', [row.operation_id]);
     return;
   }
   let workspace = input.workspace;
-  if (!workspace && grouped && row.version_content_snapshot) {
+  if (!workspace && (grouped || standalone) && row.version_content_snapshot) {
     const stored = await input.database.get('SELECT * FROM canvas_workspaces WHERE id=$1', [row.workspace_id]) as {
       type: WorkspaceContext['workspaceType']; root_relative_path: string; organization_id: string | null;
       customer_id: string | null; project_id: string | null;
@@ -2061,6 +2069,28 @@ async function captureDurableOperationHistory(input: {
         canManageWorkspace: false, canRunAgent: false } };
   }
   if (!workspace) return;
+  if (standalone && row.version_content_snapshot) {
+    const content = gunzipSync(row.version_content_snapshot, { maxOutputLength: MAX_COLLABORATIVE_TEXT_BYTES });
+    const document = await input.database.get(`SELECT lineage_id FROM collaboration_documents
+      WHERE id=$1 AND workspace_id=$2`, [row.document_id,row.workspace_id]) as { lineage_id: string } | undefined;
+    if (!document?.lineage_id) throw new Error('The standalone agent snapshot has no lineage.');
+    const captured = await fileVersionHistoryService.capture({ workspace, path: row.document_path || state.path,
+      content, source: 'agent_apply', actorUserId: row.initiated_by_user_id, actorType: 'agent',
+      sourceSessionId: row.actor_session_id, agentOperationId: row.operation_id,
+      historicalLineageId: document.lineage_id, stateVector: parseResult(row).stateVector,
+      agentCapturedAt: Number(row.applied_at || state.persistedAt), agentRecovered: input.recovering });
+    if (captured.outcome === 'disabled') {
+      await input.database.run('UPDATE collaboration_agent_operations SET version_content_snapshot=NULL WHERE operation_id=$1',
+        [row.operation_id]);
+      return;
+    }
+    if (!captured.revision || !captured.binding) throw new Error('The standalone agent version was not durably captured.');
+    await input.database.run(`UPDATE collaboration_agent_operations
+      SET version_revision_id=$2,version_content_snapshot=NULL
+      WHERE operation_id=$1 AND (version_revision_id IS NULL OR version_revision_id=$2)`,
+    [row.operation_id, captured.revision.id]);
+    return;
+  }
   if (grouped && row.version_content_snapshot) {
     const content = gunzipSync(row.version_content_snapshot, { maxOutputLength: MAX_COLLABORATIVE_TEXT_BYTES });
     let historical = true;
@@ -2370,7 +2400,7 @@ async function applyStoredOperation(input: {
       };
       const structuralPatch = targets.some(isRichMarkdownPatchTarget);
       const captureVersionContent = (content: string) => {
-        if (row.agent_run_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply') {
+        if (row.actor_session_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply') {
           // Admission and compression must succeed before touching the shared room.
           versionContentSnapshot = prepareFileVersionContent(content).compressedContent;
         }
@@ -2378,7 +2408,7 @@ async function applyStoredOperation(input: {
       const validateForApply = (clone: YTypes.Doc) => {
         const invalid = validateOperationClone(state.representation, row.expected_canonical_hash, clone);
         if (invalid) return invalid;
-        if (row.agent_run_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply') {
+        if (row.actor_session_id && row.requested_mode === 'direct_apply' && row.operation_type === 'apply') {
           try {
             captureVersionContent(isRichTextCollaborationRepresentation(state.representation)
               ? richMarkdownFromYDoc(clone) : textValue(clone.getText('content')));
@@ -3162,6 +3192,52 @@ export async function findAgentFileEditOperation(input: {
       identity: { path: row.document_path ?? state.path, representation: row.document_representation ?? state.representation,
         lifecycleGeneration: Number(row.document_lifecycle_generation), schemaVersion: Number(row.schema_version) } };
   } finally { await database.close(); }
+}
+
+/** Associate a physical MCP checkpoint only when it is the exact operation content. */
+export async function linkStandaloneAgentCheckpoint(input: {
+  operationId: string;
+  documentId: string;
+  workspace: WorkspaceContext;
+  userId: string;
+  actorSessionId: string;
+  checkpoint: { revisionId: string; contentHash: string; sizeBytes: number;
+    documentSequence: number; lifecycleGeneration: number };
+}): Promise<boolean> {
+  const checkpoint = input.checkpoint;
+  const database = createRuntimeFileVersionCenterDatabase();
+  return database.transaction(async tx => {
+    const linked = await tx.query<{ operation_id: string }>(`
+      UPDATE collaboration_agent_operations operation
+      SET checkpoint_revision_id=$7
+      FROM file_revisions physical, file_revisions version, file_revision_contents version_content
+      WHERE operation.operation_id=$1 AND operation.document_id=$2
+        AND operation.workspace_id=$3 AND operation.initiated_by_user_id=$4
+        AND operation.actor_session_id=$5 AND operation.agent_run_id IS NULL
+        AND operation.operation_type='apply' AND operation.requested_mode='direct_apply'
+        AND operation.status IN ('persisted_yjs','checkpointed_file')
+        AND operation.document_lifecycle_generation=$6
+        AND operation.applied_document_sequence=$10
+        AND operation.applied_at IS NOT NULL
+        AND (operation.checkpoint_revision_id IS NULL OR operation.checkpoint_revision_id=$7)
+        AND version.id=operation.version_revision_id AND version.workspace_id=operation.workspace_id
+        AND version.history_only=true
+        AND version_content.revision_id=version.id
+        AND version_content.workspace_id=version.workspace_id
+        AND version_content.lineage_id=version.lineage_id
+        AND version_content.source='agent_apply'
+        AND physical.id=$7 AND physical.workspace_id=operation.workspace_id
+        AND physical.lineage_id=version.lineage_id AND physical.history_only=false
+        AND physical.content_hash=version.content_hash AND physical.content_hash=$8
+        AND physical.size_bytes=version.size_bytes AND physical.size_bytes=$9
+        AND physical.created_at >= operation.applied_at
+        AND NOT EXISTS (SELECT 1 FROM file_revision_contents existing WHERE existing.revision_id=physical.id)
+      RETURNING operation.operation_id`,
+    [input.operationId, input.documentId, input.workspace.workspaceId, input.userId,
+      input.actorSessionId, checkpoint.lifecycleGeneration, checkpoint.revisionId,
+      checkpoint.contentHash, checkpoint.sizeBytes, checkpoint.documentSequence]);
+    return linked.rows.length === 1;
+  });
 }
 
 export async function listAgentOperations(input: {

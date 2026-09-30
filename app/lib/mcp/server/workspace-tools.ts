@@ -42,7 +42,7 @@ import {
 } from '@/app/lib/collaboration/agent-file-edits';
 import { confirmCollaborativeFileCheckpoint, CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
 import { AgentFileEditOperationScopeError, AgentFileReviewDisabledConflictError,
-  findAgentFileEditOperation } from '@/app/lib/collaboration/agent-operations';
+  findAgentFileEditOperation, linkStandaloneAgentCheckpoint } from '@/app/lib/collaboration/agent-operations';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import {
@@ -1623,6 +1623,11 @@ async function executeEditKnowledgeSource(
           workspace,
           snapshot: after,
           actorSessionId: authorization.principal.sessionId,
+          onConfirmed: async checkpoint => {
+            await linkStandaloneAgentCheckpoint({ operationId: operation.operationId,
+              documentId: current.documentId!, workspace, userId: authorization.principal.userId,
+              actorSessionId: authorization.principal.sessionId, checkpoint });
+          },
         });
         const changed = persisted && request.beforeSha256 !== request.proposedSha256
           && operation.appliedTargetIds.length > 0;
@@ -1796,6 +1801,11 @@ async function executeEditKnowledgeSource(
         workspace,
         snapshot: after,
         actorSessionId: authorization.principal.sessionId,
+        onConfirmed: async checkpoint => {
+          await linkStandaloneAgentCheckpoint({ operationId: operation.operationId,
+            documentId: prepared.documentId, workspace, userId: authorization.principal.userId,
+            actorSessionId: authorization.principal.sessionId, checkpoint });
+        },
       });
       const changed = after.sha256 !== prepared.sha256;
       const afterStats = await getFileStats(filePath, { workspace });
