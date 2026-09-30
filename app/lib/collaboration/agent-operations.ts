@@ -2612,6 +2612,7 @@ export async function applyPersistedAgentTextOperation(input: {
         grantScope: directScope!,
         hardSafetyRequiresReview: hardSafetyReview,
         operationExplicitlyRequiresReview: false,
+        createdInThisCall: created.created,
       });
       if (authorization.enforcementMode !== 'safe_direct' || !authorization.grant) {
         if (input.disallowLegacyReview) {
