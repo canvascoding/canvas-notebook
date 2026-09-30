@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import type { Api, Model } from '@earendil-works/pi-ai';
+import type { Api, JsonValue, Model } from '@earendil-works/pi-ai';
 import { estimatePiTextTokens } from './context-budget';
 import { projectAgentMessageForLoadedContext } from './message-projection';
 import { getToolOutputMetadata } from './tool-output-metadata';
@@ -8,7 +8,7 @@ import { headTailToolText } from './tool-output-format';
 import { resizeTextReadResult } from './text-read-result';
 import { TOOL_OUTPUT_BLOCK_MAX_CONTEXT_FRACTION, TOOL_OUTPUT_BLOCK_MAX_TOKENS, TOOL_OUTPUT_SMALL_MODEL_MAX_CONTEXT_FRACTION } from './tool-output-policy';
 
-export const TOOL_OUTPUT_VIEW_POLICY = 'tool-block-v1';
+export const TOOL_OUTPUT_VIEW_POLICY = 'tool-block-v2';
 export type ToolOutputBudgetModel = Pick<Model<Api>, 'id' | 'provider' | 'contextWindow'>;
 type ToolResultMessage = Extract<AgentMessage, { role: 'toolResult' }>;
 export type ToolOutputModelView = {
@@ -46,7 +46,7 @@ function textCost(message: ToolResultMessage, text: string): number {
   // multimodal budget and the authoritative final provider-payload snapshot.
   return estimatePiTextTokens(JSON.stringify({ role: 'toolResult', toolCallId: message.toolCallId,
     toolName: message.toolName, isError: message.isError, timestamp: message.timestamp,
-    ...(message.addedToolNames ? { addedToolNames: message.addedToolNames } : {}), content: [{ type: 'text', text }] }));
+    content: [{ type: 'text', text }] }));
 }
 
 function allocate(desired: number[], minimum: number[], available: number): number[] {
@@ -61,6 +61,21 @@ function allocate(desired: number[], minimum: number[], available: number): numb
       allocation[index] += amount; remaining -= amount;
       if (!remaining) break;
     }
+  }
+  return allocation;
+}
+
+/** Preserve small results; spill the largest result bodies first, like Hermes. */
+function allocateResultTokens(desired: number[], minimum: number[], available: number): number[] {
+  const allocation = desired.slice();
+  let excess = Math.max(0, allocation.reduce((sum, value) => sum + value, 0) - available);
+  const largestFirst = desired.map((value, index) => ({ value, index }))
+    .sort((left, right) => right.value - left.value || left.index - right.index);
+  for (const { index } of largestFirst) {
+    if (!excess) break;
+    const removed = Math.min(excess, allocation[index] - minimum[index]);
+    allocation[index] -= removed;
+    excess -= removed;
   }
   return allocation;
 }
@@ -147,7 +162,9 @@ function applyView(message: ToolResultMessage, view: ToolOutputModelView): ToolR
     replaced = true;
     return [{ type: 'text' as const, text: view.text }];
   });
-  return { ...message, content, details: { ...detailsOf(message), ...view.readDetails, toolOutputView: view } };
+  return { ...message, content, details: JSON.parse(JSON.stringify({
+    ...detailsOf(message), ...view.readDetails, toolOutputView: view,
+  })) as JsonValue };
 }
 
 /** Pure and deterministic: history growth and free capacity never resize old blocks. */
@@ -171,8 +188,10 @@ export function planToolOutputBlockViews(messages: AgentMessage[], model: ToolOu
     if (calls.length !== results.length || calls.some(call => results.filter(result => result.toolCallId === call.id).length !== 1)) continue;
     if (!results.some(result => getToolOutputMetadata(result.details) || detailsOf(result).toolOutputReadWindow)) continue;
     const blockKey = digest(calls);
-    const assistantTokens = estimatePiTextTokens(JSON.stringify({ role: 'assistant', content: assistant.content.filter(part => part.type !== 'thinking') }));
-    const available = Math.max(0, blockLimit - assistantTokens);
+    // Tool-call arguments are the canonical execution record. Budget result
+    // bodies separately, as the final provider payload already accounts for
+    // the full assistant call (including large write arguments).
+    const available = blockLimit;
     const applied = results.map(result => detailsOf(result).toolOutputView as ToolOutputModelView | undefined);
     if (applied.every((view, index) => view?.version === 1 && view.policyVersion === TOOL_OUTPUT_VIEW_POLICY
       && view.modelKey === modelKey && view.blockKey === blockKey && view.text === textOf(results[index])
@@ -188,15 +207,15 @@ export function planToolOutputBlockViews(messages: AgentMessage[], model: ToolOu
       const minimumCost = textCost(result, render(result, 0).text);
       return Math.min(textCost(result, textOf(result)), minimumCost + (detailsOf(result).toolOutputReadWindow ? 2 : 0));
     });
-    const minimumTotal = minimum.reduce((total, value) => total + value, 0);
-    const oversizedMinimum = minimum.find(value => value > resultLimit);
-    if (oversizedMinimum !== undefined) throw new ToolOutputBlockBudgetError(oversizedMinimum, resultLimit, 'result');
-    if (minimumTotal > available) throw new ToolOutputBlockBudgetError(minimumTotal + assistantTokens, blockLimit);
+    // A block with many calls can exceed the soft result cap even when every
+    // result is only a status/reference. Keep all call/result pairs intact and
+    // let the authoritative final payload budget decide whether compaction is
+    // needed. Throwing here would abort after the tools already ran.
     const desired = results.map((result, index) => Math.max(minimum[index], Math.min(resultLimit, textCost(result, textOf(result)))));
-    const allocation = allocate(desired, minimum, available);
+    const allocation = allocateResultTokens(desired, minimum, available);
     results.forEach((result, index) => {
       const metadata = getToolOutputMetadata(result.details);
-      const sourceKey = digest([textOf(result), result.isError, result.addedToolNames, metadata, detailsOf(result).toolOutputReadWindow]);
+      const sourceKey = digest([textOf(result), result.isError, metadata, detailsOf(result).toolOutputReadWindow]);
       const saved = detailsOf(result).toolOutputView as ToolOutputModelView | undefined;
       const rendered = saved?.version === 1 && saved.policyVersion === TOOL_OUTPUT_VIEW_POLICY && saved.modelKey === modelKey
         && saved.blockKey === blockKey && saved.sourceKey === sourceKey && saved.allocatedTokens === allocation[index]

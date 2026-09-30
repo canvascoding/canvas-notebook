@@ -212,6 +212,7 @@ import { workspaceHeaders } from '@/app/lib/files/client';
 import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditorClient';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import { MarkdownBacklinksPanel } from './MarkdownBacklinksPanel';
 import { createMarkdownMentionSuggestions } from './MarkdownMentionSuggestions';
 import { MarkdownOutlinePanel } from './MarkdownOutlinePanel';
@@ -5376,7 +5377,8 @@ export function RichMarkdownEditor({
       event.stopImmediatePropagation();
       void openWorkspaceMarkdownTarget({
         sourcePath: filePath,
-        target: workspaceTarget,
+        syntax: 'markdown',
+        target: href,
         workspaceId: activeWorkspaceId,
       }).then((result) => {
         if (!['opened', 'superseded'].includes(result.status)) {
@@ -5898,6 +5900,13 @@ export function MarkdownEditor({
   }, [collaborationEnabled, normalizeToRichMode, readOnly, richModeAnalysis.mode, setMode]);
 
   if (collaborationEnabled && (!collaborationSession.session || !collaborationDocument?.ready)) {
+    if (!collaborationSession.error) {
+      return <div className="relative h-full min-h-0">
+        <DocumentLoadingSkeleton path={filePath} label={t('editorModes.opening')} />
+        <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue}
+          available={projectionAvailable} isSourceLossless={liveMarkdown.isLossless} filePath={filePath} onReload={collaborationSession.retry} />
+      </div>;
+    }
     return (
       <div className="relative flex h-full min-h-0 flex-col bg-background">
         <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue}

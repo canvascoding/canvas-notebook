@@ -24,6 +24,7 @@ moduleInternals._load = (request, parent, isMain) => {
   }
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
     return {
+      ...originalLoad(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain) as object,
       getModels: () => [],
       getProviders: () => [],
       registerBuiltInApiProviders: () => undefined,

@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.9.27.1",
-  "lockfileSha256": "debd4ded3192af916c2d8bdf064ab40e886f6925ba0fd19af5d7e28c5b508af5",
+  "packageVersion": "2026.9.29.2",
+  "lockfileSha256": "a7e73b7a675c27f32412351b408cc0e13d2c3518c3e93e08c602dfd1372fb043",
   "summary": {
-    "totalComponents": 1967,
-    "npmComponents": 1943,
+    "totalComponents": 1960,
+    "npmComponents": 1936,
     "nonNpmComponents": 24,
-    "runtimeComponents": 1449,
-    "developmentOnlyComponents": 518,
-    "allowed": 1931,
+    "runtimeComponents": 1441,
+    "developmentOnlyComponents": 519,
+    "allowed": 1924,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -6048,6 +6048,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "http-proxy-agent",
+      "versionOrCommit": "7.0.2",
+      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
+      "packagePathOrArtifact": "node_modules/http-proxy-agent",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/http-proxy-agent/LICENSE",
+      "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
+      "copyrightNotices": [
+        "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "http2-wrapper",
       "versionOrCommit": "1.0.3",
       "sourceUrl": "https://github.com/szmarczak/http2-wrapper",
@@ -10610,7 +10629,7 @@
     },
     {
       "name": "@anthropic-ai/sdk",
-      "versionOrCommit": "0.123.0",
+      "versionOrCommit": "0.124.0",
       "sourceUrl": "github:anthropics/anthropic-sdk-typescript",
       "packagePathOrArtifact": "node_modules/@anthropic-ai/sdk",
       "usage": "runtime",
@@ -10793,100 +10812,8 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@aws-crypto/sha256-browser",
-      "versionOrCommit": "5.2.0",
-      "sourceUrl": "git@github.com:aws/aws-sdk-js-crypto-helpers",
-      "packagePathOrArtifact": "node_modules/@aws-crypto/sha256-browser",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@aws-crypto/sha256-browser/LICENSE",
-      "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@aws-crypto/sha256-js",
-      "versionOrCommit": "5.2.0",
-      "sourceUrl": "git@github.com:aws/aws-sdk-js-crypto-helpers",
-      "packagePathOrArtifact": "node_modules/@aws-crypto/sha256-js",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@aws-crypto/sha256-js/LICENSE",
-      "licenseTextSha256": "a8ad31b1c3f40dca5a84119351b8fa8ddc868edd77fad8a8ebf6d8f2d16fa4ae",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@aws-crypto/supports-web-crypto",
-      "versionOrCommit": "5.2.0",
-      "sourceUrl": "git@github.com:aws/aws-sdk-js-crypto-helpers",
-      "packagePathOrArtifact": "node_modules/@aws-crypto/supports-web-crypto",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@aws-crypto/supports-web-crypto/LICENSE",
-      "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@aws-crypto/util",
-      "versionOrCommit": "5.2.0",
-      "sourceUrl": "git@github.com:aws/aws-sdk-js-crypto-helpers",
-      "packagePathOrArtifact": "node_modules/@aws-crypto/util",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@aws-crypto/util/LICENSE",
-      "licenseTextSha256": "db1ed8cccea0d0fb5d92b7c59d9aa78a5bbcd047972519c6a21a4416937f2ebf",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "@aws-sdk/client-bedrock-runtime",
-      "versionOrCommit": "3.1048.0",
+      "versionOrCommit": "3.1127.0",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/client-bedrock-runtime",
       "usage": "runtime",
@@ -10910,7 +10837,7 @@
     },
     {
       "name": "@aws-sdk/core",
-      "versionOrCommit": "3.978.0",
+      "versionOrCommit": "3.978.1",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/core",
       "usage": "runtime",
@@ -10934,7 +10861,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-env",
-      "versionOrCommit": "3.972.68",
+      "versionOrCommit": "3.972.72",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-env",
       "usage": "runtime",
@@ -10958,8 +10885,8 @@
     },
     {
       "name": "@aws-sdk/credential-provider-http",
-      "versionOrCommit": "3.972.70",
-      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/26b0eb790ff86399b7af7b74ce8c188f25512cc6",
+      "versionOrCommit": "3.972.74",
+      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/c68e50e4a6e0469a20c2894fe8a29c140553ebb8",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-http",
       "usage": "runtime",
       "distributedIn": [
@@ -10970,7 +10897,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-http@3.972.70",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-http@3.972.74",
       "licenseTextSha256": "4186c3f89c23f27b4c0caab574737c49ee5137c36a3c103484feaca4aeec2310",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -10979,11 +10906,11 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/26b0eb790ff86399b7af7b74ce8c188f25512cc6/LICENSE Published source revision: 26b0eb790ff86399b7af7b74ce8c188f25512cc6 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/credential-provider-http/package.json at version 3.972.70 and the repository Apache-2.0 license."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/c68e50e4a6e0469a20c2894fe8a29c140553ebb8/LICENSE Published source revision: c68e50e4a6e0469a20c2894fe8a29c140553ebb8 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1138.0 release commit contains packages-internal/credential-provider-http/package.json at version 3.972.74 and the repository Apache-2.0 license."
     },
     {
       "name": "@aws-sdk/credential-provider-ini",
-      "versionOrCommit": "3.973.13",
+      "versionOrCommit": "3.973.17",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-ini",
       "usage": "runtime",
@@ -11007,8 +10934,8 @@
     },
     {
       "name": "@aws-sdk/credential-provider-login",
-      "versionOrCommit": "3.972.75",
-      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/26b0eb790ff86399b7af7b74ce8c188f25512cc6",
+      "versionOrCommit": "3.972.79",
+      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/c68e50e4a6e0469a20c2894fe8a29c140553ebb8",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-login",
       "usage": "runtime",
       "distributedIn": [
@@ -11019,7 +10946,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-login@3.972.75",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-login@3.972.79",
       "licenseTextSha256": "4186c3f89c23f27b4c0caab574737c49ee5137c36a3c103484feaca4aeec2310",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -11028,11 +10955,11 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/26b0eb790ff86399b7af7b74ce8c188f25512cc6/LICENSE Published source revision: 26b0eb790ff86399b7af7b74ce8c188f25512cc6 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/credential-provider-login/package.json at version 3.972.75 and the repository Apache-2.0 license."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/c68e50e4a6e0469a20c2894fe8a29c140553ebb8/LICENSE Published source revision: c68e50e4a6e0469a20c2894fe8a29c140553ebb8 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1138.0 release commit contains packages-internal/credential-provider-login/package.json at version 3.972.79 and the repository Apache-2.0 license."
     },
     {
       "name": "@aws-sdk/credential-provider-node",
-      "versionOrCommit": "3.972.79",
+      "versionOrCommit": "3.972.84",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-node",
       "usage": "runtime",
@@ -11056,7 +10983,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-process",
-      "versionOrCommit": "3.972.68",
+      "versionOrCommit": "3.972.72",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-process",
       "usage": "runtime",
@@ -11080,7 +11007,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-sso",
-      "versionOrCommit": "3.973.12",
+      "versionOrCommit": "3.973.16",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-sso",
       "usage": "runtime",
@@ -11104,7 +11031,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-web-identity",
-      "versionOrCommit": "3.972.74",
+      "versionOrCommit": "3.972.78",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-web-identity",
       "usage": "runtime",
@@ -11128,7 +11055,7 @@
     },
     {
       "name": "@aws-sdk/eventstream-handler-node",
-      "versionOrCommit": "3.972.34",
+      "versionOrCommit": "3.972.35",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/eventstream-handler-node",
       "usage": "runtime",
@@ -11152,7 +11079,7 @@
     },
     {
       "name": "@aws-sdk/middleware-eventstream",
-      "versionOrCommit": "3.972.29",
+      "versionOrCommit": "3.972.30",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/middleware-eventstream",
       "usage": "runtime",
@@ -11176,7 +11103,7 @@
     },
     {
       "name": "@aws-sdk/middleware-websocket",
-      "versionOrCommit": "3.972.53",
+      "versionOrCommit": "3.972.54",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/middleware-websocket",
       "usage": "runtime",
@@ -11200,8 +11127,8 @@
     },
     {
       "name": "@aws-sdk/nested-clients",
-      "versionOrCommit": "3.997.42",
-      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/26b0eb790ff86399b7af7b74ce8c188f25512cc6",
+      "versionOrCommit": "3.997.46",
+      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/c68e50e4a6e0469a20c2894fe8a29c140553ebb8",
       "packagePathOrArtifact": "node_modules/@aws-sdk/nested-clients",
       "usage": "runtime",
       "distributedIn": [
@@ -11212,7 +11139,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/nested-clients@3.997.42",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/nested-clients@3.997.46",
       "licenseTextSha256": "4186c3f89c23f27b4c0caab574737c49ee5137c36a3c103484feaca4aeec2310",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -11221,11 +11148,11 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/26b0eb790ff86399b7af7b74ce8c188f25512cc6/LICENSE Published source revision: 26b0eb790ff86399b7af7b74ce8c188f25512cc6 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/nested-clients/package.json at version 3.997.42 and the repository Apache-2.0 license."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/c68e50e4a6e0469a20c2894fe8a29c140553ebb8/LICENSE Published source revision: c68e50e4a6e0469a20c2894fe8a29c140553ebb8 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1138.0 release commit contains packages-internal/nested-clients/package.json at version 3.997.46 and the repository Apache-2.0 license."
     },
     {
       "name": "@aws-sdk/signature-v4-multi-region",
-      "versionOrCommit": "3.996.44",
+      "versionOrCommit": "3.996.47",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/signature-v4-multi-region",
       "usage": "runtime",
@@ -11249,7 +11176,7 @@
     },
     {
       "name": "@aws-sdk/token-providers",
-      "versionOrCommit": "3.1048.0",
+      "versionOrCommit": "3.1127.0",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/token-providers",
       "usage": "runtime",
@@ -11273,7 +11200,7 @@
     },
     {
       "name": "@aws-sdk/token-providers",
-      "versionOrCommit": "3.1108.0",
+      "versionOrCommit": "3.1138.0",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-sso/node_modules/@aws-sdk/token-providers",
       "usage": "runtime",
@@ -11297,7 +11224,7 @@
     },
     {
       "name": "@aws-sdk/types",
-      "versionOrCommit": "3.974.5",
+      "versionOrCommit": "3.974.6",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/types",
       "usage": "runtime",
@@ -11320,32 +11247,8 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@aws-sdk/util-locate-window",
-      "versionOrCommit": "3.965.10",
-      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
-      "packagePathOrArtifact": "node_modules/@aws-sdk/util-locate-window",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@aws-sdk/util-locate-window/LICENSE",
-      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "@aws-sdk/xml-builder",
-      "versionOrCommit": "3.972.40",
+      "versionOrCommit": "3.972.41",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/xml-builder",
       "usage": "runtime",
@@ -12992,8 +12895,8 @@
     },
     {
       "name": "@earendil-works/chord",
-      "versionOrCommit": "0.85.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
+      "versionOrCommit": "0.87.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
       "packagePathOrArtifact": "node_modules/@earendil-works/chord",
       "usage": "runtime",
       "distributedIn": [
@@ -13004,19 +12907,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/chord@0.85.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/chord@0.87.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
     },
     {
       "name": "@earendil-works/pi-agent-core",
-      "versionOrCommit": "0.85.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
+      "versionOrCommit": "0.87.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-agent-core",
       "usage": "runtime",
       "distributedIn": [
@@ -13027,19 +12930,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@0.85.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@0.87.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
     },
     {
       "name": "@earendil-works/pi-ai",
-      "versionOrCommit": "0.85.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
+      "versionOrCommit": "0.87.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai",
       "usage": "runtime",
       "distributedIn": [
@@ -13050,19 +12953,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@0.85.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@0.87.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
     },
     {
       "name": "@earendil-works/pi-telemetry",
-      "versionOrCommit": "0.85.1",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/d981de1229ef899957bbe968bc8dcda02a21f477",
+      "versionOrCommit": "0.87.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/f07218c4d4bbc12bef056a7058c3dd49dfe41abe",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-telemetry",
       "usage": "runtime",
       "distributedIn": [
@@ -13073,14 +12976,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-telemetry@0.85.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-telemetry@0.87.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/d981de1229ef899957bbe968bc8dcda02a21f477/LICENSE Published source revision: d981de1229ef899957bbe968bc8dcda02a21f477"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE Published source revision: f07218c4d4bbc12bef056a7058c3dd49dfe41abe"
     },
     {
       "name": "@eigenpal/docx-js-editor",
@@ -13155,8 +13058,8 @@
     },
     {
       "name": "@esbuild/aix-ppc64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/aix-ppc64",
       "usage": "runtime",
       "distributedIn": [
@@ -13167,19 +13070,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/aix-ppc64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/aix-ppc64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/android-arm",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/android-arm",
       "usage": "runtime",
       "distributedIn": [
@@ -13190,19 +13093,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/android-arm@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/android-arm@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/android-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/android-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13213,19 +13116,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/android-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/android-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/android-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/android-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13236,19 +13139,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/android-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/android-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/darwin-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/darwin-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13259,19 +13162,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/darwin-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/darwin-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/darwin-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/darwin-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13282,19 +13185,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/darwin-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/darwin-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/freebsd-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/freebsd-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13305,19 +13208,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/freebsd-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/freebsd-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/freebsd-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/freebsd-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13328,19 +13231,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/freebsd-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/freebsd-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-arm",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-arm",
       "usage": "runtime",
       "distributedIn": [
@@ -13351,19 +13254,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-arm@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-arm@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13374,19 +13277,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-ia32",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-ia32",
       "usage": "runtime",
       "distributedIn": [
@@ -13397,19 +13300,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-ia32@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-ia32@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-loong64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-loong64",
       "usage": "runtime",
       "distributedIn": [
@@ -13420,19 +13323,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-loong64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-loong64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-mips64el",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-mips64el",
       "usage": "runtime",
       "distributedIn": [
@@ -13443,19 +13346,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-mips64el@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-mips64el@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-ppc64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-ppc64",
       "usage": "runtime",
       "distributedIn": [
@@ -13466,19 +13369,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-ppc64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-ppc64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-riscv64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-riscv64",
       "usage": "runtime",
       "distributedIn": [
@@ -13489,19 +13392,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-riscv64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-riscv64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-s390x",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-s390x",
       "usage": "runtime",
       "distributedIn": [
@@ -13512,19 +13415,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-s390x@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-s390x@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/linux-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/linux-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13535,19 +13438,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/linux-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/netbsd-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/netbsd-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13558,19 +13461,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/netbsd-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/netbsd-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/netbsd-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/netbsd-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13581,19 +13484,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/netbsd-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/netbsd-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/openbsd-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/openbsd-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13604,19 +13507,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/openbsd-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/openbsd-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/openbsd-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/openbsd-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13627,19 +13530,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/openbsd-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/openbsd-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/openharmony-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/openharmony-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13650,19 +13553,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/openharmony-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/openharmony-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/sunos-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/sunos-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13673,19 +13576,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/sunos-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/sunos-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/win32-arm64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/win32-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13696,19 +13599,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/win32-arm64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/win32-arm64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/win32-ia32",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/win32-ia32",
       "usage": "runtime",
       "distributedIn": [
@@ -13719,19 +13622,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/win32-ia32@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/win32-ia32@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@esbuild/win32-x64",
-      "versionOrCommit": "0.28.1",
-      "sourceUrl": "https://github.com/evanw/esbuild/tree/bb9db84c02433fbe37b3509f53f9f3e3cc48725e",
+      "versionOrCommit": "0.28.2",
+      "sourceUrl": "https://github.com/evanw/esbuild/tree/609683d892977362a0f99026cb74b96263d728a9",
       "packagePathOrArtifact": "node_modules/@esbuild/win32-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -13742,14 +13645,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/win32-x64@0.28.1",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@esbuild/win32-x64@0.28.2",
       "licenseTextSha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681",
       "copyrightNotices": [
         "Copyright (c) 2020 Evan Wallace"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/bb9db84c02433fbe37b3509f53f9f3e3cc48725e/LICENSE.md Published source revision: bb9db84c02433fbe37b3509f53f9f3e3cc48725e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/evanw/esbuild/609683d892977362a0f99026cb74b96263d728a9/LICENSE.md Published source revision: 609683d892977362a0f99026cb74b96263d728a9"
     },
     {
       "name": "@excalidraw/excalidraw",
@@ -14062,30 +13965,7 @@
     },
     {
       "name": "@google/genai",
-      "versionOrCommit": "1.52.0",
-      "sourceUrl": "https://github.com/googleapis/js-genai",
-      "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/@google/genai",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@earendil-works/pi-ai/node_modules/@google/genai/LICENSE",
-      "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@google/genai",
-      "versionOrCommit": "2.11.0",
+      "versionOrCommit": "2.21.0",
       "sourceUrl": "https://github.com/googleapis/js-genai",
       "packagePathOrArtifact": "node_modules/@google/genai",
       "usage": "runtime",
@@ -20850,7 +20730,7 @@
     },
     {
       "name": "@smithy/core",
-      "versionOrCommit": "3.33.3",
+      "versionOrCommit": "3.35.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/core",
       "usage": "runtime",
@@ -20874,7 +20754,7 @@
     },
     {
       "name": "@smithy/credential-provider-imds",
-      "versionOrCommit": "4.5.0",
+      "versionOrCommit": "4.5.2",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/credential-provider-imds",
       "usage": "runtime",
@@ -20921,80 +20801,8 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "@smithy/is-array-buffer",
-      "versionOrCommit": "2.2.0",
-      "sourceUrl": "https://github.com/awslabs/smithy-typescript",
-      "packagePathOrArtifact": "node_modules/@smithy/is-array-buffer",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@smithy/is-array-buffer/LICENSE",
-      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "@smithy/node-http-handler",
-      "versionOrCommit": "4.10.0",
-      "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
-      "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler/LICENSE",
-      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@smithy/node-http-handler",
-      "versionOrCommit": "4.10.0",
-      "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
-      "packagePathOrArtifact": "node_modules/@aws-sdk/nested-clients/node_modules/@smithy/node-http-handler",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@aws-sdk/nested-clients/node_modules/@smithy/node-http-handler/LICENSE",
-      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@smithy/node-http-handler",
-      "versionOrCommit": "4.7.3",
+      "versionOrCommit": "4.12.1",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/node-http-handler",
       "usage": "runtime",
@@ -21018,7 +20826,7 @@
     },
     {
       "name": "@smithy/signature-v4",
-      "versionOrCommit": "5.7.0",
+      "versionOrCommit": "5.7.4",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/signature-v4",
       "usage": "runtime",
@@ -21042,7 +20850,7 @@
     },
     {
       "name": "@smithy/types",
-      "versionOrCommit": "4.18.0",
+      "versionOrCommit": "4.19.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/types",
       "usage": "runtime",
@@ -21059,54 +20867,6 @@
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
         "Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@smithy/util-buffer-from",
-      "versionOrCommit": "2.2.0",
-      "sourceUrl": "https://github.com/awslabs/smithy-typescript",
-      "packagePathOrArtifact": "node_modules/@smithy/util-buffer-from",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@smithy/util-buffer-from/LICENSE",
-      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@smithy/util-utf8",
-      "versionOrCommit": "2.3.0",
-      "sourceUrl": "https://github.com/awslabs/smithy-typescript",
-      "packagePathOrArtifact": "node_modules/@smithy/util-utf8",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@smithy/util-utf8/LICENSE",
-      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
         "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
@@ -24644,6 +24404,28 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/agent-base/LICENSE",
+      "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
+      "copyrightNotices": [
+        "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "agent-base",
+      "versionOrCommit": "9.0.0",
+      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
+      "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/agent-base",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@earendil-works/pi-ai/node_modules/agent-base/LICENSE",
       "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
       "copyrightNotices": [
         "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
@@ -29056,7 +28838,7 @@
     },
     {
       "name": "esbuild",
-      "versionOrCommit": "0.28.1",
+      "versionOrCommit": "0.28.2",
       "sourceUrl": "https://github.com/evanw/esbuild",
       "packagePathOrArtifact": "node_modules/esbuild",
       "usage": "runtime",
@@ -31033,9 +30815,9 @@
     },
     {
       "name": "http-proxy-agent",
-      "versionOrCommit": "7.0.2",
+      "versionOrCommit": "9.1.0",
       "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
-      "packagePathOrArtifact": "node_modules/http-proxy-agent",
+      "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/http-proxy-agent",
       "usage": "runtime",
       "distributedIn": [
         "source-release",
@@ -31045,7 +30827,7 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/http-proxy-agent/LICENSE",
+      "licenseTextRef": "node_modules/@earendil-works/pi-ai/node_modules/http-proxy-agent/LICENSE",
       "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
       "copyrightNotices": [
         "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
@@ -31068,6 +30850,28 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/https-proxy-agent/LICENSE",
+      "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
+      "copyrightNotices": [
+        "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "https-proxy-agent",
+      "versionOrCommit": "9.1.0",
+      "sourceUrl": "https://github.com/TooTallNate/proxy-agents",
+      "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai/node_modules/https-proxy-agent",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@earendil-works/pi-ai/node_modules/https-proxy-agent/LICENSE",
       "licenseTextSha256": "71368fd0f5b4129191e9afcd1e1ef2dc89a9090d3e4d80bbab92dafd032b3bef",
       "copyrightNotices": [
         "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
@@ -31278,8 +31082,8 @@
     },
     {
       "name": "ignore",
-      "versionOrCommit": "7.0.5",
-      "sourceUrl": "git@github.com:kaelzhang/node-ignore",
+      "versionOrCommit": "7.0.8",
+      "sourceUrl": "https://github.com/kaelzhang/node-ignore",
       "packagePathOrArtifact": "node_modules/ignore",
       "usage": "runtime",
       "distributedIn": [
@@ -37883,6 +37687,31 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "proxy-agent-negotiate",
+      "versionOrCommit": "1.1.0",
+      "sourceUrl": "https://github.com/TooTallNate/proxy-agents/tree/b7e5f7ccce1a3ac5b339cc4c587974e8989cbc16/packages/negotiate",
+      "packagePathOrArtifact": "node_modules/proxy-agent-negotiate",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "copyrightNotices": [
+        "Copyright (c) Nathan Rajlich and contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release and matching proxy-agent-negotiate@1.1.0 source tag declare MIT and identify Nathan Rajlich as author, but neither the tarball nor this package's source contains a LICENSE or explicit copyright statement. A sibling package at the same source commit carries the full MIT terms and names Nathan Rajlich. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-09-29 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the publisher author metadata with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/TooTallNate/proxy-agents/blob/b7e5f7ccce1a3ac5b339cc4c587974e8989cbc16/packages/negotiate/package.json",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-09-29"
+    },
+    {
       "name": "proxy-from-env",
       "versionOrCommit": "1.1.0",
       "sourceUrl": "https://github.com/Rob--W/proxy-from-env",
@@ -41300,7 +41129,7 @@
     },
     {
       "name": "typebox",
-      "versionOrCommit": "1.3.7",
+      "versionOrCommit": "1.3.27",
       "sourceUrl": "https://github.com/sinclairzx81/typebox",
       "packagePathOrArtifact": "node_modules/typebox",
       "usage": "runtime",

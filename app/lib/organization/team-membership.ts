@@ -3,6 +3,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import type { SqlConnection } from '@/app/lib/db';
+import { getDeploymentMode } from './config';
 import {
   enqueueTeamSeatOutboxOperation,
   recordTeamMembershipProjectionChange,
@@ -534,6 +535,13 @@ export async function transitionTeamMembership(
       throw new TeamMembershipError(
         'INVALID_TRANSITION',
         `Cannot transition a Team membership from ${membership.status} to ${input.toStatus}.`,
+        409,
+      );
+    }
+    if (getDeploymentMode() === 'managed-team' && input.toStatus === 'active') {
+      throw new TeamMembershipError(
+        'MEMBERSHIP_CONFLICT',
+        'Managed Team membership activation requires Control Plane approval and identity mapping.',
         409,
       );
     }

@@ -17,9 +17,11 @@ import {
 import {
   withRollbackableFileRename,
   assertWorkspaceOfficePathMutationAllowed,
+  checkRenameConflict,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { captureWorkspaceOperationBackup, type WorkspaceOperationBackup } from './workspace-operation-backup';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
 import type { WorkspacePathRenameMutation } from './file-events';
@@ -37,6 +39,7 @@ type RenameParams = {
 export type WorkspacePathRenameResult = {
   warnings: string[];
   mutation: WorkspacePathRenameMutation;
+  backup: Pick<WorkspaceOperationBackup, 'backupId' | 'originalPath' | 'contentSha256' | 'sizeBytes'> | null;
 };
 
 export type WorkspacePathRenameOperations = {
@@ -48,6 +51,7 @@ export type WorkspacePathRenameOperations = {
   syncPublicShares: (params: RenameParams) => Promise<void>;
   queuePublicShareSync: (params: RenameParams) => void;
   createBackupPath: () => string;
+  captureDestinationBackup: (params: RenameParams) => Promise<WorkspacePathRenameResult['backup']>;
 };
 
 type RegisterCompensation = (compensation: () => Promise<void>) => void;
@@ -120,6 +124,25 @@ const runtimeOperations: WorkspacePathRenameOperations = {
     );
   },
   createBackupPath: () => `.canvas-rename-backups/${randomUUID()}`,
+  captureDestinationBackup: async (params) => {
+    const conflict = await checkRenameConflict(params.oldPath, params.newPath, params.fileOptions);
+    if (!conflict) return null;
+    if (conflict.code !== 'FILE_EXISTS' || conflict.type !== 'file') throw conflict;
+    const { detectFileCollaborationStrategy, readFileCollaborationState } = await import('@/app/lib/files/collaboration-policy');
+    const strategy = detectFileCollaborationStrategy(params.newPath);
+    if (strategy === 'crdt_text' || strategy === 'excalidraw_scene') {
+      const state = await readFileCollaborationState({ workspace: params.workspace, path: params.newPath });
+      if (state.document) {
+        throw Object.assign(new Error(`Active collaborative file cannot be overwritten: ${params.newPath}`),
+          { status: 409, code: 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED' });
+      }
+    }
+    const captured = await captureWorkspaceOperationBackup({
+      workspace: params.workspace, path: params.newPath, operationId: params.mutation!.operationId,
+    });
+    return { backupId: captured.backupId, originalPath: captured.originalPath,
+      contentSha256: captured.contentSha256, sizeBytes: captured.sizeBytes };
+  },
 };
 
 export async function renameWorkspacePath(
@@ -137,51 +160,59 @@ export async function renameWorkspacePath(
       oldPath: params.oldPath, newPath: params.newPath,
     };
     params = { ...params, mutation };
+    const backup = params.overwrite ? await operations.captureDestinationBackup(params) : null;
     const backupPath = params.overwrite ? operations.createBackupPath() : null;
 
-    await withCompensations(async (registerDestinationRollback) => {
-      if (backupPath) {
-        await operations.moveCollaborationPath({
-          workspace: params.workspace,
-          oldPath: params.newPath,
-          newPath: backupPath,
-        });
-        registerDestinationRollback(() => operations.moveCollaborationPath({
-          workspace: params.workspace,
-          oldPath: backupPath,
-          newPath: params.newPath,
-        }));
-
-        await operations.moveMetadataPath({
-          workspace: params.workspace,
-          oldPath: params.newPath,
-          newPath: backupPath,
-        });
-        registerDestinationRollback(() => operations.moveMetadataPath({
-          workspace: params.workspace,
-          oldPath: backupPath,
-          newPath: params.newPath,
-        }));
-      }
-
-      await operations.withFileRename(params, async () => {
-        await withCompensations(async (registerSourceRollback) => {
-          await operations.moveCollaborationPath(params);
-          registerSourceRollback(() => operations.moveCollaborationPath({
+    try {
+      await withCompensations(async (registerDestinationRollback) => {
+        if (backupPath) {
+          await operations.moveCollaborationPath({
             workspace: params.workspace,
             oldPath: params.newPath,
-            newPath: params.oldPath,
+            newPath: backupPath,
+          });
+          registerDestinationRollback(() => operations.moveCollaborationPath({
+            workspace: params.workspace,
+            oldPath: backupPath,
+            newPath: params.newPath,
           }));
 
-          await operations.moveMetadataPath(params);
-          registerSourceRollback(() => operations.moveMetadataPath({
+          await operations.moveMetadataPath({
             workspace: params.workspace,
             oldPath: params.newPath,
-            newPath: params.oldPath,
+            newPath: backupPath,
+          });
+          registerDestinationRollback(() => operations.moveMetadataPath({
+            workspace: params.workspace,
+            oldPath: backupPath,
+            newPath: params.newPath,
           }));
+        }
+
+        await operations.withFileRename(params, async () => {
+          await withCompensations(async (registerSourceRollback) => {
+            await operations.moveCollaborationPath(params);
+            registerSourceRollback(() => operations.moveCollaborationPath({
+              workspace: params.workspace,
+              oldPath: params.newPath,
+              newPath: params.oldPath,
+            }));
+
+            await operations.moveMetadataPath(params);
+            registerSourceRollback(() => operations.moveMetadataPath({
+              workspace: params.workspace,
+              oldPath: params.newPath,
+              newPath: params.oldPath,
+            }));
+          });
         });
       });
-  });
+    } catch (error) {
+      if (backup && error && typeof error === 'object') {
+        Object.assign(error, { backup, operationId: mutation.operationId });
+      }
+      throw error;
+    }
 
     const warnings: string[] = [];
     if (backupPath) {
@@ -204,6 +235,6 @@ export async function renameWorkspacePath(
       operations.queuePublicShareSync(params);
     }
 
-    return { warnings, mutation };
+    return { warnings, mutation, backup };
   });
 }

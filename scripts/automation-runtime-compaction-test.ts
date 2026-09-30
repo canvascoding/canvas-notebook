@@ -10,6 +10,9 @@ const moduleInternals = Module as typeof Module & {
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (request === '@earendil-works/pi-ai') {
+    return originalLoad(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain);
+  }
   return originalLoad(request, parent, isMain);
 };
 

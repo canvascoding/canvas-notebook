@@ -1,0 +1,712 @@
+import 'server-only';
+
+import { createHash } from 'node:crypto';
+
+import { requestTeamControlPlane, redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
+import { openDb, type SqlConnection } from '@/app/lib/db';
+import { PENDING_TEAM_MEMBERSHIP_BAN_REASON } from '@/app/lib/auth';
+import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { lastHumanActivityAt } from '@/app/lib/instance/human-activity';
+import { ensureOrganizationPermissionRow, organizationPermissionDefaults } from '@/app/lib/organization/permission-provisioning';
+import { isTeamMembershipReactivationBanReason, TEAM_LICENSE_FALLBACK_BAN_REASON, TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
+import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
+import { getLicenseInstanceId } from './instance';
+import { decodeLicenseJwt, verifyLicenseJwtDetailed } from './jwt';
+import { loadStoredLicenseCert } from './storage';
+import { recordManagedTeamAccessPolicy } from './managed-team-access-policy';
+import { recordTeamLicenseTermWarning } from './team-license-term-warning';
+
+const SYNC_PATH = '/v1/managed/team/sync';
+const ADOPTION_PATH = '/v1/managed/team/adoption-report';
+const IDENTITY_PATH = '/v1/managed/team/identity-report';
+const ACK_PATH = '/v1/managed/team/sync/ack';
+const SYNC_INTERVAL_MS = 60_000;
+
+type ManagedMember = {
+  externalUserId: string;
+  email: string;
+  role: 'owner' | 'admin' | 'member' | 'external';
+  status: 'active' | 'suspended' | 'removed';
+  localIdentityKey?: string | null;
+  localUserId?: string | null;
+};
+
+type ManagedSync = {
+  status: 'adoption_required' | 'ready' | 'policy_ready';
+  accessPolicy?: {
+    state: 'active' | 'grace' | 'restricted';
+    reason: 'grant_expired' | 'grant_revoked' | null;
+    termEndsAt?: string | null;
+    graceEndsAt: string | null;
+    allowNewMembers: boolean;
+  };
+  instanceId: string;
+  organizationId: string;
+  membershipRevision: number;
+  memberHash: string | null;
+  members: ManagedMember[];
+  license: null | {
+    certificate: string;
+    entitlementsVersion: number;
+    fingerprint: string;
+    seatLimit: number;
+  };
+};
+
+type LocalMember = {
+  localIdentityKey: string;
+  localUserId: string | null;
+  email: string;
+  authEmail: string | null;
+  role: string;
+  status: string;
+  authRole: string | null;
+  userBanned: boolean | number | null;
+  permissionRole: string | null;
+  permissionStatus: string | null;
+};
+
+type ManagedRuntime = {
+  timer: ReturnType<typeof setTimeout> | null;
+  running: boolean;
+  stopped: boolean;
+};
+
+type ManagedRuntimeGlobal = typeof globalThis & {
+  __canvasManagedTeamSyncRuntime?: ManagedRuntime;
+};
+
+function instanceToken(): string | null {
+  return process.env.CANVAS_INSTANCE_TOKEN?.trim() || null;
+}
+
+function memberHash(members: ManagedMember[]): string {
+  const canonical = [...members]
+    .sort((left, right) => left.externalUserId.localeCompare(right.externalUserId))
+    .map((member) => ({
+      externalUserId: member.externalUserId,
+      email: member.email.trim().toLowerCase(),
+      role: member.role,
+      status: member.status,
+      localIdentityKey: member.localIdentityKey ?? null,
+      localUserId: member.localUserId ?? null,
+    }));
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+function parseSync(value: Record<string, unknown>, instanceId: string): ManagedSync {
+  if (
+    !['ready', 'policy_ready', 'adoption_required'].includes(String(value.status))
+    || value.instanceId !== instanceId
+    || typeof value.organizationId !== 'string'
+    || !Number.isSafeInteger(value.membershipRevision)
+    || (value.membershipRevision as number) < 0
+    || !Array.isArray(value.members)
+  ) {
+    throw new Error('MANAGED_TEAM_SYNC_RESPONSE_INVALID');
+  }
+  const members = value.members as ManagedMember[];
+  if (members.some((member) =>
+    !member || typeof member.externalUserId !== 'string' || !member.externalUserId
+    || typeof member.email !== 'string' || !member.email.includes('@')
+    || !['owner', 'admin', 'member', 'external'].includes(member.role)
+    || !['active', 'suspended', 'removed'].includes(member.status)
+    || (member.localIdentityKey != null && typeof member.localIdentityKey !== 'string')
+    || (member.localUserId != null && typeof member.localUserId !== 'string')
+  )) {
+    throw new Error('MANAGED_TEAM_SYNC_MEMBERS_INVALID');
+  }
+  const license = value.license as ManagedSync['license'];
+  if (value.status !== 'adoption_required' && (
+    typeof value.memberHash !== 'string'
+    || value.memberHash !== memberHash(members)
+    || !license
+    || typeof license.certificate !== 'string'
+    || typeof license.fingerprint !== 'string'
+    || !Number.isSafeInteger(license.entitlementsVersion)
+    || !Number.isSafeInteger(license.seatLimit)
+    || license.seatLimit < 1
+  )) {
+    throw new Error('MANAGED_TEAM_SYNC_CONTRACT_INVALID');
+  }
+  const policy = value.accessPolicy as ManagedSync['accessPolicy'];
+  if (policy?.termEndsAt !== undefined && policy.termEndsAt !== null
+    && (typeof policy.termEndsAt !== 'string'
+      || !Number.isFinite(Date.parse(policy.termEndsAt)))) {
+    throw new Error('MANAGED_TEAM_ACCESS_POLICY_INVALID');
+  }
+  if (value.status === 'policy_ready' && (!policy
+    || !['grace', 'restricted'].includes(policy.state)
+    || !['grant_expired', 'grant_revoked'].includes(String(policy.reason))
+    || policy.allowNewMembers !== false
+    || (policy.reason === 'grant_revoked' && policy.state !== 'restricted')
+    || (policy.state === 'grace' && (policy.reason !== 'grant_expired'
+      || typeof policy.graceEndsAt !== 'string'
+      || !Number.isFinite(Date.parse(policy.graceEndsAt))
+      || Date.parse(policy.graceEndsAt) <= Date.now()))
+    || (policy.graceEndsAt !== null && (typeof policy.graceEndsAt !== 'string'
+      || !Number.isFinite(Date.parse(policy.graceEndsAt))))
+  )) throw new Error('MANAGED_TEAM_ACCESS_POLICY_INVALID');
+  if (value.status === 'ready' && policy && (policy.state !== 'active'
+    || policy.reason !== null || policy.graceEndsAt !== null
+    || policy.allowNewMembers !== true)) throw new Error('MANAGED_TEAM_ACCESS_POLICY_INVALID');
+  return value as ManagedSync;
+}
+
+async function localMembers(database: Pick<SqlConnection, 'all'>): Promise<{
+  organizationId: string;
+  members: LocalMember[];
+}> {
+  const organizations = await database.all(`
+    SELECT organization_id FROM canvas_organization_settings ORDER BY organization_id
+  `) as Array<{ organization_id: string }>;
+  if (organizations.length !== 1) throw new Error('MANAGED_TEAM_LOCAL_ORGANIZATION_SCOPE_INVALID');
+  const organizationId = organizations[0].organization_id;
+  const rows = await database.all(`
+    SELECT membership.id, COALESCE(membership.user_id, pending.pending_user_id) AS user_id,
+      membership.candidate_email, membership.role, membership.status,
+      auth_user.email AS auth_email, auth_user.role AS auth_role, auth_user.banned AS user_banned,
+      permission.role AS permission_role, permission.status AS permission_status
+    FROM team_memberships membership
+    LEFT JOIN managed_team_pending_identities pending
+      ON pending.local_identity_key = membership.id
+      AND pending.organization_id = membership.organization_id
+    LEFT JOIN "user" auth_user
+      ON auth_user.id = COALESCE(membership.user_id, pending.pending_user_id)
+    LEFT JOIN organization_user_permissions permission
+      ON permission.organization_id = membership.organization_id
+      AND permission.user_id = COALESCE(membership.user_id, pending.pending_user_id)
+    WHERE membership.organization_id = $1
+    ORDER BY membership.id
+  `, [organizationId]) as Array<{
+    id: string;
+    user_id: string | null;
+    candidate_email: string;
+    role: string;
+    status: string;
+    auth_email: string | null;
+    auth_role: string | null;
+    user_banned: boolean | number | null;
+    permission_role: string | null;
+    permission_status: string | null;
+  }>;
+  return {
+    organizationId,
+    members: rows.map((row) => ({
+      localIdentityKey: row.id,
+      localUserId: row.user_id,
+      email: row.candidate_email.toLowerCase(),
+      authEmail: row.auth_email?.toLowerCase() ?? null,
+      role: row.role,
+      status: row.status,
+      authRole: row.auth_role,
+      userBanned: row.user_banned,
+      permissionRole: row.permission_role,
+      permissionStatus: row.permission_status,
+    })),
+  };
+}
+
+async function managedRequest(
+  path: string,
+  method: 'GET' | 'POST',
+  body?: Record<string, unknown>,
+  fetchImpl?: typeof fetch,
+): Promise<Record<string, unknown>> {
+  const token = instanceToken();
+  if (!token) throw new Error('MANAGED_TEAM_INSTANCE_TOKEN_MISSING');
+  const { response, payload } = await requestTeamControlPlane({
+    baseUrl: getLicenseControlPlaneUrl(),
+    path,
+    method,
+    body,
+    instanceToken: token,
+    fetchImpl,
+    maxAttempts: 2,
+  });
+  if (!response.ok) {
+    const code = typeof payload.code === 'string' ? payload.code : 'MANAGED_TEAM_CONTROL_PLANE_ERROR';
+    throw new Error(code);
+  }
+  return payload;
+}
+
+async function sendAdoptionReport(
+  instanceId: string,
+  members: LocalMember[],
+  fetchImpl?: typeof fetch,
+  loadCertificate: typeof loadStoredLicenseCert = loadStoredLicenseCert,
+  verifyCertificate: typeof verifyLicenseJwtDetailed = verifyLicenseJwtDetailed,
+): Promise<void> {
+  const candidates = [process.env.CANVAS_LICENSE_CERT?.trim(), await loadCertificate(instanceId)]
+    .filter((certificate): certificate is string => Boolean(certificate));
+  let legacyCertificate: string | null = null;
+  let highestRevision: [number, number, number] | null = null;
+  for (const certificate of new Set(candidates)) {
+    const decoded = decodeLicenseJwt(certificate);
+    if (!decoded || !Number.isSafeInteger(decoded.exp) || !decoded.exp) continue;
+    const current = await verifyCertificate(certificate, instanceId);
+    const verified = current.ok || current.code !== 'LICENSE_CERT_EXPIRED'
+      ? current
+      : await verifyCertificate(certificate, instanceId, { nowMs: decoded.exp * 1000 - 1000 });
+    if (!verified.ok || !Number.isSafeInteger(verified.payload.entitlementsVersion)
+      || !Number.isSafeInteger(verified.payload.quotas?.users)
+      || (verified.payload.quotas?.users ?? 0) < 1
+      || (verified.payload.iat ?? 0) * 1000 > Date.now() + 5 * 60 * 1000) continue;
+    const revision: [number, number, number] = [
+      verified.payload.entitlementsVersion!, verified.payload.iat ?? 0, Number(decoded.exp),
+    ];
+    if (!highestRevision || revision[0] > highestRevision[0]
+      || (revision[0] === highestRevision[0] && revision[1] > highestRevision[1])
+      || (revision[0] === highestRevision[0] && revision[1] === highestRevision[1]
+        && revision[2] > highestRevision[2])) {
+      highestRevision = revision;
+      legacyCertificate = certificate;
+    }
+  }
+  if (candidates.length > 0 && !legacyCertificate) throw new Error('MANAGED_TEAM_LEGACY_CERTIFICATE_INVALID');
+  await managedRequest(ADOPTION_PATH, 'POST', {
+    instanceId,
+    ...(legacyCertificate ? { legacyCertificate } : {}),
+    members: members.map(({ localIdentityKey, localUserId, email, role, status }) => ({
+      localIdentityKey, localUserId, email, role, status,
+    })),
+  }, fetchImpl);
+}
+
+async function sendIdentityReport(
+  instanceId: string,
+  members: LocalMember[],
+  fetchImpl?: typeof fetch,
+): Promise<void> {
+  await managedRequest(IDENTITY_PATH, 'POST', {
+    instanceId,
+    members: members.map(({ localIdentityKey, localUserId, email, role, status }) => ({
+      localIdentityKey, localUserId, email, role, status,
+    })),
+  }, fetchImpl);
+}
+
+function assertManagedMappings(
+  local: LocalMember[], managed: ManagedMember[], phase: 'revoke' | 'full' = 'full',
+): number {
+  const active = managed.filter((member) => member.status === 'active');
+  const byIdentityKey = new Map(local.map((member) => [member.localIdentityKey, member]));
+  if (new Set(managed.map((member) => member.externalUserId)).size !== managed.length) {
+    throw new Error('MANAGED_TEAM_DUPLICATE_EXTERNAL_USER');
+  }
+  for (const member of managed) {
+    if (isBootstrapAdminEmail(member.email)
+      && (member.status !== 'active' || (member.role !== 'owner' && member.role !== 'admin'))) {
+      throw new Error('MANAGED_TEAM_BOOTSTRAP_ADMIN_ACCESS_DENIED');
+    }
+    if (phase === 'revoke' && member.status === 'active') continue;
+    if (!member.localIdentityKey) throw new Error('LOCAL_IDENTITY_MAPPING_REQUIRED');
+    const existing = byIdentityKey.get(member.localIdentityKey);
+    if (!existing || (member.localUserId && existing.localUserId !== member.localUserId)
+      || (existing.email !== member.email.toLowerCase()
+        && (!member.localUserId || existing.localUserId !== member.localUserId
+          || ['approval_required', 'billing_pending'].includes(existing.status)))) {
+      throw new Error('MANAGED_TEAM_IDENTITY_MISMATCH');
+    }
+    if (member.status === 'active' && !existing.localUserId) {
+      throw new Error('MANAGED_TEAM_PENDING_LOCAL_IDENTITY');
+    }
+  }
+  const mapped = new Set(managed.map((member) => member.localIdentityKey));
+  if (phase === 'full'
+    && local.some((member) => member.status === 'active' && !mapped.has(member.localIdentityKey))) {
+    throw new Error('MANAGED_TEAM_UNMAPPED_ACTIVE_USER');
+  }
+  return active.length;
+}
+
+function requireChanged(result: unknown, code: string): void {
+  if (!result || typeof result !== 'object' || !('changes' in result)
+    || Number(result.changes) !== 1) throw new Error(code);
+}
+
+function authRoleForMember(role: ManagedMember['role']): 'admin' | 'user' {
+  return role === 'owner' || role === 'admin' ? 'admin' : 'user';
+}
+
+async function syncOrganizationPermissionRole(
+  database: Pick<SqlConnection, 'run'>,
+  organizationId: string,
+  userId: string,
+  role: ManagedMember['role'],
+  now: number,
+): Promise<void> {
+  const defaults = organizationPermissionDefaults(role);
+  requireChanged(await database.run(`
+    UPDATE organization_user_permissions SET
+      role = $1, can_write_team_workspace = $2, can_create_public_links = $3,
+      can_create_team_automations = $4, can_share_plugins_and_skills = $5,
+      can_export = $6, can_delete_team_files = $7, can_delete_studio_assets = $8,
+      can_manage_backups = $9, can_manage_organization_memory = $10,
+      can_migrate_database = $11, can_enable_knowledge = $12,
+      can_recover_workspaces = $13, updated_at = $14
+    WHERE organization_id = $15 AND user_id = $16 AND status = 'active'
+  `, [
+    role,
+    Number(defaults.canWriteTeamWorkspace), Number(defaults.canCreatePublicLinks),
+    Number(defaults.canCreateTeamAutomations), Number(defaults.canSharePluginsAndSkills),
+    Number(defaults.canExport), Number(defaults.canDeleteTeamFiles),
+    Number(defaults.canDeleteStudioAssets), Number(defaults.canManageBackups),
+    Number(defaults.canManageOrganizationMemory), Number(defaults.canMigrateDatabase),
+    Number(defaults.canEnableKnowledge), Number(defaults.canRecoverWorkspaces), now,
+    organizationId, userId,
+  ]), 'MANAGED_TEAM_PERMISSION_ROW_MISSING');
+}
+
+async function applyManagedMembership(
+  database: Pick<SqlConnection, 'all' | 'get' | 'run'>,
+  local: { organizationId: string; members: LocalMember[] },
+  managed: ManagedMember[],
+  phase: 'revoke' | 'active',
+  policy?: ManagedSync['accessPolicy'],
+): Promise<void> {
+  const byIdentityKey = new Map(local.members.map((member) => [member.localIdentityKey, member]));
+  const now = Date.now();
+  await database.run('BEGIN');
+  try {
+    for (const member of managed) {
+      if ((member.status === 'active') !== (phase === 'active')) continue;
+      const existing = byIdentityKey.get(member.localIdentityKey!);
+      if (!existing) continue;
+      const desiredEmail = member.email.toLowerCase();
+      const emailChanged = existing.email !== desiredEmail || existing.authEmail !== desiredEmail;
+      if (phase === 'active' && emailChanged && existing.localUserId && member.localUserId === existing.localUserId
+        && !['approval_required', 'billing_pending'].includes(existing.status)) {
+        const conflictingUsers = await database.all(`
+          SELECT id FROM "user" WHERE lower(email) = $1 AND id <> $2
+        `, [desiredEmail, existing.localUserId]);
+        if (conflictingUsers.length) throw new Error('MANAGED_TEAM_EMAIL_CONFLICT');
+        if (existing.email !== desiredEmail) {
+          requireChanged(await database.run(`
+            UPDATE team_memberships SET candidate_email = $1, updated_at = $2
+            WHERE id = $3 AND organization_id = $4 AND user_id = $5 AND lower(candidate_email) = $6
+          `, [member.email, now, existing.localIdentityKey, local.organizationId,
+            existing.localUserId, existing.email]), 'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+        }
+        if (existing.authEmail !== desiredEmail) {
+          requireChanged(await database.run(`
+            UPDATE "user" SET email = $1, updated_at = $2
+            WHERE id = $3 AND lower(email) = $4
+          `, [member.email, now, existing.localUserId, existing.authEmail]),
+          'MANAGED_TEAM_ACTIVE_IDENTITY_CHANGED');
+        }
+        await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
+      }
+      if (existing.status === member.status && existing.role === member.role
+        && !emailChanged
+        && (phase === 'revoke'
+          ? (!existing.localUserId || (Boolean(existing.userBanned) && existing.permissionStatus === 'disabled'))
+          : member.status !== 'active'
+          || (existing.authRole === authRoleForMember(member.role)
+            && existing.permissionRole === member.role
+            && existing.permissionStatus === 'active'))) continue;
+      if (phase === 'revoke' && !['active', 'suspended', 'removed'].includes(existing.status)) continue;
+      const pendingActivation = member.status === 'active'
+        && ['approval_required', 'billing_pending'].includes(existing.status)
+        && existing.localUserId !== null;
+      const reactivation = member.status === 'active'
+        && ['suspended', 'removed'].includes(existing.status)
+        && existing.localUserId !== null;
+      if (existing.status !== 'active' && member.status === 'active' && !pendingActivation && !reactivation) {
+        throw new Error('MANAGED_TEAM_REACTIVATION_REQUIRES_LOCAL_IDENTITY_FLOW');
+      }
+      if ((existing.role === 'owner' || member.role === 'owner')
+        && (member.status !== 'active' || existing.role !== member.role)) {
+        throw new Error('MANAGED_TEAM_OWNER_CHANGE_REQUIRES_REVIEW');
+      }
+      if (member.status === 'active') {
+        if (reactivation) {
+          const users = await database.all(`
+            SELECT email, banned, ban_reason FROM "user" WHERE id = $1
+          `, [existing.localUserId]) as Array<{
+            email: string; banned: boolean | number; ban_reason: string | null;
+          }>;
+          if (users.length !== 1 || users[0].email.toLowerCase() !== member.email.toLowerCase()
+            || !users[0].banned
+            || !isTeamMembershipReactivationBanReason(users[0].ban_reason)) {
+            throw new Error('MANAGED_TEAM_REACTIVATION_IDENTITY_INVALID');
+          }
+          await ensureOrganizationPermissionRow(database, {
+            organizationId: local.organizationId,
+            userId: existing.localUserId!,
+            role: member.role,
+            activateExisting: true,
+            now,
+          });
+          await syncOrganizationPermissionRole(database, local.organizationId, existing.localUserId!, member.role, now);
+          requireChanged(await database.run(`
+            UPDATE team_memberships SET role = $1, status = 'active', activated_at = $2,
+              suspended_at = NULL, removed_at = NULL, updated_at = $2
+            WHERE id = $3 AND organization_id = $4 AND user_id = $5 AND status IN ('suspended', 'removed')
+          `, [member.role, now, existing.localIdentityKey, local.organizationId, existing.localUserId]),
+          'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+          requireChanged(await database.run(`
+            UPDATE "user" SET role = $1, banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $2
+            WHERE id = $3 AND banned = 1 AND ban_reason = $4
+          `, [authRoleForMember(member.role), now, existing.localUserId, users[0].ban_reason]),
+          'MANAGED_TEAM_REACTIVATION_IDENTITY_CHANGED');
+          await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
+          continue;
+        }
+        if (pendingActivation) {
+          const pendingUser = await database.all(`
+            SELECT id, email, banned, ban_reason FROM "user" WHERE id = $1
+          `, [existing.localUserId]) as Array<{
+            id: string; email: string; banned: boolean | number; ban_reason: string | null;
+          }>;
+          if (pendingUser.length !== 1
+            || pendingUser[0].email.toLowerCase() !== member.email.toLowerCase()
+            || !pendingUser[0].banned
+            || pendingUser[0].ban_reason !== PENDING_TEAM_MEMBERSHIP_BAN_REASON) {
+            throw new Error('MANAGED_TEAM_PENDING_IDENTITY_INVALID');
+          }
+          await ensureOrganizationPermissionRow(database, {
+            organizationId: local.organizationId,
+            userId: existing.localUserId!,
+            role: member.role,
+            activateExisting: true,
+            now,
+          });
+          await syncOrganizationPermissionRole(database, local.organizationId, existing.localUserId!, member.role, now);
+          requireChanged(await database.run(`
+            UPDATE team_memberships SET user_id = $1, role = $2, status = 'active',
+              accepted_at = COALESCE(accepted_at, $3), activated_at = $3, updated_at = $3
+            WHERE id = $4 AND organization_id = $5
+              AND user_id IS NULL AND status IN ('approval_required', 'billing_pending')
+          `, [existing.localUserId, member.role, now, existing.localIdentityKey, local.organizationId]),
+          'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+          requireChanged(await database.run(`
+            UPDATE "user" SET role = $1, banned = 0, ban_reason = NULL, ban_expires = NULL, updated_at = $2
+            WHERE id = $3 AND banned = 1 AND ban_reason = $4
+          `, [authRoleForMember(member.role), now, existing.localUserId, PENDING_TEAM_MEMBERSHIP_BAN_REASON]),
+          'MANAGED_TEAM_PENDING_IDENTITY_CHANGED');
+          continue;
+        }
+        if (existing.userBanned) throw new Error('MANAGED_TEAM_ACTIVE_IDENTITY_BANNED');
+        requireChanged(await database.run(`
+          UPDATE team_memberships SET role = $1, updated_at = $2
+          WHERE id = $3 AND organization_id = $4 AND user_id = $5 AND status = 'active'
+        `, [member.role, now, existing.localIdentityKey, local.organizationId, existing.localUserId]),
+        'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+        await syncOrganizationPermissionRole(database, local.organizationId, existing.localUserId!, member.role, now);
+        requireChanged(await database.run(`
+          UPDATE "user" SET role = $1, updated_at = $2
+          WHERE id = $3 AND lower(email) = $4
+        `, [authRoleForMember(member.role), now, existing.localUserId, desiredEmail]),
+        'MANAGED_TEAM_ACTIVE_IDENTITY_CHANGED');
+        await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
+        continue;
+      }
+      requireChanged(await database.run(`
+        UPDATE team_memberships SET status = $1, role = $2,
+          suspended_at = CASE WHEN $1 = 'suspended' THEN $3 ELSE suspended_at END,
+          removed_at = CASE WHEN $1 = 'removed' THEN $3 ELSE removed_at END,
+          updated_at = $3
+        WHERE id = $4 AND organization_id = $5 AND user_id = $6
+          AND status IN ('active', 'suspended', 'removed')
+      `, [member.status, member.role, now, existing.localIdentityKey, local.organizationId, existing.localUserId]),
+      'MANAGED_TEAM_MEMBERSHIP_CHANGED_CONCURRENTLY');
+      requireChanged(await database.run(`
+        UPDATE organization_user_permissions SET status = 'disabled', updated_at = $1
+        WHERE organization_id = $2 AND user_id = $3
+      `, [now, local.organizationId, existing.localUserId]), 'MANAGED_TEAM_PERMISSION_ROW_MISSING');
+      requireChanged(await database.run(`
+        UPDATE "user" SET banned = 1, ban_reason = $1, ban_expires = NULL, updated_at = $2
+        WHERE id = $3
+      `, [policy && policy.state !== 'active' && member.status === 'suspended'
+        ? TEAM_LICENSE_FALLBACK_BAN_REASON
+        : `${TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX}managed_${member.status}`, now, existing.localUserId]),
+      'MANAGED_TEAM_REVOKED_IDENTITY_MISSING');
+      await database.run('DELETE FROM "session" WHERE user_id = $1', [existing.localUserId]);
+    }
+    await database.run('COMMIT');
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {}
+    throw error;
+  }
+}
+
+export async function runManagedTeamSyncCycle(options: {
+  database?: Pick<SqlConnection, 'all' | 'get' | 'run' | 'close'>;
+  fetchImpl?: typeof fetch;
+  activateCertificate?: typeof activateLicenseCert;
+  verifyCertificate?: (certificate: string, instanceId: string) => Promise<boolean>;
+  recordTermWarning?: typeof recordTeamLicenseTermWarning;
+  loadLegacyCertificate?: typeof loadStoredLicenseCert;
+  verifyLegacyCertificate?: typeof verifyLicenseJwtDetailed;
+} = {}): Promise<'unconfigured' | 'adoption_required' | 'applied' | 'pending'> {
+  if (!instanceToken() || getDeploymentMode() !== 'managed-team'
+    || process.env.NEXT_PHASE === 'phase-production-build') return 'unconfigured';
+  const instanceId = getLicenseInstanceId();
+  const database = options.database ?? await openDb();
+  try {
+    const local = await localMembers(database);
+    const payload = await managedRequest(SYNC_PATH, 'GET', undefined, options.fetchImpl);
+    const sync = parseSync(payload, instanceId);
+    if (sync.status === 'adoption_required') {
+      await sendAdoptionReport(instanceId, local.members, options.fetchImpl,
+        options.loadLegacyCertificate, options.verifyLegacyCertificate);
+      return 'adoption_required';
+    }
+    const license = sync.license!;
+    let error: string | undefined;
+    let appliedMemberCount = 0;
+    let warningGrantId: string | null = null;
+    try {
+      assertManagedMappings(local.members, sync.members, 'revoke');
+      const fingerprint = createHash('sha256').update(license.certificate).digest('hex');
+      if (fingerprint !== license.fingerprint) throw new Error('MANAGED_TEAM_CERTIFICATE_FINGERPRINT_MISMATCH');
+      const decoded = decodeLicenseJwt(license.certificate);
+      if (!decoded || decoded.organizationId !== sync.organizationId
+        || decoded.entitlementsVersion !== license.entitlementsVersion
+        || decoded.seatLimit !== license.seatLimit) {
+        throw new Error('MANAGED_TEAM_CERTIFICATE_CLAIMS_MISMATCH');
+      }
+      const policy = sync.accessPolicy;
+      if (sync.status === 'policy_ready') {
+        const expiresAt = Number(decoded.exp) * 1000;
+        if (!policy || decoded.licenseClass !== 'manual' || decoded.nonBillable !== true
+          || typeof decoded.grantId !== 'string' || !decoded.grantId
+          || !Number.isSafeInteger(decoded.exp) || expiresAt <= Date.now()
+          || (policy.state === 'grace' && expiresAt > Date.parse(policy.graceEndsAt!))
+          || (policy.state === 'restricted' && (license.seatLimit !== 1
+            || sync.members.filter((member) => member.status === 'active').length !== 1
+            || sync.members.some((member) => member.status === 'active' && member.role !== 'owner')))) {
+          throw new Error('MANAGED_TEAM_ACCESS_POLICY_CERTIFICATE_MISMATCH');
+        }
+      }
+      const verified = await (options.verifyCertificate
+        ? options.verifyCertificate(license.certificate, instanceId)
+        : verifyLicenseJwtDetailed(license.certificate, instanceId).then((result) => result.ok));
+      if (!verified) throw new Error('MANAGED_TEAM_CERTIFICATE_INVALID');
+      await applyManagedMembership(database, local, sync.members, 'revoke', policy);
+      const afterRevocation = await localMembers(database);
+      appliedMemberCount = assertManagedMappings(afterRevocation.members, sync.members);
+      if (license.seatLimit < appliedMemberCount) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
+      const currentActive = afterRevocation.members.filter((member) => member.status === 'active').length;
+      if (license.seatLimit < currentActive) throw new Error('MANAGED_TEAM_SEAT_LIMIT_BELOW_ACTIVE');
+      const status = await (options.activateCertificate ?? activateLicenseCert)(license.certificate);
+      if (!status.licensed || status.hostingMode !== 'cloud'
+        || status.edition !== 'team' || status.seatLimit !== license.seatLimit) {
+        throw new Error('MANAGED_TEAM_CERTIFICATE_APPLY_FAILED');
+      }
+      await applyManagedMembership(database, afterRevocation, sync.members, 'active', policy);
+      const applied = await localMembers(database);
+      appliedMemberCount = assertManagedMappings(applied.members, sync.members);
+      if (sync.members.some((member) => {
+        const current = applied.members.find((localMember) => localMember.localIdentityKey === member.localIdentityKey);
+        return current?.role !== member.role
+          || (member.status === 'active' && (current.email !== member.email.toLowerCase()
+            || (current.localUserId && current.authEmail !== member.email.toLowerCase())))
+          || (current.status !== member.status
+          && !(sync.status === 'policy_ready' && member.status === 'suspended'
+            && current && ['approval_required', 'billing_pending'].includes(current.status)))
+          || (member.status === 'active' && (current?.authRole !== authRoleForMember(member.role)
+            || current.permissionRole !== member.role || current.permissionStatus !== 'active'
+            || Boolean(current.userBanned)))
+          || (member.status !== 'active' && current?.localUserId
+            && ['suspended', 'removed'].includes(current.status)
+            && (!Boolean(current.userBanned) || current.permissionStatus !== 'disabled'));
+      })) throw new Error('MANAGED_TEAM_MEMBERSHIP_APPLY_FAILED');
+      await recordManagedTeamAccessPolicy({
+        instanceId,
+        entitlementsVersion: license.entitlementsVersion,
+        policy: policy ?? { state: 'active', reason: null, graceEndsAt: null, allowNewMembers: true },
+      });
+      if (((sync.status === 'ready' && policy?.state === 'active')
+        || (sync.status === 'policy_ready' && (policy?.state === 'grace' || policy?.state === 'restricted')))
+        && decoded.licenseClass === 'manual' && decoded.licenseEnvironment === 'production'
+        && decoded.provider === 'manual' && decoded.nonBillable === true
+        && typeof decoded.grantId === 'string' && decoded.grantId
+        && (policy?.state === 'grace' || policy?.state === 'restricted' || !policy?.termEndsAt
+          || Date.parse(policy.termEndsAt) >= Number(decoded.exp) * 1000)) {
+        warningGrantId = decoded.grantId;
+      }
+    } catch (caught) {
+      error = caught instanceof Error ? caught.message : 'MANAGED_TEAM_APPLY_FAILED';
+    }
+    if (error === 'LOCAL_IDENTITY_MAPPING_REQUIRED'
+      || error === 'MANAGED_TEAM_UNMAPPED_ACTIVE_USER'
+      || error === 'MANAGED_TEAM_PENDING_LOCAL_IDENTITY') {
+      await sendIdentityReport(instanceId, (await localMembers(database)).members, options.fetchImpl);
+    }
+    const humanActivityAt = await lastHumanActivityAt().catch(() => null);
+    await managedRequest(ACK_PATH, 'POST', {
+      membershipRevision: sync.membershipRevision,
+      memberHash: sync.memberHash,
+      entitlementsVersion: license.entitlementsVersion,
+      certificateFingerprint: license.fingerprint,
+      effectiveSeatLimit: license.seatLimit,
+      appliedMemberCount,
+      ...(humanActivityAt ? { lastHumanActivityAt: humanActivityAt } : {}),
+      ...(error ? { error } : {}),
+    }, options.fetchImpl);
+    if (!error && warningGrantId && sync.accessPolicy) {
+      await (options.recordTermWarning ?? recordTeamLicenseTermWarning)({
+        database,
+        instanceId,
+        organizationId: local.organizationId,
+        grantId: warningGrantId,
+        termEndsAt: sync.accessPolicy.termEndsAt ?? null,
+        graceEndsAt: sync.accessPolicy.state === 'grace' ? sync.accessPolicy.graceEndsAt : null,
+        restricted: sync.accessPolicy.state === 'restricted',
+        seatLimit: license.seatLimit,
+      }).catch((caught) => {
+        console.warn('[license/managed-sync] term warning deferred', {
+          error: redactTeamControlPlaneLogText(caught instanceof Error ? caught.message : String(caught)),
+        });
+      });
+    }
+    return error ? 'pending' : 'applied';
+  } finally {
+    if (!options.database) await database.close();
+  }
+}
+
+export function initializeManagedTeamSyncRuntime(): { started: boolean; stop: () => void } {
+  if (!instanceToken() || getDeploymentMode() !== 'managed-team'
+    || process.env.NEXT_PHASE === 'phase-production-build') {
+    return { started: false, stop: () => {} };
+  }
+  const globalRuntime = globalThis as ManagedRuntimeGlobal;
+  const existing = globalRuntime.__canvasManagedTeamSyncRuntime;
+  if (existing && !existing.stopped) {
+    return { started: false, stop: () => {
+      existing.stopped = true;
+      if (existing.timer) clearTimeout(existing.timer);
+    } };
+  }
+  const runtime: ManagedRuntime = { timer: null, running: false, stopped: false };
+  globalRuntime.__canvasManagedTeamSyncRuntime = runtime;
+  const schedule = (delayMs: number) => {
+    if (runtime.stopped) return;
+    runtime.timer = setTimeout(() => {
+      runtime.timer = null;
+      if (runtime.running || runtime.stopped) return;
+      runtime.running = true;
+      void runManagedTeamSyncCycle()
+        .catch((error) => console.warn('[license/managed-sync] cycle failed', {
+          error: redactTeamControlPlaneLogText(error instanceof Error ? error.message : String(error)),
+        }))
+        .finally(() => {
+          runtime.running = false;
+          schedule(SYNC_INTERVAL_MS);
+        });
+    }, delayMs);
+    runtime.timer.unref?.();
+  };
+  schedule(5_000);
+  return { started: true, stop: () => {
+    runtime.stopped = true;
+    if (runtime.timer) clearTimeout(runtime.timer);
+  } };
+}

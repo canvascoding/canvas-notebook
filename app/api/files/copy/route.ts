@@ -1,10 +1,12 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
-import { batchCopyBetweenWorkspaces, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
+import { batchCopyBetweenWorkspaces, getFileStats, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
+import { compactWorkspaceSelection, getWorkspacePathName, resolveMoveDestination } from '@/app/lib/files/operation-flows';
+import { assertFreshWorkspaceFileOperationPlan, buildWorkspaceFileOperationPreview, WorkspacePreviewBlockedError, WorkspacePreviewStaleError, WorkspacePreviewUnavailableError } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { initializeCopiedFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
+import { executeWorkspaceFileOperationService } from '@/app/lib/files/workspace-file-operation-service';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -40,6 +42,8 @@ export async function POST(request: NextRequest) {
       renameOnCollision?: boolean;
       sourceWorkspaceId?: string | null;
       targetWorkspaceId?: string | null;
+      dryRun?: boolean;
+      planId?: string;
     }>(request);
     const {
       sources,
@@ -48,6 +52,8 @@ export async function POST(request: NextRequest) {
       renameOnCollision = false,
       sourceWorkspaceId,
       targetWorkspaceId,
+      dryRun = false,
+      planId,
     } = body;
 
     if (!sources || !Array.isArray(sources) || sources.length === 0) {
@@ -90,8 +96,120 @@ export async function POST(request: NextRequest) {
     if (protectedPaths.length > 0) {
       return jsonError(`Protected app output folder(s) cannot be copied: ${protectedPaths.join(', ')}`, 403);
     }
+    if (planId !== undefined && (!/^[0-9a-f]{64}$/u.test(planId) || overwrite)) {
+      return jsonError('This preview cannot be applied with the requested options.', 422, { code: 'PREVIEW_UNSUPPORTED_APPLY' });
+    }
+
+    if (dryRun) {
+      if (overwrite) {
+        return jsonError('Dry run cannot safely preview overwrite with the current copy executor.', 422, {
+          code: 'PREVIEW_UNSUPPORTED_COLLISION_POLICY',
+        });
+      }
+      try {
+        const destinationStats = await getFileStats(destDir, targetFileOptions);
+        if (!destinationStats.isDirectory) return jsonError('Destination must be a directory', 409, { code: 'DESTINATION_NOT_DIRECTORY' });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return jsonError('Destination directory was not found', 404, { code: 'DESTINATION_NOT_FOUND' });
+        }
+        if (['EACCES', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+          return jsonError('Destination directory could not be read', 422, { code: 'PREVIEW_UNREADABLE' });
+        }
+        throw error;
+      }
+      const plan = await buildWorkspaceFileOperationPreview({
+        kind: 'copy',
+        sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+        destinationWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+        sourceOptions: sourceFileOptions,
+        destinationOptions: targetFileOptions,
+        renameOnCollision,
+        selections: copySources.map((sourcePath) => ({
+          sourcePath,
+          destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)),
+        })),
+      });
+      const { previewContents: _previewContents, ...publicPlan } = plan;
+      return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: publicPlan });
+    }
+
+    if (!overwrite) {
+      try {
+        const destinationStats = await getFileStats(destDir, targetFileOptions);
+        if (!destinationStats.isDirectory) return jsonError('Destination must be a directory', 409, { code: 'DESTINATION_NOT_DIRECTORY' });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return jsonError('Destination directory was not found', 404, { code: 'DESTINATION_NOT_FOUND' });
+        }
+        throw error;
+      }
+      const operation = await executeWorkspaceFileOperationService({
+        kind: 'copy',
+        source: { workspace: sourceWorkspaceResult.workspace, fileOptions: sourceFileOptions },
+        destination: { workspace: targetWorkspaceResult.workspace, fileOptions: targetFileOptions },
+        selections: copySources.map((sourcePath) => ({ sourcePath,
+          destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)) })),
+        expectedPlanId: planId, renameOnCollision,
+        actorUserId: session.user.id, actorId: session.user.id,
+        actorDisplayName: session.user.name ?? 'Workspace user', actorType: 'user',
+      });
+      const { execution, plan } = operation;
+      if (execution.status === 'failed') {
+        return jsonError('The copy could not be applied. Refresh its preview.', 409, {
+          code: 'WORKSPACE_OPERATION_FAILED', operationId: execution.operationId,
+          errorCode: execution.errorCode,
+        });
+      }
+      const linkStatus = execution.status === 'complete' ? 'complete' : 'partial';
+      const linkWarnings = execution.status === 'complete' ? [] : [
+        'Some planned Markdown links still need recovery. Use the operation ID to retry safely.',
+      ];
+      invalidateWorkspaceFileViews({
+        fileOptions: targetFileOptions, subtreeDirs: [destDir],
+        mutations: operation.copied.map((path) => ({ path, type: 'add' as const })),
+      });
+      if (!operation.alreadyKnown) {
+        await recordAuditEvent({
+          organizationId: targetWorkspaceResult.workspace.organizationId,
+          workspaceId: targetWorkspaceResult.workspace.workspaceId,
+          userId: session.user.id, source: 'files', eventType: 'file',
+          entityType: 'workspace_path', entityId: destDir, action: 'file.copy',
+          status: execution.status === 'complete' ? 'success' : 'failure',
+          summary: `${operation.copied.length} path(s) copied; link operation ${execution.status}.`,
+          metadata: { sources: copySources, destDir, copied: operation.copied,
+            sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+            targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+            operationId: execution.operationId, planId: execution.planId,
+            linkStatus, completedSteps: execution.completedSteps,
+            pendingSteps: execution.pendingSteps, errorCode: execution.errorCode },
+        });
+      }
+      return jsonSuccess({
+        copied: operation.copied, failed: [], skipped: [],
+        sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+        targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+        linkStatus, linkWarnings, updatedLinks: execution.status === 'complete' ? plan?.linkEdits.length ?? 0 : 0,
+        operation: execution,
+      });
+    }
 
     const result = await withWorkspaceCopyMutationLocks(sourceFileOptions, targetFileOptions, async () => {
+      if (planId) {
+        const currentPlan = await buildWorkspaceFileOperationPreview({
+          kind: 'copy',
+          sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
+          destinationWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+          sourceOptions: sourceFileOptions,
+          destinationOptions: targetFileOptions,
+          renameOnCollision,
+          selections: copySources.map((sourcePath) => ({
+            sourcePath,
+            destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)),
+          })),
+        });
+        assertFreshWorkspaceFileOperationPlan(currentPlan, planId);
+      }
       const copied = await batchCopyBetweenWorkspaces(copySources, destDir, overwrite, renameOnCollision, {
         source: sourceFileOptions, target: targetFileOptions,
       });
@@ -125,12 +243,15 @@ export async function POST(request: NextRequest) {
         copied: result.copied,
         failed: result.failed,
         skipped: result.skipped,
+        backups: result.backups ?? [],
         sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
         sourceWorkspaceType: sourceWorkspaceResult.workspace.workspaceType,
         targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
         targetWorkspaceType: targetWorkspaceResult.workspace.workspaceType,
         overwrite,
         renameOnCollision,
+        linkStatus: 'incomplete',
+        linkWarnings: ['Copied Markdown links were not checked or rewritten.'],
       },
     });
 
@@ -138,10 +259,21 @@ export async function POST(request: NextRequest) {
       copied: result.copied,
       failed: result.failed,
       skipped: result.skipped,
+      backups: result.backups ?? [],
       sourceWorkspaceId: sourceWorkspaceResult.workspace.workspaceId,
       targetWorkspaceId: targetWorkspaceResult.workspace.workspaceId,
+      linkStatus: 'incomplete',
+      linkWarnings: ['Copied Markdown links were not checked or rewritten.'],
     });
   } catch (error) {
+    if (error instanceof WorkspacePreviewStaleError) return jsonError(error.message, 409, { code: 'PREVIEW_STALE' });
+    if (error instanceof WorkspacePreviewUnavailableError) return jsonError(error.message, 422, { code: 'PREVIEW_UNREADABLE' });
+    if (error instanceof WorkspacePreviewBlockedError) return jsonError(error.message, 409, { code: 'PREVIEW_BLOCKED' });
+    const operationError = error as { status?: number; code?: string };
+    if (operationError.status && [403, 409, 422, 503].includes(operationError.status)) {
+      return jsonError(error instanceof Error ? error.message : 'File operation failed', operationError.status,
+        { code: operationError.code ?? 'WORKSPACE_OPERATION_FAILED' });
+    }
     return jsonServerError('[API] File copy error:', error, 'Failed to copy files');
   }
 }

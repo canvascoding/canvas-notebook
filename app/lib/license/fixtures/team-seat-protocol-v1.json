@@ -145,7 +145,7 @@
     "seatChange": {
       "authorization": {
         "protocolVersion": "canvas-team-seat-protocol-v1",
-        "authorizationId": "authorization-fixture",
+        "authorizationId": "44444444-4444-4444-8444-444444444444",
         "quoteId": "33333333-3333-4333-8333-333333333333",
         "quoteHash": "fixture-seat-change-quote-hash",
         "quantityBefore": 2,
@@ -181,7 +181,7 @@
         },
         "authorization": {
           "protocolVersion": "canvas-team-seat-protocol-v1",
-          "authorizationId": "authorization-fixture",
+          "authorizationId": "44444444-4444-4444-8444-444444444444",
           "quoteId": "33333333-3333-4333-8333-333333333333",
           "quoteHash": "fixture-seat-change-quote-hash",
           "quantityBefore": 2,
@@ -204,8 +204,8 @@
       "execute": {
         "operation": {
           "protocolVersion": "canvas-team-seat-protocol-v1",
-          "operationId": "operation-fixture",
-          "operationKey": "operation-key-fixture",
+          "operationId": "55555555-5555-4555-8555-555555555555",
+          "operationKey": "66666666-6666-4666-8666-666666666666",
           "operationType": "member_create",
           "provider": "test",
           "environment": "development",
@@ -252,7 +252,7 @@
     "snapshot": {
       "protocolVersion": "canvas-team-seat-protocol-v1",
       "revision": 7,
-      "snapshotHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "snapshotHash": "30752fb5212a88676d3726f2c53771e2665f0b2d4a4d863aa70276faae097089",
       "observedQuantity": 3,
       "roleSummary": {
         "owner": 1,
@@ -270,7 +270,7 @@
       "snapshot": {
         "protocolVersion": "canvas-team-seat-protocol-v1",
         "revision": 7,
-        "snapshotHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "snapshotHash": "30752fb5212a88676d3726f2c53771e2665f0b2d4a4d863aa70276faae097089",
         "observedQuantity": 3,
         "roleSummary": {
           "owner": 1,

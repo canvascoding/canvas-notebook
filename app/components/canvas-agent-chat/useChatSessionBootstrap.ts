@@ -117,6 +117,12 @@ export function useChatSessionBootstrap({
   }, [activeWorkspaceId, resolvedRequestedSessionId]);
   const requestedSessionLoadIdRef = useRef(0);
   const restoredSessionLoadIdRef = useRef(0);
+  // A layout change can replace loadSession while a bootstrap is in flight.
+  // Keep the latest callback without restarting (and cancelling) that bootstrap.
+  const loadSessionRef = useRef(loadSession);
+  useLayoutEffect(() => {
+    loadSessionRef.current = loadSession;
+  }, [loadSession]);
 
   useEffect(() => {
     if (!isAuthReady || isWorkspaceNavigationPending || isRuntimeSelectionLoading || !activeWorkspaceId) return;
@@ -261,7 +267,7 @@ export function useChatSessionBootstrap({
         if (!isCurrentRequest() || userStartedNewChatRef.current
           || sessionIdRef.current !== startingSessionId) return;
         addSessionToHistory(targetSession);
-        await loadSession(targetSession);
+        await loadSessionRef.current(targetSession);
         if (!isCurrentRequest()) return;
         // URL cleanup can tear down this effect; finish the loading state first.
         setIsResolvingInitialChatState(false);
@@ -284,7 +290,7 @@ export function useChatSessionBootstrap({
       cancelled = true;
       controller.abort();
     };
-  }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, isWorkspaceNavigationPending, loadSession, requestedSessionCleanupRef, resolvedRequestedSessionId, retryVersion, sessionIdRef, setIsResolvingInitialChatState, userStartedNewChatRef]);
+  }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, isWorkspaceNavigationPending, requestedSessionCleanupRef, resolvedRequestedSessionId, retryVersion, sessionIdRef, setIsResolvingInitialChatState, userStartedNewChatRef]);
 
   useEffect(() => {
     if (isWorkspaceNavigationPending) return;
@@ -324,7 +330,7 @@ export function useChatSessionBootstrap({
               workspaceId: activeWorkspaceId, signal: controller.signal })).session;
         if (!isCurrentRequest() || sessionIdRef.current || userStartedNewChatRef.current) return;
         addSessionToHistory(targetSession);
-        await loadSession(targetSession);
+        await loadSessionRef.current(targetSession);
       } catch (err) {
         if (isCurrentRequest()) setInitialSessionFailure({
           message: err instanceof Error ? err.message : String(err), workspaceId: activeWorkspaceId ?? null,
@@ -347,7 +353,6 @@ export function useChatSessionBootstrap({
     initialPromptConsumedRef,
     initialPromptStorageKey,
     isWorkspaceNavigationPending,
-    loadSession,
     resolvedRequestedSessionId,
     retryVersion,
     sessionIdRef,

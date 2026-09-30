@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { AdministrationSettingsPanel } from '@/app/components/settings/AdministrationSettingsPanel';
+import { DictationSettingsPanel } from '@/app/components/settings/DictationSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { MobileAppSetupCard } from '@/app/components/mobile/MobileAppSetupCard';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
@@ -2486,6 +2487,7 @@ export function IntegrationsSettingsClient({
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
+      if (tab.value === 'dictation') return isAdmin;
       if (tab.value === 'system-updates') return isAdmin;
         return true;
     }),
@@ -3278,6 +3280,7 @@ export function IntegrationsSettingsClient({
           </div>
 
           {isAdmin && renderLazyTabContent('administration', <AdministrationSettingsPanel />)}
+          {isAdmin && renderLazyTabContent('dictation', <DictationSettingsPanel />)}
 
           {renderLazyTabContent('general',
             <GeneralSettingsPanel

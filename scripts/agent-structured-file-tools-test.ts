@@ -439,13 +439,13 @@ test('the actual agent SDK validates the object-root edit alternatives and local
   const { validateToolArguments } = await import('@earendil-works/pi-ai');
   for (const operation of operations) {
     const args = { path: 'document.md', document, operations: [operation] };
-    assert.deepEqual(validateToolArguments(h.edit, { type: 'toolCall', id: 'validate', name: 'edit_file', arguments: args }), args);
+    assert.deepEqual(validateToolArguments(h.edit, { type: 'toolCall', id: 'validate', name: 'edit_file', arguments: JSON.parse(JSON.stringify(args)) }), args);
   }
   for (const args of [
     { path: 'document.md', document, operations: [operations[0]], oldText: 'ambiguous', newText: 'edit' },
     { path: 'document.md', operations: [operations[0]] },
     { path: 'document.md', document, operations: [{ ...operations[0], updateBase64: 'AA==' }] },
   ]) {
-    assert.throws(() => validateToolArguments(h.edit, { type: 'toolCall', id: 'validate', name: 'edit_file', arguments: args }), /Validation failed/u);
+    assert.throws(() => validateToolArguments(h.edit, { type: 'toolCall', id: 'validate', name: 'edit_file', arguments: JSON.parse(JSON.stringify(args)) }), /Validation failed/u);
   }
 });

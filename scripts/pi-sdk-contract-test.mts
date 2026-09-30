@@ -12,8 +12,11 @@ import {
 } from '@earendil-works/pi-agent-core';
 import {
   createAssistantMessageEventStream,
+  createInitialSystemMessage,
+  getCurrentSystemPrompt,
+  getCurrentTools,
   type AssistantMessage,
-  type Context,
+  type TranscriptContext,
   type Message,
   type Model,
   type SimpleStreamOptions,
@@ -60,12 +63,11 @@ function streamResponse(message: AssistantMessage) {
 }
 
 function scriptedStream(messages: AssistantMessage[]) {
-  const requests: Array<{ context: Context; options?: SimpleStreamOptions }> = [];
+  const requests: Array<{ context: TranscriptContext; options?: SimpleStreamOptions }> = [];
   const streamFn: StreamFn = (_model, context, options) => {
     requests.push({ context: {
       ...context,
       messages: structuredClone(context.messages),
-      tools: context.tools?.map(({ name, description, parameters }) => ({ name, description, parameters })),
     }, options: { ...options } });
     const message = messages.shift();
     assert.ok(message, 'the agent must not start an unexpected extra model request');
@@ -86,7 +88,7 @@ for (const level of ['off', 'low', 'high', 'max'] satisfies ThinkingLevel[]) {
     const lowLevel = scriptedStream([response()]);
     const config = { model, reasoning: expected, convertToLlm } satisfies AgentLoopConfig;
     const events = [];
-    const loop = agentLoop([prompt], { systemPrompt: '', messages: [], tools: [] }, config, undefined, lowLevel.streamFn);
+    const loop = agentLoop([prompt], { messages: [], tools: [] }, config, undefined, lowLevel.streamFn);
     for await (const event of loop) events.push(event);
     assert.equal(lowLevel.requests.length, 1);
     assert.equal(lowLevel.requests[0].options?.reasoning, expected);
@@ -107,7 +109,7 @@ test('thinkingLevel is not an initial low-level reasoning option', { timeout: 10
   // Reproduce the old Canvas bug: structural assignment accepts an extra key,
   // but the provider never receives a reasoning value for it.
   const legacyConfig = { model, thinkingLevel: 'high', convertToLlm };
-  const loop = agentLoop([prompt], { systemPrompt: '', messages: [], tools: [] }, legacyConfig, undefined, transport.streamFn);
+  const loop = agentLoop([prompt], { messages: [], tools: [] }, legacyConfig, undefined, transport.streamFn);
   for await (const _event of loop) { /* drain the real loop */ }
   assert.equal(transport.requests[0].options?.reasoning, undefined);
 });
@@ -159,19 +161,22 @@ test('next-turn refresh updates the actual provider context after a tool', { tim
     streamFn: transport.streamFn,
     prepareNextTurnWithContext: async ({ context }) => {
       prepared += 1;
-      return { context: { ...context, systemPrompt: 'After tool', tools: [] } };
+      return { context: { ...context, messages: [
+        createInitialSystemMessage('After tool', [])!,
+        ...context.messages.filter((message) => message.role !== 'system'),
+      ], tools: [] } };
     },
   });
   await agent.prompt(prompt);
   assert.equal(transport.requests.length, 2);
-  assert.equal(transport.requests[0].context.systemPrompt, 'Before tool');
-  assert.equal(transport.requests[1].context.systemPrompt, 'After tool');
-  assert.deepEqual(transport.requests[1].context.tools, []);
+  assert.equal(getCurrentSystemPrompt(transport.requests[0].context.messages), 'Before tool');
+  assert.equal(getCurrentSystemPrompt(transport.requests[1].context.messages), 'After tool');
+  assert.deepEqual(getCurrentTools(transport.requests[1].context.messages), []);
   assert.equal(transport.requests[1].context.messages.at(-1)?.role, 'toolResult');
   assert.equal(prepared, 1);
 });
 
-test('tool termination and shouldStopAfterTurn prevent another request', { timeout: 10_000 }, async () => {
+test('tool termination and finishTurn prevent another request', { timeout: 10_000 }, async () => {
   for (const stopWith of ['tool', 'hook']) {
     const transport = scriptedStream([
       response([{ type: 'toolCall', id: 'call-stop', name: 'finish', arguments: {} }], 'toolUse'),
@@ -182,7 +187,7 @@ test('tool termination and shouldStopAfterTurn prevent another request', { timeo
         execute: async () => ({ content: [{ type: 'text', text: 'Finished.' }], details: {}, terminate: stopWith === 'tool' }),
       }] },
       streamFn: transport.streamFn,
-      shouldStopAfterTurn: stopWith === 'hook' ? async () => true : undefined,
+      finishTurn: stopWith === 'hook' ? async () => ({ action: 'end' }) : undefined,
       prepareNextTurnWithContext: async () => { assert.fail('stopped turn must not prepare'); },
     });
     await agent.prompt(prompt);

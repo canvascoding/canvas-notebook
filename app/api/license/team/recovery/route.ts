@@ -8,6 +8,10 @@ import {
   getCommunityLicenseClaimStatus,
 } from '@/app/lib/license/control-plane';
 import {
+  assertSingleCommunityTeamOrganization,
+  CommunityTeamOrganizationError,
+} from '@/app/lib/license/community-team-organization';
+import {
   enqueueTeamSeatOutboxOperation,
   getTeamMembershipSyncState,
 } from '@/app/lib/license/team-seat-outbox';
@@ -111,6 +115,10 @@ export async function POST(request: NextRequest) {
     );
   }
   try {
+    const communityOrganizationId = await assertSingleCommunityTeamOrganization(database);
+    if (communityOrganizationId !== organization.organizationId) {
+      throw new CommunityTeamOrganizationError();
+    }
     if (payload.action === 'sync_snapshot') {
       const scheduled = signalTeamMembershipSnapshotSync({ forceReport: true });
       if (!scheduled) {
@@ -252,6 +260,17 @@ export async function POST(request: NextRequest) {
       { status: 202, headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error) {
+    if (error instanceof CommunityTeamOrganizationError) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: error.code,
+          error: 'Community Team requires exactly one local organization before recovery can run.',
+          retryable: false,
+        },
+        { status: error.status, headers: { 'Cache-Control': 'no-store' } },
+      );
+    }
     console.error('[license/team/recovery] recovery action failed', {
       action: payload.action,
       error: error instanceof Error ? error.name : 'UnknownError',

@@ -1473,6 +1473,7 @@ export default function CanvasAgentChat({
               assistantName={activeAgentDisplayName}
               assistantAgentId={activeSessionAgentId}
               assistantIconId={activeAgentProfile?.iconId}
+              delegationAgents={chatAgentOptions}
               userProfile={currentUserProfile}
               runtimePhase={runtimeStatus?.phase}
               expandedRunKeys={expandedRunKeys}
@@ -1558,6 +1559,11 @@ export default function CanvasAgentChat({
         primaryActionDisabled={primaryActionDisabled}
         onStop={handleStop}
         onSend={handleSend}
+        onDictationTranscript={(text) => {
+          resetInputHistoryNavigation();
+          setInput((current) => `${current}${current.trimEnd() ? ' ' : ''}${text}`);
+          textareaRef.current?.focus();
+        }}
         selectedAgentId={selectedAgentId}
         sessionId={sessionId}
         runtimeSelection={requestedRuntimeSelection}

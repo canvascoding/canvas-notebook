@@ -12,6 +12,7 @@ import {
 import { parseObsidianWikiTarget } from '@/app/lib/markdown/obsidian-flavored-markdown';
 import {
   loadWorkspaceDocumentReference,
+  loadWorkspaceMarkdownDocumentReference,
   subscribeWorkspaceLinkIndexInvalidation,
   type WorkspaceDocumentReferenceLookup,
 } from '@/app/lib/markdown/workspace-link-index-client';
@@ -26,6 +27,7 @@ type ObsidianWikiLinkProps = {
   children: React.ReactNode;
   className?: string;
   embed?: boolean;
+  markdownHref?: string;
   onOpenFile?: (
     path: string,
     location: Pick<ObsidianLinkResolution, 'blockId' | 'heading'>,
@@ -39,6 +41,7 @@ export function ObsidianWikiLink({
   children,
   className,
   embed = false,
+  markdownHref,
   onOpenFile,
   preferDocumentTitle = false,
   sourcePath,
@@ -46,8 +49,10 @@ export function ObsidianWikiLink({
 }: ObsidianWikiLinkProps) {
   const t = useTranslations('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const parsedTarget = useMemo(() => parseObsidianWikiTarget(target), [target]);
-  const resolutionKey = `${activeWorkspaceId ?? ''}\0${sourcePath ?? ''}\0${target}`;
+  const exactMarkdown = Boolean(markdownHref && sourcePath);
+  const parsedTarget = useMemo(() => exactMarkdown ? null : parseObsidianWikiTarget(target),
+    [exactMarkdown, target]);
+  const resolutionKey = `${activeWorkspaceId ?? ''}\0${sourcePath ?? ''}\0${target}\0${markdownHref ?? ''}`;
   const [remoteResolution, setRemoteResolution] = useState<{
     error: string | null;
     key: string;
@@ -56,13 +61,14 @@ export function ObsidianWikiLink({
   const [reloadVersion, setReloadVersion] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
   const synchronousResolution = useMemo(() => {
+    if (exactMarkdown) return null;
     if (!parsedTarget) return null;
     if (!parsedTarget.path || !activeWorkspaceId) {
       return resolveObsidianWikiLink(target, [], sourcePath);
     }
     return null;
-  }, [activeWorkspaceId, parsedTarget, sourcePath, target]);
-  const needsRemoteResolution = Boolean(parsedTarget && activeWorkspaceId);
+  }, [activeWorkspaceId, exactMarkdown, parsedTarget, sourcePath, target]);
+  const needsRemoteResolution = Boolean((exactMarkdown || parsedTarget) && activeWorkspaceId);
   const remoteLookup = needsRemoteResolution && remoteResolution?.key === resolutionKey
     ? remoteResolution.value
     : null;
@@ -80,10 +86,13 @@ export function ObsidianWikiLink({
   }), [activeWorkspaceId]);
 
   useEffect(() => {
-    if (!parsedTarget || !activeWorkspaceId) return;
+    if ((!parsedTarget && !exactMarkdown) || !activeWorkspaceId) return;
 
     let cancelled = false;
-    void loadWorkspaceDocumentReference(activeWorkspaceId, target, sourcePath).then((lookup) => {
+    const lookup = exactMarkdown && markdownHref && sourcePath
+      ? loadWorkspaceMarkdownDocumentReference(activeWorkspaceId, markdownHref, sourcePath)
+      : loadWorkspaceDocumentReference(activeWorkspaceId, target, sourcePath);
+    void lookup.then((lookup) => {
       if (cancelled) return;
       setRemoteResolution({
         error: null,
@@ -102,7 +111,7 @@ export function ObsidianWikiLink({
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, parsedTarget, reloadVersion, resolutionKey, sourcePath, target]);
+  }, [activeWorkspaceId, exactMarkdown, markdownHref, parsedTarget, reloadVersion, resolutionKey, sourcePath, target]);
 
   const fallbackPath = resolution?.status === 'resolved' ? resolution.path : null;
   const reference: WorkspaceDocumentReference | null = remoteLookup?.reference ?? (
@@ -114,7 +123,9 @@ export function ObsidianWikiLink({
     } : null
   );
   const documentTitle = remoteLookup?.document?.title || reference?.title || null;
-  const displayChildren = preferDocumentTitle && parsedTarget?.path && !parsedTarget.alias && documentTitle
+  const displayChildren = preferDocumentTitle
+    && (exactMarkdown ? Boolean(resolution?.target.path) : Boolean(parsedTarget?.path && !parsedTarget.alias))
+    && documentTitle
     ? documentTitle
     : children;
 
@@ -130,7 +141,7 @@ export function ObsidianWikiLink({
     : status === 'ambiguous'
       ? t('markdownDocumentLinkAmbiguous', { candidates: resolution?.candidates.join(', ') || target })
       : status === 'missing'
-        ? t('markdownDocumentLinkMissing', { target: parsedTarget?.path || target })
+        ? t('markdownDocumentLinkMissing', { target: resolution?.target.path || parsedTarget?.path || target })
         : status === 'error'
           ? t('markdownDocumentLinkUnavailable', { error: resolutionError || '' })
           : t('markdownDocumentLinkResolving');

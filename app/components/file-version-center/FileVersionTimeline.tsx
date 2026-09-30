@@ -28,6 +28,7 @@ import type {
 import {
   fileVersionTimelineEntryKey,
   groupFileVersionTimeline,
+  matchingCurrentRevision,
   type FileVersionTimelineSelection,
 } from '@/app/lib/file-version-center/timeline-state';
 import type { GraphReviewCardStatus } from './GraphReviewComparison';
@@ -64,6 +65,7 @@ function TimelineRow({
   summaryItem,
   summaryPending,
   summaryError,
+  currentRevision,
 }: {
   entry: FileVersionTimelineEntryV1;
   selected: boolean;
@@ -72,6 +74,7 @@ function TimelineRow({
   summaryItem?: ReviewSummaryItem;
   summaryPending?: boolean;
   summaryError?: boolean;
+  currentRevision?: Extract<FileVersionTimelineEntryV1, { kind: 'revision' }> | null;
 }) {
   const t = useTranslations('fileVersionCenter');
   const locale = useLocale();
@@ -149,7 +152,12 @@ function TimelineRow({
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 flex-col items-start gap-1.5 min-[380px]:flex-row min-[380px]:justify-between min-[380px]:gap-2">
-              <span className="truncate text-sm font-medium">{title}</span>
+              <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <span className="truncate text-sm font-medium">{title}</span>
+                {isCurrent && currentRevision ? <span className="shrink-0 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                  {t('revisionNumber', { number: currentRevision.revisionNumber })}
+                </span> : null}
+              </span>
               <Badge
                 variant="outline"
                 className={cn(
@@ -176,6 +184,11 @@ function TimelineRow({
               </span>
               <time className="shrink-0 tabular-nums" dateTime={entryTimestamp(entry)}>{timestamp}</time>
             </span>
+            {isCurrent && currentRevision ? <span className="mt-1 block truncate text-[11px] text-muted-foreground">
+              {t(`source.${currentRevision.source}`)} · {currentRevision.actor.displayName ?? t(`actor.${currentRevision.actor.type}`)} · <time dateTime={currentRevision.createdAt}>{new Intl.DateTimeFormat(locale, {
+                dateStyle: 'medium', timeStyle: 'short',
+              }).format(new Date(currentRevision.createdAt))}</time>
+            </span> : null}
             {diff ? <span className="mt-1 block text-xs font-medium text-muted-foreground">{diff}</span> : null}
             {evaluation?.reasonCode && !historicalLifecycle ? <span className="mt-1 block text-xs text-amber-800 dark:text-amber-200">
               {evaluation.reasonCode === 'PROPOSAL_BATCH_CONFLICT'
@@ -203,6 +216,8 @@ export function FileVersionTimeline({
 }: FileVersionTimelineProps) {
   const t = useTranslations('fileVersionCenter');
   const groups = groupFileVersionTimeline(timeline.entries);
+  const currentRevision = matchingCurrentRevision(timeline.entries);
+  const revisions = groups.revisions.filter((entry) => entry !== currentRevision);
   const readOnly = !timeline.capabilities.restore;
   const summaryByOperation = new Map(reviewSummary?.map((item) => [item.operationId, item]));
   const reviewBranches = new Map<string, FileVersionTimelineEntryV1[]>();
@@ -264,6 +279,7 @@ export function FileVersionTimeline({
             <TimelineRow
               key={fileVersionTimelineEntryKey(entry)}
               entry={entry}
+              currentRevision={entry.kind === 'current' ? currentRevision : null}
               selected={selection.key === fileVersionTimelineEntryKey(entry)}
               evaluatedReview={evaluatedReview}
               onSelect={() => onSelect(entry)}
@@ -302,8 +318,8 @@ export function FileVersionTimeline({
           {section(
             'version-center-history',
             t('historyHeading'),
-            groups.revisions,
-            t('noHistory'),
+            revisions,
+            currentRevision ? t(timeline.page.hasMore ? 'olderHistoryOnNextPage' : 'noOlderHistory') : t('noHistory'),
             'border-t border-border/70 pt-5',
           )}
           {timeline.page.hasMore || loadMoreError ? (

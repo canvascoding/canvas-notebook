@@ -1,0 +1,45 @@
+{
+  "images": [
+    {
+      "architecture": "amd64",
+      "buildId": "ebd2a50abdcd76b6dd88f1f7b506eff329d826e6",
+      "distribution": "hf-xet@1.6.0",
+      "elfMachine": "Advanced Micro Devices X86-64",
+      "file": "hf_xet/hf_xet.abi3.so",
+      "image": "canvas-dictation-license-audit:amd64",
+      "imageId": "sha256:5bf925f0ebbbc33e16568bfa83aa716f5690a593d84727f5f3af005724c73f3d",
+      "needed": [
+        "libgcc_s.so.1",
+        "librt.so.1",
+        "libpthread.so.0",
+        "libm.so.6",
+        "libdl.so.2",
+        "libc.so.6",
+        "ld-linux-x86-64.so.2"
+      ],
+      "recordMatches": true,
+      "sha256": "9f493e4d60ce7d973f77d6e638efc9fa59329967de8b17d2fb83baf3ed8d73b9",
+      "size": 12210648
+    },
+    {
+      "architecture": "arm64",
+      "buildId": null,
+      "distribution": "hf-xet@1.6.0",
+      "elfMachine": "AArch64",
+      "file": "hf_xet/hf_xet.abi3.so",
+      "image": "canvas-dictation-license-audit:arm64",
+      "imageId": "sha256:ab712dde5e98c7c9b1860c709c62d1e3f5e82709c8af931286f8d2d7a0cad55b",
+      "needed": [
+        "libgcc_s.so.1",
+        "libpthread.so.0",
+        "libm.so.6",
+        "libdl.so.2",
+        "libc.so.6"
+      ],
+      "recordMatches": true,
+      "sha256": "bcc6a3cbf4e36c16df2c40c5b124852be2acb293fc4130e11224029a04adc383",
+      "size": 11385256
+    }
+  ],
+  "schemaVersion": 1
+}

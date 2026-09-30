@@ -100,6 +100,8 @@ export type UserPreferences = {
   inboxExcludedWorkspaceIds?: string[];
   lastActiveAgentId?: string;
   locale?: UserLocale;
+  teamLicenseNotificationsEnabled?: boolean;
+  teamLicenseEmailNotificationsEnabled?: boolean;
   onboarding?: UserOnboardingState;
 };
 
@@ -176,6 +178,8 @@ function normalizePreferences(value: unknown): UserPreferences {
     inboxExcludedWorkspaceIds?: unknown;
     lastActiveAgentId?: unknown;
     locale?: unknown;
+    teamLicenseNotificationsEnabled?: unknown;
+    teamLicenseEmailNotificationsEnabled?: unknown;
     onboarding?: unknown;
   };
   const locale = normalizeUserLocale(record.locale);
@@ -189,6 +193,10 @@ function normalizePreferences(value: unknown): UserPreferences {
     ...(inboxExcludedWorkspaceIds.length > 0 ? { inboxExcludedWorkspaceIds } : {}),
     ...(lastActiveAgentId ? { lastActiveAgentId } : {}),
     ...(locale ? { locale } : {}),
+    ...(typeof record.teamLicenseNotificationsEnabled === 'boolean'
+      ? { teamLicenseNotificationsEnabled: record.teamLicenseNotificationsEnabled } : {}),
+    ...(typeof record.teamLicenseEmailNotificationsEnabled === 'boolean'
+      ? { teamLicenseEmailNotificationsEnabled: record.teamLicenseEmailNotificationsEnabled } : {}),
     ...(onboarding ? { onboarding } : {}),
   };
 }
@@ -287,6 +295,20 @@ async function updateUserPreferencesUnlocked(
       }
       nextPreferences.locale = locale;
     }
+  }
+
+  if ('teamLicenseNotificationsEnabled' in updates) {
+    if (typeof updates.teamLicenseNotificationsEnabled !== 'boolean') {
+      throw new Error('Unsupported team license notification setting.');
+    }
+    nextPreferences.teamLicenseNotificationsEnabled = updates.teamLicenseNotificationsEnabled;
+  }
+
+  if ('teamLicenseEmailNotificationsEnabled' in updates) {
+    if (typeof updates.teamLicenseEmailNotificationsEnabled !== 'boolean') {
+      throw new Error('Unsupported team license email notification setting.');
+    }
+    nextPreferences.teamLicenseEmailNotificationsEnabled = updates.teamLicenseEmailNotificationsEnabled;
   }
 
   if ('emailAllowRemoteImages' in updates) {

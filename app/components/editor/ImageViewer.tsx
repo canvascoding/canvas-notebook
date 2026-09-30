@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
-import { Skeleton } from '@/components/ui/skeleton';
+import { DocumentLoadingSkeleton } from './DocumentLoadingSkeleton';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 
@@ -36,10 +36,8 @@ function ImageContent({ previewSrc, fullSrc, name }: ImageContentProps) {
   return (
     <>
       {!isLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center p-6">
-          <div className="flex h-full w-full max-w-5xl items-center justify-center">
-            <Skeleton className="h-full max-h-[min(70vh,720px)] w-full max-w-full rounded-lg" />
-          </div>
+        <div className="absolute inset-0">
+          <DocumentLoadingSkeleton path={name} label={`Loading ${name}`} />
         </div>
       )}
       <img

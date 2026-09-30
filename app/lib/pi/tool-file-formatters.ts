@@ -27,6 +27,9 @@ export function formatFileChangeResult(result: AgentFileChangeResult): string {
       ? 'Review ready: the proposed change is available in the editor with Accept and Reject actions. The user does not need to edit the text manually.'
       : null,
     `Snapshot: ${result.snapshot?.id || 'none'}`,
+    result.trashEntry
+      ? `Trash entry: ${result.trashEntry.originalPath} (${result.trashEntry.id}, expires ${result.trashEntry.expiresAt})`
+      : null,
     `Before SHA-256: ${result.beforeSha256 || 'new file'}`,
     `After SHA-256: ${result.afterSha256}`,
     `Size: ${result.size} bytes`,
@@ -64,13 +67,32 @@ export function formatPathOperationResult(result: AgentPathOperationResult): str
     result.destinationPath ? `Destination: ${result.destinationPath}` : null,
     `Type: ${result.type}`,
     `Changed: ${result.changed ? 'yes' : 'no'}`,
+    result.review ? `Review ${result.review.status}: ${result.review.reviewId}` : null,
+    result.review ? `Review plan: ${result.review.planId}` : null,
+    result.review?.status === 'pending'
+      ? 'The workspace has not changed. The user can accept or reject this proposal in the Review Center.'
+      : result.review?.status === 'blocked'
+        ? `The workspace has not changed. This preview can be inspected but cannot be accepted (${result.review.code ?? 'BLOCKED'}).`
+        : null,
     `Overwritten: ${result.overwritten ? 'yes' : 'no'}`,
     `Files: ${result.files}`,
     `Directories: ${result.directories}`,
     `Bytes: ${result.bytes}`,
     result.verified === true ? 'Verification: passed' : result.verified === false ? 'Verification: failed' : 'Verification: not applicable',
+    result.linkStatus ? `Link status: ${result.linkStatus}` : null,
+    ...result.linkWarnings.map((warning) => `Link warning: ${warning}`),
+    result.failedPaths?.length ? `Failed paths: ${result.failedPaths.length}` : null,
+    ...((result.failedPaths ?? []).map((failure) => `Delete failed: ${failure.path}: ${failure.error}`)),
+    ...((result.trashEntries ?? []).map((entry) => `Trash entry: ${entry.originalPath} (${entry.id}, expires ${entry.expiresAt})`)),
+    ...((result.backupIds ?? []).map((backupId) => `Operation backup: ${backupId}`)),
     result.truncated ? 'Summary truncated: yes' : 'Summary truncated: no',
-    'Snapshot: none (path copy/move/delete operations do not snapshot file contents)',
+    result.review
+      ? 'Snapshot: no mutation has been applied'
+      : result.backupIds?.length
+      ? 'Snapshot: durable workspace operation backup'
+      : result.operation === 'delete_path' && result.trashEntries?.length
+        ? 'Restore: workspace paths can be restored from the trash entries above'
+        : 'Snapshot: none (no workspace path was overwritten)',
     ...entryLines,
   ].filter(Boolean).join('\n');
 }

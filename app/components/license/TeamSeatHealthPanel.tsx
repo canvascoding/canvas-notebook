@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocale } from 'next-intl';
 import {
   Activity,
@@ -15,8 +15,10 @@ import {
 } from 'lucide-react';
 
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
+import { TeamLicenseEmailReview } from './TeamLicenseEmailReview';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
 import {
   Card,
   CardContent,
@@ -103,9 +105,17 @@ function copyFor(locale: string) {
         refreshLicense: 'Lizenzzertifikat aktualisieren',
         reconnect: 'Verbindung reparieren',
         safety: 'Diese Recovery-Aktionen kaufen keine Seats und bestätigen keine Kosten.',
+        notificationSetting: 'Lizenzereignisse im Notification Center anzeigen',
+        notificationSettingDetail: 'Benachrichtigt dich als Owner über tatsächlich angewendete Zugangssperren und Wiederherstellungen. E-Mails werden dadurch nicht versendet.',
+        emailNotificationSetting: 'E-Mail bei Team-Zugangsänderungen',
+        emailNotificationSettingDetail: 'Sendet dem Owner und betroffenen Mitgliedern eine E-Mail nach einer tatsächlichen Sperre oder Wiederherstellung. Der System-E-Mail-Versand muss eingerichtet sein.',
+        emailManualReview: 'Lizenz-E-Mails manuell prüfen',
+        emailRetryPending: 'Lizenz-E-Mails warten auf Versand',
+        notificationSettingUnavailable: 'Die Benachrichtigungseinstellung konnte nicht geladen oder gespeichert werden.',
         queuedSync: 'Membership-Abgleich wurde eingeplant.',
         queuedRefresh: 'Lizenz-Refresh wurde eingeplant.',
         actionFailed: 'Recovery-Aktion konnte nicht eingeplant werden.',
+        organizationBlocker: 'Der Team-Abgleich ist blockiert: Community Team unterstützt derzeit genau eine lokale Organisation. Vor einem neuen Abgleich müssen die Organisationen geprüft und auf eine eindeutige Zuordnung gebracht werden. Offene Operationen bleiben erhalten.',
         unknown: 'Nicht verfügbar',
       }
     : {
@@ -180,9 +190,17 @@ function copyFor(locale: string) {
         refreshLicense: 'Refresh license certificate',
         reconnect: 'Repair connection',
         safety: 'These recovery actions never purchase Seats or confirm costs.',
+        notificationSetting: 'Show license events in the notification center',
+        notificationSettingDetail: 'Notifies you as owner when team access is actually paused or restored. This does not send email.',
+        emailNotificationSetting: 'Email for team access changes',
+        emailNotificationSettingDetail: 'Emails the owner and affected members after access is actually paused or restored. System email delivery must be configured.',
+        emailManualReview: 'License emails requiring manual review',
+        emailRetryPending: 'License emails awaiting delivery',
+        notificationSettingUnavailable: 'The notification setting could not be loaded or saved.',
         queuedSync: 'Membership sync was scheduled.',
         queuedRefresh: 'License refresh was scheduled.',
         actionFailed: 'The recovery action could not be scheduled.',
+        organizationBlocker: 'Team sync is blocked: Community Team currently supports exactly one local organization. Review the organizations and establish a single authoritative mapping before syncing again. Pending operations are retained.',
         unknown: 'Unavailable',
       };
 }
@@ -246,6 +264,64 @@ export function TeamSeatHealthPanel({
   const [activeAction, setActiveAction] = useState<RecoveryAction | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [licenseNotificationsEnabled, setLicenseNotificationsEnabled] = useState<boolean | null>(null);
+  const [licenseEmailNotificationsEnabled, setLicenseEmailNotificationsEnabled] = useState<boolean | null>(null);
+  const [savingNotificationSetting, setSavingNotificationSetting] = useState(false);
+  const [notificationSettingError, setNotificationSettingError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' })
+      .then(async (response) => {
+        const payload = await response.json() as { success?: boolean; data?: { teamLicenseNotificationsEnabled?: boolean; teamLicenseEmailNotificationsEnabled?: boolean } };
+        if (!response.ok || !payload.success) throw new Error('Preference unavailable');
+        if (!cancelled) {
+          setLicenseNotificationsEnabled(payload.data?.teamLicenseNotificationsEnabled !== false);
+          setLicenseEmailNotificationsEnabled(payload.data?.teamLicenseEmailNotificationsEnabled !== false);
+        }
+      })
+      .catch(() => { if (!cancelled) setNotificationSettingError(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function saveNotificationSetting(enabled: boolean) {
+    setSavingNotificationSetting(true);
+    setNotificationSettingError(false);
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'PATCH', credentials: 'include', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamLicenseNotificationsEnabled: enabled }),
+      });
+      const payload = await response.json() as { success?: boolean };
+      if (!response.ok || !payload.success) throw new Error('Preference update failed');
+      setLicenseNotificationsEnabled(enabled);
+      window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+    } catch {
+      setNotificationSettingError(true);
+    } finally {
+      setSavingNotificationSetting(false);
+    }
+  }
+
+  async function saveEmailNotificationSetting(enabled: boolean) {
+    setSavingNotificationSetting(true);
+    setNotificationSettingError(false);
+    try {
+      const response = await fetch('/api/user-preferences', {
+        method: 'PATCH', credentials: 'include', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ teamLicenseEmailNotificationsEnabled: enabled }),
+      });
+      const payload = await response.json() as { success?: boolean };
+      if (!response.ok || !payload.success) throw new Error('Preference update failed');
+      setLicenseEmailNotificationsEnabled(enabled);
+    } catch {
+      setNotificationSettingError(true);
+    } finally {
+      setSavingNotificationSetting(false);
+    }
+  }
 
   async function runRecovery(action: RecoveryAction) {
     setActiveAction(action);
@@ -387,6 +463,38 @@ export function TeamSeatHealthPanel({
       </CardHeader>
 
       <CardContent className="space-y-4 px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+        {health.sync.blocker === 'TEAM_SEAT_SUBJECT_CONFLICT' ? (
+          <p role="alert" className="border border-destructive p-4 text-sm text-destructive">
+            {copy.organizationBlocker}
+          </p>
+        ) : null}
+        <section className="flex items-start justify-between gap-4 border border-border p-4">
+          <div>
+            <label htmlFor="team-license-notifications" className="text-sm font-medium">{copy.notificationSetting}</label>
+            <p className="mt-1 text-xs text-muted-foreground">{copy.notificationSettingDetail}</p>
+            {notificationSettingError ? <p role="alert" className="mt-2 text-xs text-destructive">{copy.notificationSettingUnavailable}</p> : null}
+          </div>
+          <Switch
+            id="team-license-notifications"
+            checked={licenseNotificationsEnabled ?? true}
+            onCheckedChange={(enabled) => void saveNotificationSetting(enabled)}
+            disabled={licenseNotificationsEnabled === null || savingNotificationSetting}
+            aria-label={copy.notificationSetting}
+          />
+        </section>
+        <section className="flex items-start justify-between gap-4 border border-border p-4">
+          <div>
+            <label htmlFor="team-license-email-notifications" className="text-sm font-medium">{copy.emailNotificationSetting}</label>
+            <p className="mt-1 text-xs text-muted-foreground">{copy.emailNotificationSettingDetail}</p>
+          </div>
+          <Switch
+            id="team-license-email-notifications"
+            checked={licenseEmailNotificationsEnabled ?? true}
+            onCheckedChange={(enabled) => void saveEmailNotificationSetting(enabled)}
+            disabled={licenseEmailNotificationsEnabled === null || savingNotificationSetting}
+            aria-label={copy.emailNotificationSetting}
+          />
+        </section>
         <section
           className={`border p-4 ${licenseBanner.className}`}
           aria-label={copy.licenseDetails}
@@ -487,7 +595,16 @@ export function TeamSeatHealthPanel({
                 <dt className="text-muted-foreground">{copy.failed}</dt>
                 <dd className="font-mono tabular-nums">{health.sync.failedOperations}</dd>
               </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-muted-foreground">{copy.emailRetryPending}</dt>
+                <dd className="font-mono tabular-nums">{health.emailDelivery?.retryPending ?? 0}</dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-muted-foreground">{copy.emailManualReview}</dt>
+                <dd className="font-mono tabular-nums">{health.emailDelivery?.manualReview ?? 0}</dd>
+              </div>
             </dl>
+            <TeamLicenseEmailReview count={health.emailDelivery?.manualReview ?? 0} onReload={onReload} />
           </div>
 
           <div className="space-y-3 p-4">

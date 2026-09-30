@@ -5,6 +5,7 @@ import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import { requireManagedTeamInvitationPolicy } from '@/app/lib/license/managed-team-invitation-policy';
 import { SeatLimitGuardError } from '@/app/lib/license/seat-limit';
 import {
   executeDirectMembershipActivation,
@@ -17,6 +18,8 @@ import {
   TeamInvitationError,
 } from '@/app/lib/organization/team-invitations';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { getDeploymentMode } from '@/app/lib/organization/config';
+import { bindManagedPendingIdentity, ManagedPendingIdentityError } from '@/app/lib/organization/managed-pending-identity';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { publicRateLimit, publicResourceRateLimit } from '@/app/lib/security/public-rate-limit';
 import { readBoundedJson } from '@/app/lib/api/bounded-json';
@@ -29,6 +32,7 @@ function errorResponse(error: unknown) {
     || error instanceof MembershipSeatActivationError
     || error instanceof SeatLimitGuardError
     || error instanceof TeamMembershipError
+    || error instanceof ManagedPendingIdentityError
   ) {
     return NextResponse.json({
       success: false,
@@ -93,10 +97,27 @@ export async function POST(request: NextRequest) {
     }
     const targetLimit = await publicResourceRateLimit({ limit: 20, windowMs: 60_000, keyPrefix: 'membership-invitation-activate' }, body.token);
     if (!targetLimit.ok) return targetLimit.response;
+    const invitationPolicyResponse = await requireManagedTeamInvitationPolicy();
+    if (invitationPolicyResponse) return invitationPolicyResponse;
     const accepted = await acceptTeamMembershipInvitation({
       token: body.token,
       requestId: body.requestId,
     });
+    if (getDeploymentMode() === 'managed-team') {
+      const pending = await bindManagedPendingIdentity({
+        organizationId: accepted.invitation.organizationId,
+        membershipId: accepted.membership.id,
+        password: body.password,
+      });
+      return NextResponse.json({
+        success: true,
+        data: {
+          invitationId: accepted.invitation.id,
+          email: accepted.membership.candidateEmail,
+          ...pending,
+        },
+      }, { status: 202 });
+    }
     const result = await executeDirectMembershipActivation({
       organizationId: accepted.invitation.organizationId,
       membershipId: accepted.membership.id,

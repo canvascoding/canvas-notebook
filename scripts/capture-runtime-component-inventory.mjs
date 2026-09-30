@@ -275,6 +275,8 @@ for distribution in importlib.metadata.distributions():
         relative_path = str(entry)
         basename = os.path.basename(relative_path)
         path_parts = [part.lower() for part in relative_path.replace("\\\\", "/").split("/")]
+        if "__pycache__" in path_parts or basename.lower().endswith((".pyc", ".pyo")):
+            continue
         is_pep639_license = any(
             part.endswith(".dist-info")
             and index + 1 < len(path_parts)
@@ -295,6 +297,10 @@ for distribution in importlib.metadata.distributions():
         "metadataPath": os.fspath(getattr(distribution, "_path", distribution.locate_file(""))),
         "licenseExpression": metadata.get("License-Expression"),
         "license": metadata.get("License"),
+        "licenseClassifiers": [
+            classifier for classifier in metadata.get_all("Classifier", [])
+            if classifier.startswith("License ::")
+        ],
         "homepage": metadata.get("Home-page") or metadata.get("Project-URL"),
         "installer": distribution.read_text("INSTALLER"),
         "recordPath": os.fspath(distribution.locate_file(
@@ -339,6 +345,7 @@ try {
         debianPackage: null,
         licenseExpression: null,
         license: null,
+        licenseClassifiers: [],
         homepage: null,
         licenseFiles: [],
       };

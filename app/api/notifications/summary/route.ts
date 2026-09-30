@@ -15,6 +15,7 @@ import {
 } from '@/app/lib/memory/approval-attention';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { markMcpConnectionAttentionRead } from '@/app/lib/mcp/connection-attention';
+import { markTeamLicenseAttentionRead } from '@/app/lib/license/team-license-attention';
 
 type PatchPayload = {
   action?: 'mark_all_read' | 'mark_item_read' | 'set_item_read_state' | 'dismiss_item';
@@ -49,9 +50,11 @@ export async function GET(request: NextRequest) {
     if (!limited.ok) return limited.response;
 
     const scope = await loadMobileInboxScope(session.user);
+    const activeChatSessionId = request.nextUrl.searchParams.get('activeChatSessionId')?.trim();
     const attention = await readNotificationAttention({
       userId: session.user.id,
       workspaces: scope.includedWorkspaces,
+      excludeChatSessionId: activeChatSessionId && activeChatSessionId.length <= 256 ? activeChatSessionId : undefined,
     });
     const items = [...attention.sections.notifications, ...attention.sections.todoAttention, ...attention.sections.emailAttention];
 
@@ -98,7 +101,7 @@ export async function PATCH(request: NextRequest) {
     const scope = await loadMobileInboxScope(session.user);
 
     if (payload.action === 'mark_all_read') {
-      const [inbox, memoryApprovals, mcpConnections] = await Promise.all([
+      const [inbox, memoryApprovals, mcpConnections, license] = await Promise.all([
         markMobileAggregateInboxRead({
           userId: session.user.id,
           workspaces: scope.includedWorkspaces,
@@ -110,14 +113,21 @@ export async function PATCH(request: NextRequest) {
           workspaces: scope.includedWorkspaces,
         }),
         markMcpConnectionAttentionRead({ userId: session.user.id }),
+        markTeamLicenseAttentionRead({ userId: session.user.id }),
       ]);
-      const data = { inbox, memoryApprovals, mcpConnections };
+      const data = { inbox, memoryApprovals, mcpConnections, license };
       return NextResponse.json({ success: true, data });
     }
 
     if (payload.action === 'mark_item_read' && payload.itemId?.startsWith('mcp:')) {
       const data = await markMcpConnectionAttentionRead({ userId: session.user.id, itemId: payload.itemId });
       if (!data.found) return NextResponse.json({ success: false, error: 'Connection notification not found.' }, { status: 404 });
+      return NextResponse.json({ success: true, data });
+    }
+
+    if (payload.action === 'mark_item_read' && payload.itemId?.startsWith('license:')) {
+      const data = await markTeamLicenseAttentionRead({ userId: session.user.id, itemId: payload.itemId });
+      if (!data.found) return NextResponse.json({ success: false, error: 'License notification not found.' }, { status: 404 });
       return NextResponse.json({ success: true, data });
     }
 

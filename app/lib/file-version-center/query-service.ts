@@ -1,11 +1,5 @@
 import 'server-only';
 
-import { createHash } from 'node:crypto';
-
-import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
-import { authoritativeCollaborationSnapshot } from '@/app/lib/collaboration/checkpoint';
-import { readFile } from '@/app/lib/filesystem/workspace-files';
-import { workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 import {
@@ -41,6 +35,7 @@ import {
   type FileReviewPolicyAccess,
   type FileReviewPolicyEvaluation,
 } from './review-policy-service';
+import { loadAuthoritativeFileVersionContent } from './authoritative-content';
 
 export type FileVersionCenterAccess = FileReviewPolicyAccess & {
   canManageWorkspace?: boolean;
@@ -268,31 +263,11 @@ async function runtimeCurrent(
   target: ResolvedFileVersionTarget,
   workspace: WorkspaceContext,
 ): Promise<AuthoritativeFileVersionCurrent> {
-  if (target.documentId) {
-    const state = await loadCollaborationState(target.documentId);
-    if (state && (state.workspaceId !== target.workspaceId || state.path !== target.path || state.status !== 'active')) {
-      throw new FileVersionCenterContractError(FILE_VERSION_CENTER_ERROR_CODES.persistenceUnavailable, 'The authoritative collaboration state is unavailable.');
-    }
-    if (state) {
-      const snapshot = authoritativeCollaborationSnapshot(state);
-      const sha256 = createHash('sha256').update(snapshot.canonicalContent, 'utf8').digest('hex');
-      return {
-        fence: {
-          revisionId: target.latestRevisionHash === sha256 ? target.latestRevisionId : null,
-          sha256,
-          stateVectorHash: createHash('sha256').update(state.stateVector).digest('hex'),
-        },
-        sizeBytes: Buffer.byteLength(snapshot.canonicalContent, 'utf8'),
-        observedAt: Date.now(),
-      };
-    }
-  }
-  const content = await readFile(target.path, workspaceFileOptions(workspace));
-  const sha256 = createHash('sha256').update(content).digest('hex');
+  const current = await loadAuthoritativeFileVersionContent(target, workspace);
   return {
-    fence: { revisionId: target.latestRevisionHash === sha256 ? target.latestRevisionId : null, sha256 },
-    sizeBytes: content.byteLength,
-    observedAt: Date.now(),
+    fence: current.fence,
+    sizeBytes: Buffer.byteLength(current.content, 'utf8'),
+    observedAt: current.observedAt,
   };
 }
 

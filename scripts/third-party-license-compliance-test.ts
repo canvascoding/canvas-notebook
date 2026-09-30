@@ -78,6 +78,7 @@ const runtimePythonRequirements = fs.readFileSync(
   nativeDistributionPolicy.pythonRequirements,
   'utf8',
 );
+const optionalDictationRequirements = fs.readFileSync('requirements/dictation-python.txt', 'utf8');
 
 assert.equal(
   packageJson.dependencies?.['@jspreadsheet/react'],
@@ -113,7 +114,7 @@ assert.deepEqual(inventory.releaseGate.blockers, []);
 assert.equal(
   inventory.summary.distributedReviewRequired,
   0,
-  'a production-ready release must not contain unreviewed distributed components',
+  'the static component inventory must not contain unreviewed distributed components',
 );
 assert.equal(
   inventory.summary.developmentOnlyReviewRequired,
@@ -158,6 +159,8 @@ for (const requiredDockerFragment of [
   'npm --prefix node_modules/sharp run build',
   "find node_modules -type d -path '*/@img/sharp-*'",
   '--require-hashes -r /app/requirements/runtime-python.txt',
+  'COPY --from=builder /app/requirements/dictation-python.txt /app/requirements/dictation-python.txt',
+  './scripts/dictation-runtime.py ./scripts/dictation-worker.py',
   'capture-runtime-component-inventory.mjs',
   'runtime-component-inventory-test.mjs',
   'sharp-runtime-linkage-test.mjs',
@@ -200,6 +203,8 @@ for (const requiredWorkflowFragment of [
   'runtime-multiarch-compliance-test.mjs',
   'sharp-linkage-linux-amd64.json',
   'sharp-linkage-linux-arm64.json',
+  'runtime-compliance/amd64/dictation-python.txt',
+  'runtime-compliance/arm64/dictation-python.txt',
   'vips-8.18.6.tar.xz',
   'Package native compliance evidence',
   'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
@@ -259,24 +264,60 @@ for (const artifact of nativeDistributionPolicy.postgresql.sourceArtifacts) {
   assert.match(artifact.sha256, /^[a-f0-9]{64}$/u);
 }
 
-const pythonRequirementBody = runtimePythonRequirements
-  .split(/\r?\n/u)
-  .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
-  .join('\n');
-const pythonEntries = pythonRequirementBody
-  .split(/(?=^[a-z0-9][a-z0-9._-]*==)/gimu)
-  .map((block) => {
-    const match = block.match(/^([a-z0-9][a-z0-9._-]*)==([^\s\\]+)/iu);
-    assert(match, `invalid Python requirement block: ${block}`);
-    return [match[1], match[2], block] as const;
-  });
-assert.equal(pythonEntries.length, 45, 'the Docker Python lock must retain the reviewed package set');
+function parsePythonEntries(requirements: string) {
+  return requirements
+    .split(/\r?\n/u)
+    .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
+    .join('\n')
+    .split(/(?=^[a-z0-9][a-z0-9._-]*==)/gimu)
+    .map((block) => {
+      const match = block.match(/^([a-z0-9][a-z0-9._-]*)==([^\s\\]+)/iu);
+      assert(match, `invalid Python requirement block: ${block}`);
+      return [match[1], match[2], block] as const;
+    });
+}
+const pythonEntries = parsePythonEntries(runtimePythonRequirements);
+const dictationEntries = parsePythonEntries(optionalDictationRequirements);
+const dictationPythonVersions = new Map([
+  ['anyio', '4.15.1'],
+  ['av', '18.1.0'],
+  ['ctranslate2', '4.8.2'],
+  ['faster-whisper', '1.2.1'],
+  ['filelock', '4.0.5'],
+  ['fsspec', '2026.9.0'],
+  ['h11', '0.16.0'],
+  ['hf-xet', '1.6.0'],
+  ['httpcore', '1.0.9'],
+  ['httpx', '0.28.1'],
+  ['huggingface-hub', '1.33.0'],
+  ['tokenizers', '0.23.2'],
+  ['tqdm', '4.70.1'],
+]);
+assert.equal(
+  pythonEntries.length,
+  45,
+  'the bundled Python lock must retain only the reviewed base package set',
+);
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
-for (const [name, version, hashes] of pythonEntries) {
+assert.deepEqual(
+  pythonEntries.filter(([name]) => dictationPythonVersions.has(name.toLowerCase())),
+  [],
+  'optional dictation wheels must not be installed in the Docker base image',
+);
+assert.equal(dictationEntries.length, dictationPythonVersions.size);
+assert.deepEqual(
+  dictationEntries
+    .map(([name, version]) => [name.toLowerCase(), version])
+    .sort(([left], [right]) => left.localeCompare(right)),
+  [...dictationPythonVersions.entries()].sort(([left], [right]) => left.localeCompare(right)),
+  'the optional dictation lock must retain its pinned package names and versions',
+);
+for (const [name, version, hashes] of [...pythonEntries, ...dictationEntries]) {
   assert(version, `${name} must use an exact Python version`);
   assert.match(hashes, /--hash=sha256:[a-f0-9]{64}/u, `${name} must retain wheel hashes`);
   assert.doesNotMatch(hashes, /--hash=sha256:(?![a-f0-9]{64})/u);
 }
+assert.doesNotMatch(dockerfile, /pip3 install[^\n]*dictation-python\.txt/u);
 
 for (const [packagePath, lockPackage] of Object.entries(lockfile.packages)) {
   if (
@@ -621,9 +662,9 @@ for (const name of [
 }
 
 const exactSourceComponents = [
-  ['@aws-sdk/credential-provider-http', '3.972.70', '26b0eb790ff86399b7af7b74ce8c188f25512cc6'],
-  ['@aws-sdk/credential-provider-login', '3.972.75', '26b0eb790ff86399b7af7b74ce8c188f25512cc6'],
-  ['@aws-sdk/nested-clients', '3.997.42', '26b0eb790ff86399b7af7b74ce8c188f25512cc6'],
+  ['@aws-sdk/credential-provider-http', '3.972.74', 'c68e50e4a6e0469a20c2894fe8a29c140553ebb8'],
+  ['@aws-sdk/credential-provider-login', '3.972.79', 'c68e50e4a6e0469a20c2894fe8a29c140553ebb8'],
+  ['@aws-sdk/nested-clients', '3.997.46', 'c68e50e4a6e0469a20c2894fe8a29c140553ebb8'],
   ['@swc/counter', '0.1.3', '259271f1326b75ce7103b571284dd17fdd42b6c7'],
   ['mj-context-menu', '0.6.1', '8ddd26a41f834cd23b9bb20737dfae5fa9b05eb4'],
 ] as const;

@@ -186,7 +186,8 @@ async function inspectPostgresRuntime(): Promise<PostgresTeamRuntimeProbe> {
             organization.owner_user_id,
             owner.id AS owner_exists,
             permission.role AS owner_role,
-            COALESCE(permission.status, 'active') AS owner_status
+            COALESCE(permission.status, 'active') AS owner_status,
+            (SELECT count(*)::int FROM canvas_organization_settings) AS organization_count
           FROM canvas_organization_settings organization
           LEFT JOIN "user" owner
             ON owner.id = organization.owner_user_id
@@ -201,8 +202,10 @@ async function inspectPostgresRuntime(): Promise<PostgresTeamRuntimeProbe> {
           owner_exists?: unknown;
           owner_role?: unknown;
           owner_status?: unknown;
+          organization_count?: unknown;
         } | undefined;
-        organizationReady = typeof organizationRow?.organization_id === 'string'
+        organizationReady = numericValue(organizationRow?.organization_count) === 1
+          && typeof organizationRow?.organization_id === 'string'
           && typeof organizationRow.owner_user_id === 'string'
           && organizationRow.owner_exists === organizationRow.owner_user_id
           && organizationRow.owner_role === 'owner'
@@ -427,7 +430,7 @@ export async function getCommunityTeamRuntimeReadiness(
           'organization',
           'blocked',
           'TEAM_RUNTIME_ORGANIZATION_NOT_READY',
-          'The local organization needs one active owner before Team can be enabled.',
+          'Community Team requires exactly one local organization with one active owner.',
         ));
   }
 

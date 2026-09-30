@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getEventListeners } from 'node:events';
-import { createAssistantMessageEventStream, type AssistantMessage, type Model } from '@earendil-works/pi-ai';
+import { createAssistantMessageEventStream, normalizeContext, type AssistantMessage, type Model } from '@earendil-works/pi-ai';
 import { piMetadataFixture } from './helpers/pi-message-fixture';
 import { runWithAbortSignal } from '../app/lib/concurrency/run-with-abort-signal';
 
@@ -75,14 +75,14 @@ try {
   const { resolveExecutableAgentRuntime } = await import('../app/lib/agent-runtime-policy/provider-runtime');
   const runtime = await resolveExecutableAgentRuntime(context);
   const signal = new AbortController();
-  const normal = await runtime.streamFn(model, { messages: [] }, { signal: signal.signal });
+  const normal = await runtime.streamFn(model, normalizeContext({ messages: [] }), { signal: signal.signal });
   await normal.result();
   assert.equal(observedSignal, signal.signal, 'provider request signal must reach OAuth through both credential layers');
   assert.equal(providerRequests, 1);
   const callsBeforeAbort = authRequests;
   const alreadyAborted = new AbortController();
   alreadyAborted.abort();
-  const skipped = await runtime.streamFn(model, { messages: [] }, { signal: alreadyAborted.signal });
+  const skipped = await runtime.streamFn(model, normalizeContext({ messages: [] }), { signal: alreadyAborted.signal });
   assert.equal((await skipped.result()).stopReason, 'aborted');
   assert.equal(authRequests, callsBeforeAbort, 'an already cancelled request must not start credential lookup');
 
@@ -92,7 +92,7 @@ try {
   reached = Promise.withResolvers<void>();
   release = Promise.withResolvers<void>();
   const abort = new AbortController();
-  const pending = runtime.streamFn(model, { messages: [] }, { signal: abort.signal });
+  const pending = runtime.streamFn(model, normalizeContext({ messages: [] }), { signal: abort.signal });
   try {
     await reached.promise;
     abort.abort(new Error('fixture cancelled'));
@@ -110,7 +110,7 @@ try {
   } finally { release.resolve(); await pending; }
 
   mode = 'revoke';
-  const revoked = await runtime.streamFn(model, { messages: [] });
+  const revoked = await runtime.streamFn(model, normalizeContext({ messages: [] }));
   assert.equal((await revoked.result()).stopReason, 'error');
   assert.equal(providerRequests, 1, 'revocation during auth must prevent provider dispatch');
   assert.equal(runtime.requiresRecreation(), true);

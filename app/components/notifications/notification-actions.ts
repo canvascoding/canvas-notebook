@@ -73,6 +73,8 @@ export function notificationHref(item: NotificationItem): string {
     }
     case 'mcp':
       return mcpConnectionSettingsHref(item.target.connectionId);
+    case 'license':
+      return '/settings?tab=license';
     case 'file_change':
       return item.workspaceId === item.target.workspaceId
         ? buildFileChangeReviewCenterHref(item.target)

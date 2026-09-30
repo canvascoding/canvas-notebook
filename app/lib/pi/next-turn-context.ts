@@ -3,6 +3,7 @@ import type {
   AgentLoopTurnUpdate,
   AgentTool,
 } from '@earendil-works/pi-agent-core';
+import { createInitialSystemMessage, toToolDeclaration } from '@earendil-works/pi-ai';
 
 /**
  * Builds the context snapshot used by the agent loop for its next provider
@@ -15,10 +16,17 @@ export function replaceNextTurnContext(
     tools: AgentTool[];
   },
 ): AgentLoopTurnUpdate {
+  const systemMessage = createInitialSystemMessage(
+    options.systemPrompt,
+    options.tools.map(toToolDeclaration),
+  );
   return {
     context: {
       ...context,
-      systemPrompt: options.systemPrompt,
+      messages: [
+        ...(systemMessage ? [systemMessage] : []),
+        ...context.messages.filter((message) => message.role !== 'system'),
+      ],
       tools: options.tools,
     },
   };

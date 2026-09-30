@@ -10,6 +10,8 @@ import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migrati
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-migration';
 import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from './mobile-notebook-operation-migration';
+import { WORKSPACE_OPERATION_JOURNAL_STATEMENTS } from './workspace-operation-journal-migration';
+import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from './workspace-operation-review-migration';
 import { runFileVersionCenterStorageMigration } from './file-version-center-migration';
 import { runProposalGraphStorageMigration } from './proposal-graph-migration';
 import { COLLABORATION_ROOM_OWNER_UP_SQL, COLLABORATION_ROOM_RELEASE_UP_SQL } from './collaboration-room-owner-migration';
@@ -914,6 +916,43 @@ async function ensurePostgresCompactionAttemptIndexes(pool: PgQueryable): Promis
   `);
 }
 
+async function ensurePostgresManagedWorkerAdmission(pool: PgQueryable): Promise<void> {
+  // Older dispatchers could queue multiple tasks for one managed session.
+  // Preserve the running task (or oldest queued task), and deliver an explicit
+  // failure for each duplicate instead of silently dropping an accepted task.
+  // The table lock keeps cleanup and index creation atomic with admissions.
+  await pool.query(`
+    DO $managed_worker_admission$
+    DECLARE
+      migration_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
+    BEGIN
+      LOCK TABLE pi_delegations IN SHARE ROW EXCLUSIVE MODE;
+      WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY user_id, worker_session_id
+                 ORDER BY CASE WHEN status = 'running' THEN 0 ELSE 1 END,
+                          started_at ASC NULLS LAST, created_at ASC, id ASC
+               ) AS admission_rank
+        FROM pi_delegations
+        WHERE worker_type = 'managed' AND status IN ('queued', 'running')
+      )
+      UPDATE pi_delegations AS task
+      SET status = 'failed', result_status = 'error', result_text = NULL,
+          error_text = 'Managed worker session was already busy. Start this task again after the current task finishes.',
+          delivery_status = 'pending', delivery_error_text = NULL,
+          completed_at = migration_now, updated_at = migration_now
+      FROM ranked
+      WHERE task.id = ranked.id AND ranked.admission_rank > 1;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_delegations_active_managed_worker
+      ON pi_delegations (user_id, worker_session_id)
+      WHERE worker_type = 'managed' AND status IN ('queued', 'running');
+    END
+    $managed_worker_admission$;
+  `);
+}
+
 async function ensurePostgresCompactionAttemptTelemetry(pool: PgQueryable): Promise<void> {
   await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS idle_deadline_at bigint');
   await pool.query('ALTER TABLE pi_session_compaction_attempts ADD COLUMN IF NOT EXISTS last_progress_at bigint');
@@ -1002,6 +1041,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const table of tables) {
     await pool.query(createTableSql(table));
   }
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_team_pending_user ON managed_team_pending_identities (pending_user_id)');
   await migratePostgresOauthArrayLiterals(pool);
   await normalizePostgresEpochTimestampColumns(pool);
 
@@ -1244,6 +1284,54 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     )
   `);
   await pool.query("ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'");
+  // Existing documents without a Yjs row are ambiguous: the row may never
+  // have been initialized, or its authoritative state may have been lost.
+  // Only documents created after this migration receive the safe fallback.
+  await pool.query('ALTER TABLE collaboration_documents ADD COLUMN IF NOT EXISTS yjs_state_lifecycle text');
+  await pool.query(`
+    UPDATE collaboration_documents AS document
+    SET yjs_state_lifecycle = CASE WHEN EXISTS (
+      SELECT 1 FROM collaboration_yjs_states AS state WHERE state.document_id = document.id
+    ) THEN 'initialized' ELSE 'legacy_unknown' END
+    WHERE document.yjs_state_lifecycle IS NULL
+  `);
+  await pool.query(`
+    UPDATE collaboration_documents AS document
+    SET yjs_state_lifecycle = 'initialized'
+    WHERE document.provider = 'yjs' AND document.yjs_state_lifecycle <> 'initialized'
+      AND EXISTS (SELECT 1 FROM collaboration_yjs_states AS state WHERE state.document_id = document.id)
+  `);
+  await pool.query("ALTER TABLE collaboration_documents ALTER COLUMN yjs_state_lifecycle SET DEFAULT 'never_initialized'");
+  await pool.query('ALTER TABLE collaboration_documents ALTER COLUMN yjs_state_lifecycle SET NOT NULL');
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint
+        WHERE conname = 'collaboration_documents_yjs_state_lifecycle_check') THEN
+        ALTER TABLE collaboration_documents ADD CONSTRAINT collaboration_documents_yjs_state_lifecycle_check
+          CHECK (yjs_state_lifecycle IN ('never_initialized', 'initialized', 'legacy_unknown'));
+      END IF;
+    END $$
+  `);
+  // The marker advances in the same transaction as the first authoritative
+  // state insert. Deleting or losing that state must never re-enable fallback.
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION mark_collaboration_yjs_state_initialized()
+    RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN
+      UPDATE collaboration_documents SET yjs_state_lifecycle = 'initialized'
+      WHERE id = NEW.document_id AND provider = 'yjs';
+      RETURN NEW;
+    END $$
+  `);
+  await pool.query(`
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'collaboration_yjs_state_initialized') THEN
+        CREATE TRIGGER collaboration_yjs_state_initialized
+          AFTER INSERT ON collaboration_yjs_states FOR EACH ROW
+          EXECUTE FUNCTION mark_collaboration_yjs_state_initialized();
+      END IF;
+    END $$
+  `);
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (
@@ -1520,6 +1608,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await ensurePostgresFileCollaborationSchema(pool);
   await runFileVersionCenterStorageMigration(pool);
   await runProposalGraphStorageMigration(pool);
+  for (const statement of WORKSPACE_OPERATION_JOURNAL_STATEMENTS) await pool.query(statement);
+  for (const statement of WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pool.query(statement);
 
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);
@@ -1537,6 +1627,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
 
   await deduplicatePiSessions(pool);
   await ensurePostgresPiMessageSequenceIntegrityIndex(pool);
+  await ensurePostgresManagedWorkerAdmission(pool);
 
   // Deduplicate license certs that were repeatedly inserted by older code.
   // Keep the newest row per (instance_id, cert) so the unique index from the

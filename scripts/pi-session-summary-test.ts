@@ -16,6 +16,7 @@ async function main() {
 
     if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
       return {
+        ...originalLoad.call(this, require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain) as object,
         registerBuiltInApiProviders: () => undefined,
         getProviders: () => [],
         getModels: () => [],

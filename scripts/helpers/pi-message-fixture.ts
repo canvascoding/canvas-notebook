@@ -19,5 +19,5 @@ export const piMetadataFixture: AssistantMessage = {
 export const piToolMetadataFixture: ToolResultMessage = {
   role: 'toolResult', toolCallId: 'metadata-call', toolName: 'inspect',
   content: [{ type: 'text', text: 'Ready.' }], details: {}, isError: false,
-  addedToolNames: ['loaded_lookup'], timestamp: 1_001,
+  timestamp: 1_001,
 };

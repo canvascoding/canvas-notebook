@@ -109,7 +109,7 @@ function parsePrepareRequest(operation: TeamSeatOutboxOperation) {
     externalReference?: unknown;
   };
   if (
-    (operationType !== 'member_create' && operationType !== 'invitation_accept')
+    (operationType !== 'member_create' && operationType !== 'invitation_accept' && operationType !== 'member_remove')
     || value.triggerType !== operationType
     || typeof value.externalReference !== 'string'
     || (
@@ -145,6 +145,7 @@ function parseExecuteRequest(operation: TeamSeatOutboxOperation) {
     || (
       value.operationType !== 'member_create'
       && value.operationType !== 'invitation_accept'
+      && value.operationType !== 'member_remove'
     )
     || value.operationType !== operation.operationType
   ) {
@@ -197,7 +198,7 @@ async function requireMembershipOperation(
     || operation.organizationId !== input.organizationId
     || operation.membershipId !== input.membershipId
     || operation.operationKind !== input.kind
-    || !['member_create', 'invitation_accept'].includes(operation.operationType || '')
+    || !['member_create', 'invitation_accept', 'member_remove'].includes(operation.operationType || '')
   ) {
     throw new MembershipOrchestratorError(
       'MEMBERSHIP_OPERATION_NOT_FOUND',
@@ -632,6 +633,10 @@ export async function recordDirectMembershipSeatPreparation(input: {
           && membership.userId !== null
           && operation.operationType === 'member_create'
         )
+        && !(
+          operation.operationType === 'member_remove'
+          && (membership.status === 'suspended' || membership.status === 'removed')
+        )
       ) {
         throw new MembershipOrchestratorError(
           'MEMBERSHIP_OPERATION_CONFLICT',
@@ -993,6 +998,10 @@ export async function recordDirectMembershipSeatExecutionPending(input: {
           membership.status === 'suspended'
           && membership.userId !== null
           && operation.operationType === 'member_create'
+        )
+        && !(
+          operation.operationType === 'member_remove'
+          && (membership.status === 'suspended' || membership.status === 'removed')
         )
       )
     ) {

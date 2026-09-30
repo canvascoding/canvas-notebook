@@ -31,6 +31,7 @@ interface MoveOperation {
   targetDir: string;
   expectedRename?: { oldPath: string; newPath: string };
   completedPaths: string[];
+  linkWarningCount: number;
 }
 
 export interface WorkspaceMoveController {
@@ -109,7 +110,13 @@ export function useWorkspaceMove(): WorkspaceMoveController {
     }
     if (useWorkspaceStore.getState().activeWorkspaceId !== operation.workspaceId || useFileStore.getState().treeGeneration !== operation.treeGeneration) return 'superseded';
     if (skippedCount > 0) {
-      toast.warning(t('moveMultiplePartialSuccess', { moved: successCount, skipped: skippedCount }));
+      toast.warning(t('moveMultiplePartialSuccess', { moved: successCount, skipped: skippedCount }), {
+        description: operation.linkWarningCount > 0 ? t('fileOperationLinksIncomplete') : undefined,
+      });
+      return 'completed';
+    }
+    if (operation.linkWarningCount > 0) {
+      toast.warning(t('fileOperationLinksIncomplete'));
       return 'completed';
     }
     toast.success(t('moveMultipleSuccess', { count: successCount }));
@@ -166,7 +173,8 @@ export function useWorkspaceMove(): WorkspaceMoveController {
 
       try {
         operation.expectedRename = { oldPath: path, newPath: destination };
-        await useFileStore.getState().renamePath(path, destination, false, false, operation.workspaceId);
+        const result = await useFileStore.getState().renamePath(path, destination, false, false, operation.workspaceId);
+        if (result && result.linkStatus && result.linkStatus !== 'complete') operation.linkWarningCount += 1;
         operation.expectedRename = undefined;
         if (!isCurrent(operation)) { finishMove(operation); return 'superseded'; }
         operation.completedPaths.push(destination);
@@ -235,6 +243,7 @@ export function useWorkspaceMove(): WorkspaceMoveController {
       pendingPaths: plan.sourcePaths,
       targetDir,
       completedPaths: [],
+      linkWarningCount: 0,
     };
     operationActiveRef.current = operation;
     setConflict(null);
@@ -270,13 +279,14 @@ export function useWorkspaceMove(): WorkspaceMoveController {
       }
 
       operation.expectedRename = { oldPath: activeConflict.sourcePath, newPath: activeConflict.destPath };
-      await useFileStore.getState().renamePath(
+      const result = await useFileStore.getState().renamePath(
         activeConflict.sourcePath,
         activeConflict.destPath,
         true,
         false,
         operation.workspaceId,
       );
+      if (result && result.linkStatus && result.linkStatus !== 'complete') operation.linkWarningCount += 1;
       operation.expectedRename = undefined;
       operation.completedPaths.push(activeConflict.destPath);
       return await processMoveQueue(

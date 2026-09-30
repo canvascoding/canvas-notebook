@@ -5,21 +5,21 @@ import {
   type Api,
   type AssistantMessage,
   type AssistantMessageEvent,
-  type Context,
+  type TranscriptContext,
   type Model,
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai';
 
 export type PiProviderOverflowRecoveryInput = Readonly<{
   model: Model<Api>;
-  context: Context;
+  context: TranscriptContext;
   options: SimpleStreamOptions | undefined;
   overflowMessage: AssistantMessage;
 }>;
 
 export type PiProviderOverflowRecovery = (
   input: PiProviderOverflowRecoveryInput,
-) => Promise<Context | null>;
+) => Promise<TranscriptContext | null>;
 
 function exposesPartialOutput(event: AssistantMessageEvent): boolean {
   return event.type !== 'start'
@@ -107,7 +107,7 @@ export function withPiProviderOverflowRecovery(
         if (exposed) return;
         const overflow = isProviderContextOverflow(finalMessage, model.contextWindow);
         if (overflow && attempt === 0) {
-          let recovered: Context | null = null;
+          let recovered: TranscriptContext | null = null;
           try {
             recovered = await recover({
               model,

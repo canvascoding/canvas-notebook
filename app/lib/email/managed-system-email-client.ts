@@ -28,6 +28,14 @@ type AvailabilityCache = {
 
 let availabilityCache: AvailabilityCache | null = null;
 
+export class ManagedSystemEmailHttpError extends Error {
+  constructor(message: string, readonly statusCode: number) {
+    super(message);
+  }
+}
+
+export class ManagedSystemEmailDeliveryUnknownError extends Error {}
+
 export function isManagedSystemEmailAvailable(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true'
@@ -62,7 +70,7 @@ async function readResponse<T>(response: Response): Promise<T> {
     const error = payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string'
       ? payload.error
       : `Managed system email request failed (${response.status}).`;
-    throw new Error(error);
+    throw new ManagedSystemEmailHttpError(error, response.status);
   }
   return payload as T;
 }
@@ -92,10 +100,20 @@ export async function getManagedSystemEmailAvailability(): Promise<ManagedSystem
 
 export async function sendManagedSystemEmail(input: ManagedSystemEmailInput): Promise<{ messageId: string | null }> {
   if (!isManagedSystemEmailAvailable()) throw new Error('Managed system email is not available.');
-  const payload = await request<{ messageId?: unknown }>('/v1/managed/system-email/send', {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
+  let payload: { messageId?: unknown };
+  try {
+    payload = await request<{ messageId?: unknown }>('/v1/managed/system-email/send', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+  } catch (error) {
+    if (error instanceof ManagedSystemEmailHttpError && error.statusCode !== 409) throw error;
+    throw new ManagedSystemEmailDeliveryUnknownError(
+      error instanceof ManagedSystemEmailHttpError
+        ? error.message
+        : 'Managed system email delivery response is unknown.',
+    );
+  }
   const messageId = payload.messageId;
   return { messageId: typeof messageId === 'string' && messageId.trim() ? messageId : null };
 }

@@ -68,6 +68,21 @@ assert.equal(index.brokenLinks.length, 1);
 assert.equal(index.brokenLinks[0].targetText, 'Does Not Exist');
 assert.equal(index.backlinks['Projects/Plan.md'].length, 2);
 
+const attachmentIndex = buildWorkspaceLinkIndexFromDocuments([
+  { path: 'Notes/Start.md', content: '![Chart](../assets/chart.png)\n\n    [[Not a link]]\n\n[id]: ../assets/chart.png' },
+], new Date('2026-07-14T10:00:00.000Z'), ['Notes/Start.md', 'assets/chart.png']);
+assert.deepEqual(attachmentIndex.edges.map((edge) => edge.targetPath),
+  ['assets/chart.png', 'assets/chart.png']);
+assert.equal(attachmentIndex.edges.some((edge) => edge.targetText === 'Not a link'), false);
+assert.equal(attachmentIndex.documents.length, 1, 'attachment content is never parsed as Markdown');
+assert.equal(attachmentIndex.backlinks['assets/chart.png'].length, 2);
+const frontmatterLinkIndex = buildWorkspaceLinkIndexFromDocuments([
+  { path: 'Notes/Start.md', content: '---\ntitle: "[[Metadata]]"\n---\n\n[[Real]]' },
+  { path: 'Notes/Metadata.md', content: '# Metadata' },
+  { path: 'Notes/Real.md', content: '# Real' },
+]);
+assert.deepEqual(frontmatterLinkIndex.edges.map((edge) => edge.targetPath), ['Notes/Real.md']);
+
 const rewritten = rewriteWorkspaceWikiLinksForRename(
   overview,
   index.edges.filter((edge) => edge.sourcePath === 'Projects/Overview.md'),

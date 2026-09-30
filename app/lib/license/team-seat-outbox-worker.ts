@@ -3,6 +3,7 @@ import 'server-only';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
+import { getDeploymentMode } from '@/app/lib/organization/config';
 import {
   executeCommunityTeamSeatChange,
   prepareCommunityTeamSeatChange,
@@ -180,15 +181,16 @@ export async function runTeamSeatOutboxWorkerCycle(options: {
   limit?: number;
   pendingDelayMs?: number;
 } = {}): Promise<TeamSeatOutboxWorkerResult> {
-  const database = options.database ?? await openDb();
-  const closeDatabase = options.database === undefined;
-  const now = options.now ?? Date.now();
   const result: TeamSeatOutboxWorkerResult = {
     claimed: 0,
     succeeded: 0,
     deferred: 0,
     failed: 0,
   };
+  if (getDeploymentMode() === 'managed-team') return result;
+  const database = options.database ?? await openDb();
+  const closeDatabase = options.database === undefined;
+  const now = options.now ?? Date.now();
   try {
     const operations = await claimDueTeamSeatWorkOperations(database, {
       now,
@@ -307,6 +309,7 @@ export function initializeTeamSeatOutboxWorkerRuntime(): {
 } {
   if (
     process.env.NEXT_PHASE === 'phase-production-build'
+    || getDeploymentMode() === 'managed-team'
     || process.env.CANVAS_TEAM_SEAT_OUTBOX_WORKER_ENABLED === 'false'
   ) {
     return { started: false, trigger: () => {}, stop: () => {} };

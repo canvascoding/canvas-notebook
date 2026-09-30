@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { normalizeContext } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 import { projectAgentEventForExternal, projectAgentMessageForPersistence } from '../app/lib/pi/visual-data-projection';
 import { piMetadataFixture, piToolMetadataFixture } from './helpers/pi-message-fixture';
 import { parsePersistedPiMessage } from '../app/lib/pi/message-projection';
@@ -15,7 +16,7 @@ for (const mode of ['raw', 'context', 'display'] as const) {
   assert.deepEqual(parsePersistedPiMessage(JSON.stringify(projected), mode), piMetadataFixture);
 }
 assert.deepEqual(JSON.parse(encodeAgentEvent({ type: 'message_end', message: piMetadataFixture })).message, piMetadataFixture);
-assert.deepEqual(removeImagesAfterProviderRejection({ messages: [piMetadataFixture] }).messages, [piMetadataFixture]);
+assert.deepEqual(removeImagesAfterProviderRejection(normalizeContext({ messages: [piMetadataFixture] })).messages, [piMetadataFixture]);
 for (const type of ['message_start', 'message_end', 'turn_end']) {
   assert.deepEqual(projectAgentEventForExternal({ type, message: piMetadataFixture }).message, piMetadataFixture);
 }

@@ -1,7 +1,8 @@
 import { finalizeToolOutputBlocks } from '@/app/lib/pi/tool-output-block-storage';
 
 import { runAgentLoop, type AgentContext, type AgentLoopConfig, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { Api, ProviderId } from '@earendil-works/pi-ai';
+import { createInitialSystemMessage, normalizeContext, toToolDeclaration, type Api, type ProviderId } from '@earendil-works/pi-ai';
+import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 
 import {
   resolveAndPinSessionRuntime,
@@ -849,11 +850,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             );
             if (!recoveredPayload) return null;
             latestProviderBudgetSnapshot = recoveredPayload.budgetSnapshot;
-            return {
+            return normalizeContext({
               systemPrompt: currentSystemPrompt,
               messages: recoveredPayload.messages,
               tools: tools || [],
-            };
+            });
           },
         );
         const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
@@ -875,7 +876,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               );
               if (recoveredPayload) {
                 latestProviderBudgetSnapshot = recoveredPayload.budgetSnapshot;
-                return recoveredPayload.messages;
+                const systemMessage = createInitialSystemMessage(currentSystemPrompt, tools.map(toToolDeclaration));
+                return [
+                  ...(systemMessage ? [systemMessage] : []),
+                  ...recoveredPayload.messages.filter((message) => message.role !== 'system'),
+                ];
               }
             }
             if (preparedPayload.budgetSnapshot.payloadBudgetExceeded) {
@@ -886,7 +891,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             if (preparedPayload.budgetSnapshot.contextBudgetExceeded) {
               throw new Error('Automation final payload exceeds the selected model context window.');
             }
-            return preparedPayload.messages;
+            const systemMessage = createInitialSystemMessage(currentSystemPrompt, tools.map(toToolDeclaration));
+            return [
+              ...(systemMessage ? [systemMessage] : []),
+              ...preparedPayload.messages.filter((message) => message.role !== 'system'),
+            ];
           },
           prepareNextTurn: async (turnContext: { context: AgentContext }) => {
             assertAutomationExecutionActive(executionSignal);
@@ -901,18 +910,18 @@ export async function executeAutomationRun(runId: string): Promise<void> {
               effectiveBaseSystemPrompt,
               nextWorkspaceFileTree.promptBlock,
             );
-            return {
-              context: {
-                ...turnContext.context,
-                systemPrompt: currentSystemPrompt,
-              },
-            };
+            return replaceNextTurnContext(turnContext.context, {
+              systemPrompt: currentSystemPrompt,
+              tools,
+            });
           },
           sessionId: piSessionId,
         } satisfies AgentLoopConfig;
         const context: AgentContext = {
-          systemPrompt,
-          messages: preparedMessages.slice(0, -1),
+          messages: [
+            createInitialSystemMessage(systemPrompt, tools.map(toToolDeclaration))!,
+            ...preparedMessages.slice(0, -1).filter((message) => message.role !== 'system'),
+          ],
           tools,
         };
 

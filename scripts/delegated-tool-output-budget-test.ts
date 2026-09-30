@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
-import type { Message, Model } from '@earendil-works/pi-ai';
+import { getCurrentSystemPrompt, type Message, type Model } from '../node_modules/@earendil-works/pi-ai/dist/index.js';
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-delegated-output-'));
@@ -24,10 +24,17 @@ async function main() {
     // import executes the real ESM runAgentLoop implementation below.
     if (request === '@earendil-works/pi-agent-core') return { Agent: class Agent {} };
     if ((request.startsWith('.') || request.startsWith('@/')) && request.endsWith('/auth')) return { auth: {} };
-    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return {
+      ...originalLoad(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain) as object,
+      getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined,
+    };
     if (request === '@/app/lib/pi/session-store') return { savePiSession: async (_session: string, _user: string, _provider: string, _model: string, messages: AgentMessage[], _summary: unknown, options: { toolOutputModel?: unknown }) => {
       saved = structuredClone(messages); savedModel = options.toolOutputModel;
     } };
+    if (request === '@/app/lib/pi/session-compaction-coordinator') return {
+      runPiSessionCompaction: async () => ({ state: 'failed', reasonCode: 'summary_not_smaller',
+        attemptId: 'mock-compaction', summary: null, composition: null }),
+    };
     if (request === '@/app/lib/agents/workspace-file-tree-context') return {
       buildWorkspaceFileTreePrompt: async () => { onRefresh?.(); return { promptBlock: 'workspace updated' }; },
       replaceWorkspaceFileTreePromptBlock: () => 'updated system instructions',
@@ -57,7 +64,7 @@ async function main() {
       promptMessage, executionContext: identity, baseSystemPrompt: 'base instructions', systemPrompt: 'old instructions', tools: [fixtureTool], signal: new AbortController().signal,
       runtime: { model, selection: { selection: { providerId: model.provider, thinkingLevel: 'off' } },
         streamFn: async (_model: Parameters<StreamFn>[0], context: Parameters<StreamFn>[1], options: Parameters<StreamFn>[2]) => {
-          sentOutputCap = options?.maxTokens; sent = context.messages; effectiveInstructions = context.systemPrompt || '';
+          sentOutputCap = options?.maxTokens; sent = context.messages; effectiveInstructions = getCurrentSystemPrompt(context.messages) || '';
           const reply = context.messages.some(message => message.role === 'toolResult')
             ? { ...assistant, content: [{ type: 'text' as const, text: 'Collected six results.' }], stopReason: 'stop' as const, timestamp: 20 }
             : assistant;
@@ -89,6 +96,17 @@ async function main() {
     assert.match(cancelled.error || '', /cancelled during workspace refresh/);
     assert.equal(providerCalls, 1, 'cancellation during prepareNextTurn never invokes a second provider request');
     assert.equal(saved.filter(message => message.role === 'toolResult').length, 6, 'completed output survives the cancelled preparation');
+    onRefresh = undefined;
+    const interruptedReply = { ...assistant, content: [{ type: 'text' as const, text: 'The stream was interrupted.' }],
+      stopReason: 'aborted' as const, timestamp: 30 };
+    const interrupted = await runEphemeralWorker({ ...params,
+      runtime: { ...params.runtime, streamFn: async () => ({
+        async *[Symbol.asyncIterator]() { yield { type: 'done', reason: 'aborted', message: interruptedReply }; },
+        result: async () => interruptedReply,
+      }) as unknown as Awaited<ReturnType<StreamFn>> },
+    });
+    assert.equal(interrupted.status, 'error', 'a provider-aborted stream must not be reported as a successful delegated run');
+    assert.match(interrupted.error || '', /abort|interrupt/i);
     console.log('delegated-tool-output-budget-test: ok (real worker and agent loop, mocked persistence/transport)');
   } finally { modules._load = originalLoad; await fs.rm(root, { recursive: true, force: true }); }
 }

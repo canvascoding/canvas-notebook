@@ -52,6 +52,10 @@ const linkIndex = {
     path: documentPath,
     tags: [],
     title: documentTitle,
+  }, {
+    aliases: [], blockIds: [], headings: [], path: 'Notes/|Start.md', tags: [], title: 'Leading Pipe',
+  }, {
+    aliases: [], blockIds: [], headings: [], path: 'Notes/A|B.md', tags: [], title: 'Encoded Pipe',
   }],
   edges: [],
   generatedAt: new Date(0).toISOString(),
@@ -171,7 +175,35 @@ async function main() {
   await act(async () => {
     root.unmount();
   });
+
+  const pipeRoot = createRoot(container);
+  await act(async () => {
+    pipeRoot.render(
+      <AppRouterContext.Provider value={router}>
+        <PathnameContext.Provider value="/automations/job-1">
+          <NextIntlClientProvider locale="en" timeZone="Europe/Berlin" messages={messages}>
+            <MarkdownRenderer
+              content={'[Leading](<|Start.md>) and [Encoded](./A%7CB.md#Chapter%201) and [Section](#Local%20Section)'}
+              sourcePath="Notes/Start.md"
+            />
+          </NextIntlClientProvider>
+        </PathnameContext.Provider>
+      </AppRouterContext.Provider>,
+    );
+  });
+  await waitFor(() => {
+    const buttons = Array.from(container.querySelectorAll('button[data-canvas-wiki-status="resolved"]'));
+    assert.equal(buttons.length, 2, 'literal and encoded pipe paths need working previews');
+    assert.match(buttons[0].getAttribute('aria-label') ?? '', /Leading Pipe/u);
+    assert.match(buttons[1].getAttribute('aria-label') ?? '', /Encoded Pipe/u);
+    assert.ok(container.querySelector('a[href="#Local%20Section"]'),
+      'a local heading anchor keeps its in-document navigation');
+  }, 'Markdown previews must keep literal pipe characters and local anchors');
+  await act(async () => { pipeRoot.unmount(); });
   container.remove();
+  const { getNotebookQueryClient } = await import('../app/lib/queries/client');
+  getNotebookQueryClient().clear();
+  dom.window.close();
 
   console.log('markdown-document-preview-stability-test: ok');
 }

@@ -6,6 +6,7 @@ import {
   TEAM_SEAT_ERROR_CODES,
   TeamSeatContractError,
 } from './team-seat-contract';
+import { TeamSeatRolloutError } from './team-seat-rollout';
 import type { TeamSeatOutboxOperation } from './team-seat-outbox';
 
 const DEFAULT_RETRY_BASE_MS = 15_000;
@@ -45,6 +46,14 @@ export function classifyTeamSeatOutboxFailure(
       retryAfterMs: null,
     };
   }
+  if (error instanceof TeamSeatRolloutError) {
+    return {
+      code: error.code,
+      message,
+      terminal: true,
+      retryAfterMs: null,
+    };
+  }
 
   const namedError = error && typeof error === 'object'
     && 'name' in error && typeof error.name === 'string'
@@ -57,12 +66,16 @@ export function classifyTeamSeatOutboxFailure(
   const retryable = error && typeof error === 'object'
     && 'retryable' in error && error.retryable === true;
   const status = error && typeof error === 'object'
-    && 'status' in error && typeof error.status === 'number'
-    ? error.status
+    ? 'status' in error && typeof error.status === 'number'
+      ? error.status
+      : 'statusCode' in error && typeof error.statusCode === 'number'
+        ? error.statusCode
+        : null
     : null;
   const terminal = (
     namedError === 'MembershipOrchestratorError'
     || namedError === 'TeamSeatOutboxError'
+    || code === TEAM_SEAT_ERROR_CODES.featureDisabled
     || (!retryable && status !== null && status >= 400 && status < 500)
   );
   return {

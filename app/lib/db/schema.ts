@@ -849,6 +849,8 @@ export const collaborationDocuments = pgTable("collaboration_documents", {
   lineageId: text("lineage_id"),
   provider: text("provider").notNull().default("yjs"),
   stateVersion: bigint("state_version", { mode: "number" }).notNull().default(0),
+  // A missing Yjs row is safe to read from disk only before the first initialization.
+  yjsStateLifecycle: text("yjs_state_lifecycle").notNull().default("never_initialized"),
   snapshotRevisionId: text("snapshot_revision_id"),
   status: text("status").notNull().default("active"),
   createdAt: pgTimestamp("created_at").notNull(),
@@ -864,6 +866,8 @@ export const collaborationDocuments = pgTable("collaboration_documents", {
   projectStatusIdx: index("idx_collab_documents_project_status").on(table.projectId, table.status, table.updatedAt),
   statusCheck: check("collaboration_documents_status_check", sql`${table.status} IN ('active', 'archived')`),
   providerCheck: check("collaboration_documents_provider_check", sql`${table.provider} IN ('yjs', 'excalidraw')`),
+  yjsStateLifecycleCheck: check("collaboration_documents_yjs_state_lifecycle_check",
+    sql`${table.yjsStateLifecycle} IN ('never_initialized', 'initialized', 'legacy_unknown')`),
 }));
 
 // Attempts are marked before file I/O; checkpoint receipts are committed with
@@ -1172,6 +1176,14 @@ export const aiRuntimeDefaults = pgTable("ai_runtime_defaults", {
   updatedAt: pgTimestamp("updated_at").notNull(),
 });
 
+export const managedTeamPendingIdentities = pgTable("managed_team_pending_identities", {
+  localIdentityKey: text("local_identity_key").primaryKey(),
+  organizationId: text("organization_id").notNull(),
+  pendingUserId: text("pending_user_id").notNull().unique(),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+});
+
 /**
  * Organization-owned compaction preferences. These intentionally live beside
  * the organization-scoped model catalog rather than in the instance-wide
@@ -1408,8 +1420,13 @@ export const piDelegations = pgTable("pi_delegations", {
   resultText: text("result_text"),
   errorText: text("error_text"),
   deliveryStatus: text("delivery_status").notNull().default("pending"),
+  deliveryOwnerId: text("delivery_owner_id"),
+  deliveryHeartbeatAt: pgTimestamp("delivery_heartbeat_at"),
   deliveryErrorText: text("delivery_error_text"),
   attemptCount: bigint("attempt_count", { mode: "number" }).notNull().default(0),
+  runOwnerId: text("run_owner_id"),
+  runHeartbeatAt: pgTimestamp("run_heartbeat_at"),
+  progressRevision: bigint("progress_revision", { mode: "number" }).notNull().default(0),
   cancelRequestedAt: pgTimestamp("cancel_requested_at"),
   startedAt: pgTimestamp("started_at"),
   completedAt: pgTimestamp("completed_at"),
@@ -1422,9 +1439,50 @@ export const piDelegations = pgTable("pi_delegations", {
   statusCreatedIdx: index("idx_pi_delegations_status_created").on(table.status, table.createdAt),
   deliveryIdx: index("idx_pi_delegations_delivery").on(table.deliveryStatus, table.completedAt),
   workerSessionIdx: index("idx_pi_delegations_worker_session").on(table.userId, table.workerSessionId),
+  activeManagedWorkerIdx: uniqueIndex("idx_pi_delegations_active_managed_worker")
+    .on(table.userId, table.workerSessionId)
+    .where(sql`${table.workerType} = 'managed' AND ${table.status} IN ('queued', 'running')`),
   workerTypeCheck: check("pi_delegations_worker_type_check", sql`${table.workerType} IN ('ephemeral', 'managed')`),
   statusCheck: check("pi_delegations_status_check", sql`${table.status} IN ('queued', 'running', 'completed', 'failed', 'cancelled')`),
   deliveryStatusCheck: check("pi_delegations_delivery_status_check", sql`${table.deliveryStatus} IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')`),
+}));
+
+// The parent row serializes revision allocation. A key makes retries of the
+// same confirmed worker boundary idempotent across process restarts.
+export const piDelegationProgress = pgTable("pi_delegations_progress", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  delegationId: text("delegation_id").notNull().references(() => piDelegations.id, { onDelete: 'cascade' }),
+  revision: bigint("revision", { mode: "number" }).notNull(),
+  eventKey: text("event_key"),
+  kind: text("kind").notNull(),
+  preview: text("preview"),
+  createdAt: pgTimestamp("created_at").notNull(),
+}, (table) => ({
+  revisionIdx: uniqueIndex("idx_pi_delegations_progress_revision").on(table.delegationId, table.revision),
+  eventKeyIdx: uniqueIndex("idx_pi_delegations_progress_key").on(table.delegationId, table.eventKey),
+  kindCheck: check("pi_delegations_progress_kind_check", sql`${table.kind} IN ('queued', 'running', 'tool_start', 'tool_end', 'compacting', 'resumed', 'completed', 'failed', 'cancelled')`),
+}));
+
+// A steering instruction belongs to one execution lease. Its receipt is only
+// delivered after the worker has observed and persisted the injected message.
+export const piDelegationSteering = pgTable("pi_delegations_steering", {
+  id: text("id").primaryKey(),
+  delegationId: text("delegation_id").notNull().references(() => piDelegations.id, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sourceSessionId: text("source_session_id").notNull(),
+  runOwnerId: text("run_owner_id").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  message: text("message").notNull(),
+  status: text("status").notNull().default("accepted"),
+  claimedAt: pgTimestamp("claimed_at"),
+  deliveredAt: pgTimestamp("delivered_at"),
+  missedAt: pgTimestamp("missed_at"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  idempotencyIdx: uniqueIndex("idx_pi_delegations_steering_idempotency").on(table.delegationId, table.idempotencyKey),
+  pendingIdx: index("idx_pi_delegations_steering_pending").on(table.delegationId, table.runOwnerId, table.status, table.createdAt),
+  statusCheck: check("pi_delegations_steering_status_check", sql`${table.status} IN ('accepted', 'claimed', 'delivered', 'missed')`),
 }));
 
 export const agents = pgTable("agents", {
@@ -2714,6 +2772,28 @@ export const auditEvents = pgTable("audit_events", {
   userCreatedIdx: index("idx_audit_events_user_created").on(table.userId, table.createdAt),
   entityCreatedIdx: index("idx_audit_events_entity_created").on(table.entityType, table.entityId, table.createdAt),
   sourceActionCreatedIdx: index("idx_audit_events_source_action_created").on(table.source, table.action, table.createdAt),
+}));
+
+export const teamLicenseEmailOutbox = pgTable("team_license_email_outbox", {
+  id: text("id").primaryKey(),
+  auditEventId: text("audit_event_id").notNull(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  eventKind: text("event_kind").notNull(),
+  reason: text("reason").notNull(),
+  seatLimit: bigint("seat_limit", { mode: "number" }).notNull(),
+  status: text("status").notNull().default('pending'),
+  attempts: bigint("attempts", { mode: "number" }).notNull().default(0),
+  nextAttemptAt: pgTimestamp("next_attempt_at").notNull(),
+  leaseUntil: pgTimestamp("lease_until"),
+  messageId: text("message_id"),
+  error: text("error"),
+  createdAt: pgTimestamp("created_at").notNull(),
+  deliveredAt: pgTimestamp("delivered_at"),
+  updatedAt: pgTimestamp("updated_at").notNull(),
+}, (table) => ({
+  dueIdx: index("idx_team_license_email_outbox_due").on(table.status, table.nextAttemptAt),
+  auditRecipientIdx: uniqueIndex("idx_team_license_email_outbox_audit_recipient").on(table.auditEventId, table.userId),
 }));
 
 // Short-lived, metadata-only diagnostics for the public Canvas MCP server.

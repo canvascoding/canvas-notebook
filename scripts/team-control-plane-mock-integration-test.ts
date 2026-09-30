@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import Module from 'node:module';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { CommunityTeamOrganizationError } from '../app/lib/license/community-team-organization';
+import { createPiTestDatabase } from './helpers/pi-test-database';
 
 const dataRoot = mkdtempSync(path.join(tmpdir(), 'canvas-team-control-plane-mock-'));
 const instanceId = 'instance-control-plane-mock';
@@ -148,7 +151,7 @@ async function requestBody(request: IncomingMessage): Promise<Record<string, unk
 function seatQuote(desiredQuantity: number) {
   return {
     protocolVersion: 'canvas-team-seat-protocol-v1',
-    quoteId: 'quote-control-plane-mock',
+    quoteId: '77777777-7777-4777-8777-777777777777',
     subject: {
       type: 'license',
       licenseId: 'license-control-plane-mock',
@@ -177,8 +180,8 @@ function seatAuthorization(
 ) {
   return {
     protocolVersion: 'canvas-team-seat-protocol-v1',
-    authorizationId: 'authorization-control-plane-mock',
-    quoteId: 'quote-control-plane-mock',
+    authorizationId: '88888888-8888-4888-8888-888888888888',
+    quoteId: '77777777-7777-4777-8777-777777777777',
     quoteHash: 'quote-hash-control-plane-mock',
     quantityBefore: desiredQuantity - 1,
     quantityAfter: desiredQuantity,
@@ -338,7 +341,7 @@ const server = createServer(async (request, response) => {
     return;
   }
 
-  if (url.pathname === '/v1/license/community/v1/seats/quotes/quote-control-plane-mock') {
+  if (url.pathname === '/v1/license/community/v1/seats/quotes/77777777-7777-4777-8777-777777777777') {
     json(response, {
       quote: seatQuote(2),
       authorization: seatAuthorization(2, 'approved'),
@@ -457,6 +460,28 @@ async function closeServer(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const testDatabase = await createPiTestDatabase();
+  const postgres = testDatabase.getPostgresRuntimeQueryable();
+  const now = Date.parse('2026-08-01T00:00:00.000Z');
+  await postgres.query(`
+    INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+    VALUES ('community-owner', 'Community Owner', 'community-owner@example.test', 1, 'admin', $1, $1)
+  `, [now]);
+  await postgres.query(`
+    INSERT INTO canvas_organization_settings (
+      organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+    ) VALUES ('community-organization', 'community-owner', 'team', 1, $1, $1)
+  `, [now]);
+  const moduleLoader = Module as unknown as {
+    _load: (request: string, parent: unknown, isMain: boolean) => unknown;
+  };
+  const originalLoad = moduleLoader._load;
+  moduleLoader._load = function load(request, parent, isMain) {
+    if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) {
+      return testDatabase;
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
   const baseUrl = await listen();
   process.env.CANVAS_LICENSE_CONTROL_PLANE_URL = baseUrl;
   try {
@@ -687,8 +712,41 @@ async function main(): Promise<void> {
     );
     assert.equal(process.env.STRIPE_SECRET_KEY, undefined);
     assert.equal(process.env.STRIPE_WEBHOOK_SECRET, undefined);
+
+    await postgres.query(`
+      INSERT INTO "user" (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES ('second-community-owner', 'Second Community Owner', 'second-community-owner@example.test', 1, 'admin', $1, $1)
+    `, [now]);
+    await postgres.query(`
+      INSERT INTO canvas_organization_settings (
+        organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+      ) VALUES ('second-community-organization', 'second-community-owner', 'team', 1, $1, $1)
+    `, [now]);
+    const requestCount = requests.length;
+    await assert.rejects(
+      () => prepareCommunityTeamSeatChange(createTeamSeatPrepareRequest({
+        desiredQuantity: 2,
+        triggerType: 'member_create',
+      })),
+      CommunityTeamOrganizationError,
+    );
+    await assert.rejects(
+      () => executeCommunityTeamSeatChange(createTeamSeatExecuteRequest({
+        authorizationId: prepared.authorization.authorizationId,
+        operationKey: 'blocked-multiple-organizations',
+        operationType: 'member_create',
+      })),
+      CommunityTeamOrganizationError,
+    );
+    await assert.rejects(
+      () => submitCommunityTeamMembershipSnapshot(snapshotRequest),
+      CommunityTeamOrganizationError,
+    );
+    assert.equal(requests.length, requestCount);
   } finally {
     await closeServer();
+    moduleLoader._load = originalLoad;
+    await testDatabase.close();
     restoreEnvironment();
     rmSync(dataRoot, { recursive: true, force: true });
   }

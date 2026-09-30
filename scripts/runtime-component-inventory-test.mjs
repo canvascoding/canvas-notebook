@@ -119,6 +119,9 @@ for (const component of inventory.pythonPackages) {
   assert(
     component.licenseExpression
       || component.license
+      || component.licenseClassifiers?.some((classifier) => (
+        /^License :: OSI Approved :: /u.test(classifier)
+      ))
       || component.licenseFiles.length > 0
       || (
         component.managedBy === 'deb'
@@ -126,6 +129,16 @@ for (const component of inventory.pythonPackages) {
         && inventory.dpkgPackages.some((candidate) => candidate.name === component.debianPackage)
       ),
     `${component.name}@${component.version} needs license metadata or a packaged license file`,
+  );
+}
+
+for (const optionalName of [
+  'anyio', 'av', 'ctranslate2', 'faster-whisper', 'filelock', 'fsspec', 'h11',
+  'hf-xet', 'httpcore', 'httpx', 'huggingface-hub', 'tokenizers', 'tqdm',
+]) {
+  assert(
+    !inventory.pythonPackages.some((component) => normalizePythonName(component.name) === optionalName),
+    `${optionalName} must not be installed in the distributed Docker image`,
   );
 }
 
@@ -146,6 +159,7 @@ const lockedPythonPackages = new Map(
     .map((match) => [normalizePythonName(match[1]), match[2]]),
 );
 assert(lockedPythonPackages.size > 0, 'the runtime Python lock must contain exact versions');
+assert.equal(lockedPythonPackages.size, 45, 'the distributed Docker image must retain the reviewed 45-package base lock');
 assert.match(requirements, /--hash=sha256:[a-f0-9]{64}/u);
 const pipManagedPackages = inventory.pythonPackages.filter((component) => component.managedBy === 'pip');
 assert.equal(pipManagedPackages.length, lockedPythonPackages.size);

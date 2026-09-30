@@ -4,7 +4,7 @@ import type { FileChangeReviewNotificationReason, FileChangeReviewNotificationTa
 
 export type NotificationItem = {
   id: string;
-  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required';
+  type: 'chat.response' | 'email.attention' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed' | 'memory.approval_required' | 'mcp.connection_attention' | 'file.change_review_required' | 'license.team_access_changed' | 'license.team_grant_expiring';
   title: string;
   detail: string | null;
   occurredAt: string;
@@ -23,6 +23,7 @@ export type NotificationItem = {
     | { kind: 'studio'; generationId: string }
     | { kind: 'automation'; runId: string }
     | { kind: 'mcp'; connectionId: string }
+    | { kind: 'license' }
     | FileChangeReviewNotificationTarget
     | { kind: 'memory'; scope: 'workspace' | 'organization'; entryId: string; collectionId: string; workspaceId?: string; organizationId?: string };
 };
@@ -57,8 +58,10 @@ type ApiResponse<T> = {
   error?: string;
 };
 
-export async function readNotificationSummary(): Promise<NotificationSummary> {
-  const response = await fetch('/api/notifications/summary', {
+export async function readNotificationSummary(options: { activeChatSessionId?: string | null } = {}): Promise<NotificationSummary> {
+  const params = new URLSearchParams();
+  if (options.activeChatSessionId) params.set('activeChatSessionId', options.activeChatSessionId);
+  const response = await fetch(`/api/notifications/summary${params.size ? `?${params}` : ''}`, {
     credentials: 'include',
     cache: 'no-store',
   });

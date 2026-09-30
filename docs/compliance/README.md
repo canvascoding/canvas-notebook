@@ -1,6 +1,14 @@
 # Third-Party Compliance Runbook
 
-Stand: 2026-07-17
+Stand: 2026-09-28
+
+Der Stand vom 17. Juli 2026 dokumentiert das damalige 45-Paket-Python-Image.
+Ein spaeterer Diktat-Kandidat vom 28. September 2026 enthielt 58 per pip
+installierte Pakete. Die 13 zusaetzlichen Diktatpakete liegen im aktuellen
+Quellstand nur noch als Lock fuer eine optionale Installation unter DATA vor;
+das Basis-Image installiert sie nicht. Die historischen nativen Befunde und
+die noch ausstehende Pruefung dieser Installationsgrenze stehen in
+[`docker-runtime-review.md`](docker-runtime-review.md).
 
 ## Zweck und rechtliche Einordnung
 
@@ -33,18 +41,39 @@ dieser Komponente nicht wieder nehmen.
 
 ## Aktueller Freigabestatus
 
-Die technische Umsetzung ist vorhanden und reproduzierbar. Der am 17. Juli
-2026 neu erzeugte Bestand umfasst:
+Die technische Umsetzung ist vorhanden und reproduzierbar. Das aktuelle
+statische Komponentenmanifest umfasst:
 
 | Kennzahl | Stand |
 | --- | ---: |
-| Komponenten gesamt | 2.054 |
-| ausgelieferter Runtime-/Asset-Bestand | 1.492 |
-| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 562 |
-| automatisch beziehungsweise dokumentiert `allowed` | 2.004 |
-| `review_required` im Gesamtbestand | 50, alle nicht ausgeliefert |
+| Komponenten gesamt | 1.967 |
+| ausgelieferter Runtime-/Asset-Bestand | 1.449 |
+| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 518 |
+| automatisch beziehungsweise dokumentiert `allowed` | 1.931 |
+| `review_required` im Gesamtbestand | 36, alle nicht ausgeliefert |
 | pauschal `blocked` | 0 |
 | Blocker im statischen kommerziellen Release-Gate | 0 |
+
+Der normale Build prueft die exakten Namen, Versionen und Hashes des
+45-Paket-Basis-Locks. Der Runtime-Inventartest im Docker-Build prueft die
+Abwesenheit der optionalen Diktatpakete im Basis-Image. Die 13 Pakete bleiben
+fuer eine optionale Installation versionsgebunden dokumentiert. Der aktuelle
+kommerzielle Docker-Release entfernt Installer und Worker aus dem Image,
+sperrt lokale Auswahl und Installation serverseitig und laesst Cloud-Diktat
+bestehen. Die Images beider Architekturen und die Grenze sind im
+[`optional-dictation-boundary-review-2026-09-29.md`](optional-dictation-boundary-review-2026-09-29.md)
+belegt. `npm run test:licenses:release` ist fuer diesen Docker-Kandidaten gruen.
+Die 14 Blocker des frueheren 58-Paket-Image-Kandidaten sind historische
+Pruefbefunde und keine Aussage ueber den aktuellen Basis-Image-Inhalt.
+Der Release-Workflow startet beide Architektur-Builds erst nach dem strikten
+Lizenz- und Sicherheitstest. Er baut jedes Image lokal, prueft dessen natives
+Inventar und pusht erst danach architekturspezifische Build-Tags. Das
+Multi-Arch-Manifest folgt nur auf den erfolgreichen Vergleich beider
+Evidenzsaetze. Fuer Notebook `c2f4e1ef8` wurden lokale amd64-/arm64-Images
+gebaut und verglichen; die Evidenz steht in
+[`optional-dictation-boundary-review-2026-09-29.md`](optional-dictation-boundary-review-2026-09-29.md).
+Ein Release-Workflow mit Push wurde nicht ausgefuehrt. Die optionale lokale
+Installation aus einem Source-/Host-Setup ist nicht Teil dieser Docker-Pruefung.
 
 Die erste verantwortliche Gesamtfreigabe ist dokumentiert. Zehn npm-Pakete
 und drei Pakete des global installierten npm wurden fuer ihre exakten
@@ -75,11 +104,13 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
   entfernt. Die 28 unvollstaendig belegten Positionen bleiben transparent im
   Gesamtinventar `review_required`, sind aber keine Canvas-Binaerlieferung und
   daher keine Release-Blocker.
-- Canvas baut libvips 8.18.3 unveraendert aus dem exakt gehashten
-  Upstream-Archiv als austauschbare Shared Library, baut sharp 0.35.2 und
-  0.35.3 dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
+- Canvas baut libvips 8.18.6 unveraendert aus dem exakt gehashten
+  Upstream-Archiv als austauschbare Shared Library, baut sharp 0.35.4
+  dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
 
-`npm run test:licenses:release` ist damit statisch gruen. `npm run
+Fuer den freigegebenen Kandidaten vom 17. Juli war
+`npm run test:licenses:release` statisch gruen. Im aktuellen Docker-Kandidaten
+ist es nach der technischen Abgrenzung wieder gruen. `npm run
 verify:release` prueft ausserdem vor Lint und Produktions-Build mit einem
 skriptfreien `npm ci --dry-run`, dass `package.json` und Lockfile auch in einer
 frischen CI-Umgebung vollstaendig synchron sind.
@@ -225,11 +256,11 @@ als rechtlich geklaert umetikettiert.
 
 Canvas loest dies auf der Auslieferungsebene: Kein vorgebautes
 `@img/sharp-*`-Archiv landet im Docker-Image. Stattdessen wird das
-unveraenderte libvips-Archiv 8.18.3 mit SHA-256-Pruefung als Shared Library
+unveraenderte libvips-Archiv 8.18.6 mit SHA-256-Pruefung als Shared Library
 gebaut und als vollstaendiger Quellcode zusammen mit LGPL-2.1-or-later und
-Austauschanleitung ausgeliefert. Beide Sharp-Versionen werden lokal dagegen
-gebaut. Der Release-Workflow prueft per `ldd`, dass `/usr/local/lib` verwendet
-wird, und fuehrt mit beiden Addons eine echte SVG-zu-PNG-Konvertierung aus.
+Austauschanleitung ausgeliefert. Sharp 0.35.4 wird lokal dagegen gebaut.
+Der Release-Workflow prueft per `ldd`, dass `/usr/local/lib` verwendet wird,
+und fuehrt mit dem Addon eine echte SVG-zu-PNG-Konvertierung aus.
 Damit bleiben die unklaren Upstream-Binaries sichtbar, werden aber nicht zur
 Grundlage der Canvas-Lieferung gemacht. Details stehen in
 `sharp-native-binary-review.md` und `sharp-libvips-relinking.md`.

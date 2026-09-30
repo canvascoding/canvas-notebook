@@ -173,9 +173,12 @@ RUN set -eux; \
   libreoffice --headless --version
 RUN test -x /usr/local/libexec/canvas-agent-landlock
 
-# Install the exact cross-platform Python wheel set required by skills.
+# Install only the reviewed Python runtime required by bundled features.
 COPY --from=builder /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt
 RUN pip3 install --no-cache-dir --break-system-packages --require-hashes -r /app/requirements/runtime-python.txt
+# The optional dictation lock is shipped as text only. An instance admin can
+# install its pinned wheels into persistent DATA after deployment.
+COPY --from=builder /app/requirements/dictation-python.txt /app/requirements/dictation-python.txt
 RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \
@@ -219,7 +222,8 @@ COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
-RUN rm -f ./scripts/apply-pending-migration-restore.ts
+RUN rm -f ./scripts/apply-pending-migration-restore.ts \
+  ./scripts/dictation-runtime.py ./scripts/dictation-worker.py
 
 # Copy seed assets (preset preview images, sys prompts, etc.)
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts
@@ -231,6 +235,7 @@ RUN test ! -e ./node_modules/better-sqlite3 \
 
 # Capture and verify the final OS/Python/npm/native payload only after the
 # production node_modules and locally-built sharp addons are present.
+RUN node ./scripts/python-license-inventory-test.mjs
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
   --base-image "${NODE_BASE_IMAGE}" \
   --platform "${TARGETPLATFORM}" \

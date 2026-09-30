@@ -6,6 +6,7 @@ import { listTodos } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { listMemoryApprovalAttention, type MemoryApprovalAttentionItem } from '@/app/lib/memory/approval-attention';
 import { listMcpConnectionAttention, type McpConnectionAttentionItem } from '@/app/lib/mcp/connection-attention';
+import { listTeamLicenseAttention, type TeamLicenseAttentionItem } from '@/app/lib/license/team-license-attention';
 
 import { selectTodoAttention, type TodoAttentionReason } from './attention-policy';
 import { settleNotificationSource } from './source-resilience';
@@ -13,7 +14,7 @@ import { settleNotificationSource } from './source-resilience';
 export type NotificationAttentionItem = (MobileAggregateInboxItem & {
   workspaceName: string | null;
   todoAttentionReason?: TodoAttentionReason;
-}) | MemoryApprovalAttentionItem | McpConnectionAttentionItem;
+}) | MemoryApprovalAttentionItem | McpConnectionAttentionItem | TeamLicenseAttentionItem;
 
 function workspaceNameById(workspaces: WorkspaceContext[]) {
   return new Map(workspaces.map((workspace) => [workspace.workspaceId, workspace.displayName || workspace.workspaceType]));
@@ -27,6 +28,7 @@ export async function readNotificationAttention(input: {
   userId: string;
   workspaces: WorkspaceContext[];
   now?: Date;
+  excludeChatSessionId?: string;
 }) {
   const now = input.now ?? new Date();
   const workspaceIds = input.workspaces.map((workspace) => workspace.workspaceId);
@@ -34,13 +36,14 @@ export async function readNotificationAttention(input: {
   const defaultPersonalWorkspace = input.workspaces.find((workspace) => workspace.workspaceType === 'personal' && workspace.isDefault)
     ?? input.workspaces.find((workspace) => workspace.workspaceType === 'personal')
     ?? null;
-  const [eventsResult, todosResult, emailResult, unreadResult, memoryResult, mcpResult] = await Promise.all([
+  const [eventsResult, todosResult, emailResult, unreadResult, memoryResult, mcpResult, licenseResult] = await Promise.all([
     settleNotificationSource(listMobileAggregateInbox({
       userId: input.userId,
       workspaces: input.workspaces,
       filter: 'notifications',
       limit: 12,
       includeFileChanges: true,
+      excludeChatSessionId: input.excludeChatSessionId,
     }), {
       scope: { workspaceIds, workspaceCount: workspaceIds.length },
       counts: { unread: 0, chat: 0, emails: 0, todos: 0, todoUnread: 0, studio: 0, automation: 0 },
@@ -62,9 +65,11 @@ export async function readNotificationAttention(input: {
       userId: input.userId,
       workspaces: input.workspaces,
       includeFileChanges: true,
+      excludeChatSessionId: input.excludeChatSessionId,
     }), 0),
     settleNotificationSource(listMemoryApprovalAttention({ userId: input.userId, workspaces: input.workspaces }), []),
     settleNotificationSource(listMcpConnectionAttention({ userId: input.userId, now: now.getTime() }), []),
+    settleNotificationSource(listTeamLicenseAttention({ userId: input.userId }), []),
   ]);
   const events = eventsResult.value;
   const todos = todosResult.value;
@@ -78,6 +83,7 @@ export async function readNotificationAttention(input: {
     unreadCount: unreadResult.status,
     memoryApprovals: memoryResult.status,
     mcpConnections: mcpResult.status,
+    license: licenseResult.status,
   };
   for (const [source, status] of Object.entries(sources)) {
     if (!status.available) console.warn('[Notifications] Source unavailable.', { source, userId: input.userId });
@@ -125,10 +131,12 @@ export async function readNotificationAttention(input: {
     ...item,
     workspaceName: names.get(item.workspaceId) ?? null,
   }));
-  const notificationItems: NotificationAttentionItem[] = [...memoryApprovals, ...mcpResult.value, ...eventItems]
+  const notificationItems: NotificationAttentionItem[] = [...memoryApprovals, ...mcpResult.value, ...licenseResult.value, ...eventItems]
     .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id));
   const memoryApprovalUnread = memoryApprovals.filter((item) => item.unread).length;
-  const unreadCount = mobileUnreadCount + memoryApprovalUnread + mcpResult.value.filter((item) => item.unread).length;
+  const unreadCount = mobileUnreadCount + memoryApprovalUnread
+    + mcpResult.value.filter((item) => item.unread).length
+    + licenseResult.value.filter((item) => item.unread).length;
   return {
     sources,
     unreadCount,

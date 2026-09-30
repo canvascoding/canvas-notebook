@@ -22,14 +22,18 @@ async function main() {
     if (request === 'server-only') return {};
     if ((request.startsWith('.') || request.startsWith('@/')) && request.endsWith('/auth')) return { auth: {} };
     if (request === '@earendil-works/pi-agent-core') return { Agent: class Agent {} };
-    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return { getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined };
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') return {
+      getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined,
+      toToolDeclaration: (tool: unknown) => tool,
+      createInitialSystemMessage: (systemPrompt: string) => ({ role: 'system', content: systemPrompt, timestamp: 0 }),
+    };
     return originalLoad(request, parent, isMain);
   };
   try {
     const { prepareToolOutput } = await import('../app/lib/pi/tool-output-preparation');
     const { prepareWebToolOutput } = await import('../app/lib/pi/web-output-preparation');
     const { finalizeToolOutputBlocks } = await import('../app/lib/pi/tool-output-block-storage');
-    const { planToolOutputBlockViews, projectToolOutputBlocks, ToolOutputBlockBudgetError } = await import('../app/lib/pi/tool-output-block-budget');
+    const { planToolOutputBlockViews, projectToolOutputBlocks } = await import('../app/lib/pi/tool-output-block-budget');
     const { getToolOutputMetadata } = await import('../app/lib/pi/tool-output-metadata');
     const { readStoredToolOutput, inspectToolOutputUsage } = await import('../app/lib/pi/tool-output-store');
     const { formatTextReadResult } = await import('../app/lib/pi/text-read-result');
@@ -60,8 +64,8 @@ async function main() {
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
     };
     const messages: AgentMessage[] = [{ role: 'user', content: 'Compare the sources and preserve the created identifiers.', timestamp: 1 }, assistant,
-      ...prepared.map(({ name, result }, index) => ({ ...result, role: 'toolResult' as const, toolName: name, toolCallId: `block-${index}`,
-        isError: false, timestamp: index + 3, ...(index === 2 ? { addedToolNames: ['future_discovered_tool'] } : {}) })),
+      ...prepared.map(({ name, result }, index) => ({ ...result, details: result.details === undefined ? undefined : JSON.parse(JSON.stringify(result.details)),
+        role: 'toolResult' as const, toolName: name, toolCallId: `block-${index}`, isError: false, timestamp: index + 3 })),
     ];
     const originalContent = messages.map(message => JSON.stringify('content' in message ? message.content : undefined));
     const first = await finalizeToolOutputBlocks(messages, baseModel, identity);
@@ -69,18 +73,25 @@ async function main() {
     const smallDrafts = planToolOutputBlockViews(messages, baseModel).drafts;
     const allocatedBefore = smallDrafts.map(draft => draft.view.text.length);
     for (const draft of smallDrafts) assert.ok(draft.view.estimatedTokens <= 800);
-    const assistantCost = estimatePiTextTokens(JSON.stringify({ role: 'assistant', content: assistant.content }));
-    assert.ok(smallDrafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, assistantCost) <= 2_400);
+    assert.ok(smallDrafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, 0) <= 2_400);
     assert.match(toolText(first[2] as ToolMessage), /\[S3\]/);
     assert.match(toolText(first[3] as ToolMessage), /\[S2\]/);
+    let archivedMediumResults = 0;
+    let preservedMediumResults = 0;
     for (let index = 4; index < 10; index++) {
       const original = messages[index] as ToolMessage;
       assert.match(toolText(first[index] as ToolMessage), new RegExp(`created-${index - 2}`));
       const reference = getToolOutputMetadata(original.details)?.references[0];
-      assert.ok(reference, 'several medium results exceeding a block budget are archived before trimming');
+      if (toolText(first[index] as ToolMessage) === toolText(original)) {
+        preservedMediumResults++;
+        continue;
+      }
+      archivedMediumResults++;
+      assert.ok(reference, 'trimmed medium results are archived');
       const stored = JSON.parse((await readStoredToolOutput(identity, reference.reference)).content);
       assert.equal(stored.content[0].text, toolText(original));
     }
+    assert.ok(archivedMediumResults > 0 && preservedMediumResults > 0, 'largest-first allocation keeps smaller results intact');
     const read = first[10] as ToolMessage;
     const readDetails = read.details as { nextOffset: number; offset: number; toolOutputReadWindow: { bodyStart: number; bodyEnd: number } };
     const visibleReadBody = toolText(read).slice(readDetails.toolOutputReadWindow.bodyStart, readDetails.toolOutputReadWindow.bodyEnd);
@@ -89,6 +100,37 @@ async function main() {
     assert.ok(readBody.startsWith(visibleReadBody));
     assert.ok(!/[\uD800-\uDBFF]$/u.test(visibleReadBody));
     assert.match(toolText(read), new RegExp(`nextOffset: ${readDetails.nextOffset};`));
+
+    // A completed write can carry more than 6k tokens of arguments. Its result
+    // still needs to reach the model without executing the write a second time.
+    const writeBody = 'Campaign paragraph. '.repeat(1_600);
+    const writeAssistant: Extract<AgentMessage, { role: 'assistant' }> = {
+      ...assistant,
+      content: [{ type: 'toolCall', name: 'create_file', id: 'write-once',
+        arguments: { path: 'campaigns/first.md', content: writeBody } }],
+    };
+    const writeResult: ToolMessage = {
+      ...(messages[4] as ToolMessage), toolCallId: 'write-once', toolName: 'create_file',
+      content: [{ type: 'text', text: 'Created campaigns/first.md' }],
+    };
+    const writeRound: AgentMessage[] = [writeAssistant, writeResult];
+    assert.ok(estimatePiTextTokens(JSON.stringify({ role: 'assistant', content: writeAssistant.content })) > 6_000);
+    const projectedWriteRound = projectToolOutputBlocks(writeRound, model(262_144));
+    const projectedCall = (projectedWriteRound[0] as typeof writeAssistant).content.find(part => part.type === 'toolCall');
+    assert.ok(projectedCall && projectedCall.type === 'toolCall');
+    assert.equal(projectedCall.arguments.content, writeBody);
+    assert.equal((projectedWriteRound[1] as ToolMessage).toolCallId, 'write-once');
+    const originalCall = writeAssistant.content.find(part => part.type === 'toolCall');
+    assert.ok(originalCall && originalCall.type === 'toolCall');
+    assert.equal(originalCall.arguments.content, writeBody);
+    const finalizedWriteRound = await finalizeToolOutputBlocks(writeRound, model(262_144), identity);
+    const resumedWriteRound = writeRound.map(message => parsePersistedPiMessage(JSON.stringify(projectAgentMessageForPersistence(message))));
+    assert.deepEqual(projectToolOutputBlocks(resumedWriteRound, model(262_144)).map(message => 'content' in message ? message.content : undefined),
+      finalizedWriteRound.map(message => 'content' in message ? message.content : undefined), 'resumed write round uses the same model view');
+    const writePayload = await preparePiFinalPayload({ messages: resumedWriteRound, model: model(262_144),
+      effectiveInstructions: [{ role: 'system', content: 'Continue the campaign.' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
+    assert.equal(writePayload.budgetSnapshot.contextBudgetExceeded, false);
+    assert.equal(writePayload.messages.find(message => message.role === 'toolResult')?.toolCallId, 'write-once');
 
     assert.deepEqual(projectToolOutputBlocks(first, baseModel).map(message => 'content' in message ? message.content : undefined), first.map(message => 'content' in message ? message.content : undefined), 'provider projection is idempotent');
     const resumed = messages.map(message => parsePersistedPiMessage(JSON.stringify(projectAgentMessageForPersistence(message))));
@@ -106,7 +148,7 @@ async function main() {
         const view = projectToolOutputBlocks(resumed, effectiveModel);
         const drafts = planToolOutputBlockViews(resumed, effectiveModel).drafts;
         assert.ok(drafts.every(draft => draft.view.estimatedTokens <= Math.floor(contextWindow * 0.05)));
-        assert.ok(drafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, assistantCost) <= Math.min(6_000, Math.floor(contextWindow * 0.15)));
+        assert.ok(drafts.reduce((sum, draft) => sum + draft.view.estimatedTokens, 0) <= Math.min(6_000, Math.floor(contextWindow * 0.15)));
         const texts = view.filter((message): message is ToolMessage => message.role === 'toolResult').map(toolText);
         if (comparableText) assert.deepEqual(texts, comparableText, 'provider names do not change budgeting');
         comparableText = texts;
@@ -116,7 +158,7 @@ async function main() {
         const results = payload.messages.filter(message => message.role === 'toolResult');
         assert.equal(results.length, prepared.length);
         assert.ok(results.every(result => result.details === undefined), 'internal views/details are absent from the provider payload');
-        assert.deepEqual(results[2].addedToolNames, ['future_discovered_tool']);
+        assert.equal(results[2].details, undefined);
         if (contextWindow === 32_000) assert.ok(drafts.reduce((sum, draft) => sum + draft.view.text.length, 0) > allocatedBefore.reduce((sum, value) => sum + value, 0), 'an explicit larger model can restore a larger view');
       }
     }
@@ -134,7 +176,7 @@ async function main() {
       const candidate = await runtime.transformContext(structuredClone(resumed));
       const sent = await runtime.prepareFinalPayload(candidate);
       const canonical = await preparePiFinalPayload({ messages: candidate, model: effectiveModel, effectiveInstructions: [{ role: 'system', content: 'system instructions' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
-      assert.deepEqual(sent, canonical.messages, 'real LivePiRuntime sends the canonical bounded view');
+      assert.deepEqual(sent.filter((message: { role: string }) => message.role !== 'system'), canonical.messages, 'real LivePiRuntime sends the canonical bounded view');
       const measured = await measurePiContextStatus(runtime.lastComposition, { messages: candidate, model: effectiveModel,
         effectiveInstructions: [{ role: 'system', content: 'system instructions' }], effectiveTools: [], requestOutputTokenCap: 1_024 });
       assert.equal(measured.components?.messages, canonical.budgetSnapshot.serializedMessageTokens, 'context status measures the same provider messages');
@@ -142,7 +184,12 @@ async function main() {
     const overloaded = await preparePiFinalPayload({ messages: [...first, { role: 'user', content: 'x'.repeat(80_000), timestamp: 30 }], model: baseModel,
       effectiveInstructions: [{ role: 'system', content: 'x'.repeat(10_000) }], effectiveTools: [], requestOutputTokenCap: 1_024 });
     assert.equal(overloaded.budgetSnapshot.contextBudgetExceeded, true, 'real conversation/instruction pressure remains visible');
-    assert.throws(() => projectToolOutputBlocks(messages, model(100)), ToolOutputBlockBudgetError, 'a reference minimum cannot override real capacity');
+    const tinyView = projectToolOutputBlocks(messages, model(100));
+    assert.deepEqual(tinyView.filter(message => message.role === 'toolResult').map(message => message.toolCallId),
+      messages.filter(message => message.role === 'toolResult').map(message => message.toolCallId), 'minimum views preserve every result pairing');
+    const tinyPayload = await preparePiFinalPayload({ messages: tinyView, model: model(100),
+      effectiveInstructions: [{ role: 'system', content: 'Use sources.' }], effectiveTools: [], requestOutputTokenCap: 16 });
+    assert.equal(tinyPayload.budgetSnapshot.contextBudgetExceeded, true, 'the final payload reports genuine context overflow');
     const incomplete = messages.slice(0, -1);
     assert.equal(planToolOutputBlockViews(incomplete, baseModel).drafts.length, 0, 'incomplete blocks are not finalized');
     console.log('tool-output-block-budget-test: ok (16k/32k/262k, canonical payload, storage, resume, model switch and offsets)');

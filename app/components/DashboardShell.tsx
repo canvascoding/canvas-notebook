@@ -40,6 +40,7 @@ import { useEmailChatContext } from '@/app/apps/email/context/email-chat-context
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { BrowserLabClient } from '@/app/components/browser-lab/BrowserLabClient';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
+import { DocumentLoadingSkeleton } from '@/app/components/editor/DocumentLoadingSkeleton';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { AppLayout } from '@/app/components/layout/AppLayout';
@@ -165,6 +166,14 @@ type OpenNotebookFileOptions = {
   explorerBehavior?: OpenWorkspaceFileOptions['explorerBehavior'];
   workspaceId?: string;
   transitionId?: string;
+};
+
+type PendingDocumentOpen = {
+  workspaceId: string;
+  generation: number;
+  openFileRequestId: number;
+  path: string;
+  expectedDocumentId?: string;
 };
 
 function SurfaceTab({
@@ -502,7 +511,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const tabLocationWatcherRef = useRef<ReturnType<typeof createNotebookDocumentLocationWatcher> | null>(null);
   const documentOpenGenerationRef = useRef(0);
   const documentOpenControllerRef = useRef<AbortController | null>(null);
+  const documentOpenFileRequestIdRef = useRef<number | null>(null);
   const notebookMountedRef = useRef(false);
+  const [pendingDocumentOpen, setPendingDocumentOpen] = useState<PendingDocumentOpen | null>(null);
   const [closedDocuments, setClosedDocuments] = useState<Record<string, string[]>>({});
   const rememberClosedDocument = useCallback((workspaceId: string, path: string) => {
     setClosedDocuments((current) => ({
@@ -514,6 +525,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const currentFile = useFileStore((fileState) => fileState.currentFile);
   const treeGeneration = useFileStore((fileState) => fileState.treeGeneration);
   const isLoadingFile = useFileStore((fileState) => fileState.isLoadingFile);
+  const loadingFilePath = useFileStore((fileState) => fileState.loadingFilePath);
+  const openFileRequestId = useFileStore((fileState) => fileState.openFileRequestId);
+  const currentFileWorkspaceId = useFileStore((fileState) => fileState.currentFileWorkspaceId);
   const missingFilePath = useFileStore((fileState) => fileState.missingFilePath);
   const fileError = useFileStore((fileState) => fileState.fileError);
   const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
@@ -625,6 +639,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     documentOpenGenerationRef.current++;
     documentOpenControllerRef.current?.abort();
     documentOpenControllerRef.current = null;
+    const fileState = useFileStore.getState();
+    if (documentOpenFileRequestIdRef.current === fileState.openFileRequestId && fileState.isLoadingFile) {
+      useFileStore.setState({ isLoadingFile: false, loadingFilePath: null });
+    }
+    documentOpenFileRequestIdRef.current = null;
+    setPendingDocumentOpen(null);
   }, []);
   useEffect(() => {
     notebookMountedRef.current = true;
@@ -714,8 +734,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     path: string,
     options: OpenNotebookFileOptions = {},
   ) => {
-    let normalizedPath = normalizeNotebookFilePath(path);
-    if (!normalizedPath) return null;
+    const initialPath = normalizeNotebookFilePath(path);
+    if (!initialPath) return null;
+    let normalizedPath: string = initialPath;
     if (!notebookMountedRef.current) return { status: 'superseded' as const, path: normalizedPath };
     cancelPendingDocumentOpen();
     const generation = documentOpenGenerationRef.current;
@@ -728,67 +749,89 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const expectedDocumentId = documentTabsWorkspaceIdRef.current === workspaceId
       && Object.hasOwn(documentTabsRef.current.documentIds ?? {}, normalizedPath)
       ? documentTabsRef.current.documentIds?.[normalizedPath] : undefined;
-    if (workspaceId && expectedDocumentId && !(before.currentFileWorkspaceId === workspaceId
-      && before.currentFile?.path === normalizedPath && before.currentFile.collaboration?.document?.id === expectedDocumentId)) {
-      const controller = new AbortController();
-      documentOpenControllerRef.current = controller;
-      const authScope = openedDocumentAuthScope();
-      const timer = setTimeout(() => controller.abort(), 10_000);
-      const isCurrent = () => canOpen()
-        && useFileStore.getState().openFileRequestId === before.openFileRequestId
-        && useFileStore.getState().fileLoadRequestId === before.fileLoadRequestId;
-      try {
-        const location = await requestCollaborationDocumentLocation(workspaceId, expectedDocumentId, controller.signal);
-        if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
-        if (!location) return { status: 'missing' as const, path: normalizedPath, error: 'The original document is unavailable.' };
-        const tabs = documentTabsRef.current;
-        if (tabs.documentIds?.[normalizedPath] === expectedDocumentId && tabs.openPaths.includes(normalizedPath)) {
-          const next = adoptNotebookDocumentLocation(tabs, normalizedPath, expectedDocumentId, location.path);
-          if (location.path !== normalizedPath && next === tabs) {
-            return { status: 'failed' as const, path: normalizedPath, error: 'Another open document already occupies the resolved path.' };
-          }
-          if (next !== tabs) replaceDocumentTabs(workspaceId, next);
-        } else if (!tabs.openPaths.includes(location.path) || tabs.documentIds?.[location.path] !== expectedDocumentId) {
-          return { status: 'superseded' as const, path: normalizedPath };
-        }
-        normalizedPath = location.path;
-      } catch (error) {
-        if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
-        const local = error instanceof LiveDocumentNetworkError && !controller.signal.aborted
-          ? findOpenedLiveDocument(workspaceId, normalizedPath, expectedDocumentId, authScope) : null;
-        if (!local) return { status: 'failed' as const, path: normalizedPath,
-          error: error instanceof Error ? error.message : 'Document location lookup failed.' };
-      } finally {
-        clearTimeout(timer);
-        if (documentOpenControllerRef.current === controller) documentOpenControllerRef.current = null;
-      }
-    }
-
-    showOpenedDocument(options.dockChatIfFull);
-    const transitionId = options.transitionId ?? createWorkspaceFileTransitionId();
-    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, {
-      transitionId,
-      workspaceId,
-      expectedDocumentId,
-      explorerBehavior: options.explorerBehavior,
-      isCurrent: canOpen,
+    const shouldShowPending = Boolean(workspaceId && !(before.currentFileWorkspaceId === workspaceId
+      && before.currentFile?.path === normalizedPath
+      && (!expectedDocumentId || before.currentFile.collaboration?.document?.id === expectedDocumentId)));
+    if (workspaceId && shouldShowPending) setPendingDocumentOpen({
+      workspaceId, generation, path: normalizedPath, expectedDocumentId,
+      openFileRequestId: before.openFileRequestId,
     });
-    if (result.status !== 'opened') {
-      if (result.status !== 'superseded') {
-        clearStoredNotebookOpenFilePathIfMatches(normalizedPath, workspaceId);
+    try {
+      if (workspaceId && expectedDocumentId && !(before.currentFileWorkspaceId === workspaceId
+        && before.currentFile?.path === normalizedPath && before.currentFile.collaboration?.document?.id === expectedDocumentId)) {
+        const controller = new AbortController();
+        documentOpenControllerRef.current = controller;
+        const authScope = openedDocumentAuthScope();
+        const timer = setTimeout(() => controller.abort(), 10_000);
+        const isCurrent = () => canOpen()
+          && useFileStore.getState().openFileRequestId === before.openFileRequestId
+          && useFileStore.getState().fileLoadRequestId === before.fileLoadRequestId;
+        try {
+          const location = await requestCollaborationDocumentLocation(workspaceId, expectedDocumentId, controller.signal);
+          if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
+          if (!location) return { status: 'missing' as const, path: normalizedPath, error: 'The original document is unavailable.' };
+          const tabs = documentTabsRef.current;
+          if (tabs.documentIds?.[normalizedPath] === expectedDocumentId && tabs.openPaths.includes(normalizedPath)) {
+            const next = adoptNotebookDocumentLocation(tabs, normalizedPath, expectedDocumentId, location.path);
+            if (location.path !== normalizedPath && next === tabs) {
+              return { status: 'failed' as const, path: normalizedPath, error: 'Another open document already occupies the resolved path.' };
+            }
+            if (next !== tabs) replaceDocumentTabs(workspaceId, next);
+          } else if (!tabs.openPaths.includes(location.path) || tabs.documentIds?.[location.path] !== expectedDocumentId) {
+            return { status: 'superseded' as const, path: normalizedPath };
+          }
+          normalizedPath = location.path;
+          if (shouldShowPending) setPendingDocumentOpen((current) => current?.generation === generation
+            ? { ...current, path: normalizedPath } : current);
+        } catch (error) {
+          if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
+          const local = error instanceof LiveDocumentNetworkError && !controller.signal.aborted
+            ? findOpenedLiveDocument(workspaceId, normalizedPath, expectedDocumentId, authScope) : null;
+          if (!local) return { status: 'failed' as const, path: normalizedPath,
+            error: error instanceof Error ? error.message : 'Document location lookup failed.' };
+        } finally {
+          clearTimeout(timer);
+          if (documentOpenControllerRef.current === controller) documentOpenControllerRef.current = null;
+        }
+      }
+
+      showOpenedDocument(options.dockChatIfFull);
+      const transitionId = options.transitionId ?? createWorkspaceFileTransitionId();
+      const pendingLoad = useFileStore.getState().revealAndLoadFile(normalizedPath, {
+        transitionId,
+        workspaceId,
+        expectedDocumentId,
+        explorerBehavior: options.explorerBehavior,
+        isCurrent: canOpen,
+      });
+      const openFileRequestId = useFileStore.getState().openFileRequestId;
+      if (shouldShowPending && openFileRequestId !== before.openFileRequestId) {
+        documentOpenFileRequestIdRef.current = openFileRequestId;
+      }
+      if (shouldShowPending) setPendingDocumentOpen((current) => current?.generation === generation
+        ? { ...current, path: normalizedPath, openFileRequestId }
+        : current);
+      const result = await pendingLoad;
+      if (result.status !== 'opened') {
+        if (result.status !== 'superseded') {
+          clearStoredNotebookOpenFilePathIfMatches(normalizedPath, workspaceId);
+        }
+        return result;
+      }
+
+      const loadedPath = useFileStore.getState().currentFile?.path ?? null;
+      if (loadedPath === normalizedPath && workspaceId) {
+        try {
+          writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, normalizedPath);
+        } catch {
+          // Local UI persistence is non-critical.
+        }
       }
       return result;
+    } finally {
+      if (documentOpenGenerationRef.current === generation) documentOpenFileRequestIdRef.current = null;
+      if (notebookMountedRef.current) setPendingDocumentOpen((current) => current?.generation === generation ? null : current);
     }
-
-    const loadedPath = useFileStore.getState().currentFile?.path ?? null;
-    if (loadedPath === normalizedPath && workspaceId) {
-      try {
-        writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, normalizedPath);
-      } catch {
-        // Local UI persistence is non-critical.
-      }
-    }
-    return result;
   }, [cancelPendingDocumentOpen, replaceDocumentTabs, showOpenedDocument]);
 
   const openNotebookEntry = useCallback(async (path: string, options: OpenNotebookFileOptions = {}) => {
@@ -919,7 +962,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       restoredPath: restoredTabs.activePath });
     // Commit the entry surface with tab hydration. Opening a known document ID
     // can await its location; the default chat must not mount in that interval.
-    if (entry.kind === 'document') dispatch({ type: 'DOCUMENT_OPENED' });
+    if (entry.kind === 'document') {
+      setPendingDocumentOpen({ workspaceId: activeWorkspaceId,
+        generation: documentOpenGenerationRef.current, path: entry.path,
+        openFileRequestId: useFileStore.getState().openFileRequestId });
+      dispatch({ type: 'DOCUMENT_OPENED' });
+    }
     if (entry.kind === 'chat' && shouldForceChatOpen) {
       dispatch({ type: 'SHOW_CHAT' });
       return;
@@ -1001,7 +1049,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           search: window.location.search, workspaceId: nextWorkspaceId,
         }),
         restoredPath: restoredTabs.activePath });
-      if (entry.kind === 'document') dispatch({ type: 'DOCUMENT_OPENED' });
+      if (entry.kind === 'document') {
+        setPendingDocumentOpen({ workspaceId: nextWorkspaceId,
+          generation: documentOpenGenerationRef.current, path: entry.path,
+          openFileRequestId: useFileStore.getState().openFileRequestId });
+        dispatch({ type: 'DOCUMENT_OPENED' });
+      }
       if (entry.kind === 'waiting' || intent.path) return;
       if (entry.kind === 'chat') {
         dispatch({ type: 'SHOW_CHAT' });
@@ -1334,8 +1387,20 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     />
     </NotebookSurfaceMount>
   );
+  const pendingDocumentPath = pendingDocumentOpen
+    && pendingDocumentOpen.workspaceId === activeWorkspaceId
+    && pendingDocumentOpen.openFileRequestId === openFileRequestId
+    && (currentFileWorkspaceId !== activeWorkspaceId
+      || currentFile?.path !== pendingDocumentOpen.path
+      || (pendingDocumentOpen.expectedDocumentId
+        && currentFile.collaboration?.document?.id !== pendingDocumentOpen.expectedDocumentId)
+      || isLoadingFile)
+    ? pendingDocumentOpen.path : null;
+  const documentLoadingPath = pendingDocumentPath ?? (isLoadingFile ? loadingFilePath : null);
   const documentContent = <NotebookSurfaceMount key={activeWorkspaceId} active={state.mainSurface === 'document'}>
-    {currentFile || isLoadingFile || fileError || missingFilePath
+    {documentLoadingPath
+    ? <DocumentLoadingSkeleton path={documentLoadingPath} label={tNotebook('loadingPreview')} showHeader />
+    : currentFile || isLoadingFile || fileError || missingFilePath
     ? <FileEditor
         key={activeWorkspaceId}
         onClosePreview={handleCloseDocument}

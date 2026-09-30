@@ -83,6 +83,10 @@ export async function resolvePiApiKey(
       return allEntries.get('GOOGLE_API_KEY') || allEntries.get('GEMINI_API_KEY');
     case 'openrouter':
       return allEntries.get('OPENROUTER_API_KEY');
+    case 'meta':
+      return allEntries.get('META_API_KEY');
+    case 'radius':
+      return allEntries.get('RADIUS_API_KEY');
     case 'baseten':
       return allEntries.get('BASETEN_API_KEY');
     case 'groq':

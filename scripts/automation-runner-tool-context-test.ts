@@ -159,6 +159,7 @@ moduleInternals._load = (request, parent, isMain) => {
 
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat' || request === '@earendil-works/pi-ai/oauth') {
     return {
+      ...originalLoad(require.resolve('../node_modules/@earendil-works/pi-ai/dist/index.js'), parent, isMain) as object,
       registerBuiltInApiProviders() {},
       getProviders() {
         return [];
@@ -173,12 +174,12 @@ moduleInternals._load = (request, parent, isMain) => {
     const stub = {
       agentLoop: async function* agentLoopStub(
         messages: unknown[],
-        context: { systemPrompt?: string; tools?: Array<{ name: string }> },
+        context: { messages: Array<{ role: string; content: string }>; tools?: Array<{ name: string }> },
         config: {
           reasoning?: unknown;
           prepareNextTurn?: (turnContext: {
-            context: { systemPrompt?: string; messages: unknown[]; tools: Array<{ name: string }> };
-          }) => Promise<{ context?: { systemPrompt?: string } } | undefined>;
+            context: { messages: Array<{ role: string; content: string }>; tools: Array<{ name: string }> };
+          }) => Promise<{ context?: { messages: Array<{ role: string; content: string }> } } | undefined>;
         },
         _signal: AbortSignal | undefined,
         streamFn: unknown,
@@ -186,15 +187,14 @@ moduleInternals._load = (request, parent, isMain) => {
         agentLoopToolNames = context.tools?.map((tool) => tool.name) ?? [];
         agentLoopStreamFns.push(streamFn);
         agentLoopThinkingLevels.push(config.reasoning);
-        agentLoopSystemPrompts.push(context.systemPrompt || '');
+        agentLoopSystemPrompts.push(String(context.messages.find((message) => message.role === 'system')?.content ?? ''));
         const turnUpdate = await config.prepareNextTurn?.({
           context: {
-            systemPrompt: context.systemPrompt,
-            messages: [],
+            messages: context.messages,
             tools: context.tools || [],
           },
         });
-        agentLoopNextTurnSystemPrompts.push(turnUpdate?.context?.systemPrompt || '');
+        agentLoopNextTurnSystemPrompts.push(String(turnUpdate?.context?.messages.find((message) => message.role === 'system')?.content ?? ''));
         if (agentLoopMode === 'empty-error') {
           yield {
             type: 'agent_end',
@@ -306,7 +306,7 @@ moduleInternals._load = (request, parent, isMain) => {
       ...stub,
       runAgentLoop: async (
         messages: unknown[],
-        context: { systemPrompt?: string; tools?: Array<{ name: string }> },
+        context: { messages: Array<{ role: string; content: string }>; tools?: Array<{ name: string }> },
         config: Parameters<typeof stub.agentLoop>[2],
         onEvent: (event: unknown) => Promise<void>,
         signal: AbortSignal | undefined,

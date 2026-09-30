@@ -17,6 +17,8 @@ export async function register() {
       });
       const { initializeCommunityLicenseRefreshRuntime } = await import("./app/lib/license/refresh");
       initializeCommunityLicenseRefreshRuntime();
+      const { initializeManagedTeamSyncRuntime } = await import("./app/lib/license/managed-team-sync");
+      initializeManagedTeamSyncRuntime();
       const { initializeTeamLicenseLifecycleRuntime } = await import("./app/lib/license/team-license-lifecycle");
       initializeTeamLicenseLifecycleRuntime();
       const { initializeTeamMembershipSnapshotSyncRuntime } = await import("./app/lib/license/team-membership-sync");
