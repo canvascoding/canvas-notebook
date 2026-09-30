@@ -33,6 +33,16 @@ assert.equal(links.window.document.querySelector('#fragment')?.getAttribute('tar
 assert.equal(links.window.document.querySelector('#blank')?.getAttribute('rel'), 'noopener noreferrer');
 links.window.close();
 
+const hostilePrefix = '/__preview/</script><img id="injected" onerror="alert(1)">\u2028\u2029';
+const hostilePreview = new JSDOM(rewriteHtmlPreviewDocument(
+  '<html><head></head><body></body></html>', 'index.html', hostilePrefix, {opaqueOrigin:true},
+));
+assert.equal(hostilePreview.window.document.querySelector('#injected'), null,
+  'a preview prefix cannot break out of the worker bootstrap script');
+assert.equal(hostilePreview.window.document.querySelectorAll('script').length, 1);
+assert.ok(hostilePreview.window.document.querySelector('script')?.textContent?.includes('\\u003c/script\\u003e'));
+hostilePreview.window.close();
+
 async function main() {
   const files: Record<string,string> = {
     'report/index.html': `<link rel="stylesheet" href="./style.css"><img src="./chart.svg"><img src="https://cdn.invalid/picture.png"><script type="module" src="./main.mjs"></script><script>fetch('./data.json');new Worker('./worker.js');window.location='https://outside.invalid';</script>`,
