@@ -362,7 +362,7 @@ export async function generateSeedanceVideo(
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError(
-      'KIE API key is missing. Configure KIE_API_KEY in /settings?tab=integrations.',
+      'KIE API key is missing. Configure KIE_API_KEY in /settings?tab=secrets.',
       400,
     );
   }

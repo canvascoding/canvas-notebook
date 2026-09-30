@@ -155,7 +155,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Audio') {
     notes.push('Reads local audio files and may call external transcription services.');
-    notes.push('Requires GROQ_API_KEY configured under /settings?tab=integrations.');
+    notes.push('Requires GROQ_API_KEY configured under /settings?tab=secrets.');
   }
   if (group === 'Documents') {
     if (tool.name.includes('docx')) {

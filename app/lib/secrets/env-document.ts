@@ -49,7 +49,7 @@ export function parseEnvDocument(content: string): EnvToken[] {
       cursor = recordEnd;
     } else {
       const remaining = content.slice(cursor, end).replace(/\r?\n$/, '');
-      const hash = remaining.indexOf('#');
+      const hash = remaining.startsWith('#') && /=[ \t]+$/u.test(match[0]) ? 0 : remaining.search(/[ \t]+#/u);
       value = (hash < 0 ? remaining : remaining.slice(0, hash)).trimEnd();
       const suffix = remaining.slice(value.length) + (line.endsWith('\n') ? '\n' : '');
       tokens.push({ raw: content.slice(start, end), key, value, prefix: match[0], suffix });
@@ -57,6 +57,22 @@ export function parseEnvDocument(content: string): EnvToken[] {
     }
   }
   return tokens;
+}
+
+/** Old stores treated the whole unquoted line and quoted escapes literally. Import without reinterpretation. */
+export function parseLegacyEnvDocument(content: string): EnvToken[] {
+  const seen = new Set<string>();
+  return content.match(/[^\n]*\n|[^\n]+$/gu)?.map(raw => {
+    if (!raw.trim() || raw.trimStart().startsWith('#')) return { raw };
+    const match = /^([ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*)([^\r\n]*)\r?\n?$/u.exec(raw);
+    if (!match) throw new Error('Invalid legacy ENV assignment.');
+    const key = match[2];
+    if (seen.has(key)) throw new Error(`Duplicate ENV key: ${key}.`);
+    seen.add(key);
+    let value = match[3].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) value = value.slice(1, -1);
+    return { raw, key, value, prefix: match[1], suffix: raw.endsWith('\n') ? '\n' : '' };
+  }) ?? [];
 }
 
 /** Retains comments, ordering and untouched assignment formatting. */

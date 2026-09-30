@@ -80,11 +80,10 @@ async function main() {
 
   const originalSetTimeout = global.setTimeout;
   const originalClearTimeout = global.clearTimeout;
-  global.setTimeout = (((fn: (...args: unknown[]) => void, _delay?: number, ...args: unknown[]) => {
-    fn(...args);
-    return 0;
-  }) as unknown) as typeof setTimeout;
-  global.clearTimeout = (((_id?: ReturnType<typeof setTimeout>) => {}) as unknown) as typeof clearTimeout;
+  // Accelerate only the provider's poll interval; storage lock timers remain real.
+  global.setTimeout = (((fn: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) =>
+    originalSetTimeout(fn, delay === 10_000 ? 0 : delay, ...args)
+  ) as unknown) as typeof setTimeout;
 
   const originalDateNow = Date.now;
   const nowValues = [0, 1000, 2000, 3000];

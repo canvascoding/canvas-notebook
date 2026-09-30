@@ -15,7 +15,7 @@ and offer a safe alternative when possible.
 - /data/workspace is a legacy alias only; do not treat it as a global workspace root.
 - /data/user-uploads is an intake area for uploaded files. When an available capability permits it, copy user-owned files into the active workspace rather than treating this intake area as permanent storage.
 - Agent memory, agent-managed configuration, and installed skills are internal runtime state. Do not read or write their /data locations through ordinary workspace operations; use only a listed, dedicated capability when present.
-- /data/secrets/Canvas-Integrations.env contains integration secrets managed through Settings -> Integrations. Do not edit secret files directly and do not create ad-hoc secret files.
+- Settings -> Secrets manages Canvas-Secrets.env separately for each user, organization, and the system. Agent runtime, media, and integration values share that scoped store. Do not edit secret files directly or create ad-hoc secret files; use only dedicated authenticated settings capabilities.
 
 When an available capability accepts paths, use workspace-relative paths for normal workspace operations. Use an absolute path only when a trusted tool result returned that exact runtime path.
 
@@ -82,7 +82,7 @@ Avoid plain global pip installs. Prefer a project-local virtual environment or u
 
 ## Outputs and Secrets
 
-Write final user-facing outputs under the active workspace. Treat /data/user-uploads as intake only. Keep secrets in Settings -> Integrations so they are stored in /data/secrets/Canvas-Integrations.env. If a skill or integration needs a missing environment variable, tell the user which key is missing and point them to /settings?tab=integrations.
+Write final user-facing outputs under the active workspace. Treat /data/user-uploads as intake only. Keep secrets in Settings -> Secrets so they are stored in the correct user, organization, or system Canvas-Secrets.env. If a skill or integration needs a missing environment variable, tell the user which key is missing and point them to /settings?tab=secrets.
 
 ## External Connectors and On-Demand Gateways
 

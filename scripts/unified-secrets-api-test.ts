@@ -174,6 +174,31 @@ async function main() {
     assert.equal(entryValue((await responseBody(legacyIntegrations)).data, 'OWNER_FIXTURE'), 'owned-integration-fixture');
     assert.equal(entryValue((await responseBody(legacyAgents)).data, 'OWNER_FIXTURE'), undefined, 'integrations-only values remain out of the agents legacy view');
 
+    const ownedScopes = [
+      { view: 'integrations' as const, key: 'INTEGRATION_ONLY_PATCH', value: 'integration-original' },
+      { view: 'agents' as const, key: 'AGENT_ONLY_PATCH', value: 'agent-original' },
+    ];
+    const provenanceScope = { userId: 'admin-b' };
+    for (const entry of ownedScopes) await store.replaceEnvView(entry.view, [{ key: entry.key, value: entry.value }, { key: 'CONFLICT_PATCH', value: `${entry.view}-conflict` }], provenanceScope);
+    const beforeProvenance = await store.readUnifiedEnvState(provenanceScope);
+    const provenancePatch = await route.PATCH(request('http://canvas.test/api/integrations/env', 'admin-b', json('PATCH', {
+      scope: 'all', patches: ownedScopes.map(entry => ({ key: entry.key, value: `${entry.value}-updated` })),
+    })));
+    assert.equal(provenancePatch.status, 200);
+    for (const entry of ownedScopes) {
+      const selected = await route.GET(request(`http://canvas.test/api/integrations/env?scope=${entry.view}`, 'admin-b'));
+      const opposite = await route.GET(request(`http://canvas.test/api/integrations/env?scope=${entry.view === 'agents' ? 'integrations' : 'agents'}`, 'admin-b'));
+      assert.equal(entryValue((await responseBody(selected)).data, entry.key), `${entry.value}-updated`);
+      assert.equal(entryValue((await responseBody(opposite)).data, entry.key), undefined, 'unified value edits retain existing logical ownership');
+    }
+    const afterProvenance = await store.readUnifiedEnvState(provenanceScope);
+    assert.deepEqual(afterProvenance.entries.filter(entry => entry.key.startsWith('CANVAS_PROFILE_')).map(entry => [entry.key, entry.value]), beforeProvenance.entries.filter(entry => entry.key.startsWith('CANVAS_PROFILE_')).map(entry => [entry.key, entry.value]), 'owner metadata and conflicting agent profiles are unchanged');
+    const noOpBytes = await fs.readFile(afterProvenance.path);
+    const noOpPatch = await route.PATCH(request('http://canvas.test/api/integrations/env', 'admin-b', json('PATCH', { scope: 'all', patches: ownedScopes.map(entry => ({ key: entry.key, value: `${entry.value}-updated` })) })));
+    assert.equal(noOpPatch.status, 200); assert.equal((await responseBody(noOpPatch)).data?.revision, afterProvenance.revision); assert.deepEqual(await fs.readFile(afterProvenance.path), noOpBytes);
+    const emptyPatch = await route.PATCH(request('http://canvas.test/api/integrations/env', 'admin-b', json('PATCH', { scope: 'all', patches: [] })));
+    assert.equal(emptyPatch.status, 200); assert.equal((await responseBody(emptyPatch)).data?.revision, afterProvenance.revision);
+
     const revisionResponse = await route.GET(request('http://canvas.test/api/integrations/env?scope=all', 'member-a'));
     const revision = (await responseBody(revisionResponse)).data?.revision;
     assert.equal(typeof revision, 'string');

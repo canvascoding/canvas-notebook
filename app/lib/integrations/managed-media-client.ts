@@ -74,7 +74,7 @@ function instanceToken(): string {
   const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
   if (!token) {
     throw new IntegrationServiceError(
-      'Der lokale API-Key fehlt und der Managed Fallback über Canvas Control Plane ist nicht verfügbar. Bitte konfiguriere einen eigenen Key unter /settings?tab=integrations oder kontaktiere den Administrator.',
+      'Der lokale API-Key fehlt und der Managed Fallback über Canvas Control Plane ist nicht verfügbar. Bitte konfiguriere einen eigenen Key unter /settings?tab=secrets oder kontaktiere den Administrator.',
       400,
     );
   }
@@ -85,7 +85,7 @@ function controlPlaneUrl(path: string): string {
   const baseUrl = getManagedControlPlaneBaseUrl();
   if (!baseUrl) {
     throw new IntegrationServiceError(
-      'Der lokale API-Key fehlt und der Managed Fallback über Canvas Control Plane ist nicht verfügbar. Bitte konfiguriere einen eigenen Key unter /settings?tab=integrations oder kontaktiere den Administrator.',
+      'Der lokale API-Key fehlt und der Managed Fallback über Canvas Control Plane ist nicht verfügbar. Bitte konfiguriere einen eigenen Key unter /settings?tab=secrets oder kontaktiere den Administrator.',
       400,
     );
   }
@@ -141,7 +141,7 @@ export async function generateManagedMedia(request: ManagedMediaGenerateRequest)
       managedEnabled: process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
     });
     throw new IntegrationServiceError(
-      'Der lokale API-Key fehlt und der Managed Fallback über Canvas Control Plane ist nicht verfügbar. Bitte konfiguriere einen eigenen Key unter /settings?tab=integrations oder kontaktiere den Administrator.',
+      'Der lokale API-Key fehlt und der Managed Fallback über Canvas Control Plane ist nicht verfügbar. Bitte konfiguriere einen eigenen Key unter /settings?tab=secrets oder kontaktiere den Administrator.',
       400,
     );
   }

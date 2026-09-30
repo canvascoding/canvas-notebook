@@ -87,7 +87,7 @@ export async function transcribeAudio(request: TranscribeAudioRequest): Promise<
   const apiKey = await getGroqApiKeyFromIntegrations(request.storageScope);
   if (!apiKey) {
     throw new IntegrationServiceError(
-      'Voice transcription is not configured. Configure GROQ_API_KEY in /settings?tab=integrations.',
+      'Voice transcription is not configured. Configure GROQ_API_KEY in /settings?tab=secrets.',
       400,
     );
   }

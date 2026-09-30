@@ -7,7 +7,7 @@ import {
   type SecretDataStorageScope,
 } from '../runtime-data-paths';
 import { withFileMutationLock } from './file-mutation-lock';
-import { formatEnvValue, isEnvKey, parseEnvDocument, updateEnvDocument } from './env-document';
+import { formatEnvValue, isEnvKey, parseEnvDocument, parseLegacyEnvDocument, updateEnvDocument } from './env-document';
 
 export type EnvView = 'integrations' | 'agents';
 export type SecretScope = SecretDataStorageScope | null | undefined;
@@ -75,7 +75,7 @@ function mergeLegacy(sources: Array<{ raw: string; view: EnvView; label: string 
   const values = new Map<string, string>();
   const canonical = new Map<string, string>();
   for (const source of sources) {
-    const tokens = parseEnvDocument(source.raw);
+    const tokens = parseLegacyEnvDocument(source.raw);
     const secret = process.env[source.view === 'agents' ? 'AGENTS_ENV_MASTER_KEY' : 'INTEGRATIONS_ENV_MASTER_KEY']?.trim() || null;
     content += `# Imported ${source.label} settings\n`;
     for (const token of tokens) {
@@ -193,12 +193,16 @@ async function applyUnifiedPatches(patches: EnvPatch[], scope?: SecretScope, bas
   return withUnifiedEnvLock(scope, async () => {
     const state = await currentState(scope); requireReadable(state); checkRevision(state, baseRevision);
     const changes = new Map<string, string | null>();
+    const existing = new Map(state.entries.map(entry => [entry.key, entry.value]));
+    const seen = new Set<string>();
     for (const patch of patches) {
       if (patch.key.startsWith(OWNER_PREFIX) || (!allowCredentials && patch.key.startsWith(CREDENTIAL_PREFIX))) throw new Error('Protected connection credentials and ownership metadata require their storage adapters.');
-      if (!isEnvKey(patch.key) || changes.has(patch.key)) throw new Error(`Invalid or duplicate ENV key: ${patch.key}.`);
-      changes.set(patch.key, patch.value);
-      if (!patch.key.startsWith(PROFILE_PREFIX) && !patch.key.startsWith(CREDENTIAL_PREFIX)) changes.set(`${OWNER_PREFIX}${patch.key}`, null);
+      if (!isEnvKey(patch.key) || seen.has(patch.key)) throw new Error(`Invalid or duplicate ENV key: ${patch.key}.`);
+      seen.add(patch.key);
+      if (patch.value === null ? existing.has(patch.key) : existing.get(patch.key) !== patch.value) changes.set(patch.key, patch.value);
+      if (patch.value === null && !patch.key.startsWith(PROFILE_PREFIX) && !patch.key.startsWith(CREDENTIAL_PREFIX) && existing.has(`${OWNER_PREFIX}${patch.key}`)) changes.set(`${OWNER_PREFIX}${patch.key}`, null);
     }
+    if (state.exists && changes.size === 0) return state;
     await writePhysical(state.path, updateEnvDocument(parseEnvDocument(state.rawContent), changes));
     return currentState(scope);
   });

@@ -89,7 +89,7 @@ export async function generateSound(request: GenerateSoundRequest): Promise<Gene
   const apiKey = await resolveStudioProviderCredential('gemini', request.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
-    throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings?tab=integrations.', 400);
+    throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings?tab=secrets.', 400);
   }
 
   if (useManagedFallback) {

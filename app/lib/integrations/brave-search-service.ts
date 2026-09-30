@@ -45,7 +45,7 @@ export interface WebSearchResponse {
 
 const BRAVE_SEARCH_ENDPOINT = 'https://api.search.brave.com/res/v1/web/search';
 const OLLAMA_WEB_SEARCH_ENDPOINT = 'https://ollama.com/api/web_search';
-const SETTINGS_LINK = '/settings?tab=integrations';
+const SETTINGS_LINK = '/settings?tab=secrets';
 const DEFAULT_COUNT = 5;
 const MAX_COUNT = 20;
 const DEFAULT_COUNTRY = 'US';
