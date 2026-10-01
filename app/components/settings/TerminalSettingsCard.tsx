@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Switch } from '@/components/ui/switch';
 import { useTerminalAvailability } from '@/app/components/terminal/TerminalAvailabilityProvider';
 
-export function AdministrationSettingsPanel() {
+export function TerminalSettingsCard() {
   const t = useTranslations('settings.administration');
   const { terminalEnabled, ready, applyAvailability } = useTerminalAvailability();
   const [saving, setSaving] = useState(false);

@@ -7,7 +7,6 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { UnifiedSecretsEditor } from '@/app/components/settings/UnifiedSecretsEditor';
-import { AdministrationSettingsPanel } from '@/app/components/settings/AdministrationSettingsPanel';
 import { ExperimentalFeaturesSettingsPanel } from '@/app/components/settings/ExperimentalFeaturesSettingsPanel';
 import { DictationSettingsPanel } from '@/app/components/settings/DictationSettingsPanel';
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
@@ -397,6 +396,7 @@ function isSettingsTab(value: string | null): value is SettingsTab {
 }
 
 function normalizeSettingsTab(value: string | null): SettingsTab | null {
+  if (value === 'administration') return 'experimental';
   if (value === 'my-agent-runtime') return 'agent-settings';
   if (isSettingsTab(value)) return value;
   if (value === 'agent' || value === 'agentSettings') return 'agent-settings';
@@ -2168,7 +2168,6 @@ export function IntegrationsSettingsClient({
     && organizationPermission.role === 'owner';
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
-      if (tab.value === 'administration') return isAdmin;
       if (tab.value === 'experimental') return isAdmin;
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'data-migration') return isAdmin;
@@ -2716,7 +2715,6 @@ export function IntegrationsSettingsClient({
             </div>
           </div>
 
-          {isAdmin && renderLazyTabContent('administration', <AdministrationSettingsPanel />)}
           {isAdmin && renderLazyTabContent('experimental', <ExperimentalFeaturesSettingsPanel />)}
           {isAdmin && renderLazyTabContent('dictation', <DictationSettingsPanel />)}
 

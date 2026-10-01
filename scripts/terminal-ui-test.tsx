@@ -65,7 +65,7 @@ async function main() {
   try {
     const { render, fireEvent, act, cleanup } = await import('@testing-library/react');
     const { TerminalAvailabilityProvider, useTerminalAvailability } = await import('../app/components/terminal/TerminalAvailabilityProvider');
-    const { AdministrationSettingsPanel } = await import('../app/components/settings/AdministrationSettingsPanel');
+    const { TerminalSettingsCard } = await import('../app/components/settings/TerminalSettingsCard');
     const { MoreToolsSection } = await import('../app/components/home/MoreToolsSection');
     const { useTerminalStore } = await import('../app/store/terminal-store');
     const { getTutorials } = await import('../app/components/help/help-data');
@@ -83,7 +83,7 @@ async function main() {
       <>
         <TerminalAvailabilityProvider>
           <Probe />
-          <AdministrationSettingsPanel />
+          <TerminalSettingsCard />
           <MoreToolsSection />
         </TerminalAvailabilityProvider>
       </>

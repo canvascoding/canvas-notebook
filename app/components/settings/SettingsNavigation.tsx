@@ -23,7 +23,6 @@ import {
   Plug,
   Puzzle,
   Settings2,
-  ShieldCheck,
   Smartphone,
   UserRound,
   Users,
@@ -51,7 +50,6 @@ import { cn } from '@/lib/utils';
 
 export type SettingsTab =
   | 'general'
-  | 'administration'
   | 'experimental'
   | 'mobile-app'
   | 'memory'
@@ -193,20 +191,6 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     icon: Mail,
   },
   {
-    value: 'administration',
-    labelKey: 'tabs.administration',
-    descriptionKey: 'navigation.descriptions.administration',
-    group: 'system',
-    icon: ShieldCheck,
-  },
-  {
-    value: 'experimental',
-    labelKey: 'tabs.experimental',
-    descriptionKey: 'navigation.descriptions.experimental',
-    group: 'system',
-    icon: FlaskConical,
-  },
-  {
     value: 'user-management',
     labelKey: 'tabs.userManagement',
     descriptionKey: 'navigation.descriptions.userManagement',
@@ -247,6 +231,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.legal',
     group: 'system',
     icon: Scale,
+  },
+  {
+    value: 'experimental',
+    labelKey: 'tabs.experimental',
+    descriptionKey: 'navigation.descriptions.experimental',
+    group: 'system',
+    icon: FlaskConical,
   },
 ];
 
