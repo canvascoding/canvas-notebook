@@ -17,8 +17,8 @@ export async function resetAdminCredentials(docker: DockerManager, config: Canva
   validateAdminCredentials(input);
   const containerId = await docker.containerId(config);
   if (!containerId) throw new Error('Canvas Notebook container is not running.');
-  await docker.dockerOrThrow([
-    'exec', '-i', containerId, 'node', 'scripts/bootstrap-admin.js',
+  await docker.execOrThrow(containerId, [
+    'node', 'scripts/bootstrap-admin.js',
     '--email', input.email, '--name', input.name, '--password-stdin',
   ], { stdin: `${input.password}\n`, stdio: 'pipe', timeoutMs: 30_000 });
 }

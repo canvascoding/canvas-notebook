@@ -1,7 +1,7 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { runOrThrow } from './process';
-import type { CanvasCliConfig, CommandRunner, RuntimeContext, StatusJson } from './types';
+import { DockerEngineClient } from './dockerEngine';
+import type { CanvasCliConfig, CommandRunner, RuntimeContext, StatusJson, RunOptions } from './types';
 import { resolveCliVersion } from './version';
 import type { SystemUpdateActivity } from './systemUpdateContract';
 
@@ -9,26 +9,45 @@ export class DockerManager {
   constructor(
     private readonly runner: CommandRunner,
     private readonly context: RuntimeContext,
+    private readonly engine?: DockerEngineClient,
   ) {}
 
-  async docker(args: string[], options: { env?: NodeJS.ProcessEnv; stdin?: string; stdio?: 'pipe' | 'inherit'; timeoutMs?: number } = {}) {
+  async docker(args: string[], options: RunOptions = {}) {
     return this.runner.run(this.context.dockerBin, args, {
-      cwd: this.context.paths.installDir,
-      env: options.env,
-      stdin: options.stdin,
-      stdio: options.stdio ?? 'pipe',
-      timeoutMs: options.timeoutMs,
+      ...options, cwd: this.context.paths.installDir, stdio: options.stdio ?? 'pipe',
+      timeoutMs: options.timeoutMs ?? (args[0] === 'compose' && args.includes('logs') && args.includes('-f') ? undefined : args[0] === 'pull' ? 15 * 60_000 : 60_000),
     });
   }
 
-  async dockerOrThrow(args: string[], options: { env?: NodeJS.ProcessEnv; stdin?: string; stdio?: 'pipe' | 'inherit'; timeoutMs?: number } = {}) {
-    return runOrThrow(this.runner, this.context.dockerBin, args, {
-      cwd: this.context.paths.installDir,
-      env: options.env,
-      stdin: options.stdin,
-      stdio: options.stdio ?? 'pipe',
-      timeoutMs: options.timeoutMs,
-    });
+  async dockerOrThrow(args: string[], options: RunOptions = {}) {
+    const result = await this.docker(args, options);
+    if (result.status !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Docker exited with ${result.status}`);
+    return result;
+  }
+
+  async exec(containerId: string, command: string[], options: RunOptions & { user?: string } = {}) {
+    if (await this.engine?.available()) return this.engine!.exec(containerId, command, options);
+    const result = await this.docker(['exec', ...(options.stdin !== undefined ? ['-i'] : []), ...(options.user ? ['-u', options.user] : []), containerId, ...command], options);
+    if (result.timedOut || result.signal) throw new Error('Docker CLI exec was interrupted. Remote execution state is unknown; the command was not retried.');
+    return result;
+  }
+
+  async execOrThrow(containerId: string, command: string[], options: RunOptions & { user?: string } = {}) {
+    const result = await this.exec(containerId, command, options);
+    if (result.status !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `Container command exited with ${result.status}`);
+    return result;
+  }
+
+  async resolveContainerId(name: string, timeoutMs = 10_000): Promise<string> {
+    if (await this.engine?.available()) return (await this.engine!.inspectContainer(name, timeoutMs))?.Id || '';
+    const result = await this.docker(['inspect', '--format', '{{.Id}}', name], { timeoutMs, capture: 'exact' });
+    return result.status === 0 ? result.stdout.trim() : '';
+  }
+
+  async containerState(id: string, timeoutMs = 10_000): Promise<string> {
+    if (await this.engine?.available()) return (await this.engine!.inspectContainer(id, timeoutMs))?.State.Status || '';
+    const result = await this.docker(['inspect', '--format', '{{.State.Status}}', id], { timeoutMs, capture: 'exact' });
+    return result.status === 0 ? result.stdout.trim() : '';
   }
 
   composeArgs(config: CanvasCliConfig, args: string[]): string[] {
@@ -43,15 +62,18 @@ export class DockerManager {
   }
 
   async compose(config: CanvasCliConfig, args: string[], stdio: 'pipe' | 'inherit' = 'pipe') {
-    return this.docker(this.composeArgs(config, args), { stdio });
+    return this.docker(this.composeArgs(config, args), { stdio, timeoutMs: 10_000, capture: 'exact' });
   }
 
   async composeOrThrow(config: CanvasCliConfig, args: string[], stdio: 'pipe' | 'inherit' = 'pipe', timeoutMs?: number, env?: NodeJS.ProcessEnv) {
-    return this.dockerOrThrow(this.composeArgs(config, args), { env, stdio, timeoutMs });
+    return this.dockerOrThrow(this.composeArgs(config, args), { env, stdio, timeoutMs: timeoutMs ?? (args.includes('pull') ? 15 * 60_000 : args.includes('logs') && args.includes('-f') ? undefined : 120_000) });
   }
 
   async isReachable(): Promise<boolean> {
-    const result = await this.docker(['info']);
+    if (this.engine) {
+      try { if (await this.engine.available()) return await this.engine.ping(); } catch { return false; }
+    }
+    const result = await this.docker(['info'], { timeoutMs: 10_000 });
     return result.status === 0;
   }
 
@@ -62,12 +84,14 @@ export class DockerManager {
   }
 
   async imageId(imageRef: string): Promise<string> {
+    if (await this.engine?.available()) return (await this.engine!.inspectImage(imageRef))?.Id || '';
     const result = await this.docker(['image', 'inspect', imageRef, '--format', '{{.Id}}']);
     return result.status === 0 ? result.stdout.trim() : '';
   }
 
   async containerImageId(containerId: string): Promise<string> {
     if (!containerId) return '';
+    if (await this.engine?.available()) return (await this.engine!.inspectContainer(containerId))?.Image || '';
     const result = await this.docker(['inspect', '--format', '{{.Image}}', containerId]);
     return result.status === 0 ? result.stdout.trim() : '';
   }
@@ -81,6 +105,7 @@ export class DockerManager {
 
   async isContainerRunning(containerId: string): Promise<boolean> {
     if (!containerId) return false;
+    if (await this.engine?.available()) return (await this.engine!.inspectContainer(containerId))?.State.Running || false;
     const result = await this.docker(['inspect', '--format', '{{.State.Running}}', containerId]);
     return result.status === 0 && result.stdout.trim() === 'true';
   }
@@ -141,6 +166,11 @@ export class DockerManager {
   async inspectContainer(config: CanvasCliConfig): Promise<StatusJson['container']> {
     const id = await this.containerId(config);
     if (!id) return null;
+    if (await this.engine?.available()) {
+      const value = await this.engine!.inspectContainer(id);
+      if (!value) return null;
+      return { id: value.Id, name: value.Name, status: value.State.Status, running: value.State.Running, restarting: value.State.Restarting, oomKilled: value.State.OOMKilled, exitCode: value.State.ExitCode, restartCount: value.RestartCount, image: value.Config.Image, imageId: value.Image, startedAt: value.State.StartedAt };
+    }
     const format = [
       '{"id":"{{.Id}}"',
       ',"name":"{{.Name}}"',
@@ -164,6 +194,15 @@ export class DockerManager {
   }
 
   async imageStatus(config: CanvasCliConfig, containerId: string): Promise<StatusJson['image']> {
+    if (await this.engine?.available()) {
+      const [image, container, app, cliVersion] = await Promise.all([
+        this.engine!.inspectImage(config.image),
+        containerId ? this.engine!.inspectContainer(containerId) : null,
+        containerId ? this.exec(containerId, ['node', '-p', "require('/app/package.json').version"], { timeoutMs: 10_000, capture: 'exact', maxOutputBytes: 64 * 1024 }) : null,
+        resolveCliVersion(),
+      ]);
+      return { configuredRef: config.image, localId: image?.Id || '', localDigest: image?.RepoDigests?.[0] || '', localCreated: image?.Created || '', runningRef: container?.Config.Image || '', runningImageId: container?.Image || '', runningStartedAt: container?.State.StartedAt || '', appVersion: app?.status === 0 ? app.stdout.trim() : '', cliVersion };
+    }
     const [localId, localDigest, localCreated, runningRef, runningId, runningStartedAt, appVersion, cliVersion] = await Promise.all([
       this.docker(['image', 'inspect', config.image, '--format', '{{.Id}}']),
       this.docker(['image', 'inspect', config.image, '--format', '{{range .RepoDigests}}{{println .}}{{end}}']),
