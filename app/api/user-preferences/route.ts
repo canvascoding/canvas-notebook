@@ -70,6 +70,13 @@ export async function PATCH(request: NextRequest) {
 
     const updates: UserPreferences = {};
 
+    if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'developerMode' in payload) {
+      if (typeof payload.developerMode !== 'boolean') {
+        return jsonWithRequestId(requestId, { success: false, error: 'Unsupported developer mode setting.', requestId }, { status: 400 });
+      }
+      updates.developerMode = payload.developerMode;
+    }
+
     if (payload && typeof payload === 'object' && 'locale' in payload) {
       const locale = normalizeUserLocale(payload.locale);
       if (!locale) {

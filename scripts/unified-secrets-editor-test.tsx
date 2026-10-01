@@ -75,6 +75,7 @@ async function main() {
   try {
     const view = render(<UnifiedSecretsEditor language="en" isAdmin developerMode />);
     await waitFor(() => assert.equal(document.querySelectorAll('[data-testid="secret-entry"]').length, 5));
+    assert.equal(document.querySelector('[data-testid="secret-raw-content"]'), null, 'developer mode starts with the raw editor unmounted');
     const keyValue = document.querySelector<HTMLInputElement>('[data-testid="secret-entry-value"]')!;
     assert.equal(keyValue.type, 'password', 'secret values are masked on initial load');
     assert.ok(Array.from(document.querySelectorAll<HTMLInputElement>('[data-testid="secret-entry-value"]')).every(input => input.type === 'password'), 'all values are masked, including innocuously named and generated credential keys');
@@ -117,6 +118,14 @@ async function main() {
     assert.equal(rawRequest.body?.secretScope, 'user');
     assert.equal(rawRequest.body?.baseRevision, 'revision-2');
     assert.equal(rawRequest.body?.rawContent, rawWithFormatting, 'raw edits retain literal quotes and multiline text');
+
+    view.rerender(<UnifiedSecretsEditor language="en" isAdmin developerMode={false} />);
+    assert.equal(document.querySelector('[data-testid="secret-editor-mode"]'), null);
+    assert.equal(document.querySelector('[data-testid="secret-raw-content"]'), null, 'disabling developer mode immediately unmounts raw secrets');
+    await waitFor(() => assert.equal(document.querySelectorAll('[data-testid="secret-entry"]').length, 5));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    view.rerender(<UnifiedSecretsEditor language="en" isAdmin developerMode />);
+    assert.equal(document.querySelector('[data-testid="secret-raw-content"]'), null, 'reenabling developer mode requires explicitly opening the raw editor again');
 
     fireEvent.change(editorMode, { target: { value: 'keys' } });
     const multilineRowAfterRaw = Array.from(document.querySelectorAll<HTMLElement>('[data-testid="secret-entry"]')).find(row => row.querySelector<HTMLInputElement>('[data-testid="secret-entry-key"]')?.value === 'SMTP_TEMPLATE')!;
@@ -162,6 +171,8 @@ async function main() {
     const requestsBeforeNonAdmin = requests.length;
     render(<UnifiedSecretsEditor language="en" isAdmin={false} />);
     await waitFor(() => assert.equal(document.querySelectorAll('[data-testid="secret-entry"]').length, 5));
+    assert.equal(document.querySelector('[data-testid="secret-editor-mode"]'), null, 'raw controls are hidden by default');
+    assert.equal(document.querySelector('[data-testid="secret-raw-content"]'), null);
     const nonAdminScope = document.querySelector<HTMLSelectElement>('[data-testid="secret-scope"]')!;
     assert.deepEqual(Array.from(nonAdminScope.options).map(option => option.value), ['user'], 'non-admins only receive the personal scope option');
     fireEvent.change(nonAdminScope, { target: { value: 'system' } });
@@ -174,6 +185,18 @@ async function main() {
     await act(async () => { fireEvent.click(document.querySelector<HTMLButtonElement>('[data-testid="secret-save"]')!); });
     await waitFor(() => assert.ok(document.querySelector('[role="alert"]')?.textContent?.includes('valid environment variable name')));
     assert.equal(requests.length, requestsBeforeInvalidSave, 'a value without a key is rejected locally and never sent');
+
+    cleanup();
+    for (const language of ['en', 'de'] as const) {
+      globalThis.fetch = async () => Response.json({ success: true, data: { entries: [], rawContent: '', revision: 'locked', readable: false, readinessCode: 'master_key_missing' } });
+      render(<UnifiedSecretsEditor language={language} isAdmin />);
+      await waitFor(() => assert.ok(document.querySelector('[role="alert"]')));
+      assert.match(document.querySelector('[role="alert"]')!.textContent!, language === 'en' ? /deployment configuration/u : /Deployment-Konfiguration/u);
+      assert.equal(document.querySelector('[role="alert"] a')?.getAttribute('href'), '/settings?tab=secrets');
+      assert.equal(document.querySelector('[data-testid="secret-save"]'), null, 'unreadable secrets cannot be edited or overwritten');
+      assert.equal(document.querySelector('[data-testid="secret-raw-content"]'), null);
+      cleanup();
+    }
   } finally {
     cleanup();
     globalThis.fetch = originalFetch;

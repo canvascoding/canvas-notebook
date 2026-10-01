@@ -1,6 +1,6 @@
 # Externe MCP-Verbindungen: OAuth-Reparatur und verständliche Einstellungen
 
-Stand: 1. Oktober 2026. Status: Analyse und Umsetzungsplan; noch keine Produktänderung.
+Stand: 1. Oktober 2026. Status: TODO 1–4 umgesetzt und geprüft; abschließender Build und E2E-Abnahme folgen. Der ursprüngliche Analysebefund bleibt unten als Kontext dokumentiert.
 
 ## Verifizierte Ursache und Umsetzung
 
@@ -197,7 +197,7 @@ realem IPC und authentifiziertem Server-Check erfolgreich; nur die OS-Grenze
 `shell.openExternal` wurde im Test durch einen frischen Chromium-Kontext ersetzt.
 Dieser Kontext hatte keine Canvas-Cookies, und Electron finalisierte automatisch.
 Backend-, Client-, Callback-Boundary- und 19 Electron-Tests sowie TypeScript und
-Lint bestanden. Die vier wiederholbaren OAuth-E2Es werden am Ende erneut ausgeführt.
+Lint bestanden. Die wiederholbaren OAuth-/UI-E2Es werden am Ende erneut ausgeführt.
 
 - Einen gemeinsamen Client-Adapter für OAuth-Starts einführen. Im normalen Browser
   bleibt das während des Klicks vorab geöffnete Fenster möglich. In Electron wird
@@ -237,6 +237,31 @@ sind gezielt geprüft.
 
 ### TODO 4 — Externe MCP-Oberfläche vereinfachen
 
+Umgesetzt und abgenommen: Die Standardansicht zeigt verständlichen Status,
+verfügbare Funktionen und die passende Hauptaktion. Normales Bearbeiten bleibt
+über das Aktionsmenü verfügbar. Neue Verbindungen beginnen als HTTP/OAuth;
+API-Token und vorhandene lokale Zugangsdaten verwenden den zentralen Secrets-Service.
+Die persönliche Boolean-Präferenz beginnt mit `false`, wird strikt validiert
+und gewährt keine Rechte. Rohtext und Diagnosewerte sind ausgeblendet. Entwickler-
+optionen und Raw-Editor starten geschlossen; CodeEditor wird nur nach ausdrücklichem
+Öffnen eingebunden und beim Schließen wieder entfernt.
+
+Formularänderungen erhalten unbekannte JSON-Felder, Connection-Identität, OAuth-
+Erweiterungen und Secret-Referenzen. Validierung erfolgt vor Secret-Schreibzugriffen;
+doppelte Namen überschreiben keine vorhandenen Tokens. Erfolgreiche Speicher-
+reparatur löst alte Fehleranzeigen, während andere Aktionsfehler erhalten bleiben.
+Die Plugin-Einrichtung nutzt ebenfalls gezielte persönliche Secret-PATCHes.
+
+Prüfungen: Sieben serielle Playwright-E2Es bestanden einschließlich OAuth,
+verlustfreiem Bearbeiten, Preference-Reload, zweistufigem Raw-Editor, 390px-Fenster,
+cookiefreiem Desktop-Callback, Ablehnung und spätem Callback. Dialog/Formular,
+Preference/API, tatsächliche Settings- und Plugin-Speicherpfade sowie die gesamte
+Secrets-Suite bestanden. TypeScript und gezieltes Lint ohne Fehler; zwei vorhandene
+SkillsPanel-Navigationswarnungen bleiben. GitNexus meldet MEDIUM für den Settings-
+Prozess, CRITICAL für den bestehenden gemeinsamen Preferences-Speicher; dessen
+Onboarding-, Mobile- und Benachrichtigungsregressionen bestanden.
+
+
 - Standardansicht: Name/Icon, verständlicher Verbindungsstatus und eine passende
   Hauptaktion („Verbinden“, „Erneut anmelden“ oder „Verbindung prüfen“).
   Bearbeiten, Umbenennen, Teilen und Entfernen kommen in ein Aktionsmenü.
@@ -253,8 +278,8 @@ sind gezielt geprüft.
   Dieser Modus ist eine Darstellungspräferenz und gewährt keine zusätzlichen
   Rechte. Raw-Bearbeitung benötigt weiterhin die bestehenden Verwaltungsrechte.
 - Nur im Entwicklermodus erscheint „Entwickleroptionen“. Darin ist „Raw mcp.json“
-  nochmals standardmäßig geschlossen; CodeEditor und Diagnosen werden erst beim
-  Öffnen gerendert. Dateiname/Format/Permissions erscheinen innerhalb dieses
+  nochmals standardmäßig geschlossen; CodeEditor wird erst beim
+  Öffnen gerendert; Diagnosen bleiben standardmäßig geschlossen. Dateiname/Format/Permissions erscheinen innerhalb dieses
   Bereichs. Der physische Speicher wird nicht wegen der UI-Beschriftung umbenannt.
 - Bestehende Secret-Referenzen, Connection-Identitäten und unbekannte JSON-Felder
   beim Formularspeichern erhalten. Secrets bleiben im zentralen Service.
@@ -289,7 +314,7 @@ Entwickleroptionen starten geschlossen und enthalten keine Provider-Tokens.
   `detect_changes()` ausführen. Abschließende Screenshots und Prüfschritte für
   einen späteren PR festhalten.
 
-## Änderungsrisiko und Grenzen dieser Analyse
+## Änderungsrisiko und Grenzen der ursprünglichen Analyse
 
 GitNexus meldet für `readScopedEnvState()` **CRITICAL**: 28 direkte Aufrufer,
 140 erreichbare Symbole bis Tiefe drei und 15 Module, darunter E-Mail, Composio,
@@ -304,6 +329,5 @@ eine kleine Änderung außerhalb der untersuchten Abläufe. GitNexus lieferte f�
 diese Abfragen keine Prozesszuordnung; diese fehlende Zuordnung belegt keinen
 fehlenden Laufzeiteinfluss. Vor der Implementierung den Worktree aktuell indexieren.
 
-Die vorliegende Arbeit prüft den Quellcode und den beigefügten Screenshot.
-Es wurden keine Produktdateien, Deployment-Secrets oder laufenden Verbindungen
-verändert, keine Container gebaut und keine automatisierten UI-Tests ausgeführt.
+Die ursprüngliche Analyse prüfte den Quellcode und den beigefügten Screenshot.
+Während der ursprünglichen Analyse wurden keine Produktdateien, Deployment-Secrets oder laufenden Verbindungen verändert und keine automatisierten UI-Tests ausgeführt. Die spätere Umsetzung und ihre Prüfungen sind bei den jeweiligen TODOs dokumentiert. Produktions-Secrets wurden nicht verändert; Container wurden nicht gebaut.

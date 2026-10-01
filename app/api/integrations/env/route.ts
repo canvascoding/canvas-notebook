@@ -24,6 +24,7 @@ import {
 } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isSystemEmailEnvKey } from '@/app/lib/email/system-email-keys';
+import { isSecretReadinessError } from '@/app/lib/secrets/readiness';
 
 interface KeyValueEntry {
   key: string;
@@ -42,10 +43,11 @@ interface PutPayload {
 
 type SecretScope = 'user' | 'organization' | 'system';
 
-function clientEnvState<T extends { entries: Array<{ key: string; value: string }>; rawContent: string }>(state: T): T {
+function clientEnvState<T extends { entries: Array<{ key: string; value: string; readable?: boolean; failure?: string }>; rawContent: string; readable?: boolean }>(state: T): T & { readinessCode?: string } {
   const tokens = parseEnvDocument(state.rawContent);
   return {
     ...state,
+    ...(state.readable === false ? { readinessCode: state.entries.find(entry => entry.readable === false)?.failure || 'decryption_failed' } : {}),
     entries: state.entries.filter(entry => !isHiddenSecretEnvKey(entry.key)).map(entry => ({
       ...entry,
       value: isSystemEmailEnvKey(entry.key) ? '' : entry.value,
@@ -181,6 +183,7 @@ export async function GET(request: NextRequest) {
         : state,
     });
   } catch (error) {
+    if (isSecretReadinessError(error)) return NextResponse.json({ success: false, code: error.code, error: error.message, settingsUrl: '/settings?tab=secrets' }, { status: error.status });
     console.error('[API] integrations/env GET error:', error);
     const message = error instanceof Error ? error.message : 'Failed to read env file';
     return NextResponse.json({ success: false, error: message }, { status: 500 });
@@ -281,6 +284,7 @@ export async function PUT(request: NextRequest) {
     });
     return NextResponse.json({ success: true, data: clientEnvState(updated) });
   } catch (error) {
+    if (isSecretReadinessError(error)) return NextResponse.json({ success: false, code: error.code, error: error.message, settingsUrl: '/settings?tab=secrets' }, { status: error.status });
     if (error instanceof SecretRevisionConflictError) return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: 409 });
     const message = error instanceof Error ? error.message : 'Failed to update env file';
     if (message === 'SECRET_SETTINGS_RESERVED') return NextResponse.json({ success: false, code: message, error: 'Use the connection or System Email settings for protected credentials.' }, { status: 400 });

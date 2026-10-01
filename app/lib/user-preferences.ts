@@ -95,6 +95,7 @@ function normalizeUserOnboardingState(value: unknown): UserOnboardingState | und
 }
 
 export type UserPreferences = {
+  developerMode?: boolean;
   emailAllowRemoteImages?: boolean;
   emailRemoteImageAllowedSenders?: string[];
   inboxExcludedWorkspaceIds?: string[];
@@ -173,6 +174,7 @@ export function normalizeUserLastActiveAgentId(value: unknown): string | null {
 function normalizePreferences(value: unknown): UserPreferences {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const record = value as {
+    developerMode?: unknown;
     emailAllowRemoteImages?: unknown;
     emailRemoteImageAllowedSenders?: unknown;
     inboxExcludedWorkspaceIds?: unknown;
@@ -188,6 +190,7 @@ function normalizePreferences(value: unknown): UserPreferences {
   const inboxExcludedWorkspaceIds = normalizeUserInboxExcludedWorkspaceIds(record.inboxExcludedWorkspaceIds);
   const onboarding = normalizeUserOnboardingState(record.onboarding);
   return {
+    developerMode: record.developerMode === true,
     ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
     ...(emailRemoteImageAllowedSenders.length > 0 ? { emailRemoteImageAllowedSenders } : {}),
     ...(inboxExcludedWorkspaceIds.length > 0 ? { inboxExcludedWorkspaceIds } : {}),
@@ -238,7 +241,7 @@ async function readPreferencesFile(): Promise<UserPreferencesFile> {
 export async function getUserPreferences(userId: string): Promise<UserPreferences> {
   const normalizedUserId = normalizeUserId(userId);
   const preferences = await readPreferencesFile();
-  return preferences.users[normalizedUserId] ?? {};
+  return { developerMode: false, ...preferences.users[normalizedUserId] };
 }
 
 export async function getUserPreferredLocale(userId: string): Promise<UserLocale> {
@@ -282,8 +285,14 @@ async function updateUserPreferencesUnlocked(
   const normalizedUserId = normalizeUserId(userId);
   const preferencesFile = await readPreferencesFile();
   const nextPreferences: UserPreferences = {
+    developerMode: false,
     ...(preferencesFile.users[normalizedUserId] ?? {}),
   };
+
+  if ('developerMode' in updates) {
+    if (typeof updates.developerMode !== 'boolean') throw new Error('Unsupported developer mode setting.');
+    nextPreferences.developerMode = updates.developerMode;
+  }
 
   if ('locale' in updates) {
     if (updates.locale === undefined) {

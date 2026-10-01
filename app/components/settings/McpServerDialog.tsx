@@ -1,9 +1,12 @@
 'use client';
 
-import { ExternalLink, Loader2, Plus, Save, Trash2 } from 'lucide-react';
+import { ChevronDown, ExternalLink, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
+import { useState, type ReactNode } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,11 +34,14 @@ export type McpServerDraft = {
   envPassthrough: string[];
   cwd: string;
   url: string;
-  auth: 'oauth' | 'none';
+  auth: 'oauth' | 'token' | 'none';
   bearerTokenEnv: string;
   bearerTokenValue: string;
   headers: McpPairDraft[];
   headersFromEnv: McpPairDraft[];
+  oauth?: Record<string, unknown>;
+  originalConfig?: Record<string, unknown>;
+  originalServerName?: string;
 };
 
 export type McpConfigFile = {
@@ -119,16 +125,23 @@ export function toMcpServerDraft(name: string, serverConfig: Record<string, unkn
     envPassthrough: Array.isArray(serverConfig.envPassthrough) ? serverConfig.envPassthrough.filter((value): value is string => typeof value === 'string') : [],
     cwd: typeof serverConfig.cwd === 'string' ? serverConfig.cwd : '',
     url: typeof serverConfig.url === 'string' ? serverConfig.url : '',
-    auth: serverConfig.auth === 'oauth' || (serverConfig.oauth && typeof serverConfig.oauth === 'object' && !Array.isArray(serverConfig.oauth)) ? 'oauth' : 'none',
+    auth: serverConfig.auth === 'oauth' || (serverConfig.oauth && typeof serverConfig.oauth === 'object' && !Array.isArray(serverConfig.oauth))
+      ? 'oauth'
+      : typeof serverConfig.bearerTokenEnv === 'string' && serverConfig.bearerTokenEnv.trim() ? 'token' : 'none',
     bearerTokenEnv: typeof serverConfig.bearerTokenEnv === 'string' ? serverConfig.bearerTokenEnv : '',
     bearerTokenValue: '',
     headers,
     headersFromEnv,
+    oauth: serverConfig.oauth && typeof serverConfig.oauth === 'object' && !Array.isArray(serverConfig.oauth)
+      ? JSON.parse(JSON.stringify(serverConfig.oauth)) as Record<string, unknown>
+      : undefined,
+    originalConfig: JSON.parse(JSON.stringify(serverConfig)) as Record<string, unknown>,
+    originalServerName: name,
   };
 }
 
 export function createBlankMcpServerDraft(): McpServerDraft {
-  return toMcpServerDraft('', { enabled: true, command: '', args: [''], env: {}, envPassthrough: [''], cwd: '' });
+  return toMcpServerDraft('', { enabled: true, url: '', auth: 'oauth' });
 }
 
 function pairsToRecord(pairs: McpPairDraft[], options: { envReference?: boolean } = {}): Record<string, string> | undefined {
@@ -140,7 +153,7 @@ function pairsToRecord(pairs: McpPairDraft[], options: { envReference?: boolean 
         : pair.value;
       return [key, value] as const;
     })
-    .filter(([key, value]) => key.length > 0 && value.length > 0);
+    .filter(([key]) => key.length > 0);
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
@@ -158,27 +171,60 @@ export function collectMcpEnvEntries(draft: McpServerDraft): Array<{ key: string
   return entries;
 }
 
-function draftToMcpServerConfig(draft: McpServerDraft): Record<string, unknown> {
+function draftToMcpServerConfig(draft: McpServerDraft, currentConfig: Record<string, unknown> = {}): Record<string, unknown> {
+  const original = draft.originalConfig;
+  const initial = toMcpServerDraft(draft.originalServerName ?? draft.name, original || {});
+  const config: Record<string, unknown> = { ...original, ...currentConfig };
+  const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+  const write = (key: string, value: unknown, changed: boolean) => {
+    if (original && !changed) return;
+    if (value === undefined) delete config[key];
+    else config[key] = value;
+  };
+  const pairValues = (pairs: McpPairDraft[]) => pairs.map(({ key, value, storeInEnv, envKey }) => ({ key, value, storeInEnv, envKey }));
+  const changedMode = draft.mode !== initial.mode;
+  write('enabled', draft.enabled, draft.enabled !== initial.enabled);
+
+  // A name, URL or authentication edit must not rewrite fields the form did not expose.
+  if (changedMode) {
+    const oldFields = draft.mode === 'http'
+      ? ['command', 'args', 'env', 'envPassthrough', 'cwd']
+      : ['url', 'headers', 'headersFromEnv', 'bearerTokenEnv', 'auth', 'oauth'];
+    for (const field of oldFields) delete config[field];
+  }
   if (draft.mode === 'http') {
     const bearerTokenEnv = draft.bearerTokenEnv.trim() || (draft.bearerTokenValue.trim() ? makeMcpBearerTokenEnvKey(draft) : '');
-    return {
-      enabled: draft.enabled,
-      url: draft.url.trim(),
-      auth: draft.auth,
-      ...(bearerTokenEnv ? { bearerTokenEnv } : {}),
-      ...(pairsToRecord(draft.headers, { envReference: true }) ? { headers: pairsToRecord(draft.headers, { envReference: true }) } : {}),
-      ...(pairsToRecord(draft.headersFromEnv) ? { headersFromEnv: pairsToRecord(draft.headersFromEnv) } : {}),
-    };
+    write('url', draft.url.trim(), changedMode || draft.url !== initial.url || !('url' in config));
+    write('auth', draft.auth === 'oauth' ? 'oauth' : 'none', changedMode || draft.auth !== initial.auth);
+    write('bearerTokenEnv', bearerTokenEnv || undefined, changedMode || draft.bearerTokenEnv !== initial.bearerTokenEnv || Boolean(draft.bearerTokenValue.trim()));
+    write('headers', pairsToRecord(draft.headers, { envReference: true }), changedMode || !same(pairValues(draft.headers), pairValues(initial.headers)));
+    write('headersFromEnv', pairsToRecord(draft.headersFromEnv), changedMode || !same(pairValues(draft.headersFromEnv), pairValues(initial.headersFromEnv)));
+    if (draft.auth !== initial.auth) {
+      if (draft.auth !== 'oauth') delete config.oauth;
+      if (draft.auth !== 'token') delete config.bearerTokenEnv;
+    }
+    if (draft.auth === 'oauth' && !same(draft.oauth, initial.oauth)) {
+      const currentOAuth = config.oauth && typeof config.oauth === 'object' && !Array.isArray(config.oauth)
+        ? config.oauth as Record<string, unknown>
+        : {};
+      const oauth = { ...currentOAuth };
+      for (const key of new Set([...Object.keys(initial.oauth || {}), ...Object.keys(draft.oauth || {})])) {
+        if (same(draft.oauth?.[key], initial.oauth?.[key])) continue;
+        if (draft.oauth?.[key] === undefined) delete oauth[key];
+        else oauth[key] = draft.oauth[key];
+      }
+      write('oauth', Object.keys(oauth).length ? oauth : undefined, true);
+    }
+    return config;
   }
 
-  return {
-    enabled: draft.enabled,
-    command: draft.command.trim(),
-    args: draft.args.map((arg) => arg.trim()).filter(Boolean),
-    ...(pairsToRecord(draft.env, { envReference: true }) ? { env: pairsToRecord(draft.env, { envReference: true }) } : {}),
-    ...(draft.envPassthrough.map((value) => value.trim()).filter(Boolean).length > 0 ? { envPassthrough: draft.envPassthrough.map((value) => value.trim()).filter(Boolean) } : {}),
-    ...(draft.cwd.trim() ? { cwd: draft.cwd.trim() } : {}),
-  };
+  write('command', draft.command.trim(), changedMode || draft.command !== initial.command || !('command' in config));
+  write('args', [...draft.args], changedMode || !same(draft.args, initial.args));
+  write('env', pairsToRecord(draft.env, { envReference: true }), changedMode || !same(pairValues(draft.env), pairValues(initial.env)));
+  const passthrough = draft.envPassthrough.map((value) => value.trim()).filter(Boolean);
+  write('envPassthrough', passthrough.length ? passthrough : undefined, changedMode || !same(draft.envPassthrough, initial.envPassthrough));
+  write('cwd', draft.cwd.trim() || undefined, changedMode || draft.cwd !== initial.cwd);
+  return config;
 }
 
 export function updateMcpConfigRawServer(rawContent: string, draft: McpServerDraft, originalName?: string): string {
@@ -187,10 +233,12 @@ export function updateMcpConfigRawServer(rawContent: string, draft: McpServerDra
   if (!nextName) throw new Error('MCP server name is required.');
   if (draft.mode === 'stdio' && !draft.command.trim()) throw new Error('MCP stdio command is required.');
   if (draft.mode === 'http' && !draft.url.trim()) throw new Error('MCP HTTP URL is required.');
+  if (nextName !== originalName && config.mcpServers[nextName]) throw new Error('An MCP server with this name already exists.');
+  const currentConfig = originalName ? config.mcpServers[originalName] || {} : {};
   if (originalName && originalName !== nextName) {
     delete config.mcpServers[originalName];
   }
-  config.mcpServers[nextName] = draftToMcpServerConfig(draft);
+  config.mcpServers[nextName] = draftToMcpServerConfig(draft, currentConfig);
   return `${JSON.stringify(config, null, 2)}\n`;
 }
 
@@ -229,6 +277,21 @@ export function createMcpServerDraftFromConnector(
   };
 }
 
+function McpDeveloperOptions({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="rounded-md border border-border">
+      <CollapsibleTrigger asChild>
+        <Button type="button" variant="ghost" className="h-auto w-full justify-between px-4 py-3 text-sm">
+          {label}
+          <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-4 border-t p-4">{children}</CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function McpServerDialog(props: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -240,12 +303,15 @@ export function McpServerDialog(props: {
   isSaving: boolean;
   loadingMessage?: string | null;
   error?: string | null;
+  errorCode?: string;
+  developerMode?: boolean;
 }) {
   const t = useTranslations('settings');
   const {
     draft,
     editingServerName,
     error,
+    errorCode,
     isSaving,
     loadingMessage,
     onDelete,
@@ -253,6 +319,7 @@ export function McpServerDialog(props: {
     onOpenChange,
     onSave,
     open,
+    developerMode = false,
   } = props;
 
   const updatePair = (field: 'env' | 'headers' | 'headersFromEnv', index: number, patch: Partial<McpPairDraft>) => {
@@ -267,8 +334,8 @@ export function McpServerDialog(props: {
     } as Partial<McpServerDraft>);
   };
 
-  const bearerTokenEnvKey = makeMcpBearerTokenEnvKey(draft);
   const isLoading = Boolean(loadingMessage);
+  const storageError = ['master_key_missing', 'decryption_failed', 'invalid_secret_format', 'mcp_credential_key_missing'].includes(errorCode || '');
 
   const renderPairRows = (field: 'env' | 'headers' | 'headersFromEnv', keyPlaceholder: string, valuePlaceholder: string) => (
     <div className="space-y-2">
@@ -282,7 +349,6 @@ export function McpServerDialog(props: {
               onChange={(event) => updatePair(field, index, { value: event.target.value })}
               placeholder={entry.storeInEnv ? t('mcpConfig.secretValuePlaceholder') : valuePlaceholder}
               type={entry.storeInEnv ? 'password' : 'text'}
-              disabled={field === 'headersFromEnv'}
             />
             <Button type="button" variant="ghost" size="icon" className="justify-self-end sm:justify-self-auto" onClick={() => removePair(field, index)}>
               <Trash2 className="h-4 w-4" />
@@ -357,129 +423,181 @@ export function McpServerDialog(props: {
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => { if (!isSaving) onOpenChange(nextOpen); }}>
       <DialogContent
-        layout="viewport"
-        className="gap-0 sm:!left-1/2 sm:!right-auto sm:w-[min(960px,calc(100vw-2rem))] sm:!-translate-x-1/2 lg:w-[min(1040px,calc(100vw-4rem))]"
+        className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:w-[min(640px,calc(100vw-2rem))] sm:max-w-[640px]"
       >
         <DialogHeader className="shrink-0 border-b px-4 py-4 pr-12 text-left sm:px-6">
           <DialogTitle>{editingServerName ? t('mcpConfig.editServer') : t('mcpConfig.addServer')}</DialogTitle>
-          <DialogDescription>{t('mcpConfig.serversDescription')}</DialogDescription>
+          <DialogDescription>{t('mcpConfig.dialogDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <div className="mx-auto w-full max-w-4xl space-y-4">
-            {error ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{error}</p> : null}
+            {error || storageError ? (
+              <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                <p>{storageError ? t('mcpConfig.secureStorageUnavailable') : error}</p>
+                {storageError ? (
+                  <>
+                    <p className="mt-1 text-xs">{t('mcpConfig.secureStorageContactAdmin')}</p>
+                    <Link href="/settings?tab=secrets" className="mt-2 inline-flex underline underline-offset-4">{t('mcpConfig.openSecrets')}</Link>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
 
             {isLoading ? renderLoadingSkeleton() : (
               <>
-                <div>
-                  <h3 className="text-lg font-semibold">{t('mcpConfig.customTitle')}</h3>
-                  <a className="mt-2 inline-flex items-center text-sm text-primary" href="https://modelcontextprotocol.io/docs" target="_blank" rel="noreferrer">
-                    {t('mcpConfig.docs')}
-                    <ExternalLink className="ml-1 h-3.5 w-3.5" />
-                  </a>
-                </div>
-
                 <div className="rounded-md border border-border p-4">
                   <Label htmlFor="mcp-server-name">{t('mcpConfig.name')}</Label>
                   <Input id="mcp-server-name" className="mt-2" value={draft.name} onChange={(event) => onDraftChange({ name: event.target.value })} placeholder={t('mcpConfig.namePlaceholder')} />
+                  <label className="mt-4 flex items-center justify-between gap-3 text-sm">
+                    <span>{t('mcpConfig.enabled')}</span>
+                    <Switch checked={draft.enabled} onCheckedChange={(enabled) => onDraftChange({ enabled })} />
+                  </label>
                 </div>
 
-                <Tabs value={draft.mode} onValueChange={(value) => onDraftChange({ mode: value as McpTransportMode })}>
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="stdio">STDIO</TabsTrigger>
-                    <TabsTrigger value="http">Streamable HTTP</TabsTrigger>
-                  </TabsList>
-                </Tabs>
-
                 {draft.mode === 'stdio' ? (
-                  <div className="space-y-4 rounded-md border border-border p-4">
-                    <div>
-                      <Label htmlFor="mcp-command">{t('mcpConfig.command')}</Label>
-                      <Input id="mcp-command" className="mt-2" value={draft.command} onChange={(event) => onDraftChange({ command: event.target.value })} placeholder="npx" />
-                    </div>
-                    <div>
-                      <Label>{t('mcpConfig.arguments')}</Label>
-                      <div className="mt-2 space-y-2">
-                        {draft.args.map((arg, index) => (
-                          <div key={`${index}-${arg}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                            <Input className="min-w-0" value={arg} onChange={(event) => onDraftChange({ args: draft.args.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} />
-                            <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ args: draft.args.filter((_entry, entryIndex) => entryIndex !== index) })}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                        <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ args: [...draft.args, ''] })}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          {t('mcpConfig.addArgument')}
-                        </Button>
+                  <div className="space-y-2 rounded-md border border-border bg-muted/20 p-4">
+                    <p className="text-sm font-medium">{t('mcpConfig.localConnectionSummary')}</p>
+                    <p className="text-sm text-muted-foreground">{t('mcpConfig.localConnectionDeveloperHint')}</p>
+                    {draft.env.map((entry, index) => entry.storeInEnv ? (
+                      <div key={entry.id} className="pt-2">
+                        <Label htmlFor={`mcp-local-credential-${index}`}>{t('mcpConfig.localCredential', { number: index + 1 })}</Label>
+                        <Input id={`mcp-local-credential-${index}`} className="mt-2" type="password" autoComplete="off" value={entry.value} onChange={(event) => updatePair('env', index, { value: event.target.value })} placeholder={t('mcpConfig.secretValuePlaceholder')} />
                       </div>
-                    </div>
-                    <div>
-                      <Label>{t('mcpConfig.envVars')}</Label>
-                      <div className="mt-2">{renderPairRows('env', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
-                    </div>
-                    <div>
-                      <Label>{t('mcpConfig.envPassthrough')}</Label>
-                      <div className="mt-2 space-y-2">
-                        {draft.envPassthrough.map((value, index) => (
-                          <div key={`${index}-${value}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                            <Input className="min-w-0" value={value} onChange={(event) => onDraftChange({ envPassthrough: draft.envPassthrough.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} placeholder="OPENAI_API_KEY" />
-                            <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ envPassthrough: draft.envPassthrough.filter((_entry, entryIndex) => entryIndex !== index) })}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
-                        <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ envPassthrough: [...draft.envPassthrough, ''] })}>
-                          <Plus className="mr-2 h-4 w-4" />
-                          {t('mcpConfig.addVariable')}
-                        </Button>
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="mcp-cwd">{t('mcpConfig.cwd')}</Label>
-                      <Input id="mcp-cwd" className="mt-2" value={draft.cwd} onChange={(event) => onDraftChange({ cwd: event.target.value })} placeholder="/data/workspace" />
-                    </div>
+                    ) : null)}
+                    {draft.env.some((entry) => entry.storeInEnv) ? <p className="text-xs text-muted-foreground">{t('mcpConfig.tokenStoredSecurely')}</p> : null}
                   </div>
                 ) : (
-                  <div className="space-y-4 rounded-md border border-border p-4">
+                  <div className="space-y-5 rounded-md border border-border p-4">
                     <div>
-                      <Label htmlFor="mcp-url">URL</Label>
-                      <Input id="mcp-url" className="mt-2" value={draft.url} onChange={(event) => onDraftChange({ url: event.target.value })} placeholder="https://mcp.example.com/mcp" />
+                      <Label htmlFor="mcp-url">{t('mcpConfig.serverAddress')}</Label>
+                      <Input id="mcp-url" className="mt-2" value={draft.url} onChange={(event) => onDraftChange({ url: event.target.value })} placeholder="https://mcp.example.com/mcp" type="url" />
                     </div>
                     <div>
-                      <Label>{t('mcpConfig.oauthMode')}</Label>
-                      <Tabs value={draft.auth} onValueChange={(value) => onDraftChange({ auth: value as McpServerDraft['auth'] })} className="mt-2">
-                        <TabsList className="grid w-full grid-cols-2">
-                          <TabsTrigger value="none">{t('mcpConfig.oauthNone')}</TabsTrigger>
-                          <TabsTrigger value="oauth">{t('mcpConfig.oauthEnabled')}</TabsTrigger>
+                      <Label>{t('mcpConfig.authentication')}</Label>
+                      <Tabs value={draft.auth} onValueChange={(value) => onDraftChange({ auth: value as McpServerDraft['auth'], bearerTokenValue: '' })} className="mt-2">
+                        <TabsList className="grid h-auto w-full grid-cols-3">
+                          <TabsTrigger value="oauth" className="whitespace-normal">{t('mcpConfig.authOAuth')}</TabsTrigger>
+                          <TabsTrigger value="token" className="whitespace-normal">{t('mcpConfig.authToken')}</TabsTrigger>
+                          <TabsTrigger value="none" className="whitespace-normal">{t('mcpConfig.authNone')}</TabsTrigger>
                         </TabsList>
                       </Tabs>
                     </div>
-                    <div>
-                      <Label htmlFor="mcp-bearer">{t('mcpConfig.bearerEnv')}</Label>
-                      <Input
-                        id="mcp-bearer"
-                        className="mt-2"
-                        value={draft.bearerTokenValue}
-                        onChange={(event) => onDraftChange({ bearerTokenValue: event.target.value })}
-                        placeholder={draft.bearerTokenEnv ? t('mcpConfig.bearerTokenPlaceholderExisting') : t('mcpConfig.bearerTokenPlaceholder')}
-                        type="password"
-                        autoComplete="off"
-                      />
-                      <p className="mt-2 break-all text-xs text-muted-foreground">
-                        {t('mcpConfig.bearerEnvStoredAs', { key: bearerTokenEnvKey })}
-                      </p>
-                    </div>
-                    <div>
-                      <Label>{t('mcpConfig.headers')}</Label>
-                      <div className="mt-2">{renderPairRows('headers', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
-                    </div>
-                    <div>
-                      <Label>{t('mcpConfig.headersFromEnv')}</Label>
-                      <div className="mt-2">{renderPairRows('headersFromEnv', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
-                    </div>
+                    {draft.auth === 'token' ? (
+                      <div>
+                        <Label htmlFor="mcp-bearer">{t('mcpConfig.authToken')}</Label>
+                        <Input id="mcp-bearer" className="mt-2" value={draft.bearerTokenValue} onChange={(event) => onDraftChange({ bearerTokenValue: event.target.value })} placeholder={draft.bearerTokenEnv ? t('mcpConfig.bearerTokenPlaceholderExisting') : t('mcpConfig.bearerTokenPlaceholder')} type="password" autoComplete="off" />
+                        <p className="mt-2 text-xs text-muted-foreground">{t('mcpConfig.tokenStoredSecurely')}</p>
+                      </div>
+                    ) : null}
                   </div>
                 )}
+
+                {developerMode && open ? (
+                  <McpDeveloperOptions key={editingServerName || 'new'} label={t('mcpConfig.developerOptions')}>
+                    <Tabs value={draft.mode} onValueChange={(value) => onDraftChange({ mode: value as McpTransportMode })}>
+                      <TabsList className="grid w-full grid-cols-2">
+                        <TabsTrigger value="stdio">{t('mcpConfig.localConnection')}</TabsTrigger>
+                        <TabsTrigger value="http">{t('mcpConfig.remoteConnection')}</TabsTrigger>
+                      </TabsList>
+                    </Tabs>
+
+                    {draft.mode === 'stdio' ? (
+                      <div className="space-y-4 rounded-md border border-border p-4">
+                        <div>
+                          <Label htmlFor="mcp-command">{t('mcpConfig.command')}</Label>
+                          <Input id="mcp-command" className="mt-2" value={draft.command} onChange={(event) => onDraftChange({ command: event.target.value })} placeholder="npx" />
+                        </div>
+                        <div>
+                          <Label>{t('mcpConfig.arguments')}</Label>
+                          <div className="mt-2 space-y-2">
+                            {draft.args.map((arg, index) => (
+                              <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                                <Input className="min-w-0" value={arg} onChange={(event) => onDraftChange({ args: draft.args.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} />
+                                <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ args: draft.args.filter((_entry, entryIndex) => entryIndex !== index) })}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                            <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ args: [...draft.args, ''] })}>
+                              <Plus className="mr-2 h-4 w-4" />
+                              {t('mcpConfig.addArgument')}
+                            </Button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label>{t('mcpConfig.envVars')}</Label>
+                          <div className="mt-2">{renderPairRows('env', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                        </div>
+                        <div>
+                          <Label>{t('mcpConfig.envPassthrough')}</Label>
+                          <div className="mt-2 space-y-2">
+                            {draft.envPassthrough.map((value, index) => (
+                              <div key={index} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                                <Input className="min-w-0" value={value} onChange={(event) => onDraftChange({ envPassthrough: draft.envPassthrough.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry) })} placeholder="OPENAI_API_KEY" />
+                                <Button type="button" variant="ghost" size="icon" onClick={() => onDraftChange({ envPassthrough: draft.envPassthrough.filter((_entry, entryIndex) => entryIndex !== index) })}>
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                            <Button type="button" variant="secondary" className="w-full" onClick={() => onDraftChange({ envPassthrough: [...draft.envPassthrough, ''] })}>
+                              <Plus className="mr-2 h-4 w-4" />
+                              {t('mcpConfig.addVariable')}
+                            </Button>
+                          </div>
+                        </div>
+                        <div>
+                          <Label htmlFor="mcp-cwd">{t('mcpConfig.cwd')}</Label>
+                          <Input id="mcp-cwd" className="mt-2" value={draft.cwd} onChange={(event) => onDraftChange({ cwd: event.target.value })} placeholder="/data/workspace" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-4 rounded-md border border-border p-4">
+                        <div>
+                          <Label>{t('mcpConfig.headers')}</Label>
+                          <div className="mt-2">{renderPairRows('headers', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                        </div>
+                        <div>
+                          <Label>{t('mcpConfig.headersFromEnv')}</Label>
+                          <div className="mt-2">{renderPairRows('headersFromEnv', t('mcpConfig.keyPlaceholder'), t('mcpConfig.valuePlaceholder'))}</div>
+                        </div>
+                        {draft.auth === 'token' ? (
+                          <div>
+                            <Label htmlFor="mcp-bearer-env">{t('mcpConfig.bearerEnv')}</Label>
+                            <Input id="mcp-bearer-env" className="mt-2" value={draft.bearerTokenEnv || makeMcpBearerTokenEnvKey(draft)} onChange={(event) => onDraftChange({ bearerTokenEnv: event.target.value })} />
+                          </div>
+                        ) : null}
+                        {draft.auth === 'oauth' ? (
+                          <div className="space-y-3 border-t pt-4">
+                            <p className="text-sm font-medium">{t('mcpConfig.oauthAdvanced')}</p>
+                            {([
+                              ['issuer', 'oauthIssuer'],
+                              ['authorizationUrl', 'oauthAuthorizationUrl'],
+                              ['tokenUrl', 'oauthTokenUrl'],
+                              ['registrationUrl', 'oauthRegistrationUrl'],
+                              ['clientId', 'oauthClientId'],
+                              ['redirectUri', 'oauthRedirectUri'],
+                            ] as const).map(([field, label]) => (
+                              <div key={field}>
+                                <Label htmlFor={`mcp-oauth-${field}`}>{t(`mcpConfig.${label}`)}</Label>
+                                <Input id={`mcp-oauth-${field}`} className="mt-2" value={typeof draft.oauth?.[field] === 'string' ? draft.oauth[field] as string : ''} onChange={(event) => {
+                                  const oauth = { ...draft.oauth };
+                                  if (event.target.value) oauth[field] = event.target.value;
+                                  else delete oauth[field];
+                                  onDraftChange({ oauth: Object.keys(oauth).length ? oauth : undefined });
+                                }} />
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                    <a className="inline-flex items-center text-sm text-primary" href="https://modelcontextprotocol.io/docs" target="_blank" rel="noreferrer">
+                      {t('mcpConfig.docs')}
+                      <ExternalLink className="ml-1 h-3.5 w-3.5" />
+                    </a>
+                  </McpDeveloperOptions>
+                ) : null}
               </>
             )}
           </div>

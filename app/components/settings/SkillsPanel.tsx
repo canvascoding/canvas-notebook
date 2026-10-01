@@ -46,6 +46,7 @@ import {
   type McpServerDraft,
 } from '@/app/components/settings/McpServerDialog';
 import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
+import { McpAuthorizationError } from '@/app/lib/desktop/mcp-oauth-client';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -438,6 +439,7 @@ type PluginMcpSetupState = {
   isLoading: boolean;
   isSaving: boolean;
   error: string | null;
+  errorCode?: string;
 };
 
 const EMPTY_COMPOSIO_CONNECTOR_STATE: ComposioConnectorState = {
@@ -1066,58 +1068,49 @@ function CanvasPluginsSection({
       ...current,
       isSaving: true,
       error: null,
+      errorCode: undefined,
     }));
 
     try {
-      const envEntries = collectMcpEnvEntries(mcpSetupState.draft);
-      if (envEntries.length > 0) {
-        const envResponse = await fetch('/api/integrations/env?scope=integrations', {
-          credentials: 'include',
-          cache: 'no-store',
-        });
-        const envPayload = await envResponse.json();
-        if (!envResponse.ok || !envPayload.success) {
-          throw new Error(envPayload.error || t('connectors.mcpSaveError'));
-        }
-
-        const currentEntries = Array.isArray(envPayload.data?.entries)
-          ? envPayload.data.entries.map((entry: { key: string; value: string }) => ({ key: entry.key, value: entry.value }))
-          : [];
-        const nextEntriesByKey = new Map(currentEntries.map((entry: { key: string; value: string }) => [entry.key, entry]));
-        for (const entry of envEntries) {
-          nextEntriesByKey.set(entry.key, entry);
-        }
-
-        const saveEnvResponse = await fetch('/api/integrations/env', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify({
-            scope: 'integrations',
-            mode: 'kv',
-            entries: Array.from(nextEntriesByKey.values()),
-          }),
-        });
-        const saveEnvPayload = await saveEnvResponse.json();
-        if (!saveEnvResponse.ok || !saveEnvPayload.success) {
-          throw new Error(saveEnvPayload.error || t('connectors.mcpSaveError'));
-        }
-      }
-
       const rawContent = updateMcpConfigRawServer(
         mcpSetupState.rawContent || '{}',
         mcpSetupState.draft,
         mcpSetupState.originalName,
       );
+      const envEntries = collectMcpEnvEntries(mcpSetupState.draft);
+      if (envEntries.length > 0) {
+        const saveEnvResponse = await fetch('/api/integrations/env', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            scope: 'integrations',
+            secretScope: 'user',
+            patches: envEntries,
+          }),
+        });
+        const saveEnvPayload = await saveEnvResponse.json().catch(() => null);
+        if (!saveEnvResponse.ok || !saveEnvPayload?.success) {
+          throw new McpAuthorizationError(
+            typeof saveEnvPayload?.code === 'string' ? saveEnvPayload.code : 'request_failed',
+            typeof saveEnvPayload?.error === 'string' ? saveEnvPayload.error : t('connectors.mcpSaveError'),
+          );
+        }
+        window.dispatchEvent(new CustomEvent('canvas_secrets_updated', { detail: { secretScope: 'user' } }));
+      }
+
       const saveMcpResponse = await fetch('/api/integrations/mcp-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ rawContent }),
       });
-      const saveMcpPayload = await saveMcpResponse.json();
-      if (!saveMcpResponse.ok || !saveMcpPayload.success) {
-        throw new Error(saveMcpPayload.error || t('connectors.mcpSaveError'));
+      const saveMcpPayload = await saveMcpResponse.json().catch(() => null);
+      if (!saveMcpResponse.ok || !saveMcpPayload?.success) {
+        throw new McpAuthorizationError(
+          typeof saveMcpPayload?.code === 'string' ? saveMcpPayload.code : 'request_failed',
+          typeof saveMcpPayload?.error === 'string' ? saveMcpPayload.error : t('connectors.mcpSaveError'),
+        );
       }
 
       const storePlugin = storeByName.get(mcpSetupState.pluginName);
@@ -1130,6 +1123,7 @@ function CanvasPluginsSection({
         ...current,
         isSaving: false,
         error: saveError instanceof Error ? saveError.message : t('connectors.mcpSaveError'),
+        errorCode: saveError instanceof McpAuthorizationError ? saveError.code : undefined,
       }));
     }
   }
@@ -2290,6 +2284,7 @@ function CanvasPluginsSection({
         isSaving={mcpSetupState.isSaving || mcpSetupState.isLoading}
         loadingMessage={mcpSetupState.isLoading ? t('connectors.mcpLoadingTemplate') : null}
         error={mcpSetupState.error}
+        errorCode={mcpSetupState.errorCode}
       />
     </section>
   );

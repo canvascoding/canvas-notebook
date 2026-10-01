@@ -106,6 +106,7 @@ async function main() {
   try {
     const route = await import('../app/api/integrations/env/route');
     const store = await import('../app/lib/secrets/unified-env-store');
+    const preferences = await import('../app/lib/user-preferences');
     const userA = { secretScope: 'user' as const, userId: 'member-a' };
     const userB = { secretScope: 'user' as const, userId: 'member-b' };
     const systemScope = { secretScope: 'system' as const };
@@ -132,9 +133,10 @@ async function main() {
     await store.patchUnifiedEnvEntries([{ key: 'ORG_SCOPE_VALUE', value: 'org-b-fixture' }], orgBScope);
     const orgBRead = await route.GET(request('http://canvas.test/api/integrations/env?secretScope=organization&scope=all&organizationId=org-a', 'admin-b'));
     assert.equal(entryValue((await responseBody(orgBRead)).data, 'ORG_SCOPE_VALUE'), 'org-b-fixture', 'organization ID comes from server membership, not the request');
+    await preferences.updateUserPreferences('member-a', { developerMode: true });
     const memberSystem = await route.GET(request('http://canvas.test/api/integrations/env?secretScope=system', 'member-a'));
     const memberOrg = await route.GET(request('http://canvas.test/api/integrations/env?secretScope=organization', 'member-a'));
-    assert.equal(memberSystem.status, 403, 'non-admin cannot read system scope');
+    assert.equal(memberSystem.status, 403, 'developer mode does not grant system access to a non-admin');
     assert.equal(memberOrg.status, 403, 'non-admin cannot read organization scope');
 
     await store.replaceEnvView('integrations', [{ key: 'OWNER_FIXTURE', value: 'owned-integration-fixture' }], userA);
@@ -329,6 +331,20 @@ async function main() {
     assert.ok(closedScopes.some(call => JSON.stringify(call.scope).includes('admin-a')), 'personal invalidation uses the authenticated user scope');
     assert.ok(closedScopes.some(call => call.scope === null), 'system invalidation uses the canonical system scope');
     assert.ok(closedScopes.every(call => !JSON.stringify(call.scope).includes('organization')), 'organization writes skip MCP invalidation because the MCP environment reader has no organization scope');
+
+    const provenance = await store.readUnifiedEnvState(userA);
+    const protectedBytes = await fs.readFile(provenance.path);
+    delete process.env.CANVAS_SECRETS_MASTER_KEY;
+    const unreadable = await (await route.GET(request('http://canvas.test/api/integrations/env?scope=all', 'member-a'))).json();
+    assert.equal(unreadable.data.readable, false);
+    assert.equal(unreadable.data.readinessCode, 'master_key_missing', 'safe diagnostics remain available after protected entries are filtered');
+    assert.equal('masterKeySource' in unreadable.data, false);
+    const blockedWrite = await route.PATCH(request('http://canvas.test/api/integrations/env', 'member-a', json('PATCH', { scope: 'all', patches: [{ key: 'MUST_NOT_REPLACE', value: 'fixture' }] })));
+    assert.equal(blockedWrite.status, 503);
+    const blockedBody = await blockedWrite.json();
+    assert.equal(blockedBody.code, 'master_key_missing');
+    assert.equal(blockedBody.settingsUrl, '/settings?tab=secrets');
+    assert.deepEqual(await fs.readFile(provenance.path), protectedBytes, 'readiness diagnostics never overwrite unreadable data');
     console.log('unified-secrets-api-test: ok');
   } finally {
     internals._load = originalLoad;

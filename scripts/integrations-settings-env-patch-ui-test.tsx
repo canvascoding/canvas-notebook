@@ -10,7 +10,7 @@ import { getSecretCategories } from '../app/lib/secrets/env-registry';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://notebook.example.test/settings', pretendToBeVisual: true });
 globalThis.requestAnimationFrame = dom.window.requestAnimationFrame.bind(dom.window);
 globalThis.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
-for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'HTMLFormElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'MutationObserver', 'Event', 'CustomEvent', 'getComputedStyle'] as const) Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
+for (const key of ['self', 'window', 'document', 'navigator', 'HTMLElement', 'HTMLFormElement', 'HTMLInputElement', 'HTMLButtonElement', 'Element', 'Node', 'MutationObserver', 'Event', 'CustomEvent', 'getComputedStyle'] as const) Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true, writable: true });
 const internals = Module as unknown as { _load: (name: string, ...args: unknown[]) => unknown };
 const originalLoad = internals._load;
@@ -25,6 +25,7 @@ internals._load = function (name, ...args) {
     fixtureMcpHelpers ??= originalLoad.call(this, name, ...args) as Record<string, unknown>;
     return { ...fixtureMcpHelpers, McpServerDialog: (props: { open: boolean; draft: Record<string, unknown>; onDraftChange: (draft: Record<string, unknown>) => void; onSave: () => void }) => props.open ? <div>
       <button onClick={() => props.onDraftChange({ ...props.draft, name: 'fixture', mode: 'stdio', command: 'node', env: [{ id: 'fixture-key', key: 'TOKEN', value: 'mcp-fixture-new', storeInEnv: true, envKey: 'MCP_FIXTURE_TOKEN' }] })}>Fill fixture MCP</button>
+      <button onClick={() => props.onDraftChange({ ...props.draft, name: 'fixture', mode: 'stdio', command: 'node', env: [{ id: 'fixture-key', key: 'TOKEN', value: 'mcp-fixture-rejected-overwrite', storeInEnv: true, envKey: 'MCP_FIXTURE_TOKEN' }] })}>Fill duplicate MCP</button>
       <button onClick={props.onSave}>Save fixture MCP</button>
     </div> : null };
   }
@@ -41,6 +42,12 @@ async function main() {
   const writes: Array<{ scope: string; secretScope: string; patches: Patch[] }> = [];
   const values = new Map<string, string>([['BRAVE_API_KEY', 'fixture-old'], ['OLLAMA_API_KEY', 'keep-ollama'], ['OTHER_KEY', 'keep-other'], ['CANVAS_PROFILE_AGENTS__OPENAI_API_KEY', 'keep-profile'], ['GOOGLE_OAUTH_CLIENT_ID', 'google-old'], ['GOOGLE_OAUTH_CLIENT_SECRET', 'google-secret-old']]);
   let configRaw = '{"mcpServers":{}}';
+  let configWrites = 0;
+  let recoveryFixture = false;
+  let recoveryReadiness = 'ready';
+  let recoveryAuthorized = false;
+  const originalOpen = window.open;
+  window.open = () => ({ closed: false, close: () => undefined, opener: null }) as Window;
   let events = 0;
   const onUpdate = (event: Event) => { assert.equal((event as CustomEvent).detail.secretScope, 'user'); events++; };
   window.addEventListener('canvas_secrets_updated', onUpdate);
@@ -64,8 +71,23 @@ async function main() {
     if (url === '/api/user-preferences') return Response.json({ success: true, data: {} });
     if (url === '/api/email/oauth/status') return Response.json({ success: true, data: { mode: 'local', providers: { google: { configured: true } } } });
     if (url === '/api/email/oauth/google/start') return Response.json({ success: false, error: 'Fixture stops before external OAuth navigation.' }, { status: 400 });
-    if (url === '/api/integrations/mcp-config') { if (init?.method === 'PUT') configRaw = JSON.parse(String(init.body)).rawContent; return Response.json({ success: true, data: { path: 'fixture-config', exists: true, rawContent: configRaw } }); }
-    if (url === '/api/integrations/mcp-status') return Response.json({ success: true, data: { servers: [], directTools: [], warnings: [], oauth: [], canManageDefinitions: true } });
+    if (url === '/api/integrations/mcp-config') { if (init?.method === 'PUT') { configWrites++; configRaw = JSON.parse(String(init.body)).rawContent; } return Response.json({ success: true, data: { path: 'fixture-config', exists: true, rawContent: configRaw } }); }
+    if (url === '/api/integrations/mcp-status') {
+      if (recoveryFixture && init?.method === 'POST') {
+        const action = JSON.parse(String(init.body)).action;
+        if (action === 'authorize') {
+          recoveryReadiness = 'master_key_missing';
+          return Response.json({ success: false, code: 'master_key_missing', error: 'Fixture storage unavailable.' }, { status: 503 });
+        }
+        return Response.json({ success: false, code: 'fixture_action_failed', error: 'Fixture unrelated action failure.' }, { status: 400 });
+      }
+      return Response.json({ success: true, data: {
+        servers: recoveryFixture ? [{ name: 'recovery', enabled: true, accessAllowed: true, connected: false, cachedToolCount: 0 }] : [],
+        directTools: [], warnings: [], canManageDefinitions: true,
+        oauth: recoveryFixture ? [{ serverName: 'recovery', configured: true, requiresAuth: true, authorized: recoveryAuthorized }] : [],
+        encryptionReadiness: { status: recoveryReadiness, canInitialize: false },
+      } });
+    }
     throw new Error(`Unexpected fixture request ${url}`);
   };
   const settle = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 60)); }); };
@@ -97,7 +119,39 @@ async function main() {
     fireEvent.click(parent.getByRole('button', { name: 'Fill fixture MCP' })); await settle();
     fireEvent.click(parent.getByRole('button', { name: 'Save fixture MCP' })); await settle();
     assert.deepEqual(writes.at(-1)?.patches, [{ key: 'MCP_FIXTURE_TOKEN', value: 'mcp-fixture-new' }]);
-    assert.equal(JSON.parse(configRaw).mcpServers.fixture.env.TOKEN, '${MCP_FIXTURE_TOKEN}'); cleanup();
+    assert.equal(JSON.parse(configRaw).mcpServers.fixture.env.TOKEN, '${MCP_FIXTURE_TOKEN}');
+    const writesBeforeDuplicate = writes.length;
+    const configWritesBeforeDuplicate = configWrites;
+    fireEvent.click(parent.getByRole('button', { name: en.settings.mcpConfig.addServer })); await settle();
+    fireEvent.click(parent.getByRole('button', { name: 'Fill duplicate MCP' })); await settle();
+    fireEvent.click(parent.getByRole('button', { name: 'Save fixture MCP' })); await settle();
+    assert.ok(parent.getAllByText(/An MCP server with this name already exists/u).length > 0);
+    assert.equal(writes.length, writesBeforeDuplicate, 'rejected duplicate config causes zero ENV PATCH requests');
+    assert.equal(configWrites, configWritesBeforeDuplicate, 'rejected duplicate config is never written');
+    assert.equal(values.get('MCP_FIXTURE_TOKEN'), 'mcp-fixture-new', 'rejected duplicate preserves the original connection secret');
+    cleanup();
+
+    recoveryFixture = true;
+    recoveryReadiness = 'ready';
+    configRaw = JSON.stringify({ mcpServers: { recovery: { url: 'https://service.example.test/mcp', auth: 'oauth', enabled: true } } });
+    const recovery = render(wrap(<IntegrationsSettingsClient isAdmin initialUserProfile={profile} />)); await settle();
+    const connect = recovery.getByRole('button', { name: en.settings.mcpConfig.authorize }) as HTMLButtonElement;
+    assert.equal(connect.disabled, false);
+    fireEvent.click(connect); await settle();
+    assert.equal(connect.disabled, true, 'a typed storage failure disables account connection');
+    assert.ok(recovery.getByText(en.settings.mcpConfig.secureStorageUnavailable));
+    recoveryReadiness = 'ready';
+    fireEvent.click(recovery.getByRole('button', { name: en.settings.mcpConfig.refreshStatus })); await settle();
+    assert.equal(recovery.queryByText(en.settings.mcpConfig.secureStorageUnavailable), null, 'ready status removes the stale storage diagnostic');
+    assert.equal(connect.disabled, false, 'ready status reenables account connection without remounting settings');
+    recoveryAuthorized = true;
+    fireEvent.click(recovery.getByRole('button', { name: en.settings.mcpConfig.refreshStatus })); await settle();
+    fireEvent.click(recovery.getByRole('button', { name: en.settings.mcpConfig.testConnection })); await settle();
+    assert.ok(recovery.getByText('Fixture unrelated action failure.'));
+    fireEvent.click(recovery.getByRole('button', { name: en.settings.mcpConfig.refreshStatus })); await settle();
+    assert.ok(recovery.getByText('Fixture unrelated action failure.'), 'ready storage does not erase an unrelated action failure');
+    cleanup();
+    recoveryFixture = false;
     for (const locale of ['en', 'de'] as const) {
       query = new URLSearchParams('tab=secrets');
       const screen = render(wrap(<IntegrationsSettingsClient isAdmin={false} initialUserProfile={profile} />, locale)); await settle();
@@ -111,7 +165,7 @@ async function main() {
     assert.deepEqual(getSecretCategories('CANVAS_PROFILE_AGENTS__BRAVE_API_KEY'), ['agent-runtime', 'integrations']);
     assert.deepEqual(getSecretCategories('CANVAS_PROFILE_AGENTS__CUSTOM_UNKNOWN_KEY'), ['agent-runtime', 'integrations']);
     assert.deepEqual(getSecretCategories('CANVAS_PROFILE_SOURCE_AGENTS__OPENAI_API_KEY'), ['other']);
-    console.log('Settings ENV patches: Search save/delete, Email settings/dialog/setup, MCP collector, one editor, categories, unrelated preservation and failure signals passed.');
-  } finally { cleanup(); globalThis.fetch = oldFetch; internals._load = originalLoad; window.removeEventListener('canvas_secrets_updated', onUpdate); }
+    console.log('Settings ENV patches: Search/Email/MCP patches, duplicate validation before writes, storage recovery refresh, unrelated action errors, one editor, categories and preservation passed.');
+  } finally { cleanup(); globalThis.fetch = oldFetch; window.open = originalOpen; internals._load = originalLoad; window.removeEventListener('canvas_secrets_updated', onUpdate); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

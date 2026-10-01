@@ -6,20 +6,21 @@ import { usePathname } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
 import { useTranslations } from 'next-intl';
-import { Clock3, KeyRound, Languages, Laptop, Mail, Moon, Sun, User } from 'lucide-react';
+import { Clock3, Code2, KeyRound, Languages, Laptop, Mail, Moon, Sun, User } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { useTheme, type Theme } from '@/app/components/ThemeProvider';
 import { ProfileAppearanceSettingsCard } from './ProfileAppearanceSettingsCard';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
 
-async function saveUserPreferences(payload: { locale?: string }): Promise<void> {
+async function saveUserPreferences(payload: { locale?: string; developerMode?: boolean }): Promise<void> {
   const response = await fetch('/api/user-preferences', {
     method: 'PATCH',
     credentials: 'include',
@@ -133,16 +134,21 @@ export function GeneralSettingsPanel({
   initialUserProfile,
   isAdmin = false,
   initialTimeZone,
+  developerMode = false,
+  onDeveloperModeChanged,
 }: {
   userName?: string;
   userEmail?: string;
   initialUserProfile: ResolvedUserProfile;
   isAdmin?: boolean;
   initialTimeZone?: string;
+  developerMode?: boolean;
+  onDeveloperModeChanged?: (enabled: boolean) => void;
 }) {
   const t = useTranslations('settings');
   const [isPending, startTransition] = useTransition();
   const [isSavingLocale, setIsSavingLocale] = useState(false);
+  const [isSavingDeveloperMode, setIsSavingDeveloperMode] = useState(false);
   const pathname = usePathname();
   const params = useParams();
   const currentLocale = (params.locale as string) || routing.defaultLocale;
@@ -169,6 +175,22 @@ export function GeneralSettingsPanel({
       console.warn('[Settings] Failed to save preferred locale:', error);
       toast.error(t('general.languageSaveFailed'));
       setIsSavingLocale(false);
+    }
+  }
+
+  async function handleDeveloperModeChange(enabled: boolean) {
+    if (isSavingDeveloperMode || enabled === developerMode) return;
+    setIsSavingDeveloperMode(true);
+    try {
+      await saveUserPreferences({ developerMode: enabled });
+      onDeveloperModeChanged?.(enabled);
+      window.dispatchEvent(new CustomEvent('canvas-developer-mode-changed', { detail: enabled }));
+      toast.success(t('general.developerMode.saved'));
+    } catch (error) {
+      console.warn('[Settings] Failed to save developer mode:', error);
+      toast.error(t('general.developerMode.saveFailed'));
+    } finally {
+      setIsSavingDeveloperMode(false);
     }
   }
 
@@ -358,6 +380,19 @@ export function GeneralSettingsPanel({
       <ProfileAppearanceSettingsCard initialProfile={initialUserProfile} />
 
       <ThemePreferenceCard />
+
+      <Card data-testid="developer-mode-settings">
+        <CardContent className="flex items-center justify-between gap-4 px-4 py-4 sm:px-6">
+          <div className="min-w-0 space-y-1">
+            <Label htmlFor="settings-developer-mode" className="flex items-center gap-2 text-base font-semibold">
+              <Code2 className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+              {t('general.developerMode.title')}
+            </Label>
+            <p id="settings-developer-mode-description" className="text-sm text-muted-foreground">{t('general.developerMode.description')}</p>
+          </div>
+          <Switch id="settings-developer-mode" data-testid="developer-mode-switch" checked={developerMode} onCheckedChange={enabled => void handleDeveloperModeChange(enabled)} disabled={isSavingDeveloperMode} aria-describedby="settings-developer-mode-description" />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="px-4 sm:px-6">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Eye, EyeOff, Loader2, Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +28,7 @@ interface SecretState {
   rawContent: string;
   revision: string;
   readable?: boolean;
+  readinessCode?: string;
 }
 
 interface DraftEntry extends SecretEntry {
@@ -49,8 +51,8 @@ export interface UnifiedSecretsEditorProps {
 
 const copy = {
   en: {
-    title: 'Environment secrets and variables',
-    description: 'Manage shared environment values by owner and category. Changes are saved only when you choose Save.',
+    title: 'Secrets and variables',
+    description: 'Manage API keys and other values for your connections. Changes are saved only when you choose Save.',
     scope: 'Scope',
     user: 'Personal',
     organization: 'Organization',
@@ -90,10 +92,15 @@ const copy = {
     duplicateKey: 'Each environment variable name must be unique.',
     unreadable: 'This environment scope cannot be read.',
     loadedNotice: 'The editor is up to date.',
+    master_key_missing: 'Saved secrets cannot be read. Ask the instance administrator to restore their original master key in the deployment configuration. Then reload this page.',
+    decryption_failed: 'Saved secrets could not be unlocked. Ask the instance administrator to check the original encryption key and restore intact data. Changes are blocked until recovery.',
+    invalid_secret_format: 'Saved secret data is damaged or unsupported. Ask the instance administrator to restore an intact backup before making changes.',
+    mcp_credential_key_missing: 'The encryption key for existing MCP connections is missing. Ask the instance administrator to restore the original key before connecting.',
+    recoveryLink: 'Open Secrets settings',
   },
   de: {
     title: 'Secrets und Variablen',
-    description: 'Verwalte gemeinsame Umgebungswerte nach Eigentümer und Kategorie. Änderungen werden erst gespeichert, wenn du Speichern auswählst.',
+    description: 'Verwalte API-Schlüssel und weitere Werte für deine Verbindungen. Änderungen werden erst gespeichert, wenn du Speichern auswählst.',
     scope: 'Bereich',
     user: 'Persönlich',
     organization: 'Organisation',
@@ -133,6 +140,11 @@ const copy = {
     duplicateKey: 'Jeder Umgebungsvariablenname darf nur einmal vorkommen.',
     unreadable: 'Dieser Umgebungsbereich kann nicht gelesen werden.',
     loadedNotice: 'Der Editor ist aktuell.',
+    master_key_missing: 'Gespeicherte Secrets können nicht gelesen werden. Bitte die Instanzadministration, den ursprünglichen Master-Schlüssel in der Deployment-Konfiguration wiederherzustellen. Lade danach diese Seite neu.',
+    decryption_failed: 'Gespeicherte Secrets konnten nicht entschlüsselt werden. Bitte die Instanzadministration, den ursprünglichen Schlüssel und die gespeicherten Daten zu prüfen. Änderungen bleiben bis zur Wiederherstellung gesperrt.',
+    invalid_secret_format: 'Die gespeicherten Secret-Daten sind beschädigt oder nicht unterstützt. Bitte die Instanzadministration, vor Änderungen ein intaktes Backup wiederherzustellen.',
+    mcp_credential_key_missing: 'Der Verschlüsselungsschlüssel für vorhandene MCP-Verbindungen fehlt. Bitte die Instanzadministration, den ursprünglichen Schlüssel vor dem Verbinden wiederherzustellen.',
+    recoveryLink: 'Secrets-Einstellungen öffnen',
   },
 } as const;
 
@@ -146,7 +158,7 @@ function responseError(payload: ApiResponse, fallback: string): string {
   return typeof payload.error === 'string' && payload.error.trim() ? payload.error : fallback;
 }
 
-export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode = true }: UnifiedSecretsEditorProps) {
+export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode = false }: UnifiedSecretsEditorProps) {
   const t = copy[language];
   const instanceId = useId();
   const [secretScope, setSecretScope] = useState<SecretScope>('user');
@@ -158,6 +170,7 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const [saved, setSaved] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
@@ -165,23 +178,32 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
   const copyRef = useRef(t);
 
   useEffect(() => { copyRef.current = t; }, [t]);
+  useEffect(() => {
+    if (developerMode) return;
+    const timer = window.setTimeout(() => setMode('keys'), 0);
+    return () => window.clearTimeout(timer);
+  }, [developerMode]);
+  const editorMode: EditorMode = developerMode ? mode : 'keys';
 
   const dirty = useMemo(() => {
     if (!state) return false;
-    if (mode === 'raw') return rawDraft !== state.rawContent;
+    if (editorMode === 'raw') return rawDraft !== state.rawContent;
     return JSON.stringify(draft.map(({ id: _id, ...entry }) => entry)) !== JSON.stringify(createDraft(state.entries).map(({ id: _id, ...entry }) => entry));
-  }, [draft, mode, rawDraft, state]);
+  }, [draft, editorMode, rawDraft, state]);
 
   const load = useCallback(async () => {
     const current = ++requestId.current;
     setLoading(true);
     setError(null);
+    setErrorCode(null);
     setSaved(false);
     setConflict(false);
     try {
       const query = new URLSearchParams({ scope: 'all', secretScope });
       const response = await fetch(`/api/integrations/env?${query.toString()}`, { credentials: 'include', cache: 'no-store' });
       const payload = await response.json() as ApiResponse;
+      if (current !== requestId.current) return;
+      setErrorCode(payload.code || payload.data?.readinessCode || null);
       if (!response.ok || !payload.success || !payload.data) throw new Error(responseError(payload, copyRef.current.loadError));
       if (current !== requestId.current) return;
       if (payload.data.readable === false) throw new Error(copyRef.current.unreadable);
@@ -230,10 +252,12 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
     setRawDraft('');
     setLoading(true);
     setError(null);
+    setErrorCode(null);
     setSecretScope(next);
   };
 
   const changeMode = (next: EditorMode) => {
+    if (next === 'raw' && !developerMode) return;
     if (next === mode || !confirmDiscard()) return;
     if (state) {
       setDraft(createDraft(state.entries));
@@ -241,6 +265,7 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
     }
     setMode(next);
     setError(null);
+    setErrorCode(null);
     setConflict(false);
   };
 
@@ -248,6 +273,7 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
     if (next === category || (dirty && !window.confirm(t.categoryPrompt))) return;
     setCategory(next);
     setError(null);
+    setErrorCode(null);
   };
 
   const updateEntry = (id: string, patch: Partial<SecretEntry>) => {
@@ -269,10 +295,11 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
     if (!state || saving || !dirty) return;
     setSaving(true);
     setError(null);
+    setErrorCode(null);
     setSaved(false);
     setConflict(false);
     try {
-      const body = mode === 'raw'
+      const body = editorMode === 'raw'
         ? { scope: 'all', secretScope, mode: 'raw', rawContent: rawDraft, baseRevision: state.revision }
         : (() => {
             if (draft.some(entry => !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(entry.key.trim()))) throw new Error(t.invalidKey);
@@ -287,12 +314,13 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
             return { scope: 'all', secretScope, mode: 'patch', baseRevision: state.revision, patches: [...changes].map(([key, value]) => ({ key, value })) };
           })();
       const response = await fetch('/api/integrations/env', {
-        method: mode === 'raw' ? 'PUT' : 'PATCH',
+        method: editorMode === 'raw' ? 'PUT' : 'PATCH',
         credentials: 'include',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
       const payload = await response.json() as ApiResponse;
+      setErrorCode(payload.code || payload.data?.readinessCode || null);
       if (response.status === 409 && payload.code === 'SECRETS_REVISION_CONFLICT') {
         setConflict(true);
         return;
@@ -312,6 +340,7 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
   };
 
   const visibleEntries = draft.filter(entry => !entry.reserved && (category === 'all' || entry.categories?.includes(category)));
+  const recoveryMessage = errorCode && ['master_key_missing', 'decryption_failed', 'invalid_secret_format', 'mcp_credential_key_missing'].includes(errorCode) ? t[errorCode as keyof typeof t] : null;
 
   return (
     <Card data-testid="unified-secrets-editor" className="gap-0">
@@ -331,7 +360,7 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
           </div>
           <div className="grid gap-1.5">
             <Label htmlFor="unified-secrets-category">{t.category}</Label>
-            <select id="unified-secrets-category" data-testid="secret-category" value={category} onChange={event => changeCategory(event.target.value as CategoryFilter)} disabled={loading || saving || mode === 'raw'} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
+            <select id="unified-secrets-category" data-testid="secret-category" value={category} onChange={event => changeCategory(event.target.value as CategoryFilter)} disabled={loading || saving || editorMode === 'raw'} className="h-9 rounded-md border border-input bg-background px-3 text-sm">
               {categoryOrder.map(item => <option key={item} value={item}>{t[item]}</option>)}
             </select>
           </div>
@@ -348,7 +377,7 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
       </CardHeader>
       <CardContent className="space-y-4">
         {loading ? <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />{t.loading}</div> : null}
-        {!loading && error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
+        {!loading && error ? <div role="alert" className="space-y-2 text-sm text-destructive"><p>{recoveryMessage || error}</p>{recoveryMessage && <Link href="/settings?tab=secrets" className="inline-block underline underline-offset-4">{t.recoveryLink}</Link>}</div> : null}
         {!loading && conflict ? (
           <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm">
             <span>{t.conflict}</span>
@@ -356,14 +385,14 @@ export function UnifiedSecretsEditor({ language, isAdmin, onSaved, developerMode
           </div>
         ) : null}
         {!loading && saved ? <p role="status" className="text-sm text-primary">{t.saved}</p> : null}
-        {!loading && state && mode === 'raw' && developerMode ? (
+        {!loading && state && editorMode === 'raw' && developerMode ? (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">{t.rawDescription}</p>
             <Label htmlFor="unified-secrets-raw">{t.rawLabel}</Label>
             <Textarea id="unified-secrets-raw" data-testid="secret-raw-content" value={rawDraft} onChange={event => { setRawDraft(event.target.value); setSaved(false); }} disabled={saving} rows={18} spellCheck={false} className="min-h-72 font-mono text-xs" />
           </div>
         ) : null}
-        {!loading && state && mode === 'keys' ? (
+        {!loading && state && editorMode === 'keys' ? (
           <div className="space-y-4">
             <div className="hidden grid-cols-[minmax(180px,0.8fr)_minmax(0,1.5fr)_auto] gap-3 px-1 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid">
               <span>{t.key}</span><span>{t.value}</span><span className="sr-only">{t.remove}</span>

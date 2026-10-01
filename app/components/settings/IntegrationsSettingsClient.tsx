@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition, type ReactNode } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
@@ -68,7 +69,7 @@ import { useHintContext } from '@/app/components/onboarding/HintProvider';
 import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/contracts';
 import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
 import { cn } from '@/lib/utils';
-import type { McpConnectionHealth } from '@/app/lib/mcp/connection-health-types';
+import { mcpConnectionErrorCopy, type McpConnectionHealth } from '@/app/lib/mcp/connection-health-types';
 import { startMcpAuthorization, waitForMcpAuthorization, readPendingMcpAuthorizations, cancelMcpAuthorization, McpAuthorizationError, type McpAuthorizationFlow } from '@/app/lib/desktop/mcp-oauth-client';
 
 interface EnvEntry {
@@ -92,10 +93,12 @@ type McpEditorState = {
   isStatusLoading: boolean;
   activeServerAction: string | null;
   error: string | null;
+  errorCode?: string;
   success: string | null;
 };
 
 type McpStatusState = {
+  encryptionReadiness?: { status: string; canInitialize: boolean };
   servers: Array<{
     name: string;
     displayName?: string;
@@ -686,6 +689,8 @@ function McpServerAvatar({ iconUrl, serverName }: { iconUrl?: string | null; ser
 }
 
 function McpConfigCard(props: {
+  developerMode: boolean;
+  isAdmin: boolean;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   editor: McpEditorState;
@@ -703,9 +708,13 @@ function McpConfigCard(props: {
   onRemoveConnection: (connectionId: string) => Promise<void>;
 }) {
   const t = useTranslations('settings');
+  const locale = useLocale();
+  const { developerMode, isAdmin } = props;
   const { editor, isOpen, onLoad, onLoadStatus, onOpenChange, onServerAction, onSaveServer, onDeleteServer, onRawChange, onSave, focusedConnectionId, canManageConfiguration, onPublishDefinition, onRenameConnection, onRemoveConnection } = props;
   const focusedConnectionRef = useRef<HTMLDivElement | null>(null);
   const [serverDialogOpen, setServerDialogOpen] = useState(false);
+  const [developerOptionsOpen, setDeveloperOptionsOpen] = useState(false);
+  const [rawEditorOpen, setRawEditorOpen] = useState(false);
   const [editingServerName, setEditingServerName] = useState<string | undefined>();
   const [serverDraft, setServerDraft] = useState<McpServerDraft>(() => createBlankMcpServerDraft());
   const [toolsDialog, setToolsDialog] = useState<McpToolsDialogState>({
@@ -724,6 +733,15 @@ function McpConfigCard(props: {
     }
   })();
   const configuredServers = Object.entries(config.mcpServers);
+  const readinessCode = editor.status?.encryptionReadiness?.status !== 'ready'
+    ? editor.status?.encryptionReadiness?.status : undefined;
+  const storageErrorCode = ['master_key_missing', 'decryption_failed', 'invalid_secret_format', 'mcp_credential_key_missing'].includes(editor.errorCode || '')
+    ? editor.errorCode : readinessCode && !editor.status?.encryptionReadiness?.canInitialize ? readinessCode : undefined;
+  const errorMessage = storageErrorCode ? t('mcpConfig.secureStorageUnavailable') : editor.error;
+
+  useEffect(() => {
+    if (!developerMode) startTransition(() => { setDeveloperOptionsOpen(false); setRawEditorOpen(false); });
+  }, [developerMode]);
   const connectedServerCount = configuredServers.filter(([serverName]) =>
     editor.status?.servers.find((entry) => entry.name === serverName)?.connected
   ).length;
@@ -837,42 +855,16 @@ function McpConfigCard(props: {
           </div>
         ) : (
           <>
-            {canManageConfiguration ? <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span>{t('envCard.fileLabel')}: mcp.json</span>
-              <span>•</span>
-              <span>{t('envCard.formatLabel')}: JSON</span>
-              <span>•</span>
-              <span>{t('envCard.permissionsLabel')}: 0600</span>
-            </div> : null}
-
-            {canManageConfiguration ? <div className="space-y-2 text-sm text-muted-foreground">
-              <p>{t('mcpConfig.secretNote')}</p>
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <a
-                  href="https://mcpservers.org/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  {t('mcpConfig.examplesLink')}
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-                <span>•</span>
-                <a
-                  href="https://github.com/mcp"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  {t('mcpConfig.registryLink')}
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-                <span>{t('mcpConfig.examplesCaution')}</span>
-              </div>
-            </div> : null}
-
-            {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
-            {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
+            {errorMessage && <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
+              <p className="font-medium text-destructive">{errorMessage}</p>
+              {storageErrorCode ? <>
+                <p className="mt-2 text-muted-foreground">{isAdmin
+                  ? t(storageErrorCode === 'mcp_credential_key_missing' ? 'mcpConfig.secureStorageAdminMcpRecovery' : storageErrorCode === 'master_key_missing' ? 'mcpConfig.secureStorageAdminMissing' : 'mcpConfig.secureStorageAdminRecovery')
+                  : t('mcpConfig.secureStorageContactAdmin')}</p>
+                <Link href="/settings?tab=secrets" className="mt-2 inline-flex text-primary underline underline-offset-4">{t('mcpConfig.openSecrets')}</Link>
+              </> : null}
+            </div>}
+            {editor.success && <p role="status" className="text-sm text-primary">{editor.success}</p>}
 
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -902,103 +894,93 @@ function McpConfigCard(props: {
                     const draft = toMcpServerDraft(serverName, serverConfig);
                     const enabled = status?.enabled ?? draft.enabled;
                     const displayName = status?.displayName || serverName;
-                    const isFocusedConnection = status?.connectionId === focusedConnectionId;
+                    const connectionId = status?.connectionId || (typeof serverConfig.connectionId === 'string' ? serverConfig.connectionId : undefined);
+                    const isFocusedConnection = connectionId === focusedConnectionId;
+                    const busy = Boolean(editor.activeServerAction) || editor.isSaving;
+                    const needsAuthorization = oauth?.requiresAuth && (!oauth.authorized || status?.health?.authStatus === 'reauth_required');
+                    const blocked = !enabled || status?.accessAllowed === false || busy;
+                    const stateLabel = !enabled ? t('mcpConfig.stateDisabled')
+                      : status?.accessAllowed === false ? t('mcpConfig.accessDenied')
+                        : needsAuthorization ? t('mcpConfig.stateNeedsConnection')
+                          : status?.health?.reachability === 'unreachable' ? t('mcpConfig.stateUnavailable')
+                            : status?.connected || status?.health?.reachability === 'reachable' ? t('mcpConfig.connected')
+                              : oauth?.authorized ? t('mcpConfig.stateAuthorized') : t('mcpConfig.stateNotChecked');
+                    const connectionError = mcpConnectionErrorCopy(status?.health?.lastErrorCode || null, locale);
                     return (
-                      <div data-mcp-connection-id={status?.connectionId} ref={isFocusedConnection ? focusedConnectionRef : undefined} key={serverName} className="flex flex-col gap-3 border-b border-border p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
-                        <button
-                          type="button"
-                          className="flex w-full min-w-0 items-center gap-3 rounded-md text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50 sm:w-auto"
-                          onClick={() => void openToolsDialog(serverName)}
-                          title={t('mcpConfig.showCachedTools')}
-                        >
-                          <McpServerAvatar iconUrl={status?.iconUrl} serverName={serverName} />
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="min-w-0 break-all font-medium">{displayName}</span>
-                              <Badge variant="outline">{draft.mode === 'stdio' ? 'stdio' : 'http'}</Badge>
-                              {status?.connected && <Badge>{t('mcpConfig.connected')}</Badge>}
-                              {oauth?.requiresAuth && !status?.health && <Badge variant={oauth.authorized ? 'default' : 'destructive'}>{oauth.authorized ? t('mcpConfig.oauthAuthorized') : t('mcpConfig.oauthRequired')}</Badge>}
+                      <div data-mcp-connection-id={connectionId} ref={isFocusedConnection ? focusedConnectionRef : undefined} key={serverName}
+                        className={cn('border-b border-border p-4 last:border-b-0 sm:p-5', isFocusedConnection && 'bg-primary/5')}>
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                          <div className="flex min-w-0 items-start gap-3">
+                            <McpServerAvatar iconUrl={status?.iconUrl} serverName={serverName} />
+                            <div className="min-w-0 space-y-1">
+                              <button type="button" className="break-words text-left font-semibold hover:text-primary focus-visible:outline focus-visible:outline-ring"
+                                onClick={() => void openToolsDialog(serverName)} title={t('mcpConfig.showCachedTools')}>{displayName}</button>
+                              <p className={cn('text-sm', needsAuthorization || status?.health?.reachability === 'unreachable' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>{stateLabel}</p>
+                              {(status?.cachedToolCount ?? 0) > 0 ? <button type="button" onClick={() => void openToolsDialog(serverName)} className="text-xs text-primary hover:underline">
+                                {t('mcpConfig.availableTools', { count: status?.cachedToolCount ?? 0 })}
+                              </button> : null}
+                              {connectionError ? <p className="max-w-lg text-sm text-muted-foreground">{connectionError}</p> : null}
                             </div>
-                            <div className="mt-1 break-words text-xs text-muted-foreground">
-                              {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}
-                              {status?.lastError && !status.health?.lastErrorCode ? ` · ${t('mcpConfig.lastError')}: ${status.lastError}` : ''}
-                            </div>
-                            {status?.accessError ? <p className="mt-2 text-xs text-destructive">{t('mcpConfig.accessDenied')}</p> : <McpConnectionHealthStatus health={status?.health} requiresAuth={Boolean(oauth?.requiresAuth)} focused={isFocusedConnection} />}
-                            {oauth?.requiresAuth && oauth.redirectUri ? (
-                              <div className="mt-1 break-all text-xs text-muted-foreground">
-                                {t('mcpConfig.oauthRedirectUri')}: {oauth.redirectUri}
-                              </div>
-                            ) : null}
                           </div>
-                        </button>
-                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="w-full sm:w-auto"
-                            onClick={() => void onServerAction(serverName, 'test')}
-                            disabled={!enabled || status?.accessAllowed === false || Boolean(editor.activeServerAction) || editor.isSaving}
-                          >
-                            {editor.activeServerAction === `${serverName}:test` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {t('mcpConfig.testConnection')}
-                          </Button>
-                          {oauth?.requiresAuth && (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              className="w-full sm:w-auto"
-                              onClick={() => void onServerAction(serverName, 'authorize')}
-                              disabled={!enabled || status?.accessAllowed === false || Boolean(editor.activeServerAction) || editor.isSaving}
-                            >
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            {needsAuthorization ? <Button type="button" size="sm" onClick={() => void onServerAction(serverName, 'authorize')} disabled={blocked || Boolean(storageErrorCode)}>
                               {editor.activeServerAction === `${serverName}:authorize` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                              {oauth.authorized ? t('mcpConfig.reauthorize') : t('mcpConfig.authorize')}
-                            </Button>
-                          )}
-                          {canManageConfiguration && draft.mode === 'http' ? (
-                            <Button type="button" variant="outline" size="sm" className="w-full sm:w-auto" onClick={() => void onPublishDefinition(serverName, displayName)} disabled={Boolean(editor.activeServerAction) || editor.isSaving}>
-                              {editor.activeServerAction === `${serverName}:publish` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                              {t('mcpConfig.publishDefinition')}
-                            </Button>
-                          ) : null}
-                          <div className="flex items-center justify-end gap-2">
-                            {canManageConfiguration ? <Button type="button" variant="ghost" size="icon" onClick={() => startEditServer(serverName)} title={t('mcpConfig.editServer')}>
-                              <Settings className="h-4 w-4" />
-                            </Button> : null}
-                            {status?.connectionId ? <>
-                              <Button type="button" variant="ghost" size="sm" onClick={() => { setConnectionDialog({ action: 'rename', connectionId: status.connectionId!, displayName }); setConnectionDialogName(displayName); }} disabled={Boolean(editor.activeServerAction) || editor.isSaving}>{t('mcpConfig.renameConnection')}</Button>
-                              <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => { setConnectionDialog({ action: 'remove', connectionId: status.connectionId!, displayName }); setConnectionDialogName(displayName); }} disabled={Boolean(editor.activeServerAction) || editor.isSaving}>{t('mcpConfig.removeConnection')}</Button>
-                            </> : null}
-                            <Switch
-                              checked={enabled}
-                              onCheckedChange={(checked) => void onServerAction(serverName, checked ? 'enable' : 'disable')}
-                              disabled={(!enabled && status?.accessAllowed === false) || Boolean(editor.activeServerAction) || editor.isSaving}
-                              aria-label={enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')}
-                            />
+                              {oauth?.authorized ? t('mcpConfig.reauthorize') : t('mcpConfig.authorize')}
+                            </Button> : <Button type="button" variant="outline" size="sm" onClick={() => void onServerAction(serverName, 'test')} disabled={blocked}>
+                              {editor.activeServerAction === `${serverName}:test` && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                              {t('mcpConfig.testConnection')}
+                            </Button>}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild><Button type="button" variant="ghost" size="icon" aria-label={t('mcpConfig.moreActions', { server: displayName })} disabled={busy}><MoreHorizontal className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {needsAuthorization ? <DropdownMenuItem disabled={blocked} onSelect={() => void onServerAction(serverName, 'test')}>{t('mcpConfig.testConnection')}</DropdownMenuItem> : null}
+                                {oauth?.requiresAuth && !needsAuthorization ? <DropdownMenuItem disabled={blocked || Boolean(storageErrorCode)} onSelect={() => void onServerAction(serverName, 'authorize')}>{t('mcpConfig.reauthorize')}</DropdownMenuItem> : null}
+                                {canManageConfiguration ? <DropdownMenuItem onSelect={() => startEditServer(serverName)}>{t('mcpConfig.editServer')}</DropdownMenuItem> : null}
+                                {canManageConfiguration && draft.mode === 'http' ? <DropdownMenuItem onSelect={() => void onPublishDefinition(serverName, displayName)}>{t('mcpConfig.publishDefinition')}</DropdownMenuItem> : null}
+                                {connectionId ? <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onSelect={() => { setConnectionDialog({ action: 'rename', connectionId, displayName }); setConnectionDialogName(displayName); }}>{t('mcpConfig.renameConnection')}</DropdownMenuItem>
+                                  <DropdownMenuItem className="text-destructive" onSelect={() => { setConnectionDialog({ action: 'remove', connectionId, displayName }); setConnectionDialogName(displayName); }}>{t('mcpConfig.removeConnection')}</DropdownMenuItem>
+                                </> : null}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <Switch checked={enabled} onCheckedChange={(checked) => void onServerAction(serverName, checked ? 'enable' : 'disable')}
+                              disabled={(!enabled && status?.accessAllowed === false) || busy} aria-label={enabled ? t('mcpConfig.disable') : t('mcpConfig.enable')} />
                           </div>
                         </div>
+                        {developerMode ? <details className="mt-3 text-xs text-muted-foreground">
+                          <summary className="cursor-pointer">{t('mcpConfig.connectionDiagnostics')}</summary>
+                          <div className="mt-3 space-y-2 break-words">
+                            <p>{t('mcpConfig.transport')}: {draft.mode === 'stdio' ? 'stdio' : 'http'} · {t('mcpConfig.cachedTools')}: {status?.cachedToolCount ?? 0}</p>
+                            <McpConnectionHealthStatus health={status?.health} requiresAuth={Boolean(oauth?.requiresAuth)} focused={isFocusedConnection} />
+                            {oauth?.redirectUri ? <p className="break-all">{t('mcpConfig.oauthRedirectUri')}: {oauth.redirectUri}</p> : null}
+                            {status?.lastError ? <p className="whitespace-pre-wrap">{t('mcpConfig.lastError')}: {status.lastError}</p> : null}
+                          </div>
+                        </details> : null}
                       </div>
                     );
                   })}
                 </div>
               )}
 
-              {canManageConfiguration ? <details className="rounded-md border border-border p-3">
-                <summary className="cursor-pointer text-sm font-medium">{t('mcpConfig.rawJson')}</summary>
-                <div className="mt-3 h-[360px] overflow-hidden rounded-md border border-input bg-background">
-                  <CodeEditor value={editor.rawContent} onChange={onRawChange} path="mcp.json" readOnly={editor.isSaving} />
-                </div>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  <Button type="button" className="w-full sm:w-auto" onClick={() => void onSave()} disabled={editor.isSaving || editor.isLoading}>
-                    {editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {t('mcpConfig.save')}
-                  </Button>
-                  <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => void onLoad()} disabled={editor.isSaving}>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    {t('envCard.reload')}
-                  </Button>
-                </div>
+              {developerMode && canManageConfiguration ? <details open={developerOptionsOpen} onToggle={(event) => { if (event.target !== event.currentTarget) return; setDeveloperOptionsOpen(event.currentTarget.open); if (!event.currentTarget.open) setRawEditorOpen(false); }} className="rounded-lg border border-border p-4" data-testid="mcp-developer-options">
+                <summary className="cursor-pointer text-sm font-medium">{t('mcpConfig.developerOptions')}</summary>
+                {developerOptionsOpen ? <div className="mt-4 space-y-4">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>{t('envCard.fileLabel')}: mcp.json</span><span>{t('envCard.formatLabel')}: JSON</span><span>{t('envCard.permissionsLabel')}: 0600</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{t('mcpConfig.secretNote')}</p>
+                  <details open={rawEditorOpen} onToggle={(event) => { if (event.target === event.currentTarget) setRawEditorOpen(event.currentTarget.open); }} data-testid="mcp-raw-editor">
+                    <summary className="cursor-pointer text-sm font-medium">{t('mcpConfig.rawJson')}</summary>
+                    {rawEditorOpen ? <>
+                      <div className="mt-3 h-[360px] overflow-hidden rounded-md border border-input bg-background"><CodeEditor value={editor.rawContent} onChange={onRawChange} path="mcp.json" readOnly={editor.isSaving} /></div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button type="button" onClick={() => void onSave()} disabled={editor.isSaving || editor.isLoading}>{editor.isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}{t('mcpConfig.save')}</Button>
+                        <Button type="button" variant="outline" onClick={() => void onLoad()} disabled={editor.isSaving}><RefreshCw className="mr-2 h-4 w-4" />{t('envCard.reload')}</Button>
+                      </div>
+                    </> : null}
+                  </details>
+                </div> : null}
               </details> : null}
             </div>
           </>
@@ -1013,7 +995,9 @@ function McpConfigCard(props: {
       onDelete={editingServerName ? deleteServerFromDialog : undefined}
       editingServerName={editingServerName}
       isSaving={editor.isSaving}
-      error={editor.error}
+      error={errorMessage}
+      errorCode={editor.errorCode}
+      developerMode={developerMode}
     />
     <Dialog open={Boolean(connectionDialog)} onOpenChange={(open) => { if (!open) setConnectionDialog(null); }}>
       <DialogContent>
@@ -2145,6 +2129,22 @@ export function IntegrationsSettingsClient({
   const [mcpArea, setMcpArea] = useState<'canvas-server' | 'external-servers'>(() => hasRequestedMcpExternalServers ? 'external-servers' : 'canvas-server');
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
+  const [developerMode, setDeveloperMode] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    let preferenceChanged = false;
+    const handlePreference = (event: Event) => {
+      if (typeof (event as CustomEvent).detail !== 'boolean') return;
+      preferenceChanged = true;
+      setDeveloperMode((event as CustomEvent<boolean>).detail);
+    };
+    window.addEventListener('canvas-developer-mode-changed', handlePreference);
+    void fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store', signal: controller.signal })
+      .then(response => response.ok ? response.json() : null)
+      .then(payload => { if (!controller.signal.aborted && !preferenceChanged && payload?.success) setDeveloperMode(payload.data?.developerMode === true); })
+      .catch(() => undefined);
+    return () => { controller.abort(); window.removeEventListener('canvas-developer-mode-changed', handlePreference); };
+  }, []);
   const { activeTabOverride } = useHintContext();
   const mcpInitialLoadStartedRef = useRef(false);
   const mcpAuthorizationFlowsRef = useRef(new Map<string, McpAuthorizationFlow>());
@@ -2236,6 +2236,7 @@ export function IntegrationsSettingsClient({
       ...current,
       isLoading: true,
       error: null,
+      errorCode: undefined,
     }));
 
     try {
@@ -2245,7 +2246,7 @@ export function IntegrationsSettingsClient({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('mcpConfig.errors.load'));
+        throw new McpAuthorizationError(payload.code || 'request_failed', payload.error || t('mcpConfig.errors.load'));
       }
 
       const nextState: McpConfigState = payload.data;
@@ -2255,6 +2256,7 @@ export function IntegrationsSettingsClient({
         rawContent: nextState.rawContent,
         isLoading: false,
         error: null,
+        errorCode: undefined,
         success: null,
       }));
     } catch (loadError) {
@@ -2263,6 +2265,7 @@ export function IntegrationsSettingsClient({
         ...current,
         isLoading: false,
         error: message,
+        errorCode: loadError instanceof McpAuthorizationError ? loadError.code : undefined,
       }));
     }
   }, [t]);
@@ -2280,12 +2283,15 @@ export function IntegrationsSettingsClient({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('mcpConfig.errors.status'));
+        throw new McpAuthorizationError(payload.code || 'request_failed', payload.error || t('mcpConfig.errors.status'));
       }
       setMcpEditor((current) => ({
         ...current,
         status: payload.data,
         isStatusLoading: false,
+        ...(['master_key_missing', 'decryption_failed', 'invalid_secret_format', 'mcp_credential_key_missing'].includes(current.errorCode || '')
+          && (payload.data?.encryptionReadiness?.status === 'ready' || payload.data?.encryptionReadiness?.canInitialize === true)
+          ? { error: null, errorCode: undefined } : {}),
       }));
     } catch (statusError) {
       const message = statusError instanceof Error ? statusError.message : t('mcpConfig.errors.status');
@@ -2293,6 +2299,7 @@ export function IntegrationsSettingsClient({
         ...current,
         isStatusLoading: false,
         error: message,
+        errorCode: statusError instanceof McpAuthorizationError ? statusError.code : undefined,
       }));
     }
   }, [t]);
@@ -2316,7 +2323,7 @@ export function IntegrationsSettingsClient({
       const message = code === 'authorization_expired' ? t('mcpConfig.errors.authorizationExpired')
         : code === 'authorization_cancelled' ? t('mcpConfig.errors.authorizationCancelled')
           : error instanceof Error ? error.message : t('mcpConfig.errors.action');
-      if (!controller.signal.aborted) setMcpEditor(current => ({ ...current, success: null, error: message }));
+      if (!controller.signal.aborted) setMcpEditor(current => ({ ...current, success: null, error: message, errorCode: code }));
     } finally {
       if (mcpAuthorizationControllersRef.current.get(flow.server) === controller) mcpAuthorizationControllersRef.current.delete(flow.server);
     }
@@ -2344,6 +2351,7 @@ export function IntegrationsSettingsClient({
       ...current,
       activeServerAction: `${server}:${action}`,
       error: null,
+      errorCode: undefined,
       success: null,
     }));
 
@@ -2368,7 +2376,7 @@ export function IntegrationsSettingsClient({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('mcpConfig.errors.action'));
+        throw new McpAuthorizationError(payload.code || 'request_failed', payload.error || t('mcpConfig.errors.action'));
       }
 
       const successKey = action === 'test'
@@ -2393,6 +2401,7 @@ export function IntegrationsSettingsClient({
         ...current,
         activeServerAction: null,
         error: message,
+        errorCode: actionError instanceof McpAuthorizationError ? actionError.code : undefined,
       }));
       await loadMcpStatus();
     }
@@ -2502,6 +2511,7 @@ export function IntegrationsSettingsClient({
       ...current,
       isSaving: true,
       error: null,
+      errorCode: undefined,
       success: null,
     }));
 
@@ -2516,7 +2526,7 @@ export function IntegrationsSettingsClient({
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
-        throw new Error(result.error || t('mcpConfig.errors.save'));
+        throw new McpAuthorizationError(result.code || 'request_failed', result.error || t('mcpConfig.errors.save'));
       }
 
       const nextState: McpConfigState = result.data;
@@ -2526,6 +2536,7 @@ export function IntegrationsSettingsClient({
         rawContent: nextState.rawContent,
         isSaving: false,
         error: null,
+        errorCode: undefined,
         success: t('mcpConfig.saved'),
       }));
       void loadMcpStatus();
@@ -2535,6 +2546,7 @@ export function IntegrationsSettingsClient({
         ...current,
         isSaving: false,
         error: message,
+        errorCode: saveError instanceof McpAuthorizationError ? saveError.code : undefined,
       }));
       throw saveError;
     }
@@ -2542,19 +2554,18 @@ export function IntegrationsSettingsClient({
 
   const saveMcpServer = async (draft: McpServerDraft, originalName?: string) => {
     try {
+      const rawContent = updateMcpConfigRawServer(mcpEditor.rawContent, draft, originalName);
+      setMcpEditor((current) => ({
+        ...current,
+        isSaving: true,
+        error: null,
+        errorCode: undefined,
+        success: null,
+      }));
       const envEntries = collectMcpEnvEntries(draft);
       if (envEntries.length > 0) {
         await patchSettingsIntegrationEnv(envEntries, t('envCard.errors.saveEnvFile'));
       }
-
-      const rawContent = updateMcpConfigRawServer(mcpEditor.rawContent, draft, originalName);
-      setMcpEditor((current) => ({
-        ...current,
-        rawContent,
-        isSaving: true,
-        error: null,
-        success: null,
-      }));
 
       const response = await fetch('/api/integrations/mcp-config', {
         method: 'PUT',
@@ -2564,7 +2575,7 @@ export function IntegrationsSettingsClient({
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
-        throw new Error(result.error || t('mcpConfig.errors.save'));
+        throw new McpAuthorizationError(result.code || 'request_failed', result.error || t('mcpConfig.errors.save'));
       }
 
       const nextState: McpConfigState = result.data;
@@ -2574,6 +2585,7 @@ export function IntegrationsSettingsClient({
         rawContent: nextState.rawContent,
         isSaving: false,
         error: null,
+        errorCode: undefined,
         success: t('mcpConfig.serverSaved'),
       }));
       await loadMcpStatus();
@@ -2583,6 +2595,7 @@ export function IntegrationsSettingsClient({
         ...current,
         isSaving: false,
         error: message,
+        errorCode: saveError instanceof McpAuthorizationError ? saveError.code : undefined,
       }));
       throw saveError;
     }
@@ -2713,6 +2726,8 @@ export function IntegrationsSettingsClient({
               initialUserProfile={initialUserProfile}
               isAdmin={isAdmin}
               initialTimeZone={initialTimeZone}
+              developerMode={developerMode}
+              onDeveloperModeChanged={setDeveloperMode}
             />,
           )}
 
@@ -2748,6 +2763,7 @@ export function IntegrationsSettingsClient({
                 language={locale === 'de' ? 'de' : 'en'}
                 isAdmin={isAdmin}
                 onSaved={async () => { await Promise.all([loadMcpConfig(), loadMcpStatus()]); }}
+                developerMode={developerMode}
               />
               {isAdmin && (
                 <StudioMediaCredentialsPanel
@@ -2787,6 +2803,8 @@ export function IntegrationsSettingsClient({
                 <div className="space-y-4">
                 <McpSharedDefinitionsPanel onConnectionsChanged={async () => { await Promise.all([loadMcpConfig(), loadMcpStatus()]); }} />
                 <McpConfigCard
+                  developerMode={developerMode}
+                  isAdmin={isAdmin}
                   isOpen={integrationsSectionOpenById.mcpConfig}
                   onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
                   editor={mcpEditor}
