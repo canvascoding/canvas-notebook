@@ -18,18 +18,19 @@ import { installCollaborationRoomInspector } from '../app/lib/collaboration/runt
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createRichAgentTextTargets, applyPersistedAgentTextOperation, revertAgentOperation, getAgentOperation } from '../app/lib/collaboration/agent-operations';
 import { installCollaborationDirectConnection } from '../app/lib/collaboration/direct-connection';
-import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { ensureAgentGrantIntegrationFixture } from './agent-grant-integration-fixture';
+import { serverPreferencesPath } from '../app/lib/terminal-policy';
 
 async function main() {
   assert.equal(process.env.CANVAS_DATABASE_PROVIDER, 'postgres');
   assert.match(new URL(process.env.DATABASE_URL!).pathname, /^\/canvas_editor_test_\w+$/u,
     'This suite requires its own disposable database on the managed local PostgreSQL server.');
   const rootPath = await fs.mkdtemp(path.join(process.env.DATA!, 'block-format-'));
-  const workspace: WorkspaceContext = {
-    workspaceId: randomUUID(), workspaceType: 'organization', organizationId: null, rootPath, legacy: false,
-    permissions: { canRead: true, canWrite: true, canDelete: true, canCreatePublicLinks: true,
-      canManageWorkspace: true, canRunAgent: true },
-  };
+  const fixture = await ensureAgentGrantIntegrationFixture({ userId: 'block-test-user', agentId: 'block-agent',
+    workspace: { workspaceId: randomUUID(), workspaceType: 'organization', rootPath } });
+  const { workspace, userId, execution } = fixture;
+  const preferencesPath = serverPreferencesPath();
+  const originalPreferences = await fs.readFile(preferencesPath).catch(() => null);
   const filePath = 'shared.md';
   const markdown = '# Shared\n\nAAA\n\nBBB\n';
   await fs.writeFile(path.join(rootPath, filePath), markdown);
@@ -82,7 +83,7 @@ async function main() {
     } finally { restored.destroy(); }
     const database = await openDb();
     try {
-      const backup = await database.get('SELECT yjs_state, lifecycle_generation, representation FROM collaboration_yjs_state_backups WHERE document_id = ?', [legacy.documentId]) as {
+      const backup = await database.get('SELECT yjs_state, lifecycle_generation, representation FROM collaboration_yjs_state_backups WHERE document_id = $1', [legacy.documentId]) as {
         yjs_state: Buffer; lifecycle_generation: number | string; representation: string;
       };
       assert(backup);
@@ -125,9 +126,12 @@ async function main() {
       } finally { live.destroy(); }
     });
     try {
-      const userId = 'block-test-user';
+      await fs.mkdir(path.dirname(preferencesPath), { recursive: true });
+      await fs.writeFile(preferencesPath, JSON.stringify({ settings: { documentReviewEnabled: true } }));
+      await fixture.grantForDocument({ documentId: legacy.documentId });
       const applied = await applyPersistedAgentTextOperation({ documentId: legacy.documentId, workspace,
         initiatedByUserId: userId, actorId: 'block-agent', actorDisplayName: 'Block Agent', targets,
+        actorSessionId: execution.sessionId,
         runGeneration: 1, idempotencyKey: randomUUID(), explicitUserRequest: true });
       assert.equal(applied.operationStatus, 'checkpointed_file', JSON.stringify(applied));
       assert.match(await fs.readFile(path.join(rootPath, filePath), 'utf8'), /NEW\n\n# Shared\n\nAAA\n$/u);
@@ -170,6 +174,8 @@ async function main() {
     console.log('Block format integration: sessions, migration, backup, stale generations, moved agent targets, checkpoints and revert passed.');
   } finally {
     uninstall(); original.destroy();
+    if (originalPreferences) await fs.writeFile(preferencesPath, originalPreferences);
+    else await fs.rm(preferencesPath, { force: true });
     await fs.rm(rootPath, { recursive: true, force: true });
   }
 }
