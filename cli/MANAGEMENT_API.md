@@ -19,6 +19,6 @@ Patches only update desired configuration. Environment rendering, application re
 
 The agent uses the API for batched environment writes/removals and account changes. An absent or refused socket during initial discovery permits the legacy CLI path. Protocol errors, permissions, config-path mismatch, revision conflicts and errors after a mutation request do not trigger fallback or automatic retries. A lost account response can leave the result unknown; the caller must reconcile before retrying. Requests disconnected while still waiting for the host lock are discarded.
 
-Updates retain their existing validated NDJSON events and durable Control Plane operations. Swap retains its existing JSON contract. Backups retain JSON with a compact job summary: per-file manifest entries remain in the ZIP and latest metadata file, while counts, database type, consistency and upload checksums remain in the command result.
+Updates retain their existing validated NDJSON events and durable Control Plane operations. Swap retains its existing JSON contract. Backups retain JSON with a compact job summary: per-file manifest entries remain in the ZIP and job records, while counts, database type, consistency and upload checksums remain in the command result.
 
 Run `npm run test:cli:management-api`, `npm run test:backup:cli-result` and the Control Plane's `npm run test:notebook-management-api` for contract tests. Verify the Linux package/service and the managed local stack before rollout.
