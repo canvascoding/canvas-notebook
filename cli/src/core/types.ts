@@ -61,6 +61,8 @@ export interface RunOptions {
   stdin?: string;
   stdio?: 'pipe' | 'inherit';
   timeoutMs?: number;
+  signal?: AbortSignal;
+  processGroup?: boolean;
 }
 
 export interface CommandRunner {

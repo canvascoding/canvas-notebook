@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { superviseProcess } from './processLifecycle';
 
 import type { CommandResult, CommandRunner, RunOptions } from './types';
 
@@ -53,6 +54,7 @@ function capturedOutputText(state: CapturedOutput): string {
 export class SpawnCommandRunner implements CommandRunner {
   run(command: string, args: string[], options: RunOptions = {}): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
+      options.signal?.throwIfAborted();
       const stdio = options.stdio === 'inherit' ? 'inherit' : 'pipe';
       const child = spawn(command, args, {
         cwd: options.cwd,
@@ -60,21 +62,12 @@ export class SpawnCommandRunner implements CommandRunner {
         shell: false,
         stdio,
         windowsHide: true,
+        detached: options.processGroup && process.platform !== 'win32',
       });
 
       const stdout: CapturedOutput = { chunks: [], byteLength: 0, truncated: false };
       const stderr: CapturedOutput = { chunks: [], byteLength: 0, truncated: false };
-      let timedOut = false;
-      let forceKillTimer: NodeJS.Timeout | undefined;
-      const timeout = options.timeoutMs && options.timeoutMs > 0
-        ? setTimeout(() => {
-          timedOut = true;
-          child.kill('SIGTERM');
-          forceKillTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
-          forceKillTimer.unref();
-        }, options.timeoutMs)
-        : undefined;
-      timeout?.unref();
+      const lifecycle = superviseProcess(child, options);
 
       if (stdio === 'pipe') {
         child.stdout?.on('data', (chunk) => {
@@ -86,18 +79,19 @@ export class SpawnCommandRunner implements CommandRunner {
       }
 
       child.on('error', reject);
-      child.on('close', (code, signal) => {
-        if (timeout) clearTimeout(timeout);
-        if (forceKillTimer) clearTimeout(forceKillTimer);
-        if (timedOut) {
+      child.on('close', async (code, signal) => {
+        await lifecycle.completion;
+        if (lifecycle.timedOut) {
           appendCapturedOutput(stderr, Buffer.from('\nCommand exceeded its update deadline.', 'utf8'));
+        } else if (lifecycle.aborted) {
+          appendCapturedOutput(stderr, Buffer.from('\nCommand was canceled.', 'utf8'));
         } else if (signal) {
           appendCapturedOutput(stderr, Buffer.from(`\nCommand terminated by ${signal}.`, 'utf8'));
         }
         resolve({
-          status: timedOut ? 124 : (code ?? 1),
+          status: lifecycle.timedOut ? 124 : lifecycle.aborted ? 130 : (code ?? 1),
           stdout: capturedOutputText(stdout),
-          stderr: timedOut ? capturedOutputText(stderr).trim() : capturedOutputText(stderr),
+          stderr: lifecycle.timedOut || lifecycle.aborted ? capturedOutputText(stderr).trim() : capturedOutputText(stderr),
         });
       });
 

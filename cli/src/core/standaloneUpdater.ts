@@ -8,6 +8,8 @@ import readline from 'node:readline';
 import { pathToFileURL } from 'node:url';
 
 import { resolveCliPath } from './cliPath';
+import { SpawnCommandRunner, runOrThrow } from './process';
+import { superviseProcess } from './processLifecycle';
 import { systemUpdateApplyAcknowledgement } from './systemUpdateApplyGate';
 import {
   SYSTEM_UPDATE_CONTRACT_VERSION,
@@ -29,6 +31,7 @@ export const STANDALONE_UPDATER_IDLE_GRACE_MS = 10 * 60 * 1000;
 const MAX_REQUEST_BODY_BYTES = 4096;
 const MAX_STDERR_BYTES = 64 * 1024;
 const UPDATE_DEADLINE_MS = 3 * 60 * 60 * 1000;
+const CLI_PREPARATION_TIMEOUT_MS = 5 * 60 * 1000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const VERSION_PATTERN = /^\d{4}\.\d{1,2}\.\d{1,2}(?:\.\d+)?$/u;
 
@@ -70,7 +73,8 @@ export interface StandaloneUpdaterOptions {
     release: VerifiedStandaloneRelease,
     signal: AbortSignal,
   ) => Promise<number>;
-  prepareHostCli?: (release: VerifiedStandaloneRelease, current: CurrentCanvasVersion) => Promise<void>;
+  prepareHostCli?: (release: VerifiedStandaloneRelease, current: CurrentCanvasVersion, signal: AbortSignal) => Promise<void>;
+  cliPreparationTimeoutMs?: number;
   now?: () => Date;
   onBusyChange?: (busy: boolean) => void;
 }
@@ -90,6 +94,12 @@ class StandaloneUpdaterHttpError extends Error {
   ) {
     super(message);
   }
+}
+
+class StandaloneUpdaterDeadlineError extends Error {}
+
+function applyMayHaveStarted(operation: SystemUpdateOperation): boolean {
+  return ['image_pull', 'container_recreate', 'health_verification', 'version_verification', 'rollback'].includes(operation.stage);
 }
 
 function safeMessage(error: unknown, fallback: string): string {
@@ -135,47 +145,19 @@ function statusForEvent(operation: SystemUpdateOperation, event: SystemUpdateEve
   return 'preflight';
 }
 
-async function readCurrentCanvasVersion(env: NodeJS.ProcessEnv): Promise<CurrentCanvasVersion> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveCliPath(env), ['version', '--json', '--no-banner'], {
-      env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    child.stdout.on('data', (chunk: Buffer) => {
-      if (stdoutBytes >= MAX_STDERR_BYTES) return;
-      const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stdoutBytes);
-      stdout.push(value);
-      stdoutBytes += value.length;
-    });
-    child.stderr.on('data', (chunk: Buffer) => {
-      if (stderrBytes >= MAX_STDERR_BYTES) return;
-      const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
-      stderr.push(value);
-      stderrBytes += value.length;
-    });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(Buffer.concat(stderr).toString('utf8').trim() || 'Canvas CLI version check failed.'));
-        return;
-      }
-      try {
-        const parsed = JSON.parse(Buffer.concat(stdout).toString('utf8')) as { appVersion?: unknown; cliVersion?: unknown };
-        resolve({
-          appVersion: typeof parsed.appVersion === 'string' && parsed.appVersion ? parsed.appVersion : null,
-          cliVersion: typeof parsed.cliVersion === 'string' && parsed.cliVersion ? parsed.cliVersion : null,
-        });
-      } catch {
-        reject(new Error('Canvas CLI returned invalid version information.'));
-      }
-    });
+async function readCurrentCanvasVersion(env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<CurrentCanvasVersion> {
+  const result = await runOrThrow(new SpawnCommandRunner(), resolveCliPath(env), ['version', '--json', '--no-banner'], {
+    env, signal, timeoutMs: 20_000, processGroup: true,
   });
+  try {
+    const parsed = JSON.parse(result.stdout) as { appVersion?: unknown; cliVersion?: unknown };
+    return {
+      appVersion: typeof parsed.appVersion === 'string' && parsed.appVersion ? parsed.appVersion : null,
+      cliVersion: typeof parsed.cliVersion === 'string' && parsed.cliVersion ? parsed.cliVersion : null,
+    };
+  } catch {
+    throw new Error('Canvas CLI returned invalid version information.');
+  }
 }
 
 async function executeCliUpdate(
@@ -185,6 +167,7 @@ async function executeCliUpdate(
   release: VerifiedStandaloneRelease,
   signal: AbortSignal,
 ): Promise<number> {
+  signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(resolveCliPath(env), [
       'update',
@@ -205,13 +188,12 @@ async function executeCliUpdate(
       shell: false,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      detached: process.platform !== 'win32',
     });
     const stderr: Buffer[] = [];
     let stderrBytes = 0;
-    const abort = () => child.kill('SIGTERM');
-    child.stdin.on('error', () => child.kill('SIGTERM'));
-    if (signal.aborted) abort();
-    else signal.addEventListener('abort', abort, { once: true });
+    const lifecycle = superviseProcess(child, { signal, timeoutMs: UPDATE_DEADLINE_MS + 30_000, processGroup: true });
+    child.stdin.on('error', () => lifecycle.stop());
     child.stderr.on('data', (chunk: Buffer) => {
       if (stderrBytes >= MAX_STDERR_BYTES) return;
       const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
@@ -226,7 +208,7 @@ async function executeCliUpdate(
       if (protocolError) return;
       if (Buffer.byteLength(line, 'utf8') > 16 * 1024) {
         protocolError = new Error('Canvas CLI update event exceeded the size limit.');
-        child.kill('SIGTERM');
+        lifecycle.stop();
         return;
       }
       processing = processing.then(async () => {
@@ -248,14 +230,14 @@ async function executeCliUpdate(
         }
       }).catch((error) => {
         protocolError = error instanceof Error ? error : new Error('Canvas CLI update event handling failed.');
-        child.kill('SIGTERM');
+        lifecycle.stop();
       });
     });
     child.on('error', reject);
     child.on('close', (code) => {
-      signal.removeEventListener('abort', abort);
-      processing.then(() => {
+      Promise.all([processing, lifecycle.completion]).then(() => {
         if (protocolError) reject(protocolError);
+        else if (lifecycle.timedOut) reject(new StandaloneUpdaterDeadlineError('Canvas CLI exceeded its update deadline.'));
         else if ((code ?? 1) !== 0 && stderrBytes > 0) {
           reject(new Error(safeMessage(Buffer.concat(stderr).toString('utf8'), 'Canvas CLI update failed.')));
         } else resolve(code ?? 1);
@@ -268,15 +250,17 @@ async function prepareVerifiedHostCli(
   env: NodeJS.ProcessEnv,
   release: VerifiedStandaloneRelease,
   current: CurrentCanvasVersion,
+  signal: AbortSignal,
+  timeoutMs: number,
 ): Promise<void> {
+  signal.throwIfAborted();
   if (current.cliVersion && compareCanvasVersions(current.cliVersion, release.signed.manifest.cliVersion) >= 0) return;
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-updater-cli-'));
   const archiveName = `canvas-notebook-linux-cli-${release.architecture}.tar.gz`;
   const checksumPath = path.join(directory, `canvas-notebook-linux-cli-${release.architecture}.sha256`);
   try {
     await fs.writeFile(checksumPath, `${release.cliArtifact.sha256}  ${archiveName}\n`, { mode: 0o600 });
-    const result = await new Promise<{ code: number; stderr: string }>((resolve, reject) => {
-      const child = spawn(resolveCliPath(env), ['cli-update', '--json', '--no-banner'], {
+    const result = await new SpawnCommandRunner().run(resolveCliPath(env), ['cli-update', '--json', '--no-banner'], {
         env: {
           ...env,
           CANVAS_CLI_SELF_UPDATE: 'true',
@@ -284,23 +268,12 @@ async function prepareVerifiedHostCli(
           CANVAS_LINUX_CLI_URL: release.cliArtifact.url,
           CANVAS_LINUX_CLI_SHA256_URL: pathToFileURL(checksumPath).toString(),
         },
-        shell: false,
-        stdio: ['ignore', 'ignore', 'pipe'],
-        windowsHide: true,
-      });
-      const stderr: Buffer[] = [];
-      let stderrBytes = 0;
-      child.stderr.on('data', (chunk: Buffer) => {
-        if (stderrBytes >= MAX_STDERR_BYTES) return;
-        const value = Buffer.from(chunk).subarray(0, MAX_STDERR_BYTES - stderrBytes);
-        stderr.push(value);
-        stderrBytes += value.length;
-      });
-      child.on('error', reject);
-      child.on('close', (code) => resolve({ code: code ?? 1, stderr: Buffer.concat(stderr).toString('utf8') }));
+        signal, timeoutMs, processGroup: true,
     });
-    if (result.code !== 0) throw new Error(safeMessage(result.stderr, 'Verified host CLI update failed.'));
-    const verified = await readCurrentCanvasVersion(env);
+    if (result.status === 124) throw new StandaloneUpdaterDeadlineError('Host CLI preparation exceeded its update deadline.');
+    if (result.status !== 0) throw new Error(safeMessage(result.stderr, 'Verified host CLI update failed.'));
+    signal.throwIfAborted();
+    const verified = await readCurrentCanvasVersion(env, signal);
     if (!verified.cliVersion || compareCanvasVersions(verified.cliVersion, release.signed.manifest.cliVersion) < 0) {
       throw new Error('Verified host CLI artifact was not activated.');
     }
@@ -337,7 +310,9 @@ export class StandaloneUpdater {
     this.releaseResolver = options.releaseResolver || new StandaloneReleaseResolver({ env: this.env });
     this.currentVersion = options.currentVersion || (() => readCurrentCanvasVersion(this.env));
     this.executeUpdate = options.executeUpdate || ((operation, onEvent, release, signal) => executeCliUpdate(this.env, operation, onEvent, release, signal));
-    this.prepareHostCli = options.prepareHostCli || ((release, current) => prepareVerifiedHostCli(this.env, release, current));
+    this.prepareHostCli = options.prepareHostCli || ((release, current, signal) => prepareVerifiedHostCli(
+      this.env, release, current, signal, options.cliPreparationTimeoutMs ?? CLI_PREPARATION_TIMEOUT_MS,
+    ));
     this.now = options.now || (() => new Date());
     this.onBusyChange = options.onBusyChange || (() => undefined);
   }
@@ -459,7 +434,7 @@ export class StandaloneUpdater {
     abortController: AbortController,
   ): Promise<void> {
     try {
-      await this.prepareHostCli(release, current);
+      await this.prepareHostCli(release, current, abortController.signal);
       if (abortController.signal.aborted) throw new Error('Canvas Notebook update was canceled before the apply phase.');
       const exitCode = await this.executeUpdate!(
         initial,
@@ -473,10 +448,10 @@ export class StandaloneUpdater {
           const completedAt = this.now().toISOString();
           await this.journal.writeOperation({
             ...operation,
-            status: exitCode === 0 ? 'indeterminate' : (operation.rolledBack ? 'rolled_back' : 'failed'),
+            status: operation.rolledBack ? 'rolled_back' : exitCode === 0 || applyMayHaveStarted(operation) ? 'indeterminate' : 'failed',
             updatedAt: completedAt,
             completedAt,
-            errorCode: exitCode === 0 ? 'operation_interrupted' : (operation.errorCode || 'update_execution_failed'),
+            errorCode: operation.errorCode || (exitCode === 0 || applyMayHaveStarted(operation) ? 'operation_interrupted' : 'update_execution_failed'),
             error: operation.error || (exitCode === 0
               ? 'Canvas CLI exited without a final verification event.'
               : 'Canvas CLI update execution failed.'),
@@ -490,10 +465,10 @@ export class StandaloneUpdater {
           const completedAt = this.now().toISOString();
           await this.journal.writeOperation({
             ...operation,
-            status: operation.rolledBack ? 'rolled_back' : 'failed',
+            status: operation.rolledBack ? 'rolled_back' : applyMayHaveStarted(operation) ? 'indeterminate' : 'failed',
             updatedAt: completedAt,
             completedAt,
-            errorCode: operation.errorCode || 'update_execution_failed',
+            errorCode: operation.errorCode || (error instanceof StandaloneUpdaterDeadlineError ? 'deadline_exceeded' : applyMayHaveStarted(operation) ? 'operation_interrupted' : 'update_execution_failed'),
             error: safeMessage(error, 'Canvas CLI update execution failed.'),
           });
         }
