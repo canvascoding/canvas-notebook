@@ -146,14 +146,18 @@ export async function compactImageBufferForLlm(
   buffer: Buffer,
   originalName: string,
   mimeType: string,
+  maxBytes = MAX_LLM_IMAGE_BYTES,
 ): Promise<ImageContent> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > MAX_LLM_IMAGE_BYTES) {
+    throw new Error('The LLM image byte limit is invalid.');
+  }
   if (buffer.length > SOURCE_IMAGE_BYTE_LIMIT) {
     throw new Error(
       `Image attachment is too large for chat context (${Math.ceil(buffer.length / (1024 * 1024))}MB). Maximum source image size is ${SOURCE_IMAGE_BYTE_LIMIT / (1024 * 1024)}MB.`,
     );
   }
 
-  if (buffer.length <= MAX_LLM_IMAGE_BYTES) {
+  if (buffer.length <= maxBytes) {
     return {
       type: 'image',
       data: buffer.toString('base64'),
@@ -163,7 +167,10 @@ export async function compactImageBufferForLlm(
 
   try {
     let smallestResult: Awaited<ReturnType<typeof convertImage>> | null = null;
-    for (const profile of LLM_IMAGE_COMPRESSION_PROFILES) {
+    const profiles = maxBytes < MAX_LLM_IMAGE_BYTES
+      ? [...LLM_IMAGE_COMPRESSION_PROFILES, { maxDimension: 768, quality: 50 }, { maxDimension: 512, quality: 45 }]
+      : LLM_IMAGE_COMPRESSION_PROFILES;
+    for (const profile of profiles) {
       const converted = await convertImage(buffer, originalName, {
         format: 'webp',
         quality: profile.quality,
@@ -173,7 +180,7 @@ export async function compactImageBufferForLlm(
       if (!smallestResult || converted.buffer.length < smallestResult.buffer.length) {
         smallestResult = converted;
       }
-      if (converted.buffer.length <= MAX_LLM_IMAGE_BYTES) {
+      if (converted.buffer.length <= maxBytes) {
         return {
           type: 'image',
           data: converted.buffer.toString('base64'),
@@ -183,13 +190,13 @@ export async function compactImageBufferForLlm(
     }
 
     throw new Error(
-      `Image attachment could not be compacted below the ${Math.ceil(MAX_LLM_IMAGE_BYTES / 1024)}KB LLM transfer limit` +
+      `Image attachment could not be compacted below the ${Math.ceil(maxBytes / 1024)}KB LLM transfer limit` +
       `${smallestResult ? ` (smallest result: ${Math.ceil(smallestResult.buffer.length / 1024)}KB)` : ''}.`,
     );
   } catch (error) {
     console.warn('[Message Normalization] Failed to compact large image attachment:', error instanceof Error ? error.message : error);
     throw new Error(
-      `Image attachment is too large for the LLM request and could not be compacted below ${Math.ceil(MAX_LLM_IMAGE_BYTES / 1024)}KB (${Math.ceil(buffer.length / (1024 * 1024))}MB source).`,
+      `Image attachment is too large for the LLM request and could not be compacted below ${Math.ceil(maxBytes / 1024)}KB (${Math.ceil(buffer.length / (1024 * 1024))}MB source).`,
     );
   }
 }
@@ -444,6 +451,17 @@ async function normalizeImageArray(
       return normalizedPart;
     }),
   );
+
+  // Keep every image in the current user message inside the existing request
+  // budget. History pruning below must not silently discard newly attached photos.
+  const images = normalizedContent.filter(isImageContentPart);
+  const imageBytes = images.reduce((total, part) => total + estimateBase64Bytes(part.data), 0);
+  if (shouldExtractImages && imageBytes > MAX_LLM_TOTAL_IMAGE_BYTES) {
+    const maxBytes = Math.floor(MAX_LLM_TOTAL_IMAGE_BYTES / images.length);
+    return Promise.all(normalizedContent.map((part) => isImageContentPart(part)
+      ? compactImageBufferForLlm(Buffer.from(part.data, 'base64'), 'message-attachment', part.mimeType, maxBytes)
+      : part));
+  }
 
   return changed ? normalizedContent : content;
 }

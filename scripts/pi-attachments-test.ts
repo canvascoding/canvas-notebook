@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -10,6 +10,8 @@ import {
   resolveApiUploadFileId,
 } from '../app/lib/pi/message-normalization';
 import { MAX_LLM_IMAGE_BYTES, MAX_LLM_TOTAL_IMAGE_BYTES } from '../app/lib/pi/llm-payload-limits';
+import { extractMessageAttachments } from '../app/lib/chat/message-content';
+import { parseClientMessage } from '../app/lib/websocket/protocol';
 
 async function main() {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'pi-attachments-'));
@@ -56,6 +58,32 @@ async function main() {
     const compactedImage = await compactImageBufferForLlm(noisyPng, 'noisy.png', 'image/png');
     assert.equal(compactedImage.mimeType, 'image/webp');
     assert.ok(Buffer.byteLength(compactedImage.data, 'base64') <= MAX_LLM_IMAGE_BYTES);
+
+    // Eight ordinary per-image payloads exceeded the aggregate budget and lost
+    // some newly attached photos. Exercise WebSocket parsing and real compaction.
+    assert.ok(Buffer.byteLength(compactedImage.data, 'base64') * 8 > MAX_LLM_TOTAL_IMAGE_BYTES);
+    const photoPaths = Array.from({ length: 8 }, (_, index) => path.join(tempDir, `photo-${index + 1}.png`));
+    await Promise.all(photoPaths.map(photoPath => writeFile(photoPath, noisyPng)));
+    const metadata = photoPaths.map((photoPath, index) => (
+      `--- Attachment: ${path.basename(photoPath)} ---\nfileId: upload-${index + 1}\ncontentKind: image\nmimeType: image/png\n--- Ende Attachment: ${path.basename(photoPath)} ---`
+    )).join('\n');
+    assert.equal(extractMessageAttachments([{ type: 'text', text: metadata }])?.length, 8);
+    const inbound = parseClientMessage(JSON.parse(JSON.stringify({
+      type: 'send_message', sessionId: 'eight-photos', message: {
+        role: 'user', timestamp: Date.now(), content: [
+          { type: 'text', text: 'Compare these eight photos.' },
+          ...photoPaths.map(photoPath => ({ type: 'image', data: photoPath, mimeType: 'image/png' })),
+        ],
+      },
+    })));
+    assert.ok(inbound.ok && inbound.message.type === 'send_message');
+    const [eightPhotoMessage] = await normalizePiMessagesForLlm([inbound.message.message], { allowedImageFileRoots: [tempDir] });
+    assert.ok(Array.isArray(eightPhotoMessage.content));
+    const photos = eightPhotoMessage.content.filter(part => part.type === 'image');
+    assert.equal(photos.length, 8, 'All eight newly attached photos reach the provider payload');
+    assert.ok(photos.reduce((total, part) => total + Buffer.byteLength(part.data, 'base64'), 0) <= MAX_LLM_TOTAL_IMAGE_BYTES);
+    assert.equal(eightPhotoMessage.content.some(part => part.type === 'text' && /omitted/i.test(part.text)), false);
+    for (const photoPath of photoPaths) assert.deepEqual(await readFile(photoPath), noisyPng, 'Provider compaction preserves originals');
 
     const historyImage = Buffer.alloc(MAX_LLM_IMAGE_BYTES, 1).toString('base64');
     const imageHeavyHistory = await normalizePiMessagesForLlm(

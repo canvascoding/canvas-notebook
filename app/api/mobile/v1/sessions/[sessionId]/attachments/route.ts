@@ -12,7 +12,7 @@ import { toUploadMediaUrl, toUploadPreviewUrl } from '@/app/lib/utils/media-url'
 export const dynamic = 'force-dynamic';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
-const MAX_ATTACHMENTS = 4;
+const MAX_ATTACHMENTS = 8;
 const responseHeaders = {
   'Cache-Control': 'no-store, max-age=0',
   'Vary': 'Cookie, X-Canvas-Workspace-Id',
