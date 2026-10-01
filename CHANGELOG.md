@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.1.1] - 2026-10-01
+
+### Added
+
+- Added durable, recoverable batch reviews for workspace file operations, including chained moves, dependent changes, and deletions.
+- Added batch review details, queued file actions, and browser and worker-restart coverage for approval flows.
+
+### Changed
+
+- Preserved Markdown reading and editing positions when switching views, including viewport anchors and visible text.
+- Kept login session screens stable during hydration and moved terminal controls into admin-only experimental settings.
+
+### Fixed
+
+- Improved recovery from stale client bundles and restored empty documents and fenced links correctly.
+- Fixed HTML entities in Markdown property titles and prevented obsolete editor cleanup from taking over Source mode.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.9.30.2] - 2026-09-30
 
 ### Added
