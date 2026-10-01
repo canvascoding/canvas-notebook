@@ -338,6 +338,58 @@ async function main() {
     await settle();
     assert.equal(useFileStore.getState().currentFile?.path, 'other.md');
     assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null, 'the new workspace skeleton settles when its document is ready');
+
+    await act(async () => scenarioRoot.render(null));
+    resetScenario();
+    useWorkspaceStore.setState({ activeWorkspaceId: 'other' });
+    useFileStore.getState().resetWorkspaceView('other');
+    files.set('folder/linked.md', { path: 'folder/linked.md', content: 'Linked document after workspace switch' });
+    await mountScenario('cross-workspace-route', '/en/notebook?path=folder%2Flinked.md&workspaceId=workspace');
+    let finishLinkedRead!: (response: Response) => void;
+    holdRead = path => path === 'folder/linked.md' ? new Promise(resolve => { finishLinkedRead = resolve; }) : null;
+    await act(async () => {
+      useFileStore.getState().resetWorkspaceView('workspace');
+      useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+      window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: { activeWorkspaceId: 'workspace' } }));
+    });
+    await settle();
+    assert(finishLinkedRead, 'a document deep link must start reading after its workspace becomes active');
+    assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'cross-workspace links show the loader only while the read is pending');
+    await act(async () => finishLinkedRead(Response.json({ success: true, data: files.get('folder/linked.md') })));
+    await settle();
+    assert.equal(useFileStore.getState().currentFile?.path, 'folder/linked.md');
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null, 'cross-workspace document links settle after loading');
+
+    files.set('folder/linked.md', { path: 'folder/linked.md', content: 'Same path in another workspace' });
+    await act(async () => {
+      window.history.replaceState(null, '', '/en/notebook?path=folder%2Flinked.md&workspaceId=other');
+      useFileStore.getState().resetWorkspaceView('other');
+      useWorkspaceStore.setState({ activeWorkspaceId: 'other' });
+      window.dispatchEvent(new CustomEvent(WORKSPACE_CHANGED_EVENT, { detail: { activeWorkspaceId: 'other' } }));
+    });
+    await settle();
+    assert.equal(useFileStore.getState().isLoadingFile, true, 'an existing notebook must reopen the same path in the new workspace');
+    await act(async () => finishLinkedRead(Response.json({ success: true, data: files.get('folder/linked.md') })));
+    await settle();
+    assert.equal(useFileStore.getState().currentFileWorkspaceId, 'other');
+    assert.equal(useFileStore.getState().currentFile?.content, 'Same path in another workspace');
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null);
+
+    await act(async () => scenarioRoot.render(null));
+    resetScenario();
+    useWorkspaceStore.setState({ initialized: false });
+    files.set('folder/linked.md', { path: 'folder/linked.md', content: 'Linked document after hydration' });
+    let finishHydratedRead!: (response: Response) => void;
+    holdRead = path => path === 'folder/linked.md' ? new Promise(resolve => { finishHydratedRead = resolve; }) : null;
+    await mountScenario('delayed-workspace-hydration', '/en/notebook?path=folder%2Flinked.md&workspaceId=workspace');
+    assert.equal(finishHydratedRead, undefined, 'route loading waits for workspace initialization');
+    await act(async () => useWorkspaceStore.setState({ initialized: true }));
+    await settle();
+    assert(finishHydratedRead, 'workspace initialization must release the pending document route');
+    await act(async () => finishHydratedRead(Response.json({ success: true, data: files.get('folder/linked.md') })));
+    await settle();
+    assert.equal(useFileStore.getState().currentFile?.content, 'Linked document after hydration');
+    assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null);
     await cleanupScenario();
     assert.equal(watcher.owners, 0, 'scenario teardown releases every watcher subscription');
     console.log('Unavailable route/restore identities report failure without opening replacements; explicit selection rebinds safely and supersedes delayed 404 feedback.');

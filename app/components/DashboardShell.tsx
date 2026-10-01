@@ -881,29 +881,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [openNotebookFile]);
 
   useEffect(() => {
-    if (!activeWorkspaceId || documentTabsHydratedFor !== activeWorkspaceId) return;
-    const pendingBridgeRequest = window.name === NOTEBOOK_WINDOW_NAME
-      ? readPendingNotebookFileReference()
-      : null;
-    if (
-      !pendingBridgeRequest
-      && routeFilePath
-      && workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId)
-      && openedPathRef.current !== routeFilePath
-    ) {
-      openedPathRef.current = routeFilePath;
-      void openNotebookEntry(routeFilePath);
-    }
-  }, [
-    activeWorkspaceId,
-    dispatch,
-    documentTabsHydratedFor,
-    openNotebookEntry,
-    routeFilePath,
-    routeWorkspaceId,
-  ]);
-
-  useEffect(() => {
     if (activeWorkspaceId && documentTabsHydratedFor === activeWorkspaceId && shouldOpenRouteChat) {
       dispatch({ type: 'SHOW_CHAT' });
     }
@@ -1003,6 +980,30 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     hasStoredInitialPrompt,
   ]);
 
+  // Entry hydration cancels pending opens; start route loads only after it settles.
+  useEffect(() => {
+    if (!initialNotebookStateResolvedRef.current || !activeWorkspaceId
+      || documentTabsHydratedFor !== activeWorkspaceId) return;
+    const pendingBridgeRequest = window.name === NOTEBOOK_WINDOW_NAME
+      ? readPendingNotebookFileReference()
+      : null;
+    if (
+      !pendingBridgeRequest
+      && routeFilePath
+      && workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId)
+      && openedPathRef.current !== routeFilePath
+    ) {
+      openedPathRef.current = routeFilePath;
+      void openNotebookEntry(routeFilePath);
+    }
+  }, [
+    activeWorkspaceId,
+    documentTabsHydratedFor,
+    openNotebookEntry,
+    routeFilePath,
+    routeWorkspaceId,
+  ]);
+
   useEffect(() => {
     const initialFileState = useFileStore.getState();
     previousCurrentFileIdentityRef.current = null;
@@ -1033,7 +1034,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const handleWorkspaceChange = (event: Event) => {
       const { activeWorkspaceId: nextWorkspaceId } =
         (event as CustomEvent<WorkspaceChangedDetail>).detail;
-      openedPathRef.current = routeFilePath;
+      // The route effect still needs to open this workspace's document.
+      openedPathRef.current = null;
       previousCurrentFileIdentityRef.current = null;
       const restoredTabs = hydrateDocumentTabs(nextWorkspaceId);
       clearEmail();
@@ -1074,7 +1076,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     };
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
     return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookEntry, routeFilePath]);
+  }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookEntry]);
 
   useEffect(() => {
     const handleWorkspaceFileOpen = (event: Event) => {
