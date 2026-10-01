@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.1.2] - 2026-10-01
+
+### Fixed
+
+- Fixed document deep links across notebook workspace changes and delayed workspace initialization.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.1.1] - 2026-10-01
 
 ### Added
