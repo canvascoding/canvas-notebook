@@ -78,11 +78,23 @@ command must be reviewed separately; this branch has not repaired production.
 ## Mark conflict evidence and repair
 
 The historical `bold` + `code` conflict needs a clone repair with an explicit
-formatting policy. Keep original Yjs bytes. A code-priority repair loses the
-conflicting Bold formatting and must say so. Verify text, stable block IDs,
+formatting policy. The shared `code-wins-v1` policy removes the other known
+schema marks from a Code span. Keep original Yjs bytes. A code-priority repair
+loses the conflicting Bold formatting and must say so. Verify text, stable block IDs,
 frontmatter, BOM/newlines, identity and encoding; never repair by blind Markdown
 reimport. Transfer a repaired clone only through a guarded lifecycle change with
 all current preconditions checked and no active room.
+
+`prepareCodeMarkConflictRepair` prepares private original/repaired bytes and
+hashes, the original scoped identity, an explicit formatting-loss list and
+unchanged encoding metadata. It verifies the expected JSON change, stable IDs,
+frontmatter, line endings, schema and Markdown roundtrip. Repeated dry-runs on
+the same input return identical bytes. It performs no database or file writes
+and does not release quarantine. Ordinary persistence and client opening refuse
+to normalize a previously conflicting baseline. Only new conflicts from a
+healthy baseline use the shared policy; server-created normalization updates
+are reconciled back into the live room. The serializer stays strict for
+unrepaired historical states and serializes the validated Code result.
 
 ## Quarantine, retries and observability
 

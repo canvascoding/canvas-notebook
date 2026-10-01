@@ -10,6 +10,7 @@ import { collaborationStateProof, isCollaborationStateProof } from './state-proo
 import { captureAgentStateSnapshot, persistedUpdateIncludesAgentSnapshot } from './agent-durability';
 import type { CurrentFile } from '../files/types';
 import { hasStoredLocalDocument } from './local-document';
+import { installCodeMarkConflictPolicy } from './code-mark-policy';
 import { fetchLiveDocument, findOpenedLiveDocument, invalidateOpenedLiveDocument, isLocalOpenedDocumentSession,
   isOpenedDocumentAuthCurrent, LiveDocumentNetworkError, localOpenedDocumentReceipt, localOpenedDocumentSession,
   openedDocumentAuthScope, openedDocumentRequestRevision, rememberOpenedLiveDocument, sameOpenedDocumentSession, subscribeOpenedDocumentAuthInvalidation,
@@ -533,6 +534,10 @@ function createEntry(
       );
       entry.persistence = persistence;
       await persistence.whenSynced;
+      const markPolicy = isRichTextCollaborationRepresentation(session.representation)
+        ? installCodeMarkConflictPolicy(entry.doc, { signal: entry.lifecycle.signal,
+          canNormalize: () => entry.clientState.remoteSynced && entry.clientState.durability !== 'degraded'
+            && entry.session?.permission === 'write' }) : null;
       assertEntryActive(entry);
       if (entry.authScope && !isOpenedDocumentAuthCurrent(entry.authScope)) throw new Error('The signed-in session changed.');
       transition(entry, { type: 'indexeddb_hydrated' });
@@ -658,6 +663,7 @@ function createEntry(
           onSynced: () => {
             if (!active()) return;
             transition(entry, { type: 'remote_synced', permission: entry.session!.permission });
+            markPolicy?.activate();
             if (entry.pendingAuthoritativeSnapshot) {
               reconcileAuthoritativeSnapshot(entry.pendingAuthoritativeSnapshot);
             }

@@ -553,6 +553,7 @@
     "test:collaboration:lifecycle-snapshot:postgres": "tsx --conditions react-server scripts/collaboration-lifecycle-snapshot-concurrency-test.ts",
     "test:collaboration:projection": "tsx scripts/collaboration-projection-scheduler-test.ts && tsx scripts/collaboration-projection-runtime-test.ts && tsx --conditions react-server scripts/collaboration-projection-repository-test.ts && tsx --conditions react-server scripts/collaboration-projection-fence-test.ts && tsx scripts/collaboration-projection-client-test.tsx && tsx --conditions react-server scripts/collaboration-projection-request-test.ts",
     "test:collaboration:quarantine": "tsx --conditions react-server scripts/collaboration-quarantine-test.ts",
+    "test:collaboration:code-marks": "tsx --conditions react-server scripts/collaboration-code-mark-policy-test.ts",
     "test:collaboration:recovery": "tsx --conditions react-server scripts/collaboration-recovery-plan-test.ts && tsx --conditions react-server scripts/collaboration-recovery-dry-run-test.ts",
     "test:server:http-lifecycle": "node scripts/http-request-lifecycle-test.cjs",
     "test:collaboration:access": "tsx --conditions react-server scripts/collaboration-access-revocation-test.ts",

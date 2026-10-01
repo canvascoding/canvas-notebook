@@ -29,6 +29,7 @@ import {
 import { Y } from './server-runtime';
 import { assertCurrentCollaborationProjectionIdentity } from './projection-identity';
 import { mergeCollaborationPersistenceUpdates } from './persistence-merge';
+import { normalizeNewCodeMarkConflicts } from './code-mark-policy';
 import { assertCollaborationRoomOwnerFence, type CollaborationRoomOwnerFence } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutationRequest,
@@ -331,6 +332,12 @@ export async function persistCollaborationYDoc(
     }
     await assertCollaborationRoomOwnerFence(database, current, fence);
     const merged = mergeCollaborationPersistenceUpdates(bytes(current.yjs_state), update);
+    if (merged.disposition !== 'unchanged' && (current.representation === 'tiptap_xml' || current.representation === 'tiptap_blocks')
+      && !current.degraded && !(current.projection_error_permanent === 1
+        && Number(current.projection_error_generation) === expectedLifecycleGeneration)) {
+      const normalized = normalizeNewCodeMarkConflicts(bytes(current.yjs_state), merged.update);
+      if (normalized) { Object.assign(merged, normalized); merged.incomingNeedsReconcile = true; }
+    }
     let row = current;
     if (merged.disposition !== 'unchanged') {
       const changed = await database.get(
