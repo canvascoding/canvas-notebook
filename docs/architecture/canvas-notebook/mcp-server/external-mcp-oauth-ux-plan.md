@@ -1,6 +1,6 @@
 # Externe MCP-Verbindungen: OAuth-Reparatur und verständliche Einstellungen
 
-Stand: 1. Oktober 2026. Status: TODO 1–4 umgesetzt und geprüft; abschließender Build und E2E-Abnahme folgen. Der ursprüngliche Analysebefund bleibt unten als Kontext dokumentiert.
+Stand: 1. Oktober 2026. Status: TODO 1–5 umgesetzt und geprüft; bereit für den angeforderten Fast-forward-Push auf main. Produktionsdeployment ist separat erforderlich. Der ursprüngliche Analysebefund bleibt unten als Kontext dokumentiert.
 
 ## Verifizierte Ursache und Umsetzung
 
@@ -292,6 +292,42 @@ Hinweise sichtbar. Alle normalen Verbindungsschritte sind dennoch ausführbar.
 Entwickleroptionen starten geschlossen und enthalten keine Provider-Tokens.
 
 ### TODO 5 — Regression, UI-Abnahme und Übergabe
+
+Abgeschlossen am 1. Oktober 2026:
+
+- `npm run build` erfolgreich: Produktionskompilierung, TypeScript und 364 statische
+  Seiten. Die Lizenzvorprüfungen bestanden. 42 Turbopack-Hinweise zum dynamischen
+  Datei-Tracing wurden ausgegeben; sie verhinderten den Build nicht.
+- Ganze `test:secrets`-Suite, `test:mcp:settings`, `test:mcp:oauth`, 19 Electron-Tests
+  sowie die zuvor ausgeführten MCP-Storage-/OAuth-Lifecycle-/API-Prüfungen bestanden.
+  Preference-Regression für Onboarding, Mobile und Benachrichtigungen bestanden.
+- Abschließendes `test:mcp:oauth:e2e` nach dem Build: **7/7 bestanden**, 47,9 Sekunden.
+  Der einzelne verwaltete lokale PostgreSQL-Stack wurde verwendet. Bootstrap-
+  Zugangsdaten wurden aus der privaten Host-Konfiguration geladen, nicht ausgegeben.
+  Der lokale OAuth-Testanbieter verwendet HTTP auf Loopback im Development-Modus;
+  die Produktionsbeschränkung auf HTTPS bleibt erhalten und ist separat getestet.
+- Gebauten Produktionsstand auf Deutsch im 390px-Fenster geprüft: normale
+  Formularbearbeitung ohne Raw-/Datei-/Permissions-Angaben, alle Schaltflächen
+  erreichbar. Die E2E-Screenshotaufnahme beendet CSS-Animationen, damit sie keinen
+  transparenten Animationszwischenstand als Ergebnis festhält.
+- Echte Electron-App mit aktuellen Main-/Preload-Dateien erneut abgenommen:
+  Klick auf „Connect account“ nutzt reales IPC und authentifizierte URL-Verifikation.
+  Die OS-Grenze `shell.openExternal` wurde abgefangen und die exakte Ziel-URL in
+  einem frischen Chromium-Kontext ohne Canvas-Cookies geöffnet. Echte Provider-
+  Zustimmung, öffentlicher Callback und automatischer authentifizierter Abschluss
+  bestanden. Genau ein Token-Austausch, ein MCP-Initialize und eine Tools-Liste;
+  keine Rendererfehler. Temporäre Verbindung und isolierte Desktop-Daten entfernt.
+- GitNexus-Vergleich gegen main: 123 indexierte betroffene Symbole, 53 Dateien,
+  ein erfasster Settings-Prozess, MEDIUM. Neue Testblöcke sind im anfänglichen
+  Index nicht enthalten und wurden manuell geprüft. Keine unerwarteten Produkt-
+  bereiche im Git-Diff. Vor jedem Implementierungscommit staged `detect_changes`.
+
+Wiederholbar: `E2E_MCP_OAUTH=1 E2E_EXTERNAL_SERVER=1 BASE_URL=http://localhost:3000
+npm run test:mcp:oauth:e2e` mit privat geladenen lokalen Bootstrap-Zugangsdaten.
+Screenshots liegen lokal unter `test-results/`, einschließlich des schmalen
+Formulars und `electron-mcp-final.png`. Kein Container wurde gebaut und keine
+Produktions-Secrets oder produktive Verbindung wurden verändert.
+
 
 - Tests für tatsächliches Verhalten ergänzen: Secrets nicht überschreiben,
   Schlüsselquellen und Migration, sichere erstmalige Provisionierung, IPC-Sender,

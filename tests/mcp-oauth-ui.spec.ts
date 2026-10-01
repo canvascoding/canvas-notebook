@@ -280,7 +280,7 @@ test.describe('External MCP OAuth through the browser and desktop callback', () 
     await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
     expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-    await page.screenshot({ path: testInfo.outputPath('mcp-simple-edit-narrow.png'), fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('mcp-simple-edit-narrow.png'), fullPage: true, animations: 'disabled' });
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect(dialog).toHaveCount(0);
   });
