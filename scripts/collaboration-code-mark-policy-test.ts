@@ -19,6 +19,7 @@ import { createPiTestDatabase } from './helpers/pi-test-database';
 import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import { createRichEditorCollaborationExtensions, isRemoteRichEditorTransaction } from '../app/lib/collaboration/rich-editor-extensions';
 import { CanvasUniqueID } from '../app/lib/editor/canvas-unique-id';
+import { COLLABORATION_FAILURE_CODES } from '../app/lib/collaboration/failure';
 
 function text(doc: InstanceType<typeof Y.Doc>): InstanceType<typeof Y.XmlText> {
   const texts: InstanceType<typeof Y.XmlText>[] = [];
@@ -149,7 +150,9 @@ test('real SQL persistence normalizes only new conflicts, reconciles the room an
     await connection.run(`INSERT INTO collaboration_yjs_states (document_id,workspace_id,path,representation,yjs_state,state_vector,
       document_sequence,checkpoint_sequence,persisted_at) VALUES ('marks','ws','note.md','tiptap_xml',$1,$2,1,0,1)`,
     [Y.encodeStateAsUpdate(code), Y.encodeStateVector(code)]);
+    await persistence.markCollaborationDegraded('marks', 1, COLLABORATION_FAILURE_CODES.persistenceFailed);
     const saved = await persistence.persistCollaborationYDoc('marks', 1, bold);
+    assert.equal(saved.degraded, false, 'a successful changed save clears the explicit storage retry');
     assert.equal(saved.incomingNeedsReconcile, true); assert.equal(saved.documentSequence, 2);
     const normalized = new Y.Doc(); documents.push(normalized); Y.applyUpdate(normalized, saved.yjsState);
     assert.equal(validateRichMarkdownYDoc(normalized).valid, true);

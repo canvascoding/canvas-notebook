@@ -117,11 +117,14 @@ async function setup(t: TestContext, options: {
     },
     './projection-repository': {
       recordCollaborationProjectionFailure: async (snapshot: PersistedCollaborationState, failure: { code: string; permanent: boolean; phase: string }) => {
-        if (failure.permanent) degraded.push([snapshot.documentId, snapshot.lifecycleGeneration]);
         const current = states.get(snapshot.documentId);
-        if (current && current.lifecycleGeneration === snapshot.lifecycleGeneration) states.set(snapshot.documentId,
+        if (current && current.lifecycleGeneration === snapshot.lifecycleGeneration
+          && (!failure.permanent || current.documentSequence === snapshot.documentSequence)) {
+          if (failure.permanent) degraded.push([snapshot.documentId, snapshot.lifecycleGeneration]);
+          states.set(snapshot.documentId,
           { ...current, degraded: failure.permanent, projectionError: { code: failure.code,
             sequence: snapshot.documentSequence, permanent: failure.permanent, phase: failure.phase } });
+        }
       },
       hasPendingCollaborationProjection: async (snapshot: PersistedCollaborationState) => pending(snapshot),
       loadCollaborationProjectionWorkspace: async (snapshot: PersistedCollaborationState) => {
@@ -294,6 +297,20 @@ test('permanent schema quarantine pauses retries and restart scans until a new l
 test('legacy degraded state is never projected after restart', async (t) => {
   const h = await setup(t, { states: [state('document-a', { degraded: true })] });
   await h.clock.advanceTo(600_000); assert.deepEqual(h.attempted, []);
+});
+
+test('a late permanent failure cannot freeze a newer durable snapshot in the same generation', async (t) => {
+  const h = await setup(t, { states: [state()], project: async (snapshot) => {
+    if (snapshot.documentSequence === 2) {
+      h.states.set(snapshot.documentId, state(snapshot.documentId, { documentSequence: 3 }));
+      throw new CollaborationCheckpointValidationError('schema_invalid');
+    }
+    return { state: { ...snapshot, checkpointSequence: snapshot.documentSequence }, content: 'new', revisionId: 'new' };
+  } });
+  await h.clock.advanceTo(4_000);
+  assert.deepEqual(h.attempted.map((snapshot) => snapshot.documentSequence), [2, 3]);
+  assert.deepEqual(h.failures, []); assert.deepEqual(h.degraded, []);
+  assert.equal(h.projected[0].state.documentSequence, 3);
 });
 
 test('serializer failure stays transient and preserves editing', async (t) => {

@@ -9,6 +9,7 @@ import type * as Persistence from '../app/lib/collaboration/persistence';
 import type * as Repository from '../app/lib/collaboration/projection-repository';
 import { classifyCollaborationProjectionError, inCollaborationProjectionPhase } from '../app/lib/collaboration/projection-errors';
 import { CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES as CODES } from '../app/lib/collaboration/checkpoint-errors';
+import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '../app/lib/collaboration/failure';
 
 async function main() {
   const database = await createPiTestDatabase(); const connection = await database.openDb();
@@ -73,6 +74,27 @@ async function main() {
     await repository.finalizeCollaborationProjectionReceipt(checkpoint, 'revision');
     assert.equal((await load()).projectionError, undefined);
     assert.equal((await repository.loadCollaborationProjectionStatus(await load())).projectionFinalized, true);
+
+    await persistence.markCollaborationDegraded('doc', 2);
+    doc.getText('content').insert(doc.getText('content').length, ' legacy pending');
+    assert.equal((await persistence.persistCollaborationYDoc('doc', 2, doc)).degraded, true,
+      'a changed binary save never clears unclassified historical quarantine');
+    await persistence.markCollaborationDegraded('doc', 2, COLLABORATION_FAILURE_CODES.persistenceFailed);
+    assert.equal((await load()).projectionError, undefined, 'storage retry cannot relabel legacy quarantine');
+    await connection.run('UPDATE collaboration_yjs_states SET lifecycle_generation=3,degraded=0 WHERE document_id=$1', ['doc']);
+    await persistence.markCollaborationDegraded('doc', 3, COLLABORATION_FAILURE_CODES.persistenceFailed);
+    const storagePending = await load(); assert.equal(storagePending.degraded, true);
+    assert.equal(isCollaborationStateQuarantined(storagePending), false, 'binary retry retains transport write permission');
+    assert.equal((await repository.readCollaborationProjectionHealth(connection)).quarantined, 0);
+    assert.equal((await repository.readCollaborationProjectionHealth(connection)).binaryPersistenceFailures, 1);
+    await repository.recordCollaborationProjectionFailure(storagePending,
+      { code: CODES.failed, phase: 'checkpoint_confirm', causeCode: 'unknown', permanent: false });
+    assert.equal((await load()).projectionError?.code, COLLABORATION_FAILURE_CODES.persistenceFailed,
+      'blocked projection cannot erase the binary recovery reason');
+    const storageRecovered = await persistence.persistCollaborationYDoc('doc', 3, doc);
+    assert.equal(storageRecovered.persistenceDisposition, 'unchanged');
+    assert.equal(storageRecovered.degraded, false, 'a confirmed causal no-op can heal an explicit binary-storage failure');
+    assert.equal(storageRecovered.projectionError, undefined);
 
     const privateError = Object.assign(new Error('private/path body token'), { code: 'ENOSPC' });
     await assert.rejects(inCollaborationProjectionPhase('projection_finalize', async () => { throw privateError; }), (error: unknown) => {

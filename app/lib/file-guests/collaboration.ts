@@ -12,6 +12,7 @@ import { FileGuestCheckpointRequestError } from './checkpoint-error';
 import { fileGuestService, FileGuestError } from './service';
 import { loadCollaborationProjectionStatus, recordCollaborationProjectionFailure } from '@/app/lib/collaboration/projection-repository';
 import { classifyCollaborationProjectionError } from '@/app/lib/collaboration/projection-errors';
+import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 
 export async function fileGuestCollaborationSession(id: string, token: string): Promise<CollaborationSessionResponse> {
   const { user, guestSession, state, invitation } = await fileGuestService.access(id, { token });
@@ -52,15 +53,17 @@ export async function fileGuestCheckpoint(id: string, token: string, ticket: str
   const result = await materializeCollaborationCheckpoint({ state: found.state, workspace: found.workspace,
     actorUserId: found.user.id, actorType: 'user', sourceSessionId: found.guestSession.id }).catch(async (error: unknown) => {
     const validation = collaborationCheckpointValidationFailure(error);
-    const superseded = error instanceof CollaborationCheckpointSupersededError;
     const failure = classifyCollaborationProjectionError(error);
-    const code = validation?.code ?? (superseded ? COLLABORATION_CHECKPOINT_ERROR_CODES.superseded : failure.code);
+    const latest = failure.permanent ? await loadCollaborationState(found.state.documentId).catch(() => found.state) : found.state;
+    const superseded = error instanceof CollaborationCheckpointSupersededError || !latest || latest.status !== 'active'
+      || latest.lifecycleGeneration !== found.state.lifecycleGeneration || latest.documentSequence !== found.state.documentSequence;
+    const code = superseded ? COLLABORATION_CHECKPOINT_ERROR_CODES.superseded : validation?.code ?? failure.code;
     if (!superseded) await recordCollaborationProjectionFailure(found.state, failure).catch(() => {});
     logCollaborationDiagnostic('warn', { event: 'projection_failed', documentId: found.state.documentId,
       workspaceId: found.state.workspaceId, generation: found.state.lifecycleGeneration,
       documentSequence: found.state.documentSequence, checkpointSequence: found.state.checkpointSequence,
       code, phase: failure.phase, causeCode: failure.causeCode, permanent: failure.permanent });
-    throw new FileGuestCheckpointRequestError(validation?.status ?? (superseded || failure.permanent ? 409 : 500), {
+    throw new FileGuestCheckpointRequestError(superseded ? 409 : validation?.status ?? (failure.permanent ? 409 : 500), {
       success: false, code, error: validation?.message ?? 'Die Dateiausgabe konnte noch nicht abgeschlossen werden.',
       projectionFinalized: false,
       documentId: found.state.documentId, lifecycleGeneration: found.state.lifecycleGeneration,

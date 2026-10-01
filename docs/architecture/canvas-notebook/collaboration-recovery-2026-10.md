@@ -102,7 +102,13 @@ Schema/stable-ID violations and identity conflicts persist a generation-scoped
 quarantine in PostgreSQL. The background scanner excludes degraded states;
 automatic binary persistence, reconnects and old checkpoint acknowledgements do
 not clear quarantine. Existing room connections and reconnects become read-only.
+Permanent failure notifications are fenced to the failed durable sequence;
+an obsolete failure queues the newer state without freezing it.
 Recover through a verified lifecycle replacement after preserving evidence.
+Historical degraded states without a classified reason remain quarantined even
+after a changed binary save. Explicit Yjs-storage failures preserve transport
+write permission for the pending retry and clear only after a confirmed save,
+including a confirmed causal no-op. They cannot relabel an existing quarantine.
 
 Serialization, roundtrip and storage failures retain binary editing and retry
 with bounded backoff. Their generation/sequence-scoped error remains visible
@@ -116,6 +122,8 @@ sequence and retry attempt. They exclude content, tokens, SQL and file paths.
 `GET /api/health` reports aggregate active, identity-conflict, quarantined and
 pending counts under `collaboration.projection`; document quarantine alone does
 not make process liveness fail. A missing aggregate is not proof of no conflicts.
+`binaryPersistenceFailures` counts explicitly classified pending binary saves
+separately from permanent or historical quarantine.
 
 ## Control Plane handoff
 

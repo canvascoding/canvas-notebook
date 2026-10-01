@@ -7,6 +7,12 @@ export const COLLABORATION_FAILURE_CODES = {
   startupFailed: 'COLLABORATION_STARTUP_FAILED',
 } as const;
 
+/** Unclassified historical degradation is a quarantine, never a storage retry. */
+export function isCollaborationStateQuarantined(state: { degraded: boolean; projectionError?: { code: string; permanent: boolean } }): boolean {
+  return Boolean(state.projectionError?.permanent
+    || (state.degraded && state.projectionError?.code !== COLLABORATION_FAILURE_CODES.persistenceFailed));
+}
+
 export type CollaborationFailure = {
   kind: 'validation' | 'storage' | 'lifecycle' | 'authentication' | 'startup' | 'unknown';
   code: string | null;

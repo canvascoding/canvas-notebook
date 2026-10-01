@@ -152,6 +152,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(checkpointResponse(result.state, { revisionId: result.revisionId }));
   } catch (error) {
     const failure = classifyCollaborationProjectionError(error);
+    if (attemptedState && failure.permanent) {
+      const latest = await loadCollaborationState(attemptedState.documentId).catch(() => attemptedState);
+      if (!latest || latest.status !== 'active' || latest.lifecycleGeneration !== attemptedState.lifecycleGeneration
+        || latest.documentSequence !== attemptedState.documentSequence) {
+        return NextResponse.json({ success: false, code: COLLABORATION_CHECKPOINT_ERROR_CODES.superseded,
+          error: 'The failed collaboration snapshot was superseded by newer changes.' }, { status: 409 });
+      }
+    }
     if (attemptedState && !(error instanceof CollaborationCheckpointSupersededError)) {
       await recordCollaborationProjectionFailure(attemptedState, failure).catch(() => {});
     }

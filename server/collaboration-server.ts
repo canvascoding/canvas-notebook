@@ -9,7 +9,7 @@ import { WebSocketServer } from 'ws';
 import type { Doc as YDoc } from 'yjs';
 
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
-import { COLLABORATION_FAILURE_CODES } from '@/app/lib/collaboration/failure';
+import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
 import { createCollaborationProjectionRuntime } from '@/app/lib/collaboration/projection-runtime';
 import { loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
@@ -442,7 +442,7 @@ export function createCollaborationServer(server: http.Server, options: {
     validate: async (connection) => {
       const access = await revalidateCollaborationAccess(connection.context.claims);
       if (!connection.document.hasConnection(connection)) throw new Error('Collaboration connection is closed.');
-      if (access.state.degraded || access.state.projectionError?.permanent) connection.readOnly = true;
+      if (isCollaborationStateQuarantined(access.state)) connection.readOnly = true;
       connection.context.workspace = access.workspace;
     },
     deny: (connection) => {
@@ -534,7 +534,7 @@ export function createCollaborationServer(server: http.Server, options: {
           claims.documentId,
           async () => {
             const state = await assertCollaborationDocumentAccess(claims, workspace);
-            if (state.degraded || state.projectionError?.permanent) connectionConfig.readOnly = true;
+            if (isCollaborationStateQuarantined(state)) connectionConfig.readOnly = true;
             const room = hocuspocus.documents.get(claims.documentId);
             if (room) assertRoomIdentity(room, claims);
             return reserveCollaborationRoomAdmission(claims.documentId);
@@ -598,7 +598,7 @@ export function createCollaborationServer(server: http.Server, options: {
         context.startupActivity?.assertOpen();
         roomOwners?.fence(connection.document);
         const projectionStatus = await loadCollaborationProjectionStatus(state);
-        if (projectionStatus.degraded || projectionStatus.projectionError?.permanent) connection.readOnly = true;
+        if (isCollaborationStateQuarantined(projectionStatus)) connection.readOnly = true;
         connection.sendStateless(JSON.stringify(durabilitySnapshotPayload({ ...state, ...projectionStatus })));
       };
       try {
@@ -902,6 +902,7 @@ export function createCollaborationServer(server: http.Server, options: {
         await markCollaborationDegraded(
           documentName,
           lastContext.claims.lifecycleGeneration,
+          COLLABORATION_FAILURE_CODES.persistenceFailed,
         ).catch(() => undefined);
         logCollaborationDiagnostic('error', { event: 'yjs_persistence_failed', documentId: documentName,
           workspaceId: lastContext.workspace.workspaceId, generation: lastContext.claims.lifecycleGeneration,
@@ -909,7 +910,7 @@ export function createCollaborationServer(server: http.Server, options: {
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',
           code: COLLABORATION_FAILURE_CODES.persistenceFailed,
-          message: error instanceof Error ? error.message : 'Yjs persistence failed.',
+          message: 'Yjs persistence failed. Local changes are preserved until a confirmed storage retry.',
         }));
         throw error;
       }

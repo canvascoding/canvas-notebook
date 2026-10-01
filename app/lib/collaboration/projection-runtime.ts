@@ -76,6 +76,16 @@ export function createCollaborationProjectionRuntime(callbacks: {
             logCollaborationDiagnostic('warn', { event: 'projection_failure_status_failed', documentId: state.documentId,
               generation: state.lifecycleGeneration, code: statusFailure.code, causeCode: statusFailure.causeCode });
           }
+          if (failure.permanent) {
+            const latest = await loadCollaborationState(state.documentId).catch(() => state);
+            if (!latest || latest.status !== 'active' || latest.lifecycleGeneration !== state.lifecycleGeneration
+              || latest.documentSequence !== state.documentSequence) {
+              if (latest?.status === 'active') scheduler.enqueue(latest);
+              logCollaborationDiagnostic('debug', { event: 'projection_superseded', documentId: state.documentId,
+                generation: state.lifecycleGeneration, documentSequence: state.documentSequence });
+              return;
+            }
+          }
           throw new ProjectionAttemptError({ state, ...failure }, Math.round(performance.now() - startedAt));
         }
       });

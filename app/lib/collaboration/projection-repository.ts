@@ -146,6 +146,7 @@ export async function recordCollaborationProjectionFailure(state: PersistedColla
       degraded = CASE WHEN $6 = 1 THEN 1 ELSE degraded END
       WHERE document_id = $7 AND lifecycle_generation = $5 AND status = 'active'
         AND (document_sequence = $4 OR ($6 = 0 AND document_sequence >= $4))
+        AND ($6 = 1 OR degraded = 0 OR projection_error_code IS DISTINCT FROM 'COLLABORATION_YJS_PERSISTENCE_FAILED')
         AND NOT (projection_error_permanent = 1 AND projection_error_generation = $5)`,
     [failure.code, failure.phase, failure.causeCode, state.documentSequence, state.lifecycleGeneration,
       failure.permanent ? 1 : 0, state.documentId]);
@@ -156,8 +157,10 @@ export async function recordCollaborationProjectionFailure(state: PersistedColla
 export async function readCollaborationProjectionHealth(database: Pick<SqlConnection, 'get'>) {
   const row = await database.get(`SELECT count(*) AS active,
     count(*) FILTER (WHERE c.id IS NULL OR w.id IS NULL) AS identity_conflicts,
-    count(*) FILTER (WHERE y.degraded = 1 OR (y.projection_error_permanent = 1
+    count(*) FILTER (WHERE (y.degraded = 1 AND y.projection_error_code IS DISTINCT FROM 'COLLABORATION_YJS_PERSISTENCE_FAILED') OR (y.projection_error_permanent = 1
       AND y.projection_error_generation = y.lifecycle_generation)) AS quarantined,
+    count(*) FILTER (WHERE y.degraded = 1 AND y.projection_error_code = 'COLLABORATION_YJS_PERSISTENCE_FAILED'
+      AND y.projection_error_generation = y.lifecycle_generation AND y.projection_error_permanent = 0) AS binary_persistence_failures,
     count(*) FILTER (WHERE y.document_sequence > y.checkpoint_sequence OR p.finalized = 0) AS pending
     FROM collaboration_yjs_states y
     LEFT JOIN collaboration_documents c ON c.id = y.document_id AND c.workspace_id = y.workspace_id
@@ -167,9 +170,9 @@ export async function readCollaborationProjectionHealth(database: Pick<SqlConnec
       AND w.organization_id IS NOT DISTINCT FROM y.organization_id AND w.type = c.workspace_type
     LEFT JOIN collaboration_file_projections p ON p.document_id = y.document_id
       AND p.lifecycle_generation = y.lifecycle_generation
-    WHERE y.status = 'active'`) as { active: number; identity_conflicts: number; quarantined: number; pending: number };
+    WHERE y.status = 'active'`) as { active: number; identity_conflicts: number; quarantined: number; pending: number; binary_persistence_failures: number };
   return { active: Number(row.active), identityConflicts: Number(row.identity_conflicts),
-    quarantined: Number(row.quarantined), pending: Number(row.pending) };
+    quarantined: Number(row.quarantined), pending: Number(row.pending), binaryPersistenceFailures: Number(row.binary_persistence_failures) };
 }
 
 /** Internal storage context for projecting ALREADY authorized, persisted Yjs. */

@@ -37,7 +37,8 @@ import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutat
 import { captureCollaborationCompactionRequest } from './compaction-contract';
 import { captureCollaborationAdmissionWriterScope, CollaborationAdmissionError, type CollaborationAdmissionRequest } from './room-admission-contract';
 import { assertCollaborationAdmissionOpen, lockCollaborationAdmissionWorkspace } from './room-admission';
-import { CollaborationCheckpointQuarantinedError } from './checkpoint-errors';
+import { CollaborationCheckpointQuarantinedError, CollaborationCheckpointRequestError, COLLABORATION_CHECKPOINT_ERROR_CODES } from './checkpoint-errors';
+import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from './failure';
 import type { CollaborationProjectionStatus } from './types';
 
 export interface PersistedCollaborationState {
@@ -332,8 +333,10 @@ export async function persistCollaborationYDoc(
     }
     await assertCollaborationRoomOwnerFence(database, current, fence);
     const merged = mergeCollaborationPersistenceUpdates(bytes(current.yjs_state), update);
+    const storageRetry = current.projection_error_code === COLLABORATION_FAILURE_CODES.persistenceFailed
+      && Number(current.projection_error_generation) === expectedLifecycleGeneration && current.projection_error_permanent === 0;
     if (merged.disposition !== 'unchanged' && (current.representation === 'tiptap_xml' || current.representation === 'tiptap_blocks')
-      && !current.degraded && !(current.projection_error_permanent === 1
+      && (!current.degraded || storageRetry) && !(current.projection_error_permanent === 1
         && Number(current.projection_error_generation) === expectedLifecycleGeneration)) {
       const normalized = normalizeNewCodeMarkConflicts(bytes(current.yjs_state), merged.update);
       if (normalized) { Object.assign(merged, normalized); merged.incomingNeedsReconcile = true; }
@@ -344,8 +347,8 @@ export async function persistCollaborationYDoc(
         `
           UPDATE collaboration_yjs_states
           SET yjs_state = $1, state_vector = $2, document_sequence = document_sequence + 1,
-              persisted_at = $3, degraded = CASE WHEN projection_error_permanent = 1
-                AND projection_error_generation = lifecycle_generation THEN degraded ELSE 0 END
+              persisted_at = $3, degraded = CASE WHEN projection_error_code = 'COLLABORATION_YJS_PERSISTENCE_FAILED'
+                AND projection_error_generation = lifecycle_generation AND projection_error_permanent = 0 THEN 0 ELSE degraded END
           WHERE document_id = $4 AND status = 'active' AND lifecycle_generation = $5
             AND document_sequence = $6
           RETURNING *
@@ -355,6 +358,16 @@ export async function persistCollaborationYDoc(
       ) as StateRow | undefined;
       if (!changed) throw new CollaborationStateStaleError(documentId, expectedLifecycleGeneration);
       row = changed;
+    }
+    // Only an explicitly classified binary-storage failure can be cleared by
+    // a confirmed save (including a causal no-op). Legacy quarantine survives.
+    if (row.projection_error_code === COLLABORATION_FAILURE_CODES.persistenceFailed
+      && Number(row.projection_error_generation) === expectedLifecycleGeneration && row.projection_error_permanent === 0) {
+      row = await database.get(`UPDATE collaboration_yjs_states SET degraded = 0, projection_error_code = NULL,
+        projection_error_phase = NULL, projection_error_cause = NULL, projection_error_sequence = NULL,
+        projection_error_generation = NULL, projection_error_permanent = 0
+        WHERE document_id = $1 AND lifecycle_generation = $2 AND projection_error_code = $3 AND projection_error_permanent = 0
+        RETURNING *`, [documentId, expectedLifecycleGeneration, COLLABORATION_FAILURE_CODES.persistenceFailed]) as StateRow;
     }
     // No-op stores do not clear degradation: it may describe an invalid
     // document structure, not a transient persistence failure.
@@ -620,7 +633,9 @@ export async function withCollaborationCheckpointFence<T>(input: {
       }
 
       await assertCurrentCollaborationProjectionIdentity(lockedState, database);
-      if (lockedState.degraded || lockedState.projectionError?.permanent) throw new CollaborationCheckpointQuarantinedError();
+      if (isCollaborationStateQuarantined(lockedState)) throw new CollaborationCheckpointQuarantinedError();
+      if (lockedState.degraded) throw new CollaborationCheckpointRequestError(COLLABORATION_CHECKPOINT_ERROR_CODES.failed,
+        'A confirmed binary persistence retry is required before file projection.');
 
       const materialized = await input.materialize(lockedState);
       const expectedCanonicalHash = sha256Text(materialized.canonicalContent);
@@ -729,9 +744,20 @@ export async function withCollaborationCheckpointFence<T>(input: {
 export async function markCollaborationDegraded(
   documentId: string,
   expectedLifecycleGeneration: number,
+  reason?: typeof COLLABORATION_FAILURE_CODES.persistenceFailed,
 ): Promise<void> {
   const database = await openDb();
   try {
+    if (reason === COLLABORATION_FAILURE_CODES.persistenceFailed) {
+      await database.run(`UPDATE collaboration_yjs_states SET degraded = 1, projection_error_code = $3,
+        projection_error_phase = 'binary_persist', projection_error_cause = 'storage', projection_error_sequence = document_sequence,
+        projection_error_generation = lifecycle_generation, projection_error_permanent = 0
+        WHERE document_id = $1 AND lifecycle_generation = $2 AND status = 'active'
+          AND (degraded = 0 OR projection_error_code = $3)
+          AND NOT (projection_error_permanent = 1 AND projection_error_generation = lifecycle_generation)`,
+      [documentId, expectedLifecycleGeneration, reason]);
+      return;
+    }
     await database.run(
       `UPDATE collaboration_yjs_states SET degraded = 1
        WHERE document_id = $1 AND lifecycle_generation = $2`,

@@ -84,7 +84,8 @@ async function main() {
       },
     };
     if (name.endsWith('/projection-repository')) return {
-      loadCollaborationProjectionStatus: async () => ({ degraded: loadedState.degraded, projectionFinalized: false }),
+      loadCollaborationProjectionStatus: async () => ({ degraded: loadedState.degraded,
+        projectionError: loadedState.projectionError, projectionFinalized: false }),
       recordCollaborationProjectionFailure: async () => {},
     };
     if (name.endsWith('/access-monitor')) return { createCollaborationAccessMonitor: () => ({
@@ -148,6 +149,11 @@ async function main() {
     await hooks.connected({ context: { claims: state }, connection: reconnect });
     assert.equal(reconnect.readOnly, true, 'reconnect enforces persisted quarantine before accepting further edits');
     assert.equal((emitted.at(-1) as unknown as { degraded: boolean }).degraded, true);
+    loadedState = { ...state, degraded: true, projectionError: { code: COLLABORATION_FAILURE_CODES.persistenceFailed,
+      sequence: state.documentSequence, permanent: false } };
+    reconnect.readOnly = false;
+    await hooks.connected({ context: { claims: state }, connection: reconnect });
+    assert.equal(reconnect.readOnly, false, 'an explicit binary storage retry keeps transport permission for pending local bytes');
     loadedState = state;
     persistenceFailure = new StaleError('Generation changed');
     await store(); assert.equal(lastFailure().kind, 'lifecycle'); assert.equal(closed, 2); assert.equal(degradedCount, 0);

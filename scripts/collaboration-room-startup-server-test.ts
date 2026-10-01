@@ -493,12 +493,7 @@ async function main() {
     };
     if (name.endsWith('/server-runtime')) return { Y };
     if (name.endsWith('/state-proof')) return { collaborationUpdateStateProof: () => 'proof' };
-    if (name.endsWith('/failure')) return {
-      COLLABORATION_FAILURE_CODES: {
-        generationChanged: 'COLLABORATION_GENERATION_CHANGED',
-        persistenceFailed: 'COLLABORATION_PERSISTENCE_FAILED',
-      },
-    };
+    if (name.endsWith('/failure')) return load(name);
     if (name.endsWith('/identity')) return { collaborationUserColors: ['#000000'] };
     if (name.endsWith('/health')) return { setCollaborationRuntimeHealth() {} };
     if (name.endsWith('/presence')) return { replaceDocumentPresence() {} };

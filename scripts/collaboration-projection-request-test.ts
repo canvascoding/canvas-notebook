@@ -66,6 +66,7 @@ async function requestHarness(channel: 'account' | 'guest') {
   const found = { state, workspace, user: { id: 'user' }, guestSession: { id: 'session' },
     invitation: { policyRevision: 3, permission: 'write' } };
   const controls = { materializeError: null as Error | null, accessDenied: false, ticketError: null as Error | null,
+    advanceOnFailure: false, latest: null as PersistedCollaborationState | null,
     materialized: 0, loaded: 0, diagnostics: [] as unknown[][] };
   const mocks = {
     '@/app/lib/collaboration/server-runtime': { Y },
@@ -78,10 +79,13 @@ async function requestHarness(channel: 'account' | 'guest') {
       materializeCollaborationCheckpoint: async (input: { state: PersistedCollaborationState }) => {
         controls.materialized++;
         assert.equal(input.state, state, 'materialization receives the authorized persisted snapshot');
-        if (controls.materializeError) throw controls.materializeError;
+        if (controls.materializeError) {
+          if (controls.advanceOnFailure) controls.latest = { ...state, documentSequence: state.documentSequence + 1 };
+          throw controls.materializeError;
+        }
         return { state: { ...state, checkpointSequence: state.documentSequence, projectionFinalized: true }, revisionId: 'revision', content: privateText };
       } },
-    '@/app/lib/collaboration/persistence': { loadCollaborationState: async () => { controls.loaded++; return state; } },
+    '@/app/lib/collaboration/persistence': { loadCollaborationState: async () => { controls.loaded++; return controls.latest ?? state; } },
     '@/app/lib/collaboration/projection-repository': {
       recordCollaborationProjectionFailure: async () => {},
       loadCollaborationProjectionStatus: async () => ({ degraded: state.degraded, projectionFinalized: false }),
@@ -196,6 +200,14 @@ for (const channel of ['account', 'guest'] as const) {
         const body = await response.json();
         assert.equal(response.status, 409);
         assert.equal(body.success, false);
+        assert.equal(body.code, COLLABORATION_CHECKPOINT_ERROR_CODES.superseded);
+        assertSafe(body, controls.diagnostics);
+      });
+      await t.test('an obsolete schema failure cannot quarantine a newer durable sequence', async () => {
+        controls.advanceOnFailure = true;
+        controls.materializeError = new CollaborationCheckpointValidationError('schema_invalid');
+        const response = await request(); const body = await response.json();
+        assert.equal(response.status, 409);
         assert.equal(body.code, COLLABORATION_CHECKPOINT_ERROR_CODES.superseded);
         assertSafe(body, controls.diagnostics);
       });
