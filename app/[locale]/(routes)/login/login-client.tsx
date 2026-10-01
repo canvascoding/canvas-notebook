@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState, useSyncExternalStore } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -57,6 +57,10 @@ async function resolvePreferredLocale(fallbackLocale: string): Promise<string> {
   }
 }
 
+function subscribeToHydration() {
+  return () => undefined;
+}
+
 function LoginForm() {
   const t = useTranslations('login');
   const locale = useLocale();
@@ -67,13 +71,16 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [resuming, setResuming] = useState(false);
   const [licenseAccessPaused, setLicenseAccessPaused] = useState(false);
+  // Other providers can resolve the shared session before this Suspense
+  // boundary hydrates. Match the server's checking screen on its first render.
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   const { data: session, isPending: sessionPending } = authClient.useSession();
   const passwordToggleLabel = showPassword ? t('hidePassword') : t('showPassword');
   const isOAuthContinuation = searchParams.has('sig')
     && searchParams.getAll('ba_param').length > 0;
 
   useEffect(() => {
-    if (!session || isOAuthContinuation || resuming) return;
+    if (!hydrated || !session || isOAuthContinuation || resuming) return;
 
     let cancelled = false;
 
@@ -90,7 +97,7 @@ function LoginForm() {
     return () => {
       cancelled = true;
     };
-  }, [isOAuthContinuation, locale, resuming, searchParams, session]);
+  }, [hydrated, isOAuthContinuation, locale, resuming, searchParams, session]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,8 +138,8 @@ function LoginForm() {
     }
   };
 
-  if (!isOAuthContinuation && (sessionPending || session || resuming)) {
-    return <SessionRestoreScreen isRedirecting={Boolean(session || resuming)} />;
+  if (!isOAuthContinuation && (!hydrated || sessionPending || session || resuming)) {
+    return <SessionRestoreScreen isRedirecting={hydrated && Boolean(session || resuming)} />;
   }
 
   return (
